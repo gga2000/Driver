@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No database in CI for Milestone 1: validate/generate run without the schema engine.
+  PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: '1'
+  PRISMA_SCHEMA_ENGINE_BINARY: /bin/true
+  TURBO_TELEMETRY_DISABLED: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  verify:
+    name: install · lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm turbo run build --filter='./packages/*'
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build API and console
+        run: pnpm turbo run build --filter=@driver/api --filter=@driver/console
+
+      - name: Smoke the built API
+        run: |
+          PORT=3999 node apps/api/dist/main.js &
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:3999/trpc/health.ping && break
+            sleep 0.5
+          done
+          kill %1

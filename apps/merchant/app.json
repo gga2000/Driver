@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "درايفر ماركت",
+    "slug": "درايفر ماركت",
+    "scheme": "driver-merchant",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "locales": { "ar": "./locales/ar.json" },
+    "extra": {
+      "apiUrl": "http://localhost:3000/trpc",
+      "supportsRTL": true,
+      "forcesRTL": true
+    },
+    "ios": {
+      "bundleIdentifier": "iq.driver.merchant",
+      "supportsTablet": true,
+      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"] }
+    },
+    "android": {
+      "package": "iq.driver.merchant",
+      "supportsRtl": true
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-localization", {}]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

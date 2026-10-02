@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "درايفر بارتنر",
+    "slug": "درايفر بارتنر",
+    "scheme": "driver-partner",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "locales": { "ar": "./locales/ar.json" },
+    "extra": {
+      "apiUrl": "http://localhost:3000/trpc",
+      "supportsRTL": true,
+      "forcesRTL": true
+    },
+    "ios": {
+      "bundleIdentifier": "iq.driver.partner",
+      "supportsTablet": true,
+      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"] }
+    },
+    "android": {
+      "package": "iq.driver.partner",
+      "supportsRtl": true
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-localization", {}]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

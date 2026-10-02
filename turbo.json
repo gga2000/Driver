@@ -1,0 +1,46 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "agentGuidance": false,
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        "src/generated/**"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "lint": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  },
+  "globalPassThroughEnv": [
+    "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING",
+    "PRISMA_SCHEMA_ENGINE_BINARY",
+    "PRISMA_QUERY_ENGINE_LIBRARY",
+    "DATABASE_URL",
+    "NEXT_PUBLIC_API_URL",
+    "PORT",
+    "CI"
+  ]
+}

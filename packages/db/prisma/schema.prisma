@@ -1,0 +1,548 @@
+// Driver (درايفر) — domain model from docs/specs/2026-10-02-platform-core-design.md §5.
+// Rules: cuid ids, created_at/updated_at on every row, IQD as integers, PostGIS for geography.
+// Apps never talk to this database; the API is the only client.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+  moduleFormat    = "esm"
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+// ───────────────────────── Identity & organizations ─────────────────────────
+
+enum RoleKind {
+  customer
+  courier
+  driver
+  merchant_staff
+  merchant_owner
+  fleet_owner
+  guardian
+  field_ops
+  dispatcher
+  support
+  finance
+  admin
+}
+
+enum OrgType {
+  restaurant
+  grocer
+  fleet
+}
+
+enum VehicleClass {
+  bike
+  tuktuk
+  car
+  van
+  intercity
+}
+
+/// One identity per phone number. Roles and memberships, never duplicate accounts.
+model Person {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String
+  locale    String   @default("ar-IQ")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roles          Role[]
+  memberships    OrgMember[]
+  places         Place[]
+  tripsAsCustomer Trip[]     @relation("TripCustomer")
+  tripsAsCourier  Trip[]     @relation("TripCourier")
+  routesDriven   Route[]
+  seats          Seat[]
+  events         Event[]
+  activeVehicles Vehicle[]   @relation("VehicleActiveDriver")
+
+  @@map("people")
+}
+
+/// A grant on a Person, optionally scoped to an Org.
+model Role {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  kind      RoleKind
+  orgId     String?  @map("org_id")
+  grantedBy String?  @map("granted_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  person Person @relation(fields: [personId], references: [id])
+  org    Org?   @relation(fields: [orgId], references: [id])
+
+  @@unique([personId, kind, orgId])
+  @@index([personId])
+  @@map("roles")
+}
+
+/// Restaurant, grocer or fleet.
+model Org {
+  id             String   @id @default(cuid())
+  type           OrgType
+  name           String
+  cityId         String   @map("city_id")
+  payoutSettings Json     @default("{}") @map("payout_settings")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  city     City          @relation(fields: [cityId], references: [id])
+  members  OrgMember[]
+  roles    Role[]
+  vehicles Vehicle[]
+  catalog  CatalogItem[]
+
+  @@index([cityId])
+  @@map("orgs")
+}
+
+model OrgMember {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  personId  String   @map("person_id")
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org    Org    @relation(fields: [orgId], references: [id])
+  person Person @relation(fields: [personId], references: [id])
+
+  @@unique([orgId, personId])
+  @@map("org_members")
+}
+
+/// Plate-level object. Owned by an org (fleet) and driven by one active person.
+model Vehicle {
+  id             String       @id @default(cuid())
+  plate          String       @unique
+  class          VehicleClass
+  ownerOrgId     String?      @map("owner_org_id")
+  activeDriverId String?      @map("active_driver_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  ownerOrg     Org?    @relation(fields: [ownerOrgId], references: [id])
+  activeDriver Person? @relation("VehicleActiveDriver", fields: [activeDriverId], references: [id])
+  trips        Trip[]
+  routes       Route[]
+
+  @@map("vehicles")
+}
+
+// ───────────────────────── Geography & config ─────────────────────────
+
+/// Config unit. Prices, hours, dispatch policy and rounding are data, never code.
+model City {
+  id           String   @id
+  nameAr       String   @map("name_ar")
+  nameEn       String   @map("name_en")
+  timezone     String   @default("Asia/Baghdad")
+  /// Nearest-N IQD rounding of quote totals.
+  roundingStep Int      @default(250) @map("rounding_step")
+  /// Full CityPricingConfig as validated by @driver/contracts.
+  config       Json     @default("{}")
+  active       Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  zones  Zone[]
+  orgs   Org[]
+  places Place[]
+  trips  Trip[]
+  routes Route[]
+
+  @@map("cities")
+}
+
+model Zone {
+  id        String                                  @id @default(cuid())
+  cityId    String                                  @map("city_id")
+  /// Stable key used in zone fare tables (e.g. "center", "north").
+  key       String
+  nameAr    String                                  @map("name_ar")
+  nameEn    String                                  @map("name_en")
+  polygon   Unsupported("geography(Polygon, 4326)")
+  createdAt DateTime                                @default(now()) @map("created_at")
+  updatedAt DateTime                                @updatedAt @map("updated_at")
+
+  city City @relation(fields: [cityId], references: [id])
+
+  @@unique([cityId, key])
+  @@map("zones")
+}
+
+/// Saved or learned location. Landmarks are shared city knowledge.
+model Place {
+  id         String                                @id @default(cuid())
+  cityId     String                                @map("city_id")
+  ownerId    String?                               @map("owner_id")
+  name       String
+  note       String?
+  pin        Unsupported("geography(Point, 4326)")
+  confidence Float                                 @default(0.5)
+  landmark   Boolean                               @default(false)
+  shares     String[]                              @default([])
+  createdAt  DateTime                              @default(now()) @map("created_at")
+  updatedAt  DateTime                              @updatedAt @map("updated_at")
+
+  city   City         @relation(fields: [cityId], references: [id])
+  owner  Person?      @relation(fields: [ownerId], references: [id])
+  photos PlacePhoto[]
+  stops  Stop[]
+
+  @@index([cityId])
+  @@index([ownerId])
+  @@map("places")
+}
+
+model PlacePhoto {
+  id        String   @id @default(cuid())
+  placeId   String   @map("place_id")
+  url       String
+  caption   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  place Place @relation(fields: [placeId], references: [id])
+
+  @@index([placeId])
+  @@map("place_photos")
+}
+
+// ───────────────────────── Catalog ─────────────────────────
+
+model CatalogItem {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  nameAr      String   @map("name_ar")
+  nameEn      String?  @map("name_en")
+  /// IQD integer.
+  priceIqd    Int      @map("price_iqd")
+  modifiers   Json     @default("[]")
+  available   Boolean  @default(true)
+  prepTimeMin Int      @default(15) @map("prep_time_min")
+  busyMode    Boolean  @default(false) @map("busy_mode")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@map("catalog_items")
+}
+
+// ───────────────────────── Trips, stops, routes, seats ─────────────────────────
+
+enum Vertical {
+  food
+  grocery
+  taxi
+  tuktuk
+  intercity
+  khat
+}
+
+enum TripState {
+  draft
+  quoted
+  requested
+  assigned
+  en_route
+  arrived
+  in_progress
+  completed
+  cancelled
+  disputed
+}
+
+enum StopType {
+  pickup
+  dropoff
+  wait
+}
+
+/// Universal job. Everything a courier or driver does is a Trip with ordered Stops.
+model Trip {
+  id         String    @id @default(cuid())
+  cityId     String    @map("city_id")
+  vertical   Vertical
+  state      TripState @default(draft)
+  customerId String    @map("customer_id")
+  courierId  String?   @map("courier_id")
+  vehicleId  String?   @map("vehicle_id")
+  routeId    String?   @map("route_id")
+  quoteId    String?   @unique @map("quote_id")
+  /// GPS trail recorded during the trip; 30-day retention unless an incident is open.
+  trail      Unsupported("geography(LineString, 4326)")?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  city         City          @relation(fields: [cityId], references: [id])
+  customer     Person        @relation("TripCustomer", fields: [customerId], references: [id])
+  courier      Person?       @relation("TripCourier", fields: [courierId], references: [id])
+  vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
+  route        Route?        @relation(fields: [routeId], references: [id])
+  quote        Quote?        @relation(fields: [quoteId], references: [id])
+  stops        Stop[]
+  events       Event[]
+  ledgerEvents LedgerEvent[]
+
+  @@index([cityId, state])
+  @@index([courierId, state])
+  @@map("trips")
+}
+
+/// Ordered leg endpoint.
+model Stop {
+  id          String    @id @default(cuid())
+  tripId      String    @map("trip_id")
+  order       Int
+  placeId     String    @map("place_id")
+  zoneKey     String    @map("zone_key")
+  type        StopType
+  windowStart DateTime? @map("window_start")
+  windowEnd   DateTime? @map("window_end")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  trip  Trip  @relation(fields: [tripId], references: [id])
+  place Place @relation(fields: [placeId], references: [id])
+
+  @@unique([tripId, order])
+  @@map("stops")
+}
+
+enum RouteType {
+  khat
+  intercity
+}
+
+/// Recurring (خط) or scheduled (intercity) line.
+model Route {
+  id        String    @id @default(cuid())
+  cityId    String    @map("city_id")
+  type      RouteType
+  nameAr    String    @map("name_ar")
+  /// Ordered stop definitions: [{placeId, offsetMin}] — stable across departures.
+  stops     Json      @default("[]")
+  /// RRULE or cron-like schedule string.
+  schedule  String
+  driverId  String?   @map("driver_id")
+  vehicleId String?   @map("vehicle_id")
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  city         City          @relation(fields: [cityId], references: [id])
+  driver       Person?       @relation(fields: [driverId], references: [id])
+  vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
+  seats        Seat[]
+  trips        Trip[]
+  ledgerEvents LedgerEvent[]
+
+  @@index([cityId, type])
+  @@map("routes")
+}
+
+enum SeatPosition {
+  front
+  back_left
+  back_middle
+  back_right
+}
+
+enum SeatStatus {
+  open
+  held
+  booked
+  boarded
+  released
+}
+
+/// Bookable position on a Route departure.
+model Seat {
+  id          String       @id @default(cuid())
+  routeId     String       @map("route_id")
+  departureAt DateTime     @map("departure_at")
+  position    SeatPosition
+  riderId     String?      @map("rider_id")
+  priceIqd    Int          @map("price_iqd")
+  status      SeatStatus   @default(open)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  route Route   @relation(fields: [routeId], references: [id])
+  rider Person? @relation(fields: [riderId], references: [id])
+
+  @@unique([routeId, departureAt, position])
+  @@map("seats")
+}
+
+// ───────────────────────── Pricing ─────────────────────────
+
+enum ComponentKey {
+  base
+  distance
+  time
+  zone_adjust
+  front_seat
+  door_pickup
+  street_pickup
+  wait
+  night
+  weather
+  peak
+  pickup_compensation
+  promo
+  cancellation
+}
+
+enum Visibility {
+  shown
+  shadow
+}
+
+enum DriverShareRule {
+  driver_full
+  driver_commissioned
+  platform_only
+}
+
+/// Priced offer. Stored with acceptance outcome; locked at acceptance.
+model Quote {
+  id          String    @id @default(cuid())
+  cityId      String    @map("city_id")
+  vertical    Vertical
+  currency    String    @default("IQD")
+  subtotalIqd Int       @map("subtotal_iqd")
+  totalIqd    Int       @map("total_iqd")
+  /// Total if shadow components were enabled — calibration signal.
+  shadowTotalIqd Int    @map("shadow_total_iqd")
+  request     Json
+  lockedAt    DateTime? @map("locked_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  components QuoteComponent[]
+  trip       Trip?
+
+  @@index([cityId, vertical, createdAt])
+  @@map("quotes")
+}
+
+model QuoteComponent {
+  id              String          @id @default(cuid())
+  quoteId         String          @map("quote_id")
+  key             ComponentKey
+  labelAr         String          @map("label_ar")
+  labelEn         String          @map("label_en")
+  amountIqd       Int             @map("amount_iqd")
+  driverShareRule DriverShareRule @map("driver_share_rule")
+  visibility      Visibility
+  leg             Int?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  quote Quote @relation(fields: [quoteId], references: [id])
+
+  @@index([quoteId])
+  @@map("quote_components")
+}
+
+// ───────────────────────── Ledger & events ─────────────────────────
+
+enum LedgerEventType {
+  cash_collected
+  commission_accrued
+  merchant_payable
+  driver_settlement
+  merchant_payout
+  refund
+  credit_issued
+  cancellation_fee
+  promo_funded
+  seat_premium
+  subscription_charge
+  adjustment
+}
+
+/// Immutable money event. Append-only: no UPDATE or DELETE is ever issued against this table.
+model LedgerEvent {
+  id             String          @id @default(cuid())
+  type           LedgerEventType
+  amountIqd      Int             @map("amount_iqd")
+  currency       String          @default("IQD")
+  fromAccount    String          @map("from_account")
+  toAccount      String          @map("to_account")
+  tripId         String?         @map("trip_id")
+  routeId        String?         @map("route_id")
+  idempotencyKey String?         @unique @map("idempotency_key")
+  memo           String?
+  occurredAt     DateTime        @map("occurred_at")
+  recordedAt     DateTime        @default(now()) @map("recorded_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  trip  Trip?  @relation(fields: [tripId], references: [id])
+  route Route? @relation(fields: [routeId], references: [id])
+
+  @@index([fromAccount, occurredAt])
+  @@index([toAccount, occurredAt])
+  @@map("ledger_events")
+}
+
+/// Anything that happened. Scorecards derive from these.
+model Event {
+  id             String                                 @id @default(cuid())
+  actorId        String                                 @map("actor_id")
+  type           String
+  tripId         String?                                @map("trip_id")
+  location       Unsupported("geography(Point, 4326)")?
+  payload        Json                                   @default("{}")
+  idempotencyKey String?                                @unique @map("idempotency_key")
+  occurredAt     DateTime                               @map("occurred_at")
+  recordedAt     DateTime                               @default(now()) @map("recorded_at")
+  createdAt      DateTime                               @default(now()) @map("created_at")
+  updatedAt      DateTime                               @updatedAt @map("updated_at")
+
+  actor Person @relation(fields: [actorId], references: [id])
+  trip  Trip?  @relation(fields: [tripId], references: [id])
+
+  @@index([actorId, occurredAt])
+  @@index([tripId])
+  @@map("events")
+}
+
+enum OutboxStatus {
+  pending
+  published
+  failed
+}
+
+/// Transactional outbox: every state change writes its domain event here in the same transaction.
+model Outbox {
+  id          String       @id @default(cuid())
+  aggregate   String
+  aggregateId String       @map("aggregate_id")
+  type        String
+  payload     Json
+  status      OutboxStatus @default(pending)
+  attempts    Int          @default(0)
+  publishedAt DateTime?    @map("published_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("outbox")
+}

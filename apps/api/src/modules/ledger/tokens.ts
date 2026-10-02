@@ -1,0 +1,1 @@
+export const LEDGER_REPOSITORY = Symbol('LEDGER_REPOSITORY');
