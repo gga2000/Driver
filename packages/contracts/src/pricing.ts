@@ -52,7 +52,7 @@ export const PriceRequest = z.object({
   stops: z.array(PriceStop).min(2),
   options: PriceOptions.default({}),
   /** Time of the trip; drives night/peak rules. ISO string on the wire. */
-  at: z.coerce.date(),
+  at: z.coerce.date().default(() => new Date()),
   /** Measured or estimated — shadow components use these. */
   distanceKm: z.number().min(0).optional(),
   durationMin: z.number().min(0).optional(),

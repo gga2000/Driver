@@ -15,7 +15,14 @@ export interface AppContext {
   version: string;
 }
 
-const t = initTRPC.context<AppContext>().create({ transformer });
+const t = initTRPC.context<AppContext>().create({
+  transformer,
+  // Spec §12: clients never see stack traces. Keep code + message, drop the stack.
+  errorFormatter({ shape }) {
+    const { stack: _stack, ...data } = shape.data;
+    return { ...shape, data };
+  },
+});
 
 export const appRouter = t.router({
   health: t.router({
