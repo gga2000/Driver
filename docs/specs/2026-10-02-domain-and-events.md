@@ -1,6 +1,6 @@
 # Driver (درايفر) — Domain & Events Spec
 
-Date: 2026-10-02 · Status: draft from approved decisions Q1–Q9 of Plan 1 (domain & events); remaining questions pending. Supersedes the domain section of `2026-10-02-platform-core-design.md` where they differ.
+Date: 2026-10-02 · Status: approved — Plan 1 (domain & events) complete, Q1–Q14. Supersedes the domain section of `2026-10-02-platform-core-design.md` where they differ.
 
 ## 1. Core objects
 
@@ -102,8 +102,53 @@ Every event carries actor, occurred_at (device), recorded_at (server), location 
 - Seeded landmark layer (~300) with photos and local names; couriers propose, console approves.
 - Curated meeting points per neighbourhood with photos; suggested for street pickup.
 
-## 8. Sub-projects (updated)
-Platform Core → Food → City taxi/tuktuk → Parcels → Intercity + seats → خطوط → Grocery (catalog + errands) → Wallet.
+## 8. Notifications policy
+Push first; WhatsApp for anything involving money or safety; SMS for OTP and as fallback when push fails; WhatsApp falls back to SMS after 60 s undelivered. Quiet hours 23:00–07:00 except active trips. Every notification deep-links to its screen. Merchants may attach a Bluetooth printer; new orders print automatically.
 
-## 9. Open questions (next in Plan 1)
-Notification events per channel; dispute resolution outcomes table; points earning and redemption rates; household org rules; data retention per object.
+| Event | Customer | Driver | Merchant |
+|---|---|---|---|
+| OTP | SMS, WhatsApp fallback | same | same |
+| Order accepted / preparing / picked up | push | — | — |
+| Courier arriving (2 min) | push + WhatsApp | — | — |
+| Delivered / completed + receipt | push + WhatsApp | push | — |
+| New order | — | push + loud alert, repeat every 20 s until seen | push + loud alert + optional SMS |
+| Job offer | — | in-app only | — |
+| Unreachable customer | masked call + WhatsApp | — | — |
+| Seat booked / departure reminders (evening before, 1 h) | push + WhatsApp | push | — |
+| Late meter running | push + WhatsApp | push | — |
+| Khat: driver 2 min away, child dropped | push + WhatsApp to guardian | — | — |
+| Settlement due / over cap | — | push + WhatsApp | — |
+| Payout statement | — | — | WhatsApp PDF |
+| Dispute / refund outcome | WhatsApp | WhatsApp | WhatsApp |
+| Marketing | WhatsApp, opt-in, max 2/week | — | — |
+
+## 9. Disputes
+Customer may open a dispute until `closed` (2 h); after that support only. Refunds default to wallet credit; cash refunds via support only. Every dispute is an Incident with an auto-attached evidence pack. More than 3 disputes in 30 days puts a customer's disputes into manual review. Support overrides are logged.
+
+| Case | Evidence | Default outcome |
+|---|---|---|
+| Cold / late beyond promise + 20 min | timestamps, trail | delivery fee refunded as credit; scoring hit to the party that caused the delay (prep vs transit) |
+| Missing item | grouped order, merchant ready tap | merchant refunds item; merchant scoring hit |
+| Wrong item | same | merchant refunds; re-delivery at merchant cost within 30 min |
+| Not delivered vs delivered | dropoff geofence, trail, photo | in geofence + photo: stands; no photo: courier pays 50%; outside geofence: courier pays |
+| Courier cancels after pickup | — | courier pays food cost; review after 2 in 30 days |
+| Customer no-show after unreachable protocol | call log, timer | customer owes cost; flagged; prepay required after 2 |
+| Parcel damaged/lost | photos, declared value | courier liable up to tier cap; incident |
+| Cash discrepancy | ledger vs statement | balance adjusted; 3 in 30 days: cap lowered + review |
+| Ride fare | locked quote, re-quote lines | locked quote stands; detour shown |
+| Seat / late / no-show | meter, PIN, check-in | rule outcome stands |
+
+## 10. Points
+Earn 1 point per 100 IQD on food, grocery, parcels; 1 per 200 on rides and seats. Organizer bonus +10% of order points. 100 points = 1,000 IQD wallet credit, applied to delivery fees first. Boosts (config): merchant-funded double points, first-order bonus, weekly streaks, referral 2,000 points both sides on first completed order. Pending points for non-users expire after 90 days unclaimed; claimed points expire 12 months after earning. Customer tiers Silver/Gold by 90-day spend: Gold gets priority dispatch at peak and free door pickup. Points are a ledger liability included in the nightly invariant.
+
+## 11. Promotion engine
+A Promotion is a named, explained quote component (`discount`) with: funder (platform, merchant, driver pool, referral); effect (percent, fixed, free delivery, BOGO, free item, bundle, points multiplier, seat upgrade); scope (item, merchant, category, vertical, zone, time window); audience (all, new, tier, list, segment); limits (per user, per day, budget cap, stacking); validity. Mechanisms: codes, auto-apply, merchant self-serve deals (platform approval switch), flash deals, personal offers from behaviour, bundles, community deals (threshold of orders unlocks a discount, live counter). Rules: every discount is its own receipt line naming its funder; budget caps auto-stop; fraud fingerprint (device + phone + place) for new-user offers; no stacking by default (best for customer wins); each promo has an owner and end date; each records impressions, redemptions and incremental orders against a holdout. Objects: `Promotion`, `PromoRedemption`.
+
+## 12. Households
+Household is an org type live at launch: shared saved places; guardian links; members with spending limits; a shared household wallet with payer and orderer roles; orders over a member's limit request one-tap payer approval. Wallet moves into Platform Core; cash top-ups via drivers or agent shops count as funding until digital rails land.
+
+## 13. Data retention and access
+Keep all business data at full resolution indefinitely: GPS trails, all events, quotes (accepted and declined), promo exposures, searches, menu views, cart abandonment, receipt prices, landmark corrections, histories, ratings, disputes, scorecards, device and network telemetry. Personal identifiers (name, phone, home photos, ID documents, selfies, minors' positions) live in a separate identity vault; the analytics warehouse holds pseudonymous IDs; re-identification only through the console with every access logged. Ageing exceptions: selfie photos dropped after 90 days (result kept); minors' second-by-second positions replaced by trip summaries after 30 days. Account deletion erases identifiers; behavioural data stays pseudonymous. Data does not leave the region without a decision.
+
+## 14. Sub-projects (updated)
+Platform Core (incl. wallet and households) → Food → City taxi/tuktuk → Parcels → Intercity + seats → خطوط → Grocery (catalog + errands) → Digital payment rails.
