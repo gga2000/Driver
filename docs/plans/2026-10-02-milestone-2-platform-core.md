@@ -103,3 +103,6 @@ Steps 2, 3, 6 parallel after 1. Total ≈ 48 developer-days.
 4. ETAs by haversine × 1.4 until OSRM is hosted.
 5. Prisma multiSchema + postgresqlExtensions preview flags verified against Prisma 7.10 before Step 1.
 6. The 8-component scoring index is Milestone 3; M2 keeps event counting.
+
+## Amendments (2026-10-03)
+`docs/specs/2026-10-03-edge-case-decisions.md` binds this plan. Schema-impacting before Step 1: merchant cash account events (`merchant_paid_by_courier`, settlement modes, exposure caps), `Seat` travelling-as and per-vehicle seat maps, per-child `Stop` hand-over fields, `Event` monotonic uptime + `late_replay` quarantine, identity re-verification fields. Step 5: rebroadcast compensation eligibility and the 3-s "seen" rule. Step 6: points on platform revenue, referral 200 points after the second order, new-customer cap 25,000. Step 7: simulator invariants gain "no points on GMV", "no settlement of quarantined replays", "merchant balance settles within mode SLA".
