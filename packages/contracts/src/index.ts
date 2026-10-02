@@ -10,6 +10,7 @@ export * from './trip.js';
 export * from './ledger.js';
 export * from './event.js';
 export * from './city-config.js';
+export * from './aziziyah-zones.js';
 export { transformer } from './transformer.js';
-export { HealthPing, CityConfigInput } from './router-io.js';
+export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
 export type { AppRouter, AppContext } from './router.js';

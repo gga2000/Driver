@@ -1,61 +1,55 @@
-import type { CityPricingConfig, ComponentRule, ZoneFare } from '@driver/contracts';
+import type { CityPricingConfig, ComponentRule, DispatchConfig, TierFare, ZoneConfig, ZoneFare } from '@driver/contracts';
+import { AZIZIYAH_ZONES, INTERCITY_DESTINATIONS } from '@driver/contracts';
 
 /**
- * Aziziyah (العزيزية), Wasit — launch city. All amounts are IQD integers.
- * Zone fares are symmetric: one row per pair covers both directions.
+ * Aziziyah (العزيزية), Wasit — launch city. All amounts are IQD integers and all of this is config.
+ *
+ * Zones: the 34 seed zones (docs/specs/aziziyah-zones-seed.md) in five tiers, plus the two intercity
+ * destinations. City verticals price by tier pair (dispatch & pricing spec §1); exact zone pairs may
+ * be added later and win over the tier table. Intercity uses explicit zone rows.
  */
 
-const zones = [
-  { id: 'center', name_ar: 'المركز', name_en: 'Center' },
-  { id: 'north', name_ar: 'الشمالي', name_en: 'North' },
-  { id: 'south', name_ar: 'الجنوبي', name_en: 'South' },
-  { id: 'east', name_ar: 'الشرقي', name_en: 'East' },
-  { id: 'west', name_ar: 'الغربي', name_en: 'West' },
-  { id: 'outskirts', name_ar: 'الأطراف', name_en: 'Outskirts' },
-  // Intercity destinations
-  { id: 'kut', name_ar: 'الكوت', name_en: 'Kut' },
-  { id: 'baghdad', name_ar: 'بغداد', name_en: 'Baghdad' },
+const zones: ZoneConfig[] = [
+  ...AZIZIYAH_ZONES.map(({ id, name_ar, name_en, tier, extId }) => ({ id, name_ar, name_en, tier, extId })),
+  ...INTERCITY_DESTINATIONS.map((d) => ({ ...d })),
 ];
 
-const cityZoneFares: ZoneFare[] = [
-  { from: 'center', to: 'center', fare: 3000 },
-  { from: 'center', to: 'north', fare: 4000 },
-  { from: 'center', to: 'south', fare: 4000 },
-  { from: 'center', to: 'east', fare: 4000 },
-  { from: 'center', to: 'west', fare: 4000 },
-  { from: 'center', to: 'outskirts', fare: 5000 },
-  { from: 'north', to: 'north', fare: 3000 },
-  { from: 'north', to: 'south', fare: 5000 },
-  { from: 'north', to: 'east', fare: 4000 },
-  { from: 'north', to: 'west', fare: 4000 },
-  { from: 'north', to: 'outskirts', fare: 5000 },
-  { from: 'south', to: 'south', fare: 3000 },
-  { from: 'south', to: 'east', fare: 4000 },
-  { from: 'south', to: 'west', fare: 4000 },
-  { from: 'south', to: 'outskirts', fare: 5000 },
-  { from: 'east', to: 'east', fare: 3000 },
-  { from: 'east', to: 'west', fare: 5000 },
-  { from: 'east', to: 'outskirts', fare: 5000 },
-  { from: 'west', to: 'west', fare: 3000 },
-  { from: 'west', to: 'outskirts', fare: 5000 },
-  { from: 'outskirts', to: 'outskirts', fare: 4000 },
+/**
+ * Delivery fee by tier pair (money §2 bands, spec §1 tier pairs). Order matters: specific rows first,
+ * `any` wildcards after, and edge before far so "far ↔ edge" resolves to 2,000.
+ */
+const deliveryTierFares: TierFare[] = [
+  { from: 'any', to: 'edge', fare: 2000 },
+  { from: 'any', to: 'far', fare: 1500 },
+  { from: 'centre', to: 'centre', fare: 500 },
+  { from: 'centre', to: 'near', fare: 500 },
+  { from: 'near', to: 'near', fare: 500 },
+  { from: 'centre', to: 'mid', fare: 1000 },
+  { from: 'near', to: 'mid', fare: 1000 },
+  { from: 'mid', to: 'mid', fare: 1000 },
 ];
 
+/** City ride fares by tier pair — draft until Plan 3 real Aziziyah prices land; tuktuk is 1,000 below car. */
+const carTierFares: TierFare[] = [
+  { from: 'any', to: 'edge', fare: 7000 },
+  { from: 'any', to: 'far', fare: 6000 },
+  { from: 'centre', to: 'centre', fare: 3000 },
+  { from: 'centre', to: 'near', fare: 3000 },
+  { from: 'near', to: 'near', fare: 3500 },
+  { from: 'centre', to: 'mid', fare: 4000 },
+  { from: 'near', to: 'mid', fare: 4000 },
+  { from: 'mid', to: 'mid', fare: 4500 },
+];
+const tuktukTierFares: TierFare[] = carTierFares.map((r) => ({ ...r, fare: Math.max(2000, r.fare - 1000) }));
+
+/** Intercity: every Aziziyah zone → Kut 10,000, → Baghdad 15,000; garages are meeting points. */
 const intercityFares: ZoneFare[] = [
-  { from: 'center', to: 'kut', fare: 10000 },
-  { from: 'north', to: 'kut', fare: 10000 },
-  { from: 'south', to: 'kut', fare: 10000 },
-  { from: 'east', to: 'kut', fare: 10000 },
-  { from: 'west', to: 'kut', fare: 10000 },
-  { from: 'outskirts', to: 'kut', fare: 10000 },
-  { from: 'center', to: 'baghdad', fare: 15000 },
-  { from: 'north', to: 'baghdad', fare: 15000 },
-  { from: 'south', to: 'baghdad', fare: 15000 },
-  { from: 'east', to: 'baghdad', fare: 15000 },
-  { from: 'west', to: 'baghdad', fare: 15000 },
-  { from: 'outskirts', to: 'baghdad', fare: 15000 },
+  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'kut', fare: 10000 })),
+  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'baghdad', fare: 15000 })),
   { from: 'kut', to: 'baghdad', fare: 15000 },
 ];
+
+// ───────────────────────── component rules ─────────────────────────
 
 /** Shared metered rules: always computed, hidden until a city/vertical flips visibility. */
 const shadowDistance: ComponentRule = {
@@ -74,14 +68,30 @@ const shadowTime: ComponentRule = {
   visibility: 'shadow',
   perUnit: 100, // IQD per minute
 };
-const base: ComponentRule = {
+const rideBase: ComponentRule = {
   key: 'base',
   label_ar: 'السعر الأساسي',
   label_en: 'Base fare',
   driverShareRule: 'driver_commissioned',
   visibility: 'shown',
 };
-const doorPickup: ComponentRule = {
+/** Delivery fees pass through to the courier in full (money §2). */
+const deliveryBase: ComponentRule = {
+  key: 'base',
+  label_ar: 'أجرة التوصيل',
+  label_en: 'Delivery fee',
+  driverShareRule: 'driver_full',
+  visibility: 'shown',
+};
+const serviceFee: ComponentRule = {
+  key: 'service_fee',
+  label_ar: 'رسوم الخدمة',
+  label_en: 'Service fee',
+  driverShareRule: 'platform_only',
+  visibility: 'shown',
+  amount: 500,
+};
+const rideDoorPickup: ComponentRule = {
   key: 'door_pickup',
   label_ar: 'نجيك للباب',
   label_en: 'Door pickup',
@@ -89,7 +99,7 @@ const doorPickup: ComponentRule = {
   visibility: 'shown',
   amount: 1000,
 };
-const streetPickup: ComponentRule = {
+const rideStreetPickup: ComponentRule = {
   key: 'street_pickup',
   label_ar: 'تلاقينا بالشارع',
   label_en: 'Street pickup',
@@ -97,15 +107,33 @@ const streetPickup: ComponentRule = {
   visibility: 'shown',
   amount: 0,
 };
+/** Delivery: street-point handover −250; door pickup for errands/parcels +500 (money §2). */
+const deliveryStreetHandover: ComponentRule = {
+  key: 'street_pickup',
+  label_ar: 'تسليم بالشارع',
+  label_en: 'Street handover',
+  driverShareRule: 'driver_full',
+  visibility: 'shown',
+  amount: -250,
+};
+const deliveryDoor: ComponentRule = {
+  key: 'door_pickup',
+  label_ar: 'للباب',
+  label_en: 'To the door',
+  driverShareRule: 'driver_full',
+  visibility: 'shown',
+  amount: 0,
+};
+const errandDoorPickup: ComponentRule = { ...deliveryDoor, label_ar: 'استلام من الباب', label_en: 'Door pickup', amount: 500 };
 const wait: ComponentRule = {
   key: 'wait',
   label_ar: 'انتظار',
   label_en: 'Waiting',
   driverShareRule: 'driver_full',
   visibility: 'shown',
-  perUnit: 250, // IQD per minute
+  perUnit: 250, // IQD per minute (3 free, then 250/5 min — the free window is applied by the trips module)
 };
-const night: ComponentRule = {
+const rideNight: ComponentRule = {
   key: 'night',
   label_ar: 'رسوم الليل',
   label_en: 'Night fee',
@@ -114,6 +142,7 @@ const night: ComponentRule = {
   amount: 1000,
   hours: [23, 5],
 };
+const deliveryNight: ComponentRule = { ...rideNight, amount: 250 };
 const promo: ComponentRule = {
   key: 'promo',
   label_ar: 'خصم',
@@ -121,6 +150,73 @@ const promo: ComponentRule = {
   driverShareRule: 'platform_only',
   visibility: 'shown',
 };
+const frontSeat: ComponentRule = {
+  key: 'front_seat',
+  label_ar: 'مقعد أمامي',
+  label_en: 'Front seat',
+  driverShareRule: 'driver_full',
+  visibility: 'shown',
+  amount: 2000,
+};
+
+// ───────────────────────── dispatch (plan Step 5, spec §3) ─────────────────────────
+
+const smartBroadcast: DispatchConfig = {
+  policy: 'smart_broadcast',
+  waves: [
+    { size: 3, radiusKm: 1.5, seconds: 15 },
+    { size: 5, radiusKm: 3, seconds: 15 },
+    { size: 'all', seconds: 30 },
+  ],
+  maxBatch: 1,
+  acceptTimeoutSec: 15,
+  suggestOnly: false,
+  rebroadcastAfterSec: 60,
+  rebroadcastCompensationIqd: 500,
+  customerFreeCancelAfterSec: 180,
+  passes: 1,
+  arriveBeforeReadyMin: 0,
+  batchMaxDetourMin: 0,
+  batchMaxHotWaitMin: 0,
+  minSeatsByTMinus30: 0,
+  substituteWaves: 1,
+  substituteWaveSize: 1,
+  substituteWaveMin: 1,
+  rankWeights: { distance: 40, tier: 30, load: 20, vehicleFit: 10 },
+  offerSeenAfterSec: 3,
+};
+
+const autoAssign: DispatchConfig = {
+  ...smartBroadcast,
+  policy: 'auto_assign',
+  waves: undefined,
+  maxBatch: 2, // bikes; tuktuks allow 3 (vehicle-class override in the dispatch module)
+  acceptTimeoutSec: 20,
+  passes: 3,
+  arriveBeforeReadyMin: 2,
+  batchMaxDetourMin: 4,
+  batchMaxHotWaitMin: 10,
+};
+
+const scheduled: DispatchConfig = {
+  ...smartBroadcast,
+  policy: 'scheduled',
+  waves: undefined,
+  acceptTimeoutSec: 60,
+  minSeatsByTMinus30: 3,
+};
+
+const preAssigned: DispatchConfig = {
+  ...smartBroadcast,
+  policy: 'pre_assigned',
+  waves: undefined,
+  acceptTimeoutSec: 60,
+  substituteWaves: 2,
+  substituteWaveSize: 3,
+  substituteWaveMin: 5,
+};
+
+// ───────────────────────── the city ─────────────────────────
 
 export const aziziyah: CityPricingConfig = {
   cityId: 'aziziyah',
@@ -132,96 +228,85 @@ export const aziziyah: CityPricingConfig = {
   verticals: [
     {
       vertical: 'taxi',
-      zoneFares: cityZoneFares,
+      zoneFares: [],
+      tierFares: carTierFares,
       defaultFare: 5000,
-      components: [base, shadowDistance, shadowTime, doorPickup, streetPickup, wait, night, promo],
+      components: [rideBase, shadowDistance, shadowTime, rideDoorPickup, rideStreetPickup, wait, rideNight, promo],
       floor: 3000,
       ceiling: 25000,
     },
     {
       vertical: 'tuktuk',
-      zoneFares: cityZoneFares.map((z) => ({ ...z, fare: Math.max(2000, z.fare - 1000) })),
+      zoneFares: [],
+      tierFares: tuktukTierFares,
       defaultFare: 4000,
-      components: [base, shadowDistance, shadowTime, doorPickup, streetPickup, wait, night, promo],
+      components: [rideBase, shadowDistance, shadowTime, rideDoorPickup, rideStreetPickup, wait, rideNight, promo],
       floor: 2000,
       ceiling: 15000,
     },
     {
       vertical: 'food',
-      // Delivery fee by merchant zone → customer zone.
-      zoneFares: cityZoneFares.map((z) => ({ ...z, fare: z.fare === 3000 ? 2000 : z.fare === 4000 ? 3000 : 4000 })),
-      defaultFare: 4000,
-      components: [base, shadowDistance, shadowTime, doorPickup, streetPickup, night, promo],
-      floor: 2000,
+      zoneFares: [],
+      tierFares: deliveryTierFares,
+      defaultFare: 1500,
+      components: [deliveryBase, serviceFee, shadowDistance, shadowTime, deliveryDoor, deliveryStreetHandover, deliveryNight, promo],
+      floor: 500,
       ceiling: 10000,
     },
     {
       vertical: 'grocery',
-      zoneFares: cityZoneFares.map((z) => ({ ...z, fare: z.fare === 3000 ? 2000 : z.fare === 4000 ? 3000 : 4000 })),
-      defaultFare: 4000,
-      components: [base, shadowDistance, shadowTime, doorPickup, streetPickup, wait, promo],
-      floor: 2000,
+      zoneFares: [],
+      tierFares: deliveryTierFares,
+      defaultFare: 1500,
+      components: [deliveryBase, serviceFee, shadowDistance, shadowTime, deliveryDoor, deliveryStreetHandover, wait, promo],
+      floor: 500,
+      ceiling: 15000,
+    },
+    {
+      vertical: 'errand',
+      zoneFares: [],
+      tierFares: deliveryTierFares,
+      defaultFare: 1500,
+      components: [deliveryBase, serviceFee, shadowDistance, shadowTime, errandDoorPickup, deliveryStreetHandover, wait, promo],
+      floor: 500,
+      ceiling: 15000,
+    },
+    {
+      vertical: 'parcel',
+      zoneFares: [],
+      tierFares: deliveryTierFares,
+      defaultFare: 1500,
+      components: [deliveryBase, serviceFee, shadowDistance, shadowTime, errandDoorPickup, deliveryStreetHandover, promo],
+      floor: 500,
       ceiling: 15000,
     },
     {
       vertical: 'intercity',
       zoneFares: intercityFares,
       defaultFare: 15000,
-      components: [
-        base,
-        shadowDistance,
-        shadowTime,
-        {
-          key: 'front_seat',
-          label_ar: 'مقعد أمامي',
-          label_en: 'Front seat',
-          driverShareRule: 'driver_full',
-          visibility: 'shown',
-          amount: 2000,
-        },
-        doorPickup,
-        streetPickup,
-        promo,
-      ],
+      components: [rideBase, shadowDistance, shadowTime, frontSeat, rideDoorPickup, rideStreetPickup, promo],
       floor: 10000,
       ceiling: 40000,
     },
     {
       vertical: 'khat',
-      zoneFares: cityZoneFares,
+      zoneFares: [],
+      tierFares: tuktukTierFares,
       defaultFare: 3000,
-      components: [base, shadowDistance, shadowTime, streetPickup],
+      components: [rideBase, shadowDistance, shadowTime, rideStreetPickup],
       floor: 2000,
       ceiling: 10000,
     },
   ],
   dispatch: {
-    taxi: {
-      policy: 'smart_broadcast',
-      waves: [
-        { size: 3, seconds: 15 },
-        { size: 5, seconds: 15 },
-        { size: 'all', seconds: 30 },
-      ],
-      maxBatch: 1,
-      acceptTimeoutSec: 15,
-      suggestOnly: false,
-    },
-    tuktuk: {
-      policy: 'smart_broadcast',
-      waves: [
-        { size: 3, seconds: 15 },
-        { size: 5, seconds: 15 },
-        { size: 'all', seconds: 30 },
-      ],
-      maxBatch: 1,
-      acceptTimeoutSec: 15,
-      suggestOnly: false,
-    },
-    food: { policy: 'auto_assign', maxBatch: 2, acceptTimeoutSec: 20, suggestOnly: false },
-    grocery: { policy: 'auto_assign', maxBatch: 2, acceptTimeoutSec: 20, suggestOnly: false },
-    intercity: { policy: 'scheduled', maxBatch: 1, acceptTimeoutSec: 60, suggestOnly: false },
-    khat: { policy: 'pre_assigned', maxBatch: 1, acceptTimeoutSec: 60, suggestOnly: false },
+    taxi: smartBroadcast,
+    tuktuk: smartBroadcast,
+    parcel: smartBroadcast,
+    food: autoAssign,
+    grocery: autoAssign,
+    errand: autoAssign,
+    intercity: scheduled,
+    khat: preAssigned,
   },
-  driverCreditCapIqd: 100000,
+  creditCapsIqd: { bronze: 75000, silver: 150000, gold: 300000 },
 };

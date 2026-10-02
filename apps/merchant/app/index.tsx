@@ -7,13 +7,13 @@ import { t } from '@driver/i18n';
 import { QuoteCard } from '@/quote-card';
 import { useTRPC } from '@/trpc';
 
-/** Delivery fee the merchant's customer will see: restaurant in the center, customer in the south. */
+/** Delivery fee the merchant's customer will see: restaurant in the centre, customer in الهاشمي (near). */
 const DELIVERY: PriceRequestInput = {
   cityId: 'aziziyah',
   vertical: 'food',
   stops: [
-    { zoneId: 'center', type: 'pickup' },
-    { zoneId: 'south', type: 'dropoff' },
+    { zoneId: 'centre', type: 'pickup' },
+    { zoneId: 'hashimi', type: 'dropoff' },
   ],
   options: { doorPickup: true },
   at: new Date(),

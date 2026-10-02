@@ -14,10 +14,12 @@ import { ScoringModule } from './modules/scoring/index.js';
 import { SimulatorModule } from './modules/simulator/index.js';
 import { SupportModule } from './modules/support/index.js';
 import { TripsModule } from './modules/trips/index.js';
+import { InfraModule } from './shared/infra.module.js';
 import { TrpcModule } from './trpc/trpc.module.js';
 
 @Module({
   imports: [
+    InfraModule,
     IdentityModule,
     OrgsModule,
     ConfigModule,

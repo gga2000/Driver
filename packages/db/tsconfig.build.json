@@ -3,14 +3,16 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "noEmit": true,
-    "declaration": false
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "noEmit": false,
+    "types": [
+      "node"
+    ]
   },
   "include": [
-    "src",
-    "prisma.config.ts",
-    "prisma/*.ts",
-    "scripts/*.ts"
+    "src"
   ],
   "exclude": [
     "src/**/*.test.ts"

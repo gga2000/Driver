@@ -1,7 +1,7 @@
-import type { LedgerEvent } from '@driver/contracts';
+import { kindOf, type LedgerEvent } from '@driver/contracts';
 
-/** What a new event looks like before the store assigns id and recordedAt. */
-export type NewLedgerEvent = Omit<LedgerEvent, 'id' | 'recordedAt'>;
+/** What a new event looks like before the store assigns id and recordedAt; `kind` derives from `type`. */
+export type NewLedgerEvent = Omit<LedgerEvent, 'id' | 'recordedAt' | 'kind'> & { kind?: LedgerEvent['kind'] };
 
 /**
  * Append-only store. There is deliberately no update or delete:
@@ -26,7 +26,12 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       if (existing) return existing;
     }
     this.seq += 1;
-    const stored: LedgerEvent = Object.freeze({ ...event, id: `le_${this.seq}`, recordedAt: new Date() });
+    const stored: LedgerEvent = Object.freeze({
+      ...event,
+      kind: event.kind ?? kindOf(event.type),
+      id: `le_${this.seq}`,
+      recordedAt: new Date(),
+    });
     this.events.push(stored);
     return stored;
   }

@@ -1,4 +1,4 @@
-import type { LedgerEvent } from '@driver/contracts';
+import { kindOf, type LedgerEvent } from '@driver/contracts';
 import type { LedgerRepository, NewLedgerEvent } from './repository.js';
 
 /**
@@ -17,13 +17,17 @@ export interface LedgerEventDelegate {
 }
 
 interface LedgerRow {
+  kind: LedgerEvent['kind'];
   type: LedgerEvent['type'];
   amountIqd: number;
   currency: string;
   fromAccount: string;
   toAccount: string;
   tripId?: string | null;
+  orderId?: string | null;
   routeId?: string | null;
+  departureId?: string | null;
+  postingGroupId?: string | null;
   idempotencyKey?: string | null;
   memo?: string | null;
   occurredAt: Date;
@@ -67,13 +71,17 @@ export class PrismaLedgerRepository implements LedgerRepository {
 
 function toRow(e: NewLedgerEvent): LedgerRow {
   return {
+    kind: e.kind ?? kindOf(e.type),
     type: e.type,
     amountIqd: e.amount,
     currency: e.currency,
     fromAccount: e.fromAccount,
     toAccount: e.toAccount,
     tripId: e.tripId ?? null,
+    orderId: e.orderId ?? null,
     routeId: e.routeId ?? null,
+    departureId: e.departureId ?? null,
+    postingGroupId: e.postingGroupId ?? null,
     idempotencyKey: e.idempotencyKey ?? null,
     memo: e.memo ?? null,
     occurredAt: e.occurredAt,
@@ -83,13 +91,17 @@ function toRow(e: NewLedgerEvent): LedgerRow {
 function fromRow(r: LedgerRow & { id: string; recordedAt: Date }): LedgerEvent {
   return {
     id: r.id,
+    kind: r.kind,
     type: r.type,
     amount: r.amountIqd,
     currency: 'IQD',
     fromAccount: r.fromAccount,
     toAccount: r.toAccount,
     tripId: r.tripId ?? undefined,
+    orderId: r.orderId ?? undefined,
     routeId: r.routeId ?? undefined,
+    departureId: r.departureId ?? undefined,
+    postingGroupId: r.postingGroupId ?? undefined,
     idempotencyKey: r.idempotencyKey ?? undefined,
     memo: r.memo ?? undefined,
     occurredAt: r.occurredAt,

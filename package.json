@@ -2,7 +2,7 @@
   "name": "driver",
   "private": true,
   "version": "0.1.0",
-  "description": "Driver (درايفر) — hyperlocal delivery and mobility platform for Iraq",
+  "description": "Driver (\u062f\u0631\u0627\u064a\u0641\u0631) \u2014 hyperlocal delivery and mobility platform for Iraq",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -12,6 +12,13 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "turbo run lint",
+    "db:up": "docker compose up -d --wait postgres redis",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @driver/db migrate:deploy",
+    "db:reset": "pnpm --filter @driver/db migrate:reset",
+    "db:seed": "pnpm --filter @driver/db seed",
+    "db:studio": "pnpm --filter @driver/db studio",
+    "sim": "pnpm --filter @driver/api sim",
     "dev:api": "pnpm --filter @driver/api dev",
     "dev:console": "pnpm --filter @driver/console dev",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml,yml}\""

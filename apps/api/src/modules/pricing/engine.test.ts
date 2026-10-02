@@ -18,23 +18,23 @@ const amountOf = (q: ReturnType<PricingEngine['quote']>, key: string) =>
   q.components.filter((c) => c.key === key).reduce((a, c) => a + c.amount, 0);
 
 describe('PricingEngine — Aziziyah', () => {
-  it('prices a zone fare from the city table', () => {
-    const q = engine.quote(req({ stops: stops('center', 'north') }), aziziyah);
+  it('prices a fare from the city tier table', () => {
+    const q = engine.quote(req({ stops: stops('centre', 'zakur') }), aziziyah);
     expect(amountOf(q, 'base')).toBe(4000);
     expect(q.total).toBe(4000);
     expect(q.currency).toBe('IQD');
   });
 
-  it('zone fares are symmetric', () => {
-    const a = engine.quote(req({ stops: stops('north', 'center') }), aziziyah);
-    const b = engine.quote(req({ stops: stops('center', 'north') }), aziziyah);
+  it('fares are symmetric', () => {
+    const a = engine.quote(req({ stops: stops('zakur', 'centre') }), aziziyah);
+    const b = engine.quote(req({ stops: stops('centre', 'zakur') }), aziziyah);
     expect(a.total).toBe(b.total);
   });
 
   it('adds the +2000 front seat premium on intercity', () => {
-    const base = engine.quote(req({ vertical: 'intercity', stops: stops('center', 'kut') }), aziziyah);
+    const base = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'kut') }), aziziyah);
     const front = engine.quote(
-      req({ vertical: 'intercity', stops: stops('center', 'kut'), options: { frontSeat: true } }),
+      req({ vertical: 'intercity', stops: stops('centre', 'kut'), options: { frontSeat: true } }),
       aziziyah,
     );
     expect(base.total).toBe(10000);
@@ -44,15 +44,15 @@ describe('PricingEngine — Aziziyah', () => {
   });
 
   it('prices Baghdad higher than Kut', () => {
-    const kut = engine.quote(req({ vertical: 'intercity', stops: stops('center', 'kut') }), aziziyah);
-    const bgd = engine.quote(req({ vertical: 'intercity', stops: stops('center', 'baghdad') }), aziziyah);
+    const kut = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'kut') }), aziziyah);
+    const bgd = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'baghdad') }), aziziyah);
     expect(bgd.total).toBeGreaterThan(kut.total);
     expect(bgd.total).toBe(15000);
   });
 
   it('door pickup costs more than street pickup and both are explained', () => {
-    const street = engine.quote(req({ stops: stops('center', 'south') }), aziziyah);
-    const door = engine.quote(req({ stops: stops('center', 'south'), options: { doorPickup: true } }), aziziyah);
+    const street = engine.quote(req({ stops: stops('centre', 'hashimi') }), aziziyah);
+    const door = engine.quote(req({ stops: stops('centre', 'hashimi'), options: { doorPickup: true } }), aziziyah);
     expect(street.components.some((c) => c.key === 'street_pickup')).toBe(true);
     expect(street.components.some((c) => c.key === 'door_pickup')).toBe(false);
     expect(amountOf(street, 'street_pickup')).toBe(0);
@@ -61,8 +61,8 @@ describe('PricingEngine — Aziziyah', () => {
   });
 
   it('rounds to the nearest 250 IQD', () => {
-    // 4000 base + 3 min wait × 250 = 4750 (already on-grid); 1 min wait → 4250.
-    const q = engine.quote(req({ stops: stops('center', 'north'), options: { waitMinutes: 1 } }), aziziyah);
+    // 4000 base + 1 min wait × 250 = 4250 (already on-grid).
+    const q = engine.quote(req({ stops: stops('centre', 'zakur'), options: { waitMinutes: 1 } }), aziziyah);
     expect(q.total).toBe(4250);
     // Use a custom config with a 333 wait rate to force an off-grid subtotal.
     const custom: CityPricingConfig = {
@@ -73,7 +73,7 @@ describe('PricingEngine — Aziziyah', () => {
           : v,
       ),
     };
-    const off = engine.quote(req({ stops: stops('center', 'north'), options: { waitMinutes: 1 } }), custom);
+    const off = engine.quote(req({ stops: stops('centre', 'zakur'), options: { waitMinutes: 1 } }), custom);
     expect(off.subtotal).toBe(4333);
     expect(off.total).toBe(4250);
     expect(off.rounding).toEqual({ step: 250, applied: -83 });
@@ -81,7 +81,7 @@ describe('PricingEngine — Aziziyah', () => {
 
   it('applies floor and ceiling per vertical', () => {
     const promoHeavy = engine.quote(
-      req({ stops: stops('center', 'center'), options: { promoIqd: 10000 } }),
+      req({ stops: stops('centre', 'centre'), options: { promoIqd: 10000 } }),
       aziziyah,
     );
     expect(promoHeavy.subtotal).toBe(-7000);
@@ -89,7 +89,7 @@ describe('PricingEngine — Aziziyah', () => {
     expect(promoHeavy.bounds.clamped).toBe(true);
 
     const longWait = engine.quote(
-      req({ stops: stops('center', 'outskirts'), options: { waitMinutes: 200 } }),
+      req({ stops: stops('centre', 'bazl_hallata'), options: { waitMinutes: 200 } }),
       aziziyah,
     );
     expect(longWait.total).toBe(25000);
@@ -97,7 +97,7 @@ describe('PricingEngine — Aziziyah', () => {
   });
 
   it('always computes distance and time as shadow components, hidden from the shown list', () => {
-    const q = engine.quote(req({ stops: stops('center', 'north'), distanceKm: 4.2, durationMin: 11 }), aziziyah);
+    const q = engine.quote(req({ stops: stops('centre', 'zakur'), distanceKm: 4.2, durationMin: 11 }), aziziyah);
     const keys = q.shadowComponents.map((c) => c.key);
     expect(keys).toContain('distance');
     expect(keys).toContain('time');
@@ -119,30 +119,30 @@ describe('PricingEngine — Aziziyah', () => {
           : v,
       ),
     };
-    const q = engine.quote(req({ stops: stops('center', 'north'), distanceKm: 2 }), metered);
+    const q = engine.quote(req({ stops: stops('centre', 'zakur'), distanceKm: 2 }), metered);
     expect(q.components.map((c) => c.key)).toContain('distance');
     expect(q.total).toBe(5000);
   });
 
   it('prices a multi-leg trip per leg', () => {
-    const q = engine.quote(req({ stops: stops('center', 'north', 'south') }), aziziyah);
+    const q = engine.quote(req({ stops: stops('centre', 'zakur', 'khamas') }), aziziyah);
     const bases = q.components.filter((c) => c.key === 'base');
     expect(bases).toHaveLength(2);
     expect(bases.map((b) => b.leg)).toEqual([0, 1]);
-    expect(bases.map((b) => b.amount)).toEqual([4000, 5000]);
-    expect(q.total).toBe(9000);
+    expect(bases.map((b) => b.amount)).toEqual([4000, 6000]);
+    expect(q.total).toBe(10000);
   });
 
   it('adds a night fee inside the configured window only', () => {
-    const day = engine.quote(req({ stops: stops('center', 'north') }), aziziyah);
-    const night = engine.quote(req({ stops: stops('center', 'north'), at: MIDNIGHT }), aziziyah);
+    const day = engine.quote(req({ stops: stops('centre', 'zakur') }), aziziyah);
+    const night = engine.quote(req({ stops: stops('centre', 'zakur'), at: MIDNIGHT }), aziziyah);
     expect(day.components.some((c) => c.key === 'night')).toBe(false);
     expect(amountOf(night, 'night')).toBe(1000);
   });
 
   it('every component carries Arabic and English labels and a driver share rule', () => {
     const q = engine.quote(
-      req({ stops: stops('center', 'north'), options: { doorPickup: true, waitMinutes: 2, promoIqd: 500 } }),
+      req({ stops: stops('centre', 'zakur'), options: { doorPickup: true, waitMinutes: 2, promoIqd: 500 } }),
       aziziyah,
     );
     for (const c of [...q.components, ...q.shadowComponents]) {
@@ -155,10 +155,10 @@ describe('PricingEngine — Aziziyah', () => {
 
   it('rejects an unconfigured vertical or mismatched city', () => {
     const noKhat: CityPricingConfig = { ...aziziyah, verticals: aziziyah.verticals.filter((v) => v.vertical !== 'khat') };
-    expect(() => engine.quote(req({ vertical: 'khat', stops: stops('center', 'north') }), noKhat)).toThrow(
+    expect(() => engine.quote(req({ vertical: 'khat', stops: stops('centre', 'zakur') }), noKhat)).toThrow(
       /not configured/,
     );
-    expect(() => engine.quote(req({ cityId: 'kut', stops: stops('center', 'north') }), aziziyah)).toThrow(
+    expect(() => engine.quote(req({ cityId: 'kut', stops: stops('centre', 'zakur') }), aziziyah)).toThrow(
       /city_mismatch|!=/,
     );
   });

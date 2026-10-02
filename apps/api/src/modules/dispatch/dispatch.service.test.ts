@@ -21,7 +21,7 @@ const job = (partial: Partial<DispatchJob> = {}): DispatchJob => ({
   tripId: 't1',
   cityId: 'aziziyah',
   vertical: 'taxi',
-  zoneId: 'center',
+  zoneId: 'centre',
   ...partial,
 });
 
@@ -88,7 +88,7 @@ describe('smart_broadcast waves', () => {
 
 describe('auto_assign', () => {
   it('assigns the best driver with capacity and batches up to maxBatch in one zone', () => {
-    const policy = new AutoAssignPolicy((driverId, zoneId) => (driverId === 'd01' && zoneId === 'center' ? ['t0'] : []));
+    const policy = new AutoAssignPolicy((driverId, zoneId) => (driverId === 'd01' && zoneId === 'centre' ? ['t0'] : []));
     const cfg = service.configFor('aziziyah', 'food');
     expect(cfg.maxBatch).toBe(2);
     const ranked = new DriverRanker().rank(drivers(3, { activeTrips: 1 }));

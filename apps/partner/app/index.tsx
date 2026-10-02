@@ -7,12 +7,12 @@ import { t } from '@driver/i18n';
 import { QuoteCard } from '@/quote-card';
 import { useTRPC } from '@/trpc';
 
-/** An offer as the driver sees it: intercity center → Kut with a front-seat passenger. */
+/** An offer as the driver sees it: intercity centre → Kut with a front-seat passenger. */
 const OFFER: PriceRequestInput = {
   cityId: 'aziziyah',
   vertical: 'intercity',
   stops: [
-    { zoneId: 'center', type: 'pickup' },
+    { zoneId: 'centre', type: 'pickup' },
     { zoneId: 'kut', type: 'dropoff' },
   ],
   options: { frontSeat: true },

@@ -40,10 +40,10 @@ export class PlacesService {
     this.zonesByCity.set(cityId, zones);
   }
 
-  /** Resolves the zone a pin falls into; `outskirts` when no polygon matches. */
-  zoneFor(cityId: string, pin: LatLng): string {
+  /** Resolves the zone a pin falls into; `fallback` (the city's edge zone by convention) when no polygon matches. */
+  zoneFor(cityId: string, pin: LatLng, fallback = 'edge'): string {
     for (const z of this.zonesByCity.get(cityId) ?? []) if (pointInRing(pin, z.ring)) return z.zoneId;
-    return 'outskirts';
+    return fallback;
   }
 
   save(input: Omit<Place, 'id'>): Place {

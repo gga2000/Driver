@@ -6,6 +6,7 @@ import type {
   Quote,
   QuoteComponent,
   VerticalPricing,
+  ZoneTier,
 } from '@driver/contracts';
 
 /**
@@ -33,9 +34,10 @@ export class PricingEngine {
     const components: QuoteComponent[] = [];
 
     // 1. Zone base — one component per leg so multi-stop trips are priced per leg.
+    const tiers = tierIndex(city);
     legs.forEach((leg, i) => {
       components.push(
-        component(rules, 'base', zoneFare(vertical, leg.from, leg.to), {
+        component(rules, 'base', zoneFare(vertical, leg.from, leg.to, tiers), {
           leg: i,
           fallback: { label_ar: 'السعر الأساسي', label_en: 'Base fare', driverShareRule: 'driver_commissioned' },
         }),
@@ -51,16 +53,23 @@ export class PricingEngine {
     );
 
     // 3. Option-driven flat components.
-    const { frontSeat, doorPickup, waitMinutes, promoIqd } = req.options;
+    const { frontSeat, doorPickup, streetHandover, waitMinutes, promoIqd } = req.options;
     if (frontSeat) components.push(flat(rules, 'front_seat', 'مقعد أمامي', 'Front seat'));
+    // Deliveries default to the door (street handover is an opt-in discount); rides default to the
+    // street (door pickup is an opt-in fee). The vertical's rule set decides which world we are in.
+    const deliveryLike = (rules.get('street_pickup')?.amount ?? 0) < 0;
+    const atDoor = deliveryLike ? !streetHandover || doorPickup : doorPickup;
     components.push(
-      doorPickup
+      atDoor
         ? flat(rules, 'door_pickup', 'نجيك للباب', 'Door pickup')
         : flat(rules, 'street_pickup', 'تلاقينا بالشارع', 'Street pickup'),
     );
     if (waitMinutes > 0) {
       components.push(metered('wait', waitMinutes, rules.get('wait'), 'انتظار', 'Waiting'));
     }
+
+    // 3b. Always-on flat fees the city configures (service fee; small-order fee is applied by orders).
+    if (rules.get('service_fee')?.amount) components.push(flat(rules, 'service_fee', 'رسوم الخدمة', 'Service fee'));
 
     // 4. Time-gated components (night, peak) by local hour.
     const hour = localHour(req.at, city.timezone);
@@ -135,13 +144,41 @@ function legsOf(req: PriceRequest): Leg[] {
   return legs;
 }
 
-/** Zone fares are symmetric unless an explicit reverse row exists. */
-export function zoneFare(vertical: VerticalPricing, from: string, to: string): number {
+/** zoneId → tier for the city, used to resolve tier-pair fares. */
+export function tierIndex(city: Pick<CityPricingConfig, 'zones'>): ReadonlyMap<string, ZoneTier> {
+  return new Map(city.zones.map((z) => [z.id, z.tier]));
+}
+
+/**
+ * Fare for one leg (dispatch & pricing spec §1):
+ * 1. exact zone pair (symmetric unless an explicit reverse row exists);
+ * 2. tier pair, first matching row in table order — put specific rows (centre↔near) before
+ *    wildcards (any↔far) so "anything ↔ far = 1,500" and "edge = 2,000" resolve as written;
+ * 3. the vertical's default fare.
+ */
+export function zoneFare(
+  vertical: VerticalPricing,
+  from: string,
+  to: string,
+  tiers: ReadonlyMap<string, ZoneTier> = new Map(),
+): number {
   const exact = vertical.zoneFares.find((z) => z.from === from && z.to === to);
   if (exact) return exact.fare;
   const reverse = vertical.zoneFares.find((z) => z.from === to && z.to === from);
   if (reverse) return reverse.fare;
+
+  const tf = tierFare(vertical, tiers.get(from), tiers.get(to));
+  if (tf !== undefined) return tf;
   return vertical.defaultFare;
+}
+
+export function tierFare(vertical: VerticalPricing, from: ZoneTier | undefined, to: ZoneTier | undefined): number | undefined {
+  if (!vertical.tierFares || !from || !to) return undefined;
+  const matches = (a: ZoneTier | 'any', b: ZoneTier) => a === 'any' || a === b;
+  const row = vertical.tierFares.find(
+    (r) => (matches(r.from, from) && matches(r.to, to)) || (matches(r.from, to) && matches(r.to, from)),
+  );
+  return row?.fare;
 }
 
 function indexRules(rules: ComponentRule[]): Map<ComponentKey, ComponentRule> {

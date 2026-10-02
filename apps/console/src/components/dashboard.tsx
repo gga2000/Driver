@@ -5,12 +5,12 @@ import type { PriceRequestInput, QuoteComponent } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { API_URL, useTRPC } from '@/lib/trpc';
 
-/** Sample Aziziyah intercity trip: center → Kut, front seat, door pickup, measured 55 km / 50 min. */
+/** Sample Aziziyah intercity trip: centre → Kut, front seat, door pickup, measured 55 km / 50 min. */
 const SAMPLE: PriceRequestInput = {
   cityId: 'aziziyah',
   vertical: 'intercity',
   stops: [
-    { zoneId: 'center', type: 'pickup' },
+    { zoneId: 'centre', type: 'pickup' },
     { zoneId: 'kut', type: 'dropoff' },
   ],
   options: { frontSeat: true, doorPickup: true },
@@ -42,6 +42,8 @@ export function Dashboard() {
             <Row k="API" v={API_URL} mono />
             <Row k="الحالة" v={health.isSuccess ? t('status.online') : health.isPending ? '…' : t('status.offline')} />
             <Row k="الوقت" v={health.data ? new Date(health.data.now).toLocaleTimeString('ar-IQ') : '—'} />
+            <Row k="قاعدة البيانات" v={health.data ? (health.data.db === 'ok' ? 'متصلة' : 'غير متاحة') : '—'} />
+            <Row k="Redis" v={health.data ? (health.data.redis === 'ok' ? 'متصل' : 'غير متاح') : '—'} />
           </dl>
           {health.isError && <p className="mt-3 text-sm text-danger-700">{t('error.network')}</p>}
         </Card>

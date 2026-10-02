@@ -1,8 +1,11 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from './generated/prisma/client.js';
+import { PrismaClient, Prisma } from './generated/prisma/client.js';
 
-export { PrismaClient } from './generated/prisma/client.js';
+export { PrismaClient, Prisma } from './generated/prisma/client.js';
 export * from './generated/prisma/enums.js';
+
+/** A client inside an interactive transaction: everything except $transaction/$connect/$disconnect. */
+export type Tx = Prisma.TransactionClient;
 
 /**
  * Builds a PrismaClient for the given connection string.

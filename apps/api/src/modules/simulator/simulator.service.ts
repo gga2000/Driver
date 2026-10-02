@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { PriceRequest } from '@driver/contracts';
+import { AZIZIYAH_ZONES, type PriceRequest } from '@driver/contracts';
 import { DispatchService, type DriverCandidate } from '../dispatch/index.js';
 import { Accounts, LedgerService } from '../ledger/index.js';
 import { PricingService } from '../pricing/index.js';
@@ -35,7 +35,7 @@ export class SimulatorService {
 
   async run(opts: { cityId: string; trips: number; drivers: number; seed?: number; commissionPct?: number }): Promise<SimulationResult> {
     const rand = rng(opts.seed ?? 1);
-    const zones = ['center', 'north', 'south', 'east', 'west', 'outskirts'];
+    const zones = AZIZIYAH_ZONES.map((z) => z.id);
     const commission = opts.commissionPct ?? 20;
     const drivers: DriverCandidate[] = Array.from({ length: opts.drivers }, (_, i) => ({
       driverId: `sim-d${i + 1}`,
@@ -55,7 +55,7 @@ export class SimulatorService {
         cityId: opts.cityId,
         vertical: 'taxi',
         stops: [{ zoneId: from, type: 'pickup' }, { zoneId: to, type: 'dropoff' }],
-        options: { frontSeat: false, doorPickup: rand() < 0.3, waitMinutes: 0, promoIqd: 0 },
+        options: { frontSeat: false, doorPickup: rand() < 0.3, streetHandover: false, waitMinutes: 0, promoIqd: 0 },
         at: new Date('2026-10-02T09:00:00Z'),
         distanceKm: Math.round(rand() * 80) / 10,
         durationMin: Math.round(rand() * 25),

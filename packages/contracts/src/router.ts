@@ -1,7 +1,7 @@
 import { initTRPC } from '@trpc/server';
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
-import { CityConfigInput, HealthPing } from './router-io.js';
+import { CityConfigInput, type DependencyStatus, HealthPing } from './router-io.js';
 import { transformer } from './transformer.js';
 
 /**
@@ -11,6 +11,7 @@ import { transformer } from './transformer.js';
 export interface AppContext {
   pricing: { quote(req: PriceRequest): Quote };
   config: { city(cityId: string): CityPricingConfig | undefined };
+  health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   now(): Date;
   version: string;
 }
@@ -19,19 +20,18 @@ const t = initTRPC.context<AppContext>().create({
   transformer,
   // Spec §12: clients never see stack traces. Keep code + message, drop the stack.
   errorFormatter({ shape }) {
-    const { stack: _stack, ...data } = shape.data;
+    const data = { ...shape.data };
+    delete (data as { stack?: unknown }).stack;
     return { ...shape, data };
   },
 });
 
 export const appRouter = t.router({
   health: t.router({
-    ping: t.procedure.output(HealthPing).query(({ ctx }) => ({
-      ok: true as const,
-      service: 'driver-api' as const,
-      version: ctx.version,
-      now: ctx.now(),
-    })),
+    ping: t.procedure.output(HealthPing).query(async ({ ctx }) => {
+      const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);
+      return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
+    }),
   }),
   pricing: t.router({
     quote: t.procedure

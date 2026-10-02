@@ -1,18 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { LedgerEvent } from '@driver/contracts';
+import { isPointsAccount, kindOf, type LedgerEvent } from '@driver/contracts';
 import { LEDGER_REPOSITORY } from './tokens.js';
 import type { LedgerRepository, NewLedgerEvent } from './repository.js';
 
-/** Typed account ids (spec §8). */
+/** Typed account ids (contracts `AccountId`). */
 export const Accounts = {
   platform: 'platform' as const,
   driver: (id: string) => `driver:${id}` as const,
   /** Cash physically held by a driver; the credit cap is a rule on this balance. */
   cash: (driverId: string) => `cash:${driverId}` as const,
   merchant: (id: string) => `merchant:${id}` as const,
+  /** Merchant cash account (edge-case §3): payable net of commission, settled by mode. */
+  merchantCash: (id: string) => `merchant_cash:${id}` as const,
   customer: (id: string) => `customer:${id}` as const,
+  household: (orgId: string) => `household:${orgId}` as const,
+  promo: (promotionId: string) => `promo:${promotionId}` as const,
   /** Outside world: payouts leave the system here. */
   bank: 'bank' as const,
+  // points book — never mixed with money
+  points: (personId: string) => `points:${personId}` as const,
+  pointsPending: (phoneHash: string) => `points_pending:${phoneHash}` as const,
+  pointsPool: 'points_pool' as const,
 };
 
 export interface Balance {
@@ -41,7 +49,17 @@ export class LedgerService {
     if (event.fromAccount === event.toAccount) {
       throw new LedgerError('same_account', `same account on both sides: ${event.fromAccount}`);
     }
-    return this.repo.append({ ...event, currency: 'IQD' });
+    // Points never create money: the event's book must match both accounts' book.
+    const kind = event.kind ?? kindOf(event.type);
+    if (kind !== kindOf(event.type)) {
+      throw new LedgerError('kind_mismatch', `${event.type} is a ${kindOf(event.type)} event, not ${kind}`);
+    }
+    for (const account of [event.fromAccount, event.toAccount]) {
+      if (isPointsAccount(account) !== (kind === 'points')) {
+        throw new LedgerError('kind_mismatch', `${kind} event ${event.type} cannot touch account ${account}`);
+      }
+    }
+    return this.repo.append({ ...event, kind, currency: 'IQD' });
   }
 
   /** Balance is computed, never stored. */
@@ -76,7 +94,7 @@ export class LedgerService {
 
 export class LedgerError extends Error {
   constructor(
-    readonly code: 'invalid_amount' | 'same_account',
+    readonly code: 'invalid_amount' | 'same_account' | 'kind_mismatch',
     message: string,
   ) {
     super(message);

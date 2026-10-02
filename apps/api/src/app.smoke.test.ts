@@ -25,6 +25,11 @@ describe('API smoke', () => {
     const res = await client.health.ping.query();
     expect(res.ok).toBe(true);
     expect(res.service).toBe('driver-api');
+    // No DATABASE_URL / REDIS_URL in unit tests: the API still answers and reports both as unavailable.
+    expect(['ok', 'unavailable']).toContain(res.db);
+    expect(['ok', 'unavailable']).toContain(res.redis);
+    if (!process.env['DATABASE_URL']) expect(res.db).toBe('unavailable');
+    if (!process.env['REDIS_URL']) expect(res.redis).toBe('unavailable');
   });
 
   it('serves a quote for an Aziziyah taxi trip over the wire', async () => {
@@ -32,7 +37,7 @@ describe('API smoke', () => {
     const quote = await client.pricing.quote.query({
       cityId: 'aziziyah',
       vertical: 'taxi',
-      stops: [{ zoneId: 'center', type: 'pickup' }, { zoneId: 'north', type: 'dropoff' }],
+      stops: [{ zoneId: 'centre', type: 'pickup' }, { zoneId: 'zakur', type: 'dropoff' }],
       options: { doorPickup: true },
       at: new Date('2026-10-02T09:00:00Z'),
       distanceKm: 3,

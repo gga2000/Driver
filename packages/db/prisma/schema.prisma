@@ -1,6 +1,10 @@
-// Driver (درايفر) — domain model from docs/specs/2026-10-02-platform-core-design.md §5.
-// Rules: cuid ids, created_at/updated_at on every row, IQD as integers, PostGIS for geography.
-// Apps never talk to this database; the API is the only client.
+// Driver (درايفر) — domain model.
+// Sources: docs/specs/2026-10-02-domain-and-events.md, docs/specs/2026-10-03-edge-case-decisions.md,
+// docs/plans/2026-10-02-milestone-2-platform-core.md (Step 1 + Amendments).
+//
+// Rules: cuid ids, created_at/updated_at on every row, IQD as integers, PostGIS geography for anything
+// spatial, pseudonymous `people` (identifiers live only in the `vault` schema, reachable only through
+// modules/identity). Apps never talk to this database; the API is the only client.
 
 generator client {
   provider        = "prisma-client"
@@ -12,14 +16,18 @@ generator client {
 datasource db {
   provider   = "postgresql"
   extensions = [postgis]
+  schemas    = ["public", "vault"]
 }
 
-// ───────────────────────── Identity & organizations ─────────────────────────
+// ═════════════════════════════ Identity ═════════════════════════════
 
 enum RoleKind {
   customer
   courier
+  shopper
   driver
+  intercity_driver
+  khat_driver
   merchant_staff
   merchant_owner
   fleet_owner
@@ -29,53 +37,111 @@ enum RoleKind {
   support
   finance
   admin
+
+  @@schema("public")
+}
+
+enum TrustTier {
+  new
+  bronze
+  silver
+  gold
+
+  @@schema("public")
 }
 
 enum OrgType {
   restaurant
   grocer
   fleet
+  household
+
+  @@schema("public")
 }
 
-enum VehicleClass {
-  bike
-  tuktuk
-  car
-  van
-  intercity
+enum OrgMemberRole {
+  payer
+  orderer
+  member
+
+  @@schema("public")
 }
 
-/// One identity per phone number. Roles and memberships, never duplicate accounts.
+enum GuardianLinkState {
+  pending
+  active
+  revoked
+
+  @@schema("public")
+}
+
+enum OtpPurpose {
+  login
+  reverify
+  number_change
+  guardian_consent
+
+  @@schema("public")
+}
+
+/// Pseudonymous identity: one per phone number, but the phone itself lives in vault.person_identities.
+/// Everything in the analytics warehouse keys on this id and nothing here can re-identify a human.
 model Person {
-  id        String   @id @default(cuid())
-  phone     String   @unique
-  name      String
-  locale    String   @default("ar-IQ")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                String    @id @default(cuid())
+  locale            String    @default("ar-IQ")
+  trustTier         TrustTier @default(new) @map("trust_tier")
+  /// Edge-case §7: OTP re-verification after 120 idle days or a new device. Null = never verified.
+  lastVerifiedAt    DateTime? @map("last_verified_at")
+  /// Edge-case §7: declared shared family phone — cannot hold guardian or driver roles.
+  sharedFamilyPhone Boolean   @default(false) @map("shared_family_phone")
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  roles          Role[]
-  memberships    OrgMember[]
-  places         Place[]
-  tripsAsCustomer Trip[]     @relation("TripCustomer")
-  tripsAsCourier  Trip[]     @relation("TripCourier")
-  routesDriven   Route[]
-  seats          Seat[]
-  events         Event[]
-  activeVehicles Vehicle[]   @relation("VehicleActiveDriver")
+  roles             Role[]
+  memberships       OrgMember[]
+  devices           Device[]
+  sessions          Session[]
+  guardianLinks     GuardianLink[]  @relation("GuardianOf")
+  wardLinks         GuardianLink[]  @relation("WardPerson")
+  places            Place[]
+  orders            Order[]         @relation("Orderer")
+  participations    Participant[]
+  tripsAsCourier    Trip[]          @relation("TripCourier")
+  routesDriven      Route[]
+  departuresDriven  Departure[]
+  seats             Seat[]
+  subscriptions     Subscription[]  @relation("SubscriptionRider")
+  guardedSubs       Subscription[]  @relation("SubscriptionGuardian")
+  promotionsOwned   Promotion[]
+  promoRedemptions  PromoRedemption[]
+  incidentsOpened   Incident[]
+  events            Event[]
+  dispatchOffers    DispatchOffer[]
+  trailPoints       TrailPoint[]
+  activeVehicles    Vehicle[]       @relation("VehicleActiveDriver")
+  identity          PersonIdentity?
+  vaultAccessLogs   VaultAccessLog[] @relation("VaultSubject")
+  vaultAccesses     VaultAccessLog[] @relation("VaultAccessor")
+  tripOrderChanges  TripOrder[]
 
+  @@index([trustTier])
   @@map("people")
+  @@schema("public")
 }
 
 /// A grant on a Person, optionally scoped to an Org.
 model Role {
-  id        String   @id @default(cuid())
-  personId  String   @map("person_id")
+  id        String    @id @default(cuid())
+  personId  String    @map("person_id")
   kind      RoleKind
-  orgId     String?  @map("org_id")
-  grantedBy String?  @map("granted_by")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  orgId     String?   @map("org_id")
+  grantedBy String?   @map("granted_by")
+  /// Edge-case §7: guardian, driver and wallet roles freeze until re-verified.
+  frozenAt  DateTime? @map("frozen_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   person Person @relation(fields: [personId], references: [id])
   org    Org?   @relation(fields: [orgId], references: [id])
@@ -83,41 +149,208 @@ model Role {
   @@unique([personId, kind, orgId])
   @@index([personId])
   @@map("roles")
+  @@schema("public")
 }
 
-/// Restaurant, grocer or fleet.
+/// Restaurant, grocer, fleet or household (domain §12).
 model Org {
   id             String   @id @default(cuid())
   type           OrgType
   name           String
   cityId         String   @map("city_id")
+  /// Merchant: auto-accept flag earned by behaviour; busy mode; heartbeat.
+  autoAccept     Boolean  @default(false) @map("auto_accept")
+  busyMode       Boolean  @default(false) @map("busy_mode")
+  lastHeartbeat  DateTime? @map("last_heartbeat")
+  /// Per-merchant pause windows, e.g. Friday prayer, seeded by city: [{dow, start, end}].
+  pauseWindows   Json     @default("[]") @map("pause_windows")
   payoutSettings Json     @default("{}") @map("payout_settings")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  city     City          @relation(fields: [cityId], references: [id])
-  members  OrgMember[]
-  roles    Role[]
-  vehicles Vehicle[]
-  catalog  CatalogItem[]
+  city       City                @relation(fields: [cityId], references: [id])
+  members    OrgMember[]
+  roles      Role[]
+  vehicles   Vehicle[]
+  catalogs   Catalog[]
+  items      CatalogItem[]
+  orders     Order[]             @relation("MerchantOrders")
+  households Order[]             @relation("HouseholdOrders")
+  settlement MerchantSettlement?
+  promotions Promotion[]
 
-  @@index([cityId])
+  @@index([cityId, type])
   @@map("orgs")
+  @@schema("public")
 }
 
 model OrgMember {
-  id        String   @id @default(cuid())
-  orgId     String   @map("org_id")
-  personId  String   @map("person_id")
-  title     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id               String        @id @default(cuid())
+  orgId            String        @map("org_id")
+  personId         String        @map("person_id")
+  role             OrgMemberRole @default(member)
+  /// Household: orders above this ask the payer for one-tap approval. Null = no limit.
+  spendingLimitIqd Int?          @map("spending_limit_iqd")
+  title            String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   org    Org    @relation(fields: [orgId], references: [id])
   person Person @relation(fields: [personId], references: [id])
 
   @@unique([orgId, personId])
   @@map("org_members")
+  @@schema("public")
+}
+
+/// A phone/app install. New device ⇒ re-verify (edge-case §7); fingerprint feeds promo-abuse checks.
+model Device {
+  id          String    @id @default(cuid())
+  personId    String    @map("person_id")
+  platform    String
+  appVersion  String?   @map("app_version")
+  fingerprint String
+  pushToken   String?   @map("push_token")
+  verifiedAt  DateTime? @map("verified_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  person   Person    @relation(fields: [personId], references: [id])
+  sessions Session[]
+
+  @@unique([personId, fingerprint])
+  @@index([fingerprint])
+  @@map("devices")
+  @@schema("public")
+}
+
+/// Refresh-token session: 30-day rotating refresh, 15-minute access tokens (plan Step 2).
+model Session {
+  id               String    @id @default(cuid())
+  personId         String    @map("person_id")
+  deviceId         String?   @map("device_id")
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  expiresAt        DateTime  @map("expires_at")
+  rotatedAt        DateTime? @map("rotated_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  person Person  @relation(fields: [personId], references: [id])
+  device Device? @relation(fields: [deviceId], references: [id])
+
+  @@index([personId, expiresAt])
+  @@map("sessions")
+  @@schema("public")
+}
+
+/// One OTP attempt chain per phone hash: 6 digits, 5 attempts, 3-minute expiry, 30-second resend.
+model OtpChallenge {
+  id         String     @id @default(cuid())
+  phoneHash  String     @map("phone_hash")
+  codeHash   String     @map("code_hash")
+  purpose    OtpPurpose @default(login)
+  attempts   Int        @default(0)
+  expiresAt  DateTime   @map("expires_at")
+  verifiedAt DateTime?  @map("verified_at")
+  lockedAt   DateTime?  @map("locked_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  @@index([phoneHash, createdAt])
+  @@map("otp_challenges")
+  @@schema("public")
+}
+
+/// Guardian → ward. The ward is a Person (minor with an account) or a Participant on an order/subscription.
+/// Pending until the ward's phone confirms by OTP.
+model GuardianLink {
+  id                String            @id @default(cuid())
+  guardianId        String            @map("guardian_id")
+  wardPersonId      String?           @map("ward_person_id")
+  wardParticipantId String?           @map("ward_participant_id")
+  state             GuardianLinkState @default(pending)
+  consentedAt       DateTime?         @map("consented_at")
+  revokedAt         DateTime?         @map("revoked_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  guardian        Person       @relation("GuardianOf", fields: [guardianId], references: [id])
+  wardPerson      Person?      @relation("WardPerson", fields: [wardPersonId], references: [id])
+  wardParticipant Participant? @relation(fields: [wardParticipantId], references: [id])
+
+  @@index([guardianId, state])
+  @@index([wardPersonId])
+  @@map("guardian_links")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Vault (domain §13) ═════════════════════════════
+// Only modules/identity may touch `vault.*`. Re-identification goes through the console and is logged.
+
+/// The identifiers for one Person. Selfie refs are dropped after 90 days (result kept on `people`).
+model PersonIdentity {
+  id              String    @id @default(cuid())
+  personId        String    @unique @map("person_id")
+  phoneE164       String    @unique @map("phone_e164")
+  /// Peppered hash of phone_e164; the only thing the public schema ever sees.
+  phoneHash       String    @unique @map("phone_hash")
+  name            String?
+  /// Storage refs (never inline): [{kind: "national_id"|"licence"|…, ref, verifiedAt}]
+  documentRefs    Json      @default("[]") @map("document_refs")
+  selfieRefs      Json      @default("[]") @map("selfie_refs")
+  selfieDroppedAt DateTime? @map("selfie_dropped_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  person Person @relation(fields: [personId], references: [id])
+
+  @@map("person_identities")
+  @@schema("vault")
+}
+
+/// Every read of an identifier, by whom and why. Append-only like the ledger.
+model VaultAccessLog {
+  id         String   @id @default(cuid())
+  personId   String   @map("person_id")
+  accessorId String   @map("accessor_id")
+  purpose    String
+  /// Which columns were read, e.g. ["phone_e164","name"].
+  fieldsRead String[] @default([]) @map("fields_read")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  subject  Person @relation("VaultSubject", fields: [personId], references: [id])
+  accessor Person @relation("VaultAccessor", fields: [accessorId], references: [id])
+
+  @@index([personId, createdAt])
+  @@index([accessorId, createdAt])
+  @@map("vault_access_logs")
+  @@schema("vault")
+}
+
+// ═════════════════════════════ Fleet & geography ═════════════════════════════
+
+enum VehicleClass {
+  bike
+  tuktuk
+  car
+  suv
+  van
+  intercity
+
+  @@schema("public")
+}
+
+enum ZoneTier {
+  centre
+  near
+  mid
+  far
+  edge
+
+  @@schema("public")
 }
 
 /// Plate-level object. Owned by an org (fleet) and driven by one active person.
@@ -127,18 +360,23 @@ model Vehicle {
   class          VehicleClass
   ownerOrgId     String?      @map("owner_org_id")
   activeDriverId String?      @map("active_driver_id")
+  /// Edge-case §9: seat map per vehicle — saloon 4, SUV 6, van 7/11: [{position, row, premiumIqd?}].
+  seatMap        Json         @default("[]") @map("seat_map")
+  parcelCapacity Int          @default(0) @map("parcel_capacity")
+  active         Boolean      @default(true)
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  ownerOrg     Org?    @relation(fields: [ownerOrgId], references: [id])
-  activeDriver Person? @relation("VehicleActiveDriver", fields: [activeDriverId], references: [id])
+  ownerOrg     Org?        @relation(fields: [ownerOrgId], references: [id])
+  activeDriver Person?     @relation("VehicleActiveDriver", fields: [activeDriverId], references: [id])
   trips        Trip[]
   routes       Route[]
+  departures   Departure[]
 
+  @@index([ownerOrgId])
   @@map("vehicles")
+  @@schema("public")
 }
-
-// ───────────────────────── Geography & config ─────────────────────────
 
 /// Config unit. Prices, hours, dispatch policy and rounding are data, never code.
 model City {
@@ -154,45 +392,68 @@ model City {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  zones  Zone[]
-  orgs   Org[]
-  places Place[]
-  trips  Trip[]
-  routes Route[]
+  zones         Zone[]
+  orgs          Org[]
+  places        Place[]
+  meetingPoints MeetingPoint[]
+  orders        Order[]
+  trips         Trip[]
+  routes        Route[]
+  promotions    Promotion[]
 
   @@map("cities")
+  @@schema("public")
 }
 
+/// Pricing/dispatch zone. Polygons are AI-drafted centroids until drivers verify them in Partner.
 model Zone {
-  id        String                                  @id @default(cuid())
-  cityId    String                                  @map("city_id")
-  /// Stable key used in zone fare tables (e.g. "center", "north").
-  key       String
-  nameAr    String                                  @map("name_ar")
-  nameEn    String                                  @map("name_en")
-  polygon   Unsupported("geography(Polygon, 4326)")
-  createdAt DateTime                                @default(now()) @map("created_at")
-  updatedAt DateTime                                @updatedAt @map("updated_at")
+  id         String                                  @id @default(cuid())
+  cityId     String                                  @map("city_id")
+  /// Stable key used in zone fare tables (e.g. "centre", "khamas").
+  key        String
+  nameAr     String                                  @map("name_ar")
+  nameEn     String                                  @map("name_en")
+  tier       ZoneTier
+  /// External id from the courier-company location list, kept for import mapping.
+  extId      String?                                 @map("ext_id")
+  polygon    Unsupported("geography(Polygon, 4326)")
+  verifiedAt DateTime?                               @map("verified_at")
+  /// Edge zones: tuktuks opt in; cars default.
+  tuktukOptIn Boolean                                @default(true) @map("tuktuk_opt_in")
+  createdAt  DateTime                                @default(now()) @map("created_at")
+  updatedAt  DateTime                                @updatedAt @map("updated_at")
 
-  city City @relation(fields: [cityId], references: [id])
+  city          City           @relation(fields: [cityId], references: [id])
+  meetingPoints MeetingPoint[]
 
   @@unique([cityId, key])
+  @@unique([cityId, extId])
+  @@index([polygon], type: Gist)
   @@map("zones")
+  @@schema("public")
 }
 
 /// Saved or learned location. Landmarks are shared city knowledge.
 model Place {
-  id         String                                @id @default(cuid())
-  cityId     String                                @map("city_id")
-  ownerId    String?                               @map("owner_id")
-  name       String
-  note       String?
-  pin        Unsupported("geography(Point, 4326)")
-  confidence Float                                 @default(0.5)
-  landmark   Boolean                               @default(false)
-  shares     String[]                              @default([])
-  createdAt  DateTime                              @default(now()) @map("created_at")
-  updatedAt  DateTime                              @updatedAt @map("updated_at")
+  id             String                                @id @default(cuid())
+  cityId         String                                @map("city_id")
+  ownerId        String?                               @map("owner_id")
+  name           String
+  note           String?
+  /// Domain §7: local names drivers use ("يم الجامع الكبير").
+  localNames     String[]                              @default([]) @map("local_names")
+  pin            Unsupported("geography(Point, 4326)")
+  confidence     Float                                 @default(0.5)
+  landmark       Boolean                               @default(false)
+  landmarkState  String?                               @map("landmark_state")
+  /// Household sharing (opt-in): org ids that may use this place.
+  shares         String[]                              @default([])
+  /// Domain §7: a far arrival tap flags for review; never moves the pin.
+  flaggedAt      DateTime?                             @map("flagged_at")
+  /// Courier arrival taps near the pin: [{lat, lng, at, distanceM}] — pin drifts toward the median after 3+.
+  arrivalSamples Json                                  @default("[]") @map("arrival_samples")
+  createdAt      DateTime                              @default(now()) @map("created_at")
+  updatedAt      DateTime                              @updatedAt @map("updated_at")
 
   city   City         @relation(fields: [cityId], references: [id])
   owner  Person?      @relation(fields: [ownerId], references: [id])
@@ -201,7 +462,9 @@ model Place {
 
   @@index([cityId])
   @@index([ownerId])
+  @@index([pin], type: Gist)
   @@map("places")
+  @@schema("public")
 }
 
 model PlacePhoto {
@@ -216,179 +479,169 @@ model PlacePhoto {
 
   @@index([placeId])
   @@map("place_photos")
+  @@schema("public")
 }
 
-// ───────────────────────── Catalog ─────────────────────────
+/// Curated street-pickup point per neighbourhood (domain §1). Garages for intercity are meeting points too.
+model MeetingPoint {
+  id          String                                @id @default(cuid())
+  cityId      String                                @map("city_id")
+  zoneId      String?                               @map("zone_id")
+  nameAr      String                                @map("name_ar")
+  nameEn      String?                               @map("name_en")
+  pin         Unsupported("geography(Point, 4326)")
+  photoUrl    String?                               @map("photo_url")
+  reachableBy VehicleClass[]                        @default([]) @map("reachable_by")
+  /// Intercity garage: late meter runs inside a 150 m geofence (edge-case §8).
+  garage      Boolean                               @default(false)
+  geofenceM   Int                                   @default(60) @map("geofence_m")
+  active      Boolean                               @default(true)
+  createdAt   DateTime                              @default(now()) @map("created_at")
+  updatedAt   DateTime                              @updatedAt @map("updated_at")
 
-model CatalogItem {
-  id          String   @id @default(cuid())
-  orgId       String   @map("org_id")
-  nameAr      String   @map("name_ar")
-  nameEn      String?  @map("name_en")
-  /// IQD integer.
-  priceIqd    Int      @map("price_iqd")
-  modifiers   Json     @default("[]")
-  available   Boolean  @default(true)
-  prepTimeMin Int      @default(15) @map("prep_time_min")
-  busyMode    Boolean  @default(false) @map("busy_mode")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  city  City   @relation(fields: [cityId], references: [id])
+  zone  Zone?  @relation(fields: [zoneId], references: [id])
+  stops Stop[]
 
-  org Org @relation(fields: [orgId], references: [id])
+  @@index([cityId])
+  @@index([pin], type: Gist)
+  @@map("meeting_points")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Catalog ═════════════════════════════
+
+/// Shared item classification across merchants.
+model TaxonomyNode {
+  id        String   @id @default(cuid())
+  parentId  String?  @map("parent_id")
+  slug      String   @unique
+  nameAr    String   @map("name_ar")
+  nameEn    String   @map("name_en")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent   TaxonomyNode?  @relation("TaxonomyTree", fields: [parentId], references: [id])
+  children TaxonomyNode[] @relation("TaxonomyTree")
+  items    CatalogItem[]
+
+  @@index([parentId])
+  @@map("taxonomy_nodes")
+  @@schema("public")
+}
+
+/// A merchant menu (one per org, or per branch).
+model Catalog {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  nameAr    String   @map("name_ar")
+  branchKey String?  @map("branch_key")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org   Org           @relation(fields: [orgId], references: [id])
+  items CatalogItem[]
 
   @@index([orgId])
-  @@map("catalog_items")
+  @@map("catalogs")
+  @@schema("public")
 }
 
-// ───────────────────────── Trips, stops, routes, seats ─────────────────────────
+model CatalogItem {
+  id              String   @id @default(cuid())
+  catalogId       String   @map("catalog_id")
+  orgId           String   @map("org_id")
+  taxonomyId      String?  @map("taxonomy_id")
+  nameAr          String   @map("name_ar")
+  nameEn          String?  @map("name_en")
+  description     String?
+  priceIqd        Int      @map("price_iqd")
+  photoUrl        String?  @map("photo_url")
+  /// Null = unlimited; 0 = sold out.
+  stock           Int?
+  available       Boolean  @default(true)
+  /// Availability schedule: [{dow, start, end}]; empty = always.
+  availability    Json     @default("[]")
+  prepTimeMin     Int      @default(15) @map("prep_time_min")
+  /// Learned prep time from ready taps (minutes), null until enough samples.
+  learnedPrepMin  Int?     @map("learned_prep_min")
+  /// Per-branch price/availability overrides: {branchKey: {priceIqd?, available?}}
+  branchOverrides Json     @default("{}") @map("branch_overrides")
+  spice           Int?
+  portion         String?
+  pointsEligible  Boolean  @default(true) @map("points_eligible")
+  /// Summer hot-item cap: never batched to wait > 10 min from ready.
+  hot             Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  catalog        Catalog         @relation(fields: [catalogId], references: [id])
+  org            Org             @relation(fields: [orgId], references: [id])
+  taxonomy       TaxonomyNode?   @relation(fields: [taxonomyId], references: [id])
+  modifierGroups ModifierGroup[]
+  orderLines     OrderLine[]
+
+  @@index([orgId, available])
+  @@index([catalogId])
+  @@index([taxonomyId])
+  @@map("catalog_items")
+  @@schema("public")
+}
+
+model ModifierGroup {
+  id        String   @id @default(cuid())
+  itemId    String   @map("item_id")
+  nameAr    String   @map("name_ar")
+  nameEn    String?  @map("name_en")
+  minSelect Int      @default(0) @map("min_select")
+  maxSelect Int      @default(1) @map("max_select")
+  required  Boolean  @default(false)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  item      CatalogItem @relation(fields: [itemId], references: [id])
+  modifiers Modifier[]
+
+  @@index([itemId])
+  @@map("modifier_groups")
+  @@schema("public")
+}
+
+model Modifier {
+  id        String   @id @default(cuid())
+  groupId   String   @map("group_id")
+  nameAr    String   @map("name_ar")
+  nameEn    String?  @map("name_en")
+  priceIqd  Int      @default(0) @map("price_iqd")
+  available Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  group ModifierGroup @relation(fields: [groupId], references: [id])
+
+  @@index([groupId])
+  @@map("modifiers")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Pricing ═════════════════════════════
 
 enum Vertical {
   food
   grocery
+  errand
+  parcel
   taxi
   tuktuk
   intercity
   khat
+
+  @@schema("public")
 }
-
-enum TripState {
-  draft
-  quoted
-  requested
-  assigned
-  en_route
-  arrived
-  in_progress
-  completed
-  cancelled
-  disputed
-}
-
-enum StopType {
-  pickup
-  dropoff
-  wait
-}
-
-/// Universal job. Everything a courier or driver does is a Trip with ordered Stops.
-model Trip {
-  id         String    @id @default(cuid())
-  cityId     String    @map("city_id")
-  vertical   Vertical
-  state      TripState @default(draft)
-  customerId String    @map("customer_id")
-  courierId  String?   @map("courier_id")
-  vehicleId  String?   @map("vehicle_id")
-  routeId    String?   @map("route_id")
-  quoteId    String?   @unique @map("quote_id")
-  /// GPS trail recorded during the trip; 30-day retention unless an incident is open.
-  trail      Unsupported("geography(LineString, 4326)")?
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-
-  city         City          @relation(fields: [cityId], references: [id])
-  customer     Person        @relation("TripCustomer", fields: [customerId], references: [id])
-  courier      Person?       @relation("TripCourier", fields: [courierId], references: [id])
-  vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
-  route        Route?        @relation(fields: [routeId], references: [id])
-  quote        Quote?        @relation(fields: [quoteId], references: [id])
-  stops        Stop[]
-  events       Event[]
-  ledgerEvents LedgerEvent[]
-
-  @@index([cityId, state])
-  @@index([courierId, state])
-  @@map("trips")
-}
-
-/// Ordered leg endpoint.
-model Stop {
-  id          String    @id @default(cuid())
-  tripId      String    @map("trip_id")
-  order       Int
-  placeId     String    @map("place_id")
-  zoneKey     String    @map("zone_key")
-  type        StopType
-  windowStart DateTime? @map("window_start")
-  windowEnd   DateTime? @map("window_end")
-  completedAt DateTime? @map("completed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  trip  Trip  @relation(fields: [tripId], references: [id])
-  place Place @relation(fields: [placeId], references: [id])
-
-  @@unique([tripId, order])
-  @@map("stops")
-}
-
-enum RouteType {
-  khat
-  intercity
-}
-
-/// Recurring (خط) or scheduled (intercity) line.
-model Route {
-  id        String    @id @default(cuid())
-  cityId    String    @map("city_id")
-  type      RouteType
-  nameAr    String    @map("name_ar")
-  /// Ordered stop definitions: [{placeId, offsetMin}] — stable across departures.
-  stops     Json      @default("[]")
-  /// RRULE or cron-like schedule string.
-  schedule  String
-  driverId  String?   @map("driver_id")
-  vehicleId String?   @map("vehicle_id")
-  active    Boolean   @default(true)
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-
-  city         City          @relation(fields: [cityId], references: [id])
-  driver       Person?       @relation(fields: [driverId], references: [id])
-  vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
-  seats        Seat[]
-  trips        Trip[]
-  ledgerEvents LedgerEvent[]
-
-  @@index([cityId, type])
-  @@map("routes")
-}
-
-enum SeatPosition {
-  front
-  back_left
-  back_middle
-  back_right
-}
-
-enum SeatStatus {
-  open
-  held
-  booked
-  boarded
-  released
-}
-
-/// Bookable position on a Route departure.
-model Seat {
-  id          String       @id @default(cuid())
-  routeId     String       @map("route_id")
-  departureAt DateTime     @map("departure_at")
-  position    SeatPosition
-  riderId     String?      @map("rider_id")
-  priceIqd    Int          @map("price_iqd")
-  status      SeatStatus   @default(open)
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-
-  route Route   @relation(fields: [routeId], references: [id])
-  rider Person? @relation(fields: [riderId], references: [id])
-
-  @@unique([routeId, departureAt, position])
-  @@map("seats")
-}
-
-// ───────────────────────── Pricing ─────────────────────────
 
 enum ComponentKey {
   base
@@ -403,42 +656,54 @@ enum ComponentKey {
   weather
   peak
   pickup_compensation
+  service_fee
+  small_order
   promo
   cancellation
+  points_redeemed
+
+  @@schema("public")
 }
 
 enum Visibility {
   shown
   shadow
+
+  @@schema("public")
 }
 
 enum DriverShareRule {
   driver_full
   driver_commissioned
   platform_only
+
+  @@schema("public")
 }
 
-/// Priced offer. Stored with acceptance outcome; locked at acceptance.
+/// Priced offer. Stored with acceptance outcome; locked at acceptance. Re-quotes point at their parent.
 model Quote {
-  id          String    @id @default(cuid())
-  cityId      String    @map("city_id")
-  vertical    Vertical
-  currency    String    @default("IQD")
-  subtotalIqd Int       @map("subtotal_iqd")
-  totalIqd    Int       @map("total_iqd")
+  id             String    @id @default(cuid())
+  cityId         String    @map("city_id")
+  vertical       Vertical
+  currency       String    @default("IQD")
+  subtotalIqd    Int       @map("subtotal_iqd")
+  totalIqd       Int       @map("total_iqd")
   /// Total if shadow components were enabled — calibration signal.
-  shadowTotalIqd Int    @map("shadow_total_iqd")
-  request     Json
-  lockedAt    DateTime? @map("locked_at")
-  acceptedAt  DateTime? @map("accepted_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  shadowTotalIqd Int       @map("shadow_total_iqd")
+  request        Json
+  parentQuoteId  String?   @map("parent_quote_id")
+  lockedAt       DateTime? @map("locked_at")
+  acceptedAt     DateTime? @map("accepted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   components QuoteComponent[]
   trip       Trip?
+  order      Order?
 
   @@index([cityId, vertical, createdAt])
   @@map("quotes")
+  @@schema("public")
 }
 
 model QuoteComponent {
@@ -451,6 +716,8 @@ model QuoteComponent {
   driverShareRule DriverShareRule @map("driver_share_rule")
   visibility      Visibility
   leg             Int?
+  /// Which promotion funded a discount line, when key = promo.
+  promotionId     String?         @map("promotion_id")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
@@ -458,11 +725,744 @@ model QuoteComponent {
 
   @@index([quoteId])
   @@map("quote_components")
+  @@schema("public")
 }
 
-// ───────────────────────── Ledger & events ─────────────────────────
+// ═════════════════════════════ Orders ═════════════════════════════
+
+enum OrderType {
+  food
+  grocery_catalog
+  errand
+  parcel
+  ride
+  seat
+  subscription
+
+  @@schema("public")
+}
+
+/// Domain §2 Order machine. `matched`/`completed` are the ride-order path.
+enum OrderState {
+  placed
+  merchant_accepted
+  preparing
+  ready
+  picked_up
+  delivered
+  closed
+  matched
+  completed
+  merchant_rejected
+  customer_cancelled
+  platform_cancelled
+  refunded
+  disputed
+  failed
+
+  @@schema("public")
+}
+
+enum PaymentMethod {
+  cash
+  wallet
+  prepaid
+
+  @@schema("public")
+}
+
+enum RefundState {
+  none
+  requested
+  credited
+  cash_refunded
+  denied
+
+  @@schema("public")
+}
+
+enum ParticipantRole {
+  recipient
+  diner
+  rider
+  parcel_recipient
+
+  @@schema("public")
+}
+
+/// Commercial object (domain §1). Money settles on `closed`.
+model Order {
+  id                 String        @id @default(cuid())
+  cityId             String        @map("city_id")
+  type               OrderType
+  state              OrderState    @default(placed)
+  ordererId          String        @map("orderer_id")
+  merchantOrgId      String?       @map("merchant_org_id")
+  /// Household wallet paying for this order (domain §12).
+  householdOrgId     String?       @map("household_org_id")
+  quoteId            String?       @unique @map("quote_id")
+  paymentMethod      PaymentMethod @default(cash) @map("payment_method")
+  /// Edge-case §4: first three cash orders capped at 25,000; "prepay required" keys on device+phone+place.
+  prepayRequired     Boolean       @default(false) @map("prepay_required")
+  arrivingCallAt     DateTime?     @map("arriving_call_at")
+  itemsTotalIqd      Int           @default(0) @map("items_total_iqd")
+  deliveryFeeIqd     Int           @default(0) @map("delivery_fee_iqd")
+  serviceFeeIqd      Int           @default(0) @map("service_fee_iqd")
+  discountIqd        Int           @default(0) @map("discount_iqd")
+  tipIqd             Int           @default(0) @map("tip_iqd")
+  totalIqd           Int           @default(0) @map("total_iqd")
+  /// Errands: customer ceiling and actual receipt total.
+  ceilingIqd         Int?          @map("ceiling_iqd")
+  receiptTotalIqd    Int?          @map("receipt_total_iqd")
+  receiptPhotoUrl    String?       @map("receipt_photo_url")
+  refundState        RefundState   @default(none) @map("refund_state")
+  note               String?
+  scheduledFor       DateTime?     @map("scheduled_for")
+  payerApprovedAt    DateTime?     @map("payer_approved_at")
+  placedAt           DateTime      @default(now()) @map("placed_at")
+  acceptedAt         DateTime?     @map("accepted_at")
+  preparingAt        DateTime?     @map("preparing_at")
+  readyAt            DateTime?     @map("ready_at")
+  pickedUpAt         DateTime?     @map("picked_up_at")
+  deliveredAt        DateTime?     @map("delivered_at")
+  closedAt           DateTime?     @map("closed_at")
+  cancelledAt        DateTime?     @map("cancelled_at")
+  cancellationReason String?       @map("cancellation_reason")
+  cancellationFeeIqd Int           @default(0) @map("cancellation_fee_iqd")
+  ratedAt            DateTime?     @map("rated_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  city          City              @relation(fields: [cityId], references: [id])
+  orderer       Person            @relation("Orderer", fields: [ordererId], references: [id])
+  merchant      Org?              @relation("MerchantOrders", fields: [merchantOrgId], references: [id])
+  household     Org?              @relation("HouseholdOrders", fields: [householdOrgId], references: [id])
+  quote         Quote?            @relation(fields: [quoteId], references: [id])
+  lines         OrderLine[]
+  participants  Participant[]
+  tripOrders    TripOrder[]
+  stops         Stop[]
+  parcel        Parcel?
+  seats         Seat[]
+  redemptions   PromoRedemption[]
+  incidents     Incident[]
+  ledgerEvents  LedgerEvent[]
+  events        Event[]
+
+  @@index([cityId, state])
+  @@index([ordererId, placedAt])
+  @@index([merchantOrgId, state])
+  @@map("orders")
+  @@schema("public")
+}
+
+/// One item or service on an Order; may be tagged to a Participant for grouping and points.
+model OrderLine {
+  id             String   @id @default(cuid())
+  orderId        String   @map("order_id")
+  catalogItemId  String?  @map("catalog_item_id")
+  /// Errands / shop-for-me: free text when there is no catalog item.
+  freeText       String?  @map("free_text")
+  qty            Int      @default(1)
+  unitPriceIqd   Int      @map("unit_price_iqd")
+  /// Chosen modifiers snapshot: [{groupId, modifierId, nameAr, priceIqd}]
+  modifiers      Json     @default("[]")
+  participantId  String?  @map("participant_id")
+  note           String?
+  pointsEligible Boolean  @default(true) @map("points_eligible")
+  /// Substitution flow (domain §4): proposed → accepted/declined.
+  substitution   Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  order       Order        @relation(fields: [orderId], references: [id])
+  catalogItem CatalogItem? @relation(fields: [catalogItemId], references: [id])
+  participant Participant? @relation(fields: [participantId], references: [id])
+
+  @@index([orderId])
+  @@index([participantId])
+  @@map("order_lines")
+  @@schema("public")
+}
+
+/// A person on an Order who is not necessarily the orderer. Pseudonymous: phone lives in the vault,
+/// keyed by its hash; a Person is created (unverified) when a phone is given so notifications can reach them.
+model Participant {
+  id        String          @id @default(cuid())
+  orderId   String          @map("order_id")
+  role      ParticipantRole
+  personId  String?         @map("person_id")
+  phoneHash String?         @map("phone_hash")
+  /// Orderer-chosen grouping tag shown on the merchant ticket (e.g. "الكبير"), not an identifier.
+  label     String?
+  note      String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  order         Order          @relation(fields: [orderId], references: [id])
+  person        Person?        @relation(fields: [personId], references: [id])
+  lines         OrderLine[]
+  guardianLinks GuardianLink[]
+  seats         Seat[]
+
+  @@index([orderId])
+  @@index([phoneHash])
+  @@map("participants")
+  @@schema("public")
+}
+
+/// Order ⇄ Trip with history: re-batching detaches and re-attaches (domain §1).
+model TripOrder {
+  id         String    @id @default(cuid())
+  tripId     String    @map("trip_id")
+  orderId    String    @map("order_id")
+  attachedAt DateTime  @default(now()) @map("attached_at")
+  detachedAt DateTime? @map("detached_at")
+  reason     String?
+  changedBy  String?   @map("changed_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  trip    Trip    @relation(fields: [tripId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+  changer Person? @relation(fields: [changedBy], references: [id])
+
+  @@unique([tripId, orderId, attachedAt])
+  @@index([orderId, detachedAt])
+  @@map("trip_orders")
+  @@schema("public")
+}
+
+enum ParcelSize {
+  envelope
+  small
+  medium
+  large
+
+  @@schema("public")
+}
+
+/// Package on an Order of type parcel (domain §2 hand-over).
+model Parcel {
+  id               String     @id @default(cuid())
+  orderId          String     @unique @map("order_id")
+  description      String
+  sizeClass        ParcelSize @map("size_class")
+  declaredValueIqd Int        @default(0) @map("declared_value_iqd")
+  fragile          Boolean    @default(false)
+  prohibitedAck    Boolean    @default(false) @map("prohibited_ack")
+  pinHash          String?    @map("pin_hash")
+  photoPickupUrl   String?    @map("photo_pickup_url")
+  photoDropoffUrl  String?    @map("photo_dropoff_url")
+  pinVerifiedAt    DateTime?  @map("pin_verified_at")
+  releaseRequestedAt DateTime? @map("release_requested_at")
+  releaseApprovedAt  DateTime? @map("release_approved_at")
+  refusedAt        DateTime?  @map("refused_at")
+  refusalPhotoUrl  String?    @map("refusal_photo_url")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("parcels")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Trips & stops ═════════════════════════════
+
+/// Domain §2 Trip machine. `declined`/`timed_out` return to `offered`; the rest are terminal.
+enum TripState {
+  created
+  offered
+  accepted
+  en_route_to_pickup
+  arrived_pickup
+  in_transit
+  arrived_dropoff
+  completed
+  declined
+  timed_out
+  driver_cancelled
+  customer_cancelled
+  platform_cancelled
+  failed
+
+  @@schema("public")
+}
+
+enum StopType {
+  pickup
+  dropoff
+  wait
+  shop
+
+  @@schema("public")
+}
+
+enum StopState {
+  pending
+  arrived
+  completed
+  skipped
+
+  @@schema("public")
+}
+
+/// Logistics object. Everything a courier or driver does is a Trip with ordered Stops; state derives from stops.
+model Trip {
+  id                     String    @id @default(cuid())
+  cityId                 String    @map("city_id")
+  vertical               Vertical
+  state                  TripState @default(created)
+  courierId              String?   @map("courier_id")
+  vehicleId              String?   @map("vehicle_id")
+  routeId                String?   @map("route_id")
+  departureId            String?   @map("departure_id")
+  quoteId                String?   @unique @map("quote_id")
+  /// Batched trips share a batch id; the second order pays the courier 70 % of its fee.
+  batchId                String?   @map("batch_id")
+  offeredAt              DateTime? @map("offered_at")
+  acceptedAt             DateTime? @map("accepted_at")
+  /// Domain §2 unreachable protocol: dispatcher at minute 3, `failed` allowed at minute 5.
+  unreachableStartedAt   DateTime? @map("unreachable_started_at")
+  unreachableEscalatedAt DateTime? @map("unreachable_escalated_at")
+  completedAt            DateTime? @map("completed_at")
+  cancelledAt            DateTime? @map("cancelled_at")
+  cancellationReason     String?   @map("cancellation_reason")
+  /// Edge-case §6: compensation paid on rebroadcast, only to drivers outside waves 1–2.
+  rebroadcastAt          DateTime? @map("rebroadcast_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  city         City            @relation(fields: [cityId], references: [id])
+  courier      Person?         @relation("TripCourier", fields: [courierId], references: [id])
+  vehicle      Vehicle?        @relation(fields: [vehicleId], references: [id])
+  route        Route?          @relation(fields: [routeId], references: [id])
+  departure    Departure?      @relation(fields: [departureId], references: [id])
+  quote        Quote?          @relation(fields: [quoteId], references: [id])
+  stops        Stop[]
+  tripOrders   TripOrder[]
+  trail        TrailPoint[]
+  offers       DispatchOffer[]
+  incidents    Incident[]
+  events       Event[]
+  ledgerEvents LedgerEvent[]
+
+  @@index([cityId, state])
+  @@index([courierId, state])
+  @@index([departureId])
+  @@index([batchId])
+  @@map("trips")
+  @@schema("public")
+}
+
+/// Ordered leg endpoint. Place or meeting point; geofence (60 m) arms the arrival button, the tap is official.
+model Stop {
+  id                     String                                 @id @default(cuid())
+  tripId                 String                                 @map("trip_id")
+  seq                    Int
+  orderId                String?                                @map("order_id")
+  type                   StopType
+  state                  StopState                              @default(pending)
+  placeId                String?                                @map("place_id")
+  meetingPointId         String?                                @map("meeting_point_id")
+  zoneKey                String                                 @map("zone_key")
+  windowStart            DateTime?                              @map("window_start")
+  windowEnd              DateTime?                              @map("window_end")
+  geofenceEnteredAt      DateTime?                              @map("geofence_entered_at")
+  arrivedAt              DateTime?                              @map("arrived_at")
+  /// Tap outside the 60 m geofence: recorded and flagged, never blocked.
+  arrivedOutsideGeofence Boolean                                @default(false) @map("arrived_outside_geofence")
+  arrivalPin             Unsupported("geography(Point, 4326)")?
+  arrivalDistanceM       Int?                                   @map("arrival_distance_m")
+  completedAt            DateTime?                              @map("completed_at")
+  skippedAt              DateTime?                              @map("skipped_at")
+  skipReason             String?                                @map("skip_reason")
+  /// Photo, PIN result, recipient confirmation, cash collected…: {photoUrl?, pinOk?, cashIqd?, …}
+  handoverProof          Json                                   @default("{}") @map("handover_proof")
+  /// Edge-case §5 (خطوط): per-child tap-in/tap-out by name; guardian "arrived" push on tap-out at school.
+  childTapInAt           DateTime?                              @map("child_tap_in_at")
+  childTapOutAt          DateTime?                              @map("child_tap_out_at")
+  childName              String?                                @map("child_name")
+  createdAt              DateTime                               @default(now()) @map("created_at")
+  updatedAt              DateTime                               @updatedAt @map("updated_at")
+
+  trip         Trip          @relation(fields: [tripId], references: [id])
+  order        Order?        @relation(fields: [orderId], references: [id])
+  place        Place?        @relation(fields: [placeId], references: [id])
+  meetingPoint MeetingPoint? @relation(fields: [meetingPointId], references: [id])
+
+  @@unique([tripId, seq])
+  @@index([orderId])
+  @@map("stops")
+  @@schema("public")
+}
+
+/// Raw position stream (`position.reported`), monthly-partitioned by `at` in the migration; kept forever.
+/// Composite key because Postgres partition keys must be part of the primary key.
+model TrailPoint {
+  id        String                                @default(cuid())
+  tripId    String?                               @map("trip_id")
+  driverId  String                                @map("driver_id")
+  at        DateTime
+  pin       Unsupported("geography(Point, 4326)")
+  speedKmh  Float?                                @map("speed_kmh")
+  bearing   Float?
+  accuracyM Float?                                @map("accuracy_m")
+  recordedAt DateTime                             @default(now()) @map("recorded_at")
+  createdAt DateTime                              @default(now()) @map("created_at")
+  updatedAt DateTime                              @updatedAt @map("updated_at")
+
+  trip   Trip?  @relation(fields: [tripId], references: [id])
+  driver Person @relation(fields: [driverId], references: [id])
+
+  @@id([id, at])
+  @@index([tripId, at])
+  @@index([driverId, at])
+  @@index([pin], type: Gist)
+  @@map("trail_points")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Routes, departures, seats, subscriptions ═════════════════════════════
+
+enum RouteType {
+  khat
+  intercity
+
+  @@schema("public")
+}
+
+enum RouteState {
+  draft
+  active
+  paused
+  ended
+
+  @@schema("public")
+}
+
+enum DepartureState {
+  scheduled
+  boarding
+  departed
+  arrived
+  closed
+  cancelled_by_driver
+  cancelled_low_fill
+
+  @@schema("public")
+}
+
+enum SeatPosition {
+  front
+  back_left
+  back_middle
+  back_right
+  row_2_left
+  row_2_middle
+  row_2_right
+  row_3_left
+  row_3_middle
+  row_3_right
+  parcel
+
+  @@schema("public")
+}
+
+enum SeatState {
+  held
+  booked
+  checked_in
+  completed
+  cancelled_by_rider
+  no_show
+  moved
+
+  @@schema("public")
+}
+
+/// Edge-case §9: rider declares travelling-as (رجال / نساء / عائلة) for seat adjacency.
+enum TravellingAs {
+  rijal
+  nisa
+  aila
+
+  @@schema("public")
+}
+
+enum SubscriptionState {
+  trial
+  active
+  past_due
+  cancelled
+
+  @@schema("public")
+}
+
+/// Recurring (خط) or scheduled (intercity) line.
+model Route {
+  id             String     @id @default(cuid())
+  cityId         String     @map("city_id")
+  type           RouteType
+  state          RouteState @default(draft)
+  nameAr         String     @map("name_ar")
+  nameEn         String?    @map("name_en")
+  /// Ordered stop definitions: [{placeId | meetingPointId, offsetMin, zoneKey}] — stable across departures.
+  stops          Json       @default("[]")
+  /// RRULE or cron-like schedule string.
+  schedule       String
+  driverId       String?    @map("driver_id")
+  vehicleId      String?    @map("vehicle_id")
+  /// Snapshot of the vehicle seat map at publish time: [{position, priceIqd}]
+  seatMap        Json       @default("[]") @map("seat_map")
+  /// Edge-case §9: family-only departures as a route attribute.
+  familyOnly     Boolean    @default(false) @map("family_only")
+  seatPriceIqd   Int?       @map("seat_price_iqd")
+  /// Khat: monthly subscription price.
+  monthlyPriceIqd Int?      @map("monthly_price_iqd")
+  /// Pre-approved substitute driver ids (edge-case §5).
+  substitutePool String[]   @default([]) @map("substitute_pool")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  city          City           @relation(fields: [cityId], references: [id])
+  driver        Person?        @relation(fields: [driverId], references: [id])
+  vehicle       Vehicle?       @relation(fields: [vehicleId], references: [id])
+  departures    Departure[]
+  subscriptions Subscription[]
+  trips         Trip[]
+  ledgerEvents  LedgerEvent[]
+
+  @@index([cityId, type, state])
+  @@map("routes")
+  @@schema("public")
+}
+
+/// One scheduled run of an intercity Route (domain §2).
+model Departure {
+  id                 String         @id @default(cuid())
+  routeId            String         @map("route_id")
+  scheduledAt        DateTime       @map("scheduled_at")
+  /// Edge-case §8: late-meter reference is the announced departure time.
+  announcedAt        DateTime       @map("announced_at")
+  /// Hard latest departure; forfeits after 20 min convert into holds on the next departure.
+  latestDepartureAt  DateTime?      @map("latest_departure_at")
+  state              DepartureState @default(scheduled)
+  driverId           String?        @map("driver_id")
+  vehicleId          String?        @map("vehicle_id")
+  parcelSlots        Int            @default(0) @map("parcel_slots")
+  minSeats           Int            @default(3) @map("min_seats")
+  driverCheckedInAt  DateTime?      @map("driver_checked_in_at")
+  lateMeterStartedAt DateTime?      @map("late_meter_started_at")
+  boardingAt         DateTime?      @map("boarding_at")
+  departedAt         DateTime?      @map("departed_at")
+  arrivedAt          DateTime?      @map("arrived_at")
+  closedAt           DateTime?      @map("closed_at")
+  cancelledAt        DateTime?      @map("cancelled_at")
+  cancellationReason String?        @map("cancellation_reason")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  route        Route         @relation(fields: [routeId], references: [id])
+  driver       Person?       @relation(fields: [driverId], references: [id])
+  vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
+  seats        Seat[]
+  trips        Trip[]
+  ledgerEvents LedgerEvent[]
+
+  @@index([routeId, scheduledAt])
+  @@index([state, scheduledAt])
+  @@map("departures")
+  @@schema("public")
+}
+
+/// Bookable position on a Departure. `held` 10 min unpaid → `booked` → `checked_in` → `completed`.
+model Seat {
+  id            String        @id @default(cuid())
+  departureId   String        @map("departure_id")
+  position      SeatPosition
+  state         SeatState     @default(held)
+  riderId       String?       @map("rider_id")
+  participantId String?       @map("participant_id")
+  orderId       String?       @map("order_id")
+  travellingAs  TravellingAs? @map("travelling_as")
+  priceIqd      Int           @map("price_iqd")
+  prepaid       Boolean       @default(false)
+  /// Driver-marked walk-up: no commission at launch; counts toward fill; never displaces a booking.
+  walkUp        Boolean       @default(false) @map("walk_up")
+  heldUntil     DateTime?     @map("held_until")
+  checkedInAt   DateTime?     @map("checked_in_at")
+  noShowAt      DateTime?     @map("no_show_at")
+  movedToSeatId String?       @map("moved_to_seat_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  departure   Departure    @relation(fields: [departureId], references: [id])
+  rider       Person?      @relation(fields: [riderId], references: [id])
+  participant Participant? @relation(fields: [participantId], references: [id])
+  order       Order?       @relation(fields: [orderId], references: [id])
+
+  @@unique([departureId, position])
+  @@index([riderId, state])
+  @@map("seats")
+  @@schema("public")
+}
+
+/// A rider's seat on a khat: monthly in advance, prorated join, no refund on mid-month cancel.
+model Subscription {
+  id                String            @id @default(cuid())
+  routeId           String            @map("route_id")
+  riderId           String            @map("rider_id")
+  guardianId        String?           @map("guardian_id")
+  state             SubscriptionState @default(trial)
+  seatPosition      SeatPosition?     @map("seat_position")
+  monthlyPriceIqd   Int               @map("monthly_price_iqd")
+  prorationIqd      Int               @default(0) @map("proration_iqd")
+  trialEndsAt       DateTime?         @map("trial_ends_at")
+  billingCycleStart DateTime          @map("billing_cycle_start")
+  nextBillingAt     DateTime?         @map("next_billing_at")
+  pastDueAt         DateTime?         @map("past_due_at")
+  cancelledAt       DateTime?         @map("cancelled_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  route    Route   @relation(fields: [routeId], references: [id])
+  rider    Person  @relation("SubscriptionRider", fields: [riderId], references: [id])
+  guardian Person? @relation("SubscriptionGuardian", fields: [guardianId], references: [id])
+
+  @@index([routeId, state])
+  @@index([riderId])
+  @@map("subscriptions")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Promotions (domain §11) ═════════════════════════════
+
+enum PromoFunder {
+  platform
+  merchant
+  driver_pool
+  referral
+
+  @@schema("public")
+}
+
+/// A named, explained quote component. Every discount is its own receipt line naming its funder.
+model Promotion {
+  id            String      @id @default(cuid())
+  cityId        String?     @map("city_id")
+  code          String?     @unique
+  nameAr        String      @map("name_ar")
+  nameEn        String?     @map("name_en")
+  funder        PromoFunder
+  merchantOrgId String?     @map("merchant_org_id")
+  ownerId       String      @map("owner_id")
+  /// {kind: percent|fixed|free_delivery|bogo|free_item|bundle|points_multiplier|seat_upgrade, value}
+  effect        Json
+  /// {items?, merchants?, categories?, verticals?, zones?, hours?}
+  scope         Json        @default("{}")
+  /// {kind: all|new|tier|list|segment, value?}
+  audience      Json        @default("{}")
+  /// {perUser?, perDay?, stacking?: boolean}
+  limits        Json        @default("{}")
+  budgetCapIqd  Int?        @map("budget_cap_iqd")
+  spentIqd      Int         @default(0) @map("spent_iqd")
+  holdoutPct    Int         @default(0) @map("holdout_pct")
+  impressions   Int         @default(0)
+  autoApply     Boolean     @default(false) @map("auto_apply")
+  approvedAt    DateTime?   @map("approved_at")
+  startsAt      DateTime    @map("starts_at")
+  endsAt        DateTime    @map("ends_at")
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  city        City?             @relation(fields: [cityId], references: [id])
+  merchant    Org?              @relation(fields: [merchantOrgId], references: [id])
+  owner       Person            @relation(fields: [ownerId], references: [id])
+  redemptions PromoRedemption[]
+
+  @@index([active, startsAt, endsAt])
+  @@map("promotions")
+  @@schema("public")
+}
+
+model PromoRedemption {
+  id          String   @id @default(cuid())
+  promotionId String   @map("promotion_id")
+  orderId     String   @map("order_id")
+  personId    String   @map("person_id")
+  amountIqd   Int      @map("amount_iqd")
+  /// Promo-abuse fingerprint: device + phone hash + home place.
+  fingerprint String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  promotion Promotion @relation(fields: [promotionId], references: [id])
+  order     Order     @relation(fields: [orderId], references: [id])
+  person    Person    @relation(fields: [personId], references: [id])
+
+  @@unique([promotionId, orderId])
+  @@index([personId])
+  @@index([fingerprint])
+  @@map("promo_redemptions")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Incidents (domain §9) ═════════════════════════════
+
+enum IncidentState {
+  open
+  investigating
+  resolved
+  closed
+
+  @@schema("public")
+}
+
+/// Safety or dispute case with an auto-attached evidence pack.
+model Incident {
+  id             String        @id @default(cuid())
+  kind           String
+  state          IncidentState @default(open)
+  tripId         String?       @map("trip_id")
+  orderId        String?       @map("order_id")
+  openedById     String?       @map("opened_by_id")
+  /// Evidence pack refs: {eventIds, trailFrom, trailTo, photoUrls, ledgerEventIds}
+  evidence       Json          @default("{}")
+  /// Rule default from the disputes table; support may override (logged).
+  defaultOutcome String?       @map("default_outcome")
+  resolution     String?
+  resolvedById   String?       @map("resolved_by_id")
+  manualReview   Boolean       @default(false) @map("manual_review")
+  resolvedAt     DateTime?     @map("resolved_at")
+  closedAt       DateTime?     @map("closed_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  trip     Trip?   @relation(fields: [tripId], references: [id])
+  order    Order?  @relation(fields: [orderId], references: [id])
+  openedBy Person? @relation(fields: [openedById], references: [id])
+
+  @@index([state, createdAt])
+  @@index([tripId])
+  @@index([orderId])
+  @@map("incidents")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Ledger (domain §5 + edge-case §3) ═════════════════════════════
+
+enum LedgerKind {
+  money
+  points
+
+  @@schema("public")
+}
 
 enum LedgerEventType {
+  // money — domain §5
   cash_collected
   commission_accrued
   merchant_payable
@@ -474,19 +1474,48 @@ enum LedgerEventType {
   promo_funded
   seat_premium
   subscription_charge
+  subscription_proration
+  late_penalty_driver
+  late_penalty_rider_credit
+  departure_cancel_fee
+  errand_cost_actual
+  errand_fee
+  tip
+  parcel_fee
   adjustment
+  // money — amendments (merchant cash account, debt, rounding, cash refunds)
+  merchant_paid_by_courier
+  merchant_settlement_requested
+  debt_settled
+  cash_rounding_credit
+  refund_cash_delivered
+  // points — domain §5
+  points_earned
+  points_pending
+  points_claimed
+  points_redeemed
+  points_expired
+  organizer_bonus
+
+  @@schema("public")
 }
 
-/// Immutable money event. Append-only: no UPDATE or DELETE is ever issued against this table.
+/// Immutable money or points event. Append-only: the migration installs a trigger that rejects UPDATE and DELETE.
+/// Money events sum to zero across accounts nightly; points events never create money (kind mismatch throws).
 model LedgerEvent {
   id             String          @id @default(cuid())
+  kind           LedgerKind      @default(money)
   type           LedgerEventType
   amountIqd      Int             @map("amount_iqd")
   currency       String          @default("IQD")
   fromAccount    String          @map("from_account")
   toAccount      String          @map("to_account")
   tripId         String?         @map("trip_id")
+  orderId        String?         @map("order_id")
   routeId        String?         @map("route_id")
+  departureId    String?         @map("departure_id")
+  /// Balanced posting groups share one id (one per closed order).
+  postingGroupId String?         @map("posting_group_id")
   idempotencyKey String?         @unique @map("idempotency_key")
   memo           String?
   occurredAt     DateTime        @map("occurred_at")
@@ -494,55 +1523,182 @@ model LedgerEvent {
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
-  trip  Trip?  @relation(fields: [tripId], references: [id])
-  route Route? @relation(fields: [routeId], references: [id])
+  trip      Trip?      @relation(fields: [tripId], references: [id])
+  order     Order?     @relation(fields: [orderId], references: [id])
+  route     Route?     @relation(fields: [routeId], references: [id])
+  departure Departure? @relation(fields: [departureId], references: [id])
 
   @@index([fromAccount, occurredAt])
   @@index([toAccount, occurredAt])
+  @@index([kind, occurredAt])
+  @@index([postingGroupId])
   @@map("ledger_events")
+  @@schema("public")
 }
 
-/// Anything that happened. Scorecards derive from these.
-model Event {
-  id             String                                 @id @default(cuid())
-  actorId        String                                 @map("actor_id")
-  type           String
-  tripId         String?                                @map("trip_id")
-  location       Unsupported("geography(Point, 4326)")?
-  payload        Json                                   @default("{}")
-  idempotencyKey String?                                @unique @map("idempotency_key")
-  occurredAt     DateTime                               @map("occurred_at")
-  recordedAt     DateTime                               @default(now()) @map("recorded_at")
-  createdAt      DateTime                               @default(now()) @map("created_at")
-  updatedAt      DateTime                               @updatedAt @map("updated_at")
+enum SettlementMode {
+  nightly_courier
+  on_demand
+  daily_zaincash
+  weekly_bulk
 
-  actor Person @relation(fields: [actorId], references: [id])
-  trip  Trip?  @relation(fields: [tripId], references: [id])
+  @@schema("public")
+}
+
+/// Edge-case §3: per-merchant cash account settings. Balance itself is derived from the ledger.
+model MerchantSettlement {
+  id               String         @id @default(cuid())
+  orgId            String         @unique @map("org_id")
+  mode             SettlementMode @default(nightly_courier)
+  /// Automatic settlement triggers above this exposure.
+  exposureCapIqd   Int            @default(300000) @map("exposure_cap_iqd")
+  /// Hand-over PIN (hashed) confirming courier → merchant cash returns.
+  pinHash          String?        @map("pin_hash")
+  zaincashRef      String?        @map("zaincash_ref")
+  lastSettledAt    DateTime?      @map("last_settled_at")
+  lastRequestedAt  DateTime?      @map("last_requested_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@map("merchant_settlements")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Events & outbox (domain §6, edge-case §10) ═════════════════════════════
+
+/// Anything that happened. Scorecards derive from these. Carries device wall time + monotonic uptime;
+/// skew beyond ±4 min flags; replays after the trip detached are quarantined as `late_replay` and never settled.
+model Event {
+  id               String                                 @id @default(cuid())
+  actorId          String?                                @map("actor_id")
+  type             String
+  aggregate        String?
+  aggregateId      String?                                @map("aggregate_id")
+  tripId           String?                                @map("trip_id")
+  orderId          String?                                @map("order_id")
+  location         Unsupported("geography(Point, 4326)")?
+  payload          Json                                   @default("{}")
+  idempotencyKey   String?                                @unique @map("idempotency_key")
+  /// Device wall time.
+  occurredAt       DateTime                               @map("occurred_at")
+  /// Server receipt time; evidence events are bound to this.
+  recordedAt       DateTime                               @default(now()) @map("recorded_at")
+  /// Device monotonic uptime at the moment of the event, for ordering offline replays.
+  deviceUptimeMs   BigInt?                                @map("device_uptime_ms")
+  skewMs           Int?                                   @map("skew_ms")
+  flagged          Boolean                                @default(false)
+  flagReason       String?                                @map("flag_reason")
+  quarantined      Boolean                                @default(false)
+  quarantineReason String?                                @map("quarantine_reason")
+  createdAt        DateTime                               @default(now()) @map("created_at")
+  updatedAt        DateTime                               @updatedAt @map("updated_at")
+
+  actor Person? @relation(fields: [actorId], references: [id])
+  trip  Trip?   @relation(fields: [tripId], references: [id])
+  order Order?  @relation(fields: [orderId], references: [id])
+  outbox Outbox[]
 
   @@index([actorId, occurredAt])
   @@index([tripId])
+  @@index([orderId])
+  @@index([type, recordedAt])
+  @@index([quarantined])
   @@map("events")
+  @@schema("public")
 }
 
 enum OutboxStatus {
   pending
   published
   failed
+
+  @@schema("public")
 }
 
 /// Transactional outbox: every state change writes its domain event here in the same transaction.
+/// A worker drains with SELECT … FOR UPDATE SKIP LOCKED, exponential backoff, failed after 10 attempts.
 model Outbox {
-  id          String       @id @default(cuid())
-  aggregate   String
-  aggregateId String       @map("aggregate_id")
-  type        String
-  payload     Json
-  status      OutboxStatus @default(pending)
-  attempts    Int          @default(0)
-  publishedAt DateTime?    @map("published_at")
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
+  id             String       @id @default(cuid())
+  eventId        String?      @map("event_id")
+  aggregate      String
+  aggregateId    String       @map("aggregate_id")
+  type           String
+  payload        Json
+  status         OutboxStatus @default(pending)
+  attempts       Int          @default(0)
+  idempotencyKey String?      @unique @map("idempotency_key")
+  lastError      String?      @map("last_error")
+  nextAttemptAt  DateTime     @default(now()) @map("next_attempt_at")
+  publishedAt    DateTime?    @map("published_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  @@index([status, createdAt])
+  event      Event?               @relation(fields: [eventId], references: [id])
+  deliveries SubscriberDelivery[]
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([aggregate, aggregateId])
   @@map("outbox")
+  @@schema("public")
+}
+
+/// Per-subscriber delivery record: at-least-once publishing, exactly-once effect per subscriber.
+model SubscriberDelivery {
+  id          String    @id @default(cuid())
+  outboxId    String    @map("outbox_id")
+  subscriber  String
+  deliveredAt DateTime? @map("delivered_at")
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  outbox Outbox @relation(fields: [outboxId], references: [id])
+
+  @@unique([outboxId, subscriber])
+  @@map("subscriber_deliveries")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Dispatch ═════════════════════════════
+
+enum DispatchOfferState {
+  sent
+  seen
+  accepted
+  declined
+  timed_out
+  withdrawn
+
+  @@schema("public")
+}
+
+/// One offer to one driver in one wave. "Seen" only after 3 s in the foreground (edge-case §6).
+model DispatchOffer {
+  id              String             @id @default(cuid())
+  tripId          String             @map("trip_id")
+  driverId        String             @map("driver_id")
+  policy          String
+  wave            Int                @default(1)
+  pass            Int                @default(1)
+  state           DispatchOfferState @default(sent)
+  rank            Int?
+  distanceKm      Float?             @map("distance_km")
+  compensationIqd Int                @default(0) @map("compensation_iqd")
+  sentAt          DateTime           @default(now()) @map("sent_at")
+  seenAt          DateTime?          @map("seen_at")
+  respondedAt     DateTime?          @map("responded_at")
+  expiresAt       DateTime           @map("expires_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  trip   Trip   @relation(fields: [tripId], references: [id])
+  driver Person @relation(fields: [driverId], references: [id])
+
+  @@index([tripId, wave])
+  @@index([driverId, state])
+  @@map("dispatch_offers")
+  @@schema("public")
 }

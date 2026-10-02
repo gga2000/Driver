@@ -7,13 +7,13 @@ import { t } from '@driver/i18n';
 import { QuoteCard } from '@/quote-card';
 import { useTRPC } from '@/trpc';
 
-/** A customer asking for a taxi from the center to the north side, met at the door. */
+/** A customer asking for a taxi from the centre to زاكور (mid tier), met at the door. */
 const SAMPLE: PriceRequestInput = {
   cityId: 'aziziyah',
   vertical: 'taxi',
   stops: [
-    { zoneId: 'center', type: 'pickup' },
-    { zoneId: 'north', type: 'dropoff' },
+    { zoneId: 'centre', type: 'pickup' },
+    { zoneId: 'zakur', type: 'dropoff' },
   ],
   options: { doorPickup: true },
   at: new Date(),

@@ -103,7 +103,7 @@ describe('LedgerService', () => {
 describe('sumFor', () => {
   it('nets inflows against outflows', () => {
     const mk = (from: string, to: string, amount: number) => ({
-      id: 'x', type: 'adjustment' as const, amount, currency: 'IQD' as const, fromAccount: from, toAccount: to, occurredAt: at, recordedAt: at,
+      id: 'x', kind: 'money' as const, type: 'adjustment' as const, amount, currency: 'IQD' as const, fromAccount: from, toAccount: to, occurredAt: at, recordedAt: at,
     });
     expect(sumFor('a', [mk('a', 'b', 100), mk('b', 'a', 250)])).toBe(150);
   });
@@ -136,5 +136,28 @@ describe('PrismaLedgerRepository', () => {
     expect((await ledger.balance('cash:d')).amount).toBe(7000);
     expect((await ledger.eventsForTrip('t'))[0]?.amount).toBe(7000);
     expect((await ledger.checkInvariant()).ok).toBe(true);
+  });
+});
+
+describe('money vs points books (domain §5)', () => {
+  it('derives kind from type and records points on points accounts', async () => {
+    const ledger = new LedgerService(new InMemoryLedgerRepository());
+    const e = await ledger.record({ type: 'points_earned', amount: 150, fromAccount: Accounts.pointsPool, toAccount: Accounts.points('p1'), occurredAt: at });
+    expect(e.kind).toBe('points');
+    expect((await ledger.balance(Accounts.points('p1'))).amount).toBe(150);
+  });
+
+  it('a points event on a money account throws kind_mismatch and writes nothing', async () => {
+    const ledger = new LedgerService(new InMemoryLedgerRepository());
+    await expect(
+      ledger.record({ type: 'points_earned', amount: 100, fromAccount: Accounts.platform, toAccount: Accounts.points('p1'), occurredAt: at }),
+    ).rejects.toMatchObject({ code: 'kind_mismatch' });
+    await expect(
+      ledger.record({ type: 'cash_collected', amount: 100, fromAccount: Accounts.customer('c'), toAccount: Accounts.points('p1'), occurredAt: at }),
+    ).rejects.toMatchObject({ code: 'kind_mismatch' });
+    await expect(
+      ledger.record({ type: 'cash_collected', kind: 'points', amount: 100, fromAccount: Accounts.customer('c'), toAccount: Accounts.cash('d'), occurredAt: at }),
+    ).rejects.toMatchObject({ code: 'kind_mismatch' });
+    expect((await ledger.checkInvariant()).events).toBe(0);
   });
 });

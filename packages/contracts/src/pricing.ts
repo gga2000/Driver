@@ -15,8 +15,11 @@ export const ComponentKey = z.enum([
   'weather',
   'peak',
   'pickup_compensation',
+  'service_fee',
+  'small_order',
   'promo',
   'cancellation',
+  'points_redeemed',
 ]);
 export type ComponentKey = z.infer<typeof ComponentKey>;
 
@@ -37,8 +40,10 @@ export type PriceStop = z.infer<typeof PriceStop>;
 
 export const PriceOptions = z.object({
   frontSeat: z.boolean().default(false),
-  /** door = courier comes to the door; street = customer meets at the street. */
+  /** Rides: door = driver comes to the door (+fee); otherwise the rider meets at the street. */
   doorPickup: z.boolean().default(false),
+  /** Deliveries: customer opts into a street-point handover (−250) instead of the door. */
+  streetHandover: z.boolean().default(false),
   /** Minutes of requested wait at a stop; priced by waitPerMinute. */
   waitMinutes: z.number().int().min(0).default(0),
   /** Promo value in IQD, applied as a negative component. */

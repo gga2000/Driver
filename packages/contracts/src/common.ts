@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Verticals are configuration: every job is a Trip with ordered Stops. */
-export const Vertical = z.enum(['food', 'grocery', 'taxi', 'tuktuk', 'intercity', 'khat']);
+export const Vertical = z.enum(['food', 'grocery', 'errand', 'parcel', 'taxi', 'tuktuk', 'intercity', 'khat']);
 export type Vertical = z.infer<typeof Vertical>;
 
 export const Currency = z.literal('IQD');
