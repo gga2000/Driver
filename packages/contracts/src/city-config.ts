@@ -141,5 +141,13 @@ export const CityPricingConfig = z.object({
   verticals: z.array(VerticalPricing),
   dispatch: z.record(Vertical, DispatchConfig),
   creditCapsIqd: CreditCaps,
+  /** Merchant self-serve deals (domain §11 "platform approval switch"); absent = approval required, 50 % max. */
+  merchantDeals: z
+    .object({
+      requirePlatformApproval: z.boolean().default(true),
+      maxPercent: z.number().int().min(1).max(100).default(50),
+      maxDays: z.number().int().min(1).max(365).default(60),
+    })
+    .optional(),
 });
 export type CityPricingConfig = z.infer<typeof CityPricingConfig>;

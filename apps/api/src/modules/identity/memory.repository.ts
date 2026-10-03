@@ -153,6 +153,26 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.children.filter((c) => c.guardianId === guardianId).map((c) => ({ ...c }));
   }
 
+  /** Twin of the vault row's document / selfie storage refs, by personId. */
+  readonly vaultRefLists = new Map<string, { documentRefs: Array<Record<string, unknown>>; selfieRefs: Array<Record<string, unknown>> }>();
+
+  async appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx) {
+    if (!this.identities.has(personId)) throw new Error(`identity ${personId} not found`);
+    const lists = this.vaultRefLists.get(personId) ?? { documentRefs: [], selfieRefs: [] };
+    this.vaultRefLists.set(personId, lists);
+    const item = { ...entry };
+    lists[field].push(item);
+    this.added(tx, lists[field], item);
+  }
+
+  async vaultRefs(personId: string, field: 'documentRefs' | 'selfieRefs') {
+    return (this.vaultRefLists.get(personId)?.[field] ?? []).map((e) => ({ ...e }));
+  }
+
+  async orgRoleHolders(orgId: string, kinds: readonly RoleKind[]) {
+    return this.roles.filter((r) => r.orgId === orgId && kinds.includes(r.kind) && !r.revokedAt);
+  }
+
   async rolesOf(personId: string) {
     return this.roles.filter((r) => r.personId === personId && !r.revokedAt);
   }

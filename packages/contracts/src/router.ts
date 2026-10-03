@@ -3,6 +3,11 @@ import { PriceRequest, Quote } from './pricing.js';
 import { CityConfigInput, HealthPing } from './router-io.js';
 import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
+import { driverAccountRouter } from './routers/driver-account.js';
+import { khatRouter } from './routers/khat.js';
+import { fleetRouter } from './routers/fleet.js';
+import { opsRouter } from './routers/ops.js';
+import { merchantAdminRouter } from './routers/merchant-admin.js';
 import { ordersRouter } from './routers/orders.js';
 import { tripsRouter } from './routers/trips.js';
 import { ledgerRouter } from './routers/ledger.js';
@@ -39,6 +44,11 @@ export const appRouter = router({
       .query(({ ctx, input }) => ctx.config.city(input.cityId) ?? null),
   }),
   identity: identityRouter,
+  driverAccount: driverAccountRouter,
+  khat: khatRouter,
+  fleet: fleetRouter,
+  ops: opsRouter,
+  merchantAdmin: merchantAdminRouter,
   orders: ordersRouter,
   trips: tripsRouter,
   dispatch: dispatchRouter,

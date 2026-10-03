@@ -405,14 +405,14 @@ export class IdentityService implements IdentityPort {
    * Household cards (domain §12): name and masked phone of each member for another member to see.
    * Every read is logged against the member read (purpose household_view).
    */
-  async memberCards(personIds: readonly string[], accessorId: string): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
+  async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
       const out: Record<string, { name: string | null; phoneMasked: string }> = {};
       for (const personId of new Set(personIds)) {
         const identity = await this.repo.readIdentity(personId, tx);
         if (!identity) continue;
-        if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose: 'household_view', fieldsRead: ['name', 'phone_e164'], now }, tx);
+        if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name', 'phone_e164'], now }, tx);
         out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164) };
       }
       return out;
@@ -482,6 +482,60 @@ export class IdentityService implements IdentityPort {
    */
   async childNamesForRunSheet(driverId: string, childRefs: readonly string[]): Promise<Record<string, string>> {
     return this.readChildNames(driverId, [...new Set(childRefs)], 'khat_run_sheet');
+  }
+
+  /**
+   * Wave 2 (`khat.todayRun`): the children's FIRST names only, for the run's own driver (the khat
+   * module decides he is). The full name never leaves identity; every read is logged (khat_today_run).
+   */
+  async childFirstNamesForRun(driverId: string, childRefs: readonly string[]): Promise<Record<string, string>> {
+    const names = await this.readChildNames(driverId, [...new Set(childRefs)], 'khat_today_run');
+    return Object.fromEntries(Object.entries(names).map(([ref, name]) => [ref, firstNameOf(name)]));
+  }
+
+  // ───────────────────────── wave 2: vault refs, org roles ─────────────────────────
+
+  /**
+   * A driver document photo or check-in selfie: the storage ref goes to the vault row
+   * (`document_refs` / `selfie_refs`, domain §13); the public schema keeps only status and expiry.
+   */
+  async attachVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: { ref: string; kind: string; recordId: string }): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const identity = await this.repo.readIdentity(personId, tx);
+      if (!identity) throw new DriverError('person_not_found');
+      await this.repo.appendVaultRef(personId, field, { ...entry, at: this.clock.now().toISOString() }, tx);
+    });
+  }
+
+  /** A reviewer's read of the storage refs (Console document review); every read is logged. */
+  async vaultRefsFor(personId: string, field: 'documentRefs' | 'selfieRefs', accessorId: string, purpose: string): Promise<Array<{ ref: string; kind: string; recordId: string; at: string }>> {
+    return this.uow.run(async (tx) => {
+      const refs = await this.repo.vaultRefs(personId, field, tx);
+      await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: [field === 'documentRefs' ? 'document_refs' : 'selfie_refs'], now: this.clock.now() }, tx);
+      return refs.map((r) => ({ ref: String(r['ref'] ?? ''), kind: String(r['kind'] ?? ''), recordId: String(r['recordId'] ?? ''), at: String(r['at'] ?? '') }));
+    });
+  }
+
+  /** Orgs where the person holds a live (unfrozen) grant of one of `kinds`: merchant staff, fleet owners. */
+  async scopedOrgs(personId: string, kinds: readonly RoleKind[]): Promise<Array<{ orgId: string; kind: RoleKind }>> {
+    const roles = await this.repo.rolesOf(personId);
+    return roles.filter((r) => r.orgId !== null && r.frozenAt === null && kinds.includes(r.kind)).map((r) => ({ orgId: r.orgId!, kind: r.kind }));
+  }
+
+  /** Who holds `kinds` at `orgId` (pseudonymous; names through `memberCards`, logged). */
+  async orgRoleHolders(orgId: string, kinds: readonly RoleKind[]): Promise<Array<{ personId: string; kind: RoleKind; frozen: boolean }>> {
+    const roles = await this.repo.orgRoleHolders(orgId, kinds);
+    return roles.map((r) => ({ personId: r.personId, kind: r.kind, frozen: r.frozenAt !== null }));
+  }
+
+  /** Field-ops onboarding: names a person created by phone, only when the vault has no name yet. */
+  async nameIfMissing(personId: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await this.uow.run(async (tx) => {
+      const identity = await this.repo.readIdentity(personId, tx);
+      if (identity && !identity.name) await this.repo.updateIdentity(personId, { name: trimmed.slice(0, 60) }, tx);
+    });
   }
 
   /** The guardian's own children (guardian view); every name read is logged. */
@@ -617,4 +671,9 @@ export class IdentityService implements IdentityPort {
 
 function roleGrant(r: RoleRecord): RoleGrant {
   return { kind: r.kind, orgId: r.orgId, frozen: r.frozenAt !== null };
+}
+
+/** "زينب علي حسين" → "زينب" (first whitespace-separated token). */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name.trim();
 }

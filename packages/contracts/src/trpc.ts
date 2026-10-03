@@ -15,6 +15,11 @@ import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { DependencyStatus } from './router-io.js';
+import type { DriverAccountPort } from './driver-account-io.js';
+import type { KhatPort } from './khat-io.js';
+import type { FleetPort } from './fleet-io.js';
+import type { OpsPort } from './ops-io.js';
+import type { MerchantAdminPort } from './merchant-admin-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -28,6 +33,16 @@ export interface AppContext {
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
+  /** Partner wave 2: a driving person's earnings, scorecard, documents, check-in (`modules/driver-account`). */
+  driverAccount: DriverAccountPort;
+  /** Partner wave 2: خطوط driver side — run, taps, absences, substitutes (`modules/khat`). */
+  khat: KhatPort;
+  /** Partner wave 2: fleet owner dashboard (`modules/fleet`). */
+  fleet: FleetPort;
+  /** Partner wave 2: field ops mode (`modules/ops`). */
+  ops: OpsPort;
+  /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
+  merchantAdmin: MerchantAdminPort;
   orders: OrdersPort;
   trips: TripsPort;
   dispatch: DispatchPort;

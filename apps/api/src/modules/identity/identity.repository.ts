@@ -128,6 +128,12 @@ export interface IdentityRepository {
   createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
   readChildIdentities(childRefs: readonly string[], tx?: Tx): Promise<ChildIdentityRecord[]>;
   childIdentitiesOf(guardianId: string, tx?: Tx): Promise<ChildIdentityRecord[]>;
+  /** Wave 2: appends a storage ref (driver document photo, check-in selfie) to the vault row. */
+  appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx): Promise<void>;
+  /** Wave 2: the vault refs of one kind, for a reviewer's logged read. */
+  vaultRefs(personId: string, field: 'documentRefs' | 'selfieRefs', tx?: Tx): Promise<Array<Record<string, unknown>>>;
+  /** Wave 2: live (unrevoked) grants of `kinds` scoped to `orgId` (merchant staff list). */
+  orgRoleHolders(orgId: string, kinds: readonly RoleKind[], tx?: Tx): Promise<RoleRecord[]>;
 
   // roles
   rolesOf(personId: string, tx?: Tx): Promise<RoleRecord[]>;
@@ -257,6 +263,24 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async vaultAccessLogs(personId: string, tx?: Tx) {
     return this.db(tx).vaultAccessLog.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx) {
+    const db = this.db(tx);
+    const row = await db.personIdentity.findUnique({ where: { personId }, select: { documentRefs: true, selfieRefs: true } });
+    if (!row) throw new Error(`identity ${personId} not found`);
+    const current = Array.isArray(row[field]) ? (row[field] as Prisma.JsonArray) : [];
+    await db.personIdentity.update({ where: { personId }, data: { [field]: [...current, entry as Prisma.JsonObject] } });
+  }
+
+  async vaultRefs(personId: string, field: 'documentRefs' | 'selfieRefs', tx?: Tx) {
+    const row = await this.db(tx).personIdentity.findUnique({ where: { personId }, select: { documentRefs: true, selfieRefs: true } });
+    const list = row && Array.isArray(row[field]) ? (row[field] as Prisma.JsonArray) : [];
+    return list.filter((x): x is Prisma.JsonObject => typeof x === 'object' && x !== null && !Array.isArray(x)) as Array<Record<string, unknown>>;
+  }
+
+  async orgRoleHolders(orgId: string, kinds: readonly RoleKind[], tx?: Tx) {
+    return this.db(tx).role.findMany({ where: { orgId, kind: { in: [...kinds] }, revokedAt: null }, orderBy: { createdAt: 'asc' } });
   }
 
   async rolesOf(personId: string, tx?: Tx) {

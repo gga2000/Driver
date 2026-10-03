@@ -4,6 +4,12 @@ import { ConfigModule } from './modules/config/index.js';
 import { DispatchModule } from './modules/dispatch/index.js';
 import { EventsModule } from './modules/events/index.js';
 import { IdentityModule } from './modules/identity/index.js';
+import { DriverAccountModule } from './modules/driver-account/index.js';
+import { KhatModule } from './modules/khat/index.js';
+import { FleetModule } from './modules/fleet/index.js';
+import { OpsModule } from './modules/ops/index.js';
+import { PromotionsModule } from './modules/promotions/index.js';
+import { MerchantAdminModule } from './modules/merchant-admin/index.js';
 import { LedgerModule } from './modules/ledger/index.js';
 import { NotifyModule } from './modules/notify/index.js';
 import { OrdersModule } from './modules/orders/index.js';
@@ -22,6 +28,12 @@ import { TrpcModule } from './trpc/trpc.module.js';
   imports: [
     InfraModule,
     IdentityModule,
+    DriverAccountModule,
+    KhatModule,
+    FleetModule,
+    OpsModule,
+    PromotionsModule,
+    MerchantAdminModule,
     OrgsModule,
     ConfigModule,
     PlacesModule,

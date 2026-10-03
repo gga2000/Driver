@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../shared/db/prisma.service.js';
+import type { Tx } from '../../shared/db/unit-of-work.js';
 
 /** A weekly availability window, local time: `[{dow, start, end}]`; an empty list means always. */
 export interface AvailabilityWindow {
@@ -57,7 +58,48 @@ export interface CatalogItemRecord {
   /** Menu section ("لفات"); null = the menu's last, unnamed section. */
   categoryAr: string | null;
   sortOrder: number;
+  /** Wave 2 "خلص اليوم": off sale until this instant (next local midnight); absent/null = not sold out. */
+  soldOutUntil?: Date | null;
 }
+
+/** Wave 2: one price edit (merchant app "price edit with history"). */
+export interface PriceChangeRecord {
+  id: string;
+  itemId: string;
+  orgId: string;
+  oldPriceIqd: number;
+  newPriceIqd: number;
+  changedById: string;
+  at: Date;
+}
+
+export interface ImportedItemRecord {
+  nameAr: string;
+  priceIqd: number;
+  categoryAr?: string | null | undefined;
+  description?: string | null | undefined;
+  sourceUploadId?: string | null | undefined;
+}
+
+/** Wave 2: photo-based menu import; OCR stubbed, staff correct the rows. */
+export interface MenuImportJobRecord {
+  id: string;
+  orgId: string;
+  photoRefs: string[];
+  state: 'draft' | 'applied' | 'discarded';
+  items: ImportedItemRecord[];
+  ocr: 'stub' | 'done';
+  createdById: string;
+  createdAt: Date;
+  appliedAt: Date | null;
+  appliedCount: number;
+}
+
+export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available'>> & {
+  soldOutUntil?: Date | null;
+};
+
+export type NewModifierGroup = NonNullable<NewCatalogItem['modifierGroups']>[number];
 
 /**
  * The customer-facing storefront of a merchant's main menu (M3): what a restaurant card needs
@@ -115,13 +157,25 @@ export interface CatalogRepository {
   /** Items of `orgId` among `ids` (unknown ids and other merchants' items are simply absent). */
   itemsByIds(orgId: string, ids: readonly string[]): Promise<CatalogItemRecord[]>;
   menu(orgId: string): Promise<CatalogItemRecord[]>;
-  createItem(input: NewCatalogItem): Promise<CatalogItemRecord>;
+  createItem(input: NewCatalogItem, tx?: Tx): Promise<CatalogItemRecord>;
   setAvailable(id: string, available: boolean): Promise<void>;
   /** Merchants of `cityId` with a customer storefront on their main menu. */
   storefronts(cityId: string): Promise<StorefrontRecord[]>;
   storefront(orgId: string): Promise<StorefrontRecord | null>;
   /** Creates or replaces the storefront of `orgId`'s main menu. */
   saveStorefront(input: NewStorefront): Promise<StorefrontRecord>;
+
+  // ── wave 2: merchant menu admin ──
+  item(id: string, tx?: Tx): Promise<CatalogItemRecord | null>;
+  updateItem(id: string, patch: CatalogItemPatch, tx?: Tx): Promise<CatalogItemRecord>;
+  /** Replaces every modifier group (and modifier) of the item. */
+  replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord>;
+  addPriceChange(input: Omit<PriceChangeRecord, 'id'>, tx?: Tx): Promise<PriceChangeRecord>;
+  /** Newest first. */
+  priceChanges(itemId: string, tx?: Tx): Promise<PriceChangeRecord[]>;
+  createImportJob(input: Omit<MenuImportJobRecord, 'id'>, tx?: Tx): Promise<MenuImportJobRecord>;
+  updateImportJob(id: string, patch: Partial<Pick<MenuImportJobRecord, 'state' | 'items' | 'appliedAt' | 'appliedCount'>>, tx?: Tx): Promise<MenuImportJobRecord>;
+  importJob(id: string, tx?: Tx): Promise<MenuImportJobRecord | null>;
 }
 
 function toStorefront(input: NewStorefront): StorefrontRecord {
@@ -230,6 +284,76 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     const item = this.items.get(id);
     if (item) item.available = available;
   }
+
+  private readonly prices: PriceChangeRecord[] = [];
+  private readonly imports = new Map<string, MenuImportJobRecord>();
+
+  async item(id: string): Promise<CatalogItemRecord | null> {
+    const i = this.items.get(id);
+    return i ? clone(i) : null;
+  }
+
+  async updateItem(id: string, patch: CatalogItemPatch): Promise<CatalogItemRecord> {
+    const item = this.items.get(id);
+    if (!item) throw new Error(`catalog item ${id} not found`);
+    if (patch.priceIqd !== undefined) assertPrice(patch.priceIqd, 'priceIqd');
+    Object.assign(item, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+    return clone(item);
+  }
+
+  async replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[]): Promise<CatalogItemRecord> {
+    const item = this.items.get(itemId);
+    if (!item) throw new Error(`catalog item ${itemId} not found`);
+    this.seq += 1;
+    const gen = this.seq;
+    item.modifierGroups = groups.map((g, gi) => {
+      const groupId = `${itemId}_mg${gen}_${gi + 1}`;
+      return {
+        id: groupId,
+        itemId,
+        nameAr: g.nameAr,
+        nameEn: g.nameEn ?? null,
+        minSelect: g.minSelect ?? (g.required ? 1 : 0),
+        maxSelect: g.maxSelect ?? 1,
+        required: g.required ?? false,
+        modifiers: g.modifiers.map((m, mi) => {
+          assertPrice(m.priceIqd, 'modifier priceIqd');
+          return { id: `${groupId}_m_${mi + 1}`, groupId, nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true };
+        }),
+      };
+    });
+    return clone(item);
+  }
+
+  async addPriceChange(input: Omit<PriceChangeRecord, 'id'>): Promise<PriceChangeRecord> {
+    this.seq += 1;
+    const row = { id: `pc_${this.seq}`, ...input };
+    this.prices.push(row);
+    return { ...row };
+  }
+
+  async priceChanges(itemId: string): Promise<PriceChangeRecord[]> {
+    return this.prices.filter((p) => p.itemId === itemId).sort((a, b) => b.at.getTime() - a.at.getTime() || b.id.localeCompare(a.id)).map((p) => ({ ...p }));
+  }
+
+  async createImportJob(input: Omit<MenuImportJobRecord, 'id'>): Promise<MenuImportJobRecord> {
+    this.seq += 1;
+    const job = structuredClone({ id: `mij_${this.seq}`, ...input });
+    this.imports.set(job.id, job);
+    return structuredClone(job);
+  }
+
+  async updateImportJob(id: string, patch: Partial<Pick<MenuImportJobRecord, 'state' | 'items' | 'appliedAt' | 'appliedCount'>>): Promise<MenuImportJobRecord> {
+    const job = this.imports.get(id);
+    if (!job) throw new Error(`menu import ${id} not found`);
+    Object.assign(job, structuredClone(patch));
+    return structuredClone(job);
+  }
+
+  async importJob(id: string): Promise<MenuImportJobRecord | null> {
+    const job = this.imports.get(id);
+    return job ? structuredClone(job) : null;
+  }
 }
 
 function clone(i: CatalogItemRecord): CatalogItemRecord {
@@ -253,6 +377,7 @@ type ItemRow = {
   photoUrl: string | null;
   categoryAr: string | null;
   sortOrder: number;
+  soldOutUntil?: Date | null;
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -285,6 +410,7 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     photoUrl: r.photoUrl ?? null,
     categoryAr: r.categoryAr ?? null,
     sortOrder: r.sortOrder ?? 0,
+    ...(r.soldOutUntil ? { soldOutUntil: r.soldOutUntil } : {}),
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -364,9 +490,9 @@ export class PrismaCatalogRepository implements CatalogRepository {
     return s;
   }
 
-  async createItem(input: NewCatalogItem): Promise<CatalogItemRecord> {
+  async createItem(input: NewCatalogItem, tx?: Tx): Promise<CatalogItemRecord> {
     validate(input);
-    const db = this.prisma.prisma;
+    const db = this.db(tx);
     const catalog =
       (await db.catalog.findFirst({ where: { orgId: input.orgId, branchKey: null, active: true }, orderBy: { createdAt: 'asc' } })) ??
       (await db.catalog.create({ data: { orgId: input.orgId, nameAr: 'القائمة الرئيسية' } }));
@@ -408,4 +534,112 @@ export class PrismaCatalogRepository implements CatalogRepository {
   async setAvailable(id: string, available: boolean): Promise<void> {
     await this.prisma.prisma.catalogItem.update({ where: { id }, data: { available } });
   }
+
+  private db(tx?: Tx): Tx {
+    return tx ?? (this.prisma.prisma as unknown as Tx);
+  }
+
+  async item(id: string, tx?: Tx): Promise<CatalogItemRecord | null> {
+    const row = await this.db(tx).catalogItem.findUnique({ where: { id }, include: WITH_MODIFIERS });
+    return row ? fromRow(row as unknown as ItemRow) : null;
+  }
+
+  async updateItem(id: string, patch: CatalogItemPatch, tx?: Tx): Promise<CatalogItemRecord> {
+    if (patch.priceIqd !== undefined) assertPrice(patch.priceIqd, 'priceIqd');
+    const data = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    const row = await this.db(tx).catalogItem.update({ where: { id }, data, include: WITH_MODIFIERS });
+    return fromRow(row as unknown as ItemRow);
+  }
+
+  async replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord> {
+    const db = this.db(tx);
+    for (const g of groups) for (const m of g.modifiers) assertPrice(m.priceIqd, 'modifier priceIqd');
+    const old = await db.modifierGroup.findMany({ where: { itemId }, select: { id: true } });
+    if (old.length > 0) {
+      await db.modifier.deleteMany({ where: { groupId: { in: old.map((g) => g.id) } } });
+      await db.modifierGroup.deleteMany({ where: { itemId } });
+    }
+    for (const [gi, g] of groups.entries()) {
+      await db.modifierGroup.create({
+        data: {
+          itemId,
+          nameAr: g.nameAr,
+          nameEn: g.nameEn ?? null,
+          minSelect: g.minSelect ?? (g.required ? 1 : 0),
+          maxSelect: g.maxSelect ?? 1,
+          required: g.required ?? false,
+          sortOrder: gi,
+          modifiers: { create: g.modifiers.map((m, mi) => ({ nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, sortOrder: mi })) },
+        },
+      });
+    }
+    const row = await db.catalogItem.findUniqueOrThrow({ where: { id: itemId }, include: WITH_MODIFIERS });
+    return fromRow(row as unknown as ItemRow);
+  }
+
+  async addPriceChange(input: Omit<PriceChangeRecord, 'id'>, tx?: Tx): Promise<PriceChangeRecord> {
+    const row = await this.db(tx).catalogPriceChange.create({
+      data: { itemId: input.itemId, orgId: input.orgId, oldPriceIqd: input.oldPriceIqd, newPriceIqd: input.newPriceIqd, changedById: input.changedById, createdAt: input.at },
+    });
+    return { id: row.id, itemId: row.itemId, orgId: row.orgId, oldPriceIqd: row.oldPriceIqd, newPriceIqd: row.newPriceIqd, changedById: row.changedById, at: row.createdAt };
+  }
+
+  async priceChanges(itemId: string, tx?: Tx): Promise<PriceChangeRecord[]> {
+    const rows = await this.db(tx).catalogPriceChange.findMany({ where: { itemId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    return rows.map((r) => ({ id: r.id, itemId: r.itemId, orgId: r.orgId, oldPriceIqd: r.oldPriceIqd, newPriceIqd: r.newPriceIqd, changedById: r.changedById, at: r.createdAt }));
+  }
+
+  async createImportJob(input: Omit<MenuImportJobRecord, 'id'>, tx?: Tx): Promise<MenuImportJobRecord> {
+    const row = await this.db(tx).menuImportJob.create({
+      data: {
+        orgId: input.orgId,
+        photoRefs: input.photoRefs,
+        state: input.state,
+        items: input.items as never,
+        ocr: input.ocr,
+        createdById: input.createdById,
+        createdAt: input.createdAt,
+        appliedAt: input.appliedAt,
+        appliedCount: input.appliedCount,
+      },
+    });
+    return importJobFromRow(row);
+  }
+
+  async updateImportJob(id: string, patch: Partial<Pick<MenuImportJobRecord, 'state' | 'items' | 'appliedAt' | 'appliedCount'>>, tx?: Tx): Promise<MenuImportJobRecord> {
+    const { items, ...rest } = patch;
+    const row = await this.db(tx).menuImportJob.update({ where: { id }, data: { ...rest, ...(items ? { items: items as never } : {}) } });
+    return importJobFromRow(row);
+  }
+
+  async importJob(id: string, tx?: Tx): Promise<MenuImportJobRecord | null> {
+    const row = await this.db(tx).menuImportJob.findUnique({ where: { id } });
+    return row ? importJobFromRow(row) : null;
+  }
+}
+
+function importJobFromRow(r: {
+  id: string;
+  orgId: string;
+  photoRefs: string[];
+  state: string;
+  items: unknown;
+  ocr: string;
+  createdById: string;
+  createdAt: Date;
+  appliedAt: Date | null;
+  appliedCount: number;
+}): MenuImportJobRecord {
+  return {
+    id: r.id,
+    orgId: r.orgId,
+    photoRefs: [...r.photoRefs],
+    state: r.state === 'applied' || r.state === 'discarded' ? r.state : 'draft',
+    items: Array.isArray(r.items) ? (r.items as ImportedItemRecord[]) : [],
+    ocr: r.ocr === 'done' ? 'done' : 'stub',
+    createdById: r.createdById,
+    createdAt: r.createdAt,
+    appliedAt: r.appliedAt,
+    appliedCount: r.appliedCount,
+  };
 }

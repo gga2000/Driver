@@ -6,6 +6,11 @@ import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
+import { DriverAccountModule, DriverAccountService } from '../modules/driver-account/index.js';
+import { KhatModule, KhatService } from '../modules/khat/index.js';
+import { FleetModule, FleetService } from '../modules/fleet/index.js';
+import { OpsModule, OpsService } from '../modules/ops/index.js';
+import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
@@ -30,6 +35,11 @@ export class TrpcService {
     private readonly pricing: PricingService,
     private readonly config: ConfigService,
     private readonly identity: IdentityService,
+    private readonly driverAccount: DriverAccountService,
+    private readonly khat: KhatService,
+    private readonly fleet: FleetService,
+    private readonly ops: OpsService,
+    private readonly merchantAdmin: MerchantAdminService,
     private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
@@ -65,6 +75,11 @@ export class TrpcService {
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
+      driverAccount: this.driverAccount,
+      khat: this.khat,
+      fleet: this.fleet,
+      ops: this.ops,
+      merchantAdmin: this.merchantAdmin,
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,
@@ -100,5 +115,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

@@ -604,6 +604,8 @@ model CatalogItem {
   categoryAr      String?  @map("category_ar")
   /// Order within the menu (sections in first-item order, items by this).
   sortOrder       Int      @default(0) @map("sort_order")
+  /// "خلص اليوم" (merchant app): off sale until this instant (the next local midnight), then back by itself.
+  soldOutUntil    DateTime? @map("sold_out_until")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -1625,6 +1627,10 @@ model Promotion {
   impressions   Int         @default(0)
   autoApply     Boolean     @default(false) @map("auto_apply")
   approvedAt    DateTime?   @map("approved_at")
+  /// Merchant self-serve deals: pending_approval | approved | rejected | ended (null for platform promos).
+  proposalState String?     @map("proposal_state")
+  /// Server-computed projected cost to the funder at proposal time (merchant app "projected cost").
+  projectedCostIqd Int?     @map("projected_cost_iqd")
   startsAt      DateTime    @map("starts_at")
   endsAt        DateTime    @map("ends_at")
   active        Boolean     @default(true)
@@ -1962,5 +1968,257 @@ model DispatchOffer {
   @@index([tripId, wave])
   @@index([driverId, state])
   @@map("dispatch_offers")
+  @@schema("public")
+}
+
+// ═════════════════════════════ Partner & Merchant apps, wave 2 ═════════════════════════════
+// No relations to `orgs` on purpose: orgs still live in memory (OrgsService), so org ids here are
+// plain indexed columns. Photos are upload ids from the signed-PUT store; driver documents' and
+// selfies' refs live in the vault (person_identities.document_refs / selfie_refs), not here.
+
+enum DriverDocumentKind {
+  national_id_front
+  national_id_back
+  licence
+  vehicle_registration
+  insurance
+  photo
+
+  @@schema("public")
+}
+
+enum DriverDocumentStatus {
+  pending
+  approved
+  rejected
+
+  @@schema("public")
+}
+
+/// A driver's document submission (scoring §2): status and expiry only. Expiring (≤ 30 days) and
+/// expired are derived from `expires_at`; expired → offline.
+model DriverDocument {
+  id           String               @id @default(cuid())
+  personId     String               @map("person_id")
+  kind         DriverDocumentKind
+  status       DriverDocumentStatus @default(pending)
+  expiresAt    DateTime?            @map("expires_at")
+  submittedAt  DateTime             @map("submitted_at")
+  reviewedAt   DateTime?            @map("reviewed_at")
+  reviewedById String?              @map("reviewed_by_id")
+  rejectReason String?              @map("reject_reason")
+  /// A newer submission of the same kind replaced this one.
+  supersededAt DateTime?            @map("superseded_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  @@index([personId, kind])
+  @@index([status, expiresAt])
+  @@map("driver_documents")
+  @@schema("public")
+}
+
+enum DriverCheckInResult {
+  pending
+  passed
+  failed
+
+  @@schema("public")
+}
+
+/// Daily liveness selfie (scoring §2): one row per challenge; two failures a day → offline + ops alert.
+model DriverCheckIn {
+  id            String              @id @default(cuid())
+  personId      String              @map("person_id")
+  /// Baghdad local date, YYYY-MM-DD.
+  localDate     String              @map("local_date")
+  gesture       String
+  issuedAt      DateTime            @map("issued_at")
+  expiresAt     DateTime            @map("expires_at")
+  result        DriverCheckInResult @default(pending)
+  submittedAt   DateTime?           @map("submitted_at")
+  livenessScore Float?              @map("liveness_score")
+  failureReason String?             @map("failure_reason")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([personId, localDate])
+  @@map("driver_check_ins")
+  @@schema("public")
+}
+
+/// A child reported absent for one خطوط run (edge-case §5): the child's stops on that trip are skipped.
+model KhatAbsence {
+  id             String   @id @default(cuid())
+  tripId         String   @map("trip_id")
+  /// Opaque vault ref (vault.child_identities.id); never the name.
+  childRef       String   @map("child_ref")
+  localDate      String   @map("local_date")
+  reportedById   String   @map("reported_by_id")
+  reason         String
+  note           String?
+  skippedStopIds String[] @default([]) @map("skipped_stop_ids")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([tripId, childRef])
+  @@index([childRef, localDate])
+  @@map("khat_absences")
+  @@schema("public")
+}
+
+/// A driver working for a fleet org (partner spec: fleet owner dashboard). Vehicles stay in `vehicles`.
+model FleetDriver {
+  id         String    @id @default(cuid())
+  fleetOrgId String    @map("fleet_org_id")
+  personId   String    @map("person_id")
+  addedById  String    @map("added_by_id")
+  removedAt  DateTime? @map("removed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@unique([fleetOrgId, personId])
+  @@index([personId])
+  @@map("fleet_drivers")
+  @@schema("public")
+}
+
+/// A landmark / place / meeting-point photo proposed by field ops (domain §7); the Console approves.
+model LandmarkPhoto {
+  id           String    @id @default(cuid())
+  targetKind   String    @map("target_kind")
+  targetId     String    @map("target_id")
+  uploadId     String    @map("upload_id")
+  caption      String?
+  localNames   String[]  @default([]) @map("local_names")
+  state        String    @default("proposed")
+  addedById    String    @map("added_by_id")
+  reviewedById String?   @map("reviewed_by_id")
+  reviewedAt   DateTime? @map("reviewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([targetKind, targetId])
+  @@index([state, createdAt])
+  @@map("landmark_photos")
+  @@schema("public")
+}
+
+/// Courier → field ops cash hand-over (money §4 channel 1). The money is the ledger's `driver_settlement`
+/// under `reference`; this row is the receipt (both confirmations, WhatsApp receipt).
+model OpsCashReceipt {
+  id                  String   @id @default(cuid())
+  courierId           String   @map("courier_id")
+  receivedById        String   @map("received_by_id")
+  amountIqd           Int      @map("amount_iqd")
+  reference           String   @unique
+  idempotencyKey      String?  @unique @map("idempotency_key")
+  note                String?
+  courierCashAfterIqd Int      @map("courier_cash_after_iqd")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([courierId, createdAt])
+  @@index([receivedById, createdAt])
+  @@map("ops_cash_receipts")
+  @@schema("public")
+}
+
+/// A merchant signed up on a field-ops visit (scoring §2: owner ID + shop photo + visit + menu photos).
+model MerchantOnboarding {
+  id              String   @id @default(cuid())
+  orgId           String   @map("org_id")
+  cityId          String   @map("city_id")
+  name            String
+  type            String
+  /// The owner as a pseudonymous person; phone and name are in the vault.
+  contactPersonId String   @map("contact_person_id")
+  /// {zoneKey, pin?}
+  location        Json
+  menuPhotoRefs   String[] @default([]) @map("menu_photo_refs")
+  shopPhotoRef    String?  @map("shop_photo_ref")
+  notes           String?
+  state           String   @default("draft")
+  createdById     String   @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([state, createdAt])
+  @@index([createdById])
+  @@map("merchant_onboardings")
+  @@schema("public")
+}
+
+/// Field ops work list (stored tasks; cash to collect is computed from the ledger).
+model OpsTask {
+  id            String    @id @default(cuid())
+  cityId        String?   @map("city_id")
+  kind          String
+  refId         String?   @map("ref_id")
+  title         String
+  state         String    @default("open")
+  assigneeId    String?   @map("assignee_id")
+  dueAt         DateTime? @map("due_at")
+  payload       Json      @default("{}")
+  completedAt   DateTime? @map("completed_at")
+  completedById String?   @map("completed_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, assigneeId])
+  @@map("ops_tasks")
+  @@schema("public")
+}
+
+/// Menu price history (merchant app "price edit with history").
+model CatalogPriceChange {
+  id          String   @id @default(cuid())
+  itemId      String   @map("item_id")
+  orgId       String   @map("org_id")
+  oldPriceIqd Int      @map("old_price_iqd")
+  newPriceIqd Int      @map("new_price_iqd")
+  changedById String   @map("changed_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([itemId, createdAt])
+  @@map("catalog_price_changes")
+  @@schema("public")
+}
+
+/// Photo-based menu import (merchant app): OCR stubbed, staff correct the rows, apply creates items.
+model MenuImportJob {
+  id           String    @id @default(cuid())
+  orgId        String    @map("org_id")
+  photoRefs    String[]  @default([]) @map("photo_refs")
+  state        String    @default("draft")
+  /// [{nameAr, priceIqd, categoryAr?, description?, sourceUploadId?}]
+  items        Json      @default("[]")
+  ocr          String    @default("stub")
+  createdById  String    @map("created_by_id")
+  appliedAt    DateTime? @map("applied_at")
+  appliedCount Int       @default(0) @map("applied_count")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([orgId, createdAt])
+  @@map("menu_import_jobs")
+  @@schema("public")
+}
+
+/// The merchant's answer to a dispute on one of its orders (accept the default outcome or contest it).
+model MerchantDisputeResponse {
+  id            String   @id @default(cuid())
+  orderId       String   @unique @map("order_id")
+  merchantOrgId String   @map("merchant_org_id")
+  decision      String
+  note          String?
+  evidenceRefs  String[] @default([]) @map("evidence_refs")
+  respondedById String   @map("responded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([merchantOrgId])
+  @@map("merchant_dispute_responses")
   @@schema("public")
 }

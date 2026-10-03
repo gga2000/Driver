@@ -542,6 +542,16 @@ export class OrdersService implements OnModuleInit {
     return Promise.all(orders.map((o) => this.view(o.id)));
   }
 
+  /**
+   * Wave 2 (merchant money, insights, disputes): a merchant's orders placed in [from, to), any
+   * state, oldest first. Authorisation is the caller's (merchantAdmin checks the org scope).
+   */
+  async merchantOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
+    const rows = (await this.repo.findMany({ merchantOrgId })).filter((o) => o.placedAt >= range.from && o.placedAt < range.to);
+    rows.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id));
+    return Promise.all(rows.map((o) => this.view(o.id)));
+  }
+
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
   async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined }): Promise<OrderSearchPage> {
     const { cursor, ...filter } = input;

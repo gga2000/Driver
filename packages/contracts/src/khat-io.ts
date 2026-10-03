@@ -1,0 +1,103 @@
+import { z } from 'zod';
+import { Iqd, LatLng } from './common.js';
+import type { Actor } from './identity-io.js';
+import { StopState, StopType, TripState } from './trip.js';
+
+/**
+ * `khat.*` — the خطوط driver's side (partner spec; edge-case §5). A khat run is a Trip of vertical
+ * `khat` whose stops each carry one child's opaque vault ref. Children's names come only through the
+ * identity vault for the run's own driver (every read logged) and are cut to the first name here.
+ */
+
+const DeviceStamp = {
+  occurredAt: z.coerce.date().optional(),
+  deviceUptimeMs: z.number().int().min(0).optional(),
+  idempotencyKey: z.string().min(8).max(128).optional(),
+};
+
+export const KhatStopView = z.object({
+  stopId: z.string(),
+  seq: z.number().int(),
+  type: StopType,
+  state: StopState,
+  zoneKey: z.string(),
+  windowStart: z.coerce.date().nullable(),
+  windowEnd: z.coerce.date().nullable(),
+  /** Null on stops without a child (school gate wait, depot). */
+  child: z.object({ childRef: z.string(), firstName: z.string() }).nullable(),
+  tappedInAt: z.coerce.date().nullable(),
+  tappedOutAt: z.coerce.date().nullable(),
+  /** Reported absent for this run: the child's stops are skipped. */
+  absent: z.boolean(),
+});
+export type KhatStopView = z.infer<typeof KhatStopView>;
+
+export const KhatRunTrip = z.object({
+  tripId: z.string(),
+  state: TripState,
+  stops: z.array(KhatStopView),
+  childrenTotal: z.number().int(),
+  /** Tapped in and not yet out. */
+  onBoard: z.number().int(),
+  delivered: z.number().int(),
+  absent: z.number().int(),
+});
+export type KhatRunTrip = z.infer<typeof KhatRunTrip>;
+
+export const TodayRunInput = z.object({ date: z.coerce.date().optional() });
+export const TodayRunView = z.object({
+  /** Baghdad local date (YYYY-MM-DD). */
+  localDate: z.string(),
+  trips: z.array(KhatRunTrip),
+});
+export type TodayRunView = z.infer<typeof TodayRunView>;
+
+/** Tap a named child in (pickup stop) or out (dropoff stop). Arrives the stop first if needed. */
+export const KhatTapInput = z.object({ tripId: z.string().min(1), stopId: z.string().min(1), pin: LatLng.optional(), ...DeviceStamp });
+export type KhatTapInput = z.infer<typeof KhatTapInput>;
+
+export const AbsenceReason = z.enum(['guardian_notice', 'not_at_stop', 'sick', 'other']);
+export type AbsenceReason = z.infer<typeof AbsenceReason>;
+
+export const ReportAbsenceInput = z.object({
+  tripId: z.string().min(1),
+  childRef: z.string().min(1),
+  reason: AbsenceReason,
+  note: z.string().trim().max(300).optional(),
+});
+export type ReportAbsenceInput = z.infer<typeof ReportAbsenceInput>;
+
+export const AbsenceView = z.object({
+  absenceId: z.string(),
+  tripId: z.string(),
+  childRef: z.string(),
+  reason: AbsenceReason,
+  skippedStopIds: z.array(z.string()),
+  reportedAt: z.coerce.date(),
+});
+export type AbsenceView = z.infer<typeof AbsenceView>;
+
+export const SubstituteOffersInput = z.object({ cityId: z.string().min(1) });
+export const SubstituteOffer = z.object({
+  offerId: z.string(),
+  tripId: z.string(),
+  expiresInSec: z.number().int(),
+  stopsCount: z.number().int(),
+  childrenCount: z.number().int(),
+  firstWindowStart: z.coerce.date().nullable(),
+  zones: z.array(z.string()),
+  compensationIqd: Iqd,
+});
+export type SubstituteOffer = z.infer<typeof SubstituteOffer>;
+
+export const AcceptSubstituteInput = z.object({ offerId: z.string().min(1) });
+export const AcceptSubstituteOutput = z.object({ outcome: z.enum(['assigned', 'declined']), tripId: z.string() });
+
+export interface KhatPort {
+  todayRun(actor: Actor, input: z.infer<typeof TodayRunInput>): Promise<TodayRunView>;
+  tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;
+  tapOut(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;
+  reportAbsence(actor: Actor, input: ReportAbsenceInput): Promise<AbsenceView>;
+  substituteOffers(actor: Actor, input: z.infer<typeof SubstituteOffersInput>): Promise<SubstituteOffer[]>;
+  acceptSubstitute(actor: Actor, input: z.infer<typeof AcceptSubstituteInput>): Promise<z.infer<typeof AcceptSubstituteOutput>>;
+}
