@@ -1,5 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { SystemPage } from '@/components/system-page';
 
 export default function Page() {
-  return <ComingSoon sectionKey="console.nav_system" />;
+  return <SystemPage />;
 }

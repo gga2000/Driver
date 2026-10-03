@@ -1,5 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { OrdersPage } from '@/components/orders-page';
 
 export default function Page() {
-  return <ComingSoon sectionKey="console.nav_orders" />;
+  return <OrdersPage />;
 }

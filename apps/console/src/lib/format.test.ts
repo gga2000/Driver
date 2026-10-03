@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, toLocalInputValue } from './format';
+import { formatClock, formatCountdown, formatDayClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, safeDecode, shortId, toLocalInputValue } from './format';
 
 describe('money formatting (voice guide §5)', () => {
   it('uses Western digits with a comma thousands separator', () => {
@@ -40,5 +40,26 @@ describe('time helpers', () => {
     expect(formatClock(new Date('2026-10-03T04:05:00Z'))).toBe('7:05 ص');
     expect(formatClock(new Date('2026-10-03T20:30:00Z'))).toBe('11:30 م');
     expect(formatClock(new Date('2026-10-03T21:00:00Z'))).toBe('12:00 ص');
+  });
+});
+
+describe('console helpers', () => {
+  it('formats countdowns as {minutes}:{seconds}', () => {
+    expect(formatCountdown(7)).toBe('0:07');
+    expect(formatCountdown(125)).toBe('2:05');
+    expect(formatCountdown(3660)).toBe('61:00');
+    expect(formatCountdown(-3)).toBe('0:00');
+    expect(formatCountdown(null)).toBe('—');
+  });
+  it('formats day and clock in Baghdad time', () => {
+    expect(formatDayClock(new Date('2026-10-03T16:05:00Z'))).toBe('3/10 · 7:05 م');
+  });
+  it('shortens long ids only', () => {
+    expect(shortId('abc')).toBe('abc');
+    expect(shortId('cmh3x9abcdefa1b2')).toBe('cmh3x9…a1b2');
+  });
+  it('decodes route params safely', () => {
+    expect(safeDecode('a%20b')).toBe('a b');
+    expect(safeDecode('%E0%A4%A')).toBe('%E0%A4%A');
   });
 });

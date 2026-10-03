@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-/** The console opens on the first live section; the map lands in a later Step 8 part. */
+/** The console opens on the live map. */
 export default function Page() {
-  redirect('/pricing');
+  redirect('/map');
 }

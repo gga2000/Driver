@@ -1,5 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { DispatchPage } from '@/components/dispatch-page';
 
 export default function Page() {
-  return <ComingSoon sectionKey="console.nav_dispatch" />;
+  return <DispatchPage />;
 }

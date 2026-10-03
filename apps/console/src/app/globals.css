@@ -49,6 +49,57 @@ body {
 /* Native selects pick up the dark theme and keep the Arabic text on the start side. */
 select,
 input[type='number'],
-input[type='datetime-local'] {
+input[type='datetime-local'],
+input[type='date'] {
   color-scheme: dark;
+}
+
+/* ── Live map (MapLibre) ── HTML labels so Arabic shapes natively over the raster fallback. */
+.map-zone-label {
+  display: none;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-shadow: 0 0 3px var(--color-bg), 0 0 6px var(--color-bg);
+  white-space: nowrap;
+}
+.map-show-zone-labels .map-zone-label {
+  display: block;
+}
+.map-garage-label {
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-accent-strong);
+  text-shadow: 0 0 3px var(--color-bg), 0 0 6px var(--color-bg);
+  white-space: nowrap;
+}
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line);
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-line) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(26, 25, 23, 0.75) !important;
+  color: var(--color-muted);
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--color-muted);
+}
+
+/* Native <dialog> backdrop for the override form. */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
 }

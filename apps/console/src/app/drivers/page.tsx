@@ -1,5 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { DriversPage } from '@/components/drivers-page';
 
 export default function Page() {
-  return <ComingSoon sectionKey="console.nav_drivers" />;
+  return <DriversPage />;
 }

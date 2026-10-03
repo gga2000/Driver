@@ -1,0 +1,35 @@
+{
+  "name": "@driver/map",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MapLibre style (style as code), Aziziyah bounds, zone and garage GeoJSON for Driver maps",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./style.json": "./dist/style.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node dist/emit-style.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@driver/contracts": "workspace:*",
+    "@maplibre/maplibre-gl-style-spec": "24.10.0",
+    "@types/geojson": "7946.0.16"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.0",
+    "vitest": "3.2.7"
+  }
+}
