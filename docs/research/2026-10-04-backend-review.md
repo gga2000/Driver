@@ -31,6 +31,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
 | 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
 | 15 | Medium (perf) | `events` has no index for `forAggregate` (Merchant cash screen) | fixed |
+| 16 | Low | offer pay rounds differently from the ledger posting (batch bonus, ride take) | fixed |
 
 ## Details
 
@@ -178,3 +179,12 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   each call scanned it.
 - **Fix:** `@@index([aggregate, aggregateId, occurredAt])`, migration `20261004120100_events_aggregate_index`.
 - **Test:** `packages/db/src/schema.test.ts` › "events by aggregate: the Merchant app's cash screen reads merchant/<id> on every open".
+
+### 16 · Low · offer pay ≠ ledger posting (money display)
+
+- **Where:** `apps/api/src/modules/partner/logic.ts` `buildPay` / `rideTake`.
+- **What:** the offer's batch bonus was `floor(fee × 0.7 / 50) × 50` and the ride take `floor(fare × rate)`,
+  while the ledger posts `pct(fee, 0.7)` / `takeOf` (half rounds up). A 1,250 batched fee showed +850 on
+  the offer and paid 875; a 1,750 one showed 1,200 and paid 1,225.
+- **Fix:** `shareOf` mirrors the ledger's `pct`; `rideTake` mirrors `takeOf`.
+- **Test:** `partner/logic.test.ts` › "the offer promises exactly what the ledger posts (review 2026-10-04 #16)".

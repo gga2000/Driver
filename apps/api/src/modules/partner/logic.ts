@@ -55,10 +55,18 @@ function add(list: PartnerPayComponent[], key: PartnerPayKey, amountIqd: number)
   else list.push({ key, amountIqd });
 }
 
-/** The platform's share of a ride fare under its take rule (rounded down to whole dinars). */
+/**
+ * Integer share of an amount at a rate, half rounding up — the ledger's `pct` (ledger/postings.ts),
+ * so what an offer promises is what the ledger posts.
+ */
+export function shareOf(amountIqd: number, rate: number): number {
+  return Math.round(Math.round(amountIqd * rate * 1e6) / 1e6);
+}
+
+/** The platform's share of a ride fare under its take rule (the ledger's `takeOf`). */
 export function rideTake(fareIqd: number, take: TakeRule): number {
-  const pct = Math.floor(fareIqd * take.rate);
-  return Math.min(fareIqd, Math.max(pct, take.minIqd ?? 0) + (take.fixedIqd ?? 0));
+  if (fareIqd <= 0) return 0;
+  return Math.min(fareIqd, Math.max(shareOf(fareIqd, take.rate), take.minIqd ?? 0) + (take.fixedIqd ?? 0));
 }
 
 /**
@@ -78,7 +86,7 @@ export function buildPay(input: PayInput): PartnerPay {
       takePct = input.take ? Math.round(input.take.rate * 100) : null;
       add(components, 'fare', fare - take);
     } else if (input.batchedSecond) {
-      add(components, 'batch_bonus', Math.floor((o.deliveryFeeIqd * input.batchShare) / 50) * 50);
+      add(components, 'batch_bonus', shareOf(o.deliveryFeeIqd, input.batchShare));
     } else {
       let rest = o.deliveryFeeIqd;
       for (const c of input.feeComponents ?? []) {

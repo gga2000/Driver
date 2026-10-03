@@ -32,6 +32,21 @@ describe('buildPay', () => {
     expect(pay).toEqual({ totalIqd: 700, components: [{ key: 'batch_bonus', amountIqd: 700 }], takePct: null });
   });
 
+  it('the offer promises exactly what the ledger posts (review 2026-10-04 #16)', () => {
+    // Ledger postings: courier share = pct(fee, 0.7) (half rounds up): 1,250 → 875, 1,750 → 1,225.
+    for (const [fee, posted] of [
+      [1_250, 875],
+      [1_750, 1_225],
+      [1_000, 700],
+    ] as const) {
+      const pay = buildPay({ vertical: 'food', orders: [food(fee)], batchedSecond: true, batchShare: 0.7, compensationIqd: 0, take: null });
+      expect(pay.totalIqd, `fee ${fee}`).toBe(posted);
+    }
+    // Ride take: ledger takeOf = max(min, pct(fare, rate)) + fixed, half rounds up.
+    expect(rideTake(3_125, { rate: 0.12 })).toBe(375);
+    expect(rideTake(1_125, { rate: 0.1, minIqd: 100 })).toBe(113);
+  });
+
   it('rides pay the fare minus the open take (tuktuk 10 %, min 100)', () => {
     const ride = { type: 'ride' as const, deliveryFeeIqd: 0, tipIqd: 0, totalIqd: 3_000 };
     const pay = buildPay({ vertical: 'tuktuk', orders: [ride], batchedSecond: false, batchShare: 0.7, compensationIqd: 0, take: { rate: 0.1, minIqd: 100 } });
