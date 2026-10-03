@@ -17,6 +17,8 @@ import { consoleRouter, driversRouter, merchantsRouter, systemRouter } from './r
 import { householdRouter, placesRouter, walletRouter } from './routers/account.js';
 import { partnerRouter } from './routers/partner.js';
 import { merchantRouter } from './routers/merchant.js';
+import { chatRouter } from './routers/chat.js';
+import { trackingRouter } from './routers/tracking.js';
 import { publicProcedure, router } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -66,6 +68,8 @@ export const appRouter = router({
   household: householdRouter,
   partner: partnerRouter,
   merchant: merchantRouter,
+  chat: chatRouter,
+  tracking: trackingRouter,
 });
 
 export type AppRouter = typeof appRouter;

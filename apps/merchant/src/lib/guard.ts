@@ -65,6 +65,7 @@ const SECTION_OF: Record<string, Section> = {
   printer: 'more',
   hours: 'more',
   settings: 'more',
+  chat: 'orders',
 };
 
 export function sectionOf(segments: readonly string[]): Section | null {

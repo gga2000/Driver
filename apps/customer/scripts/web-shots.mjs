@@ -15,6 +15,8 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late,
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
 //   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+//   chat-*   order screen chat/call/share, courier + kitchen threads, quick reply, masked call,
+//            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -68,7 +70,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'chat'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -166,6 +168,7 @@ try {
   if (wants('food')) await foodFlow(khalid);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('chat')) await chatShots(personId);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -460,6 +463,89 @@ async function rajaaShots(personId) {
   await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
   await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
   await shot('rajaa-home');
+}
+
+/** Chat, masked call and share-trip: POST /demo/chat seeds each conversation through the real API. */
+async function chatShots(personId) {
+  if (!personId) return;
+  const seed = async (scenario) => {
+    const r = await fetch(`${apiBase}/demo/chat?personId=${encodeURIComponent(personId)}&scenario=${scenario}`, { method: 'POST' });
+    if (!r.ok) throw new Error(`/demo/chat ${scenario}: ${r.status} ${await r.text()}`);
+    return r.json();
+  };
+
+  // The order screen: chat (unread badge), masked call, share; quick replies under the card.
+  const c = await seed('courier');
+  await page.goto(`${origin}/order/${c.orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await byTestId('courier-card').waitFor({ timeout: 20_000 });
+  await byTestId('chat-courier').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(5500); // the threads poll brings the unread badge
+  await shot('chat-order-buttons');
+
+  // The courier thread: bubbles, quick replies, the masked number, a location pin, receipts.
+  await byTestId('chat-courier').click();
+  await byTestId('chat-screen').waitFor({ timeout: 15_000 });
+  await byTestId('chat-msg-6').waitFor({ timeout: 15_000 });
+  await shot('chat-courier-thread');
+
+  await page.locator('[data-testid="chat-input"]').fill('شكراً، أني نازل هسة');
+  await shot('chat-courier-typing');
+  await byTestId('chat-send').click();
+  await byTestId('chat-msg-7').waitFor({ timeout: 15_000 });
+  await byTestId('qr-customer_wait_minute').click();
+  await byTestId('chat-msg-8').waitFor({ timeout: 15_000 });
+  await shot('chat-courier-sent');
+
+  await byTestId('chat-call').click();
+  await page.waitForTimeout(600);
+  await shot('chat-call');
+
+  // The kitchen thread.
+  const m = await seed('merchant');
+  await page.goto(`${origin}/chat/${m.orderId}?kind=customer_merchant`, { waitUntil: 'networkidle' });
+  await byTestId('chat-msg-4').waitFor({ timeout: 15_000 });
+  await shot('chat-merchant-thread');
+
+  // Delivered, then 31 minutes later: read-only.
+  await demoPost(`/demo/track/advance?orderId=${c.orderId}`);
+  await demoPost(`/demo/track/advance?orderId=${c.orderId}`);
+  await demoPost('/demo/chat/clock?minutes=31');
+  await page.goto(`${origin}/chat/${c.orderId}?kind=customer_courier`, { waitUntil: 'networkidle' });
+  await byTestId('chat-closed').waitFor({ timeout: 15_000 });
+  await shot('chat-closed');
+  await demoPost('/demo/chat/clock?minutes=0');
+
+  // A ride: share sheet, then the public page in a signed-out browser, then revoked.
+  const r = await seed('ride');
+  await page.goto(`${origin}/order/${r.orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await byTestId('share-trip').waitFor({ timeout: 20_000 });
+  await shot('chat-ride-order');
+  await byTestId('share-trip').click();
+  await byTestId('share-panel').waitFor({ timeout: 15_000 });
+  await shot('chat-ride-share-sheet');
+
+  const guest = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  guest.on('pageerror', (e) => errors.push(`guest: ${e.stack ?? e.message}`));
+  // 'load', not 'networkidle': the page polls every 5 s and the map keeps asking for tiles.
+  await guest.goto(`${origin}${r.path}`, { waitUntil: 'load', timeout: 30_000 });
+  await guest.locator('[data-testid="share-page"]').waitFor({ timeout: 20_000 });
+  await guest.locator('[data-testid="share-driver"]').waitFor({ timeout: 15_000 });
+  await guest.waitForTimeout(6000);
+  if (wanted('chat-share-page')) {
+    await guest.evaluate(() => document.fonts.ready);
+    await guest.screenshot({ path: join(outDir, 'chat-share-page.png') });
+    console.log(join(outDir, 'chat-share-page.png'));
+  }
+
+  console.log('share page shot; revoking');
+  await byTestId('share-revoke').click({ timeout: 15_000 });
+  await byTestId('share-panel').waitFor({ state: 'detached', timeout: 15_000 });
+  await guest.reload({ waitUntil: 'load', timeout: 30_000 });
+  await guest.locator('[data-testid="share-ended"]').waitFor({ timeout: 15_000 });
+  await guest.waitForTimeout(700);
+  await guest.screenshot({ path: join(outDir, 'chat-share-ended.png') });
+  console.log(join(outDir, 'chat-share-ended.png'));
+  await guest.close();
 }
 
 if (errors.length) {

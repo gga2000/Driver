@@ -3,8 +3,11 @@ import { useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerJob, PartnerJobStop } from '@driver/contracts';
-import { Button, Icon, IconButton, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Badge, Button, Icon, IconButton, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
+import { threadOf } from '@/features/chat/logic';
+import { useChatThreads } from '@/features/chat/queries';
+import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
 import { isRide, jobAction, KIND_KEY, mapsUrl, taskProgress, VEHICLE_ICON, zoneName } from '@/features/work/logic';
@@ -133,7 +136,16 @@ function JobView({ job, self, vehicle, onDone }: { job: PartnerJob; self: { lat:
     }
   };
 
-  const stub = () => toast.show({ message: t('partner.call_stub'), tone: 'info' });
+  // Quick contact (notifications & support §2): in-order chat and masked calls through `chat.*`.
+  const orderId = stop?.orderId ?? job.stops.find((s) => s.orderId)?.orderId ?? '';
+  const threads = useChatThreads(orderId, Boolean(orderId));
+  const customerThread = threadOf(threads.data, 'customer_courier');
+  const kitchenThread = threadOf(threads.data, 'merchant_courier');
+  const atKitchen = !ride && stop?.type === 'pickup' && Boolean(kitchenThread);
+  const customerCall = useMaskedCall(orderId, 'customer_courier', ride);
+  const kitchenCall = useMaskedCall(orderId, 'merchant_courier', ride);
+  const call = () => void (atKitchen ? kitchenCall.call() : customerCall.call());
+  const openChat = (kind: 'customer_courier' | 'merchant_courier') => router.push({ pathname: '/chat/[orderId]', params: { orderId, kind } });
   const openMaps = () => {
     if (stop?.pin) void Linking.openURL(mapsUrl(stop.pin)).catch(() => undefined);
   };
@@ -204,8 +216,9 @@ function JobView({ job, self, vehicle, onDone }: { job: PartnerJob; self: { lat:
               ) : null}
 
               <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
-                <QuickAction icon="phone" label={t('partner.call')} onPress={stub} testID="job-call" />
-                <QuickAction icon="chat" label={t('partner.message')} onPress={stub} testID="job-chat" />
+                <QuickAction icon="phone" label={t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
+                <QuickAction icon="chat" label={ride ? t('partner.message') : t('chat.role.customer')} badge={customerThread?.unread ?? 0} onPress={() => openChat('customer_courier')} disabled={!customerThread} testID="job-chat" />
+                {kitchenThread ? <QuickAction icon="bag" label={t('partner.message_merchant')} badge={kitchenThread.unread} onPress={() => openChat('merchant_courier')} testID="job-chat-merchant" /> : null}
                 <QuickAction icon="map-pin" label={t('partner.open_maps')} onPress={openMaps} testID="job-maps" />
               </View>
 
@@ -247,11 +260,22 @@ function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 
   return s.label ?? (ride ? t('partner.offer_rider') : zoneName(s.zoneId, locale, t));
 }
 
-function QuickAction({ icon, label, onPress, testID }: { icon: IconName; label: string; onPress: () => void; testID: string }) {
+function QuickAction({ icon, label, onPress, testID, badge = 0, disabled }: { icon: IconName; label: string; onPress: () => void; testID: string; badge?: number; disabled?: boolean }) {
   const theme = useTheme();
   return (
-    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ flex: 1, alignItems: 'center', gap: 4, paddingVertical: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
-      <Icon name={icon} size={22} color="text" strokeWidth={2} />
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={badge > 0 ? `${label} · ${badge}` : label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={{ flex: 1, alignItems: 'center', gap: 4, paddingVertical: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken, opacity: disabled ? 0.5 : 1 }}
+    >
+      <View>
+        <Icon name={icon} size={22} color="text" strokeWidth={2} />
+        {badge > 0 ? <Badge count={badge} style={{ position: 'absolute', top: -8, end: -14 }} /> : null}
+      </View>
       <Text variant="caption" weight={600}>
         {label}
       </Text>

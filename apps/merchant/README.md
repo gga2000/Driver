@@ -47,6 +47,11 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   (card timers use the server clock).
 - `merchant.storeStatus` / `setOpen` (early close needs a reason) / `setBusy` (+10 min on every prep
   time until now + 60 min; orders and the customer storefront honour it) / `setPrinterStatus`.
+- Chat (`src/features/chat/`, `app/chat/[orderId].tsx?kind=merchant_courier|customer_merchant&number=…`):
+  the order detail's "التواصل" row — راسل الدليفري / اتصل بالدليفري (masked) / راسل الزبون, unread
+  badges from `chat.threads` (5 s); the conversation polls `chat.thread` every 3 s (realtime later).
+  Any staff member reads for the kitchen (one read receipt per store). Demo `POST /demo/chat/fresh`
+  (`scripts/demo/chat.mjs`), shots `SHOTS=merchant-chat`.
 - Order actions stay on `orders.merchant.accept` (with `prepMinutes` and `unavailableLineIds` for a
   partial accept) / `reject` / `ready` / `heartbeat` (every 30 s, app-wide).
 - Money: `ledger.merchantBalance` (live cash balance) and `ledger.requestSettlement` ("اطلب فلوسك").

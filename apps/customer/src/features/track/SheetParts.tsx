@@ -1,5 +1,5 @@
 import { Pressable, View } from 'react-native';
-import type { CourierCard as CourierCardData, OrderTracking, VehicleClass } from '@driver/contracts';
+import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking, type QuickReplyKey, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import {
   Avatar,
@@ -17,7 +17,7 @@ import {
   type PriceItem,
   type StatusTone,
 } from '@driver/ui';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import type { Phase } from './timeline';
 
@@ -125,23 +125,35 @@ const VEHICLE_KEY: Record<VehicleClass, MessageKey> = {
   intercity: 'track.vehicle.intercity',
 };
 
-export const QUICK_REPLIES: readonly MessageKey[] = ['track.reply_blue_door', 'track.reply_wait_street', 'track.reply_ring_bell'];
-
+/**
+ * The courier card (customer app §4): photo, name, vehicle + plate, rating, "verified today", and
+ * the three ways to reach him — chat (unread badge), masked call, share trip — plus one-tap quick
+ * replies that go straight into the chat (`chat.send`).
+ */
 export function CourierCard({
   courier,
   ride,
+  quickReplies,
+  unread,
+  canChat,
   onReply,
+  onChat,
   onCall,
   onShare,
 }: {
   courier: CourierCardData;
   ride: boolean;
-  onReply: (text: string) => void;
+  quickReplies: readonly QuickReplyKey[];
+  unread: number;
+  canChat: boolean;
+  onReply: (key: QuickReplyKey) => void;
+  onChat: () => void;
   onCall: () => void;
   onShare: () => void;
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   const vehicle = [courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null, courier.vehicleLabel].filter(Boolean).join(' · ');
   return (
@@ -176,20 +188,32 @@ export function CourierCard({
           ) : null}
         </View>
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-          <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" />
+          {canChat ? (
+            <IconButton
+              icon="chat"
+              variant="tonal"
+              badge={unread > 0 ? unread : undefined}
+              accessibilityLabel={unread > 0 ? `${t(ride ? 'track.message_driver' : 'track.message_courier')} · ${t('chat.unread_label', { count: unread })}` : t(ride ? 'track.message_driver' : 'track.message_courier')}
+              onPress={onChat}
+              testID="chat-courier"
+            />
+          ) : null}
+          {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
           <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
         </View>
       </View>
-      <View style={{ gap: theme.space[2] }}>
-        <Text variant="caption" color="textMuted">
-          {t('track.quick_replies')}
-        </Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
-          {QUICK_REPLIES.map((k) => (
-            <Chip key={k} label={t(k)} icon="chat" role="button" onPress={() => onReply(t(k))} testID={`reply-${k}`} />
-          ))}
+      {canChat && quickReplies.length > 0 ? (
+        <View style={{ gap: theme.space[2] }}>
+          <Text variant="caption" color="textMuted">
+            {t('track.quick_replies')}
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {quickReplies.map((k) => (
+              <Chip key={k} label={quickReplyText(k, locale)} icon="chat" role="button" onPress={() => onReply(k)} testID={`reply-${k}`} />
+            ))}
+          </View>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }

@@ -90,6 +90,7 @@ function RootNavigator() {
         <Stack.Screen name="not-partner" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="offer" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="job" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         {/* Wave 2 replaces these routes' contents; titles are set by each screen. */}
         <Stack.Screen name="earnings/statement" options={{ title: t('partner.earnings_breakdown') }} />
         <Stack.Screen name="scorecard" options={{ title: t('partner.hub_scorecard') }} />

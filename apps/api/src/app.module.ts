@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from './modules/catalog/index.js';
+import { ChatModule } from './modules/chat/index.js';
 import { ConfigModule } from './modules/config/index.js';
 import { DispatchModule } from './modules/dispatch/index.js';
 import { EventsModule } from './modules/events/index.js';
@@ -51,6 +52,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     EventsModule,
     SimulatorModule,
     PartnerModule,
+    ChatModule,
     TrpcModule,
   ],
 })

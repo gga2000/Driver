@@ -1,8 +1,13 @@
-import { View } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, View } from 'react-native';
 import type { BoardOrder } from '@driver/contracts';
-import { Button, StatusPill, Text, useTheme } from '@driver/ui';
+import { Badge, Button, Icon, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { ModalSheet } from '@/components/ModalSheet';
+import { threadOf } from '@/features/chat/logic';
+import { useChatThreads } from '@/features/chat/queries';
+import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { useLocale, useT } from '@/lib/i18n';
+import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { courierLine } from './logic';
@@ -69,6 +74,8 @@ export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onRe
         {order.groups.length > 1 ? <StatusPill tone="neutral" icon="user" label={t('merchant.detail.people', { count: order.groups.length })} /> : null}
       </View>
 
+      <Contact order={order} onLeave={onClose} />
+
       <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4] }}>
         <OrderItems order={order} />
       </View>
@@ -90,5 +97,111 @@ export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onRe
         </Text>
       </View>
     </ModalSheet>
+  );
+}
+
+/**
+ * Chat with the courier (and the customer, about the order) and a masked call to the courier
+ * (notifications & support §2). Unread counts poll with the threads; the chat opens full screen.
+ */
+function Contact({ order, onLeave }: { order: BoardOrder; onLeave: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const { wide } = useLayout();
+  const threads = useChatThreads(order.id);
+  const courier = threadOf(threads.data, 'merchant_courier');
+  const customer = threadOf(threads.data, 'customer_merchant');
+  const { call, busy } = useMaskedCall(order.id, 'merchant_courier', false);
+  const open = (kind: 'merchant_courier' | 'customer_merchant') => {
+    onLeave();
+    router.push({ pathname: '/chat/[orderId]', params: { orderId: order.id, kind, number: order.number } });
+  };
+  const courierLive = Boolean(courier && courier.status !== 'not_open');
+  if (!courierLive && !(customer && customer.status !== 'not_open')) return null;
+  return (
+    <View testID="detail-contact" style={{ gap: theme.space[2] }}>
+      <Text variant="label" color="textMuted">
+        {t('merchant.chat.contact_title')}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+        {courierLive ? (
+          <>
+            <ContactButton icon="chat" label={t('merchant.chat.courier')} stacked={!wide} badge={courier!.unread} onPress={() => open('merchant_courier')} testID="detail-chat-courier" />
+            {courier!.canCall ? <ContactButton icon="phone" label={t('merchant.chat.call_courier')} stacked={!wide} disabled={busy} onPress={() => void call()} testID="detail-call-courier" /> : null}
+          </>
+        ) : (
+          <View style={{ flex: 1, justifyContent: 'center', padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+            <Text variant="footnote" color="textMuted">
+              {t('merchant.chat.no_courier')}
+            </Text>
+          </View>
+        )}
+        {customer && customer.status !== 'not_open' ? (
+          <ContactButton icon="user" label={t('merchant.chat.customer')} stacked={!wide} badge={customer.unread} onPress={() => open('customer_merchant')} testID="detail-chat-customer" />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** Icon beside the label on a tablet; icon over the label on a phone (three fit across). */
+function ContactButton({ icon, label, badge = 0, onPress, disabled, stacked, testID }: { icon: IconName; label: string; badge?: number; onPress: () => void; disabled?: boolean; stacked?: boolean; testID: string }) {
+  const theme = useTheme();
+  const t = useT();
+  if (stacked) {
+    return (
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={badge > 0 ? `${label} · ${t('merchant.chat.unread', { count: badge })}` : label}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => ({
+          flex: 1,
+          alignItems: 'center',
+          gap: 4,
+          paddingVertical: theme.space[3],
+          paddingHorizontal: theme.space[1],
+          borderRadius: theme.radius.lg,
+          backgroundColor: badge > 0 ? theme.colors.accentTint : theme.colors.surfaceSunken,
+          opacity: pressed || disabled ? 0.7 : 1,
+        })}
+      >
+        <View>
+          <Icon name={icon} size={22} color="text" strokeWidth={2} />
+          {badge > 0 ? <Badge count={badge} style={{ position: 'absolute', top: -8, end: -14 }} /> : null}
+        </View>
+        <Text variant="caption" weight={600} numberOfLines={1}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  }
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={badge > 0 ? `${label} · ${t('merchant.chat.unread', { count: badge })}` : label}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: theme.space[2],
+        minHeight: 56,
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: badge > 0 ? theme.colors.accentTint : theme.colors.surfaceSunken,
+        opacity: pressed || disabled ? 0.7 : 1,
+      })}
+    >
+      <Icon name={icon} size={20} color="text" strokeWidth={2} />
+      <Text variant="label" weight={600} numberOfLines={1}>
+        {label}
+      </Text>
+      {badge > 0 ? <Badge count={badge} /> : null}
+    </Pressable>
   );
 }

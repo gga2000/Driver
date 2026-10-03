@@ -58,6 +58,15 @@ export const ICONS = {
     { d: 'M20 14.5a1.5 1.5 0 0 1-1.5 1.5H9l-5 4V5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5z' },
     { d: 'M8 9h8M8 12.25h5' },
   ],
+  /** Chat: attach a photo. */
+  camera: [
+    { d: 'M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z' },
+    { circle: [12, 12.75, 3.25] },
+  ],
+  /** Chat: send (points along the reading direction, mirrored in RTL). */
+  send: [{ d: 'M4.5 12h11' }, { d: 'M4 4.5 20 12 4 19.5l2.5-7.5z' }],
+  /** Read receipt: two ticks. */
+  'check-double': [{ d: 'M2.5 12.5l4.5 4.5L16.5 7.5' }, { d: 'M12 16l1 1 9.5-9.5' }],
   star: [{ d: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z' }],
   clock: [{ circle: [12, 12, 8.5] }, { d: 'M12 7.5V12l3 2' }],
   check: [{ d: 'M5 12.5l4.5 4.5L19 7.5' }],
@@ -112,6 +121,7 @@ export const MIRRORED: ReadonlySet<IconName> = new Set<IconName>([
   'chevron-back',
   'arrow-forward',
   'arrow-back',
+  'send',
 ]);
 
 export const ICON_NAMES = Object.keys(ICONS) as IconName[];

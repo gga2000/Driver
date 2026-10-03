@@ -560,6 +560,23 @@ export class IdentityService implements IdentityPort {
     return roles.map((r) => ({ personId: r.personId, kind: r.kind, frozen: r.frozenAt !== null }));
   }
 
+  /**
+   * A person's own number for the DEVELOPMENT call bridge (chat module's `DevCallBridge`): the only
+   * path that hands a raw number out of identity, and only to a caller that is a party of the same
+   * order. Every read is a VaultAccessLog row (`fieldsRead: phone_e164`, the caller's `purpose`).
+   * Production never calls it: the proxy bridge dials a platform number.
+   */
+  async phoneForCall(personId: string, accessorId: string, purpose: string): Promise<string | null> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return null;
+      const identity = await this.repo.readIdentity(personId, tx);
+      if (!identity) return null;
+      await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
+      return identity.phoneE164;
+    });
+  }
+
   /** Field-ops onboarding: names a person created by phone, only when the vault has no name yet. */
   async nameIfMissing(personId: string, name: string): Promise<void> {
     const trimmed = name.trim();

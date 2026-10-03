@@ -8,8 +8,8 @@ import type { SessionStatus } from './session';
  *  - signed in, profile setup still due     → /setup (name + first place; skippable)
  *  - signed in, in (auth) otherwise         → / (home tab)
  *
- * Public routes (none yet besides auth) can be listed in `PUBLIC_SEGMENTS` — e.g. a shared
- * trip link a non-customer opens.
+ * Public routes are listed in `PUBLIC_SEGMENTS`: the share-trip page (`/share/<token>`) opens
+ * without an account.
  */
 
 export type GuardTarget = '/welcome' | '/setup' | '/';
@@ -24,13 +24,15 @@ export interface GuardInput {
 export const AUTH_GROUP = '(auth)';
 export const SETUP_SCREEN = 'setup';
 /** Top-level segments reachable while signed out (besides the auth group). */
-export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>([]);
+export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share']);
 
 export function resolveGuard({ status, setupPending, segments }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;
   const first = segments[0];
   const inAuth = first === AUTH_GROUP;
   const onSetup = inAuth && segments[1] === SETUP_SCREEN;
+  // A shared trip link opens for anyone, signed in or not, mid-setup or not.
+  if (first && PUBLIC_SEGMENTS.has(first)) return null;
 
   if (status === 'signedOut') {
     if (inAuth && !onSetup) return null;

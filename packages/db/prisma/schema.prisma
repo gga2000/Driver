@@ -1711,6 +1711,82 @@ model Incident {
   @@schema("public")
 }
 
+// ═════════════════════════════ Chat & share-trip (notifications & support §2, safety §5) ═════════════════════════════
+
+/// One conversation per order and pair of parties (customer_courier, merchant_courier, customer_merchant).
+/// Participants are derived live from the order (the courier changes on a reassign), so none are stored.
+/// No foreign keys: orders are owned by the orders module.
+model ChatThread {
+  id        String   @id @default(cuid())
+  orderId   String   @map("order_id")
+  kind      String
+  /// Highest message seq (the next message takes lastSeq + 1 under a row lock).
+  lastSeq   Int      @default(0) @map("last_seq")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId, kind])
+  @@map("chat_threads")
+  @@schema("public")
+}
+
+/// A chat message. Bodies are not PII-tagged; Iraqi phone numbers are masked before the insert.
+model ChatMessage {
+  id            String   @id @default(cuid())
+  threadId      String   @map("thread_id")
+  seq           Int
+  senderId      String   @map("sender_id")
+  senderRole    String   @map("sender_role")
+  kind          String
+  body          String?
+  quickReplyKey String?  @map("quick_reply_key")
+  photoRef      String?  @map("photo_ref")
+  lat           Float?
+  lng           Float?
+  masked        Boolean  @default(false)
+  clientId      String   @map("client_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([threadId, seq])
+  @@unique([threadId, senderId, clientId])
+  @@map("chat_messages")
+  @@schema("public")
+}
+
+/// Read receipt: the highest seq a reader has read in a thread. The reader key is the party, not the
+/// person, where a party is several people: `customer`, `merchant` (any staff member), `courier:<id>`,
+/// `support:<id>`.
+model ChatRead {
+  id        String   @id @default(cuid())
+  threadId  String   @map("thread_id")
+  readerKey String   @map("reader_key")
+  readSeq   Int      @default(0) @map("read_seq")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([threadId, readerKey])
+  @@map("chat_reads")
+  @@schema("public")
+}
+
+/// Share-trip link (signed token = id + HMAC). Expiry is derived from the trip (completion + 30 min,
+/// 24 h cap); `revoked_at` ends it early.
+model ShareLink {
+  id          String    @id @default(cuid())
+  subjectKind String    @map("subject_kind")
+  subjectId   String    @map("subject_id")
+  createdById String    @map("created_by_id")
+  revokedAt   DateTime? @map("revoked_at")
+  views       Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([subjectKind, subjectId])
+  @@map("share_links")
+  @@schema("public")
+}
+
 // ═════════════════════════════ Ledger (domain §5 + edge-case §3) ═════════════════════════════
 
 enum LedgerKind {
