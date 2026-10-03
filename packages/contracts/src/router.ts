@@ -1,6 +1,7 @@
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
 import { CityConfigInput, HealthPing } from './router-io.js';
+import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
 import { ordersRouter } from './routers/orders.js';
 import { tripsRouter } from './routers/trips.js';
@@ -35,6 +36,7 @@ export const appRouter = router({
   identity: identityRouter,
   orders: ordersRouter,
   trips: tripsRouter,
+  dispatch: dispatchRouter,
 });
 
 export type AppRouter = typeof appRouter;

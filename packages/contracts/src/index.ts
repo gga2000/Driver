@@ -14,6 +14,7 @@ export * from './event.js';
 export * from './city-config.js';
 export * from './aziziyah-zones.js';
 export * from './auth.js';
+export * from './dispatch-io.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';

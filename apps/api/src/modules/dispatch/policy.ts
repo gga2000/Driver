@@ -1,4 +1,4 @@
-import type { DispatchConfig, DispatchPolicyKind, Vertical } from '@driver/contracts';
+import type { DispatchConfig, DispatchPolicyKind, LatLng, Vertical } from '@driver/contracts';
 
 /** A driver candidate as seen by dispatch: position, current load and scoring tier. */
 export interface DriverCandidate {
@@ -11,6 +11,10 @@ export interface DriverCandidate {
   routeDriverId?: string;
   /** Vetted for substitute auctions on خطوط. */
   vetted?: boolean;
+  /** 0..1: 1 preferred vehicle for the vertical, 0.5 acceptable (see vehicles.ts). Absent = 1. */
+  vehicleFit?: number;
+  /** Minutes idle in the current zone; feeds the anti-camping decay (review J112). Absent = 0. */
+  minutesInZone?: number;
 }
 
 export interface DispatchJob {
@@ -22,6 +26,17 @@ export interface DispatchJob {
   routeId?: string;
   routeDriverId?: string;
   departureAt?: Date;
+  /** Step 5 orchestrator inputs (all optional so the pure `plan()` keeps working without them). */
+  pickup?: LatLng;
+  dropoffZoneId?: string;
+  /** auto_assign: when the merchant says the order is ready. */
+  readyAt?: Date;
+  /** auto_assign: hot food never waits more than `batchMaxHotWaitMin` from ready. */
+  hot?: boolean;
+  /** scheduled: the departure checked for low fill at T−30. */
+  departureId?: string;
+  /** pre_assigned: vetted substitutes whose stops match the route (caller-filtered). */
+  eligibleDriverIds?: string[];
 }
 
 export interface Wave {

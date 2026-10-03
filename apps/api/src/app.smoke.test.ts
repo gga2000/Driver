@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import { transformer, type AppRouter } from '@driver/contracts';
 import { createApp } from './bootstrap.js';
+import { IdentityService } from './modules/identity/index.js';
 
 describe('API smoke', () => {
   let app: NestExpressApplication;
@@ -124,6 +125,40 @@ describe('API smoke', () => {
     const err = (await authed.trips.board.query({ cityId: 'aziziyah' }).catch((e: unknown) => e)) as { data: { code: string; httpStatus: number } };
     expect(err.data.httpStatus).toBe(403);
     expect(err.data.code).toBe('forbidden');
+  });
+
+  it('dispatch: board/override/setPolicy need dispatcher or admin; respond needs a driver role', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const unauth = (await anon.dispatch.board.query({ cityId: 'aziziyah' }).catch((e: unknown) => e)) as { data: { httpStatus: number } };
+    expect(unauth.data.httpStatus).toBe(401);
+
+    const phone = '07712340003';
+    await anon.identity.requestOtp.mutate({ phone, purpose: 'login' });
+    const { code } = await anon.identity.devLastOtp.query({ phone });
+    const login = await anon.identity.verifyOtp.mutate({ phone, code: code! });
+    const authed = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
+    });
+    const forbidden = (await authed.dispatch.board.query({ cityId: 'aziziyah' }).catch((e: unknown) => e)) as { data: { httpStatus: number; code: string } };
+    expect(forbidden.data.code).toBe('forbidden');
+    const notDriver = (await authed.dispatch.respond.mutate({ offerId: 'x', accept: true }).catch((e: unknown) => e)) as { data: { code: string } };
+    expect(notDriver.data.code).toBe('forbidden');
+
+    await app.get(IdentityService).grantRole({ personId: 'system' }, { personId: login.personId, kind: 'dispatcher' });
+    const board = await authed.dispatch.board.query({ cityId: 'aziziyah' });
+    expect(board.cards).toEqual([]);
+    expect(board.policies.find((p) => p.vertical === 'taxi')).toEqual({ vertical: 'taxi', policy: 'smart_broadcast', suggestOnly: false, overridden: false });
+    expect(await authed.dispatch.setPolicy.mutate({ cityId: 'aziziyah', vertical: 'taxi', suggestOnly: true })).toEqual({
+      vertical: 'taxi',
+      policy: 'smart_broadcast',
+      suggestOnly: true,
+      overridden: true,
+    });
+    expect((await authed.dispatch.board.query({ cityId: 'aziziyah' })).policies.find((p) => p.vertical === 'taxi')?.suggestOnly).toBe(true);
+    await authed.dispatch.setPolicy.mutate({ cityId: 'aziziyah', vertical: 'taxi', clear: true });
+    const missing = (await authed.dispatch.override.mutate({ tripId: 'nope', driverId: 'd1' }).catch((e: unknown) => e)) as { data: { code: string; message_ar: string } };
+    expect(missing.data.code).toBe('dispatch_not_found');
+    expect(missing.data.message_ar).toMatch(/[؀-ۿ]/);
   });
 
   it('returns the city config and null for unknown cities', async () => {

@@ -71,18 +71,18 @@ describe('smart_broadcast waves', () => {
     expect(service.plan(job(), [])).toEqual({ kind: 'no_drivers' });
   });
 
-  it('orders waves by rank: gold and nearer drivers first', () => {
+  it('orders waves by the 40/30/20/10 rank: distance, tier, load, vehicle fit', () => {
     const ranked = new DriverRanker().rank([
       { driverId: 'far-gold', distanceKm: 3, activeTrips: 0, tier: 'gold' },
       { driverId: 'near-bronze', distanceKm: 0.5, activeTrips: 0, tier: 'bronze' },
       { driverId: 'near-busy', distanceKm: 0.2, activeTrips: 1, tier: 'silver' },
       { driverId: 'mid-silver', distanceKm: 1, activeTrips: 0, tier: 'silver' },
     ]);
-    // silver 1 km: 10 − 10 = 0 · bronze 0.5 km: 0 − 5 = −5 · gold 3 km: 20 − 30 = −10 · busy: 10 − 2 − 25 = −17
-    expect(ranked.map((d) => d.driverId)).toEqual(['mid-silver', 'near-bronze', 'far-gold', 'near-busy']);
-    expect(ranked.map((d) => d.score)).toEqual([0, -5, -10, -17]);
+    // mid-silver 32+15+20+10 · near-busy 38.4+15+13.33+10 · far-gold 16+30+20+10 · near-bronze 36+0+20+10
+    expect(ranked.map((d) => d.driverId)).toEqual(['mid-silver', 'near-busy', 'far-gold', 'near-bronze']);
+    expect(ranked.map((d) => d.score)).toEqual([77, 76.73, 76, 66]);
     const plan = new SmartBroadcastPolicy().plan(job(), ranked, service.configFor('aziziyah', 'taxi'));
-    expect(plan.kind === 'broadcast' && plan.waves[0]?.driverIds).toEqual(['mid-silver', 'near-bronze', 'far-gold']);
+    expect(plan.kind === 'broadcast' && plan.waves[0]?.driverIds).toEqual(['mid-silver', 'near-busy', 'far-gold']);
   });
 });
 
