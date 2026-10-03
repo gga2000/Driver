@@ -3,9 +3,13 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES } from '@driver/contracts';
+import { FOOD_RATED_TYPES, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
+import { newClientId, threadOf } from '@/features/chat/logic';
+import { useChatThreads } from '@/features/chat/queries';
+import { useMaskedCall } from '@/features/chat/useMaskedCall';
+import { SharePanel } from '@/features/share/SharePanel';
 import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
@@ -13,7 +17,7 @@ import { isLive, useCourierPosition, useTracking } from '@/features/track/querie
 import { ActionRow, CourierCard, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
 import { TrackMap } from '@/features/track/TrackMap';
-import { apiErrorCode, apiErrorMessage } from '@/lib/api';
+import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
@@ -32,7 +36,7 @@ function useNow(ms = 1000): number {
   return now;
 }
 
-type Panel = 'cancel' | 'dispute' | 'street' | null;
+type Panel = 'cancel' | 'dispute' | 'street' | 'share' | null;
 
 /**
  * Live order / ride screen (customer app spec §4): map ≈ 60 % with the gliding courier, a
@@ -78,16 +82,40 @@ export default function OrderLiveScreen() {
     prevPhase.current = phase;
   }, [phase]);
 
+  // Chat, masked call and share-trip (notifications & support §2; safety §5).
+  const client = useApiClient();
+  const threads = useChatThreads(id, Boolean(v && (v.courier || v.merchant) && !track.isError));
+  const courierThread = threadOf(threads.data, 'customer_courier');
+  const merchantThread = threadOf(threads.data, 'customer_merchant');
+  const { call: maskedCall } = useMaskedCall(id, 'customer_courier', Boolean(ride));
+  const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   const share = async () => {
+    if (ride) {
+      try {
+        setShareLink(shareLink && !shareLink.revokedAt ? shareLink : await client.tracking.createShareLink.mutate({ orderId: id }));
+        setPanel('share');
+      } catch (err) {
+        toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+      }
+      return;
+    }
     try {
       await Share.share({ message: t('track.share_message', { url: Linking.createURL(`/order/${id}`) }) });
     } catch {
       toast.show({ message: t('error.network'), tone: 'warning' });
     }
   };
-  // TODO(api): masked calls and courier chat (notifications & support spec). Stubs until then.
-  const call = () => toast.show({ message: t('track.call_soon'), tone: 'info', icon: 'phone' });
-  const reply = (text: string) => toast.show({ message: t('track.reply_sent', { text }), tone: 'success', icon: 'chat' });
+  const call = () => void maskedCall();
+  const openChat = (kind: 'customer_courier' | 'customer_merchant') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
+  const reply = async (key: QuickReplyKey) => {
+    try {
+      await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: key });
+      toast.show({ message: t('track.reply_sent', { text: quickReplyText(key, locale) }), tone: 'success', icon: 'chat' });
+      void threads.refetch();
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+    }
+  };
 
   if (track.isError) {
     const missing = apiErrorCode(track.error) === 'forbidden' || apiErrorCode(track.error) === 'not_found' || apiErrorCode(track.error) === 'order_not_found';
@@ -167,7 +195,17 @@ export default function OrderLiveScreen() {
             {v.courier && phase !== 'cancelled' ? (
               <>
                 <Rule />
-                <CourierCard courier={v.courier} ride={ride} onReply={reply} onCall={call} onShare={() => void share()} />
+                <CourierCard
+                  courier={v.courier}
+                  ride={ride}
+                  quickReplies={courierThread?.status === 'open' ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
+                  unread={courierThread?.unread ?? 0}
+                  canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
+                  onReply={(k) => void reply(k)}
+                  onChat={() => openChat('customer_courier')}
+                  onCall={call}
+                  onShare={() => void share()}
+                />
               </>
             ) : null}
             {v.items.length > 0 ? (
@@ -186,7 +224,16 @@ export default function OrderLiveScreen() {
               {canStreet ? (
                 <ActionRow icon="location-arrow" label={t('track.switch_street')} hint={t('track.switch_street_hint', { amount: amountParam(250) })} onPress={() => setPanel('street')} testID="action-street" />
               ) : null}
-              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} />}
+              {merchantThread && merchantThread.status !== 'not_open' ? (
+                <ActionRow
+                  icon="chat"
+                  label={t('track.message_merchant')}
+                  hint={merchantThread.unread > 0 ? t('chat.unread_label', { count: merchantThread.unread }) : undefined}
+                  onPress={() => openChat('customer_merchant')}
+                  testID="action-chat-merchant"
+                />
+              ) : null}
+              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} testID="action-share" />}
               <ActionRow icon="chat" label={t('order.report_problem')} onPress={() => setPanel('dispute')} testID="action-report" />
               {canCancel ? <ActionRow icon="x" tone="dangerText" label={ride ? t('trip.cancel') : t('trip.cancel')} onPress={() => setPanel('cancel')} testID="action-cancel" /> : null}
             </View>
@@ -206,6 +253,9 @@ export default function OrderLiveScreen() {
       {v && panel === 'cancel' ? <CancelPanel orderId={v.order.id} onClose={() => setPanel(null)} /> : null}
       {v && panel === 'dispute' ? <DisputePanel view={v} onClose={() => setPanel(null)} /> : null}
       {v && panel === 'street' ? <StreetPanel onClose={() => setPanel(null)} /> : null}
+      {v && panel === 'share' && shareLink ? (
+        <SharePanel link={shareLink} message={(url) => t('share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
+      ) : null}
       {v && arrived && !arrivalSeen && !rating ? (
         <ArrivalOverlay
           view={v}

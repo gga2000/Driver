@@ -9,7 +9,7 @@ import { currentLocation } from '@/features/rajaa/location';
 import { garageName, useBoardingPass, useBooking, useCancelSeat, useImHere, useNetwork } from '@/features/rajaa/queries';
 import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
-import { apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
@@ -41,6 +41,7 @@ export default function BoardingPassScreen() {
   const theme = useTheme();
   const t = useT();
   const toast = useToast();
+  const client = useApiClient();
   const locale = useLocale();
   const { id } = useLocalSearchParams<{ id: string }>();
   const bookingId = String(id ?? '');
@@ -104,7 +105,14 @@ export default function BoardingPassScreen() {
   };
 
   const onShare = async () => {
-    const link = shareUrl(p?.sharePath ?? `/share/intercity/${b.id}`);
+    // A signed link that stops working 30 min after arrival (`tracking.createShareLink`).
+    let link: string;
+    try {
+      link = shareUrl((await client.tracking.createShareLink.mutate({ bookingId: b.id })).path);
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+      return;
+    }
     const message = t('rajaa.share_message', { route, time: clockLabel(b.departure.departAt), plate: plate(b.departure.vehicle.plate), link });
     try {
       await Share.share({ message });

@@ -17,6 +17,7 @@
 //   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
+//   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -722,6 +723,118 @@ const rajaa = await (async () => {
       const actor = { personId: await ensureAgent(), sessionId: 'demo' };
       const found = await topups.lookup(actor, { code }, 'ops_agent');
       json(res, 200, await topups.confirm(actor, { code, amountIqd: found.amountIqd }, 'ops_agent'));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── chat, masked call, share-trip demo (/chat, /share) ─────────────────────────
+//
+//   POST /demo/chat?personId=<id>&scenario=courier|merchant|ride   → {orderId, …}
+//   POST /demo/chat/clock?minutes=<n>                               → shifts the chat module's clock
+//
+// `courier`: an order on the way (the track demo's courier) with a conversation already going —
+// a quick reply, the customer's gate note, a number the courier typed (masked by the server), a
+// location pin, one unread. `merchant`: the same with the kitchen (a staff member of مطعم خالد)
+// asking about a swapped item. `ride`: a taxi ride with a moving car, a share-trip link already
+// made → {token, path}. `/demo/chat/clock?minutes=31` lets a screenshot show a closed thread
+// (minutes=0 resets); it only moves the chat module's clock.
+{
+  const { ChatService } = await load('modules/chat/index.js');
+  const { ShareLinksService } = await load('modules/tracking/index.js');
+  const chat = app.get(ChatService);
+  const shareLinks = app.get(ShareLinksService);
+  let skewMs = 0;
+  chat.clock = { now: () => new Date(Date.now() + skewMs) };
+  const as = (personId) => ({ personId, sessionId: 'demo' });
+  let n = 0;
+  const cid = () => `demo-${Date.now().toString(36)}-${++n}`;
+
+  let staffId = null;
+  async function kitchenStaff() {
+    if (staffId) return staffId;
+    const phone = '07712990001';
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code } = await identity.devLastOtp(phone);
+    staffId = (await identity.verifyOtp({ phone, code })).personId;
+    await identity.setName({ personId: staffId, sessionId: 'demo' }, 'سيف');
+    await identity.grantRole({ personId: 'system:demo' }, { personId: staffId, kind: 'merchant_staff', orgId: khalid.orgId });
+    return staffId;
+  }
+
+  async function driverWithCar(at) {
+    courierSeq += 1;
+    const phone = `07713${String(450000 + courierSeq).padStart(6, '0')}`;
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code } = await identity.devLastOtp(phone);
+    const driverId = (await identity.verifyOtp({ phone, code })).personId;
+    await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'driver' });
+    await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
+    vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض' });
+    await dispatch.presence.online(driverId, { cityId: 'aziziyah', at, vehicle: 'car', tier: 'gold' });
+    return driverId;
+  }
+
+  async function chatScenario(personId, name) {
+    if (name === 'ride') {
+      const PICKUP = { lat: 32.9012, lng: 45.0702 };
+      const DROP = { lat: 32.9165, lng: 45.0585 };
+      const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', pickup: { zoneKey: 'centre', pin: PICKUP }, dropoff: { zoneKey: 'mahdood_2', pin: DROP } });
+      const trip = await trips.createForOrders({
+        cityId: 'aziziyah',
+        vertical: 'taxi',
+        orders: [{ orderId: ride.id }],
+        stops: [
+          { orderId: ride.id, type: 'pickup', zoneKey: 'centre', target: PICKUP },
+          { orderId: ride.id, type: 'dropoff', zoneKey: 'mahdood_2', target: DROP },
+        ],
+      });
+      const driverId = await driverWithCar(PICKUP);
+      await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: PICKUP, dropoffZoneId: 'mahdood_2', cashIqd: ride.totalIqd });
+      const open = await dispatch.openOffer(driverId, 'aziziyah');
+      const offerId = open?.offer.id ?? (await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId, reason: 'demo', force: true })).offerId;
+      await dispatch.respond({ personId: driverId, sessionId: 'demo' }, { offerId, accept: true });
+      const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
+      await trips.reportPosition(driverId, { tripId: trip.id, pin: PICKUP, at: new Date(), bearing: 320, speedKmh: 0 });
+      await trips.arrive(trip.id, pickup.id, driverId, { pin: PICKUP });
+      await trips.completeStop(trip.id, pickup.id, driverId);
+      await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
+      await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
+      const link = await shareLinks.createShareLink(as(personId), { orderId: ride.id });
+      return { orderId: ride.id, tripId: trip.id, driverId, token: link.token, path: link.path };
+    }
+    const { orderId, tripId, courierId } = await scenario(personId, 'on_the_way');
+    if (name === 'merchant') {
+      const staff = await kitchenStaff();
+      await chat.send(as(personId), { orderId, kind: 'customer_merchant', clientId: cid(), quickReplyKey: 'customer_have_note' });
+      await chat.send(as(personId), { orderId, kind: 'customer_merchant', clientId: cid(), text: 'الكبدة بدون بصل لو سمحتوا' });
+      await chat.send(as(staff), { orderId, kind: 'customer_merchant', clientId: cid(), text: 'تمام، سوّيناها بدون بصل' });
+      await chat.send(as(staff), { orderId, kind: 'customer_merchant', clientId: cid(), quickReplyKey: 'merchant_left_with_courier' });
+      return { orderId, tripId, courierId, staffId: staff };
+    }
+    await chat.send(as(courierId), { orderId, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_on_the_way' });
+    await chat.send(as(personId), { orderId, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'customer_other_gate' });
+    await chat.send(as(personId), { orderId, kind: 'customer_courier', clientId: cid(), text: 'الباب الأزرق يم الصيدلية، الطابق الأرضي' });
+    await chat.markRead(as(courierId), { orderId, kind: 'customer_courier', seq: 3 });
+    await chat.send(as(courierId), { orderId, kind: 'customer_courier', clientId: cid(), text: 'تمام. إذا ما لگيته اتصل بيه على 0770 123 4567' });
+    await chat.send(as(courierId), { orderId, kind: 'customer_courier', clientId: cid(), location: { lat: 32.8921, lng: 45.0731 } });
+    await chat.send(as(courierId), { orderId, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_two_min' });
+    return { orderId, tripId, courierId };
+  }
+
+  app.use('/demo/chat', async (req, res) => {
+    try {
+      const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://x');
+      if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
+      if (url.pathname.endsWith('/clock')) {
+        skewMs = Number(url.searchParams.get('minutes') ?? 0) * 60_000;
+        return json(res, 200, { skewMinutes: skewMs / 60_000 });
+      }
+      const personId = url.searchParams.get('personId');
+      const name = url.searchParams.get('scenario') ?? 'courier';
+      if (!personId || !['courier', 'merchant', 'ride'].includes(name)) return json(res, 400, { error: 'POST /demo/chat?personId=…&scenario=courier|merchant|ride' });
+      json(res, 200, { scenario: name, ...(await chatScenario(personId, name)) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

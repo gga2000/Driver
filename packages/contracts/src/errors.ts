@@ -141,6 +141,16 @@ export const ERROR_TABLE = {
   partial_accept_invalid: { message_ar: 'الأسطر المختارة مو صحيحة', message_en: 'Invalid unavailable lines', retryHint: 'never', status: 'BAD_REQUEST' },
   dispute_window_closed: { message_ar: 'انتهى وقت الشكوى. تواصل ويا الدعم', message_en: 'Dispute window closed; contact support', retryHint: 'support', status: 'CONFLICT' },
 
+  // chat, masked calls, share-trip (notifications & support §2, scoring & safety §5)
+  chat_not_party: { message_ar: 'إنت مو طرف بهذي المحادثة', message_en: 'Not a party of this chat', retryHint: 'never', status: 'FORBIDDEN' },
+  chat_not_open: { message_ar: 'المحادثة تنفتح من ينقبل الطلب', message_en: 'The chat opens when the order is accepted', retryHint: 'later', status: 'CONFLICT' },
+  chat_closed: { message_ar: 'انسدّت المحادثة. تگدر تقراها بس', message_en: 'The chat is closed (read-only)', retryHint: 'never', status: 'CONFLICT' },
+  chat_quick_reply_invalid: { message_ar: 'هذا الرد السريع مو إلك بهذي المحادثة', message_en: 'Quick reply not available for this role or thread', retryHint: 'never', status: 'BAD_REQUEST' },
+  call_unavailable: { message_ar: 'اتصل من خلال التطبيق غير متوفر', message_en: 'In-app calling is not available', retryHint: 'later', status: 'CONFLICT' },
+  share_link_invalid: { message_ar: 'رابط المشاركة مو صحيح', message_en: 'Share link not found or invalid', retryHint: 'never', status: 'NOT_FOUND' },
+  share_not_shareable: { message_ar: 'بس المشاوير والرجعة تنشارك', message_en: 'Only rides and intercity seats can be shared', retryHint: 'never', status: 'BAD_REQUEST' },
+  share_trip_over: { message_ar: 'المشوار خلص، ما يحتاج تشاركه', message_en: 'The trip is over; nothing to share', retryHint: 'never', status: 'CONFLICT' },
+
   // trips
   trip_not_found: { message_ar: 'ما لگينا المشوار', message_en: 'Trip not found', retryHint: 'never', status: 'NOT_FOUND' },
   stop_not_found: { message_ar: 'ما لگينا الوقفة', message_en: 'Stop not found', retryHint: 'never', status: 'NOT_FOUND' },

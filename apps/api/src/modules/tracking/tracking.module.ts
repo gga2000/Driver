@@ -6,6 +6,18 @@ import { Accounts, LedgerModule, LedgerService } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
+import { CORRIDORS, DeparturesService, RoutesModule } from '../routes/index.js';
+import {
+  InMemoryShareLinksRepository,
+  PrismaShareLinksRepository,
+  SHARE_INTERCITY,
+  SHARE_LINKS_REPOSITORY,
+  SHARE_NAMES,
+  SHARE_SECRET,
+  ShareLinksService,
+  shareSecret,
+  type ShareIntercityPort,
+} from './share-links.js';
 import {
   TRACKING_IDENTITY,
   TRACKING_MERCHANTS,
@@ -26,7 +38,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
  * earned). Owns no tables; the vehicle registry read is narrow and read-only.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule],
   providers: [
     { provide: TRACKING_ORDERS, useExisting: OrdersService },
     { provide: TRACKING_TRIPS, useExisting: TripsService },
@@ -63,7 +75,26 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
       inject: [PrismaService],
     },
     TrackingService,
+    // Share-trip links (`tracking.createShareLink` / `revokeShareLink` / `shared`).
+    {
+      provide: SHARE_LINKS_REPOSITORY,
+      useFactory: (prisma: PrismaService) => (prisma.configured ? new PrismaShareLinksRepository(prisma) : new InMemoryShareLinksRepository()),
+      inject: [PrismaService],
+    },
+    { provide: SHARE_NAMES, useExisting: IdentityService },
+    { provide: SHARE_SECRET, useFactory: () => shareSecret() },
+    {
+      provide: SHARE_INTERCITY,
+      useFactory: (departures: DeparturesService): ShareIntercityPort => ({
+        booking: (id) => departures.booking(id),
+        departure: (id) => departures.departure(id),
+        boardingWindowMin: () => departures.rules.boardingWindowMin,
+        travelMin: (corridorId) => CORRIDORS.find((c) => c.id === corridorId)?.travelMin ?? null,
+      }),
+      inject: [DeparturesService],
+    },
+    ShareLinksService,
   ],
-  exports: [TrackingService, COURIER_VEHICLES],
+  exports: [TrackingService, COURIER_VEHICLES, ShareLinksService],
 })
 export class TrackingModule {}

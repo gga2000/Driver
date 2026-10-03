@@ -23,6 +23,8 @@ import type { OpsPort } from './ops-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort } from './merchant-io.js';
 import type { TopUpPort } from './topup-io.js';
+import type { ChatPort } from './chat-io.js';
+import type { TrackingSharePort } from './share-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -70,6 +72,10 @@ export interface AppContext {
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
   merchant: MerchantPort;
+  /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
+  chat: ChatPort;
+  /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
+  trackingShare: TrackingSharePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

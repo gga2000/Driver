@@ -1,0 +1,478 @@
+import { randomUUID } from 'node:crypto';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  CHAT_CLOSE_AFTER_MIN,
+  CHAT_THREAD_PARTIES,
+  ChatMessageSentPayload,
+  DriverError,
+  quickRepliesFor,
+  quickReplyText,
+  type Actor,
+  type CallSession,
+  type ChatMarkReadInput,
+  type ChatMarkReadOutput,
+  type ChatMessage,
+  type ChatParticipant,
+  type ChatPort,
+  type ChatRequestCallInput,
+  type ChatRole,
+  type ChatSendInput,
+  type ChatThreadInput,
+  type ChatThreadKind,
+  type ChatThreadsInput,
+  type ChatThreadStatus,
+  type ChatThreadSummary,
+  type ChatThreadView,
+  type Order,
+  type OrderState,
+  type RoleKind,
+  type Trip,
+  type TripState,
+} from '@driver/contracts';
+import { CLOCK, type Clock } from '../../shared/clock.js';
+import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { EventsService } from '../events/index.js';
+import { BLOB_STORE, type BlobStore } from '../places/index.js';
+import { CALL_BRIDGE, type CallBridgePort } from './call-bridge.js';
+import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord } from './chat.repository.js';
+import { maskIraqiPhones } from './mask.js';
+import { SlidingWindowLimiter } from './rate-limit.js';
+
+// ───────────────────────── ports ─────────────────────────
+
+/** The slices of orders / trips / identity / orgs the chat reads (it owns only its own tables). */
+export interface ChatOrdersPort {
+  get(orderId: string): Promise<Order>;
+}
+export interface ChatTripsPort {
+  activeForOrder(orderId: string): Promise<Trip | null>;
+  courierOf(orderId: string): Promise<{ tripId: string; courierId: string } | null>;
+  get(tripId: string): Promise<Trip>;
+}
+export interface ChatIdentityPort {
+  hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
+  /** First names only; every read of another person is a logged vault access. */
+  firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
+  orgRoleHolders(orgId: string, kinds: readonly RoleKind[]): Promise<Array<{ personId: string; kind: RoleKind; frozen: boolean }>>;
+}
+export interface ChatStoresPort {
+  /** The kitchen's display name; null when unknown. */
+  storeName(orgId: string): Promise<string | null>;
+}
+
+export const CHAT_ORDERS = Symbol('CHAT_ORDERS');
+export const CHAT_TRIPS = Symbol('CHAT_TRIPS');
+export const CHAT_IDENTITY = Symbol('CHAT_IDENTITY');
+export const CHAT_STORES = Symbol('CHAT_STORES');
+
+/** Limits: sends per person per minute; masked calls per person per 10 minutes. */
+export const CHAT_RULES = { sendsPerMinute: 20, callsPer10Min: 5, pageSize: 200 } as const;
+
+const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
+const SUPPORT_ROLES: readonly RoleKind[] = ['support', 'dispatcher', 'admin'];
+const ALL_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'merchant_courier', 'customer_merchant'];
+
+/** Order states in which the order is over (delivered, done, or ended without delivery). */
+const DONE_ORDER_STATES: ReadonlySet<OrderState> = new Set(['delivered', 'closed', 'completed', 'merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded', 'failed', 'disputed']);
+/** Trip states in which the accepted courier is (or was, until the thread closes) a party. */
+const COURIER_PARTY_STATES: ReadonlySet<TripState> = new Set(['accepted', 'en_route_to_pickup', 'arrived_pickup', 'in_transit', 'arrived_dropoff', 'completed', 'failed', 'customer_cancelled', 'platform_cancelled']);
+
+/** Everything the access and status rules need about one order, read fresh on every call. */
+interface OrderContext {
+  order: Order;
+  ride: boolean;
+  customerIds: ReadonlySet<string>;
+  courierId: string | null;
+  courierAcceptedAt: Date | null;
+  doneAt: Date | null;
+}
+
+const NAME_CACHE_MAX = 2000;
+
+/**
+ * In-order chat (notifications & support §2; customer app §4) and masked calls. Threads are keyed by
+ * order and pair; who is a party is derived from the order on every call (the courier changes on a
+ * reassign; a kitchen's staff come and go), so no participant list is stored. Messages are persisted
+ * with a per-thread seq; a new message emits `chat.message_sent` in the same transaction, and the
+ * module's outbox subscriber pushes it to the other party through `NotifyService`.
+ */
+@Injectable()
+export class ChatService implements ChatPort {
+  private readonly logger = new Logger(ChatService.name);
+  private readonly sendLimiter: SlidingWindowLimiter;
+  private readonly callLimiter: SlidingWindowLimiter;
+  /** First names per order and reader, so a 3-second poll logs one vault read, not one per poll. */
+  private readonly names = new Map<string, Record<string, string | null>>();
+
+  constructor(
+    @Inject(CHAT_REPOSITORY) private readonly repo: ChatRepository,
+    @Inject(CHAT_ORDERS) private readonly orders: ChatOrdersPort,
+    @Inject(CHAT_TRIPS) private readonly trips: ChatTripsPort,
+    @Inject(CHAT_IDENTITY) private readonly identity: ChatIdentityPort,
+    @Inject(CHAT_STORES) private readonly stores: ChatStoresPort,
+    @Inject(BLOB_STORE) private readonly blobs: BlobStore,
+    @Inject(CALL_BRIDGE) private readonly bridge: CallBridgePort,
+    private readonly events: EventsService,
+    private readonly uow: UnitOfWork,
+    @Inject(CLOCK) private readonly clock: Clock,
+  ) {
+    this.sendLimiter = new SlidingWindowLimiter(clock, CHAT_RULES.sendsPerMinute, 60_000);
+    this.callLimiter = new SlidingWindowLimiter(clock, CHAT_RULES.callsPer10Min, 10 * 60_000);
+  }
+
+  // ───────────────────────── reads ─────────────────────────
+
+  async threads(actor: Actor, input: ChatThreadsInput): Promise<ChatThreadSummary[]> {
+    const ctx = await this.context(input.orderId);
+    const now = this.clock.now();
+    const support = await this.isSupport(actor.personId);
+    const out: ChatThreadSummary[] = [];
+    const stored = new Map((await this.repo.threadsOfOrder(ctx.order.id)).map((t) => [t.kind, t]));
+    for (const kind of this.applicableKinds(ctx)) {
+      const role = (await this.partyRole(actor.personId, ctx, kind)) ?? (support ? 'support' : null);
+      if (!role) continue;
+      const status = this.status(ctx, kind, now);
+      const thread = stored.get(kind) ?? null;
+      const unread = thread ? await this.unreadOf(thread, role, actor.personId) : 0;
+      out.push({
+        kind,
+        status,
+        myRole: role,
+        counterpart: counterpartOf(kind, role),
+        unread,
+        lastMessageAt: thread ? await this.repo.lastMessageAt(thread.id) : null,
+        canCall: status === 'open' && role !== 'support',
+      });
+    }
+    if (out.length === 0) throw new DriverError('chat_not_party');
+    return out;
+  }
+
+  async thread(actor: Actor, input: ChatThreadInput): Promise<ChatThreadView> {
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    const now = this.clock.now();
+    const status = this.status(ctx, input.kind, now);
+    const thread = await this.repo.findThread(ctx.order.id, input.kind);
+    const reads = thread ? await this.repo.readSeqs(thread.id) : new Map<string, number>();
+    const myKey = readerKey(role, actor.personId);
+    const myReadSeq = reads.get(myKey) ?? 0;
+    const otherRead = this.counterpartReadSeq(input.kind, role, ctx, reads);
+    const records = thread ? await this.repo.messages(thread.id, { ...(input.afterSeq !== undefined ? { afterSeq: input.afterSeq } : {}), limit: CHAT_RULES.pageSize }) : [];
+    return {
+      threadId: thread?.id ?? null,
+      orderId: ctx.order.id,
+      kind: input.kind,
+      status,
+      closesAt: ctx.doneAt ? closesAt(ctx.doneAt) : null,
+      myRole: role,
+      ride: ctx.ride,
+      participants: await this.participants(actor.personId, ctx, input.kind, role),
+      messages: records.map((m) => this.messageView(m, role, otherRead)),
+      lastSeq: thread?.lastSeq ?? 0,
+      myReadSeq,
+      unread: thread ? await this.repo.countUnread(thread.id, myReadSeq, role) : 0,
+      quickReplies: status === 'open' && role !== 'support' ? quickRepliesFor(role, input.kind, ctx.ride) : [],
+      canCall: status === 'open' && role !== 'support',
+      serverNow: now,
+    };
+  }
+
+  // ───────────────────────── writes ─────────────────────────
+
+  async send(actor: Actor, input: ChatSendInput): Promise<ChatMessage> {
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    const now = this.clock.now();
+    this.assertOpen(this.status(ctx, input.kind, now));
+    this.sendLimiter.hit(actor.personId);
+
+    let body: string | null = null;
+    let masked = false;
+    let kind: ChatMessage['kind'];
+    let photoRef: string | null = null;
+    if (input.text !== undefined) {
+      const m = maskIraqiPhones(input.text.trim());
+      body = m.text;
+      masked = m.masked;
+      kind = 'text';
+    } else if (input.quickReplyKey !== undefined) {
+      if (!quickRepliesFor(role, input.kind, ctx.ride).includes(input.quickReplyKey)) throw new DriverError('chat_quick_reply_invalid');
+      body = quickReplyText(input.quickReplyKey);
+      kind = 'quick_reply';
+    } else if (input.photoUploadId !== undefined) {
+      const blob = await this.blobs.get(input.photoUploadId);
+      if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored') throw new DriverError('upload_invalid');
+      photoRef = blob.id;
+      kind = 'photo';
+    } else {
+      kind = 'location';
+    }
+
+    const recipients = await this.recipients(ctx, input.kind, role, actor.personId);
+    const record = await this.uow.run(async (tx) => {
+      const thread = await this.repo.ensureThread(ctx.order.id, input.kind, now, tx);
+      const { message, inserted } = await this.repo.append(
+        thread.id,
+        {
+          senderId: actor.personId,
+          senderRole: role,
+          kind,
+          body,
+          quickReplyKey: input.quickReplyKey ?? null,
+          photoRef,
+          lat: input.location?.lat ?? null,
+          lng: input.location?.lng ?? null,
+          masked,
+          clientId: input.clientId,
+          createdAt: now,
+        },
+        tx,
+      );
+      if (inserted) {
+        // The sender has obviously read everything up to their own message.
+        await this.repo.markRead(thread.id, readerKey(role, actor.personId), message.seq, tx);
+        const payload = ChatMessageSentPayload.parse({
+          threadId: thread.id,
+          orderId: ctx.order.id,
+          kind: input.kind,
+          messageId: message.id,
+          seq: message.seq,
+          senderRole: role,
+          messageKind: kind,
+          ride: ctx.ride,
+          recipientIds: recipients,
+          preview: body ? body.slice(0, 80) : null,
+        });
+        await this.events.emit(
+          tx,
+          { type: 'chat.message_sent', actorId: actor.personId, occurredAt: now, orderId: ctx.order.id, payload, idempotencyKey: `chat:${thread.id}:${actor.personId}:${input.clientId}` },
+          { name: 'chat_thread', id: thread.id },
+        );
+      }
+      return message;
+    });
+    return this.messageView(record, role, 0);
+  }
+
+  async markRead(actor: Actor, input: ChatMarkReadInput): Promise<ChatMarkReadOutput> {
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    const thread = await this.repo.findThread(ctx.order.id, input.kind);
+    if (!thread) return { myReadSeq: 0, unread: 0 };
+    const seq = Math.min(input.seq, thread.lastSeq);
+    const myReadSeq = await this.uow.run((tx) => this.repo.markRead(thread.id, readerKey(role, actor.personId), seq, tx));
+    return { myReadSeq, unread: await this.repo.countUnread(thread.id, myReadSeq, role) };
+  }
+
+  /**
+   * A masked call to the other party of the thread. Every request is logged (an event on the
+   * thread plus the server log), allowed or not past the party check.
+   */
+  async requestCall(actor: Actor, input: ChatRequestCallInput): Promise<CallSession> {
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    const now = this.clock.now();
+    const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const counterpart = counterpartOf(input.kind, role);
+    const log = (outcome: string, mode: string | null) => {
+      this.logger.log(`call ${callId} order=${ctx.order.id} kind=${input.kind} ${role}→${counterpart} by=${actor.personId} ${outcome}${mode ? ` mode=${mode}` : ''}`);
+      return this.events.emit(
+        undefined,
+        { type: 'chat.call_requested', actorId: actor.personId, occurredAt: now, orderId: ctx.order.id, payload: { callId, orderId: ctx.order.id, kind: input.kind, callerRole: role, calleeRole: counterpart, outcome, mode } },
+        { name: 'order', id: ctx.order.id },
+      );
+    };
+    try {
+      if (role === 'support') throw new DriverError('chat_not_party');
+      this.assertOpen(this.status(ctx, input.kind, now));
+      this.callLimiter.hit(actor.personId);
+      const calleeId = await this.calleeOf(ctx, counterpart);
+      if (!calleeId) throw new DriverError('call_unavailable');
+      const session = await this.bridge.open({ callId, orderId: ctx.order.id, callerId: actor.personId, calleeId }, now);
+      await log('opened', session.mode);
+      return { callId, mode: session.mode, dial: session.dial, counterpart, expiresAt: session.expiresAt };
+    } catch (err) {
+      await log(`refused:${err instanceof DriverError ? err.code : 'error'}`, null);
+      throw err;
+    }
+  }
+
+  // ───────────────────────── rules ─────────────────────────
+
+  private async context(orderId: string): Promise<OrderContext> {
+    const order = await this.orders.get(orderId);
+    let trip = await this.trips.activeForOrder(orderId);
+    if (!trip) {
+      const carried = await this.trips.courierOf(orderId);
+      trip = carried ? await this.trips.get(carried.tripId) : null;
+    }
+    const courierOn = trip && trip.courierId && trip.acceptedAt && COURIER_PARTY_STATES.has(trip.state);
+    const customerIds = new Set<string>([order.ordererId, ...order.participants.map((p) => p.personId).filter((p): p is string => p !== null)]);
+    let doneAt: Date | null = null;
+    if (DONE_ORDER_STATES.has(order.state)) {
+      doneAt = order.deliveredAt ?? order.cancelledAt ?? (trip?.state === 'completed' ? trip.completedAt : null) ?? trip?.cancelledAt ?? order.closedAt ?? order.placedAt;
+    } else if (trip?.state === 'completed' && trip.completedAt) {
+      doneAt = trip.completedAt;
+    }
+    return {
+      order,
+      ride: order.type === 'ride',
+      customerIds,
+      courierId: courierOn ? trip!.courierId : null,
+      courierAcceptedAt: courierOn ? trip!.acceptedAt : null,
+      doneAt,
+    };
+  }
+
+  private applicableKinds(ctx: OrderContext): ChatThreadKind[] {
+    return ALL_KINDS.filter((k) => k === 'customer_courier' || ctx.order.merchantOrgId !== null);
+  }
+
+  private status(ctx: OrderContext, kind: ChatThreadKind, now: Date): ChatThreadStatus {
+    if (ctx.doneAt && now.getTime() >= closesAt(ctx.doneAt).getTime()) return 'closed';
+    const opened = kind === 'customer_merchant' ? (ctx.order.merchantOrgId ? ctx.order.acceptedAt : null) : ctx.courierAcceptedAt;
+    return opened ? 'open' : 'not_open';
+  }
+
+  private assertOpen(status: ChatThreadStatus): void {
+    if (status === 'closed') throw new DriverError('chat_closed');
+    if (status === 'not_open') throw new DriverError('chat_not_open');
+  }
+
+  private async isParty(personId: string, role: ChatRole, ctx: OrderContext): Promise<boolean> {
+    if (role === 'customer') return ctx.customerIds.has(personId);
+    if (role === 'courier') return ctx.courierId === personId;
+    if (role === 'merchant') {
+      const org = ctx.order.merchantOrgId;
+      if (!org) return false;
+      for (const k of MERCHANT_ROLES) if (await this.identity.hasRole(personId, k, org)) return true;
+    }
+    return false;
+  }
+
+  private async isSupport(personId: string): Promise<boolean> {
+    for (const k of SUPPORT_ROLES) if (await this.identity.hasRole(personId, k)) return true;
+    return false;
+  }
+
+  /** The actor's party in a thread of `kind`, or null. */
+  private async partyRole(personId: string, ctx: OrderContext, kind: ChatThreadKind): Promise<ChatRole | null> {
+    if (!this.applicableKinds(ctx).includes(kind)) return null;
+    for (const r of CHAT_THREAD_PARTIES[kind]) if (await this.isParty(personId, r, ctx)) return r;
+    return null;
+  }
+
+  /** The actor's role in the thread (a party first, then support) or `chat_not_party`. */
+  private async roleIn(personId: string, ctx: OrderContext, kind: ChatThreadKind): Promise<ChatRole> {
+    if (!this.applicableKinds(ctx).includes(kind)) throw new DriverError('chat_not_party');
+    const party = await this.partyRole(personId, ctx, kind);
+    if (party) return party;
+    if (await this.isSupport(personId)) return 'support';
+    throw new DriverError('chat_not_party');
+  }
+
+  private async unreadOf(thread: ChatThreadRecord, role: ChatRole, personId: string): Promise<number> {
+    const reads = await this.repo.readSeqs(thread.id);
+    return this.repo.countUnread(thread.id, reads.get(readerKey(role, personId)) ?? 0, role);
+  }
+
+  /** What the other party has read (for my read receipts); support reads count for neither party. */
+  private counterpartReadSeq(kind: ChatThreadKind, role: ChatRole, ctx: OrderContext, reads: Map<string, number>): number {
+    const keyOf = (r: ChatRole): string | null => (r === 'courier' ? (ctx.courierId ? `courier:${ctx.courierId}` : null) : r);
+    if (role === 'support') {
+      return Math.max(...CHAT_THREAD_PARTIES[kind].map((r) => reads.get(keyOf(r) ?? '') ?? 0));
+    }
+    const other = keyOf(counterpartOf(kind, role));
+    return other ? (reads.get(other) ?? 0) : 0;
+  }
+
+  private messageView(m: ChatMessageRecord, readerRole: ChatRole, otherReadSeq: number): ChatMessage {
+    const mine = m.senderRole === readerRole;
+    return {
+      id: m.id,
+      seq: m.seq,
+      senderRole: m.senderRole,
+      mine,
+      kind: m.kind,
+      text: m.body,
+      quickReplyKey: (m.quickReplyKey as ChatMessage['quickReplyKey']) ?? null,
+      photoUrl: m.photoRef ? this.blobs.readUrl(m.photoRef) : null,
+      location: m.lat !== null && m.lng !== null ? { lat: m.lat, lng: m.lng } : null,
+      masked: m.masked,
+      createdAt: m.createdAt,
+      read: mine && otherReadSeq >= m.seq,
+    };
+  }
+
+  /** The two parties by role and first name (people) or store name (the kitchen). */
+  private async participants(readerId: string, ctx: OrderContext, kind: ChatThreadKind, myRole: ChatRole): Promise<ChatParticipant[]> {
+    const people = CHAT_THREAD_PARTIES[kind].flatMap((r) => (r === 'customer' ? [ctx.order.ordererId] : r === 'courier' && ctx.courierId ? [ctx.courierId] : []));
+    const names = await this.firstNames(ctx.order.id, readerId, people);
+    const out: ChatParticipant[] = [];
+    for (const r of CHAT_THREAD_PARTIES[kind]) {
+      let name: string | null = null;
+      if (r === 'customer') name = names[ctx.order.ordererId] ?? null;
+      else if (r === 'courier') name = ctx.courierId ? (names[ctx.courierId] ?? null) : null;
+      else if (r === 'merchant' && ctx.order.merchantOrgId) name = await this.stores.storeName(ctx.order.merchantOrgId);
+      out.push({ role: r, name, you: r === myRole });
+    }
+    return out;
+  }
+
+  private async firstNames(orderId: string, readerId: string, personIds: string[]): Promise<Record<string, string | null>> {
+    const key = `${orderId}:${readerId}:${[...personIds].sort().join(',')}`;
+    const hit = this.names.get(key);
+    if (hit) return hit;
+    const names = personIds.length ? await this.identity.firstNamesFor(personIds, readerId, 'chat_thread') : {};
+    if (this.names.size >= NAME_CACHE_MAX) this.names.delete(this.names.keys().next().value!);
+    this.names.set(key, names);
+    return names;
+  }
+
+  /** Who gets the push for a new message: the other party (support's messages go to both). */
+  private async recipients(ctx: OrderContext, kind: ChatThreadKind, senderRole: ChatRole, senderId: string): Promise<string[]> {
+    const roles = senderRole === 'support' ? [...CHAT_THREAD_PARTIES[kind]] : [counterpartOf(kind, senderRole)];
+    const out = new Set<string>();
+    for (const r of roles) {
+      if (r === 'customer') out.add(ctx.order.ordererId);
+      else if (r === 'courier' && ctx.courierId) out.add(ctx.courierId);
+      else if (r === 'merchant' && ctx.order.merchantOrgId) {
+        for (const h of await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)) if (!h.frozen) out.add(h.personId);
+      }
+    }
+    out.delete(senderId);
+    return [...out];
+  }
+
+  /** The person a masked call rings: the courier, the orderer, or the kitchen's owner. */
+  private async calleeOf(ctx: OrderContext, role: ChatRole): Promise<string | null> {
+    if (role === 'courier') return ctx.courierId;
+    if (role === 'customer') return ctx.order.ordererId;
+    if (role === 'merchant' && ctx.order.merchantOrgId) {
+      const holders = (await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)).filter((h) => !h.frozen);
+      return (holders.find((h) => h.kind === 'merchant_owner') ?? holders[0])?.personId ?? null;
+    }
+    return null;
+  }
+}
+
+// ───────────────────────── helpers ─────────────────────────
+
+export function closesAt(doneAt: Date): Date {
+  return new Date(doneAt.getTime() + CHAT_CLOSE_AFTER_MIN * 60_000);
+}
+
+/** The other party of the pair; for support, the pair's first party. */
+export function counterpartOf(kind: ChatThreadKind, role: ChatRole): ChatRole {
+  const [a, b] = CHAT_THREAD_PARTIES[kind];
+  if (role === a) return b;
+  if (role === b) return a;
+  return a;
+}
+
+/** Read receipts belong to the party: the customer side and the kitchen are one reader each. */
+export function readerKey(role: ChatRole, personId: string): string {
+  if (role === 'customer' || role === 'merchant') return role;
+  return `${role}:${personId}`;
+}

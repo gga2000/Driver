@@ -1,0 +1,88 @@
+import { z } from 'zod';
+import type { Actor } from './identity-io.js';
+import { VehicleClass } from './trip.js';
+
+/**
+ * Share-trip links (scoring & safety §5 "plate + photo + share-trip before every ride"; customer
+ * app spec §2 and §4; edge-case review C-126). A rider shares a signed link to a ride (taxi /
+ * tuktuk) or a الرجعة seat. Whoever opens it — no sign-in — sees coarse data only: the driver's
+ * first name, the vehicle and plate, the car's live position inside the sharing window, and the
+ * ETA. Never a phone, a full name, the rider's name or the pickup / drop-off address. The link
+ * expires 30 minutes after the trip completes (24 h after creation at the latest) and the rider
+ * can revoke it at any time.
+ */
+
+export const ShareSubject = z.enum(['ride', 'intercity']);
+export type ShareSubject = z.infer<typeof ShareSubject>;
+
+/** A link lives at most this long after the ride is done… */
+export const SHARE_AFTER_COMPLETE_MIN = 30;
+/** …and never longer than this after it was made. */
+export const SHARE_MAX_HOURS = 24;
+
+export const CreateShareLinkInput = z
+  .object({
+    /** A ride order (taxi / tuktuk) of the caller. */
+    orderId: z.string().min(1).optional(),
+    /** A الرجعة booking of the caller. */
+    bookingId: z.string().min(1).optional(),
+  })
+  .refine((v) => (v.orderId ? 1 : 0) + (v.bookingId ? 1 : 0) === 1, { message: 'exactly one of orderId, bookingId' });
+export type CreateShareLinkInput = z.infer<typeof CreateShareLinkInput>;
+
+export const ShareLink = z.object({
+  token: z.string(),
+  /** Path of the public page (`/share/<token>`); the app joins it to the share origin. */
+  path: z.string(),
+  subject: ShareSubject,
+  createdAt: z.coerce.date(),
+  /** Known once the trip is done (completion + 30 min); the 24-hour cap until then. */
+  expiresAt: z.coerce.date(),
+  revokedAt: z.coerce.date().nullable(),
+  /** How many times the page was opened (the rider sees when a link went further than meant). */
+  views: z.number().int().min(0),
+});
+export type ShareLink = z.infer<typeof ShareLink>;
+
+export const RevokeShareLinkInput = z.object({ token: z.string().min(1).max(200) });
+export type RevokeShareLinkInput = z.infer<typeof RevokeShareLinkInput>;
+
+export const SharedTripInput = z.object({ token: z.string().min(1).max(200) });
+export type SharedTripInput = z.infer<typeof SharedTripInput>;
+
+/**
+ * `waiting`: booked, the car is not moving yet (intercity before boarding) · `to_pickup`: the driver
+ * is on his way to the rider · `on_trip`: the rider is in the car · `arrived`: done, the link
+ * still opens until it expires · `ended`: cancelled, expired or revoked (nothing else is sent).
+ */
+export const SharedTripStatus = z.enum(['waiting', 'to_pickup', 'on_trip', 'arrived', 'ended']);
+export type SharedTripStatus = z.infer<typeof SharedTripStatus>;
+
+export const SharedTrip = z.object({
+  status: SharedTripStatus,
+  subject: ShareSubject,
+  /** Why it ended (`expired`, `revoked`, `cancelled`); null otherwise. */
+  endedReason: z.enum(['expired', 'revoked', 'cancelled']).nullable(),
+  driverFirstName: z.string().nullable(),
+  vehicleClass: VehicleClass.nullable(),
+  /** "Toyota Corolla · أبيض"; null when unknown. */
+  vehicleLabel: z.string().nullable(),
+  plate: z.string().nullable(),
+  /** Inside the sharing window only; null before the first fix. */
+  position: z.object({ lat: z.number(), lng: z.number(), at: z.coerce.date(), ageSec: z.number().int().min(0) }).nullable(),
+  /** Arrival at the destination (ride on trip; intercity after departing); null when not known. */
+  eta: z.coerce.date().nullable(),
+  /** Intercity: the two cities (the page says "العزيزية ← بغداد"); null for city rides (no address is ever shown). */
+  route: z.object({ fromCityId: z.string(), toCityId: z.string() }).nullable(),
+  expiresAt: z.coerce.date().nullable(),
+  serverNow: z.coerce.date(),
+});
+export type SharedTrip = z.infer<typeof SharedTrip>;
+
+/** Implemented by the API's `tracking` module (`ShareLinksService`). */
+export interface TrackingSharePort {
+  createShareLink(actor: Actor, input: CreateShareLinkInput): Promise<ShareLink>;
+  revokeShareLink(actor: Actor, input: RevokeShareLinkInput): Promise<ShareLink>;
+  /** Public: the token is the only credential. */
+  shared(input: SharedTripInput): Promise<SharedTrip>;
+}

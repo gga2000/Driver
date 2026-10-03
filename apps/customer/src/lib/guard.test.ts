@@ -44,4 +44,12 @@ describe('route guard', () => {
     expect(g('signedIn', ['checkout'])).toBeNull();
     expect(g('signedIn', ['places', 'new'])).toBeNull();
   });
+
+  it('opens the share-trip page for anyone (signed out, signed in, mid-setup)', () => {
+    expect(g('signedOut', ['share', '[token]'])).toBeNull();
+    expect(g('signedIn', ['share', '[token]'])).toBeNull();
+    expect(g('signedIn', ['share', '[token]'], true)).toBeNull();
+    // The chat is not public.
+    expect(g('signedOut', ['chat', '[orderId]'])).toBe('/welcome');
+  });
 });

@@ -18,7 +18,8 @@ import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
 import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
-import { TrackingModule, TrackingService } from '../modules/tracking/index.js';
+import { ShareLinksService, TrackingModule, TrackingService } from '../modules/tracking/index.js';
+import { ChatModule, ChatService } from '../modules/chat/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
 import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
@@ -59,6 +60,8 @@ export class TrpcService {
     private readonly partner: PartnerService,
     private readonly merchant: MerchantService,
     private readonly topups: TopUpService,
+    private readonly chat: ChatService,
+    private readonly shareLinks: ShareLinksService,
   ) {}
 
   /**
@@ -100,6 +103,8 @@ export class TrpcService {
       households: this.households,
       partner: this.partner,
       merchant: this.merchant,
+      chat: this.chat,
+      trackingShare: this.shareLinks,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -124,5 +129,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

@@ -13,6 +13,8 @@ app/
   household/             العائلة: approvals, members + limits, shared places; invite; member limit
   restaurant/[id] cart checkout kitchen/[id]   food ordering (M3)
   order/[id]             live order / ride screen: map, courier, sheet timeline, arrival + rating
+  chat/[orderId]         in-order chat (?kind=customer_courier|customer_merchant): bubbles, quick replies, photo, location
+  share/[token]          PUBLIC share-trip page (no sign-in; `PUBLIC_SEGMENTS` in lib/guard.ts)
   rajaa/                 الرجعة: index (corridor + garage boards), departure/[id] (seat booking),
                          booking/[id] (10-min hold + pay), pass/[id] (boarding pass), demand, request
 src/
@@ -155,3 +157,23 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 - Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|unreachable|arrived|late|signal_lost|reassigning`
   and `POST /demo/track/advance?orderId=…`; `SHOTS=track node scripts/web-shots.mjs` writes `track-*.png`.
   `?sheet=1|2` opens the sheet at a detent.
+
+## Chat, masked call, share-trip (`src/features/chat/`, `src/features/share/`)
+
+- **Chat** — `chat.threads` (badges on the courier card's chat button and the "راسل المطعم" row, every
+  5 s), `chat.thread` (the open conversation, every 3 s — `CHAT_POLL_MS`; a push / subscription
+  channel replaces polling later, the push notification already goes out from the API), `chat.send`
+  (text ≤ 500, quick-reply key, photo via `places.photoUpload`, location), `chat.markRead` for what is
+  on screen. Pending messages show at the bottom and retry with the same `clientId` (the server
+  stores them once). Phone numbers typed into a message come back masked (`[رقم مخفي]` + a note).
+  The courier card's quick-reply chips send straight into the thread. `logic.ts` is pure and tested.
+- **Masked call** — `chat.requestCall` → `useMaskedCall`: dials the platform number; a development API
+  returns the other party's real number and the toast says so. The web build only shows the toast.
+- **Share-trip** — rides: the share button makes a signed link (`tracking.createShareLink`), the sheet
+  shows how often it was opened and "وقّف المشاركة" (`tracking.revokeShareLink`). الرجعة boarding
+  pass: the same link per booking. The public page `app/share/[token].tsx` reads `tracking.shared`
+  (first name, car, plate, the car on the map inside the sharing window, ETA; never a phone or
+  address). `EXPO_PUBLIC_SHARE_BASE_URL` sets the public origin (web: the page's own origin).
+- Demo: `POST /demo/chat?personId=…&scenario=courier|merchant|ride` (a conversation already going, or a
+  ride with a moving car and a share link → `{token, path}`), `POST /demo/chat/clock?minutes=31` (the
+  chat module's clock, to show a closed thread; `0` resets). `SHOTS=chat` writes `chat-*.png`.
