@@ -122,9 +122,10 @@ export class OrgsService {
     return org;
   }
 
-  setSpendingLimit(orgId: string, personId: string, spendingLimitIqd: number | null): OrgMember {
+  setSpendingLimit(orgId: string, personId: string, spendingLimitIqd: number | null, actorId?: string): OrgMember {
     const m = this.member(orgId, personId);
     m.spendingLimitIqd = spendingLimitIqd;
+    if (actorId) this.emit('org.member_limit_set', actorId, { orgId, personId, spendingLimitIqd }, orgId);
     return m;
   }
 
@@ -176,6 +177,17 @@ export class OrgsService {
     req.state = decision;
     this.emit(decision === 'approved' ? 'org.payer_approved' : 'org.payer_declined', payerId, { orgId: req.orgId, orderId: req.orderId, requestId }, req.orgId);
     return req;
+  }
+
+  approval(requestId: string): PayerApprovalRequest {
+    const req = this.approvals.get(requestId);
+    if (!req) throw new DriverError('not_found');
+    return req;
+  }
+
+  /** Every request of a household, newest first (pending and resolved). */
+  approvalsOf(orgId: string): PayerApprovalRequest[] {
+    return [...this.approvals.values()].filter((a) => a.orgId === orgId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
   }
 
   pendingApprovals(orgId: string): PayerApprovalRequest[] {

@@ -72,6 +72,14 @@ export const ERROR_TABLE = {
   org_not_found: { message_ar: 'ما لگينا الجهة', message_en: 'Org not found', retryHint: 'never', status: 'NOT_FOUND' },
   not_household_member: { message_ar: 'مو عضو بهذا البيت', message_en: 'Not a member of this household', retryHint: 'never', status: 'FORBIDDEN' },
   no_payer: { message_ar: 'ما أكو دافع بهذا البيت بعد', message_en: 'Household has no payer yet', retryHint: 'never', status: 'CONFLICT' },
+  household_payer_only: { message_ar: 'بس الدافع بالبيت يگدر يسوي هذا', message_en: 'Only a household payer can do this', retryHint: 'never', status: 'FORBIDDEN' },
+  household_exists: { message_ar: 'إنت أصلاً عضو ببيت', message_en: 'You already belong to a household', retryHint: 'never', status: 'CONFLICT' },
+
+  // places / uploads (domain §7)
+  location_weak: { i18n: 'error.location_weak', message_ar: 'إشارة الـ GPS ضعيفة', message_en: 'GPS fix too weak', retryHint: 'now', status: 'BAD_REQUEST' },
+  place_not_found: { message_ar: 'ما لگينا المكان', message_en: 'Place not found', retryHint: 'never', status: 'NOT_FOUND' },
+  outside_zone: { i18n: 'error.outside_zone', message_ar: 'هذا الموقع برا منطقة الخدمة حالياً', message_en: 'This location is outside the service area', retryHint: 'never', status: 'BAD_REQUEST' },
+  upload_invalid: { i18n: 'error.upload_failed', message_ar: 'ما انرفعت الصورة. جرب مرة ثانية', message_en: 'Upload missing, expired or invalid', retryHint: 'now', status: 'BAD_REQUEST' },
 
   // orders
   order_not_found: { message_ar: 'ما لگينا الطلب', message_en: 'Order not found', retryHint: 'never', status: 'NOT_FOUND' },

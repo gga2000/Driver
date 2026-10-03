@@ -14,3 +14,6 @@ export { NightlyJob } from './nightly.job.js';
 export { LedgerFacade } from './ledger.facade.js';
 export { LEDGER_SUBSCRIBED_EVENTS } from './ledger.subscribers.js';
 export { settlementReference, matchTransfer } from './settlement-ref.js';
+export { CustomerWalletService, moneyLines, pointsLines, pageLines, pointsWorthIqd, claimablePending, PENDING_POINTS_TTL_DAYS, WALLET_PEOPLE, WALLET_HOUSEHOLDS } from './customer-wallet.js';
+export type { WalletPeople, WalletHouseholds } from './customer-wallet.js';
+export type { PostingGroup } from './postings.js';

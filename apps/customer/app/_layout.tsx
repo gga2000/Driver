@@ -100,6 +100,11 @@ function RootNavigator() {
         <Stack.Screen name="kitchen/[id]" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="cart" options={{ title: t('cart.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="checkout" options={{ title: t('checkout.title'), headerLeft: () => <HeaderBack /> }} />
+        <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
+        <Stack.Screen name="household" options={{ headerShown: false }} />
+        <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
+        <Stack.Screen name="cart" options={{ title: t('cart.title') }} />
+        <Stack.Screen name="checkout" options={{ title: t('checkout.title') }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title') }} />

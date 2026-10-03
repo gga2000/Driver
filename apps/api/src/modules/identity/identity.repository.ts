@@ -1,5 +1,5 @@
 import type { OtpPurpose, RoleKind } from '@driver/contracts';
-import type { TrustTier } from '@driver/db';
+import { Prisma, type TrustTier } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -83,6 +83,13 @@ export interface IdentityRecord {
   phoneE164: string;
   phoneHash: string;
   name: string | null;
+  /** Customer spec §10 safety; absent/null = none set. */
+  emergencyContact?: EmergencyContactRecord | null;
+}
+
+export interface EmergencyContactRecord {
+  name: string;
+  phoneE164: string;
 }
 
 export interface VaultAccessLogRecord {
@@ -115,7 +122,7 @@ export interface IdentityRepository {
 
   // vault
   readIdentity(personId: string, tx?: Tx): Promise<IdentityRecord | null>;
-  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name'>>, tx?: Tx): Promise<IdentityRecord>;
+  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx): Promise<IdentityRecord>;
   logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
   vaultAccessLogs(personId: string, tx?: Tx): Promise<VaultAccessLogRecord[]>;
   createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
@@ -213,12 +220,17 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async readIdentity(personId: string, tx?: Tx) {
     const row = await this.db(tx).personIdentity.findUnique({ where: { personId } });
-    return row ? { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name } : null;
+    return row ? identityRecord(row) : null;
   }
 
-  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name'>>, tx?: Tx) {
-    const row = await this.db(tx).personIdentity.update({ where: { personId }, data: patch });
-    return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name };
+  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx) {
+    const { emergencyContact, ...rest } = patch;
+    const data = {
+      ...rest,
+      ...(emergencyContact !== undefined ? { emergencyContact: emergencyContact === null ? Prisma.DbNull : { name: emergencyContact.name, phoneE164: emergencyContact.phoneE164 } } : {}),
+    };
+    const row = await this.db(tx).personIdentity.update({ where: { personId }, data });
+    return identityRecord(row);
   }
 
   async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
@@ -395,4 +407,10 @@ function toDbPurpose(p: OtpPurpose): 'login' | 'guardian_consent' | 'number_chan
 }
 function fromDbPurpose(p: string): OtpPurpose {
   return p === 'number_change' ? 'phone_change' : (p as OtpPurpose);
+}
+
+function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown }): IdentityRecord {
+  const ec = row.emergencyContact as { name?: unknown; phoneE164?: unknown } | null | undefined;
+  const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164 } : null;
+  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact };
 }

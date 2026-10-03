@@ -21,6 +21,7 @@ import {
   RequestOtpOutput,
   RevokeGuardianLinkInput,
   RevokeRoleInput,
+  UpdateProfileInput,
   VerifyOtpInput,
   VerifyOtpOutput,
 } from '../identity-io.js';
@@ -42,6 +43,8 @@ export const identityRouter = router({
       return { ok: true as const };
     }),
   me: protectedProcedure().output(MeView).query(({ ctx }) => ctx.identity.me(ctx.actor)),
+  /** Name and emergency contact → the vault only (customer spec §10). */
+  updateProfile: protectedProcedure().input(UpdateProfileInput).output(MeView).mutation(({ ctx, input }) => ctx.identity.updateProfile(ctx.actor, input)),
   grantRole: protectedProcedure(['admin']).input(GrantRoleInput).output(RoleGrant).mutation(({ ctx, input }) => ctx.identity.grantRole(ctx.actor, input)),
   revokeRole: protectedProcedure(['admin'])
     .input(RevokeRoleInput)

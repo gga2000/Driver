@@ -4,12 +4,14 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
+import { IdentityModule, IdentityService, ROLE_READER, type RoleReader } from '../identity/index.js';
+import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { ScoringModule, ScoringService } from '../scoring/index.js';
 import { AdjustmentService } from './adjustments.service.js';
 import { CAP_PROFILE_RESOLVER, CapsService, IdentityScoringCapProfiles } from './caps.js';
 import { EventsServiceLedgerBus, type LedgerEventBus } from './events.adapter.js';
 import { LedgerIncidents } from './incidents.js';
+import { CustomerWalletService, WALLET_HOUSEHOLDS, WALLET_PEOPLE, type WalletHouseholds } from './customer-wallet.js';
 import { LedgerFacade } from './ledger.facade.js';
 import { LedgerService } from './ledger.service.js';
 import { registerLedgerSubscribers } from './ledger.subscribers.js';
@@ -27,7 +29,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
  * scheduled on BullMQ when REDIS_URL is set (the Console can always run it by hand).
  */
 @Module({
-  imports: [EventsModule, IdentityModule, ScoringModule],
+  imports: [EventsModule, IdentityModule, ScoringModule, OrgsModule],
   providers: [
     {
       provide: LEDGER_REPOSITORY,
@@ -57,8 +59,22 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     AdjustmentService,
     NightlyJob,
     LedgerFacade,
+    // Customer wallet (customer spec §9): own phone hash for pending points, household from orgs.
+    { provide: WALLET_PEOPLE, useExisting: IdentityService },
+    {
+      provide: WALLET_HOUSEHOLDS,
+      useFactory: (orgs: OrgsService): WalletHouseholds => ({
+        householdOf: (personId) => {
+          const home = orgs.householdsOf(personId)[0];
+          const me = home?.members.find((m) => m.personId === personId);
+          return home && me ? { id: home.id, name: home.name, role: me.role } : null;
+        },
+      }),
+      inject: [OrgsService],
+    },
+    CustomerWalletService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade],
+  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade, CustomerWalletService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);

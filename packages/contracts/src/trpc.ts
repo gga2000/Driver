@@ -13,6 +13,7 @@ import type { TripsPort } from './trip.js';
 import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
+import type { HouseholdsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { transformer } from './transformer.js';
 
@@ -39,6 +40,12 @@ export interface AppContext {
   console: ConsolePort;
   /** Customer live order/ride screen reads (`modules/tracking`): owner-checked, narrow courier card. */
   tracking: TrackingPort;
+  /** Saved places (`modules/places`): owner-checked, zone resolved from the pin. */
+  places: PlacesPort;
+  /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
+  wallet: WalletPort;
+  /** Households: members, limits, payer approvals (`modules/orgs`). */
+  households: HouseholdsPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

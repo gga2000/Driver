@@ -1,35 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { LatLng, Place } from '@driver/contracts';
+import { distanceKm, pointInRing, type ZonePolygon } from './zones.js';
 
-export interface ZonePolygon {
-  zoneId: string;
-  /** Closed or open ring of [lat, lng]; the last point need not repeat the first. */
-  ring: LatLng[];
-}
-
-/** Ray-casting point-in-polygon; sufficient for city zones until PostGIS takes over. */
-export function pointInRing(p: LatLng, ring: readonly LatLng[]): boolean {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!;
-    const b = ring[j]!;
-    const intersects = a.lat > p.lat !== b.lat > p.lat && p.lng < ((b.lng - a.lng) * (p.lat - a.lat)) / (b.lat - a.lat) + a.lng;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
-
-/** Haversine distance in km. */
-export function distanceKm(a: LatLng, b: LatLng): number {
-  const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const la = (a.lat * Math.PI) / 180;
-  const lb = (b.lat * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la) * Math.cos(lb) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
+/** Learned/landmark places (courier reinforcement, nearby search). Customers' saved places: `SavedPlacesService`. */
 @Injectable()
 export class PlacesService {
   private readonly places = new Map<string, Place>();

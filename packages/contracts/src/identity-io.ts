@@ -14,8 +14,22 @@ export const MeView = z.object({
   reverificationRequired: z.boolean(),
   canWithdraw: z.boolean(),
   lastVerifiedAt: z.coerce.date().nullable(),
+  /** Customer spec §10 safety: who we call in an emergency. Lives in the vault; the phone comes back masked. */
+  emergencyContact: z.object({ name: z.string(), phoneMasked: z.string() }).nullable().optional(),
 });
 export type MeView = z.infer<typeof MeView>;
+
+/**
+ * Profile edits (customer spec §10). The name and the emergency contact go to the identity vault
+ * only; `null` clears the contact. At least one field.
+ */
+export const UpdateProfileInput = z
+  .object({
+    name: z.string().trim().min(1).max(60).optional(),
+    emergencyContact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20) }).nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.emergencyContact !== undefined, { message: 'nothing to update' });
+export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;
 
 export const GuardianLinkView = z.object({
   id: z.string(),
@@ -96,6 +110,7 @@ export interface IdentityPort {
   refresh(refreshToken: string, device?: DeviceInfo): Promise<TokenPair>;
   logout(actor: Actor, refreshToken?: string): Promise<void>;
   me(actor: Actor): Promise<MeView>;
+  updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView>;
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
   grantRole(actor: Actor, input: z.infer<typeof GrantRoleInput>): Promise<RoleGrant>;
   revokeRole(actor: Actor, input: z.infer<typeof RevokeRoleInput>): Promise<void>;

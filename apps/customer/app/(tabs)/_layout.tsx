@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { TabBar, type TabSpec } from '@/components/TabBar';
+import { useAccountSync } from '@/features/account/sync';
 import { useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
 
@@ -7,6 +8,8 @@ import { useSignedIn } from '@/lib/session';
 export default function TabsLayout() {
   const t = useT();
   const signedIn = useSignedIn();
+  // Saved places and the vault name → this device; device-only places → the server (once).
+  useAccountSync();
   const tabs: TabSpec[] = [
     { name: 'index', label: t('nav.home'), icon: 'home' },
     { name: 'orders', label: t('nav.orders'), icon: 'receipt' },

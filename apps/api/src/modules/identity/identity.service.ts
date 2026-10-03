@@ -25,6 +25,7 @@ import {
   type RoleKind,
   type SessionClaims,
   type TokenPair,
+  type UpdateProfileInput,
   type VerifyOtpInput,
   type VerifyOtpOutput,
 } from '@driver/contracts';
@@ -334,7 +335,7 @@ export class IdentityService implements IdentityPort {
       if (!person) throw new DriverError('person_not_found');
       const identity = await this.repo.readIdentity(personId, tx);
       if (!identity) throw new DriverError('person_not_found');
-      await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead: ['name', 'phone_e164'], now: this.clock.now() }, tx);
+      await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead: identity.emergencyContact ? ['name', 'phone_e164', 'emergency_contact'] : ['name', 'phone_e164'], now: this.clock.now() }, tx);
       const reverify = await this.reverificationRequired(personId, deviceId, tx);
       const roles = await this.repo.rolesOf(personId, tx);
       return {
@@ -348,6 +349,7 @@ export class IdentityService implements IdentityPort {
         reverificationRequired: reverify,
         canWithdraw: !reverify,
         lastVerifiedAt: person.lastVerifiedAt,
+        emergencyContact: identity.emergencyContact ? { name: identity.emergencyContact.name, phoneMasked: maskPhone(identity.emergencyContact.phoneE164) } : null,
       };
     });
   }
@@ -365,6 +367,67 @@ export class IdentityService implements IdentityPort {
       await this.repo.logVaultAccess({ personId: courierId, accessorId, purpose: 'courier_card', fieldsRead: ['name'], now: this.clock.now() }, tx);
       const first = identity?.name?.trim().split(/\s+/)[0] ?? '';
       return { firstName: first || null, lastVerifiedAt: person.lastVerifiedAt };
+   * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
+   * the public side records just that the profile changed, never the values.
+   */
+  async updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView> {
+    const name = input.name?.trim();
+    if (input.name !== undefined && (!name || name.length > 60)) throw new DriverError('invalid_input');
+    let emergencyContact: { name: string; phoneE164: string } | null | undefined;
+    if (input.emergencyContact === null) emergencyContact = null;
+    else if (input.emergencyContact) {
+      const contactName = input.emergencyContact.name.trim();
+      if (!contactName) throw new DriverError('invalid_input');
+      emergencyContact = { name: contactName, phoneE164: this.phone(input.emergencyContact.phone).e164 };
+    }
+    await this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      await this.repo.updateIdentity(actor.personId, { ...(name !== undefined ? { name } : {}), ...(emergencyContact !== undefined ? { emergencyContact } : {}) }, tx);
+      const fields = [...(name !== undefined ? ['name'] : []), ...(emergencyContact !== undefined ? ['emergency_contact'] : [])];
+      await this.events.emit(tx, { actorId: actor.personId, type: 'person.profile_updated', occurredAt: now, payload: { personId: actor.personId, fields } }, { name: 'person', id: actor.personId });
+    });
+    return this.me(actor);
+  }
+
+  /**
+   * The peppered hash of a person's own number: the key pending points wait under (domain §3). The
+   * hash is the public pseudonym, not an identifier, so the read is not logged.
+   */
+  async phoneHashOf(personId: string): Promise<string | null> {
+    return (await this.repo.readIdentity(personId))?.phoneHash ?? null;
+  }
+
+  /**
+   * Household cards (domain §12): name and masked phone of each member for another member to see.
+   * Every read is logged against the member read (purpose household_view).
+   */
+  async memberCards(personIds: readonly string[], accessorId: string): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const out: Record<string, { name: string | null; phoneMasked: string }> = {};
+      for (const personId of new Set(personIds)) {
+        const identity = await this.repo.readIdentity(personId, tx);
+        if (!identity) continue;
+        if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose: 'household_view', fieldsRead: ['name', 'phone_e164'], now }, tx);
+        out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164) };
+      }
+      return out;
+    });
+  }
+
+  /**
+   * Household invite by phone (domain §12): the Person behind the number, created pseudonymously when
+   * the number has never signed in (as a guardian link does). The number stays in the vault.
+   */
+  async ensurePersonByPhone(rawPhone: string, actorId: string, via: string): Promise<string> {
+    const { e164, hash } = this.phone(rawPhone);
+    return this.uow.run(async (tx) => {
+      const existing = await this.repo.findPersonByPhoneHash(hash, tx);
+      if (existing) return existing.id;
+      const now = this.clock.now();
+      const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: e164, phoneHash: hash, name: null, now }, tx);
+      await this.events.emit(tx, { actorId, type: 'person.registered', occurredAt: now, payload: { personId: person.id, via } }, { name: 'person', id: person.id });
+      return person.id;
     });
   }
 

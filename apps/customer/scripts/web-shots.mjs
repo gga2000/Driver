@@ -12,6 +12,9 @@
 // app-profile PNGs at 390×844 (@2x). Exits non-zero on console errors or a missing screen.
 // SHOTS=track adds the live order screen (track-*.png: preparing, on the way collapsed/expanded,
 // unreachable, late, signal lost, reassigning, arrival, rating, points), seeded via POST /demo/track.
+// app-profile PNGs at 390×844 (@2x), then the M3 account set (seeded by POST /demo/account):
+// acct-profile, acct-place-editor, acct-wallet, acct-household (+ -full). SHOTS_PREFIX=acct keeps
+// only those. Exits non-zero on console errors or a missing screen.
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -70,6 +73,10 @@ const shot = async (name) => {
 const only = process.env.SHOTS ? process.env.SHOTS.split(',').map((s) => s.trim()).filter(Boolean) : null;
 const shot = async (name) => {
   if (only && !only.some((p) => name.startsWith(p))) return;
+/** SHOTS_PREFIX=acct writes only acct-* files (other prefixes are still driven, not saved). */
+const shotsPrefix = process.env.SHOTS_PREFIX ?? '';
+const shot = async (name) => {
+  if (shotsPrefix && !name.startsWith(shotsPrefix)) return;
   await settle();
   const file = join(outDir, `${name}.png`);
   await page.screenshot({ path: file });
@@ -314,6 +321,37 @@ try {
   // ── الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board ──
   // Needs the demo API's الرجعة seed (scripts/demo-api.mjs). Writes rajaa-*.png.
   if (!only || only.some((p) => p.startsWith('rajaa'))) await rajaaShots(personId);
+  // ── M3 account: seed places / points / household for this person, then profile, place editor,
+  //    wallet and household approvals (acct-*).
+  if (personId) {
+    const r = await fetch(`${apiBase}/demo/account?personId=${encodeURIComponent(personId)}`, { method: 'POST' });
+    if (!r.ok) errors.push(`seed account: ${r.status} ${await r.text()}`);
+    await page.reload({ waitUntil: 'networkidle' });
+  }
+  await byTestId('tab-account').click();
+  await byTestId('account').waitFor();
+  await page.locator('[data-testid^="place-sp_"]').first().waitFor({ timeout: 15_000 });
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await shot('acct-profile');
+  await fullShot('acct-profile-full');
+
+  await page.locator('[data-testid^="place-sp_"]').first().click();
+  await byTestId('place-edit').waitFor({ timeout: 15_000 });
+  await byTestId('place-map').waitFor();
+  await shot('acct-place-editor');
+  await fullShot('acct-place-editor-full');
+  await page.goBack();
+
+  await byTestId('tab-wallet').click();
+  await byTestId('wallet-points').waitFor({ timeout: 15_000 });
+  await byTestId('wallet-lines').waitFor({ timeout: 15_000 });
+  await shot('acct-wallet');
+  await fullShot('acct-wallet-full');
+
+  await page.goto(`${origin}/household`, { waitUntil: 'networkidle' });
+  await byTestId('household').waitFor({ timeout: 15_000 });
+  await shot('acct-household');
+  await fullShot('acct-household-full');
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});

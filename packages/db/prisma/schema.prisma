@@ -293,18 +293,20 @@ model GuardianLink {
 
 /// The identifiers for one Person. Selfie refs are dropped after 90 days (result kept on `people`).
 model PersonIdentity {
-  id              String    @id @default(cuid())
-  personId        String    @unique @map("person_id")
-  phoneE164       String    @unique @map("phone_e164")
+  id               String    @id @default(cuid())
+  personId         String    @unique @map("person_id")
+  phoneE164        String    @unique @map("phone_e164")
   /// Peppered hash of phone_e164; the only thing the public schema ever sees.
-  phoneHash       String    @unique @map("phone_hash")
-  name            String?
+  phoneHash        String    @unique @map("phone_hash")
+  name             String?
   /// Storage refs (never inline): [{kind: "national_id"|"licence"|…, ref, verifiedAt}]
-  documentRefs    Json      @default("[]") @map("document_refs")
-  selfieRefs      Json      @default("[]") @map("selfie_refs")
-  selfieDroppedAt DateTime? @map("selfie_dropped_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  documentRefs     Json      @default("[]") @map("document_refs")
+  selfieRefs       Json      @default("[]") @map("selfie_refs")
+  selfieDroppedAt  DateTime? @map("selfie_dropped_at")
+  /// Customer spec §10 safety: {name, phoneE164} of the person we call in an emergency.
+  emergencyContact Json?     @map("emergency_contact")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   person Person @relation(fields: [personId], references: [id])
 
