@@ -61,7 +61,7 @@ Role: `khat_driver`. A run is a Trip of vertical `khat`; each stop carries one c
 
 Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,
-`khat_child_not_on_trip`, `khat_child_absent`, `stop_state_conflict` (absence after tap-in), `forbidden`.
+`khat_child_not_on_trip`, `khat_child_absent`, `khat_child_not_tapped_in` (tap-out before tap-in), `stop_state_conflict` (absence after tap-in), `forbidden`.
 
 ## `fleet.*` — fleet owner dashboard
 
@@ -100,7 +100,7 @@ Roles: `field_ops`, `admin`.
 | `cashHolders` | query | `{cityId?}` | `[{courierId, name, phoneMasked, heldIqd, owedIqd, capIqd, tier, overCap}]` — couriers holding customers' cash, over-cap then most owed first; names are vault reads (purpose `ops_cash_round`) |
 | `landmarks` | query | `{cityId = 'aziziyah', zoneKey?}` | `[{placeId, name, zoneKey, pin, photos}]` — landmark places (fewest photos first); `photos` counts the place's photos plus ops proposals still pending. A new landmark is proposed with `addLandmarkPhoto` target `{kind: 'landmark', id: 'new:<zoneKey>'}` and its name first in `localNames` |
 
-Errors: `handover_code_invalid`, `cash_receipt_exceeds_held`, `task_not_found`, `upload_invalid`.
+Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the courier today), `cash_receipt_exceeds_held`, `task_not_found`, `upload_invalid`.
 
 ## `merchantAdmin.*` — Merchant app wave 2
 
@@ -147,7 +147,7 @@ the default outcome stands), `evidence.photos` and `response.photoUrls` (signed)
 `pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup). `merchant.paid_by_courier` events carry `confirmedBy`.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
-`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `staff_last_owner`, `upload_invalid`.
+`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `upload_invalid`.
 
 ## Persistence
 

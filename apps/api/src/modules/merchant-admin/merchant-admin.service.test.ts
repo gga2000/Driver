@@ -307,6 +307,10 @@ describe('merchantAdmin.money', () => {
     const again = await h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o9', decision: 'accept_default', evidenceUploadIds: [] });
     expect(again.response?.decision).toBe('accept_default');
     await expect(h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o_unknown', decision: 'contest', evidenceUploadIds: [] })).rejects.toMatchObject({ code: 'dispute_not_found' });
+    // Review 2026-10-04 #19: after respondBy (opened + 48 h) the default outcome stands; no late contest.
+    h.clock.advance(48 * 3600_000);
+    await expect(h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o9', decision: 'contest', evidenceUploadIds: [] })).rejects.toMatchObject({ code: 'dispute_response_closed' });
+    expect((await h.svc.moneyDisputes(h.owner, { merchantOrgId: h.orgId }))[0]!.response?.decision).toBe('accept_default');
   });
 });
 

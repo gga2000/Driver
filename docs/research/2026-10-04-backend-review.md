@@ -34,6 +34,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 16 | Low | offer pay rounds differently from the ledger posting (batch bonus, ride take) | fixed |
 | 17 | Medium | daily check-in: parallel selfies bypass the two-strikes lock-out | fixed |
 | 18 | Medium | online gate: uploading any photo lifts an expired document | fixed |
+| 19 | Low | merchant can contest a dispute after its 48 h window | fixed |
 
 ## Details
 
@@ -223,3 +224,11 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** `CatalogRepository.claimImportJob` — a conditional `draft → applied` update (`updateMany … where
   state = 'draft'`) before any item is created; the loser gets `import_state_conflict`.
 - **Test:** `merchant-admin.service.test.ts` › "a menu import applied from two tablets at once creates its items once (review 2026-10-04 #12)".
+
+### 19 · Low · late dispute answers (state machine)
+
+- **Where:** `merchant-admin.service.ts` `moneyRespondDispute`.
+- **What:** `respondBy` (opened + 48 h, "then the default outcome stands") was only displayed; a merchant
+  could contest, or flip an accepted default to a contest, days later.
+- **Fix:** answers after `respondBy` are refused with `dispute_response_closed` (new error code).
+- **Test:** `merchant-admin.service.test.ts` › "disputes show evidence and the default outcome; the owner answers once (re-answer replaces)" (extended).

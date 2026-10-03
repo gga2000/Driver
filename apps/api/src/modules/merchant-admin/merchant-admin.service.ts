@@ -469,8 +469,11 @@ export class MerchantAdminService implements MerchantAdminPort {
     if (!order || order.merchantOrgId !== input.merchantOrgId) throw new DriverError('dispute_not_found');
     for (const id of input.evidenceUploadIds) await this.assertUpload(actor.personId, id);
     const names = new Map((await this.catalog.adminMenu(input.merchantOrgId)).map((i) => [i.id, i.nameAr]));
-    if (!(await this.disputeOf(order, new Map(), names))) throw new DriverError('dispute_not_found');
+    const open = await this.disputeOf(order, new Map(), names);
+    if (!open) throw new DriverError('dispute_not_found');
     const now = this.clock.now();
+    // After respondBy the default outcome stands (wave-2 API): no late contest or change of answer.
+    if (open.respondBy && now.getTime() > open.respondBy.getTime()) throw new DriverError('dispute_response_closed');
     const response = await this.uow.run(async (tx) => {
       const r = await this.repo.upsertResponse(
         { orderId: order.id, merchantOrgId: input.merchantOrgId, decision: input.decision, note: input.note ?? null, evidenceRefs: [...input.evidenceUploadIds], respondedById: actor.personId, at: now },

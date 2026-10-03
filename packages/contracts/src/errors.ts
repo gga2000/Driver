@@ -69,6 +69,7 @@ export const ERROR_TABLE = {
   deal_not_found: { message_ar: 'ما لگينا العرض', message_en: 'Deal not found', retryHint: 'never', status: 'NOT_FOUND' },
   deal_invalid: { message_ar: 'العرض مو صحيح. راجع النسبة والمدة', message_en: 'Invalid deal (value, items or schedule)', retryHint: 'never', status: 'BAD_REQUEST' },
   deal_state_conflict: { message_ar: 'حالة العرض ما تسمح بهذا', message_en: 'The deal is not in a state that allows this', retryHint: 'never', status: 'CONFLICT' },
+  dispute_response_closed: { message_ar: 'انتهت مهلة الرد على الشكوى (48 ساعة) والنتيجة الافتراضية ثبتت', message_en: 'The 48-hour window to answer this dispute has closed', retryHint: 'never', status: 'CONFLICT' },
   dispute_not_found: { message_ar: 'ما لگينا الشكوى', message_en: 'Dispute not found', retryHint: 'never', status: 'NOT_FOUND' },
   staff_last_owner: { message_ar: 'لازم يبقى صاحب واحد على الأقل', message_en: 'A merchant needs at least one owner', retryHint: 'never', status: 'CONFLICT' },
 
