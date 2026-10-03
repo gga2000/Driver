@@ -21,6 +21,7 @@ import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
+import type { MerchantPort } from './merchant-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -64,6 +65,8 @@ export interface AppContext {
   households: HouseholdsPort;
   /** Driver Partner: own presence, open offer, active job, today's money (`modules/partner`). */
   partner: PartnerPort;
+  /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
+  merchant: MerchantPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

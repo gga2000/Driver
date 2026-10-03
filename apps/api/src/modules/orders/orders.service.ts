@@ -42,6 +42,7 @@ import {
   type OrdersRepository,
 } from './orders.repository.js';
 import { activePauseWindow } from './pause.js';
+import { busyExtraMinutes } from './busy.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
 
@@ -146,6 +147,8 @@ export class OrdersService implements OnModuleInit {
       profile = await this.merchants.profile(input.merchantOrgId!);
       if (!profile) throw new DriverError('org_not_found');
       if (!input.scheduledFor && activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
+      // Closed by hand from the Merchant app (early close): refused like a pause window.
+      if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
     }
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(lines, participants);
@@ -234,7 +237,8 @@ export class OrdersService implements OnModuleInit {
       if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
 
       if (merchantType && profile) {
-        const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - (profile.defaultPrepMin + ORDERS_RULES.scheduledLeadMin) * 60_000) : now;
+        const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
+        const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
         if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
         else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
       }
@@ -660,10 +664,13 @@ export class OrdersService implements OnModuleInit {
     });
   }
 
-  private async accept(order: OrderRecord, prepMinutes: number, actorId: string, tx: Tx, opts: { auto: boolean; partial?: boolean }): Promise<OrderRecord> {
+  private async accept(order: OrderRecord, pickedPrepMinutes: number, actorId: string, tx: Tx, opts: { auto: boolean; partial?: boolean }): Promise<OrderRecord> {
     const now = this.clock.now();
-    const promisedReadyAt = new Date(now.getTime() + prepMinutes * 60_000);
     const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
+    // Busy mode: +10 min on whatever the kitchen picked (or its default), so the promised ready time,
+    // the courier's timing and the customer's ETA all carry it.
+    const prepMinutes = pickedPrepMinutes + busyExtraMinutes(profile, now);
+    const promisedReadyAt = new Date(now.getTime() + prepMinutes * 60_000);
     // Contract `order.accepted`: what dispatch needs to time and route the courier (auto-assign).
     const accepted: Omit<DomainEventInput<'order.accepted'>, 'from' | 'to'> = {
       orderType: order.type,

@@ -33,7 +33,18 @@ export interface StorefrontPricing {
 export interface StorefrontMerchants {
   /** Local time zone opening hours and pause windows are in. */
   readonly timeZone: string;
-  profile(orgId: string, cityId: string): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }> }>;
+  profile(
+    orgId: string,
+    cityId: string,
+    at?: Date,
+  ): Promise<{
+    location: DeliveryPoint | null;
+    pauseWindows: Array<{ dow: number; start: string; end: string }>;
+    /** Busy mode switched on from the Merchant app (auto-expiring). */
+    busy?: boolean;
+    /** Closed by hand from the Merchant app (early close). */
+    closed?: boolean;
+  }>;
 }
 
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
@@ -94,12 +105,12 @@ export class CatalogRpc implements CustomerCatalogPort {
   }
 
   private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {
-    const { location, pauseWindows: pauses } = await this.merchants.profile(s.orgId, s.cityId);
-    const busy = this.catalog.isBusy(s.orgId);
+    const { location, pauseWindows: pauses, busy: merchantBusy, closed } = await this.merchants.profile(s.orgId, s.cityId, now);
+    const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = location && dropoff ? etaRange(prep, rideMinutes(location, dropoff)) : null;
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
-    const state = openState(now, s.hours, pauses, this.merchants.timeZone);
+    const state = closed ? { open: false, closedReason: 'paused' as const, opensAt: null } : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,
       cityId: s.cityId,

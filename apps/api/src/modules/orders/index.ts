@@ -4,7 +4,7 @@ export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrderTimer
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';
 export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, vehicleRequirement } from './order.machine.js';
-export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, commissionPctOf } from './orders.config.js';
+export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, commissionPctOf } from './orders.config.js';
 export { InMemoryMerchantDirectory, MERCHANT_DIRECTORY } from './merchants.port.js';
 export type { MerchantDirectory, MerchantProfile } from './merchants.port.js';
 export { InMemoryOrdersRepository, ORDERS_REPOSITORY } from './orders.repository.js';
@@ -15,6 +15,8 @@ export type { ParticipantResolver } from './participants.js';
 export { ORDER_EVENTS, RecordingOrderEvents } from './events.adapter.js';
 export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './events.adapter.js';
 export type { PauseWindow } from './pause.js';
+export { activePauseWindow } from './pause.js';
+export { busyExtraMinutes } from './busy.js';
 export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
 export type { CatalogPort, CatalogItemView } from './catalog.port.js';
 export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';

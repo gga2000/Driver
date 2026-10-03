@@ -99,7 +99,7 @@ interface ToastApi {
 const ToastContext = createContext<ToastApi>({ show: () => {}, hide: () => {} });
 
 /** Hosts one toast at a time at the bottom of the screen. */
-export function ToastProvider({ children, bottomOffset = 24 }: { children: ReactNode; bottomOffset?: number }) {
+export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
   const theme = useTheme();
   const [toast, setToast] = useState<(ToastData & { id: number }) | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,8 +121,10 @@ export function ToastProvider({ children, bottomOffset = 24 }: { children: React
     <ToastContext.Provider value={api}>
       {children}
       {toast ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', start: theme.space[4], end: theme.space[4], bottom: bottomOffset }}>
-          <Toast key={toast.id} {...toast} onDismiss={hide} />
+        <View pointerEvents="box-none" style={{ position: 'absolute', start: theme.space[4], end: theme.space[4], bottom: bottomOffset, alignItems: 'center' }}>
+          <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>
+            <Toast key={toast.id} {...toast} onDismiss={hide} />
+          </View>
         </View>
       ) : null}
     </ToastContext.Provider>

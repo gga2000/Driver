@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "درايفر ماركت",
-    "slug": "درايفر ماركت",
+    "name": "درايفر للمطاعم",
+    "slug": "driver-merchant",
     "scheme": "driver-merchant",
     "version": "0.1.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "locales": { "ar": "./locales/ar.json" },
+    "locales": { "ar": "./locales/native/ar.json" },
     "extra": {
       "apiUrl": "http://localhost:3000/trpc",
       "supportsRTL": true,
@@ -16,16 +16,20 @@
     "ios": {
       "bundleIdentifier": "iq.driver.merchant",
       "supportsTablet": true,
-      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"] }
+      "requireFullScreen": false,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "ar",
+        "CFBundleLocalizations": ["ar", "en"],
+        "NSBluetoothAlwaysUsageDescription": "درايفر للمطاعم يحتاج البلوتوث حتى يطبع الطلبات على طابعة المطبخ"
+      }
     },
     "android": {
       "package": "iq.driver.merchant",
-      "supportsRtl": true
+      "supportsRtl": true,
+      "permissions": ["BLUETOOTH_CONNECT", "BLUETOOTH_SCAN", "VIBRATE"]
     },
-    "plugins": [
-      "expo-router",
-      ["expo-localization", {}]
-    ],
+    "web": { "name": "درايفر للمطاعم", "shortName": "درايفر للمطاعم", "lang": "ar", "themeColor": "#FBF6EE", "backgroundColor": "#FBF6EE" },
+    "plugins": ["expo-router", ["expo-localization", {}]],
     "experiments": { "typedRoutes": true }
   }
 }

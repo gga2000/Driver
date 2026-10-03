@@ -29,6 +29,7 @@ export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';
+export * from './merchant-io.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
