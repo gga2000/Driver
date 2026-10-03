@@ -186,12 +186,18 @@ export function gateErrorCode(reasons: PartnerOnlineGate['reasons']): ErrorCode 
   return 'online_checkin_required';
 }
 
+/** Local hour (Baghdad) until which a shift that crossed midnight runs on yesterday's check-in. */
+export const MIDNIGHT_GRACE_UNTIL_HOUR = 4;
+
 /**
  * Whether a closed gate still lets this `goOnline` through: the app re-sends `goOnline` every 30 s
- * as a heartbeat, so a driver already online when the local day turns keeps his shift until he next
- * goes online (check-in is "at first online each day"). A lock-out or an expired document ends it.
+ * as a heartbeat, so a driver already online when the local day turns keeps his night shift on
+ * yesterday's check-in until 04:00 local; after that the heartbeat needs today's check-in like any
+ * first online (scoring §2), so staying online can never skip it. A lock-out or an expired document
+ * ends it at once.
  */
-export function gateAllowsHeartbeat(gate: PartnerOnlineGate, alreadyOnline: boolean): boolean {
+export function gateAllowsHeartbeat(gate: PartnerOnlineGate, alreadyOnline: boolean, now: Date, offsetMin = BAGHDAD_OFFSET_MIN): boolean {
   if (gate.canGoOnline) return true;
-  return alreadyOnline && gate.reasons.every((r) => r.code === 'checkin_required');
+  const localHour = new Date(now.getTime() + offsetMin * 60_000).getUTCHours();
+  return alreadyOnline && localHour < MIDNIGHT_GRACE_UNTIL_HOUR && gate.reasons.every((r) => r.code === 'checkin_required');
 }

@@ -91,10 +91,13 @@ describe('online gate', () => {
     expect(gateErrorCode([r('document_expired'), r('checkin_locked')])).toBe('checkin_locked');
   });
   it('lets only a missing check-in through as a heartbeat of someone already online', () => {
-    expect(gateAllowsHeartbeat({ canGoOnline: true, reasons: [] }, false)).toBe(true);
-    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, true)).toBe(true);
-    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, false)).toBe(false);
-    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_locked')] }, true)).toBe(false);
-    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required'), r('document_expired')] }, true)).toBe(false);
+    const night = new Date('2026-10-02T22:00:00Z'); // 01:00 Baghdad
+    const day = new Date('2026-10-03T10:00:00Z'); // 13:00 Baghdad
+    expect(gateAllowsHeartbeat({ canGoOnline: true, reasons: [] }, false, day)).toBe(true);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, true, night)).toBe(true);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, true, day)).toBe(false);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, false, night)).toBe(false);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_locked')] }, true, night)).toBe(false);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required'), r('document_expired')] }, true, night)).toBe(false);
   });
 });

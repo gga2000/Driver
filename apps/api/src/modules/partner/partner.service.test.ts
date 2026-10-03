@@ -95,7 +95,7 @@ const EXPIRED: PartnerOnlineGate = {
   ],
 };
 
-function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; offerTrip?: Trip | null; cap?: Partial<PartnerCapStatus>; gate?: PartnerOnlineGate } = {}) {
+function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; offerTrip?: Trip | null; cap?: Partial<PartnerCapStatus>; gate?: PartnerOnlineGate; now?: Date } = {}) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
   const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
@@ -140,7 +140,7 @@ function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; o
     vehicles: { vehicleOf: async () => 'bike' },
     gate: { onlineGate: async () => opts.gate ?? OPEN },
   };
-  return new PartnerService(deps, new FakeClock(NOW));
+  return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
 }
 
 describe('PartnerService', () => {
@@ -192,9 +192,17 @@ describe('PartnerService', () => {
     expect((await svc.status(actor)).online).toBe(false);
   });
 
-  it('a heartbeat across local midnight keeps an online driver on until he next goes online', async () => {
-    const on = await harness({ online: true, gate: NO_CHECKIN }).goOnline(actor, { cityId: 'aziziyah', at: KITCHEN });
+  it('a heartbeat across local midnight keeps an online driver on for the night (until 04:00 local)', async () => {
+    // 00:30 Baghdad: yesterday's check-in still carries his shift.
+    const on = await harness({ online: true, gate: NO_CHECKIN, now: new Date('2026-10-02T21:30:00Z') }).goOnline(actor, { cityId: 'aziziyah', at: KITCHEN });
     expect(on.online).toBe(true);
+  });
+
+  it('heartbeating never skips the daily check-in past the night grace (review 2026-10-04 #5)', async () => {
+    // 13:00 Baghdad, still online since yesterday, never checked in today: refused and taken offline.
+    const svc = harness({ online: true, gate: NO_CHECKIN });
+    await expect(svc.goOnline(actor, { cityId: 'aziziyah', at: KITCHEN })).rejects.toMatchObject({ code: 'online_checkin_required' });
+    expect((await svc.status(actor)).online).toBe(false);
   });
 
   it('a lock-out or an expired document refuses the heartbeat and takes him offline', async () => {

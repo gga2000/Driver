@@ -20,7 +20,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 2 | High | fleet.addDriver: any phone → name, earnings, cash, documents | in progress |
 | 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | fixed |
 | 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | fixed |
-| 5 | Medium | online gate: heartbeat grace never ends | in progress |
+| 5 | Medium | online gate: heartbeat grace never ends | fixed |
 | 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | in progress |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
@@ -79,3 +79,16 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** `completeStop` refuses a tap-out when the same run has a pickup stop for that child with no
   `childTapInAt` (`khat_child_not_tapped_in`, new error code). Lives in trips so both entry points are covered.
 - **Test:** `khat.service.test.ts` › "never taps a child out at school who was not tapped in at home (review 2026-10-04 #4)".
+
+### 5 · Medium · online gate bypass by heartbeating (scoring §2)
+
+- **Where:** `apps/api/src/modules/partner/logic.ts` `gateAllowsHeartbeat`, `partner.service.ts` `goOnline`.
+- **What:** a driver already in the presence index passed a closed gate whenever the only reason was
+  `checkin_required`. Meant for a shift crossing midnight, it had no end: keep the app heartbeating and the
+  daily selfie check-in is never asked again, for days.
+- **Fix:** the grace holds only between local midnight and 04:00 (`MIDNIGHT_GRACE_UNTIL_HOUR`); after that a
+  heartbeat without today's check-in is refused (`online_checkin_required`) and takes him out of the index.
+  Lock-out and expired documents still end it at once.
+- **Tests:** `partner.service.test.ts` › "heartbeating never skips the daily check-in past the night grace
+  (review 2026-10-04 #5)" and the reworded "…keeps an online driver on for the night (until 04:00 local)";
+  `logic.test.ts` gate table now pins the hour.

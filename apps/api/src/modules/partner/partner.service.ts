@@ -83,12 +83,12 @@ export class PartnerService implements PartnerPort {
   /**
    * Scoring §2: no daily check-in, a lock-out after two failed check-ins or an expired document keep
    * him offline. A refused call while he is online (the heartbeat) also takes him out of the index,
-   * except across local midnight for the check-in alone (`gateAllowsHeartbeat`).
+   * except for the check-in alone between local midnight and 04:00 (`gateAllowsHeartbeat`).
    */
   async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus> {
     const id = actor.personId;
     const [gate, present] = await Promise.all([this.deps.gate.onlineGate(id), this.deps.presence.get(id)]);
-    if (!gateAllowsHeartbeat(gate, present !== null)) {
+    if (!gateAllowsHeartbeat(gate, present !== null, this.clock.now())) {
       if (present) await this.deps.presence.offline(id);
       throw new DriverError(gateErrorCode(gate.reasons));
     }
