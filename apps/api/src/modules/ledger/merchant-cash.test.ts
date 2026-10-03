@@ -54,6 +54,22 @@ describe('merchant cash account (decisions §3)', () => {
     expect((await h.merchantCash.requestSettlement('m2', 'owner2')).channel).toBe('zaincash');
   });
 
+  it('"اطلب فلوسك" pressed twice (or at once from two phones) is one request (review 2026-10-04 #9)', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1' }));
+    const [a, b] = await Promise.all([h.merchantCash.requestSettlement('m1', 'owner1'), h.merchantCash.requestSettlement('m1', 'owner1')]);
+    h.clock.advance(5 * 60_000);
+    const c = await h.merchantCash.requestSettlement('m1', 'owner1');
+    expect(new Set([a.reference, b.reference, c.reference]).size).toBe(1);
+    expect(c.targetBy).toEqual(a.targetBy);
+    expect(h.bus.types().filter((t) => t === 'merchant.settlement_requested')).toHaveLength(1);
+    // Past the hour target with the money still out, asking again is a new request.
+    h.clock.advance(60 * 60_000);
+    const d = await h.merchantCash.requestSettlement('m1', 'owner1');
+    expect(d.reference).not.toBe(a.reference);
+    expect(h.bus.types().filter((t) => t === 'merchant.settlement_requested')).toHaveLength(2);
+  });
+
   it('hand-over needs the PIN and both confirmations; any mismatch opens an incident and posts nothing', async () => {
     const h = ledgerHarness();
     await h.merchantCash.configure('m1', { pin: '4321' });

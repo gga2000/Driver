@@ -3,6 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DriverError, type LedgerEvent, type MerchantBalanceView, type MoneyRules, type SettlementMode, type SettlementPlan, type SettlementRequestReason } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { KeyedLock } from '../../shared/keyed-lock.js';
 import { Accounts, idOf } from './accounts.js';
 import type { LedgerEventBus } from './events.adapter.js';
 import type { LedgerIncidentPort } from './incidents.js';
@@ -94,6 +95,9 @@ export interface HandoverInput {
  */
 @Injectable()
 export class MerchantCashService {
+  /** One settlement request at a time per merchant (this process). */
+  private readonly requestLock = new KeyedLock();
+
   constructor(
     private readonly ledger: LedgerService,
     @Inject(MERCHANT_SETTINGS_REPOSITORY) private readonly settingsRepo: MerchantSettingsRepository,
@@ -178,11 +182,23 @@ export class MerchantCashService {
     return { merchantId: view.merchantId, amountIqd: view.balanceIqd, channel, reference, targetBy, reason };
   }
 
-  /** "اطلب فلوسك": records the request and emits `merchant.settlement_requested`; returns the plan. */
-  async requestSettlement(merchantId: string, requestedBy: string, reason: SettlementRequestReason = 'merchant_request'): Promise<SettlementPlan> {
+  /**
+   * "اطلب فلوسك": records the request and emits `merchant.settlement_requested`; returns the plan.
+   * Pressing it again while the last request is still open (nothing settled since, inside its one-hour
+   * target) answers with that same request — same reference and target, no second routing — so a
+   * double tap or two phones never send two couriers or two payouts for the same money.
+   */
+  requestSettlement(merchantId: string, requestedBy: string, reason: SettlementRequestReason = 'merchant_request'): Promise<SettlementPlan> {
+    return this.requestLock.run(merchantId, () => this.requestSettlementNow(merchantId, requestedBy, reason));
+  }
+
+  private async requestSettlementNow(merchantId: string, requestedBy: string, reason: SettlementRequestReason): Promise<SettlementPlan> {
     const view = await this.balance(merchantId);
     if (view.balanceIqd <= 0) throw new DriverError('settlement_nothing_due');
-    const at = this.clock.now();
+    const now = this.clock.now();
+    const open = view.lastRequestedAt && (!view.lastSettledAt || view.lastRequestedAt > view.lastSettledAt) && now.getTime() - view.lastRequestedAt.getTime() < ON_DEMAND_TARGET_MS;
+    if (open) return this.plan(view, reason, view.lastRequestedAt!);
+    const at = now;
     const plan = this.plan(view, reason, at);
     await this.run(async (tx) => {
       const s = await this.settings(merchantId);

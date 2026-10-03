@@ -24,7 +24,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | fixed |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
-| 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | in progress |
+| 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | fixed |
 | 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | in progress |
 | 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
 | 12 | Low | menu import applied twice concurrently duplicates items | documented |
@@ -101,3 +101,17 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   gates going online (scoring §2) was self-service for staff.
 - **Fix:** reviewing a document of your own person is `forbidden`.
 - **Test:** `driver-account.service.test.ts` › "a field-ops person who also drives cannot approve his own document".
+
+### 9 · Medium · double "اطلب فلوسك" (money ops)
+
+- **Where:** `apps/api/src/modules/ledger/merchant-cash.service.ts` `requestSettlement`.
+- **What:** every press emitted a fresh `merchant.settlement_requested` (reference keyed on the millisecond),
+  and the subscriber routed each one: a double tap, or owner + Console, sent two couriers or queued two
+  ZainCash/ops payouts for the same balance. `recordPayout` does not check the balance, so the second payout
+  would push the merchant account negative.
+- **Fix:** while the last request is open (nothing settled since, inside its one-hour target) a new press
+  returns that same plan (same reference/target, no event). Requests per merchant are serialised in process
+  (`KeyedLock`); after the hour a press is a new request. Minimal and additive in a shared file.
+- **Test:** `merchant-cash.test.ts` › "\"اطلب فلوسك\" pressed twice (or at once from two phones) is one request (review 2026-10-04 #9)".
+- **Follow-up (documented):** `recordPayout` should refuse more than the merchant balance (or require an
+  explicit negative-balance flag per the adopted "negative-balance payouts" rule); left to the ledger owners.
