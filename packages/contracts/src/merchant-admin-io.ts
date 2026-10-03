@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Iqd } from './common.js';
 import type { Actor } from './identity-io.js';
+import { SettlementRequestReason } from './ledger-io.js';
 import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 
@@ -247,6 +248,63 @@ export const MoneyToday = z.object({
 });
 export type MoneyToday = z.infer<typeof MoneyToday>;
 
+/** "اطلب فلوسك" as it moves: requested → courier on the way → handed over (PIN or tablet tap). */
+export const SettlementRequestState = z.enum(['requested', 'on_the_way', 'handed_over']);
+export type SettlementRequestState = z.infer<typeof SettlementRequestState>;
+
+export const HandoverConfirmation = z.enum(['pin', 'tablet']);
+export type HandoverConfirmation = z.infer<typeof HandoverConfirmation>;
+
+export const CashHandover = z.object({
+  /** Also the receipt number printed on the WhatsApp receipt. */
+  handoverId: z.string(),
+  at: z.coerce.date(),
+  courierId: z.string(),
+  courierName: z.string().nullable(),
+  amountIqd: Iqd,
+  /** The merchant's balance right after this hand-over. */
+  balanceAfterIqd: Iqd,
+  confirmedBy: HandoverConfirmation.nullable(),
+});
+export type CashHandover = z.infer<typeof CashHandover>;
+
+export const SettlementRequestView = z.object({
+  reference: z.string(),
+  reason: SettlementRequestReason,
+  requestedAt: z.coerce.date(),
+  /** Balance when asked. */
+  amountIqd: Iqd,
+  state: SettlementRequestState,
+  channel: z.enum(['courier', 'ops_round', 'zaincash', 'bank']).nullable(),
+  courierId: z.string().nullable(),
+  courierName: z.string().nullable(),
+  assignedAt: z.coerce.date().nullable(),
+  /** Decisions §3: within the hour. */
+  targetBy: z.coerce.date().nullable(),
+  handover: CashHandover.nullable(),
+});
+export type SettlementRequestView = z.infer<typeof SettlementRequestView>;
+
+/** The merchant cash account (decisions §3) for the Money screen: balance, who holds it, the open request, hand-overs. */
+export const MerchantCashAccount = z.object({
+  merchantOrgId: z.string(),
+  /** Live `merchant_payable`: + owed to the merchant. */
+  balanceIqd: Iqd,
+  exposureCapIqd: Iqd,
+  overExposure: z.boolean(),
+  mode: SettlementMode,
+  /** Couriers holding this merchant's cash now, largest first, with first names (vault read, logged). */
+  holders: z.array(z.object({ courierId: z.string(), name: z.string().nullable(), amountIqd: Iqd })),
+  /** The rest of the balance: prepaid orders and anything else Driver itself owes. */
+  heldByPlatformIqd: Iqd,
+  /** Latest "اطلب فلوسك" (merchant or exposure cap) within the last day; null when none. */
+  request: SettlementRequestView.nullable(),
+  /** Recent courier hand-overs, newest first (14 days, at most 20). */
+  handovers: z.array(CashHandover),
+  lastSettledAt: z.coerce.date().nullable(),
+});
+export type MerchantCashAccount = z.infer<typeof MerchantCashAccount>;
+
 export const StatementInput = MerchantScope.extend({
   /** Any instant in the wanted week (Sunday-start, Baghdad); default this week. */
   weekOf: z.coerce.date().optional(),
@@ -258,7 +316,13 @@ export const StatementOrderLine = z.object({
   payment: PaymentMethod,
   itemsIqd: Iqd,
   commissionTier: CommissionTier.nullable(),
+  /** The tier's rate in percent (12, 15, 18, 5); null when no commission was charged. */
+  commissionPct: z.number().nullable().default(null),
   commissionIqd: Iqd,
+  /** Discount the customer got on this order (G-87: platform-funded today, so it does not lower the merchant's net). */
+  discountIqd: Iqd.default(0),
+  /** Who funded `discountIqd`: merchant deals come off the net, platform promos don't. */
+  discountFunder: z.enum(['platform', 'merchant']).nullable().default(null),
   /** Courier-waiting / cancellation fees paid to the merchant on this order. */
   feesIqd: Iqd,
   netIqd: Iqd,
@@ -300,9 +364,22 @@ export const MerchantDispute = z.object({
     /** Items grouped by person as the merchant packed them. */
     lines: z.array(z.object({ name: z.string(), qty: z.number().int(), participant: z.string().nullable() })),
     itemsIqd: Iqd,
+    /** Signed URLs of photos attached when the dispute was opened (customer / courier), when any. */
+    photos: z.array(z.string()).default([]),
   }),
   defaultOutcome: DisputeOutcome,
-  response: z.object({ decision: z.enum(['accept_default', 'contest']), note: z.string().nullable(), evidencePhotos: z.number().int(), at: z.coerce.date() }).nullable(),
+  /** After this the default outcome applies without the merchant's answer (48 h from opening). */
+  respondBy: z.coerce.date().nullable().default(null),
+  response: z
+    .object({
+      decision: z.enum(['accept_default', 'contest']),
+      note: z.string().nullable(),
+      evidencePhotos: z.number().int(),
+      /** Signed read URLs of the merchant's evidence photos (expire within the hour). */
+      photoUrls: z.array(z.string()).default([]),
+      at: z.coerce.date(),
+    })
+    .nullable(),
 });
 export type MerchantDispute = z.infer<typeof MerchantDispute>;
 
@@ -323,12 +400,24 @@ export const MerchantInsights = z.object({
   to: z.coerce.date(),
   /** Quoted (promised) vs actual prep from accept to "جاهز". */
   prepHonesty: z.object({ samples: z.number().int(), quotedAvgMin: z.number().nullable(), actualAvgMin: z.number().nullable(), onTimeShare: z.number().nullable() }),
-  rejection: z.object({ offered: z.number().int(), rejected: z.number().int(), rate: z.number().nullable() }),
+  rejection: z.object({
+    offered: z.number().int(),
+    rejected: z.number().int(),
+    rate: z.number().nullable(),
+    /** 7-day buckets, oldest first, the last one ending at `to`. */
+    trend: z.array(z.object({ from: z.coerce.date(), to: z.coerce.date(), offered: z.number().int(), rejected: z.number().int(), rate: z.number().nullable() })).default([]),
+  }),
   itemRatings: z.array(
     z.object({ itemId: z.string(), nameAr: z.string().nullable(), avg: z.number(), count: z.number().int(), reviews: z.array(z.object({ score: z.number().int(), note: z.string(), at: z.coerce.date() })) }),
   ),
   /** Orders placed per Baghdad local hour 0–23. */
   peakHours: z.array(z.number().int()).length(24),
+  /** Orders placed per local weekday (0 = Sunday) × hour: the peak-hours heatmap. */
+  peakGrid: z.array(z.array(z.number().int()).length(24)).default([]),
+  /** Best-selling items of accepted orders, by sales (quantity alongside). */
+  bestSellers: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), qty: z.number().int(), orders: z.number().int(), salesIqd: Iqd })).default([]),
+  /** Orders placed in the window (any outcome). */
+  orders: z.number().int().default(0),
 });
 export type MerchantInsights = z.infer<typeof MerchantInsights>;
 
@@ -340,6 +429,8 @@ export const StaffMember = z.object({
   phoneMasked: z.string().nullable(),
   role: MerchantStaffRole,
   you: z.boolean(),
+  /** Invited but has not signed in yet (the invite is waiting). */
+  pending: z.boolean().default(false),
 });
 export type StaffMember = z.infer<typeof StaffMember>;
 
@@ -368,6 +459,7 @@ export interface MerchantAdminPort {
   dealsSetActive(actor: Actor, input: z.infer<typeof SetDealActiveInput>): Promise<DealView>;
   dealsReview(actor: Actor, input: z.infer<typeof ReviewDealInput>): Promise<DealView>;
   moneyToday(actor: Actor, input: MerchantScope): Promise<MoneyToday>;
+  moneyCash(actor: Actor, input: MerchantScope): Promise<MerchantCashAccount>;
   moneyStatement(actor: Actor, input: z.infer<typeof StatementInput>): Promise<WeeklyStatement>;
   moneyDisputes(actor: Actor, input: MerchantScope): Promise<MerchantDispute[]>;
   moneyRespondDispute(actor: Actor, input: z.output<typeof RespondDisputeInput>): Promise<MerchantDispute>;

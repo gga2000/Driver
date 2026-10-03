@@ -51,6 +51,11 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   partial accept) / `reject` / `ready` / `heartbeat` (every 30 s, app-wide).
 - Money: `ledger.merchantBalance` (live cash balance) and `ledger.requestSettlement` ("اطلب فلوسك").
   Owners only in the UI (spec: roles gate money views).
+- Wave 2 (`src/features/{money,insights,staff}`): `merchantAdmin.money.today` / `cash` / `statement` /
+  `disputes` / `respondDispute`, `merchantAdmin.insights`, `merchantAdmin.staff.*`. Staff who reach
+  `/money` or `/staff` see `OwnerOnly`. Demo: `scripts/demo/{insights,money,staff}.mjs` share five weeks of
+  مطعم خالد history (`scripts/demo/lib/khalid-history.mjs`); `/demo/money/request` + `/demo/money/handover`
+  (PIN 4821) walk "اطلب فلوسك" to the hand-over, `/demo/staff/reset` restores the team.
 
 ## Copy
 

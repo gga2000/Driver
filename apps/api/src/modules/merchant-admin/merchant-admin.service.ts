@@ -9,6 +9,7 @@ import {
   type DealView,
   type MenuImportJob,
   type MerchantAdminPort,
+  type MerchantCashAccount,
   type MerchantDispute,
   type MerchantInsights,
   type MerchantScope,
@@ -36,12 +37,14 @@ import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
 import { composeInsights, defaultOutcome, disputeKindOf } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
-import { composeMoneyToday, composeStatement } from './money.js';
+import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
 
 const DAY_MS = 86_400_000;
 const STAFF_KINDS: readonly MerchantStaffRole[] = ['merchant_owner', 'merchant_staff'];
 /** Disputes the merchant still sees (domain §9: customers dispute until close, support after). */
 export const DISPUTE_LOOKBACK_DAYS = 30;
+/** The merchant answers a dispute within this; after it the default outcome stands. */
+export const DISPUTE_RESPONSE_HOURS = 48;
 /** Stored as the item's `photo_url` until a public CDN path exists; the admin view signs it. */
 export const UPLOAD_PHOTO_PREFIX = 'upload:';
 
@@ -390,6 +393,23 @@ export class MerchantAdminService implements MerchantAdminPort {
     return composeMoneyToday({ merchantOrgId: input.merchantOrgId, localDate: localDateKey(now), statement, orders, balance, rules: AZIZIYAH_MONEY_RULES });
   }
 
+  async moneyCash(actor: Actor, input: MerchantScope): Promise<MerchantCashAccount> {
+    await this.owner(actor, input.merchantOrgId);
+    const now = this.clock.now();
+    const [balance, statement, events] = await Promise.all([
+      this.ledgerFacade.merchantBalance(input.merchantOrgId),
+      this.ledger.statement(Accounts.merchantCash(input.merchantOrgId), { from: new Date(now.getTime() - HANDOVER_LOOKBACK_DAYS * DAY_MS), to: new Date(now.getTime() + 1) }),
+      this.events.forAggregate('merchant', input.merchantOrgId),
+    ]);
+    const courierIds = new Set<string>(balance.holders.map((h) => h.courierId));
+    for (const l of statement.lines) if (l.type === 'merchant_paid_by_courier' && l.counterparty.startsWith('cash:')) courierIds.add(l.counterparty.slice('cash:'.length));
+    for (const e of events) if (e.type === 'merchant.settlement_assigned' && typeof e.payload['courierId'] === 'string') courierIds.add(e.payload['courierId']);
+    // First names only on the merchant's screen (the courier's card); vault reads are logged.
+    const names = new Map<string, string | null>();
+    for (const id of courierIds) names.set(id, (await this.identity.courierCard(id, actor.personId)).firstName);
+    return composeCashAccount({ merchantOrgId: input.merchantOrgId, now, balance, statement, events, names });
+  }
+
   async moneyStatement(actor: Actor, input: { merchantOrgId: string; weekOf?: Date | undefined }): Promise<WeeklyStatement> {
     await this.owner(actor, input.merchantOrgId);
     const range = localPeriod('week', input.weekOf ?? this.clock.now());
@@ -420,9 +440,11 @@ export class MerchantAdminService implements MerchantAdminPort {
         promisedReadyAt: order.promisedReadyAt,
         lines: order.lines.map((l) => ({ name: (l.catalogItemId ? names.get(l.catalogItemId) : null) ?? l.freeText ?? '—', qty: l.qty, participant: l.participantId ? (participants.get(l.participantId) ?? null) : null })),
         itemsIqd: order.itemsTotalIqd,
+        photos: (Array.isArray(p['photoUploadIds']) ? p['photoUploadIds'] : []).filter((x): x is string => typeof x === 'string').map((id) => this.blobs.readUrl(id)),
       },
       defaultOutcome: defaultOutcome(rawKind, order),
-      response: r ? { decision: r.decision, note: r.note, evidencePhotos: r.evidenceRefs.length, at: r.at } : null,
+      respondBy: new Date(opened.occurredAt.getTime() + DISPUTE_RESPONSE_HOURS * 3_600_000),
+      response: r ? { decision: r.decision, note: r.note, evidencePhotos: r.evidenceRefs.length, photoUrls: r.evidenceRefs.map((ref) => this.blobs.readUrl(ref)), at: r.at } : null,
     };
   }
 
@@ -483,8 +505,16 @@ export class MerchantAdminService implements MerchantAdminPort {
     for (const h of holders) if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
     const ids = [...roleOf.keys()];
     const cards = ids.length > 0 ? await this.identity.memberCards(ids, actor.personId, 'merchant_staff_view') : {};
+    const verified = ids.length > 0 ? await this.identity.verifiedAtOf(ids) : {};
     return ids
-      .map((personId) => ({ personId, name: cards[personId]?.name ?? null, phoneMasked: cards[personId]?.phoneMasked ?? null, role: roleOf.get(personId)!, you: personId === actor.personId }))
+      .map((personId) => ({
+        personId,
+        name: cards[personId]?.name ?? null,
+        phoneMasked: cards[personId]?.phoneMasked ?? null,
+        role: roleOf.get(personId)!,
+        you: personId === actor.personId,
+        pending: personId !== actor.personId && !verified[personId],
+      }))
       .sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
   }
 

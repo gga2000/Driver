@@ -257,7 +257,9 @@ describe('merchantAdmin.money', () => {
     await h.lh.merchantCash.confirmHandover({ handoverId: 'hv1', courierId: 'k1', merchantId: h.orgId, amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true });
     const s = await h.svc.moneyStatement(h.owner, { merchantOrgId: h.orgId });
     expect(s.from.toISOString()).toBe('2026-09-26T21:00:00.000Z'); // Sunday 27 Sep, Baghdad
-    expect(s.lines).toEqual([{ orderId: 'o1', at: expect.any(Date), payment: 'cash', itemsIqd: 15000, commissionTier: 'featured', commissionIqd: 2250, feesIqd: 0, netIqd: 12750 }]);
+    expect(s.lines).toEqual([
+      { orderId: 'o1', at: expect.any(Date), payment: 'cash', itemsIqd: 15000, commissionTier: 'featured', commissionPct: 15, commissionIqd: 2250, discountIqd: 0, discountFunder: null, feesIqd: 0, netIqd: 12750 },
+    ]);
     expect(s.settlements).toEqual([{ at: expect.any(Date), kind: 'courier_handover', amountIqd: 12750, reference: null }]);
     expect(s.totals).toMatchObject({ orders: 1, netIqd: 12750, settledIqd: 12750 });
     expect(s.closingIqd).toBe(0);
@@ -282,11 +284,55 @@ describe('merchantAdmin.money', () => {
     expect(d).toMatchObject({ orderId: 'o9', kind: 'missing_item', note: 'ناقص كباب', defaultOutcome: { code: 'merchant_refunds_item' }, response: null });
     expect(d!.evidence.lines).toEqual([{ name: 'كباب', qty: 2, participant: 'أحمد' }]);
 
+    expect(d!.respondBy?.toISOString()).toBe('2026-10-05T11:00:00.000Z');
+    expect(d!.evidence.photos).toEqual([]);
+
     const r = await h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o9', decision: 'contest', note: 'الصورة تبين الكباب', evidenceUploadIds: [await upload(h.blobs, h.owner.personId)] });
     expect(r.response).toMatchObject({ decision: 'contest', evidencePhotos: 1 });
+    expect(r.response!.photoUrls).toHaveLength(1);
+    expect(r.response!.photoUrls[0]).toContain('/files/');
     const again = await h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o9', decision: 'accept_default', evidenceUploadIds: [] });
     expect(again.response?.decision).toBe('accept_default');
     await expect(h.svc.moneyRespondDispute(h.owner, { merchantOrgId: h.orgId, orderId: 'o_unknown', decision: 'contest', evidenceUploadIds: [] })).rejects.toMatchObject({ code: 'dispute_not_found' });
+  });
+});
+
+describe('merchantAdmin.money.cash', () => {
+  it('splits the balance between couriers and Driver, lists hand-overs and follows "اطلب فلوسك" to the PIN hand-over', async () => {
+    const h = await setup('2026-10-03T13:00:00Z');
+    const courier = await h.person('07711111111');
+    await h.id.service.setName(courier, 'حيدر كاظم');
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', merchantId: h.orgId, courierId: courier.personId }));
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o2', merchantId: h.orgId, courierId: undefined, deliveryFeeIqd: 0, payment: 'wallet' }));
+    await expect(h.svc.moneyCash(h.staff, { merchantOrgId: h.orgId })).rejects.toMatchObject({ code: 'forbidden' });
+
+    const before = await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId });
+    expect(before).toMatchObject({ balanceIqd: 25500, exposureCapIqd: 300000, overExposure: false, mode: 'nightly_courier', heldByPlatformIqd: 12750, request: null, handovers: [] });
+    expect(before.holders).toEqual([{ courierId: courier.personId, name: 'حيدر', amountIqd: 12750 }]);
+
+    // Requested → assigned to the courier holding the cash (events recorded on the merchant aggregate).
+    const at = h.clock.now();
+    const merchant = { name: 'merchant', id: h.orgId };
+    await h.ev.events.emit(undefined, { actorId: h.owner.personId, type: 'merchant.settlement_requested', occurredAt: at, payload: { merchantId: h.orgId, reason: 'merchant_request', balanceIqd: 25500, reference: 'M-AAAA-BBBB' } }, merchant);
+    expect((await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId })).request).toMatchObject({ reference: 'M-AAAA-BBBB', state: 'requested', amountIqd: 25500, channel: null });
+    const targetBy = new Date(at.getTime() + 60 * MIN);
+    await h.ev.events.emit(undefined, { actorId: 'system:ledger', type: 'merchant.settlement_assigned', occurredAt: at, payload: { reference: 'M-AAAA-BBBB', channel: 'courier', courierId: courier.personId, targetBy: targetBy.toISOString() } }, merchant);
+    const onTheWay = (await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId })).request;
+    expect(onTheWay).toMatchObject({ state: 'on_the_way', channel: 'courier', courierName: 'حيدر', targetBy, handover: null });
+
+    // The courier hands it over with the PIN.
+    h.clock.advance(20 * MIN);
+    h.lh.clock.advance(20 * MIN);
+    await h.lh.merchantCash.configure(h.orgId, { pin: '4821' });
+    await h.lh.merchantCash.confirmHandover({ handoverId: 'hv1', courierId: courier.personId, merchantId: h.orgId, amountIqd: 12750, merchantConfirmedIqd: 12750, pin: '4821' });
+    const pinEvent = h.lh.bus.emitted.find((e) => e.type === 'merchant.paid_by_courier');
+    expect(pinEvent?.payload).toMatchObject({ confirmedBy: 'pin' });
+    await h.ev.events.emit(undefined, { actorId: courier.personId, type: 'merchant.paid_by_courier', occurredAt: h.clock.now(), payload: pinEvent!.payload }, merchant);
+
+    const after = await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId });
+    expect(after.handovers).toEqual([{ handoverId: 'hv1', at: expect.any(Date), courierId: courier.personId, courierName: 'حيدر', amountIqd: 12750, balanceAfterIqd: 12750, confirmedBy: 'pin' }]);
+    expect(after.request).toMatchObject({ state: 'handed_over', handover: { handoverId: 'hv1', confirmedBy: 'pin' } });
+    expect(after).toMatchObject({ balanceIqd: 12750, holders: [], heldByPlatformIqd: 12750 });
   });
 });
 
@@ -303,10 +349,31 @@ describe('merchantAdmin.insights', () => {
     );
     const i = await h.svc.insights(h.staff, { merchantOrgId: h.orgId, days: 30 });
     expect(i.prepHonesty).toEqual({ samples: 2, quotedAvgMin: 15, actualAvgMin: 19.5, onTimeShare: 0.5 });
-    expect(i.rejection).toEqual({ offered: 3, rejected: 1, rate: 0.333 });
+    expect(i.rejection).toMatchObject({ offered: 3, rejected: 1, rate: 0.333 });
+    // Five 7-day buckets over 30 days; both kebab orders and the rejection fall in the last week.
+    expect(i.rejection.trend).toHaveLength(5);
+    expect(i.rejection.trend.at(-1)).toMatchObject({ offered: 3, rejected: 1, rate: 0.333 });
+    expect(i.rejection.trend[0]).toMatchObject({ offered: 0, rate: null });
+    expect(i.bestSellers).toEqual([{ itemId: kebab.id, nameAr: 'كباب', qty: 2, orders: 2, salesIqd: 10000 }]);
+    expect(i.peakGrid[6]![13]).toBe(2); // Saturday 13:00 Baghdad
+    expect(i.orders).toBe(3);
     expect(i.itemRatings).toEqual([{ itemId: kebab.id, nameAr: 'كباب', avg: 4, count: 2, reviews: [{ score: 3, note: 'بارد شوية', at }] }]);
     expect(i.peakHours[13]).toBe(2);
     expect(i.peakHours[20]).toBe(1);
+  });
+});
+
+describe('merchantAdmin.insights rating attribution', () => {
+  it('gives the food score to the main dish, not the drink that came with it', async () => {
+    const h = await setup('2026-10-03T13:00:00Z');
+    const liver = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'لفة كبد', priceIqd: 1500 });
+    const pepsi = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'بيبسي', priceIqd: 750 });
+    const at = new Date('2026-10-03T10:00:00Z');
+    const line = (id: string, itemId: string, qty: number, unitPriceIqd: number) => ({ id, catalogItemId: itemId, freeText: null, qty, unitPriceIqd, modifiers: [], participantId: null, note: null, pointsEligible: true, availability: 'available' });
+    h.orders.push(order({ id: 'r1', placedAt: at, lines: [line('l1', pepsi.id, 2, 750), line('l2', liver.id, 3, 1500)] as Order['lines'], rating: { delivery: 5, food: 2, tags: [], note: 'الكبد ناشف', ratedAt: at } }));
+    const i = await h.svc.insights(h.owner, { merchantOrgId: h.orgId, days: 7 });
+    expect(i.itemRatings.map((r) => [r.nameAr, r.avg, r.reviews.map((x) => x.note)])).toEqual([['لفة كبد', 2, ['الكبد ناشف']]]);
+    expect(i.bestSellers.map((b) => [b.nameAr, b.qty])).toEqual([['لفة كبد', 3], ['بيبسي', 2]]);
   });
 });
 
@@ -314,11 +381,17 @@ describe('merchantAdmin.staff', () => {
   it('owner invites by phone, changes roles and removes staff; a merchant keeps at least one owner', async () => {
     const h = await setup();
     const list = await h.svc.staffList(h.owner, { merchantOrgId: h.orgId });
-    expect(list.map((s) => [s.role, s.you])).toEqual([['merchant_owner', true], ['merchant_staff', false]]);
+    expect(list.map((s) => [s.role, s.you, s.pending])).toEqual([
+      ['merchant_owner', true, false],
+      ['merchant_staff', false, false],
+    ]);
     expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.owner.personId && l.purpose === 'merchant_staff_view')).toBe(true);
 
     const cashier = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000077', role: 'merchant_staff' });
-    expect(cashier).toMatchObject({ role: 'merchant_staff', phoneMasked: '+96477*****77' });
+    // Never signed in: the invite is pending until the first OTP.
+    expect(cashier).toMatchObject({ role: 'merchant_staff', phoneMasked: '+96477*****77', pending: true });
+    await h.id.login('07700000077');
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === cashier.personId)?.pending).toBe(false);
     expect(await h.id.service.hasRole(cashier.personId, 'merchant_staff', h.orgId)).toBe(true);
 
     const promoted = await h.svc.staffSetRole(h.owner, { merchantOrgId: h.orgId, personId: cashier.personId, role: 'merchant_owner' });

@@ -12,6 +12,7 @@ import {
   InviteStaffInput,
   MenuImportJob,
   MenuItemIdInput,
+  MerchantCashAccount,
   MerchantDispute,
   MerchantInsights,
   MerchantScope,
@@ -80,6 +81,8 @@ export const merchantAdminRouter = router({
   }),
   money: router({
     today: p.input(MerchantScope).output(MoneyToday).query(({ ctx, input }) => ctx.merchantAdmin.moneyToday(ctx.actor, input)),
+    /** Cash account: balance, couriers holding it, the open "اطلب فلوسك" and its timeline, recent hand-overs. */
+    cash: p.input(MerchantScope).output(MerchantCashAccount).query(({ ctx, input }) => ctx.merchantAdmin.moneyCash(ctx.actor, input)),
     statement: p.input(StatementInput).output(WeeklyStatement).query(({ ctx, input }) => ctx.merchantAdmin.moneyStatement(ctx.actor, input)),
     disputes: p.input(MerchantScope).output(z.array(MerchantDispute)).query(({ ctx, input }) => ctx.merchantAdmin.moneyDisputes(ctx.actor, input)),
     respondDispute: p.input(RespondDisputeInput).output(MerchantDispute).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyRespondDispute(ctx.actor, input)),

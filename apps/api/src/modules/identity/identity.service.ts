@@ -442,6 +442,16 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * When each person last verified a phone OTP (null = never signed in: an invite still waiting).
+   * Reads the person rows only, no vault fields.
+   */
+  async verifiedAtOf(personIds: readonly string[]): Promise<Record<string, Date | null>> {
+    const out: Record<string, Date | null> = {};
+    for (const personId of new Set(personIds)) out[personId] = (await this.repo.findPersonById(personId))?.lastVerifiedAt ?? null;
+    return out;
+  }
+
+  /**
    * Household invite by phone (domain §12): the Person behind the number, created pseudonymously when
    * the number has never signed in (as a guardian link does). The number stays in the vault.
    */

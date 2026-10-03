@@ -105,6 +105,11 @@ export class EventsService {
     return this.repo.find({ orderId });
   }
 
+  /** Events of one aggregate (`merchant`/`org_1`…), in recording order. */
+  forAggregate(name: string, id: string): Promise<StoredEvent[]> {
+    return this.repo.find({ aggregate: { name, id } });
+  }
+
   async pendingOutbox(): Promise<number> {
     return (await this.repo.outboxStats()).pending;
   }
