@@ -123,6 +123,16 @@ export const ERROR_TABLE = {
   price_changed: { message_ar: 'الأسعار تغيّرت. حدّث السلة وشوف المجموع الجديد', message_en: 'Menu prices changed; refresh the cart', retryHint: 'never', status: 'CONFLICT' },
   quote_location_required: { message_ar: 'حدد مكان الاستلام والتوصيل حتى نحسب السعر', message_en: 'Pickup and drop-off places are needed to price this order', retryHint: 'never', status: 'BAD_REQUEST' },
   promotion_invalid: { message_ar: 'كود الخصم مو صالح لهذا الطلب', message_en: 'No valid promotion for this discount', retryHint: 'never', status: 'BAD_REQUEST' },
+  // merchant deals at checkout: the deal the cart was shown ended, ran out of budget or changed
+  deal_changed: { message_ar: 'العرض انتهى أو خلصت ميزانيته. حدّثنا المجموع، شوفه وأكّد', message_en: 'The deal ended or changed; review the new total', retryHint: 'never', status: 'CONFLICT' },
+  // wallet top-up (cash to an ops agent or the next courier)
+  topup_amount_invalid: { message_ar: 'المبلغ لازم يكون من 5,000 لحد 100,000 دينار وبالألف', message_en: 'Top-up must be 5,000–100,000 IQD in steps of 1,000', retryHint: 'never', status: 'BAD_REQUEST' },
+  topup_daily_limit: { message_ar: 'وصلت حد الشحن لليوم. جرب باچر', message_en: 'Daily top-up limit reached', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
+  topup_code_invalid: { message_ar: 'الرمز غلط. تأكد من الأرقام الستة', message_en: 'Top-up code not found', retryHint: 'never', status: 'NOT_FOUND' },
+  topup_expired: { message_ar: 'انتهى الرمز. خلي الزبون يطلع رمز جديد', message_en: 'Top-up code expired', retryHint: 'never', status: 'CONFLICT' },
+  topup_code_used: { message_ar: 'هذا الرمز انستخدم قبل', message_en: 'Top-up code already used', retryHint: 'never', status: 'CONFLICT' },
+  topup_amount_mismatch: { message_ar: 'المبلغ مو نفس المبلغ المطلوب بالرمز', message_en: 'Cash received does not match the requested amount', retryHint: 'never', status: 'BAD_REQUEST' },
+  topup_courier_not_assigned: { message_ar: 'تگدر تشحن بس لزبون عندك طلبه هسة', message_en: 'Couriers can only top up a customer whose order they carry', retryHint: 'never', status: 'FORBIDDEN' },
   tip_above_cap: { message_ar: 'الإكرامية أكثر من الحد المسموح', message_en: 'Tip is above the per-order cap', retryHint: 'never', status: 'BAD_REQUEST' },
   merchant_paused: { message_ar: 'مغلق مؤقتاً', message_en: 'Merchant is temporarily closed', retryHint: 'later', status: 'CONFLICT' },
   participant_unknown: { message_ar: 'السطر مربوط بشخص مو موجود بالطلب', message_en: 'Line tagged to an unknown participant', retryHint: 'never', status: 'BAD_REQUEST' },

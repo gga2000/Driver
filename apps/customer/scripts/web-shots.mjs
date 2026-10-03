@@ -15,6 +15,11 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late,
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
 //   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+//   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
+//                                                                         POST /demo/deals
+//   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
+//            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
+//                                                                         POST /demo/ops-agent
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -68,7 +73,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -102,7 +107,11 @@ const fullShot = async (name) => {
 };
 const demoPost = async (path) => {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
-  if (!r.ok) errors.push(`${path}: ${r.status} ${await r.text()}`);
+  if (!r.ok) {
+    errors.push(`${path}: ${r.status} ${await r.text()}`);
+    return null;
+  }
+  return r.json().catch(() => null);
 };
 
 try {
@@ -166,6 +175,8 @@ try {
   if (wants('food')) await foodFlow(khalid);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('deals')) await dealsShots(khalid);
+  if (wants('topup')) await topupShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -460,6 +471,127 @@ async function rajaaShots(personId) {
   await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
   await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
   await shot('rajaa-home');
+}
+
+/**
+ * Merchant deals at checkout: two live deals on مطعم خالد (20 % off the menu, free delivery over 15,000).
+ * The restaurant shows both badges; the cart and checkout show the one the server applied.
+ */
+async function dealsShots(khalid) {
+  const item = (key) => `${khalid}_${key}`;
+  await demoPost('/demo/deals');
+  await page.goto(`${origin}/restaurant/${khalid}`, { waitUntil: 'networkidle' });
+  await byTestId('restaurant-deals').waitFor({ timeout: 15_000 });
+  await byTestId(`dish-${item('kebab_wrap')}`).waitFor({ timeout: 15_000 });
+  await shot('deals-restaurant');
+
+  for (const key of ['khalid_mix', 'liver_plate', 'lentil_soup']) {
+    await byTestId(`dish-add-${item(key)}`).click();
+    // A dish with a required choice opens its sheet: take the default and add.
+    if (await byTestId('item-sheet').isVisible().catch(() => false)) {
+      await byTestId('item-add').click();
+      await byTestId('item-sheet').waitFor({ state: 'detached' });
+    }
+    await page.waitForTimeout(300);
+  }
+  await byTestId('cart-bar').click();
+  await byTestId('cart-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('cart-deal-saving').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('deals-cart');
+  await fullShot('deals-cart-full');
+
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await page.evaluate(() => {
+    // Scroll to the price breakdown so the deal line is in view.
+    for (const el of document.querySelectorAll('div')) {
+      const st = getComputedStyle(el);
+      if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
+    }
+  });
+  await shot('deals-checkout');
+  await fullShot('deals-checkout-full');
+}
+
+/**
+ * Wallet top-up with cash: شحن المحفظة → amount → code + QR; then the ops agent (Partner app, Ops
+ * mode, its own browser context) keys the code in and confirms; the customer's screen becomes the receipt.
+ */
+async function topupShots() {
+  await page.goto(`${origin}/wallet`, { waitUntil: 'networkidle' });
+  await byTestId('wallet-topup').waitFor({ timeout: 15_000 });
+  await shot('topup-wallet');
+  await byTestId('wallet-topup').click();
+  await byTestId('topup-pick').waitFor({ timeout: 15_000 });
+  await shot('topup-amount');
+  await byTestId('topup-get-code').click();
+  await byTestId('topup-code').waitFor({ timeout: 15_000 });
+  await byTestId('topup-qr').waitFor();
+  await shot('topup-code');
+  await fullShot('topup-code-full');
+  const code = (await byTestId('topup-code-digits').innerText()).replace(/\D/g, '');
+  if (!/^\d{6}$/.test(code)) throw new Error(`top-up code not shown (${code})`);
+
+  const partnerDist = process.env.PARTNER_DIST_DIR ? resolve(process.env.PARTNER_DIST_DIR) : null;
+  if (!partnerDist || !existsSync(join(partnerDist, 'index.html'))) {
+    errors.push('topup: set PARTNER_DIST_DIR to a Partner web export built against this demo API');
+    return;
+  }
+  const agent = await demoPost('/demo/ops-agent');
+  const pServer = createServer((req, res) => {
+    const path = join(partnerDist, decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname));
+    const file = existsSync(path) && !path.endsWith('/') && extname(path) ? path : join(partnerDist, 'index.html');
+    res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
+    res.end(readFileSync(file));
+  });
+  await new Promise((r) => pServer.listen(0, '127.0.0.1', r));
+  const pOrigin = `http://127.0.0.1:${pServer.address().port}`;
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  const ops = await ctx.newPage();
+  ops.on('pageerror', (e) => errors.push(`[ops] ${e.stack ?? e.message}`));
+  ops.on('console', (m) => {
+    if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED/.test(m.text())) errors.push(`[ops] ${m.text()}`);
+  });
+  const opsId = (id) => ops.locator(`[data-testid="${id}"]`).first();
+  const opsShot = async (name) => {
+    await ops.evaluate(() => document.fonts.ready);
+    await ops.waitForTimeout(700);
+    const file = join(outDir, `${name}.png`);
+    await ops.screenshot({ path: file });
+    console.log(file);
+  };
+  try {
+    await ops.goto(`${pOrigin}/`, { waitUntil: 'networkidle' });
+    await opsId('welcome-start').waitFor({ timeout: 30_000 });
+    await opsId('welcome-start').click();
+    await ops.locator('[data-testid="phone-input"]').fill(agent.phone);
+    await opsId('phone-submit').click();
+    await opsId('otp-dev-strip').waitFor({ timeout: 15_000 });
+    const otp = (await opsId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+    await ops.locator('[data-testid="otp-input"]').fill(otp ?? '');
+    await opsId('home').waitFor({ timeout: 20_000 }).catch(() => undefined);
+    await ops.goto(`${pOrigin}/ops`, { waitUntil: 'networkidle' });
+    await opsId('ops-go-topup').waitFor({ timeout: 15_000 });
+    await opsShot('topup-ops-home');
+    await opsId('ops-go-topup').click();
+    await opsId('ops-code-pad').waitFor({ timeout: 15_000 });
+    for (const d of code) await opsId(`ops-pad-${d}`).click();
+    await opsId('ops-topup-found').waitFor({ timeout: 15_000 });
+    await opsShot('topup-ops-confirm');
+    await opsId('ops-topup-confirm').click();
+    await opsId('ops-topup-done').waitFor({ timeout: 15_000 });
+    await opsShot('topup-ops-done');
+  } finally {
+    await ctx.close();
+    pServer.close();
+  }
+
+  await byTestId('topup-done').waitFor({ timeout: 20_000 });
+  await shot('topup-done');
+  await byTestId('topup-back').click();
+  await byTestId('wallet-lines').waitFor({ timeout: 15_000 });
+  await shot('topup-wallet-after');
 }
 
 if (errors.length) {

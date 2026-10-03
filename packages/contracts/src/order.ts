@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
+import { AppliedDiscount } from './deals.js';
 import type { Actor } from './identity-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
@@ -81,9 +82,10 @@ export const PlaceOrderInput = z.object({
   deliveryFeeIqd: Iqd.min(0).optional(),
   serviceFeeIqd: Iqd.min(0).optional(),
   /**
-   * Discounts come only from a server-validated promotion (`promoCode`). Without one that resolves the
-   * discount is 0; a value sent here must equal the promotion's (`price_changed`), and a discount with no
-   * promotion behind it is refused (`promotion_invalid`).
+   * Discounts come only from the server: the merchant's best live deal (auto-applied, `orders.quote`
+   * shows it) or a server-validated promotion code. A value sent here is the cart's expectation from
+   * `orders.quote`: when the deal ended, ran out of budget or changed it must be refreshed
+   * (`deal_changed`); a code nothing resolves is refused (`promotion_invalid`).
    */
   discountIqd: Iqd.min(0).optional(),
   promoCode: z.string().min(1).max(40).optional(),
@@ -188,8 +190,30 @@ export const Order = z.object({
   note: z.string().nullable(),
   /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */
   rating: OrderRating.nullable().optional(),
+  /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
+  discount: AppliedDiscount.nullable().optional(),
 });
 export type Order = z.infer<typeof Order>;
+
+/**
+ * `orders.quote` (checkout summary): what `orders.place` would charge for the same input right now —
+ * menu-priced items, server fees, the merchant deal that applies and the rounded total. Nothing is
+ * stored or reserved; `place` re-checks it (`deal_changed` / `price_changed`).
+ */
+export const OrderQuote = z.object({
+  itemsTotalIqd: Iqd,
+  deliveryFeeIqd: Iqd,
+  serviceFeeIqd: Iqd,
+  tipIqd: Iqd,
+  discountIqd: Iqd,
+  totalIqd: Iqd,
+  discount: AppliedDiscount.nullable(),
+  /** Per input line (same order): what the deal takes off that line (0 when not covered). */
+  lineSavingsIqd: z.array(Iqd),
+  /** The next deal the cart could unlock by adding more (minimum order not met yet), if any. */
+  nextDeal: z.object({ dealId: z.string(), label_ar: z.string(), label_en: z.string(), missingIqd: Iqd }).nullable(),
+});
+export type OrderQuote = z.infer<typeof OrderQuote>;
 
 /** Who ends up with a cancellation fee (dispatch & pricing spec §4). */
 export const FeeParty = z.enum(['customer', 'driver', 'courier', 'merchant', 'platform']);
@@ -256,6 +280,8 @@ export const MerchantHeartbeatInput = z.object({ merchantOrgId: z.string().min(1
 /** What the API supplies to the orders router (implemented by `modules/orders`). */
 export interface OrdersPort {
   place(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<Order>;
+  /** Dry run of `place` for the checkout summary (deal line, savings, total); stores nothing. */
+  quote(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<OrderQuote>;
   get(actor: Actor, input: { orderId: string }): Promise<Order>;
   mine(actor: Actor): Promise<Order[]>;
   listActive(actor: Actor, input: ListActiveOrdersInput): Promise<Order[]>;

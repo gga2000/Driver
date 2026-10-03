@@ -4,6 +4,7 @@ import type { Actor } from './identity-io.js';
 import { SettlementRequestReason } from './ledger-io.js';
 import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
+import { DealType } from './deals.js';
 
 /**
  * `merchantAdmin.*` — the Merchant app's second wave (partner & merchant apps spec): menu, deals,
@@ -151,8 +152,6 @@ export const ApplyImportInput = ImportJobInput.extend({ items: z.array(ImportedI
 
 // ───────────────────────── deals ─────────────────────────
 
-export const DealType = z.enum(['percent', 'fixed', 'free_delivery', 'bogo']);
-export type DealType = z.infer<typeof DealType>;
 
 export const DealSchedule = z.object({
   startsAt: z.coerce.date(),

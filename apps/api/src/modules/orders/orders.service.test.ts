@@ -158,7 +158,8 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
 
   it('discounts only from a promotion the server resolves; NoPromotions means discount 0', async () => {
     const h = ordersHarness();
-    expect(await code(h.orders.place('c1', h.foodInput({ discountIqd: 5000 })))).toBe('promotion_invalid');
+    // A discount the server does not grant (no deal, no code) is a stale cart: refresh, never honoured.
+    expect(await code(h.orders.place('c1', h.foodInput({ discountIqd: 5000 })))).toBe('deal_changed');
     expect(await code(h.orders.place('c1', h.foodInput({ promoCode: 'FREE' })))).toBe('promotion_invalid');
     expect((await h.orders.place('c1', h.foodInput({ discountIqd: 0 }))).discountIqd).toBe(0);
     // A resolved promotion sets the discount; the ledger funds it from the promotion's budget line.

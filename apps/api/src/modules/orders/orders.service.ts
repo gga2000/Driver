@@ -10,6 +10,7 @@ import {
   type DisputeKind,
   type DomainEventInput,
   type Order,
+  type OrderQuote,
   type OrderRating,
   type OrderSearchPage,
   type OrderState,
@@ -24,7 +25,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
-import { assertExpected, serverFees, type QuotePort } from './fees.js';
+import { assertExpected, serverFees, type QuotePort, type ServerFees } from './fees.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
 import { ORDERS_CATALOG, priceLines, type CatalogPort } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
@@ -32,6 +33,7 @@ import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEvent
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
 import {
   ORDERS_REPOSITORY,
+  type DiscountMeta,
   type LineUnavailability,
   type NewLine,
   type OrderAggregate,
@@ -43,7 +45,7 @@ import {
 } from './orders.repository.js';
 import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
-import { NoPromotions, ORDERS_PROMOTIONS, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
+import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
 
 /** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
@@ -134,6 +136,116 @@ export class OrdersService implements OnModuleInit {
 
   async place(ordererId: string, raw: PlaceInput): Promise<Order> {
     const input = PlaceOrderInput.parse(raw);
+    const now = this.clock.now();
+    const p = await this.price(ordererId, input, now, { quote: false });
+    const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
+    const participants = await resolveParticipants(input.participants, this.participants);
+    assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
+    if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
+    assertExpected(input.deliveryFeeIqd, fees.deliveryFeeIqd);
+    assertExpected(input.serviceFeeIqd, fees.serviceFeeIqd);
+    // The cart's expected discount (from `orders.quote`): a deal that ended, ran out or changed since
+    // is a refresh, never a silent change of what the customer pays.
+    const discount = p.discount?.amountIqd ?? 0;
+    if (input.discountIqd !== undefined && input.discountIqd !== discount) throw new DriverError(input.promoCode ? 'price_changed' : 'deal_changed');
+    const total = p.totalIqd;
+    // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
+    // on the server-computed total.
+    const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
+    if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
+
+    return this.uow.run(async (tx) => {
+      // The deal's spend is reserved in this transaction, atomically against its budget cap: two
+      // orders can never both spend the last of it (the later one is asked to refresh).
+      if (p.discount && p.discount.meta.funder === 'merchant' && discount > 0) {
+        if (!(await this.promotions.reserve(p.discount.promotionId, discount, tx))) throw new DriverError('deal_changed');
+      }
+      const agg = await this.repo.create(
+        {
+          cityId: input.cityId,
+          type: input.type,
+          ordererId,
+          merchantOrgId: input.merchantOrgId ?? null,
+          householdOrgId: input.householdOrgId ?? null,
+          quoteId: input.quoteId ?? null,
+          paymentMethod: input.paymentMethod,
+          itemsTotalIqd: itemsTotal,
+          deliveryFeeIqd: fees.deliveryFeeIqd,
+          serviceFeeIqd: fees.serviceFeeIqd,
+          discountIqd: discount,
+          promotionId: discount > 0 ? (p.discount?.promotionId ?? null) : null,
+          discountMeta: discount > 0 ? (p.discount?.meta ?? null) : null,
+          tipIqd: input.tipIqd,
+          totalIqd: total,
+          note: input.note ?? null,
+          scheduledFor: input.scheduledFor ?? null,
+          minVehicleClass: caps?.minVehicleClass ?? null,
+          dropoff: input.dropoff ?? null,
+          placedAt: now,
+        },
+        newLines,
+        participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+        tx,
+      );
+      const order = agg.order;
+      await this.emit(tx, 'order.placed', ordererId, order, {
+        type: order.type,
+        cityId: order.cityId,
+        merchantOrgId: order.merchantOrgId,
+        totalIqd: order.totalIqd,
+        itemsTotalIqd: order.itemsTotalIqd,
+        paymentMethod: order.paymentMethod,
+        minVehicleClass: order.minVehicleClass,
+        cateringRequest: caps?.catering ?? false,
+        scheduledFor: order.scheduledFor?.toISOString() ?? null,
+        participantCount: agg.participants.length,
+        arrivingCallRequired: risk?.requiresArrivingCall ?? false,
+        ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
+      });
+      for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
+      if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
+
+      if (merchantType && profile) {
+        const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
+        const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
+        if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
+        else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
+      }
+      return this.view(order.id, tx);
+    });
+  }
+
+  /**
+   * `orders.quote` — the checkout summary: exactly what `place` would charge for this input now
+   * (menu prices, server fees, the merchant's best deal, the rounded total) plus what each line
+   * saves and the next deal the cart could unlock. Nothing is stored or reserved.
+   */
+  async quote(ordererId: string, raw: PlaceInput): Promise<OrderQuote> {
+    const input = PlaceOrderInput.parse(raw);
+    const now = this.clock.now();
+    const p = await this.price(ordererId, input, now, { quote: true });
+    const d = p.discount;
+    const next = p.merchantType && !d && input.merchantOrgId ? await this.promotions.nextMerchantDeal(dealQuery(input.merchantOrgId, p.newLines, p.itemsTotal, p.fees.deliveryFeeIqd, now)) : null;
+    return {
+      itemsTotalIqd: p.itemsTotal,
+      deliveryFeeIqd: p.fees.deliveryFeeIqd,
+      serviceFeeIqd: p.fees.serviceFeeIqd,
+      tipIqd: input.tipIqd,
+      discountIqd: d?.amountIqd ?? 0,
+      totalIqd: p.totalIqd,
+      discount: d ? { promotionId: d.promotionId, amountIqd: d.amountIqd, ...d.meta } : null,
+      lineSavingsIqd: d ? d.lineSavingsIqd : p.newLines.map(() => 0),
+      nextDeal: next ? { dealId: next.promotionId, label_ar: next.label_ar, label_en: next.label_en, missingIqd: next.missingIqd } : null,
+    };
+  }
+
+  /**
+   * Prices an order the way `place` charges it: lines from the menu (review C2), fees from the server
+   * quote (M2 follow-up), the tip cap, and the one discount the server grants (merchant deal or a
+   * resolved code, rounded so the total stays a multiple of 500 — G-88). `quote` skips the
+   * merchant-closed checks (the checkout shows those itself).
+   */
+  private async price(ordererId: string, input: z.infer<typeof PlaceOrderInput>, now: Date, opts: { quote: boolean }): Promise<Priced> {
     const merchantType = MERCHANT_ORDER_TYPES.includes(input.type);
     if (merchantType && !input.merchantOrgId) throw new DriverError('merchant_required');
     // Review A.11: one merchant per order; a second merchant starts a second order.
@@ -141,17 +253,14 @@ export class OrdersService implements OnModuleInit {
     const lines = input.type === 'ride' ? [] : input.lines;
     if ((merchantType || input.type === 'errand') && lines.length === 0) throw new DriverError('order_empty');
 
-    const now = this.clock.now();
     let profile: MerchantProfile | null = null;
     if (merchantType) {
       profile = await this.merchants.profile(input.merchantOrgId!);
       if (!profile) throw new DriverError('org_not_found');
-      if (!input.scheduledFor && activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
+      if (!opts.quote && !input.scheduledFor && activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
       // Closed by hand from the Merchant app (early close): refused like a pause window.
-      if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
+      if (!opts.quote && !input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
     }
-    const participants = await resolveParticipants(input.participants, this.participants);
-    assertLineTags(lines, participants);
 
     // Review C2: every line is priced here from the merchant's menu, never from the client.
     const newLines: NewLine[] = await priceLines(lines, this.catalog, {
@@ -173,98 +282,84 @@ export class OrdersService implements OnModuleInit {
       options: input.options,
       at: input.scheduledFor ?? now,
     });
-    if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
-    assertExpected(input.deliveryFeeIqd, fees.deliveryFeeIqd);
-    assertExpected(input.serviceFeeIqd, fees.serviceFeeIqd);
     // Tip: the customer's choice, capped per order; it goes 100 % to the courier/driver (ledger `tip`).
     if (input.tipIqd > ORDERS_RULES.maxTipIqd) throw new DriverError('tip_above_cap');
-    // Discount: only what a server-validated promotion grants (today none does: `NoPromotions`).
-    const promo = await this.promotionFor(ordererId, input, { itemsTotalIqd: itemsTotal, deliveryFeeIqd: fees.deliveryFeeIqd, serviceFeeIqd: fees.serviceFeeIqd, at: now });
-    const discount = promo?.discountIqd ?? 0;
-    assertExpected(input.discountIqd, discount);
-    const total =
-      input.type === 'ride'
-        ? Math.max(0, fees.fareIqd + input.tipIqd - discount)
-        : Math.max(0, itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + input.tipIqd - discount);
+    const preTotal = input.type === 'ride' ? fees.fareIqd + input.tipIqd : itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + input.tipIqd;
+    const discount = await this.discountFor(ordererId, input, { merchantType, newLines, itemsTotal, fees, preTotal, now });
+    const totalIqd = Math.max(0, preTotal - (discount?.amountIqd ?? 0));
     const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
-    // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
-    // on the server-computed total.
-    const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
-    if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
-
-    return this.uow.run(async (tx) => {
-      const agg = await this.repo.create(
-        {
-          cityId: input.cityId,
-          type: input.type,
-          ordererId,
-          merchantOrgId: input.merchantOrgId ?? null,
-          householdOrgId: input.householdOrgId ?? null,
-          quoteId: input.quoteId ?? null,
-          paymentMethod: input.paymentMethod,
-          itemsTotalIqd: itemsTotal,
-          deliveryFeeIqd: fees.deliveryFeeIqd,
-          serviceFeeIqd: fees.serviceFeeIqd,
-          discountIqd: discount,
-          promotionId: promo?.promotionId ?? null,
-          tipIqd: input.tipIqd,
-          totalIqd: total,
-          note: input.note ?? null,
-          scheduledFor: input.scheduledFor ?? null,
-          minVehicleClass: caps?.minVehicleClass ?? null,
-          dropoff: input.dropoff ?? null,
-          placedAt: now,
-        },
-        newLines,
-        participants.map((p) => ({ ref: p.ref, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note })),
-        tx,
-      );
-      const order = agg.order;
-      await this.emit(tx, 'order.placed', ordererId, order, {
-        type: order.type,
-        cityId: order.cityId,
-        merchantOrgId: order.merchantOrgId,
-        totalIqd: order.totalIqd,
-        itemsTotalIqd: order.itemsTotalIqd,
-        paymentMethod: order.paymentMethod,
-        minVehicleClass: order.minVehicleClass,
-        cateringRequest: caps?.catering ?? false,
-        scheduledFor: order.scheduledFor?.toISOString() ?? null,
-        participantCount: agg.participants.length,
-        arrivingCallRequired: risk?.requiresArrivingCall ?? false,
-      });
-      for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
-      if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
-
-      if (merchantType && profile) {
-        const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
-        const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
-        if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
-        else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
-      }
-      return this.view(order.id, tx);
-    });
+    return { merchantType, profile, newLines, itemsTotal, fees, discount, totalIqd, caps };
   }
 
   /**
-   * A discount needs a promotion the server resolves (M2 review follow-up). No code → no discount; a
-   * code nothing resolves, or a discount sent with no code, is refused. Rides, errands and parcels take
-   * no promotion yet (their ledger money facts have no promo line).
+   * The order's one discount (domain §11: no stacking, best for the customer wins): the merchant's
+   * best live deal (auto-applied) or a promo code the server resolves (a code nothing resolves is
+   * `promotion_invalid`). Rounded down so the customer total stays a multiple of 500 (250 with a 250
+   * component, G-88): the funder never pays more than the deal promises. Deals are evaluated at the
+   * placement instant (clock port, Baghdad days/hours). Rides, errands and parcels take no discount yet.
+   */
+  private async discountFor(
+    customerId: string,
+    input: z.infer<typeof PlaceOrderInput>,
+    o: { merchantType: boolean; newLines: readonly NewLine[]; itemsTotal: number; fees: ServerFees; preTotal: number; now: Date },
+  ): Promise<OrderDiscount | null> {
+    const code = await this.promotionFor(customerId, input, { itemsTotalIqd: o.itemsTotal, deliveryFeeIqd: o.fees.deliveryFeeIqd, serviceFeeIqd: o.fees.serviceFeeIqd, at: o.now });
+    const deal = o.merchantType && input.merchantOrgId ? await this.promotions.merchantDeal(dealQuery(input.merchantOrgId, o.newLines, o.itemsTotal, o.fees.deliveryFeeIqd, o.now)) : null;
+    let chosen: OrderDiscount;
+    if (deal && (!code || deal.discountIqd >= code.discountIqd)) {
+      chosen = {
+        promotionId: deal.promotionId,
+        amountIqd: deal.discountIqd,
+        lineSavingsIqd: deal.lineSavingsIqd,
+        meta: { funder: 'merchant', target: deal.target, type: deal.type, label_ar: deal.label_ar, label_en: deal.label_en },
+      };
+    } else if (code) {
+      chosen = {
+        promotionId: code.promotionId,
+        amountIqd: code.discountIqd,
+        lineSavingsIqd: o.newLines.map(() => 0),
+        meta: { funder: 'platform', target: 'order', type: null, label_ar: PLATFORM_PROMO_LABEL.ar, label_en: PLATFORM_PROMO_LABEL.en },
+      };
+    } else {
+      return null;
+    }
+    const step = has250Component({ type: input.type, totalIqd: o.preTotal, tipIqd: input.tipIqd, deliveryFeeIqd: o.fees.deliveryFeeIqd, serviceFeeIqd: o.fees.serviceFeeIqd }) ? 250 : 500;
+    const amountIqd = roundedDiscount(o.preTotal, chosen.amountIqd, step);
+    if (amountIqd <= 0) return null;
+    const lineSavingsIqd = chosen.meta.target === 'items' && amountIqd !== chosen.amountIqd ? trimSavings(chosen.lineSavingsIqd, chosen.amountIqd - amountIqd) : chosen.lineSavingsIqd;
+    return { ...chosen, amountIqd, lineSavingsIqd };
+  }
+
+  /**
+   * A promo code needs a promotion the server resolves (M2 review follow-up). No code → null; a code
+   * nothing resolves is refused. Rides, errands and parcels take no promotion yet (their ledger money
+   * facts have no promo line).
    */
   private async promotionFor(
     customerId: string,
     input: z.infer<typeof PlaceOrderInput>,
     amounts: { itemsTotalIqd: number; deliveryFeeIqd: number; serviceFeeIqd: number; at: Date },
   ): Promise<ResolvedPromotion | null> {
-    if (!input.promoCode) {
-      if ((input.discountIqd ?? 0) > 0) throw new DriverError('promotion_invalid');
-      return null;
-    }
+    if (!input.promoCode) return null;
     if (!MERCHANT_ORDER_TYPES.includes(input.type)) throw new DriverError('promotion_invalid');
     const promo = await this.promotions.resolve({ customerId, cityId: input.cityId, orderType: input.type, code: input.promoCode, ...amounts });
     if (!promo) throw new DriverError('promotion_invalid');
     const ceiling = amounts.itemsTotalIqd + amounts.deliveryFeeIqd + amounts.serviceFeeIqd;
     return { promotionId: promo.promotionId, discountIqd: Math.max(0, Math.min(promo.discountIqd, ceiling)) };
+  }
+
+  /**
+   * Partial accept with a merchant deal: the same deal re-priced on the lines left (schedule and cap
+   * aside — the order already holds its spend), rounded like at placement and never above what the
+   * order had. Null when the order has no merchant deal.
+   */
+  private async reducedDiscount(order: OrderRecord, kept: readonly OrderLineRecord[], keptItemsIqd: number, now: Date): Promise<number | null> {
+    const deal = merchantDealOf(order);
+    if (!deal || !order.merchantOrgId) return null;
+    const again = await this.promotions.reapplyMerchantDeal(deal.promotionId, dealQuery(order.merchantOrgId, kept, keptItemsIqd, order.deliveryFeeIqd, now));
+    const preTotal = keptItemsIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd;
+    const step = has250Component(order) ? 250 : 500;
+    return Math.min(deal.amountIqd, roundedDiscount(preTotal, again?.discountIqd ?? 0, step));
   }
 
   /**
@@ -308,14 +403,16 @@ export class OrdersService implements OnModuleInit {
       const ids = new Set(agg.lines.map((l) => l.id));
       if (unavailable.some((id) => !ids.has(id)) || unavailable.length >= agg.lines.length) throw new DriverError('partial_accept_invalid');
       const now = this.clock.now();
-      const marker: LineUnavailability = { kind: 'unavailable', state: 'proposed', proposedAt: now.toISOString(), prepMinutes: input.prepMinutes };
-      for (const id of unavailable) await this.repo.updateLine(id, { substitution: marker }, tx);
       const removed = agg.lines.filter((l) => unavailable.includes(l.id)).reduce((a, l) => a + lineValue(l), 0);
+      // A merchant deal is re-priced on what is left (it can only shrink); the customer approves that figure.
+      const reducedDiscount = await this.reducedDiscount(order, agg.lines.filter((l) => !unavailable.includes(l.id)), order.itemsTotalIqd - removed, now);
+      const marker: LineUnavailability = { kind: 'unavailable', state: 'proposed', proposedAt: now.toISOString(), prepMinutes: input.prepMinutes, ...(reducedDiscount !== null ? { reducedDiscountIqd: reducedDiscount } : {}) };
+      for (const id of unavailable) await this.repo.updateLine(id, { substitution: marker }, tx);
       const deadline = new Date(now.getTime() + ORDERS_RULES.partialApprovalSec * 1000);
       await this.emit(tx, 'order.partial_proposed', actorId, order, {
         unavailableLineIds: unavailable,
         reducedItemsTotalIqd: order.itemsTotalIqd - removed,
-        reducedTotalIqd: Math.max(0, order.totalIqd - removed),
+        reducedTotalIqd: reducedTotalOf(order, removed, reducedDiscount),
         deadline: deadline.toISOString(),
         prepMinutes: input.prepMinutes,
       });
@@ -389,7 +486,18 @@ export class OrdersService implements OnModuleInit {
       }
       for (const l of proposal.lines) await this.repo.updateLine(l.id, { substitution: { ...l.substitution!, state: 'removed' } }, tx);
       const removed = proposal.lines.reduce((a, l) => a + lineValue(l), 0);
-      const reduced = await this.repo.update(order.id, { itemsTotalIqd: order.itemsTotalIqd - removed, totalIqd: Math.max(0, order.totalIqd - removed) }, tx);
+      const keptDiscount = proposal.reducedDiscountIqd;
+      const deal = merchantDealOf(order);
+      if (deal && keptDiscount !== null && keptDiscount < deal.amountIqd) await this.promotions.release(deal.promotionId, deal.amountIqd - keptDiscount, tx);
+      const reduced = await this.repo.update(
+        order.id,
+        {
+          itemsTotalIqd: order.itemsTotalIqd - removed,
+          totalIqd: reducedTotalOf(order, removed, keptDiscount),
+          ...(deal && keptDiscount !== null ? { discountIqd: keptDiscount, ...(keptDiscount === 0 ? { promotionId: null, discountMeta: null } : {}) } : {}),
+        },
+        tx,
+      );
       await this.emit(tx, 'order.partial_approved', actorId, order, { removedLineIds: proposal.lines.map((l) => l.id), removedIqd: removed, itemsTotalIqd: reduced.itemsTotalIqd, totalIqd: reduced.totalIqd });
       await this.accept(reduced, proposal.prepMinutes, actorId, tx, { auto: false, partial: true });
       return this.view(order.id, tx);
@@ -740,7 +848,8 @@ export class OrdersService implements OnModuleInit {
     const profile = await this.merchants.profile(order.merchantOrgId);
     const tier = profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier;
     const pct = commissionPctOf(tier);
-    const commission = Math.round((order.itemsTotalIqd * pct) / 100);
+    const commission = Math.round((commissionBaseOf(order) * pct) / 100);
+    const dealIqd = merchantDealOf(order)?.amountIqd ?? 0;
     const accrued: DomainEventInput<'merchant.payable_accrued'> = {
       merchantOrgId: order.merchantOrgId,
       courierId: courier.courierId,
@@ -749,7 +858,8 @@ export class OrdersService implements OnModuleInit {
       commissionTier: tier,
       commissionPct: pct,
       commissionIqd: commission,
-      netIqd: order.itemsTotalIqd - commission,
+      dealIqd,
+      netIqd: order.itemsTotalIqd - commission - dealIqd,
       heldBy: 'courier',
     };
     await this.emit(tx, 'merchant.payable_accrued', SYSTEM, order, accrued);
@@ -787,7 +897,7 @@ export class OrdersService implements OnModuleInit {
           serviceFeeIqd: order.serviceFeeIqd,
           deliveryFeeIqd: order.deliveryFeeIqd,
           tipIqd: order.tipIqd,
-          ...(order.promotionId && order.discountIqd > 0 ? { platformPromo: { promotionId: order.promotionId, amountIqd: order.discountIqd } } : {}),
+          ...moneyDiscount(order),
           participants: participantShares(agg),
         },
       };
@@ -852,7 +962,7 @@ export class OrdersService implements OnModuleInit {
     const revenue =
       closed.type === 'ride'
         ? Math.round((closed.totalIqd * ORDERS_RULES.rideTakePct) / 100)
-        : closed.serviceFeeIqd + Math.round((closed.itemsTotalIqd * commissionPctOf(profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier)) / 100);
+        : closed.serviceFeeIqd + Math.round((commissionBaseOf(closed) * commissionPctOf(profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier)) / 100);
     const basePoints = orderPoints({ type: closed.type, platformRevenueIqd: revenue });
     const allocations = allocatePoints({
       type: closed.type,
@@ -1003,6 +1113,9 @@ export class OrdersService implements OnModuleInit {
     if (!canOrderTransition(order.type, order.state, to)) throw new DriverError('order_state_conflict');
     const next = await this.repo.updateIf(order.id, order.state, { ...patch, state: to }, tx);
     if (!next) throw new DriverError('order_state_conflict');
+    // The order will not happen: its merchant deal cost nothing, so the deal's budget gets it back.
+    const deal = UNDONE_STATES.includes(to) ? merchantDealOf(order) : null;
+    if (deal) await this.promotions.release(deal.promotionId, deal.amountIqd, tx);
     await this.emit(tx, eventType ?? orderEventType(to), actorId, next, { from: order.state, to, ...(to.endsWith('_cancelled') ? { cancelledState: to } : {}), ...payload });
     return next;
   }
@@ -1019,6 +1132,104 @@ export class OrdersService implements OnModuleInit {
 }
 
 // ───────────────────────── helpers ─────────────────────────
+
+/** The receipt line of a platform promo code (money §5 launch package). */
+const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' } as const;
+
+/** The discount an order carries: promotion, amount after rounding, per-line savings, its receipt line. */
+interface OrderDiscount {
+  promotionId: string;
+  amountIqd: number;
+  lineSavingsIqd: number[];
+  meta: DiscountMeta;
+}
+
+/** An order priced as `place` charges it (shared by `place` and `quote`). */
+interface Priced {
+  merchantType: boolean;
+  profile: MerchantProfile | null;
+  newLines: NewLine[];
+  itemsTotal: number;
+  fees: ServerFees;
+  discount: OrderDiscount | null;
+  totalIqd: number;
+  caps: ReturnType<typeof vehicleRequirement> | null;
+}
+
+/** The basket the deal engine prices: lines in order, with their menu unit price and full line value. */
+function dealQuery(merchantOrgId: string, lines: ReadonlyArray<Pick<NewLine, 'catalogItemId' | 'qty' | 'unitPriceIqd' | 'modifiers'>>, itemsTotalIqd: number, deliveryFeeIqd: number, at: Date): MerchantDealQuery {
+  return {
+    merchantOrgId,
+    lines: lines.map((l) => ({ catalogItemId: l.catalogItemId, qty: l.qty, unitPriceIqd: l.unitPriceIqd, lineIqd: lineValue(l) })),
+    itemsTotalIqd,
+    deliveryFeeIqd,
+    at,
+  };
+}
+
+/**
+ * G-88 with a discount: the largest discount ≤ `rawIqd` that leaves the customer total on the step
+ * (500, or 250 with a 250 component). Rounded in the funder's favour, so a deal never costs more than
+ * it promises; 0 when no such amount exists.
+ */
+export function roundedDiscount(preTotalIqd: number, rawIqd: number, stepIqd: number): number {
+  if (rawIqd <= 0 || preTotalIqd <= 0) return 0;
+  const total = Math.ceil((preTotalIqd - Math.min(rawIqd, preTotalIqd)) / stepIqd) * stepIqd;
+  return Math.max(0, Math.min(rawIqd, preTotalIqd - total));
+}
+
+/** The merchant-funded part of an order's discount by what it comes off (G-87 commission base, ledger lines). */
+export function merchantDealOf(order: Pick<OrderRecord, 'discountIqd' | 'promotionId' | 'discountMeta'>): { promotionId: string; target: 'items' | 'delivery'; amountIqd: number } | null {
+  if (!order.promotionId || order.discountIqd <= 0 || order.discountMeta?.funder !== 'merchant') return null;
+  return { promotionId: order.promotionId, target: order.discountMeta.target === 'delivery' ? 'delivery' : 'items', amountIqd: order.discountIqd };
+}
+
+/**
+ * The rounding cut (G-88) taken back from the lines that save most first, so each line keeps a
+ * round saving ("20 %" lines read 2,800 / 1,000 / 200, not 2,857 / 952 / 191). Sums to the order's discount.
+ */
+export function trimSavings(savings: readonly number[], cutIqd: number): number[] {
+  const out = [...savings];
+  let left = cutIqd;
+  const order = out.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    const take = Math.min(left, out[i]!);
+    out[i] = out[i]! - take;
+    left -= take;
+  }
+  return out;
+}
+
+/** Commission base (G-87): items at menu prices less a merchant deal on items; free delivery is not in it. */
+export function commissionBaseOf(order: Pick<OrderRecord, 'itemsTotalIqd' | 'discountIqd' | 'promotionId' | 'discountMeta'>): number {
+  const deal = merchantDealOf(order);
+  return Math.max(0, order.itemsTotalIqd - (deal?.target === 'items' ? deal.amountIqd : 0));
+}
+
+/** States in which the order did not happen: a merchant deal's reserved spend goes back to its budget. */
+const UNDONE_STATES: readonly OrderState[] = ['merchant_rejected', 'customer_cancelled', 'platform_cancelled'];
+
+/** The money fact's discount: a merchant deal (G-87, `promo_funded` from the merchant) or a platform promo. */
+function moneyDiscount(order: OrderRecord): { merchantDeal: { promotionId: string; target: 'items' | 'delivery'; amountIqd: number } } | { platformPromo: { promotionId: string; amountIqd: number } } | Record<string, never> {
+  const deal = merchantDealOf(order);
+  if (deal) return { merchantDeal: deal };
+  if (order.promotionId && order.discountIqd > 0) return { platformPromo: { promotionId: order.promotionId, amountIqd: order.discountIqd } };
+  return {};
+}
+
+/** Total after a partial accept removes `removedIqd` of items; with a re-priced deal, from the parts. */
+function reducedTotalOf(order: Pick<OrderRecord, 'totalIqd' | 'itemsTotalIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd' | 'tipIqd'>, removedIqd: number, reducedDiscountIqd: number | null): number {
+  if (reducedDiscountIqd === null) return Math.max(0, order.totalIqd - removedIqd);
+  return Math.max(0, order.itemsTotalIqd - removedIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - reducedDiscountIqd);
+}
+
+/** The order view's discount line; old rows without meta are platform promos. */
+function discountView(order: OrderRecord): Order['discount'] {
+  if (!order.promotionId || order.discountIqd <= 0) return null;
+  const meta: DiscountMeta = order.discountMeta ?? { funder: 'platform', target: 'order', type: null, label_ar: PLATFORM_PROMO_LABEL.ar, label_en: PLATFORM_PROMO_LABEL.en };
+  return { promotionId: order.promotionId, amountIqd: order.discountIqd, ...meta };
+}
 
 /**
  * The stored rating from `orders.rate` input, or null for the plain "close early" call. Food is
@@ -1042,11 +1253,11 @@ export function lineValue(l: Pick<OrderLineRecord, 'qty' | 'unitPriceIqd' | 'mod
   return l.qty * (l.unitPriceIqd + mods);
 }
 
-function pendingProposal(lines: readonly OrderLineRecord[]): { lines: OrderLineRecord[]; proposedAt: Date; prepMinutes: number } | null {
+function pendingProposal(lines: readonly OrderLineRecord[]): { lines: OrderLineRecord[]; proposedAt: Date; prepMinutes: number; reducedDiscountIqd: number | null } | null {
   const proposed = lines.filter((l) => l.substitution?.kind === 'unavailable' && l.substitution.state === 'proposed');
   if (proposed.length === 0) return null;
   const first = proposed[0]!.substitution!;
-  return { lines: proposed, proposedAt: new Date(first.proposedAt), prepMinutes: first.prepMinutes };
+  return { lines: proposed, proposedAt: new Date(first.proposedAt), prepMinutes: first.prepMinutes, reducedDiscountIqd: first.reducedDiscountIqd ?? null };
 }
 
 interface Courier {
@@ -1146,7 +1357,7 @@ export function toOrderView(agg: OrderAggregate): Order {
           proposedAt: proposal.proposedAt,
           deadline: new Date(proposal.proposedAt.getTime() + ORDERS_RULES.partialApprovalSec * 1000),
           reducedItemsTotalIqd: order.itemsTotalIqd - removedValue,
-          reducedTotalIqd: Math.max(0, order.totalIqd - removedValue),
+          reducedTotalIqd: reducedTotalOf(order, removedValue, proposal.reducedDiscountIqd),
         }
       : null,
     scheduledFor: order.scheduledFor,
@@ -1165,5 +1376,6 @@ export function toOrderView(agg: OrderAggregate): Order {
     refundState: order.refundState,
     note: order.note,
     rating: order.rating ?? null,
+    discount: discountView(order),
   };
 }

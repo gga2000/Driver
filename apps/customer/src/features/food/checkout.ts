@@ -1,6 +1,8 @@
 import {
   AZIZIYAH_MONEY_RULES,
   deliveryFeesOf,
+  type AppliedDiscount,
+  type OrderQuote,
   type DeliveryPoint,
   type Order,
   type ParticipantInput,
@@ -14,8 +16,9 @@ import { ME, itemsTotal, type CartState } from './cart';
 /**
  * Checkout as plain data: the delivery quote request, the totals the cart and checkout show, and
  * the exact `orders.place` payload. The cart, checkout and server all price from the same numbers:
- * menu prices on lines, the fee split of `deliveryFeesOf`, sent as expectations the server checks
- * (`price_changed`), so the total never changes between the cart and the order.
+ * menu prices on lines, the fee split of `deliveryFeesOf`, and the merchant deal the server applies
+ * (`orders.quote`) — all sent as expectations the server checks (`price_changed`, `deal_changed`),
+ * so the total never changes between the cart and the order. The client never computes a discount.
  */
 
 export type Recipient = { kind: 'me' } | { kind: 'person'; personId: string } | { kind: 'other'; name: string; phone: string };
@@ -36,17 +39,36 @@ export interface CheckoutTotals {
   itemsIqd: number;
   deliveryFeeIqd: number;
   serviceFeeIqd: number;
+  /** The server's deal (or 0): what `orders.quote` says `place` will take off. */
+  discountIqd: number;
+  discount: AppliedDiscount | null;
   totalIqd: number;
   /** Delivery's named parts (base, door/street, night…) for the breakdown, service fee last. */
   components: QuoteComponent[];
 }
 
-export function checkoutTotals(cart: Pick<CartState, 'lines'>, quote: Pick<Quote, 'components'>): CheckoutTotals {
+/**
+ * Cart and checkout totals: items at menu prices, fees split from the pricing quote, and the discount
+ * line from the server's order quote (`orders.quote`, merchant deal) — never computed here.
+ */
+export function checkoutTotals(cart: Pick<CartState, 'lines'>, quote: Pick<Quote, 'components'>, order?: Pick<OrderQuote, 'discountIqd' | 'discount'> | null): CheckoutTotals {
   const items = itemsTotal(cart);
   const fees = deliveryFeesOf(quote);
   const parts = quote.components.filter((c) => c.key !== 'promo');
   const components = [...parts.filter((c) => c.key !== 'service_fee'), ...parts.filter((c) => c.key === 'service_fee')];
-  return { itemsIqd: items, ...fees, totalIqd: items + fees.deliveryFeeIqd + fees.serviceFeeIqd, components };
+  const discountIqd = order?.discountIqd ?? 0;
+  return { itemsIqd: items, ...fees, discountIqd, discount: order?.discount ?? null, totalIqd: Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd), components };
+}
+
+/** What each cart line saves under the server's deal, by line key (the quote's savings follow the cart's line order). */
+export function lineSavings(cart: Pick<CartState, 'lines'>, order: Pick<OrderQuote, 'lineSavingsIqd'> | null | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!order) return out;
+  cart.lines.forEach((l, i) => {
+    const s = order.lineSavingsIqd[i] ?? 0;
+    if (s > 0) out.set(l.key, s);
+  });
+  return out;
 }
 
 export interface CheckoutChoices {
@@ -57,6 +79,8 @@ export interface CheckoutChoices {
   scheduledFor: Date | null;
   paymentMethod: 'cash' | 'wallet';
   fees: { deliveryFeeIqd: number; serviceFeeIqd: number };
+  /** The discount `orders.quote` showed (0 = none): the server refuses a different one (`deal_changed`). */
+  discountIqd?: number;
   note?: string;
 }
 
@@ -98,6 +122,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     participants,
     deliveryFeeIqd: c.fees.deliveryFeeIqd,
     serviceFeeIqd: c.fees.serviceFeeIqd,
+    ...(c.discountIqd !== undefined ? { discountIqd: c.discountIqd } : {}),
     tipIqd: 0,
     options: { streetHandover: c.streetHandover },
     paymentMethod: c.paymentMethod,
@@ -105,6 +130,16 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.scheduledFor ? { scheduledFor: c.scheduledFor } : {}),
     ...(c.note?.trim() ? { note: c.note.trim().slice(0, 500) } : {}),
   };
+}
+
+/**
+ * The `orders.quote` input for a cart: the same lines and drop-off `place` will get, without the fee
+ * and discount expectations (the quote is what sets them).
+ */
+export function orderQuoteInput(cart: CartState, dropoff: DeliveryPoint, streetHandover: boolean): PlaceOrderInput {
+  const full = buildPlaceOrderInput({ cart, dropoff, streetHandover, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 } });
+  const { deliveryFeeIqd: _d, serviceFeeIqd: _s, participants: _p, ...rest } = full;
+  return { ...rest, lines: (rest.lines ?? []).map(({ participantRef: _r, ...l }) => l) };
 }
 
 /** Completed cash orders, as the ledger counts them for the new-customer cap. */
@@ -136,11 +171,12 @@ export function clock12(d: Date): string {
 }
 
 /** Errors `orders.place` can answer with that the checkout explains in its own words. */
-export type PlaceProblem = 'price_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'other';
+export type PlaceProblem = 'price_changed' | 'deal_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'other';
 
 export function placeProblem(code: string | null): PlaceProblem {
   switch (code) {
     case 'price_changed':
+    case 'deal_changed':
     case 'catalog_item_unavailable':
     case 'modifier_invalid':
     case 'new_customer_cash_cap':

@@ -44,7 +44,7 @@ export const OrderMoneyPayload = z.object({
   merchantId: z.string().min(1),
   /** Absent for pickup orders: the merchant collects the cash. */
   courierId: z.string().min(1).optional(),
-  /** Commission base (G-87): item subtotal after merchant-funded discounts, before service fee and delivery. */
+  /** Items at menu prices. Commission base (G-87) = this minus a merchant `items` deal; service fee and delivery are outside it. */
   itemsSubtotalIqd: Iqd.nonnegative(),
   commissionTier: CommissionTier,
   serviceFeeIqd: Iqd.nonnegative().optional(),
@@ -56,6 +56,12 @@ export const OrderMoneyPayload = z.object({
   batchedSecond: z.boolean().default(false),
   tipIqd: Iqd.nonnegative().default(0),
   platformPromo: z.object({ promotionId: z.string().min(1), amountIqd: Iqd.positive() }).optional(),
+  /**
+   * A merchant-funded deal (domain §11, G-87). `items`: comes off the dishes, so the commission base is
+   * `itemsSubtotalIqd − amountIqd`; `delivery`: free delivery — the courier still earns the full fee,
+   * the merchant pays it. Posted as `promo_funded` merchant → customer, memo `deal:<promotionId>`.
+   */
+  merchantDeal: z.object({ promotionId: z.string().min(1), target: z.enum(['items', 'delivery']), amountIqd: Iqd.positive() }).optional(),
   participants: z.array(ParticipantShare).default([]),
 });
 export type OrderMoneyPayload = z.input<typeof OrderMoneyPayload>;

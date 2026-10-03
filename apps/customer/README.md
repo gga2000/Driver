@@ -113,6 +113,20 @@ auto-accepts placed orders, `POST /demo/kitchen?orderId=…&action=accept|reject
 (`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
 `SHOTS=food` (or the older `ONLY=food`) runs only that group, `DIST_DIR` points at another export.
 
+## Deals and wallet top-up
+
+Merchant deals come from the server only (`docs/api/deals-and-topup.md`): `RestaurantCard.deals` are the
+badges (`src/features/food/DealBadge.tsx`), `orders.quote` (`useOrderQuote`) gives the discount line,
+per-line savings and the next deal to unlock; `orders.place` gets `discountIqd` back as an expectation and
+answers `deal_changed` when the deal ended — checkout refetches and explains. `app/topup.tsx` is
+"شحن المحفظة": amount → 6-digit code + QR (`src/lib/qr.ts`, a small byte-mode QR encoder drawn with
+react-native-svg) → polls `wallet.topUpStatus` until an ops agent or courier confirms.
+
+Demo hooks: `POST /demo/deals` (20 % off + free delivery over 15,000 on مطعم خالد, kitchen open around the
+clock), `/demo/topup/request?personId=&amount=`, `/demo/ops-agent` (field ops `0770 555 0101`),
+`/demo/topup/confirm?code=`. `SHOTS=deals,topup` writes `deals-*.png` and `topup-*.png`; the top-up group
+also drives the Partner app's Ops mode, so export it against the same API and pass `PARTNER_DIST_DIR`.
+
 ## Food ordering (M3)
 
 `src/features/food/`: `cart.ts` (pure cart: one merchant, merged lines, people, grouping,

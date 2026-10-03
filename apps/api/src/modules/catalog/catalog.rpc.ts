@@ -5,6 +5,7 @@ import {
   deliveryFeesOf,
   type Actor,
   type CustomerCatalogPort,
+  type DealBadge,
   type DeliveryPoint,
   type MenuInput,
   type Quote,
@@ -45,6 +46,8 @@ export interface StorefrontMerchants {
     /** Closed by hand from the Merchant app (early close). */
     closed?: boolean;
   }>;
+  /** Live merchant deals as badges (bound by orders over the promotions module); none when absent. */
+  deals?(orgId: string, at: Date): Promise<DealBadge[]>;
 }
 
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
@@ -131,6 +134,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       closedReason: state.closedReason,
       opensAt: state.opensAt,
       busy,
+      deals: (await this.merchants.deals?.(s.orgId, now)) ?? [],
     };
   }
 

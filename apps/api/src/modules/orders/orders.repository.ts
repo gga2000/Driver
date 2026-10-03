@@ -1,4 +1,4 @@
-import type { DeliveryPoint, OrderRating, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
+import type { AppliedDiscount, DeliveryPoint, OrderRating, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -26,6 +26,8 @@ export interface OrderRecord {
   discountIqd: number;
   /** The server-resolved promotion behind `discountIqd` (`orders.promotion_id`); null = no discount. */
   promotionId: string | null;
+  /** The discount line (`orders.discount_meta`): funder, what it comes off, labels. Absent on old rows = platform promo. */
+  discountMeta?: DiscountMeta | null;
   tipIqd: number;
   totalIqd: number;
   receiptTotalIqd: number | null;
@@ -52,12 +54,17 @@ export interface OrderRecord {
   rating?: OrderRating | null;
 }
 
+/** `orders.discount_meta`: the applied discount without its amount and promotion id (those are columns). */
+export type DiscountMeta = Omit<AppliedDiscount, 'promotionId' | 'amountIqd'>;
+
 /** Partial-accept marker kept in `order_lines.substitution` (review A.4). */
 export interface LineUnavailability {
   kind: 'unavailable';
   state: 'proposed' | 'removed' | 'restored';
   proposedAt: string;
   prepMinutes: number;
+  /** Merchant deal on the order: the discount the reduced basket keeps (set on the proposal; the approval uses it). */
+  reducedDiscountIqd?: number;
 }
 
 export interface OrderLineRecord {
@@ -165,6 +172,7 @@ function orderFromRow(r: any): OrderRecord {
     serviceFeeIqd: r.serviceFeeIqd,
     discountIqd: r.discountIqd,
     promotionId: r.promotionId ?? null,
+    discountMeta: (r.discountMeta as DiscountMeta | null) ?? null,
     tipIqd: r.tipIqd,
     totalIqd: r.totalIqd,
     receiptTotalIqd: r.receiptTotalIqd,
@@ -218,8 +226,9 @@ function participantFromRow(r: any): ParticipantRecord {
 
 /** A patch as Prisma wants it: JSON columns take `Prisma.DbNull`, not `null`. */
 function toData(patch: OrderPatch) {
-  const { dropoff, rating, ...rest } = patch;
+  const { dropoff, rating, discountMeta, ...rest } = patch;
   const data: Record<string, unknown> = dropoff === undefined ? rest : { ...rest, dropoff: dropoff ? (dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull };
+  if (discountMeta !== undefined) data['discountMeta'] = discountMeta ? (discountMeta as unknown as Prisma.InputJsonObject) : Prisma.DbNull;
   if (rating !== undefined) data['rating'] = rating ? ({ ...rating, ratedAt: rating.ratedAt.toISOString() } as unknown as Prisma.InputJsonObject) : Prisma.DbNull;
   return data;
 }
@@ -234,7 +243,14 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
   async create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[], tx?: Tx): Promise<OrderAggregate> {
     const db = this.db(tx);
-    const row = await db.order.create({ data: { ...order, dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull } });
+    const { discountMeta, ...fields } = order;
+    const row = await db.order.create({
+      data: {
+        ...fields,
+        dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+        discountMeta: discountMeta ? (discountMeta as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+      },
+    });
     const byRef = new Map<string, string>();
     for (const p of participants) {
       const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });

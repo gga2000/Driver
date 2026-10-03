@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
+import { DealBadge } from './deals.js';
 import type { Actor } from './identity-io.js';
 import type { Quote } from './pricing.js';
 
@@ -62,6 +63,8 @@ export const RestaurantCard = z.object({
   opensAt: z.string().nullable(),
   /** Busy mode: prep takes longer. */
   busy: z.boolean(),
+  /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
+  deals: z.array(DealBadge).optional(),
 });
 export type RestaurantCard = z.infer<typeof RestaurantCard>;
 

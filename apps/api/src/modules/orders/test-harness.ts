@@ -13,6 +13,8 @@ import { InMemoryOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
 import type { ParticipantResolver } from './participants.js';
 import type { PromotionQuery, PromotionsPort, ResolvedPromotion } from './promotions.port.js';
+import { MerchantDealsPromotions } from './promotions.adapter.js';
+import { InMemoryPromotionsRepository, dealBadge, type DealRecord } from '../promotions/index.js';
 
 /** Stand-in for identity's peppered HMAC: deterministic, and the number cannot be read back from it. */
 export function fakePhoneHash(phone: string): string {
@@ -55,12 +57,50 @@ export class FakeCashRisk implements OrdersCashRiskPort {
   }
 }
 
-/** A promotions double: codes resolve to what a test registers; by default nothing does (like `NoPromotions`). */
-export class FakePromotions implements PromotionsPort {
+/**
+ * A promotions double: codes resolve to what a test registers (by default none); merchant deals are
+ * the real adapter over an in-memory promotions repository (`addDeal` puts an approved, running one).
+ */
+export class FakePromotions extends MerchantDealsPromotions implements PromotionsPort {
   readonly codes = new Map<string, ResolvedPromotion>();
 
-  async resolve(q: PromotionQuery): Promise<ResolvedPromotion | null> {
+  constructor(readonly dealRepo = new InMemoryPromotionsRepository()) {
+    super({
+      dealsOf: (id) => dealRepo.dealsOf(id),
+      badges: async (id, at = new Date()) => (await dealRepo.dealsOf(id)).map((d) => dealBadge(d, at)).filter((b): b is NonNullable<typeof b> => b !== null),
+      reserveSpend: (id, amount, tx) => dealRepo.reserveSpend(id, amount, tx),
+      releaseSpend: (id, amount, tx) => dealRepo.releaseSpend(id, amount, tx),
+    });
+  }
+
+  override async resolve(q: PromotionQuery): Promise<ResolvedPromotion | null> {
     return this.codes.get(q.code) ?? null;
+  }
+
+  /** An approved, switched-on deal (default: every day, all day, a week around 2026-10-03, no cap). */
+  async addDeal(d: Partial<Omit<DealRecord, 'id'>> & Pick<DealRecord, 'type'>): Promise<DealRecord> {
+    return this.dealRepo.createDeal({
+      cityId: 'aziziyah',
+      merchantOrgId: 'rest_1',
+      ownerId: 'owner_1',
+      nameAr: 'عرض',
+      value: 0,
+      itemIds: [],
+      schedule: { startsAt: new Date('2026-09-30T00:00:00Z'), endsAt: new Date('2026-10-10T00:00:00Z'), days: [] },
+      minOrderIqd: 0,
+      budgetCapIqd: null,
+      spentIqd: 0,
+      projection: { ordersPerWeek: 0, costPerOrderIqd: 0, weeklyCostIqd: 0, totalCostIqd: 0, basisOrders: 0 },
+      proposalState: 'approved',
+      active: true,
+      approvedAt: new Date('2026-09-30T00:00:00Z'),
+      createdAt: new Date('2026-09-30T00:00:00Z'),
+      ...d,
+    });
+  }
+
+  async spent(dealId: string): Promise<number> {
+    return (await this.dealRepo.deal(dealId))?.spentIqd ?? 0;
   }
 }
 

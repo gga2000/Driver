@@ -7,11 +7,12 @@ import { Screen } from '@/components/Screen';
 import { groupByPerson, ME, minOrderShortfall } from '@/features/food/cart';
 import { CartLineRow } from '@/features/food/CartLineRow';
 import { cartStore, useCart } from '@/features/food/cart-store';
-import { checkoutTotals } from '@/features/food/checkout';
+import { checkoutTotals, lineSavings } from '@/features/food/checkout';
+import { DealBadges } from '@/features/food/DealBadge';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { FoodArt, motifForDish } from '@/features/food/FoodArt';
 import { priceItems } from '@/features/food/price-lines';
-import { useCartQuote, useDeliverTo, useMenu } from '@/features/food/queries';
+import { useCartQuote, useDeliverTo, useMenu, useOrderQuote } from '@/features/food/queries';
 import { upsellItems } from '@/features/food/upsell';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -20,7 +21,9 @@ import { useProfile } from '@/lib/profile';
 /**
  * Cart (spec §3): one kitchen, lines grouped by person once more than one person is tagged, swipe or
  * step to 0 to remove (with undo), same-kitchen upsells, the minimum-order gap, and the live total
- * from `pricing.quote` — delivery and fees included, the same total checkout shows.
+ * from `pricing.quote` — delivery and fees included, the same total checkout shows. The restaurant's
+ * deal comes from the server (`orders.quote`): its badge, what each line saves, the discount line, and
+ * how much more unlocks a deal with a minimum.
  */
 export default function CartScreen() {
   const theme = useTheme();
@@ -31,9 +34,14 @@ export default function CartScreen() {
   const { name: myName } = useProfile();
   const { place, dropoff } = useDeliverTo();
   const quote = useCartQuote(cart, dropoff, false);
+  const orderQuote = useOrderQuote(cart, dropoff, false);
   const menu = useMenu(cart.merchant?.id);
   const { grouped, groups } = groupByPerson(cart);
-  const totals = quote.data ? checkoutTotals(cart, quote.data) : null;
+  // The total waits for the server's deal (or its failure) so it never jumps after it shows.
+  const totals = quote.data && (orderQuote.data || orderQuote.isError) ? checkoutTotals(cart, quote.data, orderQuote.data) : null;
+  const savings = lineSavings(cart, orderQuote.data);
+  const nextDeal = orderQuote.data?.nextDeal ?? null;
+  const deals = menu.data?.restaurant.deals ?? [];
   const shortfall = minOrderShortfall(cart);
   const upsell = useMemo(() => (menu.data ? upsellItems(menu.data.categories, cart) : []), [menu.data, cart]);
   const closed = menu.data ? !menu.data.restaurant.open : false;
@@ -91,6 +99,7 @@ export default function CartScreen() {
             {t('error.merchant_closed', { time: menu.data.restaurant.opensAt ?? '' })}
           </Text>
         ) : null}
+        <DealBadges deals={deals} compact testID="cart-deals" />
       </View>
 
       <View style={{ gap: theme.space[4] }}>
@@ -109,7 +118,7 @@ export default function CartScreen() {
             ) : null}
             <Card elevation={0} padding={0}>
               {g.lines.map((l, i) => (
-                <CartLineRow key={l.key} line={l} divider={i < g.lines.length - 1} onQty={(q) => setQty(l.key, q)} onRemove={() => remove(l.key)} />
+                <CartLineRow key={l.key} line={l} savingIqd={savings.get(l.key) ?? 0} divider={i < g.lines.length - 1} onQty={(q) => setQty(l.key, q)} onRemove={() => remove(l.key)} />
               ))}
             </Card>
           </View>
@@ -155,6 +164,25 @@ export default function CartScreen() {
       </Card>
 
       <View style={{ gap: theme.space[2] }} testID="cart-total">
+        {totals && totals.discountIqd > 0 ? (
+          <Card elevation={0} padding={3} style={{ backgroundColor: theme.colors.successTint }} testID="cart-deal-saving">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Icon name="gift" size={18} color="successText" />
+              <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
+                {t('cart.deal_saving', { amount: amountParam(totals.discountIqd) })}
+              </Text>
+            </View>
+          </Card>
+        ) : nextDeal && shortfall === 0 ? (
+          <Card elevation={0} padding={3} style={{ backgroundColor: theme.colors.accentTint }} testID="cart-deal-unlock">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Icon name="gift" size={18} color="accentText" />
+              <Text variant="label" color="accentText" style={{ flex: 1 }}>
+                {t('cart.deal_unlock', { amount: amountParam(nextDeal.missingIqd), label: locale === 'en' ? nextDeal.label_en : nextDeal.label_ar })}
+              </Text>
+            </View>
+          </Card>
+        ) : null}
         {shortfall > 0 ? (
           <Card elevation={0} tone="sunken" padding={3} testID="cart-min">
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>

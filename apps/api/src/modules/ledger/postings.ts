@@ -203,15 +203,22 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   const payer = payerAccount(o);
   const merchant = Accounts.merchantCash(o.merchantId);
 
-  const commission = pct(o.itemsSubtotalIqd, rules.commission[o.commissionTier]);
+  // Merchant-funded deal (domain §11, G-87): an items deal comes off the commission base; free
+  // delivery is the merchant paying the delivery fee — the courier's earning does not change.
+  const deal = o.merchantDeal;
+  const itemDeal = deal?.target === 'items' ? deal.amountIqd : 0;
+  const deliveryDeal = deal?.target === 'delivery' ? deal.amountIqd : 0;
+  if (itemDeal > o.itemsSubtotalIqd || deliveryDeal > o.deliveryFeeIqd) throw new RangeError(`merchant deal ${deal?.promotionId} is more than what it comes off`);
+  const commission = pct(o.itemsSubtotalIqd - itemDeal, rules.commission[o.commissionTier]);
   const serviceFee = o.serviceFeeIqd ?? rules.serviceFeeIqd;
   const courierDelivery = o.courierId
     ? Math.min(o.deliveryFeeIqd, o.courierDeliveryIqd ?? (o.batchedSecond ? pct(o.deliveryFeeIqd, rules.batchedSecondCourierShare) : o.deliveryFeeIqd))
     : 0;
-  const red = redemption(o.pointsRedeemed, serviceFee, o.deliveryFeeIqd, rules);
+  const red = redemption(o.pointsRedeemed, serviceFee, o.deliveryFeeIqd - deliveryDeal, rules);
   const promo = o.platformPromo?.amountIqd ?? 0;
 
   b.add('merchant_payable', o.itemsSubtotalIqd, payer, merchant, 'items');
+  if (deal) b.add('promo_funded', deal.amountIqd, merchant, payer, deal.target === 'delivery' ? `deal:${deal.promotionId}:delivery` : `deal:${deal.promotionId}`);
   b.add('commission_accrued', commission, merchant, Accounts.platform, `commission:${o.commissionTier}`);
   b.add('service_fee', serviceFee, payer, Accounts.platform);
   b.add('service_fee', o.smallOrderFeeIqd, payer, Accounts.platform, 'small_order');
@@ -224,7 +231,7 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
 
-  const charged = o.itemsSubtotalIqd + serviceFee + o.smallOrderFeeIqd + o.deliveryFeeIqd + o.tipIqd - promo - red.valueIqd;
+  const charged = o.itemsSubtotalIqd + serviceFee + o.smallOrderFeeIqd + o.deliveryFeeIqd + o.tipIqd - promo - itemDeal - deliveryDeal - red.valueIqd;
   const collector = o.courierId ? Accounts.cash(o.courierId) : merchant;
   const total = settleCustomer(b, payer, { ...o, has250Component: o.has250Component || hasQuarterStep(o.deliveryFeeIqd, serviceFee, o.smallOrderFeeIqd) }, charged, collector, rules);
 

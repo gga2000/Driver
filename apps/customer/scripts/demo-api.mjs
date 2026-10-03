@@ -16,6 +16,7 @@
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
 //   - POST /demo/account?personId=…                                  places, wallet, household
+//   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -642,6 +643,87 @@ const rajaa = await (async () => {
     } catch (err) {
       res.statusCode = 500;
       res.end(String(err?.stack ?? err));
+    }
+  });
+}
+
+// ───────────────────────── merchant deals at checkout + wallet top-up ─────────────────────────
+//
+//   POST /demo/deals                                 two approved, running deals on مطعم خالد (idempotent):
+//                                                    "خصم 20% على كل المنيو" and "توصيل مجاني فوق 15,000 دينار";
+//                                                    also keeps the kitchen open around the clock for screenshots
+//   POST /demo/topup/request?personId=…&amount=…     a cash top-up code for that person (as if he tapped شحن المحفظة)
+//   POST /demo/ops-agent                             a field-ops agent (0770 555 0101, "حسن") for Ops mode in the
+//                                                    Partner app (export it with this API's URL)
+//   POST /demo/topup/confirm?code=…                  the agent confirms the cash for a code
+{
+  const { PromotionsService } = await load('modules/promotions/index.js');
+  const { TopUpService } = await load('modules/topups/index.js');
+  const { IdentityService } = await load('modules/identity/index.js');
+  const promotions = app.get(PromotionsService);
+  const topups = app.get(TopUpService);
+  const identity = app.get(IdentityService);
+  const AGENT_PHONE = '07705550101';
+  const projection = { ordersPerWeek: 0, costPerOrderIqd: 0, weeklyCostIqd: 0, totalCostIqd: 0, basisOrders: 0 };
+  let agentId = null;
+
+  const ensureAgent = async () => {
+    if (agentId) return agentId;
+    agentId = await identity.ensurePersonByPhone(AGENT_PHONE, 'system:demo', 'demo');
+    await identity.grantRole({ personId: 'system:demo' }, { personId: agentId, kind: 'field_ops' });
+    await identity.updateProfile({ personId: agentId, sessionId: 'demo' }, { name: 'حسن' });
+    return agentId;
+  };
+
+  app.use('/demo/deals', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/deals' });
+      // Screenshots run at any hour: the demo keeps مطعم خالد open around the clock (no opening hours).
+      const front = await catalog.storefront(khalid.orgId);
+      if (front && front.hours.length > 0) await catalog.saveStorefront({ ...front, hours: [] });
+      const existing = await promotions.list(khalid.orgId);
+      if (existing.length === 0) {
+        const now = Date.now();
+        const schedule = { startsAt: new Date(now - 3_600_000), endsAt: new Date(now + 30 * 86_400_000), days: [] };
+        const base = { cityId: 'aziziyah', merchantOrgId: khalid.orgId, ownerId: 'demo-owner', itemIds: [], schedule, projection, requireApproval: false };
+        await promotions.propose({ ...base, type: 'percent', value: 20, nameAr: 'خصم الافتتاح', minOrderIqd: 0, budgetCapIqd: 500_000 });
+        await promotions.propose({ ...base, type: 'free_delivery', value: 0, nameAr: 'توصيل مجاني', minOrderIqd: 15_000 });
+      }
+      json(res, 200, (await promotions.list(khalid.orgId)).map((d) => ({ dealId: d.dealId, state: d.state, type: d.type })));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  app.use('/demo/topup/request', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/topup/request?personId=…&amount=…' });
+      json(res, 200, await topups.request({ personId, sessionId: 'demo' }, { amountIqd: Number(url.searchParams.get('amount') ?? 25_000) }));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  app.use('/demo/ops-agent', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/ops-agent' });
+      json(res, 200, { personId: await ensureAgent(), phone: AGENT_PHONE });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  app.use('/demo/topup/confirm', async (req, res) => {
+    try {
+      const code = new URL(req.url ?? '/', 'http://x').searchParams.get('code');
+      if (req.method !== 'POST' || !code) return json(res, 400, { error: 'POST /demo/topup/confirm?code=…' });
+      const actor = { personId: await ensureAgent(), sessionId: 'demo' };
+      const found = await topups.lookup(actor, { code }, 'ops_agent');
+      json(res, 200, await topups.confirm(actor, { code, amountIqd: found.amountIqd }, 'ops_agent'));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
     }
   });
 }

@@ -159,6 +159,8 @@ export const MerchantPayableAccruedPayload = z.object({
   commissionTier: CommissionTier,
   commissionPct: z.number().min(0).max(100),
   commissionIqd: Iqd.nonnegative(),
+  /** What the merchant's own deal cost on this order (items discount or free delivery); in `netIqd` already. */
+  dealIqd: Iqd.nonnegative().default(0),
   netIqd: Iqd,
   heldBy: z.literal('courier'),
 });

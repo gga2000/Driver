@@ -5,7 +5,7 @@ import { useApi } from '@/lib/api';
 import { deliveryPointOf, selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import type { CartState } from './cart';
-import { cartQuoteRequest } from './checkout';
+import { cartQuoteRequest, orderQuoteInput } from './checkout';
 
 export const CITY_ID = 'aziziyah';
 
@@ -63,6 +63,22 @@ export function useCartQuote(cart: CartState, dropoff: DeliveryPoint | null, str
   return useQuery({
     ...api.pricing.quote.queryOptions(input ?? cartQuoteRequest({ cityId: CITY_ID, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'centre' }, streetHandover: false, at })),
     enabled: input !== null && cart.lines.length > 0,
+    placeholderData: keepPreviousData,
+    refetchInterval: 60_000,
+  });
+}
+
+/**
+ * The server's checkout quote (`orders.quote`): the restaurant's deal on this exact cart, what each
+ * line saves, the deal a bigger cart would unlock. Re-asked when the cart changes and each minute.
+ */
+export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const input = useMemo(() => (dropoff && cart.merchant && cart.lines.length > 0 ? orderQuoteInput(cart, dropoff, streetHandover) : null), [cart, dropoff, streetHandover]);
+  return useQuery({
+    ...api.orders.quote.queryOptions(input ?? { cityId: CITY_ID, type: 'food', lines: [] }),
+    enabled: signedIn && input !== null,
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
