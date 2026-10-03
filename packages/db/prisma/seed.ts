@@ -4,12 +4,14 @@
  * Writes: 3 cities, the 34 Aziziyah zones with draft hexagon polygons (tier + extId), 4 garages and
  * 6 street-pickup meeting points (plus the الرجعة drafts: a Kut garage and 3 on-the-way points),
  * taxonomy roots, a demo restaurant org with a 10-item catalog
- * (modifier groups included), and a dispatcher person whose phone lives only in the vault.
+ * (modifier groups included), the four launch restaurants with storefronts and sectioned menus
+ * (M3), and a dispatcher person whose phone lives only in the vault.
  * Re-running updates in place; nothing is duplicated.
  */
 import { createHmac } from 'node:crypto';
 import { createPrisma, type PrismaClient, type Tx } from '../src/index.js';
 import {
+  AZIZIYAH_RESTAURANTS,
   AZIZIYAH_ZONES,
   CITIES,
   DEMO_RESTAURANT,
@@ -19,6 +21,7 @@ import {
   TAXONOMY,
   hexagonWkt,
   pointWkt,
+  storefrontJson,
 } from './seed-data.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -158,6 +161,58 @@ async function seedDemoRestaurant(tx: Tx, taxonomy: Map<string, string>): Promis
   }
 }
 
+/**
+ * M3: the four launch restaurants — org, settlement, a main menu carrying the storefront JSON, and
+ * sectioned items with modifier groups. Ids are the shared stable ids (`@driver/contracts/seeds`).
+ */
+async function seedLaunchRestaurants(tx: Tx, taxonomy: Map<string, string>): Promise<void> {
+  for (const r of AZIZIYAH_RESTAURANTS) {
+    const orgId = r.orgId;
+    await tx.org.upsert({
+      where: { id: orgId },
+      update: { name: r.nameAr, cityId: r.cityId },
+      create: { id: orgId, type: 'restaurant', name: r.nameAr, cityId: r.cityId, pauseWindows: [{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }] },
+    });
+    await tx.merchantSettlement.upsert({ where: { orgId }, update: {}, create: { orgId, mode: 'nightly_courier', exposureCapIqd: 300000 } });
+    const storefront = storefrontJson(r) as never;
+    const catalog = await tx.catalog.upsert({
+      where: { id: `${orgId}_catalog` },
+      update: { nameAr: 'القائمة الرئيسية', storefront },
+      create: { id: `${orgId}_catalog`, orgId, nameAr: 'القائمة الرئيسية', storefront },
+    });
+    let sortOrder = 0;
+    for (const category of r.categories) {
+      for (const item of category.items) {
+        const itemId = `${orgId}_${item.key}`;
+        const taxonomyId = taxonomy.get(item.taxonomy) ?? null;
+        const fields = {
+          nameAr: item.nameAr,
+          nameEn: item.nameEn,
+          description: item.descriptionAr ?? null,
+          priceIqd: item.priceIqd,
+          prepTimeMin: item.prepTimeMin,
+          taxonomyId,
+          categoryAr: category.nameAr,
+          sortOrder: sortOrder++,
+          hot: item.taxonomy !== 'soft_drinks' && item.taxonomy !== 'juice',
+        };
+        await tx.catalogItem.upsert({ where: { id: itemId }, update: fields, create: { id: itemId, catalogId: catalog.id, orgId, ...fields } });
+        for (const [g, group] of (item.modifierGroups ?? []).entries()) {
+          const groupId = `${itemId}_mg_${g + 1}`;
+          const min = group.min ?? (group.required ? 1 : 0);
+          const gFields = { nameAr: group.nameAr, nameEn: group.nameEn, required: group.required, minSelect: min, maxSelect: group.max, sortOrder: g };
+          await tx.modifierGroup.upsert({ where: { id: groupId }, update: gFields, create: { id: groupId, itemId, ...gFields } });
+          for (const [o, opt] of group.options.entries()) {
+            const modId = `${groupId}_m_${o + 1}`;
+            const mFields = { nameAr: opt.nameAr, nameEn: opt.nameEn, priceIqd: opt.priceIqd, sortOrder: o };
+            await tx.modifier.upsert({ where: { id: modId }, update: mFields, create: { id: modId, groupId, ...mFields } });
+          }
+        }
+      }
+    }
+  }
+}
+
 /** Pseudonymous person + vault identity + dispatcher role. The phone never touches `people`. */
 async function seedDispatcher(tx: Tx): Promise<void> {
   const hash = phoneHash(DISPATCHER.phoneE164);
@@ -185,6 +240,7 @@ export async function seed(prisma: PrismaClient): Promise<void> {
     await seedMeetingPoints(tx, zoneIds);
     const taxonomy = await seedTaxonomy(tx);
     await seedDemoRestaurant(tx, taxonomy);
+    await seedLaunchRestaurants(tx, taxonomy);
     await seedDispatcher(tx);
   }, { timeout: 60_000 });
 }

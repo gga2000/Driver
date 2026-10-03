@@ -3,8 +3,16 @@
  * Zones come from @driver/contracts so the API config and the database never disagree.
  */
 import { AZIZIYAH_ZONES, type AziziyahZoneSeed } from '@driver/contracts';
+import { AZIZIYAH_RESTAURANTS, type SeedRestaurant } from '@driver/contracts/seeds';
 
 export { AZIZIYAH_ZONES };
+/** The four launch restaurants with their menus (M3); shared with the API's in-memory twin. */
+export { AZIZIYAH_RESTAURANTS, type SeedRestaurant };
+
+/** The `catalogs.storefront` JSON of a seeded restaurant (read by the API's catalog repository). */
+export function storefrontJson(r: SeedRestaurant): Record<string, unknown> {
+  return { cuisineAr: r.cuisineAr, tags: r.tags, photoUrl: null, minOrderIqd: r.minOrderIqd, prepMin: r.prepMin, hours: r.hours, ratingPlaceholder: r.ratingPlaceholder };
+}
 
 export interface SeedCity {
   id: string;

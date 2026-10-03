@@ -9,11 +9,12 @@ app/
   (auth)/                welcome → phone → otp → setup (name + first place, skippable)
   (tabs)/                index (الرئيسية) · orders (طلباتي) · wallet (المحفظة) · account (حسابي)
   places/                deliver-to picker (modal) + add place
-  restaurant/[id] cart checkout order/[id] rajaa   ← STUBS, replaced by later milestones
+  restaurant/[id] cart checkout kitchen/[id]   food ordering (M3)
+  order/[id] rajaa       ← STUBS, replaced by later milestones
 src/
   lib/                   api (tRPC + React Query), session, guard, money, phone, profile, i18n, fonts
   components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
-  features/<flow>/       a flow's components and query hooks (home, auth, places)
+  features/<flow>/       a flow's components and query hooks (home, auth, places, food)
   fixtures/              isolated sample data where the API has no customer read yet
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
 ```
@@ -81,6 +82,21 @@ PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs,
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
   node scripts/web-shots.mjs <out-dir>                # 390×844 @2x: welcome, phone, otp, setup, home, orders, profile
 ```
+
+The demo API seeds the four launch restaurants (`@driver/contracts/seeds`, the same data
+`pnpm db:seed` writes) and plays the kitchen: `DEMO_KITCHEN_MS` (default 20000, 0 = never)
+auto-accepts placed orders, `POST /demo/kitchen?orderId=…&action=accept|reject` decides one now,
+`GET /demo/seed` lists the restaurants' org ids. `web-shots.mjs` also runs the food flow
+(`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
+`ONLY=food` or `ONLY=app` limits which shots are written, `DIST_DIR` points at another export.
+
+## Food ordering (M3)
+
+`src/features/food/`: `cart.ts` (pure cart: one merchant, merged lines, people, grouping,
+carry-over, reconcile), `cart-store.ts` (persisted cart + saved people + the order waiting for the
+kitchen), `modifiers.ts` (required/min/max), `checkout.ts` (quote request, totals, the
+`orders.place` payload), `queries.ts` (`catalog.*`, `pricing.quote`, polling). The cart total is
+`pricing.quote` split by `deliveryFeesOf` and sent as expectations, so it never changes at checkout.
 
 `EXPO_PUBLIC_DEV_TOOLS=1` shows the OTP dev-code strip in a production export (it is always on
 under `expo start`). Metro notes for this pnpm monorepo live in `metro.config.js` (hierarchical

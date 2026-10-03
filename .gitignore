@@ -16,4 +16,5 @@ simulation-report.json
 packages/ui/gallery-dist/
 packages/ui/gallery-shots/
 apps/customer/dist-web/
+apps/customer/dist-web-*/
 apps/customer/web-shots/

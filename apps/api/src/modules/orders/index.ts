@@ -21,3 +21,4 @@ export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';
 export type { PromotionsPort, PromotionQuery, ResolvedPromotion } from './promotions.port.js';
 export { serverFees, verticalOf } from './fees.js';
 export type { ServerFees } from './fees.js';
+export { OrdersStorefrontMerchants } from './storefront.port.js';

@@ -3,7 +3,12 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository, type CatalogRepository } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 
-/** Wiring: Prisma repository when DATABASE_URL is set (menus from `pnpm db:seed`), in-memory twin otherwise. */
+/**
+ * Wiring: Prisma repository when DATABASE_URL is set (menus from `pnpm db:seed`), in-memory twin
+ * otherwise. `CatalogRpc` (the customer read, `catalog.*`) is provided by the orders module: it
+ * needs the merchant directory and the fee engine orders charges with, and orders already imports
+ * catalog.
+ */
 @Module({
   providers: [
     {

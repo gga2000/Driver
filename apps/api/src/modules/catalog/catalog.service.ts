@@ -1,5 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { CATALOG_REPOSITORY, type CatalogItemRecord, type CatalogRepository, type NewCatalogItem } from './catalog.repository.js';
+import {
+  CATALOG_REPOSITORY,
+  type CatalogItemRecord,
+  type CatalogRepository,
+  type NewCatalogItem,
+  type NewStorefront,
+  type StorefrontRecord,
+} from './catalog.repository.js';
 
 /**
  * Merchant menus: items with their price, availability (flag, stock, weekly windows, per-branch
@@ -22,6 +29,19 @@ export class CatalogService {
 
   menu(orgId: string): Promise<CatalogItemRecord[]> {
     return this.repo.menu(orgId);
+  }
+
+  /** M3 customer storefront of a merchant's main menu (cuisine line, minimum, hours…). */
+  saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
+    return this.repo.saveStorefront(input);
+  }
+
+  storefronts(cityId: string): Promise<StorefrontRecord[]> {
+    return this.repo.storefronts(cityId);
+  }
+
+  storefront(orgId: string): Promise<StorefrontRecord | null> {
+    return this.repo.storefront(orgId);
   }
 
   /** The orders module's pricing read (`CatalogPort`): only `orgId`'s own items, unknown ids omitted. */

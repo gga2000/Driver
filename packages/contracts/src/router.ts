@@ -7,6 +7,7 @@ import { ordersRouter } from './routers/orders.js';
 import { tripsRouter } from './routers/trips.js';
 import { ledgerRouter } from './routers/ledger.js';
 import { routesRouter } from './routers/routes.js';
+import { catalogRouter } from './routers/catalog.js';
 import { consoleRouter, driversRouter, merchantsRouter, systemRouter } from './routers/console.js';
 import { publicProcedure, router } from './trpc.js';
 
@@ -42,6 +43,7 @@ export const appRouter = router({
   dispatch: dispatchRouter,
   ledger: ledgerRouter,
   routes: routesRouter,
+  catalog: catalogRouter,
   console: consoleRouter,
   drivers: driversRouter,
   merchants: merchantsRouter,

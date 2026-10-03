@@ -11,6 +11,7 @@ import type { OrdersPort } from './order.js';
 import type { PriceRequest, Quote } from './pricing.js';
 import type { TripsPort } from './trip.js';
 import type { RoutesPort } from './routes-io.js';
+import type { CustomerCatalogPort } from './catalog-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { transformer } from './transformer.js';
 
@@ -31,6 +32,8 @@ export interface AppContext {
   ledger: LedgerPort;
   /** الرجعة: garages, departures, seats, demand and request boards (`modules/routes`). */
   routes: RoutesPort;
+  /** Customer catalog read: restaurant cards and menus (`modules/catalog`). */
+  catalog: CustomerCatalogPort;
   /** Console read side: cross-module views composed by the API's `console` module. */
   console: ConsolePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */

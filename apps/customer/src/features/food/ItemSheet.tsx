@@ -1,0 +1,287 @@
+import { useEffect, useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import type { MenuItem, MenuModifierGroup } from '@driver/contracts';
+import { Button, Card, Chip, ChipGroup, Icon, IconButton, Rule, Sheet, StatusPill, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { useLocale, useT } from '@/lib/i18n';
+import { amountParam, iqd } from '@/lib/money';
+import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
+import { useProfile } from '@/lib/profile';
+import { ME, type CartMerchant } from './cart';
+import { cartStore, useCartStore } from './cart-store';
+import { FoodArt, motifForDish } from './FoodArt';
+import { chosenModifiers, defaultSelection, selectionProblems, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
+
+export interface ItemSheetProps {
+  item: MenuItem;
+  merchant: CartMerchant;
+  /** Kitchen closed: the sheet shows the dish but can't add it. */
+  disabled?: boolean;
+  onClose: () => void;
+  onAdded: (name: string) => void;
+}
+
+/**
+ * The dish bottom sheet (spec §3): variants first, modifier chips with required/min/max and price
+ * deltas, quantity, "لمن؟" (أنا / saved people / + new person with name and phone), a note for the
+ * kitchen (per person when it's someone else's), and the live line price on the add button.
+ */
+export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSheetProps) {
+  const theme = useTheme();
+  const t = useT();
+  const toast = useToast();
+  const { name: myName } = useProfile();
+  const { people } = useCartStore();
+  const [selection, setSelection] = useState<Selection>(() => defaultSelection(item));
+  const [qty, setQty] = useState(1);
+  const [personId, setPersonId] = useState<string>(ME);
+  const [note, setNote] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelection(defaultSelection(item));
+    setQty(1);
+    setNote('');
+    setConflict(null);
+  }, [item]);
+
+  const problems = selectionProblems(item, selection);
+  const price = sheetLinePrice(item, selection, qty);
+  const person = people.find((p) => p.id === personId) ?? null;
+
+  const personItems = useMemo(
+    () => [
+      { id: ME, label: t('item.for_me_chip'), avatar: { name: myName ?? t('item.for_me_chip'), tone: 'accent' as const } },
+      ...people.map((p) => ({ id: p.id, label: p.name, avatar: { name: p.name } })),
+    ],
+    [people, myName, t],
+  );
+
+  const onToggle = (group: MenuModifierGroup, modifierId: string) => {
+    const res = toggleModifier(item, selection, group.id, modifierId);
+    if (res.blocked === 'max') toast.show({ message: `${group.name}: ${t('item.choose_up_to', { n: group.max })}`, icon: 'x' });
+    else if (res.blocked === 'unavailable') toast.show({ message: t('item.sold_out'), icon: 'x' });
+    setSelection(res.selection);
+  };
+
+  const savePerson = () => {
+    const name = newName.trim();
+    const phone = newPhone.trim() ? normalizeIraqiPhone(newPhone) : null;
+    setNameError(name ? null : t('item.person_name_required'));
+    setPhoneError(newPhone.trim() && !phone ? t('error.phone_invalid') : null);
+    if (!name || (newPhone.trim() && !phone)) return;
+    const p = cartStore.addPerson(name, phone);
+    setPersonId(p.id);
+    setAdding(false);
+    setNewName('');
+    setNewPhone('');
+  };
+
+  const add = (replace = false) => {
+    const res = cartStore.add(
+      merchant,
+      { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers: chosenModifiers(item, selection), qty, note: note.trim() || null, personId },
+      { replace },
+    );
+    if (!res.ok) {
+      setConflict(res.current.name);
+      return;
+    }
+    onAdded(item.name);
+  };
+
+  const missing = problems.find((p) => p.problem === 'too_few');
+
+  return (
+    <View style={StyleSheet.absoluteFill} testID="item-sheet">
+      <Pressable accessibilityRole="button" accessibilityLabel={t('action.close')} onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.scrim }]} />
+      <Sheet
+        snapPoints={[0.9]}
+        header={
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+            <View style={{ width: 64, height: 64, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
+              <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="title" accessibilityRole="header">
+                {item.name}
+              </Text>
+              {item.description ? (
+                <Text variant="footnote" color="textMuted">
+                  {item.description}
+                </Text>
+              ) : null}
+            </View>
+            <IconButton icon="x" variant="tonal" size={36} accessibilityLabel={t('action.close')} onPress={onClose} testID="item-sheet-close" />
+          </View>
+        }
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], paddingBottom: theme.space[4] }} keyboardShouldPersistTaps="handled">
+            {item.modifierGroups.map((g) => (
+              <ModifierGroupBlock key={g.id} group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} />
+            ))}
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text variant="bodyStrong">{t('item.qty')}</Text>
+              <Stepper value={qty} min={1} max={20} onChange={setQty} accessibilityLabel={t('item.qty')} />
+            </View>
+
+            <Rule />
+
+            <View style={{ gap: theme.space[3] }} testID="item-for-whom">
+              <Text variant="bodyStrong">{t('item.for_whom')}</Text>
+              <ChipGroup
+                items={personItems}
+                value={[personId]}
+                required
+                onChange={(next) => setPersonId(next[0] ?? ME)}
+                accessibilityLabel={t('item.for_whom')}
+                action={{ label: t('item.add_person'), icon: 'plus', onPress: () => setAdding((a) => !a) }}
+              />
+              {adding ? (
+                <Card elevation={0} tone="sunken" padding={3} testID="item-new-person">
+                  <View style={{ gap: theme.space[2] }}>
+                    <TextField testID="item-person-name" value={newName} onChangeText={setNewName} placeholder={t('item.person_name_placeholder')} error={nameError ?? undefined} />
+                    <TextField
+                      testID="item-person-phone"
+                      value={newPhone}
+                      onChangeText={(v) => setNewPhone(formatPhoneInput(v))}
+                      placeholder={t('item.person_phone_placeholder')}
+                      keyboardType="phone-pad"
+                      error={phoneError ?? undefined}
+                    />
+                    <Button size="sm" label={t('item.save_person')} icon="plus" onPress={savePerson} testID="item-person-save" />
+                  </View>
+                </Card>
+              ) : null}
+              {person ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                  <Icon name="gift" size={16} color="successText" />
+                  <Text variant="footnote" color="successText">
+                    {t('item.points_go_to', { name: person.name })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <TextField
+              testID="item-note"
+              label={person ? t('item.person_note', { name: person.name }) : t('cart.note_restaurant')}
+              value={note}
+              onChangeText={setNote}
+              placeholder={t('item.note_placeholder')}
+              maxLength={300}
+            />
+          </ScrollView>
+
+          <View style={{ paddingTop: theme.space[3], paddingBottom: theme.space[4], gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+            {conflict ? (
+              <Card elevation={0} tone="tint" padding={3} testID="item-conflict">
+                <View style={{ gap: theme.space[2] }}>
+                  <Text variant="label">{t('cart.different_restaurant')}</Text>
+                  <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                    <Button size="sm" label={t('cart.start_new')} onPress={() => add(true)} testID="item-conflict-replace" />
+                    <Button size="sm" variant="secondary" label={t('cart.keep_current')} onPress={onClose} />
+                  </View>
+                </View>
+              </Card>
+            ) : missing ? (
+              <Text variant="footnote" color="textMuted" align="center">
+                {t('item.missing_choice', { group: missing.name })}
+              </Text>
+            ) : null}
+            <Button
+              testID="item-add"
+              size="lg"
+              fullWidth
+              disabled={disabled || problems.length > 0 || !item.available}
+              label={item.available ? t('item.add_to_cart', { amount: amountParam(price) }) : t('item.sold_out')}
+              onPress={() => add(false)}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </Sheet>
+    </View>
+  );
+}
+
+function ModifierGroupBlock({ group, basePrice, selected, onToggle, missing }: { group: MenuModifierGroup; basePrice: number; selected: readonly string[]; onToggle: (id: string) => void; missing: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const rule = group.max === 1 ? t('item.choose_one') : group.min > 0 ? t('item.choose_at_least', { n: group.min }) : t('item.choose_up_to', { n: group.max });
+  return (
+    <View style={{ gap: theme.space[3] }} testID={`group-${group.id}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <Text variant="bodyStrong" style={{ flexShrink: 1 }}>
+          {group.name}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {rule}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <StatusPill size="sm" tone={group.required ? (missing ? 'warning' : 'accent') : 'neutral'} label={group.required ? t('item.modifier_required') : t('item.modifier_optional')} />
+      </View>
+      {group.variant ? (
+        <View style={{ borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }}>
+          {group.modifiers.map((m, i) => {
+            const on = selected.includes(m.id);
+            return (
+              <Pressable
+                key={m.id}
+                testID={`variant-${m.id}`}
+                accessibilityRole="radio"
+                aria-checked={on}
+                disabled={!m.available}
+                onPress={() => {
+                  theme.haptic('selection');
+                  onToggle(m.id);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: theme.space[3],
+                  minHeight: 52,
+                  paddingHorizontal: theme.space[4],
+                  backgroundColor: on ? theme.colors.accentTint : theme.colors.surface,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: theme.colors.border,
+                  opacity: m.available ? 1 : theme.state.disabledOpacity,
+                }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? theme.colors.accent : theme.colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
+                  {on ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accent }} /> : null}
+                </View>
+                <Text variant="body" weight={on ? 600 : 400} style={{ flex: 1 }}>
+                  {m.name}
+                </Text>
+                <Text variant="label" tabular color={on ? 'text' : 'textMuted'}>
+                  {iqd(basePrice + m.priceIqd, { locale })}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+          {group.modifiers.map((m) => (
+            <Chip
+              key={m.id}
+              testID={`mod-${m.id}`}
+              label={m.priceIqd > 0 ? `${m.name} ${amountParam(m.priceIqd, { sign: true })}` : m.name}
+              selected={selected.includes(m.id)}
+              role={group.max === 1 ? 'radio' : 'checkbox'}
+              disabled={!m.available}
+              onPress={() => onToggle(m.id)}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}

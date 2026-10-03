@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AZIZIYAH_RESTAURANTS,
   AZIZIYAH_ZONES,
   CITIES,
   DEMO_RESTAURANT,
@@ -9,6 +10,7 @@ import {
   TAXONOMY,
   hexagonWkt,
   pointWkt,
+  storefrontJson,
 } from '../prisma/seed-data.js';
 
 describe('seed data (plan Step 1)', () => {
@@ -79,6 +81,17 @@ describe('seed data (plan Step 1)', () => {
     for (const i of DEMO_RESTAURANT.items) {
       expect(Number.isInteger(i.priceIqd) && i.priceIqd > 0).toBe(true);
       expect(slugs.has(i.taxonomy), i.taxonomy).toBe(true);
+    }
+  });
+
+  it('M3 launch restaurants: storefront JSON per kitchen, every item on a known taxonomy node', () => {
+    const slugs = new Set(TAXONOMY.map((n) => n.slug));
+    expect(AZIZIYAH_RESTAURANTS).toHaveLength(4);
+    for (const r of AZIZIYAH_RESTAURANTS) {
+      const json = storefrontJson(r);
+      expect(json).toMatchObject({ cuisineAr: r.cuisineAr, minOrderIqd: r.minOrderIqd, photoUrl: null });
+      expect(json['hours']).toHaveLength(7);
+      for (const i of r.categories.flatMap((c) => c.items)) expect(slugs.has(i.taxonomy), `${r.key}/${i.key}`).toBe(true);
     }
   });
 

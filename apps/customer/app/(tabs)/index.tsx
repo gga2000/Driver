@@ -75,7 +75,10 @@ export default function Home() {
         <RestaurantRail testID="rail-favourites" title={t('home.rail_favourites')} restaurants={list?.filter((r) => r.favourite)} {...rail} />
         <RestaurantRail testID="rail-open" title={t('home.rail_open_now')} restaurants={list?.filter((r) => r.open)} {...rail} />
         <CommunityDealCard />
-        <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list?.filter((r) => !!r.deal)} showDeal {...rail} />
+        {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
+        {!list || list.some((r) => !!r.deal) ? (
+          <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list?.filter((r) => !!r.deal)} showDeal {...rail} />
+        ) : null}
       </View>
     </Screen>
   );

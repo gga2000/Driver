@@ -52,7 +52,36 @@ export interface CatalogItemRecord {
   prepTimeMin: number;
   pointsEligible: boolean;
   modifierGroups: CatalogModifierGroupRecord[];
+  description: string | null;
+  photoUrl: string | null;
+  /** Menu section ("لفات"); null = the menu's last, unnamed section. */
+  categoryAr: string | null;
+  sortOrder: number;
 }
+
+/**
+ * The customer-facing storefront of a merchant's main menu (M3): what a restaurant card needs
+ * besides the merchant's own settings (location, pause windows, busy) and the delivery quote.
+ */
+export interface StorefrontRecord {
+  orgId: string;
+  cityId: string;
+  /** The merchant's display name (the org's name). */
+  nameAr: string;
+  cuisineAr: string;
+  tags: string[];
+  photoUrl: string | null;
+  minOrderIqd: number;
+  /** Typical prep in minutes; null = derive from the menu's items. */
+  prepMin: number | null;
+  /** Local weekly opening windows; empty = always open. */
+  hours: AvailabilityWindow[];
+  /** PLACEHOLDER until ratings are aggregated from orders. */
+  ratingPlaceholder: { avg: number; count: number } | null;
+}
+
+export type NewStorefront = Omit<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags'> &
+  Partial<Pick<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags'>>;
 
 export interface NewCatalogItem {
   /** Optional fixed id (seeds, simulator); generated otherwise. */
@@ -67,6 +96,10 @@ export interface NewCatalogItem {
   branchOverrides?: Record<string, BranchOverride>;
   prepTimeMin?: number;
   pointsEligible?: boolean;
+  description?: string | null;
+  photoUrl?: string | null;
+  categoryAr?: string | null;
+  sortOrder?: number;
   modifierGroups?: Array<{
     nameAr: string;
     nameEn?: string | null;
@@ -84,6 +117,32 @@ export interface CatalogRepository {
   menu(orgId: string): Promise<CatalogItemRecord[]>;
   createItem(input: NewCatalogItem): Promise<CatalogItemRecord>;
   setAvailable(id: string, available: boolean): Promise<void>;
+  /** Merchants of `cityId` with a customer storefront on their main menu. */
+  storefronts(cityId: string): Promise<StorefrontRecord[]>;
+  storefront(orgId: string): Promise<StorefrontRecord | null>;
+  /** Creates or replaces the storefront of `orgId`'s main menu. */
+  saveStorefront(input: NewStorefront): Promise<StorefrontRecord>;
+}
+
+function toStorefront(input: NewStorefront): StorefrontRecord {
+  assertPrice(input.minOrderIqd, 'minOrderIqd');
+  return {
+    orgId: input.orgId,
+    cityId: input.cityId,
+    nameAr: input.nameAr,
+    cuisineAr: input.cuisineAr,
+    tags: [...(input.tags ?? [])],
+    photoUrl: input.photoUrl ?? null,
+    minOrderIqd: input.minOrderIqd,
+    prepMin: input.prepMin ?? null,
+    hours: [...(input.hours ?? [])],
+    ratingPlaceholder: input.ratingPlaceholder ?? null,
+  };
+}
+
+/** Menu order: by `sortOrder`, ties keep their insertion (creation) order. */
+function byMenuOrder(a: CatalogItemRecord, b: CatalogItemRecord): number {
+  return a.sortOrder - b.sortOrder;
 }
 
 export const CATALOG_REPOSITORY = Symbol('CATALOG_REPOSITORY');
@@ -101,6 +160,7 @@ function validate(input: NewCatalogItem): void {
 /** In-memory twin: unit tests, the simulator and the API without a database. */
 export class InMemoryCatalogRepository implements CatalogRepository {
   private readonly items = new Map<string, CatalogItemRecord>();
+  private readonly fronts = new Map<string, StorefrontRecord>();
   private seq = 0;
 
   async itemsByIds(orgId: string, ids: readonly string[]): Promise<CatalogItemRecord[]> {
@@ -108,7 +168,22 @@ export class InMemoryCatalogRepository implements CatalogRepository {
   }
 
   async menu(orgId: string): Promise<CatalogItemRecord[]> {
-    return [...this.items.values()].filter((i) => i.orgId === orgId).map(clone);
+    return [...this.items.values()].filter((i) => i.orgId === orgId).sort(byMenuOrder).map(clone);
+  }
+
+  async storefronts(cityId: string): Promise<StorefrontRecord[]> {
+    return [...this.fronts.values()].filter((s) => s.cityId === cityId).map((s) => structuredClone(s));
+  }
+
+  async storefront(orgId: string): Promise<StorefrontRecord | null> {
+    const s = this.fronts.get(orgId);
+    return s ? structuredClone(s) : null;
+  }
+
+  async saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
+    const s = toStorefront(input);
+    this.fronts.set(s.orgId, s);
+    return structuredClone(s);
   }
 
   async createItem(input: NewCatalogItem): Promise<CatalogItemRecord> {
@@ -129,6 +204,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       branchOverrides: { ...(input.branchOverrides ?? {}) },
       prepTimeMin: input.prepTimeMin ?? 15,
       pointsEligible: input.pointsEligible ?? true,
+      description: input.description ?? null,
+      photoUrl: input.photoUrl ?? null,
+      categoryAr: input.categoryAr ?? null,
+      sortOrder: input.sortOrder ?? 0,
       modifierGroups: (input.modifierGroups ?? []).map((g, gi) => {
         const groupId = `${id}_mg_${gi + 1}`;
         return {
@@ -170,6 +249,10 @@ type ItemRow = {
   branchOverrides: unknown;
   prepTimeMin: number;
   pointsEligible: boolean;
+  description: string | null;
+  photoUrl: string | null;
+  categoryAr: string | null;
+  sortOrder: number;
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -198,6 +281,10 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     branchOverrides: r.branchOverrides && typeof r.branchOverrides === 'object' && !Array.isArray(r.branchOverrides) ? (r.branchOverrides as Record<string, BranchOverride>) : {},
     prepTimeMin: r.prepTimeMin,
     pointsEligible: r.pointsEligible,
+    description: r.description ?? null,
+    photoUrl: r.photoUrl ?? null,
+    categoryAr: r.categoryAr ?? null,
+    sortOrder: r.sortOrder ?? 0,
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -208,6 +295,29 @@ function fromRow(r: ItemRow): CatalogItemRecord {
       required: g.required,
       modifiers: g.modifiers.map((m) => ({ id: m.id, groupId: m.groupId, nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available })),
     })),
+  };
+}
+
+/**
+ * Reads `catalogs.storefront` defensively (JSON written by the seed or `saveStorefront`); a menu
+ * without a cuisine line has no storefront and is not listed to customers.
+ */
+function storefrontFromRow(orgId: string, org: { name: string; cityId: string }, raw: unknown): StorefrontRecord | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const j = raw as Record<string, unknown>;
+  if (typeof j['cuisineAr'] !== 'string' || !j['cuisineAr']) return null;
+  const rating = j['ratingPlaceholder'] as { avg?: unknown; count?: unknown } | null | undefined;
+  return {
+    orgId,
+    cityId: org.cityId,
+    nameAr: org.name,
+    cuisineAr: j['cuisineAr'],
+    tags: Array.isArray(j['tags']) ? j['tags'].filter((t): t is string => typeof t === 'string') : [],
+    photoUrl: typeof j['photoUrl'] === 'string' ? j['photoUrl'] : null,
+    minOrderIqd: typeof j['minOrderIqd'] === 'number' ? j['minOrderIqd'] : 0,
+    prepMin: typeof j['prepMin'] === 'number' ? j['prepMin'] : null,
+    hours: Array.isArray(j['hours']) ? (j['hours'] as AvailabilityWindow[]) : [],
+    ratingPlaceholder: rating && typeof rating.avg === 'number' && typeof rating.count === 'number' ? { avg: rating.avg, count: rating.count } : null,
   };
 }
 
@@ -222,8 +332,36 @@ export class PrismaCatalogRepository implements CatalogRepository {
   }
 
   async menu(orgId: string): Promise<CatalogItemRecord[]> {
-    const rows = await this.prisma.prisma.catalogItem.findMany({ where: { orgId }, include: WITH_MODIFIERS, orderBy: { createdAt: 'asc' } });
+    const rows = await this.prisma.prisma.catalogItem.findMany({ where: { orgId }, include: WITH_MODIFIERS, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
     return (rows as unknown as ItemRow[]).map(fromRow);
+  }
+
+  async storefronts(cityId: string): Promise<StorefrontRecord[]> {
+    const rows = await this.prisma.prisma.catalog.findMany({
+      where: { active: true, branchKey: null, org: { cityId, type: { in: ['restaurant', 'grocer'] } } },
+      include: { org: { select: { name: true, cityId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => storefrontFromRow(r.orgId, r.org, r.storefront)).filter((s): s is StorefrontRecord => s !== null);
+  }
+
+  async storefront(orgId: string): Promise<StorefrontRecord | null> {
+    const r = await this.prisma.prisma.catalog.findFirst({
+      where: { orgId, active: true, branchKey: null },
+      include: { org: { select: { name: true, cityId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return r ? storefrontFromRow(r.orgId, r.org, r.storefront) : null;
+  }
+
+  async saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
+    const s = toStorefront(input);
+    const db = this.prisma.prisma;
+    const json = { cuisineAr: s.cuisineAr, tags: s.tags, photoUrl: s.photoUrl, minOrderIqd: s.minOrderIqd, prepMin: s.prepMin, hours: s.hours, ratingPlaceholder: s.ratingPlaceholder } as never;
+    const catalog = await db.catalog.findFirst({ where: { orgId: s.orgId, branchKey: null, active: true }, orderBy: { createdAt: 'asc' } });
+    if (catalog) await db.catalog.update({ where: { id: catalog.id }, data: { storefront: json } });
+    else await db.catalog.create({ data: { orgId: s.orgId, nameAr: 'القائمة الرئيسية', storefront: json } });
+    return s;
   }
 
   async createItem(input: NewCatalogItem): Promise<CatalogItemRecord> {
@@ -246,6 +384,10 @@ export class PrismaCatalogRepository implements CatalogRepository {
         branchOverrides: (input.branchOverrides ?? {}) as never,
         prepTimeMin: input.prepTimeMin ?? 15,
         pointsEligible: input.pointsEligible ?? true,
+        description: input.description ?? null,
+        photoUrl: input.photoUrl ?? null,
+        categoryAr: input.categoryAr ?? null,
+        sortOrder: input.sortOrder ?? 0,
         modifierGroups: {
           create: (input.modifierGroups ?? []).map((g, gi) => ({
             nameAr: g.nameAr,

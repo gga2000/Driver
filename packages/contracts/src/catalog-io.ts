@@ -1,0 +1,147 @@
+import { z } from 'zod';
+import { CityId, DeliveryPoint, Iqd } from './common.js';
+import type { Actor } from './identity-io.js';
+import type { Quote } from './pricing.js';
+
+/**
+ * Customer catalog read (M3 food ordering): restaurant cards for the home rails and search, and a
+ * restaurant's menu for the restaurant page and item sheet. Prices are the server's menu prices
+ * (the same ones `orders.place` charges); the delivery fee preview is the server's own quote for
+ * the customer's zone, split the way orders splits it (`deliveryFeesOf`).
+ */
+
+export const RestaurantFilters = z.object({
+  /** Only kitchens taking orders right now. */
+  openNow: z.boolean().optional(),
+  /** Only kitchens whose delivery fee preview to `dropoff` is 0. */
+  freeDelivery: z.boolean().optional(),
+  /** Matches the name, the cuisine line or a dish name. */
+  query: z.string().trim().max(60).optional(),
+  /** A cuisine tag slug (`grill`, `shawarma`…). */
+  tag: z.string().max(40).optional(),
+});
+export type RestaurantFilters = z.infer<typeof RestaurantFilters>;
+
+export const RestaurantsInput = z.object({
+  cityId: CityId,
+  /** The customer's deliver-to point; fee preview and ETA are for it. Without it both are null. */
+  dropoff: DeliveryPoint.optional(),
+  filters: RestaurantFilters.default({}),
+});
+export type RestaurantsInput = z.input<typeof RestaurantsInput>;
+
+export const RestaurantRating = z.object({ avg: z.number().min(0).max(5), count: z.number().int().min(0) });
+export type RestaurantRating = z.infer<typeof RestaurantRating>;
+
+export const RestaurantCard = z.object({
+  id: z.string(),
+  cityId: CityId,
+  name: z.string(),
+  /** Short cuisine line ("كباب · تكة · كبد"). */
+  cuisine: z.string(),
+  tags: z.array(z.string()),
+  photoUrl: z.string().nullable(),
+  /** Placeholder until ratings are aggregated from orders; null = new kitchen. */
+  rating: RestaurantRating.nullable(),
+  /** Where couriers pick up (zone + pin): the cart quotes delivery from here. Null = cannot deliver yet. */
+  pickup: DeliveryPoint.nullable(),
+  /** Kitchen prep range in minutes (busy mode adds its buffer). */
+  prepMinMinutes: z.number().int().min(0),
+  prepMaxMinutes: z.number().int().min(0),
+  /** Prep + ride to `dropoff`; null without a dropoff. */
+  etaMinMinutes: z.number().int().min(0).nullable(),
+  etaMaxMinutes: z.number().int().min(0).nullable(),
+  /** The server's quote to `dropoff` (door hand-over, now); null without a dropoff or pickup. */
+  deliveryFeeIqd: Iqd.nullable(),
+  serviceFeeIqd: Iqd.nullable(),
+  minOrderIqd: Iqd.min(0),
+  open: z.boolean(),
+  /** Why it is closed: outside opening hours, or a scheduled pause (Friday prayer). */
+  closedReason: z.enum(['hours', 'paused']).nullable(),
+  /** Next local opening time, 12-hour "7:00", when closed. */
+  opensAt: z.string().nullable(),
+  /** Busy mode: prep takes longer. */
+  busy: z.boolean(),
+});
+export type RestaurantCard = z.infer<typeof RestaurantCard>;
+
+export const MenuInput = z.object({
+  merchantId: z.string().min(1),
+  dropoff: DeliveryPoint.optional(),
+});
+export type MenuInput = z.input<typeof MenuInput>;
+
+export const MenuModifier = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Added to the item's unit price when chosen. */
+  priceIqd: Iqd.min(0),
+  available: z.boolean(),
+});
+export type MenuModifier = z.infer<typeof MenuModifier>;
+
+export const MenuModifierGroup = z.object({
+  id: z.string(),
+  name: z.string(),
+  required: z.boolean(),
+  /** Effective minimum (≥ 1 when required). */
+  min: z.number().int().min(0),
+  max: z.number().int().min(1),
+  /**
+   * A variant picks the version of the dish (size, weight): required, exactly one, and at least one
+   * option changes the price. The sheet shows variants first with their full price.
+   */
+  variant: z.boolean(),
+  modifiers: z.array(MenuModifier),
+});
+export type MenuModifierGroup = z.infer<typeof MenuModifierGroup>;
+
+export const MenuItem = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  priceIqd: Iqd.min(0),
+  photoUrl: z.string().nullable(),
+  /** Orderable now: flag, stock, schedule and branch override all allow it. */
+  available: z.boolean(),
+  unavailableReason: z.enum(['sold_out', 'schedule']).nullable(),
+  prepTimeMin: z.number().int().min(0),
+  pointsEligible: z.boolean(),
+  modifierGroups: z.array(MenuModifierGroup),
+});
+export type MenuItem = z.infer<typeof MenuItem>;
+
+export const MenuCategory = z.object({
+  id: z.string(),
+  name: z.string(),
+  items: z.array(MenuItem),
+});
+export type MenuCategory = z.infer<typeof MenuCategory>;
+
+export const RestaurantMenu = z.object({
+  restaurant: RestaurantCard,
+  categories: z.array(MenuCategory),
+});
+export type RestaurantMenu = z.infer<typeof RestaurantMenu>;
+
+/** What the API supplies to the `catalog` router (implemented by `modules/catalog`). */
+export interface CustomerCatalogPort {
+  restaurants(actor: Actor, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]>;
+  menu(actor: Actor, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu>;
+}
+
+/**
+ * Splits a delivery quote the way `orders.place` charges it: the service fee is its own line, the
+ * delivery fee is every other shown component (base by zone pair, door/street, night…), promo
+ * excluded (discounts only come from a server-resolved promotion). Shared by the API's fee preview
+ * and the customer cart so the total never changes at checkout.
+ */
+export function deliveryFeesOf(quote: Pick<Quote, 'components'>): { deliveryFeeIqd: number; serviceFeeIqd: number } {
+  let delivery = 0;
+  let service = 0;
+  for (const c of quote.components) {
+    if (c.key === 'service_fee') service += c.amount;
+    else if (c.key !== 'promo') delivery += c.amount;
+  }
+  return { deliveryFeeIqd: Math.max(0, delivery), serviceFeeIqd: Math.max(0, service) };
+}

@@ -59,7 +59,10 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
+/** ONLY=app or ONLY=food limits which screenshots are written (sign-in always runs). */
+const only = process.env.ONLY ?? null;
 const shot = async (name) => {
+  if (only && !name.startsWith(`${only}-`)) return;
   await settle();
   const file = join(outDir, `${name}.png`);
   await page.screenshot({ path: file });
@@ -67,6 +70,7 @@ const shot = async (name) => {
 };
 /** Grow the viewport to the RN scroll content (the ScrollView owns scrolling on web). */
 const fullShot = async (name) => {
+  if (only && !name.startsWith(`${only}-`)) return;
   const h = await page.evaluate(() => {
     let max = document.documentElement.scrollHeight;
     for (const el of document.querySelectorAll('div')) {
@@ -122,7 +126,9 @@ try {
     await byTestId('home').waitFor();
   }
   await byTestId('home-active-order').waitFor({ timeout: 15_000 }).catch(() => errors.push('active order pill not shown'));
-  await byTestId('restaurant-fx-khalid').waitFor({ timeout: 15_000 });
+  const seed = await (await fetch(`${apiBase}/demo/seed`)).json();
+  const khalid = seed.find((r) => r.key === 'khalid').orgId;
+  await byTestId(`restaurant-${khalid}`).waitFor({ timeout: 15_000 });
   await shot('app-home');
   await fullShot('app-home-full');
 
@@ -133,12 +139,107 @@ try {
   await byTestId('tab-account').click();
   await byTestId('account').waitFor();
   await shot('app-profile');
+
+  // ── Food ordering (M3): restaurant → item sheet (modifiers + لمن؟) → cart for two → checkout →
+  //    waiting for the kitchen → accepted (/order/[id]); then a second order the kitchen rejects →
+  //    suggestions → cart carried over to another kitchen.
+  if (!only || only === 'food') await foodFlow(khalid);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+async function foodFlow(khalid) {
+  const item = (key) => `${khalid}_${key}`;
+  await byTestId('tab-index').click();
+  await byTestId('home').waitFor();
+  await byTestId(`restaurant-${khalid}`).click();
+  await byTestId('restaurant-facts').waitFor({ timeout: 15_000 });
+  await byTestId(`dish-${item('kebab_wrap')}`).waitFor({ timeout: 15_000 });
+  await shot('food-restaurant');
+  await fullShot('food-restaurant-full');
+
+  // One-tap add (no required choice): a Pepsi for me.
+  await byTestId(`dish-add-${item('pepsi')}`).click();
+  await byTestId('cart-bar').waitFor();
+
+  // Tikka wrap for سارة: bread (required), cheese, a new person with a phone, a note.
+  await byTestId(`dish-${item('tikka_wrap')}`).click();
+  await byTestId('item-sheet').waitFor();
+  await byTestId(`mod-${item('tikka_wrap')}_mg_1_m_2`).click();
+  await byTestId(`mod-${item('tikka_wrap')}_mg_2_m_4`).click();
+  await page.getByText('ضيف شخص', { exact: true }).click();
+  await page.locator('[data-testid="item-person-name"]').fill('سارة');
+  await page.locator('[data-testid="item-person-phone"]').fill('07701234567');
+  await byTestId('item-person-save').click();
+  await page.locator('[data-testid="item-note"]').fill('بدون بصل، زيادة طرشي');
+  await page.evaluate(() => {
+    // Scroll the sheet body so the chips, quantity and "لمن؟" are all in view.
+    const sheet = document.querySelector('[data-testid="item-sheet"]');
+    for (const el of sheet?.querySelectorAll('div') ?? []) {
+      const st = getComputedStyle(el);
+      if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = 150;
+    }
+  });
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('food-item-sheet');
+  await byTestId('item-add').click();
+  await byTestId('item-sheet').waitFor({ state: 'detached' });
+
+  // Kebab plate for two (a variant), for me.
+  await byTestId(`dish-${item('kebab_plate')}`).click();
+  await byTestId('item-sheet').waitFor();
+  await byTestId(`variant-${item('kebab_plate')}_mg_1_m_2`).click();
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('food-item-variant');
+  await byTestId('item-add').click();
+  await byTestId('item-sheet').waitFor({ state: 'detached' });
+
+  await byTestId('cart-bar').click();
+  await byTestId('cart-price-total').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('food-cart');
+  await fullShot('food-cart-full');
+
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await shot('food-checkout');
+  await fullShot('food-checkout-full');
+
+  await byTestId('checkout-place').click();
+  await byTestId('kitchen-title').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1200);
+  await shot('food-waiting');
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  const accept = await fetch(`${apiBase}/demo/kitchen?orderId=${orderId}&action=accept`, { method: 'POST' });
+  if (!accept.ok) errors.push(`kitchen accept: ${accept.status} ${await accept.text()}`);
+  await page.waitForURL(/\/order\//, { timeout: 15_000 }).catch(() => errors.push('accepted order did not open /order/[id]'));
+
+  // Second order → the kitchen says no → move the cart to a similar open kitchen.
+  await page.goto(`${origin}/restaurant/${khalid}`, { waitUntil: 'networkidle' });
+  await byTestId(`dish-add-${item('pepsi')}`).waitFor({ timeout: 15_000 });
+  await byTestId(`dish-add-${item('pepsi')}`).click();
+  await byTestId(`dish-${item('kebab_kilo')}`).click();
+  await byTestId('item-sheet').waitFor();
+  await byTestId('item-add').click();
+  await byTestId('item-sheet').waitFor({ state: 'detached' });
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-place').click();
+  await byTestId('kitchen-title').waitFor({ timeout: 15_000 });
+  const second = new URL(page.url()).pathname.split('/').pop();
+  const reject = await fetch(`${apiBase}/demo/kitchen?orderId=${second}&action=reject`, { method: 'POST' });
+  if (!reject.ok) errors.push(`kitchen reject: ${reject.status} ${await reject.text()}`);
+  await byTestId('kitchen-rejected').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid^="suggest-move-"]').first().waitFor({ timeout: 15_000 });
+  await shot('food-rejected');
+  await page.locator('[data-testid^="suggest-move-"]').first().click();
+  await page.locator('[data-testid="cart"]:visible').waitFor({ timeout: 15_000 });
+  await shot('food-carried');
 }
 
 if (errors.length) {

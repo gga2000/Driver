@@ -4,19 +4,20 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS } from '../catalog/index.js';
 import { CapsService, LedgerModule } from '../ledger/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { ORDERS_CATALOG } from './catalog.port.js';
 import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
-import { MERCHANT_DIRECTORY, OrgsMerchantDirectory } from './merchants.port.js';
+import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
 import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, OrdersService, type OrderTimerJob } from './orders.service.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 import { NoPromotions, ORDERS_PROMOTIONS } from './promotions.port.js';
+import { OrdersStorefrontMerchants } from './storefront.port.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -54,10 +55,13 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       inject: [IdentityService],
     },
     { provide: ORDERS_ROLE_CHECKER, useExisting: IdentityService },
+    // M3 customer catalog read: cards are open exactly when place() takes orders, fees as place() charges.
+    { provide: STOREFRONT_MERCHANTS, useFactory: (dir: MerchantDirectory) => new OrdersStorefrontMerchants(dir), inject: [MERCHANT_DIRECTORY] },
+    CatalogRpc,
     OrdersService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc],
+  exports: [OrdersService, OrdersRpc, CatalogRpc],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);

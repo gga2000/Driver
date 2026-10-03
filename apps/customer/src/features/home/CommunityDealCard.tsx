@@ -3,19 +3,22 @@ import { View } from 'react-native';
 import { Card, Icon, Text, useTheme } from '@driver/ui';
 import { FIXTURE_COMMUNITY_DEAL } from '@/fixtures/restaurants';
 import { useT } from '@/lib/i18n';
+import { useRestaurants } from './queries';
 
 /** Neighbourhood deal (sample until promotions have a customer read). */
 export function CommunityDealCard() {
   const theme = useTheme();
   const t = useT();
   const deal = FIXTURE_COMMUNITY_DEAL;
+  const restaurantId = useRestaurants().data?.find((r) => r.name === deal.restaurantName)?.id;
+  if (!restaurantId) return null;
   return (
     <Card
       testID="home-community-deal"
       elevation={0}
       tone="tint"
       padding={4}
-      onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: deal.restaurantId } })}
+      onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: restaurantId } })}
       accessibilityLabel={`${t('home.community_deal')}: ${deal.body}`}
     >
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'flex-start' }}>

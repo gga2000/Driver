@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
+import { HeaderBack } from '@/features/food/HeaderBack';
 import { ApiProvider } from '@/lib/api';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard } from '@/lib/guard';
@@ -95,9 +96,10 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="places" options={{ headerShown: false, presentation: 'modal' }} />
-        <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
-        <Stack.Screen name="cart" options={{ title: t('cart.title') }} />
-        <Stack.Screen name="checkout" options={{ title: t('checkout.title') }} />
+        <Stack.Screen name="restaurant/[id]" options={{ title: '', headerShown: false }} />
+        <Stack.Screen name="kitchen/[id]" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="cart" options={{ title: t('cart.title'), headerLeft: () => <HeaderBack /> }} />
+        <Stack.Screen name="checkout" options={{ title: t('checkout.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
         <Stack.Screen name="rajaa" options={{ title: t('home.rajaa_title') }} />
       </Stack>

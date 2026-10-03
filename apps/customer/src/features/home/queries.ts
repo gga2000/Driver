@@ -1,9 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
-import { TERMINAL_ORDER_STATES, type Order, type OrderState } from '@driver/contracts';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { TERMINAL_ORDER_STATES, type Order, type OrderState, type RestaurantCard } from '@driver/contracts';
+import { CITY_ID, useDeliverTo } from '@/features/food/queries';
 import { FIXTURE_RAJAA } from '@/fixtures/rajaa';
-import { fetchFixtureRestaurants, type RestaurantSummary } from '@/fixtures/restaurants';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
+import { favouriteIds, toSummary, type RestaurantSummary } from './restaurant-summary';
 
 /** States after which an order no longer needs the pinned pill on home. */
 const DONE: ReadonlySet<OrderState> = new Set<OrderState>([...TERMINAL_ORDER_STATES, 'delivered', 'completed', 'disputed']);
@@ -36,11 +38,24 @@ export function useActiveOrder() {
 }
 
 /**
- * Restaurants for the home rails. FIXTURE: no customer catalog read exists yet
- * (see src/fixtures/restaurants.ts); swap the queryFn for `api.catalog.*` when it lands.
+ * Restaurants for the home rails: `catalog.restaurants` for the deliver-to zone (fee preview and
+ * ETA), favourites from the person's own orders (a curated default for new people).
  */
 export function useRestaurants() {
-  return useQuery<RestaurantSummary[]>({ queryKey: ['fixtures', 'restaurants'], queryFn: () => fetchFixtureRestaurants() });
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const { dropoff } = useDeliverTo();
+  const mine = useMyOrders();
+  const ordered = useMemo(() => [...new Set((mine.data ?? []).map((o) => o.merchantOrgId).filter((id): id is string => Boolean(id)))], [mine.data]);
+  return useQuery({
+    ...api.catalog.restaurants.queryOptions({ cityId: CITY_ID, ...(dropoff ? { dropoff } : {}), filters: {} }),
+    enabled: signedIn,
+    placeholderData: keepPreviousData,
+    select: (cards: RestaurantCard[]): RestaurantSummary[] => {
+      const fav = favouriteIds(cards, ordered);
+      return cards.map((c) => toSummary(c, fav.has(c.id)));
+    },
+  });
 }
 
 /** TODO(api): intercity departures board. Static sample until then. */

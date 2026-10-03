@@ -3,7 +3,7 @@ import { ScrollView, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { Button, Card, Icon, initialOf, Skeleton, StatusPill, Text, toneFor, useTheme, type AvatarTone } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
-import type { RestaurantSummary } from '@/fixtures/restaurants';
+import type { RestaurantSummary } from './restaurant-summary';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
@@ -35,7 +35,9 @@ export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal
   const theme = useTheme();
   const t = useT();
   const tone = HERO[toneFor(r.name)];
-  const fee = r.deliveryFeeIqd <= 0 ? t('search.filter_free_delivery') : t('restaurant.delivery_from', { amount: amountParam(r.deliveryFeeIqd) });
+  const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
+  const fee = r.deliveryFeeIqd === null ? null : free ? t('search.filter_free_delivery') : t('restaurant.delivery_fee', { amount: amountParam(r.deliveryFeeIqd) });
+  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? range(r.etaMinMinutes, r.etaMaxMinutes) : range(r.prepMinMinutes, r.prepMaxMinutes);
   return (
     <Card
       testID={`restaurant-${r.id}`}
@@ -81,21 +83,23 @@ export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <Icon name="star" size={14} color="accent" filled />
             <Text variant="caption" weight={600} tabular>
-              {r.rating.toFixed(1)}
+              {r.rating === null ? t('restaurant.rating_new') : r.rating.toFixed(1)}
             </Text>
           </View>
           <Dot />
           <Icon name="clock" size={14} color="textMuted" />
           <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
-            {t('home.prep_range', { range: range(r.prepMinMinutes, r.prepMaxMinutes) })}
+            {t('home.prep_range', { range: time })}
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Icon name="bike" size={14} color={r.deliveryFeeIqd <= 0 ? 'successText' : 'textMuted'} />
-          <Text variant="caption" weight={r.deliveryFeeIqd <= 0 ? 600 : 400} color={r.deliveryFeeIqd <= 0 ? 'successText' : 'textMuted'} numberOfLines={1} tabular>
-            {fee}
-          </Text>
-        </View>
+        {fee ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            <Icon name="bike" size={14} color={free ? 'successText' : 'textMuted'} />
+            <Text variant="caption" weight={free ? 600 : 400} color={free ? 'successText' : 'textMuted'} numberOfLines={1} tabular>
+              {fee}
+            </Text>
+          </View>
+        ) : null}
         <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
           {t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })}
         </Text>

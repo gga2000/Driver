@@ -560,6 +560,8 @@ model Catalog {
   nameAr    String   @map("name_ar")
   branchKey String?  @map("branch_key")
   active    Boolean  @default(true)
+  /// Customer storefront (M3): {cuisineAr, tags[], photoUrl, minOrderIqd, prepMin, hours[{dow,start,end}], ratingPlaceholder{avg,count}}.
+  storefront Json    @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -596,6 +598,10 @@ model CatalogItem {
   pointsEligible  Boolean  @default(true) @map("points_eligible")
   /// Summer hot-item cap: never batched to wait > 10 min from ready.
   hot             Boolean  @default(true)
+  /// Menu section on the restaurant page ("لفات", "مشروبات"); null = the menu's last section.
+  categoryAr      String?  @map("category_ar")
+  /// Order within the menu (sections in first-item order, items by this).
+  sortOrder       Int      @default(0) @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

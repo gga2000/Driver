@@ -14,6 +14,10 @@
     "./router": {
       "types": "./dist/router.d.ts",
       "default": "./dist/router.js"
+    },
+    "./seeds": {
+      "types": "./dist/seeds/aziziyah-restaurants.d.ts",
+      "default": "./dist/seeds/aziziyah-restaurants.js"
     }
   },
   "scripts": {

@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest';
+import { basePrepMin, etaRange, foldArabic, nextOpening, openState, prepRange, rideMinutes, twelveHour } from './storefront.js';
+
+const TZ = 'Asia/Baghdad';
+const every = (start: string, end: string) => [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start, end }));
+
+describe('storefront helpers', () => {
+  it('formats local times on the 12-hour clock', () => {
+    expect(twelveHour('05:00')).toBe('5:00');
+    expect(twelveHour('13:15')).toBe('1:15');
+    expect(twelveHour('00:00')).toBe('12:00');
+    expect(twelveHour('12:30')).toBe('12:30');
+  });
+
+  it('open state: inside hours, across midnight, before opening, and the next opening time', () => {
+    // Saturday 23:30 Baghdad; 11:00–00:30 wraps past midnight.
+    const late = new Date('2026-10-03T20:30:00Z');
+    expect(openState(late, every('11:00', '00:30'), [], TZ)).toEqual({ open: true, closedReason: null, opensAt: null });
+    // Sunday 00:15 is still Saturday's window.
+    expect(openState(new Date('2026-10-03T21:15:00Z'), every('11:00', '00:30'), [], TZ).open).toBe(true);
+    // Sunday 01:00: closed until 11:00.
+    expect(openState(new Date('2026-10-03T22:00:00Z'), every('11:00', '00:30'), [], TZ)).toEqual({ open: false, closedReason: 'hours', opensAt: '11:00' });
+    // No hours on file = always open.
+    expect(openState(late, [], [], TZ).open).toBe(true);
+    // Only a Monday window: from Saturday evening the next opening is Monday's start.
+    expect(nextOpening(late, [{ dow: 1, start: '08:30', end: '12:00' }], TZ)).toBe('8:30');
+  });
+
+  it('prep: storefront figure, else the median item, plus the busy buffer', () => {
+    expect(basePrepMin(25, [])).toBe(25);
+    expect(basePrepMin(null, [{ prepTimeMin: 5 }, { prepTimeMin: 30 }, { prepTimeMin: 12 }])).toBe(12);
+    expect(basePrepMin(null, [])).toBe(20);
+    expect(prepRange(20, false)).toEqual({ min: 20, max: 30 });
+    expect(prepRange(20, true)).toEqual({ min: 30, max: 40 });
+  });
+
+  it('ride minutes grow with distance; ETA rounds the low end up to 5', () => {
+    const near = rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'street_30' })!;
+    const far = rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'khamas' })!;
+    expect(near).toBeGreaterThanOrEqual(5);
+    expect(far).toBeGreaterThan(near);
+    expect(rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'nowhere' })).toBeNull();
+    expect(etaRange({ min: 20, max: 30 }, 7)).toEqual({ min: 30, max: 40 });
+    expect(etaRange({ min: 20, max: 30 }, null)).toBeNull();
+  });
+
+  it('folds Arabic spelling variants for search', () => {
+    expect(foldArabic('مشكّل')).toBe(foldArabic('مشكل'));
+    expect(foldArabic('أكلة')).toBe('اكله');
+    expect(foldArabic('چاي')).toBe(foldArabic('جاي'));
+  });
+});
