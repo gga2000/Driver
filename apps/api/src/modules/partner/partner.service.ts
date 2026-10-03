@@ -59,7 +59,7 @@ export class PartnerService implements PartnerPort {
       canDrive,
       online: presence !== null,
       vehicleClass: presence?.vehicle ?? registered,
-      tier: presence?.tier ?? cap.tier,
+      tier: cap.tier,
       zoneId: presence?.zoneId ?? null,
       position: presence ? { lat: presence.lat, lng: presence.lng } : null,
       cash: {
