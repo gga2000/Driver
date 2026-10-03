@@ -892,5 +892,16 @@
   "console.vertical_khat": "خطوط",
   "console.distance_km": "المسافة (كم)",
   "console.duration_min": "المدة (دقيقة)",
-  "console.leg": "مرحلة {n}"
+  "console.leg": "مرحلة {n}",
+  "console.login": "دخول",
+  "console.logout": "اطلع",
+  "console.login_title": "دخول لوحة درايفر",
+  "console.login_subtitle": "سجّل برقم موبايلك، نرسلك رمز",
+  "console.login_code_label": "الرمز (6 أرقام)",
+  "console.login_change_phone": "غيّر الرقم",
+  "console.login_dev_code": "وضع التطوير · آخر رمز: {code}",
+  "console.login_dev_fill": "عبّيه",
+  "console.login_dev_none": "وضع التطوير · بعد ما وصل رمز",
+  "console.login_signed_in": "مسجّل دخول",
+  "console.login_done": "دخلت. نوديك للتسعير…"
 }

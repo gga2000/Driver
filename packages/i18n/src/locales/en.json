@@ -892,5 +892,16 @@
   "console.vertical_khat": "Khat",
   "console.distance_km": "Distance (km)",
   "console.duration_min": "Duration (min)",
-  "console.leg": "Leg {n}"
+  "console.leg": "Leg {n}",
+  "console.login": "Sign in",
+  "console.logout": "Sign out",
+  "console.login_title": "Sign in to Driver Console",
+  "console.login_subtitle": "Use your phone number; we send you a code",
+  "console.login_code_label": "Code (6 digits)",
+  "console.login_change_phone": "Change number",
+  "console.login_dev_code": "Dev mode · last code: {code}",
+  "console.login_dev_fill": "Fill",
+  "console.login_dev_none": "Dev mode · no code yet",
+  "console.login_signed_in": "Signed in",
+  "console.login_done": "Signed in. Taking you to pricing…"
 }

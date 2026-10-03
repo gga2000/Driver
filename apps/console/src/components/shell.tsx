@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
 import type { ReactNode } from 'react';
 import { NAV } from '@/lib/nav';
+import { clearSession, getSession, useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 
 /**
@@ -21,7 +22,12 @@ export function Shell({ children }: { children: ReactNode }) {
           <Link href="/" className="rounded-md font-display text-lg font-bold">
             <span className="text-accent">●</span> {t('app.console')}
           </Link>
-          <ApiStatus />
+          <div className="flex items-center gap-4 lg:block">
+            <ApiStatus />
+            <span className="lg:hidden">
+              <SessionControl />
+            </span>
+          </div>
         </div>
         <nav aria-label={t('app.console')} className="overflow-x-auto px-3 pb-3 lg:px-3">
           <ul className="flex gap-1 lg:flex-col">
@@ -43,6 +49,9 @@ export function Shell({ children }: { children: ReactNode }) {
             })}
           </ul>
         </nav>
+        <div className="hidden px-5 pb-4 lg:block">
+          <SessionControl />
+        </div>
       </aside>
       <main id="main" className="min-w-0 flex-1 p-4 md:p-8">
         {children}
@@ -62,5 +71,38 @@ function ApiStatus() {
       {label}
       {health.data?.version && <span className="font-mono">v{health.data.version}</span>}
     </p>
+  );
+}
+
+function SessionControl() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const signedIn = useSignedIn();
+  const logout = useMutation(trpc.identity.logout.mutationOptions());
+  if (!signedIn) {
+    return (
+      <Link href="/login" className="rounded-md text-sm text-accent underline">
+        {t('console.login')}
+      </Link>
+    );
+  }
+  const signOut = () => {
+    const refreshToken = getSession()?.refreshToken;
+    // Best-effort server revoke first (the batch link reads the bearer token when it sends),
+    // then the local session is cleared whatever the outcome.
+    logout.mutate(refreshToken ? { refreshToken } : {}, {
+      onSettled: () => {
+        clearSession();
+        queryClient.clear();
+      },
+    });
+  };
+  return (
+    <span className="flex items-center gap-3 text-xs text-muted">
+      <span className="hidden lg:inline">{t('console.login_signed_in')}</span>
+      <button type="button" onClick={signOut} disabled={logout.isPending} className="rounded-md text-sm text-text underline hover:text-accent">
+        {t('console.logout')}
+      </button>
+    </span>
   );
 }
