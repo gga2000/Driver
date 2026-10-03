@@ -8,12 +8,14 @@ app/
   _layout.tsx            providers (theme, toast, API), fonts, route guard, root <Stack>
   (auth)/                welcome → phone → otp → setup (name + first place, skippable)
   (tabs)/                index (الرئيسية) · orders (طلباتي) · wallet (المحفظة) · account (حسابي)
-  places/                deliver-to picker (modal) + add place
+  places/                deliver-to picker (modal), add place, place editor (edit?id=, "موقعي هنا")
+  profile/               name, safety (emergency contact) — modal
+  household/             العائلة: approvals, members + limits, shared places; invite; member limit
   restaurant/[id] cart checkout order/[id] rajaa   ← STUBS, replaced by later milestones
 src/
   lib/                   api (tRPC + React Query), session, guard, money, phone, profile, i18n, fonts
   components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
-  features/<flow>/       a flow's components and query hooks (home, auth, places)
+  features/<flow>/       a flow's components and query hooks (home, auth, places, account)
   fixtures/              isolated sample data where the API has no customer read yet
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
 ```
@@ -29,6 +31,16 @@ scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (P
   out (the guard sends the person to `/welcome` and the query cache is cleared); a network failure
   keeps the session.
 - API URL: `EXPO_PUBLIC_API_URL` (inlined at bundle time), default `http://localhost:3000/trpc`.
+
+## Account (places, profile, wallet, household)
+
+`features/account/` holds the M3 account surfaces: query hooks over `places.*`, `identity.me/updateProfile`,
+`wallet.*` and `household.*`; `PlaceEditor` (label, name, `PinMap` schematic map or zone chips,
+"موقعي الحالي" via expo-location, courier note, gate photo via expo-image-picker → signed PUT, household
+sharing); `ApprovalCard`; and `sync.ts` (`useAccountSync`, mounted by the tabs layout), which mirrors
+`places.mine` into the device profile store (home header, deliver-to picker and checkout keep reading
+`useProfile().places`) and migrates device-only places and names to the server once. Photo URLs from
+the dev storage are relative to the API origin (`photoUri`).
 
 ## Adding a flow
 
@@ -77,9 +89,12 @@ pnpm build                                            # packages + apps/api/dist
 cd apps/customer
 EXPO_OFFLINE=1 CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:3200/trpc EXPO_PUBLIC_DEV_TOOLS=1 \
   npx expo export --platform web --output-dir dist-web   # add --dev --no-minify for readable errors
-PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs, POST /demo/active-order
+PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs, POST /demo/active-order,
+                                                      # POST /demo/account (places, points, household)
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
-  node scripts/web-shots.mjs <out-dir>                # 390×844 @2x: welcome, phone, otp, setup, home, orders, profile
+  node scripts/web-shots.mjs <out-dir>                # 390×844 @2x: welcome, phone, otp, setup, home, orders, profile,
+                                                      # then acct-profile/-place-editor/-wallet/-household
+                                                      # (SHOTS_PREFIX=acct saves only those; DIST_DIR, DEMO_API)
 ```
 
 `EXPO_PUBLIC_DEV_TOOLS=1` shows the OTP dev-code strip in a production export (it is always on

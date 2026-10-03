@@ -7,7 +7,9 @@ import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
-import { LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
+import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
+import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
+import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
@@ -34,6 +36,9 @@ export class TrpcService {
     private readonly dispatch: DispatchService,
     private readonly consoleReads: ConsoleReadService,
     private readonly routes: RoutesRpc,
+    private readonly places: PlacesRpc,
+    private readonly wallet: CustomerWalletService,
+    private readonly households: HouseholdsRpc,
   ) {}
 
   /**
@@ -62,6 +67,9 @@ export class TrpcService {
       ledger: this.ledger,
       routes: this.routes,
       console: this.consoleReads,
+      places: this.places,
+      wallet: this.wallet,
+      households: this.households,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -86,5 +94,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, PlacesModule, OrgsModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

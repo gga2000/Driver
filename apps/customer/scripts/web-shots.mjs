@@ -9,7 +9,9 @@
 //            node apps/customer/scripts/web-shots.mjs <out-dir>
 //
 // Writes app-welcome, app-phone, app-otp, app-setup, app-home (+ app-home-full), app-orders and
-// app-profile PNGs at 390×844 (@2x). Exits non-zero on console errors or a missing screen.
+// app-profile PNGs at 390×844 (@2x), then the M3 account set (seeded by POST /demo/account):
+// acct-profile, acct-place-editor, acct-wallet, acct-household (+ -full). SHOTS_PREFIX=acct keeps
+// only those. Exits non-zero on console errors or a missing screen.
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -59,7 +61,10 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
+/** SHOTS_PREFIX=acct writes only acct-* files (other prefixes are still driven, not saved). */
+const shotsPrefix = process.env.SHOTS_PREFIX ?? '';
 const shot = async (name) => {
+  if (shotsPrefix && !name.startsWith(shotsPrefix)) return;
   await settle();
   const file = join(outDir, `${name}.png`);
   await page.screenshot({ path: file });
@@ -133,6 +138,38 @@ try {
   await byTestId('tab-account').click();
   await byTestId('account').waitFor();
   await shot('app-profile');
+
+  // ── M3 account: seed places / points / household for this person, then profile, place editor,
+  //    wallet and household approvals (acct-*).
+  if (personId) {
+    const r = await fetch(`${apiBase}/demo/account?personId=${encodeURIComponent(personId)}`, { method: 'POST' });
+    if (!r.ok) errors.push(`seed account: ${r.status} ${await r.text()}`);
+    await page.reload({ waitUntil: 'networkidle' });
+  }
+  await byTestId('tab-account').click();
+  await byTestId('account').waitFor();
+  await page.locator('[data-testid^="place-sp_"]').first().waitFor({ timeout: 15_000 });
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await shot('acct-profile');
+  await fullShot('acct-profile-full');
+
+  await page.locator('[data-testid^="place-sp_"]').first().click();
+  await byTestId('place-edit').waitFor({ timeout: 15_000 });
+  await byTestId('place-map').waitFor();
+  await shot('acct-place-editor');
+  await fullShot('acct-place-editor-full');
+  await page.goBack();
+
+  await byTestId('tab-wallet').click();
+  await byTestId('wallet-points').waitFor({ timeout: 15_000 });
+  await byTestId('wallet-lines').waitFor({ timeout: 15_000 });
+  await shot('acct-wallet');
+  await fullShot('acct-wallet-full');
+
+  await page.goto(`${origin}/household`, { waitUntil: 'networkidle' });
+  await byTestId('household').waitFor({ timeout: 15_000 });
+  await shot('acct-household');
+  await fullShot('acct-household-full');
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});

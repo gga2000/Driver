@@ -95,6 +95,8 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="places" options={{ headerShown: false, presentation: 'modal' }} />
+        <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
+        <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
         <Stack.Screen name="cart" options={{ title: t('cart.title') }} />
         <Stack.Screen name="checkout" options={{ title: t('checkout.title') }} />
