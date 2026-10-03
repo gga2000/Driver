@@ -663,6 +663,34 @@ export const DriverDepartureView = DepartureCard.extend({
 });
 export type DriverDepartureView = z.infer<typeof DriverDepartureView>;
 
+/**
+ * `routes.driver.riders`: the riders on the driver's own departure by FIRST name only (partner app
+ * seat map and manifest). Read from the identity vault for this driver, every read logged
+ * (purpose `intercity_manifest`); the full name and the phone never leave identity.
+ */
+export const DepartureRiderName = z.object({
+  bookingId: z.string(),
+  riderId: z.string(),
+  /** Null when the rider has not set a name yet. */
+  firstName: z.string().nullable(),
+});
+export type DepartureRiderName = z.infer<typeof DepartureRiderName>;
+
+/**
+ * `routes.requestBoard.myRides`: request-board rides where the rider picked this driver's offer
+ * (matched → driver_arrived → completed / rider_no_show), with the timing the driver's buttons need.
+ */
+export const DriverRequestRide = RequestPostView.extend({
+  /** The picked offer (this driver's): what the rider pays, deposit included. */
+  priceIqd: Iqd,
+  driverArrivedAt: z.coerce.date().nullable(),
+  /** From when "الراكب ما إجا" is allowed (arrival or trip time, the later, + the wait); null before arrival. */
+  riderNoShowAt: z.coerce.date().nullable(),
+  /** Cash the driver collects at the end (price minus the wallet deposit). */
+  cashToCollectIqd: Iqd,
+});
+export type DriverRequestRide = z.infer<typeof DriverRequestRide>;
+
 // ───────────────────────── ops (Console garage view) ─────────────────────────
 
 export const GarageOpsInput = z.object({
@@ -724,11 +752,13 @@ export interface RoutesPort {
   depart(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;
   arrive(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;
   cancelDeparture(actor: Actor, input: CancelDepartureInput): Promise<DriverDepartureView>;
+  driverRiders(actor: Actor, input: DepartureIdInput): Promise<DepartureRiderName[]>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
   requestCompleted(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportRiderNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  myRequestRides(actor: Actor): Promise<DriverRequestRide[]>;
   // ops
   garageView(actor: Actor, input: GarageOpsInput): Promise<GarageOpsView>;
 }

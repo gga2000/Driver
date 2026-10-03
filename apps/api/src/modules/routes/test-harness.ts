@@ -71,7 +71,19 @@ export function routesHarness(
     ids,
   );
   const demand = new DemandService(repo, events, clock, writer, departures, INTERCITY_NETWORK, ids);
-  const rpc = new RoutesRpc(departures, demand, requests, repo);
+  /** Riders' names as identity would hold them; every read recorded like the vault log. */
+  const riderNames = new Map<string, string>();
+  const nameReads: Array<{ personId: string; accessorId: string; purpose: string }> = [];
+  const rpc = new RoutesRpc(departures, demand, requests, repo, {
+    firstNamesFor: async (ids, accessorId, purpose) => {
+      const out: Record<string, string | null> = {};
+      for (const id of new Set(ids)) {
+        nameReads.push({ personId: id, accessorId, purpose });
+        out[id] = riderNames.get(id)?.split(/\s+/)[0] ?? null;
+      }
+      return out;
+    },
+  });
   const scheduler = new RoutesScheduler(writer, departures, demand, requests);
 
   const at = (minutesFromNow: number) => new Date(clock.now().getTime() + minutesFromNow * 60_000);
@@ -163,6 +175,8 @@ export function routesHarness(
     departures,
     demand,
     rpc,
+    riderNames,
+    nameReads,
     scheduler,
     at,
     announce,

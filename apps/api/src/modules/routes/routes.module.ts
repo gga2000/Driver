@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
+import { IdentityModule, IdentityService } from '../identity/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
@@ -15,7 +16,7 @@ import { InMemoryRoutesRepository, ROUTES_REPOSITORY } from './routes.repository
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
 import { randomIds, ROUTES_IDS } from './support.js';
-import { CHECKPOINT_WAIVER, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RULES } from './tokens.js';
+import { CHECKPOINT_WAIVER, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader } from './tokens.js';
 import { LedgerWallet, ROUTES_WALLET } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
@@ -29,7 +30,7 @@ import { RoutesWriter } from './writer.js';
  * `DEPARTURES` port.
  */
 @Module({
-  imports: [EventsModule, LedgerModule],
+  imports: [EventsModule, LedgerModule, IdentityModule],
   providers: [
     {
       provide: ROUTES_REPOSITORY,
@@ -52,6 +53,13 @@ import { RoutesWriter } from './writer.js';
     { provide: ROUTES_MONEY_RULES, useValue: AZIZIYAH_MONEY_RULES },
     { provide: CHECKPOINT_WAIVER, useClass: TrailCheckpointWaiver },
     { provide: ROUTES_IDS, useValue: randomIds },
+    {
+      provide: ROUTES_RIDER_NAMES,
+      useFactory: (identity: IdentityService): RiderNamesReader => ({
+        firstNamesFor: (ids, accessorId, purpose) => identity.firstNamesFor(ids, accessorId, purpose),
+      }),
+      inject: [IdentityService],
+    },
     RoutesWriter,
     RequestBoardService,
     DeparturesService,

@@ -175,3 +175,57 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     ]);
   });
 });
+
+describe('partner wave 2 reads: the manifest names and the driver\'s request-board rides', () => {
+  it('driver.riders: first names of his own riders only, every read logged as intercity_manifest', async () => {
+    const h = routesHarness();
+    const driver = as(h, 'd1', ['intercity_driver']);
+    h.riderNames.set('r1', 'زهراء علي حسين');
+    const dep = await h.announce();
+    const zahraa = await h.book('r1', dep.id, ['front'], { travellingAs: 'nisa' });
+    const nameless = await h.book('r2', dep.id, ['back_left']);
+    const cancelled = await h.hold('r3', dep.id, ['back_right']);
+    await h.departures.cancel('r3', cancelled.id);
+
+    const riders = await driver.driver.riders({ departureId: dep.id });
+    expect(riders).toEqual([
+      { bookingId: zahraa.id, riderId: 'r1', firstName: 'زهراء' },
+      { bookingId: nameless.id, riderId: 'r2', firstName: null },
+    ]);
+    expect(JSON.stringify(riders)).not.toContain('حسين');
+    expect(h.nameReads).toEqual([
+      { personId: 'r1', accessorId: 'd1', purpose: 'intercity_manifest' },
+      { personId: 'r2', accessorId: 'd1', purpose: 'intercity_manifest' },
+    ]);
+    // Another driver may not read this manifest.
+    expect(await codeOf(as(h, 'd2', ['intercity_driver']).driver.riders({ departureId: dep.id }))).toBe('FORBIDDEN');
+  });
+
+  it('requestBoard.myRides: only rides that picked his offer, with price, cash to collect and the no-show time', async () => {
+    const h = routesHarness();
+    const rider = as(h, 'r1', ['customer']);
+    const driver = as(h, 'd1', ['intercity_driver']);
+    const rival = as(h, 'd2', ['intercity_driver']);
+    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة ١', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 3, travellingAs: 'aila' });
+    const mine = await driver.requestBoard.offer({ postId: rq.id, priceIqd: 45_000 });
+    await rival.requestBoard.offer({ postId: rq.id, priceIqd: 50_000 });
+    expect(await driver.requestBoard.myRides()).toEqual([]);
+    h.wallet.set('r1', 100_000);
+    await rider.requestBoard.pick({ postId: rq.id, offerId: mine.offers[0]!.id });
+
+    const [ride] = await driver.requestBoard.myRides();
+    expect(ride).toMatchObject({ id: rq.id, state: 'matched', priceIqd: 45_000, depositIqd: 9_000, cashToCollectIqd: 36_000, driverArrivedAt: null, riderNoShowAt: null });
+    expect(await rival.requestBoard.myRides()).toEqual([]);
+
+    h.advance(35);
+    await driver.requestBoard.arrived({ postId: rq.id, lat: BAB1.lat, lng: BAB1.lng });
+    const [arrived] = await driver.requestBoard.myRides();
+    expect(arrived!.state).toBe('driver_arrived');
+    expect(arrived!.riderNoShowAt?.getTime()).toBe(h.at(10).getTime());
+    await driver.requestBoard.complete({ postId: rq.id });
+    expect((await driver.requestBoard.myRides())[0]!.state).toBe('completed');
+    // Closed rides drop off after 12 hours.
+    h.advance(13 * 60);
+    expect(await driver.requestBoard.myRides()).toEqual([]);
+  });
+});

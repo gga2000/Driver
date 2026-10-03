@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
@@ -7,7 +7,9 @@ import {
   type BookingView,
   type DemandBucket,
   type DemandPostView,
+  type DepartureRiderName,
   type DriverDepartureView,
+  type DriverRequestRide,
   type GarageOpsView,
   type ImHereOutput,
   type IntercityBoard,
@@ -23,6 +25,7 @@ import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord } from '
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
+import { ROUTES_RIDER_NAMES, type RiderNamesReader } from './tokens.js';
 import {
   bookingView,
   corridorView,
@@ -50,6 +53,7 @@ export class RoutesRpc implements RoutesPort {
     private readonly demand: DemandService,
     private readonly requests: RequestBoardService,
     @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
+    @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
   ) {}
 
   async network(): Promise<IntercityNetwork> {
@@ -300,6 +304,30 @@ export class RoutesRpc implements RoutesPort {
     );
   }
 
+  /**
+   * The riders on his own departure by first name (the rows `driverDeparture` lists), read from the
+   * identity vault with purpose `intercity_manifest`. Without an identity reader names are null.
+   */
+  async driverRiders(actor: Actor, input: In<'driverRiders'>): Promise<DepartureRiderName[]> {
+    const dep = await this.departures.departure(input.departureId);
+    if (dep.driverId !== actor.personId) throw new DriverError('not_departure_driver');
+    const rows = (await this.repo.bookingsFor(dep.id)).filter(
+      (b) => LIVE.includes(b.state) || b.state === 'completed' || b.state === 'no_show',
+    );
+    const names = this.names
+      ? await this.names.firstNamesFor(
+          rows.map((b) => b.riderId),
+          actor.personId,
+          'intercity_manifest',
+        )
+      : {};
+    return rows.map((b) => ({
+      bookingId: b.id,
+      riderId: b.riderId,
+      firstName: names[b.riderId] ?? null,
+    }));
+  }
+
   async openRequests(actor: Actor, input: In<'openRequests'>): Promise<RequestPostView[]> {
     return (await this.requests.listOpen(actor.personId, input?.cityId)).map((r) =>
       requestView(r, actor.personId),
@@ -329,6 +357,35 @@ export class RoutesRpc implements RoutesPort {
       await this.requests.riderNoShow(actor.personId, input.postId),
       actor.personId,
     );
+  }
+
+  /** Rides where the rider picked this driver's offer: live ones, and those closed in the last 12 h. */
+  async myRequestRides(actor: Actor): Promise<DriverRequestRide[]> {
+    const now = this.departures.now().getTime();
+    const rb = this.departures.rules.requestBoard;
+    const rows = await this.repo.listRequests({
+      states: ['matched', 'driver_arrived', 'completed', 'rider_no_show', 'cancelled', 'driver_no_show'],
+    });
+    const out: DriverRequestRide[] = [];
+    for (const r of rows) {
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (!picked || picked.driverId !== actor.personId) continue;
+      if (r.closedAt && now - r.closedAt.getTime() > 12 * 3600_000) continue;
+      const deposit = r.depositIqd ?? 0;
+      out.push({
+        ...requestView(r, actor.personId),
+        priceIqd: picked.priceIqd,
+        driverArrivedAt: r.driverArrivedAt,
+        riderNoShowAt: r.driverArrivedAt
+          ? new Date(
+              Math.max(r.driverArrivedAt.getTime(), r.when.getTime()) +
+                rb.riderNoShowWaitMin * MIN_MS,
+            )
+          : null,
+        cashToCollectIqd: Math.max(0, picked.priceIqd - deposit),
+      });
+    }
+    return out.sort((a, b) => a.when.getTime() - b.when.getTime());
   }
 
   // ───────────────────────── ops ─────────────────────────

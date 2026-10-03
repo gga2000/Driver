@@ -371,6 +371,28 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * First names only, for a work context that shows people by first name (the intercity driver's
+   * manifest). Every read is logged against the person read, with the caller's `purpose`; the full
+   * name and the phone never leave identity. Unknown or deleted people are left out; a person
+   * without a name maps to null.
+   */
+  async firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const out: Record<string, string | null> = {};
+      for (const personId of new Set(personIds)) {
+        const person = await this.repo.findPersonById(personId, tx);
+        if (!person || person.deletedAt) continue;
+        const identity = await this.repo.readIdentity(personId, tx);
+        if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name'], now }, tx);
+        const first = identity?.name ? firstNameOf(identity.name) : '';
+        out[personId] = first || null;
+      }
+      return out;
+    });
+  }
+
+  /**
    * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
    * the public side records just that the profile changed, never the values.
    */

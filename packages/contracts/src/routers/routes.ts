@@ -15,8 +15,10 @@ import {
   DemandPostView,
   DepartureBookingInput,
   DepartureIdInput,
+  DepartureRiderName,
   DriverDepartureView,
   DriverPositionInput,
+  DriverRequestRide,
   GarageOpsInput,
   GarageOpsView,
   HoldSeatInput,
@@ -141,6 +143,10 @@ export const routesRouter = router({
       .input(RequestIdInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.reportRiderNoShow(ctx.actor, input)),
+    /** Driver: rides where the rider picked his offer (live ones, and those closed in the last 12 h). */
+    myRides: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .output(z.array(DriverRequestRide))
+      .query(({ ctx }) => ctx.routes.myRequestRides(ctx.actor)),
     /** Rider: the driver did not come — 2× the deposit from the driver's balance. */
     driverNoShow: protectedProcedure()
       .input(RequestIdInput)
@@ -161,6 +167,11 @@ export const routesRouter = router({
       .input(DepartureIdInput)
       .output(DriverDepartureView)
       .query(({ ctx, input }) => ctx.routes.driverDeparture(ctx.actor, input)),
+    /** First names of the riders on his own departure (vault reads logged, purpose intercity_manifest). */
+    riders: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(DepartureIdInput)
+      .output(z.array(DepartureRiderName))
+      .query(({ ctx, input }) => ctx.routes.driverRiders(ctx.actor, input)),
     /** Demand counts per garage and window (claimed vs posted). */
     demand: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(DemandBoardInput)
