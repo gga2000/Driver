@@ -24,6 +24,8 @@ export const FleetVehicle = z.object({
   vehicleClass: VehicleClass,
   activeDriverId: z.string().nullable(),
   active: z.boolean(),
+  /** Passenger seats (the vehicle's seat map; edge-case §9: saloon 4, SUV 6, van 7/11); 0 for a bike. */
+  seats: z.number().int().min(0),
 });
 export type FleetVehicle = z.infer<typeof FleetVehicle>;
 
@@ -37,6 +39,10 @@ export const FleetDriver = z.object({
   todayEarningsIqd: Iqd,
   weekEarningsIqd: Iqd,
   owedIqd: Iqd,
+  /** Cash in his hand that is not his (customers' cash not yet returned), for the cap bar. */
+  cashHeldIqd: Iqd,
+  /** His cash cap by role and tier (money §4). */
+  capIqd: Iqd,
   /** Worst document status (expired > expiring > pending > rejected > approved); null without documents. */
   documents: DriverDocumentStatus.nullable(),
 });
@@ -49,6 +55,15 @@ export const FleetExpiringDocument = z.object({
   expiresAt: z.coerce.date().nullable(),
   daysToExpiry: z.number().int().nullable(),
 });
+
+/** One local day of the fleet's earnings (sum of its drivers' jobs that day). */
+export const FleetDay = z.object({
+  /** Local date `YYYY-MM-DD` (Baghdad). */
+  date: z.string(),
+  earningsIqd: Iqd,
+  jobs: z.number().int(),
+});
+export type FleetDay = z.infer<typeof FleetDay>;
 
 export const FleetOverview = z.object({
   fleetOrgId: z.string(),
@@ -65,6 +80,8 @@ export const FleetOverview = z.object({
   drivers: z.array(FleetDriver),
   /** Expired or expiring within 30 days, soonest first. */
   expiringDocuments: z.array(FleetExpiringDocument),
+  /** This local week, Sunday → Saturday (7 entries; days still to come are 0). */
+  days: z.array(FleetDay),
 });
 export type FleetOverview = z.infer<typeof FleetOverview>;
 
@@ -75,7 +92,12 @@ export const AssignDriverInput = FleetScopeInput.extend({
 });
 export type AssignDriverInput = z.infer<typeof AssignDriverInput>;
 
-export const AddVehicleInput = FleetScopeInput.extend({ plate: z.string().trim().min(2).max(20), vehicleClass: VehicleClass });
+export const AddVehicleInput = FleetScopeInput.extend({
+  plate: z.string().trim().min(2).max(20),
+  vehicleClass: VehicleClass,
+  /** Passenger seats; defaults by class (bike 0, tuktuk 3, car 4, SUV 6, van 7, intercity 4). */
+  seats: z.number().int().min(0).max(14).optional(),
+});
 export type AddVehicleInput = z.infer<typeof AddVehicleInput>;
 
 /** Links a driver to the fleet by phone; the driving role itself still comes from ops review. */

@@ -6,7 +6,7 @@ import type { DriverAccountService } from '../driver-account/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { InMemoryFleetRepository } from './fleet.repository.js';
-import { FleetService } from './fleet.service.js';
+import { FleetService, fleetWeek } from './fleet.service.js';
 
 function earnings(driverId: string, netIqd: number, overCap = false): EarningsView {
   return {
@@ -57,7 +57,9 @@ describe('fleet', () => {
     const v2 = await h.fleet.addVehicle(h.owner, { plate: 'واسط 777', vehicleClass: 'tuktuk' });
     await expect(h.fleet.addVehicle(h.owner, { plate: 'واسط  12345', vehicleClass: 'car' })).rejects.toMatchObject({ code: 'vehicle_plate_taken' });
     const d = await h.fleet.addDriver(h.owner, { phone: '07700000050' });
-    expect(d).toMatchObject({ state: 'offline', vehicleId: null, todayEarningsIqd: 12500, weekEarningsIqd: 80000, tier: 'silver', phoneMasked: '+96477*****50' });
+    expect(d).toMatchObject({ state: 'offline', vehicleId: null, todayEarningsIqd: 12500, weekEarningsIqd: 80000, tier: 'silver', phoneMasked: '+96477*****50', cashHeldIqd: 0, capIqd: 150000 });
+    expect([v1.seats, v2.seats]).toEqual([4, 3]);
+    expect((await h.fleet.addVehicle(h.owner, { plate: 'واسط 999', vehicleClass: 'van', seats: 11 })).seats).toBe(11);
     // Names are read through the vault with the fleet purpose.
     expect(h.id.repo.accessLogs.some((l) => l.personId === d.driverId && l.purpose === 'fleet_view')).toBe(true);
 
@@ -73,7 +75,8 @@ describe('fleet', () => {
       { id: 'doc2', kind: 'photo', kind_ar: '', status: 'approved', status_ar: '', expiresAt: null, daysToExpiry: null, submittedAt: new Date(), reviewedAt: null, rejectReason: null },
     ]);
     const o = await h.fleet.overview(h.owner, {});
-    expect(o.totals).toMatchObject({ vehicles: 2, drivers: 1, online: 1, onJob: 1, todayEarningsIqd: 12500, weekEarningsIqd: 80000 });
+    expect(o.days).toHaveLength(7);
+    expect(o.totals).toMatchObject({ vehicles: 3, drivers: 1, online: 1, onJob: 1, todayEarningsIqd: 12500, weekEarningsIqd: 80000 });
     expect(o.drivers[0]).toMatchObject({ state: 'on_job', vehicleId: v2.vehicleId, documents: 'expiring' });
     expect(o.expiringDocuments).toEqual([{ driverId: d.driverId, kind: 'licence', status: 'expiring', expiresAt: new Date('2026-10-20T00:00:00Z'), daysToExpiry: 17 }]);
     expect((await h.ev.events.forActor(h.owner.personId)).map((e) => e.type)).toEqual(expect.arrayContaining(['fleet.vehicle_added', 'fleet.driver_added', 'fleet.vehicle_assigned']));
@@ -84,5 +87,21 @@ describe('fleet', () => {
     const d = await h.fleet.addDriver(h.owner, { phone: '07700000050' });
     expect((await h.fleet.driverEarnings(h.owner, { driverId: d.driverId, period: 'week' })).driverId).toBe(d.driverId);
     await expect(h.fleet.driverEarnings(h.owner, { driverId: 'someone', period: 'week' })).rejects.toMatchObject({ code: 'driver_not_in_fleet' });
+  });
+});
+
+describe('fleetWeek', () => {
+  it('buckets job earnings into the local week, Sunday to Saturday', () => {
+    // Saturday 2026-10-03 12:00 local; the week started Sunday 2026-09-27.
+    const now = new Date('2026-10-03T09:00:00Z');
+    const days = fleetWeek(now, [
+      { at: new Date('2026-09-27T05:00:00Z'), netIqd: 3000 },
+      { at: new Date('2026-09-27T22:30:00Z'), netIqd: 2000 }, // 01:30 Monday local
+      { at: new Date('2026-10-03T08:00:00Z'), netIqd: 1500 },
+      { at: new Date('2026-09-26T08:00:00Z'), netIqd: 9999 }, // last week
+    ]);
+    expect(days.map((d) => d.date)).toEqual(['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03']);
+    expect(days.map((d) => d.earningsIqd)).toEqual([3000, 2000, 0, 0, 0, 0, 1500]);
+    expect(days.map((d) => d.jobs)).toEqual([1, 1, 0, 0, 0, 0, 1]);
   });
 });

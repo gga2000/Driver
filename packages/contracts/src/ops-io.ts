@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { DeliveryPoint, Iqd } from './common.js';
+import { DeliveryPoint, Iqd, LatLng } from './common.js';
+import { CapTier, SettlementMode } from './ledger-rules.js';
 import type { Actor } from './identity-io.js';
 
 /**
@@ -69,6 +70,8 @@ export const MerchantOnboardingInput = z.object({
   menuPhotoUploadIds: z.array(z.string().min(1)).max(30).default([]),
   shopPhotoUploadId: z.string().min(1).optional(),
   notes: z.string().trim().max(500).optional(),
+  /** How the merchant wants his cash back (decisions §3); the city default when absent. */
+  settlementMode: SettlementMode.optional(),
 });
 export type MerchantOnboardingInput = z.input<typeof MerchantOnboardingInput>;
 
@@ -103,7 +106,37 @@ export type OpsTask = z.infer<typeof OpsTask>;
 export const MyTasksInput = z.object({ cityId: z.string().min(1).optional() });
 export const CompleteTaskInput = z.object({ taskId: z.string().min(1), note: z.string().trim().max(200).optional() });
 
+/** A courier holding customers' cash: who the ops person can take a hand-over from. */
+export const OpsCashHolder = z.object({
+  courierId: z.string(),
+  name: z.string().nullable(),
+  phoneMasked: z.string().nullable(),
+  /** Cash in his hand that is not his. */
+  heldIqd: Iqd,
+  /** What counts against his cap (held + fees owed − earnings). */
+  owedIqd: Iqd,
+  capIqd: Iqd,
+  tier: CapTier,
+  overCap: z.boolean(),
+});
+export type OpsCashHolder = z.infer<typeof OpsCashHolder>;
+export const CashHoldersInput = z.object({ cityId: z.string().min(1).optional() });
+
+/** A landmark place field ops can photograph (shared city knowledge, `places.landmark`). */
+export const OpsLandmark = z.object({
+  placeId: z.string(),
+  name: z.string(),
+  zoneKey: z.string().nullable(),
+  pin: LatLng,
+  /** Photos on the place (approved) plus photos proposed through ops and not yet reviewed. */
+  photos: z.number().int(),
+});
+export type OpsLandmark = z.infer<typeof OpsLandmark>;
+export const LandmarksInput = z.object({ cityId: z.string().min(1).default('aziziyah'), zoneKey: z.string().min(1).optional() });
+
 export interface OpsPort {
+  cashHolders(actor: Actor, input: z.infer<typeof CashHoldersInput>): Promise<OpsCashHolder[]>;
+  landmarks(actor: Actor, input: z.output<typeof LandmarksInput>): Promise<OpsLandmark[]>;
   addLandmarkPhoto(actor: Actor, input: z.output<typeof AddLandmarkPhotoInput>): Promise<LandmarkPhotoView>;
   recordCashReceipt(actor: Actor, input: RecordCashReceiptInput): Promise<CashReceiptView>;
   merchantOnboarding(actor: Actor, input: z.output<typeof MerchantOnboardingInput>): Promise<MerchantOnboardingView>;

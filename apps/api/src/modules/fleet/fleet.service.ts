@@ -6,6 +6,7 @@ import {
   type AddVehicleInput,
   type AssignDriverInput,
   type EarningsView,
+  type FleetDay,
   type FleetDriver,
   type FleetDriverEarningsInput,
   type FleetDriverState,
@@ -16,6 +17,7 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { localDateKey, startOfLocalWeek } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { DriverAccountService, worstStatus } from '../driver-account/index.js';
@@ -24,7 +26,23 @@ import { IdentityService } from '../identity/index.js';
 import { FLEET_REPOSITORY, type FleetRepository, type VehicleRecord } from './fleet.repository.js';
 
 function vehicleView(v: VehicleRecord): FleetVehicle {
-  return { vehicleId: v.id, plate: v.plate, vehicleClass: v.vehicleClass, activeDriverId: v.activeDriverId, active: v.active };
+  return { vehicleId: v.id, plate: v.plate, vehicleClass: v.vehicleClass, activeDriverId: v.activeDriverId, active: v.active, seats: v.seats };
+}
+
+const DAY_MS = 86_400_000;
+
+/** The local week Sunday → Saturday with each day's job earnings summed over the fleet's drivers. */
+export function fleetWeek(now: Date, jobs: ReadonlyArray<{ at: Date; netIqd: number }>): FleetDay[] {
+  const start = startOfLocalWeek(now);
+  const days: FleetDay[] = Array.from({ length: 7 }, (_, i) => ({ date: localDateKey(new Date(start.getTime() + i * DAY_MS + DAY_MS / 2)), earningsIqd: 0, jobs: 0 }));
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  for (const j of jobs) {
+    const d = byDate.get(localDateKey(j.at));
+    if (!d) continue;
+    d.earningsIqd += j.netIqd;
+    d.jobs += 1;
+  }
+  return days;
 }
 
 function stateOf(live: LiveDriver | undefined, overCap: boolean): FleetDriverState {
@@ -68,13 +86,14 @@ export class FleetService implements FleetPort {
   }
 
   async drivers(actor: Actor, input: FleetScopeInput): Promise<FleetDriver[]> {
-    return this.driverRows(actor, await this.fleetOf(actor, input.fleetOrgId));
+    return (await this.driverRows(actor, await this.fleetOf(actor, input.fleetOrgId))).rows;
   }
 
-  private async driverRows(actor: Actor, fleetOrgId: string): Promise<FleetDriver[]> {
+  private async driverRows(actor: Actor, fleetOrgId: string): Promise<{ rows: FleetDriver[]; weekJobs: Array<{ at: Date; netIqd: number }> }> {
     const [links, vehicles] = await Promise.all([this.repo.drivers(fleetOrgId), this.repo.vehicles(fleetOrgId)]);
     const ids = links.map((l) => l.personId);
-    if (ids.length === 0) return [];
+    const weekJobs: Array<{ at: Date; netIqd: number }> = [];
+    if (ids.length === 0) return { rows: [], weekJobs };
     const now = this.clock.now();
     const live = new Map<string, LiveDriver>();
     for (const cityId of this.config.cityIds()) for (const d of await this.dispatch.liveDrivers(cityId, now)) live.set(d.presence.driverId, d);
@@ -82,6 +101,7 @@ export class FleetService implements FleetPort {
     const rows: FleetDriver[] = [];
     for (const id of ids) {
       const [today, week] = await Promise.all([this.accounts.earningsFor(id, 'day', now), this.accounts.earningsFor(id, 'week', now)]);
+      for (const j of week.jobs) weekJobs.push({ at: j.at, netIqd: j.netIqd });
       rows.push({
         driverId: id,
         name: cards[id]?.name ?? null,
@@ -92,15 +112,17 @@ export class FleetService implements FleetPort {
         todayEarningsIqd: today.totals.netIqd,
         weekEarningsIqd: week.totals.netIqd,
         owedIqd: today.cash.owedIqd,
+        cashHeldIqd: today.cash.heldIqd,
+        capIqd: today.cap.capIqd,
         documents: worstStatus((docs.get(id) ?? []).map((d) => d.status)),
       });
     }
-    return rows;
+    return { rows, weekJobs };
   }
 
   async overview(actor: Actor, input: FleetScopeInput): Promise<FleetOverview> {
     const fleetOrgId = await this.fleetOf(actor, input.fleetOrgId);
-    const [vehicles, drivers] = await Promise.all([this.repo.vehicles(fleetOrgId), this.driverRows(actor, fleetOrgId)]);
+    const [vehicles, { rows: drivers, weekJobs }] = await Promise.all([this.repo.vehicles(fleetOrgId), this.driverRows(actor, fleetOrgId)]);
     const docs = await this.accounts.documentsOf(drivers.map((d) => d.driverId));
     const expiring = [...docs.entries()]
       .flatMap(([driverId, list]) => list.filter((d) => d.status === 'expired' || d.status === 'expiring').map((d) => ({ driverId, kind: d.kind, status: d.status, expiresAt: d.expiresAt, daysToExpiry: d.daysToExpiry })))
@@ -119,6 +141,7 @@ export class FleetService implements FleetPort {
       vehicles: vehicles.map(vehicleView),
       drivers,
       expiringDocuments: expiring,
+      days: fleetWeek(this.clock.now(), weekJobs),
     };
   }
 
@@ -153,7 +176,7 @@ export class FleetService implements FleetPort {
     const plate = input.plate.replace(/\s+/g, ' ').trim();
     if (await this.repo.vehicleByPlate(plate)) throw new DriverError('vehicle_plate_taken');
     return this.uow.run(async (tx) => {
-      const v = await this.repo.createVehicle({ plate, vehicleClass: input.vehicleClass, ownerOrgId: fleetOrgId }, tx);
+      const v = await this.repo.createVehicle({ plate, vehicleClass: input.vehicleClass, ownerOrgId: fleetOrgId, ...(input.seats !== undefined ? { seats: input.seats } : {}) }, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'fleet.vehicle_added', occurredAt: this.clock.now(), payload: { fleetOrgId, vehicleId: v.id, vehicleClass: v.vehicleClass } }, { name: 'org', id: fleetOrgId });
       return vehicleView(v);
     });
@@ -167,7 +190,7 @@ export class FleetService implements FleetPort {
       await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now() }, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'fleet.driver_added', occurredAt: this.clock.now(), payload: { fleetOrgId, personId } }, { name: 'org', id: fleetOrgId });
     });
-    const row = (await this.driverRows(actor, fleetOrgId)).find((d) => d.driverId === personId);
+    const row = (await this.driverRows(actor, fleetOrgId)).rows.find((d) => d.driverId === personId);
     if (!row) throw new DriverError('internal');
     return row;
   }

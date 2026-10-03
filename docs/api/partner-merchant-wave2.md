@@ -69,12 +69,12 @@ Role: `fleet_owner` scoped to the fleet org. `fleetOrgId` may be omitted when th
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
-| `overview` | query | `{fleetOrgId?}` | `{fleetOrgId, totals {vehicles, drivers, online, onJob, todayEarningsIqd, weekEarningsIqd, owedIqd}, vehicles[], drivers[], expiringDocuments[] {driverId, kind, status, expiresAt, daysToExpiry}}` |
-| `vehicles` | query | `{fleetOrgId?}` | `[{vehicleId, plate, vehicleClass, activeDriverId, active}]` |
-| `drivers` | query | `{fleetOrgId?}` | `[{driverId, name, phoneMasked, state: offline\|online\|on_job\|over_cap, vehicleId, tier, todayEarningsIqd, weekEarningsIqd, owedIqd, documents (worst status)}]` |
+| `overview` | query | `{fleetOrgId?}` | `{fleetOrgId, totals {vehicles, drivers, online, onJob, todayEarningsIqd, weekEarningsIqd, owedIqd}, vehicles[], drivers[], expiringDocuments[] {driverId, kind, status, expiresAt, daysToExpiry}, days[7] {date (local YYYY-MM-DD, Sunday first), earningsIqd, jobs}}` |
+| `vehicles` | query | `{fleetOrgId?}` | `[{vehicleId, plate, vehicleClass, activeDriverId, active, seats}]` |
+| `drivers` | query | `{fleetOrgId?}` | `[{driverId, name, phoneMasked, state: offline\|online\|on_job\|over_cap, vehicleId, tier, todayEarningsIqd, weekEarningsIqd, owedIqd, cashHeldIqd, capIqd, documents (worst status)}]` |
 | `driverEarnings` | query | `{fleetOrgId?, driverId, period = 'week', anchor?}` | `EarningsView` (as `driverAccount.earnings`) |
 | `assignDriver` | mutation | `{fleetOrgId?, vehicleId, driverId \| null}` | `FleetVehicle` (a driver leaves his other vehicle) |
-| `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass}` | `FleetVehicle` |
+| `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass, seats? (0–14; default by class: bike 0, tuktuk 3, car 4, suv 6, van 7)}` | `FleetVehicle` (seats stored as the vehicle's seat map) |
 | `addDriver` | mutation | `{fleetOrgId?, phone}` | `FleetDriver` (person found or created by phone; the driving role still comes from ops review) |
 
 Names are vault reads logged with purpose `fleet_view`. Errors: `fleet_not_found`, `fleet_ambiguous`,
@@ -88,9 +88,11 @@ Roles: `field_ops`, `admin`.
 |---|---|---|---|
 | `addLandmarkPhoto` | mutation | `{target {kind: place\|meeting_point\|landmark, id}, uploadId, caption?, localNames[] (≤ 5)}` | `{photoId, target, state: 'proposed', addedAt}` (`landmark.proposed`; Console approves) |
 | `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt) |
-| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin?}, menuPhotoUploadIds[], shopPhotoUploadId?, notes?}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
+| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin?}, menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
 | `myTasks` | query | `{cityId?}` | `[{taskId, kind: cash_collection\|merchant_followup\|landmark_photo\|document_check, title_ar, refId, amountIqd, dueAt, state, computed}]` — computed `cash:<driverId>` tasks for couriers owing ≥ 50 % of their cap (or over it) |
 | `completeTask` | mutation | `{taskId, note?}` | `OpsTask` (stored tasks only) |
+| `cashHolders` | query | `{cityId?}` | `[{courierId, name, phoneMasked, heldIqd, owedIqd, capIqd, tier, overCap}]` — couriers holding customers' cash, over-cap then most owed first; names are vault reads (purpose `ops_cash_round`) |
+| `landmarks` | query | `{cityId = 'aziziyah', zoneKey?}` | `[{placeId, name, zoneKey, pin, photos}]` — landmark places (fewest photos first); `photos` counts the place's photos plus ops proposals still pending. A new landmark is proposed with `addLandmarkPhoto` target `{kind: 'landmark', id: 'new:<zoneKey>'}` and its name first in `localNames` |
 
 Errors: `handover_code_invalid`, `cash_receipt_exceeds_held`, `task_not_found`, `upload_invalid`.
 

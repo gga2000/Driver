@@ -39,6 +39,11 @@ export class PlacesService {
     return next;
   }
 
+  /** The city's landmark places (shared city knowledge), by name. */
+  landmarks(cityId: string): Place[] {
+    return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }
+
   nearby(cityId: string, pin: LatLng, radiusKm: number): Array<Place & { distanceKm: number }> {
     return [...this.places.values()]
       .filter((p) => p.cityId === cityId)

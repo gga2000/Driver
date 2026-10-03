@@ -1,12 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
   type AddLandmarkPhotoInput,
   type CashReceiptView,
+  type LandmarksInput,
   type LandmarkPhotoView,
   type MerchantOnboardingInput,
   type MerchantOnboardingView,
+  type OpsCashHolder,
+  type OpsLandmark,
   type OpsPort,
   type OpsTask,
   type RecordCashReceiptInput,
@@ -19,7 +22,7 @@ import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService, settlementReference } from '../ledger/index.js';
 import { OrgsService } from '../orgs/index.js';
-import { BLOB_STORE, type BlobStore } from '../places/index.js';
+import { BLOB_STORE, PlacesService, ZoneResolver, type BlobStore } from '../places/index.js';
 import { OPS_REPOSITORY, type CashReceiptRecord, type OpsRepository, type TaskRecord } from './ops.repository.js';
 
 /** Computed cash task: a courier owing at least this share of his cap (or over it) is worth a visit. */
@@ -59,7 +62,46 @@ export class OpsService implements OpsPort {
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() private readonly places?: PlacesService,
   ) {}
+
+  private readonly zones = new ZoneResolver();
+
+  /** Couriers holding customers' cash right now, most owed first, with names from the vault (logged). */
+  async cashHolders(actor: Actor, _input: { cityId?: string | undefined }): Promise<OpsCashHolder[]> {
+    const holders = (await this.ledger.cashInField()).holders;
+    if (holders.length === 0) return [];
+    const cards = await this.identity.memberCards(
+      holders.map((h) => h.driverId),
+      actor.personId,
+      'ops_cash_round',
+    );
+    const rows: OpsCashHolder[] = [];
+    for (const h of holders) {
+      const s = await this.caps.status(h.driverId);
+      rows.push({
+        courierId: h.driverId,
+        name: cards[h.driverId]?.name ?? null,
+        phoneMasked: cards[h.driverId]?.phoneMasked ?? null,
+        heldIqd: h.amountIqd,
+        owedIqd: s.owedIqd,
+        capIqd: s.capIqd,
+        tier: s.tier,
+        overCap: s.overCap,
+      });
+    }
+    return rows.sort((a, b) => Number(b.overCap) - Number(a.overCap) || b.owedIqd - a.owedIqd || b.heldIqd - a.heldIqd);
+  }
+
+  /** Landmark places in the city (optionally one zone) with how many photos they have or have pending. */
+  async landmarks(_actor: Actor, input: z.output<typeof LandmarksInput>): Promise<OpsLandmark[]> {
+    const list = this.places?.landmarks(input.cityId) ?? [];
+    const proposed = await this.repo.proposedPhotoCounts(list.map((p) => p.id));
+    return list
+      .map((p) => ({ placeId: p.id, name: p.name, zoneKey: this.zones.resolve(input.cityId, p.pin), pin: p.pin, photos: p.photos.length + (proposed.get(p.id) ?? 0) }))
+      .filter((l) => !input.zoneKey || l.zoneKey === input.zoneKey)
+      .sort((a, b) => a.photos - b.photos || a.name.localeCompare(b.name, 'ar'));
+  }
 
   private async assertUpload(ownerId: string, uploadId: string): Promise<void> {
     const blob = await this.blobs.get(uploadId);
@@ -129,6 +171,7 @@ export class OpsService implements OpsPort {
     // TODO(orgs-prisma): orgs are in memory; the draft org lives until restart, the onboarding row stays.
     const org = this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
     this.orgs.setMerchantSettings(org.id, { location: input.location });
+    if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
       const row = await this.repo.addOnboarding(
@@ -157,7 +200,7 @@ export class OpsService implements OpsPort {
           state: 'open',
           assigneeId: actor.personId,
           dueAt: new Date(now.getTime() + DAY_MS),
-          payload: { merchantOrgId: org.id, menuPhotos: input.menuPhotoUploadIds.length },
+          payload: { merchantOrgId: org.id, menuPhotos: input.menuPhotoUploadIds.length, ...(input.settlementMode ? { settlementMode: input.settlementMode } : {}) },
           completedAt: null,
           completedById: null,
           createdAt: now,

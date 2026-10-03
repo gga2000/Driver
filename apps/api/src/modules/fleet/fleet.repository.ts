@@ -10,6 +10,16 @@ export interface VehicleRecord {
   ownerOrgId: string | null;
   activeDriverId: string | null;
   active: boolean;
+  /** Passenger seats: the length of the vehicle's seat map. */
+  seats: number;
+}
+
+/** Default passenger seats by class (edge-case §9: saloon 4, SUV 6, van 7/11). */
+export const DEFAULT_SEATS: Record<VehicleClass, number> = { bike: 0, tuktuk: 3, car: 4, suv: 6, van: 7, intercity: 4 };
+
+/** A plain seat map for `seats` seats: the front passenger seat, then rows of three. */
+export function seatMapFor(seats: number): Array<{ position: number; row: number }> {
+  return Array.from({ length: seats }, (_, i) => ({ position: i + 1, row: i === 0 ? 0 : Math.floor((i - 1) / 3) + 1 }));
 }
 
 /** `fleet_drivers`: a driver working for a fleet. */
@@ -26,7 +36,7 @@ export interface FleetRepository {
   vehicles(fleetOrgId: string, tx?: Tx): Promise<VehicleRecord[]>;
   vehicle(id: string, tx?: Tx): Promise<VehicleRecord | null>;
   vehicleByPlate(plate: string, tx?: Tx): Promise<VehicleRecord | null>;
-  createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string }, tx?: Tx): Promise<VehicleRecord>;
+  createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord>;
   /** Sets the vehicle's active driver (null unassigns); the driver leaves any other vehicle of the fleet. */
   setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord>;
   drivers(fleetOrgId: string, tx?: Tx): Promise<FleetDriverRecord[]>;
@@ -60,9 +70,10 @@ export class InMemoryFleetRepository implements FleetRepository {
     return v ? { ...v } : null;
   }
 
-  async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string }): Promise<VehicleRecord> {
+  async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }): Promise<VehicleRecord> {
     if (await this.vehicleByPlate(input.plate)) throw new Error('unique violation: vehicles.plate');
-    const v: VehicleRecord = { id: this.id('veh'), plate: input.plate, vehicleClass: input.vehicleClass, ownerOrgId: input.ownerOrgId, activeDriverId: null, active: true };
+    const seats = input.seats ?? DEFAULT_SEATS[input.vehicleClass];
+    const v: VehicleRecord = { id: this.id('veh'), plate: input.plate, vehicleClass: input.vehicleClass, ownerOrgId: input.ownerOrgId, activeDriverId: null, active: true, seats };
     this.vehicleRows.set(v.id, v);
     return { ...v };
   }
@@ -91,10 +102,11 @@ export class InMemoryFleetRepository implements FleetRepository {
   }
 }
 
-type VehicleRow = { id: string; plate: string; class: string; ownerOrgId: string | null; activeDriverId: string | null; active: boolean };
+type VehicleRow = { id: string; plate: string; class: string; ownerOrgId: string | null; activeDriverId: string | null; active: boolean; seatMap?: unknown };
 
 function vehicleFromRow(r: VehicleRow): VehicleRecord {
-  return { id: r.id, plate: r.plate, vehicleClass: r.class as VehicleClass, ownerOrgId: r.ownerOrgId, activeDriverId: r.activeDriverId, active: r.active };
+  const seats = Array.isArray(r.seatMap) ? r.seatMap.length : DEFAULT_SEATS[r.class as VehicleClass] ?? 0;
+  return { id: r.id, plate: r.plate, vehicleClass: r.class as VehicleClass, ownerOrgId: r.ownerOrgId, activeDriverId: r.activeDriverId, active: r.active, seats };
 }
 
 /**
@@ -122,8 +134,9 @@ export class PrismaFleetRepository implements FleetRepository {
     return r ? vehicleFromRow(r) : null;
   }
 
-  async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string }, tx?: Tx): Promise<VehicleRecord> {
-    return vehicleFromRow(await this.db(tx).vehicle.create({ data: { plate: input.plate, class: input.vehicleClass, ownerOrgId: input.ownerOrgId } }));
+  async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord> {
+    const seatMap = seatMapFor(input.seats ?? DEFAULT_SEATS[input.vehicleClass]);
+    return vehicleFromRow(await this.db(tx).vehicle.create({ data: { plate: input.plate, class: input.vehicleClass, ownerOrgId: input.ownerOrgId, seatMap } }));
   }
 
   async setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord> {
