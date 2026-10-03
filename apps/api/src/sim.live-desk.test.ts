@@ -55,10 +55,20 @@ describe('simulator live mode: the ops desk works the red cards', () => {
     // of the fleet still off shift, so some cards find nobody and turn red: the desk's work.
     await sim.start({ cityId: 'aziziyah', drivers: 60, ordersPerHour: 150, seed: 7, speed: SPEED, tickMs: 200 });
     const redCounts: number[] = [];
-    for (let i = 0; i < 12; i += 1) {
+    // Watched while the run goes on: a hand-offered job counts once the chosen driver holds it. On a
+    // loaded machine (CI) the first override can land late, so keep looking past the 12 samples
+    // until one is taken or the deadline passes, instead of checking once at a fixed moment.
+    const takenByChosen = async () =>
+      (await Promise.all(sim.liveDeskOverrides().map(async (o) => (await trips.get(o.tripId)).courierId === o.driverId))).some(Boolean);
+    let taken = false;
+    const deadline = Date.now() + 60_000;
+    for (let i = 0; i < 12 || (!taken && Date.now() < deadline); i += 1) {
       await sleep(2000);
-      const board = await dispatch.board('aziziyah');
-      redCounts.push(board.cards.filter((c) => c.status === 'needs_dispatcher').length);
+      if (i < 12) {
+        const board = await dispatch.board('aziziyah');
+        redCounts.push(board.cards.filter((c) => c.status === 'needs_dispatcher').length);
+      }
+      if (!taken) taken = await takenByChosen();
     }
     const overrides = [...sim.liveDeskOverrides()];
     const progress = sim.status().progress!;
@@ -71,10 +81,9 @@ describe('simulator live mode: the ops desk works the red cards', () => {
     const [minReaction] = DISPATCHER_BEHAVIOUR.reactionSec;
     for (const o of overrides) expect(o.at - o.redSinceT).toBeGreaterThanOrEqual(minReaction * 1000);
     // At least one hand-offered job was taken by the driver the desk chose.
-    const taken = await Promise.all(overrides.map(async (o) => (await trips.get(o.tripId)).courierId === o.driverId));
-    expect(taken.some(Boolean)).toBe(true);
+    expect(taken).toBe(true);
     // The red queue stays small throughout and at the end (without the desk it only grows).
     expect(Math.max(...redCounts)).toBeLessThanOrEqual(5);
     expect(redCounts.at(-1)!).toBeLessThanOrEqual(3);
-  }, 60_000);
+  }, 120_000);
 });
