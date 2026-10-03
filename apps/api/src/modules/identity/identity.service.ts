@@ -367,6 +367,10 @@ export class IdentityService implements IdentityPort {
       await this.repo.logVaultAccess({ personId: courierId, accessorId, purpose: 'courier_card', fieldsRead: ['name'], now: this.clock.now() }, tx);
       const first = identity?.name?.trim().split(/\s+/)[0] ?? '';
       return { firstName: first || null, lastVerifiedAt: person.lastVerifiedAt };
+    });
+  }
+
+  /**
    * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
    * the public side records just that the profile changed, never the values.
    */

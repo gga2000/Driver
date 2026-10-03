@@ -18,8 +18,7 @@ export default tseslint.config(
   {
     files: ['scripts/**/*.mjs'],
     languageOptions: {
-      globals: { process: 'readonly', URL: 'readonly', console: 'readonly', document: 'readonly', getComputedStyle: 'readonly', localStorage: 'readonly', fetch: 'readonly', setInterval: 'readonly', setTimeout: 'readonly' },
-      globals: { process: 'readonly', URL: 'readonly', console: 'readonly', document: 'readonly', getComputedStyle: 'readonly', localStorage: 'readonly', fetch: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
+      globals: { process: 'readonly', URL: 'readonly', console: 'readonly', document: 'readonly', getComputedStyle: 'readonly', localStorage: 'readonly', fetch: 'readonly', setInterval: 'readonly', clearInterval: 'readonly', setTimeout: 'readonly' },
     },
   },
 );

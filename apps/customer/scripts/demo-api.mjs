@@ -12,11 +12,10 @@
 //   - POST /demo/active-order?personId=<id>  places and accepts a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids.
-// Seeds one restaurant ("مطعم خالد", centre) with a small menu, and exposes a dev-only hook
-//   POST /demo/active-order?personId=<id>
-// that places a cash food order for that person and has the kitchen accept it, so home shows the
-// pinned active-order pill with real API data. `POST /demo/track` (below) drives the live order
-// screen: a dispatched courier moving through Aziziyah, the unreachable timer, the arrival.
+// It also seeds and drives the other M3 customer flows (each section below documents its hooks):
+//   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
+//   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
+//   - POST /demo/account?personId=…                                  places, wallet, household
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,11 +39,10 @@ const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
-const kitchen = { lat: 32.9095, lng: 45.0635 };
-const rest = orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'demo-owner' });
-orgs.setMerchantSettings(rest.id, { commissionTier: 'base', location: { zoneKey: 'street_30', pin: kitchen } });
 await orgs.settled?.();
 const khalid = seeded.find((s) => s.seed.key === 'khalid');
+/** مطعم خالد's pin: the pickup for the live-order demo. */
+const kitchen = khalid.seed.pin;
 
 const json = (res, status, body) => {
   res.statusCode = status;
@@ -209,10 +207,12 @@ async function placeAccepted(personId, prepMinutes) {
   const placed = await orders.place(personId, {
     cityId: 'aziziyah',
     type: 'food',
-    merchantOrgId: rest.id,
+    merchantOrgId: khalid.orgId,
     lines: [
-      { catalogItemId: kas.id, qty: 2 },
-      { catalogItemId: tikka.id, qty: 1 },
+      // Items without required choices, under the new-customer cash cap (25,000 incl. fees).
+      { catalogItemId: khalid.itemIds.get('liver_plate'), qty: 2 },
+      { catalogItemId: khalid.itemIds.get('salad'), qty: 1 },
+      { catalogItemId: khalid.itemIds.get('pepsi'), qty: 2 },
     ],
     paymentMethod: 'cash',
     dropoff: { zoneKey: 'zakur', pin: HOME },
@@ -514,6 +514,7 @@ const rajaa = await (async () => {
 
   return { departures: [d1, d2, d3, d4, a1, a2, k1, k2].map((d) => d.id) };
 })();
+
 // ───────────────────────── account demo (places, points, household) ─────────────────────────
 //   POST /demo/account?personId=<id>
 // Seeds the M3 account screens for that person: a gate photo on (and confirmation of) their home,
@@ -611,7 +612,7 @@ const rajaa = await (async () => {
       await ledger.recordAll([
         group(`demo:topup:${personId}`, 'money', ago(50), [{ type: 'credit_issued', amount: 25_000, fromAccount: Accounts.bank, toAccount: customer, memo: 'topup:agent' }]),
         group(`demo:order:${personId}`, 'money', ago(3), [
-          { type: 'merchant_payable', amount: 14_000, fromAccount: customer, toAccount: Accounts.merchantCash(rest.id), memo: 'items' },
+          { type: 'merchant_payable', amount: 14_000, fromAccount: customer, toAccount: Accounts.merchantCash(khalid.orgId), memo: 'items' },
           { type: 'service_fee', amount: 500, fromAccount: customer, toAccount: Accounts.platform },
           { type: 'delivery_fee', amount: 1_000, fromAccount: customer, toAccount: Accounts.driver('demo-courier') },
           { type: 'cash_collected', amount: 15_500, fromAccount: Accounts.cash('demo-courier'), toAccount: customer },
@@ -646,6 +647,5 @@ const rajaa = await (async () => {
 }
 
 await app.listen(PORT);
-console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (${seeded.map((s) => `${s.seed.key}=${s.orgId}`).join(', ')})`);
 console.log(`DEMO_API rajaa departures ${rajaa.departures.join(', ')}`);
-console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (restaurant ${rest.id})`);
+console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (${seeded.map((s) => `${s.seed.key}=${s.orgId}`).join(', ')})`);

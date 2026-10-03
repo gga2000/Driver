@@ -8,13 +8,16 @@
 // 3. Run:  PLAYWRIGHT_MODULE=/path/to/node_modules/playwright CHROMIUM_PATH=/path/to/chrome \
 //            node apps/customer/scripts/web-shots.mjs <out-dir>
 //
-// Writes app-welcome, app-phone, app-otp, app-setup, app-home (+ app-home-full), app-orders and
-// app-profile PNGs at 390×844 (@2x). Exits non-zero on console errors or a missing screen.
-// SHOTS=track adds the live order screen (track-*.png: preparing, on the way collapsed/expanded,
-// unreachable, late, signal lost, reassigning, arrival, rating, points), seeded via POST /demo/track.
-// app-profile PNGs at 390×844 (@2x), then the M3 account set (seeded by POST /demo/account):
-// acct-profile, acct-place-editor, acct-wallet, acct-household (+ -full). SHOTS_PREFIX=acct keeps
-// only those. Exits non-zero on console errors or a missing screen.
+// Screenshots are 390×844 (@2x), in groups (file-name prefixes), each driven by its own demo seed:
+//   app-*    welcome, phone, otp, setup, home (+ -full), orders, profile
+//   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
+//   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
+//   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late,
+//            signal lost, reassigning, arrival, rating, points           POST /demo/track
+//   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+// SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
+// only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
+// Exits non-zero on console errors or a missing screen.
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -65,18 +68,18 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-/** ONLY=app or ONLY=food limits which screenshots are written (sign-in always runs). */
-const only = process.env.ONLY ?? null;
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa'];
+const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
+  .split(',')
+  .map((s) => s.trim().replace(/-$/, ''))
+  .filter(Boolean);
+const groups = new Set(selected.includes('all') ? GROUPS : selected);
+for (const g of groups) if (!GROUPS.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${GROUPS.join(', ')} or all)`);
+/** Whether a flow runs / a file is written: by its group, the name's first segment. */
+const wants = (group) => groups.has(group);
+const wanted = (name) => wants(name.split('-')[0]);
 const shot = async (name) => {
-  if (only && !name.startsWith(`${only}-`)) return;
-// SHOTS=rajaa (comma list of name prefixes) writes only matching screenshots; the flow still runs.
-const only = process.env.SHOTS ? process.env.SHOTS.split(',').map((s) => s.trim()).filter(Boolean) : null;
-const shot = async (name) => {
-  if (only && !only.some((p) => name.startsWith(p))) return;
-/** SHOTS_PREFIX=acct writes only acct-* files (other prefixes are still driven, not saved). */
-const shotsPrefix = process.env.SHOTS_PREFIX ?? '';
-const shot = async (name) => {
-  if (shotsPrefix && !name.startsWith(shotsPrefix)) return;
+  if (!wanted(name)) return;
   await settle();
   const file = join(outDir, `${name}.png`);
   await page.screenshot({ path: file });
@@ -84,7 +87,7 @@ const shot = async (name) => {
 };
 /** Grow the viewport to the RN scroll content (the ScrollView owns scrolling on web). */
 const fullShot = async (name) => {
-  if (only && !name.startsWith(`${only}-`)) return;
+  if (!wanted(name)) return;
   const h = await page.evaluate(() => {
     let max = document.documentElement.scrollHeight;
     for (const el of document.querySelectorAll('div')) {
@@ -97,92 +100,10 @@ const fullShot = async (name) => {
   await shot(name);
   await page.setViewportSize({ width: 390, height: 844 });
 };
-
 const demoPost = async (path) => {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
   if (!r.ok) errors.push(`${path}: ${r.status} ${await r.text()}`);
 };
-
-async function rajaaShots(personId) {
-  await page.goto(`${origin}/rajaa`, { waitUntil: 'networkidle' });
-  await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
-  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
-  await firstCar.waitFor({ timeout: 15_000 });
-  await shot('rajaa-board');
-  await fullShot('rajaa-board-full');
-
-  // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
-  await firstCar.click();
-  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
-  await byTestId('chip-nisa').click();
-  await page.waitForTimeout(1200); // board refetch with travellingAs
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
-  await byTestId('rajaa-blocked-note').waitFor({ timeout: 10_000 });
-  await byTestId('rajaa-blocked-note').scrollIntoViewIfNeeded();
-  await shot('rajaa-seat-blocked');
-  await fullShot('rajaa-seat-sheet');
-
-  // As رجال the same seat is open: hold it.
-  await byTestId('chip-rijal').click();
-  await page.waitForTimeout(1200);
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
-  await byTestId('rajaa-quote').waitFor({ timeout: 10_000 });
-  await byTestId('rajaa-hold').click();
-  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
-  await page.waitForTimeout(2500);
-  await shot('rajaa-hold');
-  await fullShot('rajaa-hold-full');
-
-  // Cash reservation → boarding pass (boarding is open on this car: live position shows).
-  await byTestId('rajaa-confirm').click();
-  await byTestId('rajaa-ticket').waitFor({ timeout: 15_000 });
-  await page.waitForTimeout(1500);
-  await shot('rajaa-pass');
-  await fullShot('rajaa-pass-full');
-
-  // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
-  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, { waitUntil: 'networkidle' });
-  await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
-  await byTestId('chip-rijal').click();
-  await shot('rajaa-demand');
-  await byTestId('rajaa-demand-submit').click();
-  await byTestId('rajaa-demand-posted').waitFor({ timeout: 15_000 });
-  await page.waitForTimeout(1500);
-  await shot('rajaa-demand-posted');
-  if (personId) {
-    await demoPost(`/demo/rajaa/claim?personId=${encodeURIComponent(personId)}`);
-    await byTestId('rajaa-demand-claimed').waitFor({ timeout: 20_000 });
-    await page.waitForTimeout(1500);
-    await shot('rajaa-demand-claimed');
-  }
-
-  // Request board: post → offers arrive → pick one → deposit rules → matched.
-  await page.goto(`${origin}/rajaa/request`, { waitUntil: 'networkidle' });
-  await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid="rajaa-req-from"]').fill('العزيزية، حي الزهراء');
-  await page.locator('[data-testid="rajaa-req-to"]').fill('النجف');
-  await shot('rajaa-request-form');
-  await byTestId('rajaa-request-submit').click();
-  await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
-  if (personId) {
-    await demoPost(`/demo/rajaa/offers?personId=${encodeURIComponent(personId)}`);
-    await demoPost(`/demo/rajaa/topup?personId=${encodeURIComponent(personId)}&amount=25000`);
-    const offer = page.locator('[data-testid^="offer-"]').first();
-    await offer.waitFor({ timeout: 20_000 });
-    await offer.click();
-    await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });
-    await shot('rajaa-request');
-    await byTestId('rajaa-deposit-confirm').click();
-    await byTestId('rajaa-deposit').waitFor({ state: 'detached', timeout: 15_000 });
-    await page.waitForTimeout(1000);
-    await shot('rajaa-request-matched');
-  }
-
-  // Home: the الرجعة card now reads the live board (and the booked trip).
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
-  await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
-  await shot('rajaa-home');
-}
 
 try {
   await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
@@ -240,93 +161,25 @@ try {
   await byTestId('account').waitFor();
   await shot('app-profile');
 
-  // ── Food ordering (M3): restaurant → item sheet (modifiers + لمن؟) → cart for two → checkout →
-  //    waiting for the kitchen → accepted (/order/[id]); then a second order the kitchen rejects →
-  //    suggestions → cart carried over to another kitchen.
-  if (!only || only === 'food') await foodFlow(khalid);
-  // Live order screen (/order/[id]) — `SHOTS=track` (or `all`). Each scenario seeds a real order
-  // through POST /demo/track; the demo courier reports a position every 2 s along an Aziziyah path.
-  if (/track|all/.test(process.env.SHOTS ?? '') && personId) {
-    const seed = async (scenario) => {
-      const r = await fetch(`${apiBase}/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}`, { method: 'POST' });
-      const body = await r.json();
-      if (!r.ok) throw new Error(`seed ${scenario}: ${body.error}`);
-      return body.orderId;
-    };
-    const openOrder = async (orderId, query = '') => {
-      await page.goto(`${origin}/order/${orderId}${query}`, { waitUntil: 'networkidle' });
-      await byTestId('sheet-header').waitFor({ timeout: 15_000 });
-      await byTestId('status-line').waitFor({ timeout: 15_000 });
-    };
-    // Map tiles are blocked here; MapLibre (or the SVG fallback) draws the zones. Let the courier glide.
-    const live = (ms = 2600) => page.waitForTimeout(ms);
+  // Each flow starts from its own navigation, so any subset (SHOTS=…) runs in this order.
+  if (wants('acct')) await acctShots(personId);
+  if (wants('food')) await foodFlow(khalid);
+  if (wants('track')) await trackShots(personId);
+  if (wants('rajaa')) await rajaaShots(personId);
+} catch (err) {
+  errors.push(err.stack ?? String(err));
+  await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
+} finally {
+  await browser.close();
+  server.close();
+}
 
-    // Orders tab rows open the live screen.
-    const prepId = await seed('preparing');
-    await page.goto(`${origin}/orders`, { waitUntil: 'networkidle' });
-    await byTestId(`order-${prepId}`).click();
-    await byTestId('order-live').waitFor({ timeout: 15_000 });
-    await byTestId('courier-marker').waitFor({ timeout: 15_000 });
-    await live();
-    await shot('track-preparing');
-
-    const wayId = await seed('on_the_way');
-    await openOrder(wayId);
-    await live();
-    await shot('track-on-the-way');
-    await live(4200);
-    await shot('track-on-the-way-moved');
-    await openOrder(wayId, '?sheet=2');
-    await live(1500);
-    await shot('track-on-the-way-expanded');
-    await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 640));
-    await shot('track-on-the-way-expanded-details');
-    await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
-    await shot('track-on-the-way-expanded-actions');
-
-    await openOrder(await seed('unreachable'));
-    await byTestId('unreachable-panel').waitFor({ timeout: 10_000 });
-    await live(1500);
-    await shot('track-unreachable');
-
-    await openOrder(await seed('late'));
-    await byTestId('running-late').waitFor({ timeout: 10_000 }).catch(() => errors.push('running-late banner not shown'));
-    await live();
-    await shot('track-late');
-
-    await openOrder(await seed('signal_lost'));
-    await byTestId('signal-lost').waitFor({ timeout: 10_000 }).catch(() => errors.push('signal-lost banner not shown'));
-    await shot('track-signal-lost');
-
-    await openOrder(await seed('reassigning'));
-    await byTestId('reassigning').waitFor({ timeout: 10_000 }).catch(() => errors.push('reassigning banner not shown'));
-    await shot('track-reassigning');
-
-    await openOrder(await seed('arrived'));
-    await byTestId('arrival').waitFor({ timeout: 10_000 });
-    await live(1200);
-    await shot('track-arrival');
-    await byTestId('arrival-rate').click();
-    await byTestId('stars-delivery').waitFor();
-    await shot('track-rating');
-    await byTestId('stars-delivery-5').click();
-    await byTestId('stars-food').waitFor();
-    await settle(400);
-    await shot('track-rating-food');
-    await byTestId('stars-food-4').click();
-    await byTestId('points-earned').waitFor({ timeout: 10_000 });
-    await live(2400);
-    await shot('track-rating-points');
-  }
-  // ── الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board ──
-  // Needs the demo API's الرجعة seed (scripts/demo-api.mjs). Writes rajaa-*.png.
-  if (!only || only.some((p) => p.startsWith('rajaa'))) await rajaaShots(personId);
-  // ── M3 account: seed places / points / household for this person, then profile, place editor,
-  //    wallet and household approvals (acct-*).
+/** M3 account: seed places / points / household, then profile, place editor, wallet, household. */
+async function acctShots(personId) {
   if (personId) {
-    const r = await fetch(`${apiBase}/demo/account?personId=${encodeURIComponent(personId)}`, { method: 'POST' });
-    if (!r.ok) errors.push(`seed account: ${r.status} ${await r.text()}`);
-    await page.reload({ waitUntil: 'networkidle' });
+    await demoPost(`/demo/account?personId=${encodeURIComponent(personId)}`);
+    await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+    await byTestId('home').waitFor({ timeout: 15_000 });
   }
   await byTestId('tab-account').click();
   await byTestId('account').waitFor();
@@ -352,18 +205,17 @@ try {
   await byTestId('household').waitFor({ timeout: 15_000 });
   await shot('acct-household');
   await fullShot('acct-household-full');
-} catch (err) {
-  errors.push(err.stack ?? String(err));
-  await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
-} finally {
-  await browser.close();
-  server.close();
 }
 
+/**
+ * Food ordering (M3): restaurant → item sheet (modifiers + لمن؟) → cart for two → checkout →
+ * waiting for the kitchen → accepted (/order/[id]); then a second order the kitchen rejects →
+ * suggestions → cart carried over to another kitchen.
+ */
 async function foodFlow(khalid) {
   const item = (key) => `${khalid}_${key}`;
-  await byTestId('tab-index').click();
-  await byTestId('home').waitFor();
+  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await byTestId('home').waitFor({ timeout: 15_000 });
   await byTestId(`restaurant-${khalid}`).click();
   await byTestId('restaurant-facts').waitFor({ timeout: 15_000 });
   await byTestId(`dish-${item('kebab_wrap')}`).waitFor({ timeout: 15_000 });
@@ -448,6 +300,166 @@ async function foodFlow(khalid) {
   await page.locator('[data-testid^="suggest-move-"]').first().click();
   await page.locator('[data-testid="cart"]:visible').waitFor({ timeout: 15_000 });
   await shot('food-carried');
+}
+
+/**
+ * Live order screen (/order/[id]). Each scenario seeds a real order through POST /demo/track; the
+ * demo courier reports a position every 2 s along an Aziziyah path.
+ */
+async function trackShots(personId) {
+  if (!personId) throw new Error('track shots need a signed-in person');
+  const seed = async (scenario) => {
+    const r = await fetch(`${apiBase}/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}`, { method: 'POST' });
+    const body = await r.json();
+    if (!r.ok) throw new Error(`seed ${scenario}: ${body.error}`);
+    return body.orderId;
+  };
+  const openOrder = async (orderId, query = '') => {
+    await page.goto(`${origin}/order/${orderId}${query}`, { waitUntil: 'networkidle' });
+    await byTestId('sheet-header').waitFor({ timeout: 15_000 });
+    await byTestId('status-line').waitFor({ timeout: 15_000 });
+  };
+  // Map tiles are blocked here; MapLibre (or the SVG fallback) draws the zones. Let the courier glide.
+  const live = (ms = 2600) => page.waitForTimeout(ms);
+
+  // Orders tab rows open the live screen.
+  const prepId = await seed('preparing');
+  await page.goto(`${origin}/orders`, { waitUntil: 'networkidle' });
+  await byTestId(`order-${prepId}`).click();
+  await byTestId('order-live').waitFor({ timeout: 15_000 });
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 });
+  await live();
+  await shot('track-preparing');
+
+  const wayId = await seed('on_the_way');
+  await openOrder(wayId);
+  await live();
+  await shot('track-on-the-way');
+  await live(4200);
+  await shot('track-on-the-way-moved');
+  await openOrder(wayId, '?sheet=2');
+  await live(1500);
+  await shot('track-on-the-way-expanded');
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 640));
+  await shot('track-on-the-way-expanded-details');
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await shot('track-on-the-way-expanded-actions');
+
+  await openOrder(await seed('unreachable'));
+  await byTestId('unreachable-panel').waitFor({ timeout: 10_000 });
+  await live(1500);
+  await shot('track-unreachable');
+
+  await openOrder(await seed('late'));
+  await byTestId('running-late').waitFor({ timeout: 10_000 }).catch(() => errors.push('running-late banner not shown'));
+  await live();
+  await shot('track-late');
+
+  await openOrder(await seed('signal_lost'));
+  await byTestId('signal-lost').waitFor({ timeout: 10_000 }).catch(() => errors.push('signal-lost banner not shown'));
+  await shot('track-signal-lost');
+
+  await openOrder(await seed('reassigning'));
+  await byTestId('reassigning').waitFor({ timeout: 10_000 }).catch(() => errors.push('reassigning banner not shown'));
+  await shot('track-reassigning');
+
+  await openOrder(await seed('arrived'));
+  await byTestId('arrival').waitFor({ timeout: 10_000 });
+  await live(1200);
+  await shot('track-arrival');
+  await byTestId('arrival-rate').click();
+  await byTestId('stars-delivery').waitFor();
+  await shot('track-rating');
+  await byTestId('stars-delivery-5').click();
+  await byTestId('stars-food').waitFor();
+  await settle(400);
+  await shot('track-rating-food');
+  await byTestId('stars-food-4').click();
+  await byTestId('points-earned').waitFor({ timeout: 10_000 });
+  await live(2400);
+  await shot('track-rating-points');
+}
+
+/** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
+async function rajaaShots(personId) {
+  await page.goto(`${origin}/rajaa`, { waitUntil: 'networkidle' });
+  await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
+  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
+  await firstCar.waitFor({ timeout: 15_000 });
+  await shot('rajaa-board');
+  await fullShot('rajaa-board-full');
+
+  // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
+  await firstCar.click();
+  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  await byTestId('chip-nisa').click();
+  await page.waitForTimeout(1200); // board refetch with travellingAs
+  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  await byTestId('rajaa-blocked-note').waitFor({ timeout: 10_000 });
+  await byTestId('rajaa-blocked-note').scrollIntoViewIfNeeded();
+  await shot('rajaa-seat-blocked');
+  await fullShot('rajaa-seat-sheet');
+
+  // As رجال the same seat is open: hold it.
+  await byTestId('chip-rijal').click();
+  await page.waitForTimeout(1200);
+  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  await byTestId('rajaa-quote').waitFor({ timeout: 10_000 });
+  await byTestId('rajaa-hold').click();
+  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(2500);
+  await shot('rajaa-hold');
+  await fullShot('rajaa-hold-full');
+
+  // Cash reservation → boarding pass (boarding is open on this car: live position shows).
+  await byTestId('rajaa-confirm').click();
+  await byTestId('rajaa-ticket').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('rajaa-pass');
+  await fullShot('rajaa-pass-full');
+
+  // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
+  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, { waitUntil: 'networkidle' });
+  await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
+  await byTestId('chip-rijal').click();
+  await shot('rajaa-demand');
+  await byTestId('rajaa-demand-submit').click();
+  await byTestId('rajaa-demand-posted').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('rajaa-demand-posted');
+  if (personId) {
+    await demoPost(`/demo/rajaa/claim?personId=${encodeURIComponent(personId)}`);
+    await byTestId('rajaa-demand-claimed').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    await shot('rajaa-demand-claimed');
+  }
+
+  // Request board: post → offers arrive → pick one → deposit rules → matched.
+  await page.goto(`${origin}/rajaa/request`, { waitUntil: 'networkidle' });
+  await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="rajaa-req-from"]').fill('العزيزية، حي الزهراء');
+  await page.locator('[data-testid="rajaa-req-to"]').fill('النجف');
+  await shot('rajaa-request-form');
+  await byTestId('rajaa-request-submit').click();
+  await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
+  if (personId) {
+    await demoPost(`/demo/rajaa/offers?personId=${encodeURIComponent(personId)}`);
+    await demoPost(`/demo/rajaa/topup?personId=${encodeURIComponent(personId)}&amount=25000`);
+    const offer = page.locator('[data-testid^="offer-"]').first();
+    await offer.waitFor({ timeout: 20_000 });
+    await offer.click();
+    await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });
+    await shot('rajaa-request');
+    await byTestId('rajaa-deposit-confirm').click();
+    await byTestId('rajaa-deposit').waitFor({ state: 'detached', timeout: 15_000 });
+    await page.waitForTimeout(1000);
+    await shot('rajaa-request-matched');
+  }
+
+  // Home: the الرجعة card now reads the live board (and the booked trip).
+  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
+  await shot('rajaa-home');
 }
 
 if (errors.length) {

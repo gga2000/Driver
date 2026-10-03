@@ -8,24 +8,18 @@ app/
   _layout.tsx            providers (theme, toast, API), fonts, route guard, root <Stack>
   (auth)/                welcome → phone → otp → setup (name + first place, skippable)
   (tabs)/                index (الرئيسية) · orders (طلباتي) · wallet (المحفظة) · account (حسابي)
-  places/                deliver-to picker (modal) + add place
+  places/                deliver-to picker (modal), add place, place editor (edit?id=, "موقعي هنا")
+  profile/               name, safety (emergency contact) — modal
+  household/             العائلة: approvals, members + limits, shared places; invite; member limit
   restaurant/[id] cart checkout kitchen/[id]   food ordering (M3)
-  order/[id] rajaa       ← STUBS, replaced by later milestones
-  restaurant/[id] cart checkout order/[id]   ← STUBS, replaced by later milestones
+  order/[id]             live order / ride screen: map, courier, sheet timeline, arrival + rating
   rajaa/                 الرجعة: index (corridor + garage boards), departure/[id] (seat booking),
                          booking/[id] (10-min hold + pay), pass/[id] (boarding pass), demand, request
 src/
   lib/                   api (tRPC + React Query), session, guard, money, phone, profile, i18n, fonts
   components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
-  features/<flow>/       a flow's components and query hooks (home, auth, places, food)
-  places/                deliver-to picker (modal), add place, place editor (edit?id=, "موقعي هنا")
-  profile/               name, safety (emergency contact) — modal
-  household/             العائلة: approvals, members + limits, shared places; invite; member limit
-  restaurant/[id] cart checkout order/[id] rajaa   ← STUBS, replaced by later milestones
-src/
-  lib/                   api (tRPC + React Query), session, guard, money, phone, profile, i18n, fonts
-  components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
-  features/<flow>/       a flow's components and query hooks (home, auth, places, account)
+  features/<flow>/       a flow's components and query hooks (home, auth, places, account, food,
+                         track, rajaa)
   fixtures/              isolated sample data where the API has no customer read yet
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
 
@@ -103,12 +97,13 @@ pnpm build                                            # packages + apps/api/dist
 cd apps/customer
 EXPO_OFFLINE=1 CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:3200/trpc EXPO_PUBLIC_DEV_TOOLS=1 \
   npx expo export --platform web --output-dir dist-web   # add --dev --no-minify for readable errors
-PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs, POST /demo/active-order,
-                                                      # POST /demo/account (places, points, household)
+PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs, demo hooks: /demo/active-order,
+                                                      # /demo/kitchen, /demo/seed, /demo/track, /demo/rajaa/*,
+                                                      # /demo/account
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
-  node scripts/web-shots.mjs <out-dir>                # 390×844 @2x: welcome, phone, otp, setup, home, orders, profile,
-                                                      # then acct-profile/-place-editor/-wallet/-household
-                                                      # (SHOTS_PREFIX=acct saves only those; DIST_DIR, DEMO_API)
+  node scripts/web-shots.mjs <out-dir>                # 390×844 @2x, every group: app-*, acct-*, food-*,
+                                                      # track-*, rajaa-*  (SHOTS=food,track runs only those;
+                                                      # DIST_DIR, DEMO_API)
 ```
 
 The demo API seeds the four launch restaurants (`@driver/contracts/seeds`, the same data
@@ -116,7 +111,7 @@ The demo API seeds the four launch restaurants (`@driver/contracts/seeds`, the s
 auto-accepts placed orders, `POST /demo/kitchen?orderId=…&action=accept|reject` decides one now,
 `GET /demo/seed` lists the restaurants' org ids. `web-shots.mjs` also runs the food flow
 (`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
-`ONLY=food` or `ONLY=app` limits which shots are written, `DIST_DIR` points at another export.
+`SHOTS=food` (or the older `ONLY=food`) runs only that group, `DIST_DIR` points at another export.
 
 ## Food ordering (M3)
 
