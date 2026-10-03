@@ -150,6 +150,8 @@ export const MerchantSettlementRequestedPayload = z.object({
   reason: SettlementRequestReason,
   requestedBy: z.string().min(1).optional(),
   balanceIqd: Iqd,
+  /** G-82 reference of the request; the assignment reuses it so the Merchant app can follow one request end to end. */
+  reference: z.string().min(1).optional(),
 });
 export type MerchantSettlementRequestedPayload = z.input<typeof MerchantSettlementRequestedPayload>;
 

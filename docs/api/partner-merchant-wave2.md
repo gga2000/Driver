@@ -119,6 +119,7 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.propose`, `deal
 | `deals.setActive` | mutation | `{merchantOrgId, dealId, active}` | `DealView` |
 | `deals.review` | mutation | `{dealId, approve, reason?}` — roles `admin`, `support` | `DealView` |
 | `money.today` | query | `{merchantOrgId}` | `{localDate, orders, salesIqd, commissionIqd, commissionByTier[] {tier, pct, baseIqd, commissionIqd, orders}, dealsIqd, netIqd, cashHeldByCouriersIqd, holders[] {courierId, amountIqd}, payableBalanceIqd, settlementMode, overExposure}` |
+| `money.cash` | query | `{merchantOrgId}` | `MerchantCashAccount {balanceIqd, exposureCapIqd, overExposure, mode, holders[] {courierId, name (first name), amountIqd}, heldByPlatformIqd, request {reference, reason, requestedAt, amountIqd, state: requested\|on_the_way\|handed_over, channel, courierId, courierName, assignedAt, targetBy, handover} \| null, handovers[] {handoverId, at, courierId, courierName, amountIqd, balanceAfterIqd, confirmedBy: pin\|tablet}, lastSettledAt}` — the "اطلب فلوسك" timeline follows `merchant.settlement_requested` → `merchant.settlement_assigned` (same reference) → the courier's next hand-over (14 days of hand-overs, latest request within 24 h) |
 | `money.statement` | query | `{merchantOrgId, weekOf?}` | `{from, to, openingIqd, closingIqd, lines[] {orderId, at, payment, itemsIqd, commissionTier, commissionIqd, feesIqd, netIqd}, settlements[] {at, kind: courier_handover\|payout, amountIqd, reference}, totals}` |
 | `money.disputes` | query | `{merchantOrgId}` | `[{orderId, kind, note, openedAt, evidence {acceptedAt, readyAt, pickedUpAt, deliveredAt, promisedReadyAt, lines[] {name, qty, participant}, itemsIqd}, defaultOutcome {code, text_ar, merchantImpactIqd}, response\|null}]` (last 30 days) |
 | `money.respondDispute` | mutation | `{merchantOrgId, orderId, decision: accept_default\|contest, note?, evidenceUploadIds[] ≤ 5}` | `MerchantDispute` (re-answering replaces; emits `merchant.dispute_responded`) |
@@ -127,6 +128,13 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.propose`, `deal
 | `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` (grants the role scoped to the org) |
 | `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` |
 | `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` |
+
+Additive fields (Merchant app wave 2): statement lines carry `commissionPct`, `discountIqd`, `discountFunder`
+(platform promos today: they don't lower the merchant's net); disputes carry `respondBy` (opened + 48 h, then
+the default outcome stands), `evidence.photos` and `response.photoUrls` (signed); insights carry
+`rejection.trend[]` (7-day buckets), `peakGrid[7][24]` (weekday × hour), `bestSellers[]` (by sales) and
+`orders`, and a rated order's food score goes to its main dish (largest line) only; staff rows carry
+`pending` (invited, never signed in). `merchant.paid_by_courier` events carry `confirmedBy`.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
 `deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `staff_last_owner`, `upload_invalid`.

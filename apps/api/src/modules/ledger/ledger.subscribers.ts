@@ -53,7 +53,7 @@ export function ledgerSubscribers(posting: PostingService, merchantCash: Merchan
     /** A request from any origin (Merchant app, exposure cap, mode schedule) gets routed and announced. */
     'merchant.settlement_requested': async (payload) => {
       const p = decodeDomainEvent('merchant.settlement_requested', payload);
-      await merchantCash.assign(p.merchantId, p.reason);
+      await merchantCash.assign(p.merchantId, p.reason, p.reference);
     },
   };
 }

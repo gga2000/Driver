@@ -91,6 +91,7 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['merchantAdmin.deals.propose', (c) => c.merchantAdmin.deals.propose({ ...M, type: 'percent', value: 10, nameAr: 'خصم', schedule: SCHEDULE }), 'merchant_owner', 'customer'],
   ['merchantAdmin.deals.review', (c) => c.merchantAdmin.deals.review({ dealId: 'd1', approve: true }), 'admin', 'merchant_owner'],
   ['merchantAdmin.money.today', (c) => c.merchantAdmin.money.today(M), 'merchant_owner', 'finance'],
+  ['merchantAdmin.money.cash', (c) => c.merchantAdmin.money.cash(M), 'merchant_owner', 'courier'],
   ['merchantAdmin.money.statement', (c) => c.merchantAdmin.money.statement(M), 'merchant_owner', 'courier'],
   ['merchantAdmin.money.respondDispute', (c) => c.merchantAdmin.money.respondDispute({ ...M, orderId: 'o1', decision: 'contest' }), 'merchant_owner', 'customer'],
   ['merchantAdmin.insights', (c) => c.merchantAdmin.insights(M), 'merchant_staff', 'customer'],

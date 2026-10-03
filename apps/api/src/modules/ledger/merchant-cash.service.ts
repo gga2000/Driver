@@ -203,10 +203,12 @@ export class MerchantCashService {
   }
 
   /** Subscriber side of a request: route it (courier holding the cash, or ops/ZainCash) and announce the assignment. */
-  async assign(merchantId: string, reason: SettlementRequestReason): Promise<SettlementPlan | null> {
+  async assign(merchantId: string, reason: SettlementRequestReason, reference?: string): Promise<SettlementPlan | null> {
     const view = await this.balance(merchantId);
     if (view.balanceIqd <= 0) return null;
-    const plan = this.plan(view, reason, this.clock.now());
+    const planned = this.plan(view, reason, this.clock.now());
+    // Keep the request's own reference so the request and its assignment read as one (Merchant app timeline).
+    const plan = reference ? { ...planned, reference } : planned;
     await this.run((tx) =>
       this.bus.emit(
         tx,
@@ -260,7 +262,14 @@ export class MerchantCashService {
           actorId: input.courierId,
           type: 'merchant.paid_by_courier',
           occurredAt: at,
-          payload: { handoverId: input.handoverId, merchantId: input.merchantId, courierId: input.courierId, amountIqd: input.amountIqd, merchantBalanceIqd: balance },
+          payload: {
+            handoverId: input.handoverId,
+            merchantId: input.merchantId,
+            courierId: input.courierId,
+            amountIqd: input.amountIqd,
+            merchantBalanceIqd: balance,
+            confirmedBy: input.pin ? 'pin' : 'tablet',
+          },
           idempotencyKey: `merchant.paid_by_courier:${input.handoverId}`,
         },
         { name: 'merchant', id: input.merchantId },

@@ -35,6 +35,8 @@ describe('merchant cash account (decisions §3)', () => {
     // The subscriber routes it and announces the assignment.
     await h.bus.publish('merchant.settlement_requested', req!.payload);
     expect(h.bus.last('merchant.settlement_assigned')?.payload).toMatchObject({ merchantId: 'm1', channel: 'courier', courierId: 'k2', amountIqd: 13 * 12750, reason: 'exposure_cap' });
+    // Same reference as the request, so the Merchant app follows one request from ask to hand-over.
+    expect(h.bus.last('merchant.settlement_assigned')?.payload['reference']).toBe(req!.payload['reference']);
   });
 
   it('"اطلب فلوسك": nothing due is refused; otherwise a plan by mode with a settlement reference', async () => {
