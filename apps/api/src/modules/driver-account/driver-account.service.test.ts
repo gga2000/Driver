@@ -233,6 +233,21 @@ describe('driverAccount daily check-in', () => {
     expect((await h.ev.events.forActor(d.personId)).filter((e) => e.type === 'driver.checkin_locked')).toHaveLength(1);
   });
 
+  it('parallel submissions cannot beat the two-strikes lock-out (review 2026-10-04 #17)', async () => {
+    const h = setup();
+    const d = await h.person('07700000001', ['courier']);
+    const [c1, c2, c3] = [await h.service.checkInChallenge(d), await h.service.checkInChallenge(d), await h.service.checkInChallenge(d)];
+    const [u1, u2, u3] = [await h.upload(d.personId), await h.upload(d.personId), await h.upload(d.personId)];
+    const results = await Promise.allSettled([
+      h.service.submitCheckIn(d, { challengeId: c1.challengeId, uploadId: u1, livenessScore: 0.1 }),
+      h.service.submitCheckIn(d, { challengeId: c2.challengeId, uploadId: u2, livenessScore: 0.1 }),
+      h.service.submitCheckIn(d, { challengeId: c3.challengeId, uploadId: u3, livenessScore: 0.99 }),
+    ]);
+    expect(results[2]).toMatchObject({ status: 'rejected', reason: { code: 'checkin_locked' } });
+    expect((await h.service.onlineGate(d)).canGoOnline).toBe(false);
+    expect((await h.ev.events.forActor(d.personId)).filter((e) => e.type === 'driver.checkin_locked')).toHaveLength(1);
+  });
+
   it("refuses someone else's challenge", async () => {
     const h = setup();
     const a = await h.person('07700000001', ['courier']);

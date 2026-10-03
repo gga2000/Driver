@@ -32,6 +32,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
 | 15 | Medium (perf) | `events` has no index for `forAggregate` (Merchant cash screen) | fixed |
 | 16 | Low | offer pay rounds differently from the ledger posting (batch bonus, ride take) | fixed |
+| 17 | Medium | daily check-in: parallel selfies bypass the two-strikes lock-out | fixed |
 
 ## Details
 
@@ -188,3 +189,14 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   the offer and paid 875; a 1,750 one showed 1,200 and paid 1,225.
 - **Fix:** `shareOf` mirrors the ledger's `pct`; `rideTake` mirrors `takeOf`.
 - **Test:** `partner/logic.test.ts` › "the offer promises exactly what the ledger posts (review 2026-10-04 #16)".
+
+### 17 · Medium · check-in lock-out bypass by parallel submissions (scoring §2)
+
+- **Where:** `apps/api/src/modules/driver-account/driver-account.service.ts` `submitCheckIn`, `checkInStatusFor`.
+- **What:** each submission checked "locked out?" before any of the others recorded its result, and a pass
+  counted no matter when it came. Open N challenges, submit N selfies at once: all pass the check, and one
+  passing makes him `verifiedToday` even after two failures — the two-strikes rule (and its ops alert) could
+  be brute-forced.
+- **Fix:** submissions per person are serialised (`KeyedLock`), and the status counts a pass only if it came
+  before the second failure (submission order), which also covers several API instances.
+- **Test:** `driver-account.service.test.ts` › "parallel submissions cannot beat the two-strikes lock-out (review 2026-10-04 #17)".

@@ -25,6 +25,7 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey, localPeriod, nextLocalSunday } from '../../shared/local-time.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -114,6 +115,7 @@ export function worstStatus(statuses: readonly DriverDocumentStatus[]): DriverDo
 @Injectable()
 export class DriverAccountService implements DriverAccountPort {
   private readonly codes: HandoverCodes;
+  private readonly checkInLock = new KeyedLock();
 
   constructor(
     @Inject(DRIVER_ACCOUNT_REPOSITORY) private readonly repo: DriverAccountRepository,
@@ -339,7 +341,13 @@ export class DriverAccountService implements DriverAccountPort {
    * the device SDK's score (default 1) is ≥ 0.5. Face match against the reference selfie is the
    * Console's (ops review) until a matcher lands. Second failure of the day locks him out + ops alert.
    */
-  async submitCheckIn(actor: Actor, input: SubmitCheckInInput): Promise<CheckInResult> {
+  submitCheckIn(actor: Actor, input: SubmitCheckInInput): Promise<CheckInResult> {
+    // One submission at a time per person: parallel selfies must not all pass the lock-out check
+    // before any failure is recorded (review 2026-10-04 #17).
+    return this.checkInLock.run(actor.personId, () => this.submitCheckInNow(actor, input));
+  }
+
+  private async submitCheckInNow(actor: Actor, input: SubmitCheckInInput): Promise<CheckInResult> {
     const now = this.clock.now();
     const row = await this.repo.checkIn(input.challengeId);
     if (!row || row.personId !== actor.personId || row.result !== 'pending' || row.expiresAt.getTime() < now.getTime()) throw new DriverError('checkin_challenge_invalid');
@@ -389,7 +397,15 @@ export class DriverAccountService implements DriverAccountPort {
     const now = this.clock.now();
     const localDate = localDateKey(now);
     const rows: CheckInRecord[] = await this.repo.checkInsOn(personId, localDate);
-    const passed = rows.filter((r) => r.result === 'passed').sort((a, b) => (a.submittedAt?.getTime() ?? 0) - (b.submittedAt?.getTime() ?? 0));
+    // In submission order: a pass only counts if it came before the second failure (two strikes).
+    const done = rows.filter((r) => r.result !== 'pending').sort((a, b) => (a.submittedAt?.getTime() ?? 0) - (b.submittedAt?.getTime() ?? 0));
+    let strikes = 0;
+    let firstPass: CheckInRecord | undefined;
+    for (const r of done) {
+      if (r.result === 'failed') strikes += 1;
+      else if (r.result === 'passed' && !firstPass && strikes < MAX_CHECKIN_FAILURES) firstPass = r;
+    }
+    const passed = firstPass ? [firstPass] : [];
     const failures = rows.filter((r) => r.result === 'failed').length;
     const verified = passed.length > 0;
     const roles = await this.identity.activeRoles(personId);
