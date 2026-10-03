@@ -26,10 +26,17 @@ export function ActiveOrderPill({ order }: { order: Order }) {
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="bodyStrong">{t(isRide ? 'home.active_trip' : 'home.active_order')}</Text>
-          <StatusPill live tone="accent" size="sm" label={t(`order.status.${order.state}` as MessageKey)} />
+          <StatusPill live tone="accent" size="sm" label={t(isRide ? rideStatusKey(order.state) : (`order.status.${order.state}` as MessageKey))} />
         </View>
         <Icon name="chevron-forward" size={20} color="accentText" />
       </View>
     </Card>
   );
+}
+
+/** A ride's order states read as the trip does ("ندور لك سايق", "السايق بالطريق إلك"). */
+function rideStatusKey(state: Order['state']): MessageKey {
+  if (state === 'placed') return 'trip.status.offered';
+  if (state === 'matched') return 'trip.status.en_route_to_pickup';
+  return `order.status.${state}` as MessageKey;
 }

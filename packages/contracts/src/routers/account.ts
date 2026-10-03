@@ -7,6 +7,8 @@ import {
   HouseholdIdInput,
   HouseholdView,
   InviteMemberInput,
+  RiderLandmarksInput,
+  LandmarkView,
   PayerApprovalView,
   PhotoUploadInput,
   PhotoUploadTicket,
@@ -58,6 +60,11 @@ export const placesRouter = router({
     .input(ZoneForPinInput)
     .output(ZoneForPinOutput)
     .query(({ ctx, input }) => ctx.places.zoneFor(input)),
+  /** Landmarks to search ("وين رايح؟"): seeded garages and meeting points plus verified landmark places. */
+  landmarks: protectedProcedure()
+    .input(RiderLandmarksInput)
+    .output(z.array(LandmarkView))
+    .query(async ({ ctx, input }) => (ctx.places.landmarks ? ctx.places.landmarks(input) : [])),
   /** Signed upload ticket for a gate/door photo. */
   photoUpload: protectedProcedure()
     .input(PhotoUploadInput)

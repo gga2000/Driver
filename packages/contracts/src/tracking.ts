@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DeliveryPoint, LatLng } from './common.js';
+import { DeliveryPoint, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
@@ -55,6 +55,8 @@ export const TrackTrip = z.object({
   /** Other customers' drop-offs before mine (honest batched ETA, dispatch spec §3). */
   dropsBeforeMine: z.number().int().min(0),
   unreachable: UnreachableStatus.nullable(),
+  /** The trip's vertical (rides: taxi or tuktuk before a driver accepts). */
+  vertical: Vertical.optional(),
 });
 export type TrackTrip = z.infer<typeof TrackTrip>;
 

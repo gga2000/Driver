@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking, type QuickReplyKey, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
@@ -41,7 +42,27 @@ const PHASE_TONE: Record<Phase, StatusTone> = {
 };
 
 /** Collapsed sheet: status line + ETA (spec §4). */
-export function SheetHeader({ phase, status, pill, eta, now, lateMin }: { phase: Phase; status: string; pill: string; eta: Date | null; now: number; lateMin: number }) {
+export function SheetHeader({
+  phase,
+  status,
+  pill,
+  eta,
+  now,
+  lateMin,
+  note,
+  aside,
+}: {
+  phase: Phase;
+  status: string;
+  pill: string;
+  eta: Date | null;
+  now: number;
+  lateMin: number;
+  /** One muted line under the status (rides: the search wave). */
+  note?: string | null;
+  /** Replaces the ETA box (rides: the search counter). */
+  aside?: ReactNode;
+}) {
   const theme = useTheme();
   const t = useT();
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - now) / 60_000)) : null;
@@ -53,8 +74,15 @@ export function SheetHeader({ phase, status, pill, eta, now, lateMin }: { phase:
         <Text variant="title" numberOfLines={2} testID="status-line">
           {status}
         </Text>
+        {note ? (
+          <Text variant="caption" color="textMuted" numberOfLines={1} testID="status-note" style={{ marginTop: -2 }}>
+            {note}
+          </Text>
+        ) : null}
       </View>
-      {eta && minutes !== null ? (
+      {aside ? (
+        aside
+      ) : eta && minutes !== null ? (
         <View
           testID="eta"
           style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: lateMin > 0 ? theme.colors.warningTint : theme.colors.accentTint, minWidth: 84 }}
@@ -274,6 +302,8 @@ export function OrderItems({ view }: { view: OrderTracking }) {
 export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): PriceItem[] {
   const o = view.order;
   const items: PriceItem[] = [];
+  // A ride is one fare (the locked quote), not items + delivery.
+  if (o.type === 'ride') items.push({ key: 'fare', label: t('ride.fare'), amount: Math.max(0, o.totalIqd - o.tipIqd) });
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
   if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
@@ -285,7 +315,9 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
 
 export function PriceSection({ view }: { view: OrderTracking }) {
   const t = useT();
-  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} testID="track-price" />;
+  const ride = view.order.type === 'ride';
+  const note = ride ? (view.order.paymentMethod === 'cash' ? t('ride.pay_cash_hint') : t('ride.paid_wallet')) : undefined;
+  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} note={note} testID="track-price" />;
 }
 
 // ───────────────────────── context actions ─────────────────────────

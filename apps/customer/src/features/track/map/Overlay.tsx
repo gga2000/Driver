@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { useAnimatedProps, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
+import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { Icon, Text, useTheme, usePulse, withAlpha, type IconName } from '@driver/ui';
 import { glideAt, pathD, project, type Glide, type LngLat, type Size } from '../geo';
@@ -97,13 +98,14 @@ const PIN_W = 120;
 const PIN_H = 64;
 
 /** A place on the map: the home pin (with its label) or the kitchen. Anchored at its tip. */
-export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { at: LngLat; kind: 'home' | 'kitchen'; label: string; testID?: string }) {
+export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { at: LngLat; kind: 'home' | 'kitchen' | 'pickup'; label: string; testID?: string }) {
   const theme = useTheme();
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
     return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: p.y - PIN_H }] };
   }, [at.lat, at.lng]);
   const home = kind === 'home';
+  const pickup = kind === 'pickup';
   const fill = home ? theme.colors.text : theme.colors.surface;
   return (
     <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: 'flex-end' }, place]}>
@@ -126,16 +128,60 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
             elevation: 3,
           }}
         >
-          <Icon name={home ? 'home' : 'bag'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
+          {pickup ? (
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.success, borderWidth: 2, borderColor: withAlpha(theme.colors.success, 0.3) }} />
+          ) : (
+            <Icon name={home ? 'home' : 'bag'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
+          )}
           <Text variant="caption" weight={600} color={home ? 'surface' : 'text'} numberOfLines={1} style={{ maxWidth: PIN_W - 44 }}>
             {label}
           </Text>
         </View>
         {/* Stem and the tip dot. */}
         <View style={{ width: 2, height: 10, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
-        <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: -3, backgroundColor: home ? theme.colors.accent : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
+        <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: -3, backgroundColor: home ? theme.colors.accent : pickup ? theme.colors.success : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
       </View>
     </Animated.View>
+  );
+}
+
+const RADAR = 240;
+
+/**
+ * "ندور لك سايق": rings sweeping out from the pickup while dispatch broadcasts the ride (customer
+ * spec §5). Three staggered rings on the UI thread; still under reduce-motion.
+ */
+export function RadarPulse({ cam, size, at, testID }: LayerProps & { at: LngLat; testID?: string }) {
+  const theme = useTheme();
+  const place = useAnimatedStyle(() => {
+    const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
+    return { transform: [{ translateX: p.x - RADAR / 2 }, { translateY: p.y - RADAR / 2 }] };
+  }, [at.lat, at.lng]);
+  return (
+    <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: RADAR, height: RADAR }, place]}>
+      {[0, 1, 2].map((i) => (
+        <RadarRing key={i} delay={i * 700} color={theme.colors.accent} still={theme.reduceMotion} />
+      ))}
+    </Animated.View>
+  );
+}
+
+function RadarRing({ delay, color, still }: { delay: number; color: string; still: boolean }) {
+  const p = useSharedValue(still ? 0.5 : 0);
+  useEffect(() => {
+    if (still) return;
+    p.value = withDelay(delay, withRepeat(withTiming(1, { duration: 2100, easing: Easing.out(Easing.cubic) }), -1, false));
+    return () => cancelAnimation(p);
+  }, [delay, p, still]);
+  const style = useAnimatedStyle(() => ({ opacity: 0.55 * (1 - p.value), transform: [{ scale: 0.12 + p.value * 0.88 }] }));
+  return (
+    <Animated.View
+      style={[
+        StyleSheet.absoluteFill,
+        { borderRadius: RADAR / 2, borderWidth: 2, borderColor: color, backgroundColor: withAlpha(color, 0.12) },
+        style,
+      ]}
+    />
   );
 }
 

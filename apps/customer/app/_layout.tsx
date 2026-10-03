@@ -104,6 +104,10 @@ function RootNavigator() {
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
+        {/* City taxi / tuktuk (spec §5): where to → pin adjust → choose ride → /order/[id]. */}
+        <Stack.Screen name="ride/index" options={{ headerShown: false }} />
+        <Stack.Screen name="ride/pin" options={{ headerShown: false }} />
+        <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
