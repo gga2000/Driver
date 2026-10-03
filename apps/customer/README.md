@@ -9,13 +9,19 @@ app/
   (auth)/                welcome → phone → otp → setup (name + first place, skippable)
   (tabs)/                index (الرئيسية) · orders (طلباتي) · wallet (المحفظة) · account (حسابي)
   places/                deliver-to picker (modal) + add place
-  restaurant/[id] cart checkout order/[id] rajaa   ← STUBS, replaced by later milestones
+  restaurant/[id] cart checkout order/[id]   ← STUBS, replaced by later milestones
+  rajaa/                 الرجعة: index (corridor + garage boards), departure/[id] (seat booking),
+                         booking/[id] (10-min hold + pay), pass/[id] (boarding pass), demand, request
 src/
   lib/                   api (tRPC + React Query), session, guard, money, phone, profile, i18n, fonts
   components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
   features/<flow>/       a flow's components and query hooks (home, auth, places)
   fixtures/              isolated sample data where the API has no customer read yet
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
+
+الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
+POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…). `SHOTS=rajaa`
+limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
 ```
 
 ## Session and API

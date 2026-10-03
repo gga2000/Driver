@@ -68,6 +68,16 @@ describe('seats', () => {
     const over = toggleSeat(seven, r.selection, 'rear_left', 2);
     expect(over).toEqual({ selection: ['middle_left', 'middle_right'], rejected: 'max' });
   });
+  it('rejects a free seat blocked for this viewer and leaves it out of seats left', () => {
+    const blocked: SeatInfo[] = [
+      { id: 'back_left', state: 'taken' },
+      { id: 'back_middle', state: 'free', blocked: true },
+      { id: 'back_right', state: 'free' },
+    ];
+    expect(toggleSeat(blocked, [], 'back_middle')).toEqual({ selection: [], rejected: 'blocked' });
+    expect(toggleSeat(blocked, [], 'back_right').rejected).toBeNull();
+    expect(seatsLeft(blocked)).toBe(1);
+  });
   it('rejects seats that are not in the car', () => {
     expect(toggleSeat(car, [], 'rear_left').rejected).toBe('unknown');
   });

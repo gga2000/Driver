@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { TERMINAL_ORDER_STATES, type Order, type OrderState } from '@driver/contracts';
-import { FIXTURE_RAJAA } from '@/fixtures/rajaa';
 import { fetchFixtureRestaurants, type RestaurantSummary } from '@/fixtures/restaurants';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
@@ -41,9 +40,4 @@ export function useActiveOrder() {
  */
 export function useRestaurants() {
   return useQuery<RestaurantSummary[]>({ queryKey: ['fixtures', 'restaurants'], queryFn: () => fetchFixtureRestaurants() });
-}
-
-/** TODO(api): intercity departures board. Static sample until then. */
-export function useRajaaSummary() {
-  return FIXTURE_RAJAA;
 }

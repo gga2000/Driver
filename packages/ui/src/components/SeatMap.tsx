@@ -25,8 +25,9 @@ export interface SeatMapProps {
   style?: StyleProp<ViewStyle>;
 }
 
-const STATE_KEY: Record<SeatState | 'selected', MessageKey> = {
+const STATE_KEY: Record<SeatState | 'selected' | 'blocked', MessageKey> = {
   free: 'seat.state_free',
+  blocked: 'seat.state_blocked',
   taken: 'seat.state_taken',
   walkup: 'seat.state_walkup',
   held: 'seat.state_held',
@@ -35,9 +36,11 @@ const STATE_KEY: Record<SeatState | 'selected', MessageKey> = {
 
 type Look = { bg: string; border: string; dashed?: boolean; fg: string; icon?: IconName };
 
-function look(theme: Theme, state: SeatState, selected: boolean, front: boolean): Look {
+function look(theme: Theme, state: SeatState, selected: boolean, front: boolean, blocked = false): Look {
   const c = theme.colors;
   if (selected) return { bg: c.accent, border: c.accent, fg: c.onAccent, icon: 'check' };
+  // Free but not for this viewer (adjacency / family-only): quiet, locked, still readable.
+  if (state === 'free' && blocked) return { bg: c.surfaceSunken, border: c.borderStrong, dashed: true, fg: c.textMuted, icon: 'shield' };
   switch (state) {
     case 'taken':
       return { bg: c.seatTaken, border: c.seatTaken, fg: c.textMuted, icon: 'user' };
@@ -69,15 +72,17 @@ function Seat({
   const press = usePressScale(0.92);
   const pop = useSelectSpring(selected);
   const front = seat.id === 'front';
-  const l = look(theme, seat.state, selected, front);
-  const premium = seat.premium && seat.state === 'free' ? `+${formatAmount(seat.premium)}` : null;
+  const blocked = seat.state === 'free' && !!seat.blocked;
+  const l = look(theme, seat.state, selected, front, blocked);
+  const premium = seat.premium && seat.state === 'free' && !blocked ? `+${formatAmount(seat.premium)}` : null;
   const label = [
     t(`seat.${seat.id}` as MessageKey),
-    t(selected ? STATE_KEY.selected : STATE_KEY[seat.state]),
+    t(selected ? STATE_KEY.selected : blocked ? STATE_KEY.blocked : STATE_KEY[seat.state]),
     premium ? `${premium} ${t('quote.currency')}` : null,
   ]
     .filter(Boolean)
     .join('، ');
+  // Blocked seats stay pressable so the screen can say why (onReject 'blocked').
   const canPress = interactive && (seat.state === 'free' || selected);
 
   return (
@@ -241,12 +246,12 @@ export function SeatMap({ layout, seats, selection, onChange, onReject, max = 1,
           ))}
         </View>
       </View>
-      {legend && !compact ? <SeatLegend /> : null}
+      {legend && !compact ? <SeatLegend blocked={seats.some((s) => s.blocked && s.state === 'free')} /> : null}
     </View>
   );
 }
 
-export function SeatLegend() {
+export function SeatLegend({ blocked = false }: { /** Add the "not for you" swatch (booking with a travelling-as declaration). */ blocked?: boolean } = {}) {
   const theme = useTheme();
   const items: { key: MessageKey; look: Look }[] = [
     { key: 'seat.state_free', look: look(theme, 'free', false, false) },
@@ -254,6 +259,7 @@ export function SeatLegend() {
     { key: 'seat.state_taken', look: look(theme, 'taken', false, false) },
     { key: 'seat.state_walkup', look: look(theme, 'walkup', false, false) },
     { key: 'seat.state_held', look: look(theme, 'held', false, false) },
+    ...(blocked ? [{ key: 'seat.state_blocked' as MessageKey, look: look(theme, 'free', false, false, true) }] : []),
   ];
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: theme.space[4], rowGap: theme.space[1] }}>
