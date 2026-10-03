@@ -25,7 +25,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | fixed |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
 | 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | fixed |
-| 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | in progress |
+| 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | documented |
 | 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
 | 12 | Low | menu import applied twice concurrently duplicates items | fixed |
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
@@ -35,6 +35,10 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 17 | Medium | daily check-in: parallel selfies bypass the two-strikes lock-out | fixed |
 | 18 | Medium | online gate: uploading any photo lifts an expired document | fixed |
 | 19 | Low | merchant can contest a dispute after its 48 h window | fixed |
+| 20 | Medium | self-declared vehicle class + no role check per vertical in dispatch | documented |
+| 21 | Low | `recordPayout` can pay a merchant more than its balance | documented |
+| 22 | Low | in-process locks (`KeyedLock`) are per instance | documented |
+| 23 | Low | `memberCards` returns names of deleted people | documented |
 
 ## Details
 
@@ -232,3 +236,51 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   could contest, or flip an accepted default to a contest, days later.
 - **Fix:** answers after `respondBy` are refused with `dispute_response_closed` (new error code).
 - **Test:** `merchant-admin.service.test.ts` › "disputes show evidence and the default outcome; the owner answers once (re-answer replaces)" (extended).
+
+## Documented, not fixed in this pass
+
+### 10 · Low · staff see per-item sales in insights
+`merchantAdmin.insights` is open to staff by design (API doc, and an existing test asserts staff read
+`bestSellers[].salesIqd`). Under "roles gate money views" that figure arguably belongs to the owner. Changing
+it changes the contract the Merchant app renders (`InsightsView` prints `salesIqd`), so it is a product call:
+either null `salesIqd` for staff (contract `nullable`) or keep quantities only.
+
+### 11 · Medium (perf) · `OrdersService.merchantOrders` reads the merchant's whole history
+`apps/api/src/modules/orders/orders.service.ts` `merchantOrders(merchantOrgId, range)` calls
+`repo.findMany({merchantOrgId})` (every order the merchant ever had) and filters `placedAt` in memory, then
+builds a full view per order (`this.view(id)`, N+1). It backs `money.today`, `money.statement`,
+`money.disputes`, `insights` and the deal projection. Fix: push the range into the repository
+(`placedAt: {gte, lt}`) and add `@@index([merchantOrgId, placedAt])` on `orders`. Left alone because the
+orders module is being changed concurrently (deals at checkout).
+
+### 20 · Medium · vehicle class is self-declared and dispatch has no role ↔ vertical check
+`partner.goOnline({vehicleClass})` puts whatever class the client sends into the presence index, and
+dispatch picks candidates by presence vehicle (`vehicleFit`) without looking at roles. A `courier` (no car
+documents required) going online as `car` is offered taxi passenger rides. The Partner app sends the
+registered class, so this is an API-level hole, not a UI one. Fix belongs in dispatch candidate selection
+(role per vertical: `driver` for taxi, `khat_driver` for khat, …) and/or capping the declared class at the
+registered vehicle; both are business rules to agree first.
+
+### 21 · Low · payouts are not bounded by the merchant balance
+`MerchantCashService.recordPayout` posts any amount; with #9 fixed a double request no longer queues two
+payouts, but nothing stops finance (or a future ZainCash matcher) from paying twice. The adopted
+"negative-balance payouts" rule should decide whether this refuses or needs an explicit override flag.
+
+### 22 · Low · per-instance locks
+`KeyedLock` (cash receipts, settlement requests, check-ins) serialises within one API process. Cash
+receipts also take a Postgres advisory lock; settlement requests and check-ins rely on idempotent
+references / submission-order evaluation across instances, which keeps them correct but not perfectly
+serialised. If the API is scaled out, move these to `pg_advisory_xact_lock` or the Redis lock dispatch uses.
+
+### 23 · Low · names of deleted people
+`IdentityService.memberCards` (fleet, ops cash round, merchant staff) does not skip `deletedAt` people the way
+`firstNamesFor` / `courierCard` do. Whether the vault row is wiped on deletion decides the impact.
+
+## Verification
+
+`pnpm turbo run typecheck lint` (now race-free, #14), `pnpm --filter @driver/api test`,
+`pnpm --filter @driver/contracts test`, `pnpm --filter @driver/db test` — all green at the final commit.
+Prisma-backed integration tests (`wave2.integration.test.ts`) need `DATABASE_URL` and were extended for the
+fleet consent column but not run here; migrations `20261004120000_fleet_driver_consent` and
+`20261004120100_events_aggregate_index` were not applied to a database in this environment (no schema
+engine); CI's drift check is the authority.
