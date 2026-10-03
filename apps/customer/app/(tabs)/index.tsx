@@ -10,12 +10,13 @@ import { useActiveOrder, useRestaurants } from '@/features/home/queries';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
+import { startRide, WhereToBar } from '@/features/ride/WhereToBar';
 import { useT } from '@/lib/i18n';
 import { useProfile } from '@/lib/profile';
 
 /**
  * Home (spec §1): food-led feed. Header with the deliver-to picker, one search bar, the pinned
- * active order, the compact services row, الرجعة second, then food rails and a community deal.
+ * active order, the compact services row, "وين رايح؟" (taxi / tuktuk), الرجعة second, then food rails and a community deal.
  */
 export default function Home() {
   const theme = useTheme();
@@ -39,6 +40,7 @@ export default function Home() {
   const onService = (id: ServiceId) => {
     if (id === 'food') scrollRef.current?.scrollTo({ y: railsY.current, animated: true });
     else if (id === 'rajaa') router.push('/rajaa');
+    else if (id === 'taxi') startRide('taxi');
     else toast.show({ message: t('shell.stub_title'), icon: 'clock' });
   };
 
@@ -68,6 +70,8 @@ export default function Home() {
       {active.data ? <ActiveOrderPill order={active.data} /> : null}
 
       <ServicesRow onPress={onService} />
+
+      <WhereToBar />
 
       <RajaaCard />
 

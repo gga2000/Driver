@@ -5,8 +5,11 @@ import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
+import { RideRoute, rideVehicleLabel, SearchCounter, searchElapsedSec, useSearchNote, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
+import { useConfirmRideArrived } from '@/features/ride/queries';
+import { useRideMemo } from '@/features/ride/store';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
@@ -17,7 +20,8 @@ import { isLive, useCourierPosition, useTracking } from '@/features/track/querie
 import { ActionRow, CourierCard, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
 import { TrackMap } from '@/features/track/TrackMap';
-import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
+import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
@@ -70,6 +74,25 @@ export default function OrderLiveScreen() {
   const phase = v ? phaseOf(v) : null;
   const ride = v?.order.type === 'ride';
   const courierName = v?.courier?.firstName ?? null;
+  // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
+  const memo = useRideMemo(id);
+  const searching = Boolean(ride && phase === 'searching');
+  const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
+  const searchNote = useSearchNote(searching ? v : undefined, now);
+  const confirmArrived = useConfirmRideArrived();
+  const api = useApi();
+  const qc = useQueryClient();
+  const endRide = () =>
+    confirmArrived.mutate(
+      { orderId: id },
+      {
+        onSuccess: () => {
+          toast.show({ message: t('ride.confirm_arrived_done'), tone: 'success', icon: 'check' });
+          void qc.invalidateQueries({ queryKey: api.orders.track.queryKey({ orderId: id }) });
+        },
+        onError: (e) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' }),
+      },
+    );
 
   const [panel, setPanel] = useState<Panel>(null);
   const [arrivalSeen, setArrivalSeen] = useState(false);
@@ -137,12 +160,12 @@ export default function OrderLiveScreen() {
   const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
-  const collapsed = COLLAPSED + insets.bottom;
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0);
 
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} searching={searching} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
       <TopBar orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}>
         {lostMin !== null ? (
@@ -175,10 +198,12 @@ export default function OrderLiveScreen() {
             <SheetHeader
               phase={phase}
               status={statusLine(v, t)}
-              pill={[ride && v.courier?.vehicleClass === 'tuktuk' ? t('track.vehicle.tuktuk') : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
+              pill={[ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
               eta={eta}
               now={now}
               lateMin={lateMin}
+              note={searching ? searchNote : null}
+              aside={searching ? <SearchCounter seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
             />
           ) : (
             <View style={{ gap: theme.space[2] }}>
@@ -191,6 +216,16 @@ export default function OrderLiveScreen() {
         {v && timeline ? (
           <ScrollView contentContainerStyle={{ gap: theme.space[5], paddingBottom: theme.space[10] + insets.bottom }} showsVerticalScrollIndicator={false} testID="sheet-body">
             {statusHint ? <Text color="textMuted">{t(statusHint)}</Text> : null}
+            {ride ? <RideRoute view={v} /> : null}
+            {searching && canCancel ? (
+              <View style={{ gap: theme.space[1] }}>
+                <Button label={t('ride.cancel_free_button')} variant="secondary" icon="x" fullWidth onPress={() => setPanel('cancel')} testID="ride-cancel-searching" />
+                <Text variant="caption" color="successText" align="center">
+                  {t('ride.searching_cancel_free')}
+                </Text>
+              </View>
+            ) : null}
+            {ride && phase === 'at_pickup' ? <WaitNote vertical={v.courier?.vehicleClass === 'tuktuk' || v.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi'} /> : null}
             {phase !== 'cancelled' ? <Timeline steps={timeline.steps} current={timeline.current} /> : null}
             {v.courier && phase !== 'cancelled' ? (
               <>
@@ -232,6 +267,9 @@ export default function OrderLiveScreen() {
                   onPress={() => openChat('customer_merchant')}
                   testID="action-chat-merchant"
                 />
+              ) : null}
+              {ride && phase === 'on_the_way' ? (
+                <ActionRow icon="check" label={t('ride.confirm_arrived')} hint={t('ride.confirm_arrived_hint')} onPress={endRide} testID="action-ride-arrived" />
               ) : null}
               {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} testID="action-share" />}
               <ActionRow icon="chat" label={t('order.report_problem')} onPress={() => setPanel('dispute')} testID="action-report" />

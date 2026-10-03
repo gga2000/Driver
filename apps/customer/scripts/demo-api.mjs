@@ -18,6 +18,7 @@
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
+//   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -835,6 +836,128 @@ const rajaa = await (async () => {
       const name = url.searchParams.get('scenario') ?? 'courier';
       if (!personId || !['courier', 'merchant', 'ride'].includes(name)) return json(res, 400, { error: 'POST /demo/chat?personId=…&scenario=courier|merchant|ride' });
       json(res, 200, { scenario: name, ...(await chatScenario(personId, name)) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── city taxi / tuktuk demo ─────────────────────────
+// Booking happens in the app (orders.place type ride → the API builds the trip and broadcasts it).
+// This section only plays the drivers:
+//   POST /demo/ride[?acceptMs=3000]   two taxis and two tuktuks online around the centre (idempotent);
+//                                     the nearest one offered a ride accepts after acceptMs
+//                                     (DEMO_RIDE_ACCEPT_MS, default 3000; 0 = hold every offer)
+//   POST /demo/ride/accept?orderId=…  accept that ride's open offer now
+//   POST /demo/ride/advance?orderId=… one step: to pickup → at pickup → on the trip → arrived (cash paid)
+{
+  const RIDE_DRIVERS = [
+    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', at: { lat: 32.9068, lng: 45.0591 } },
+    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', at: { lat: 32.9031, lng: 45.0667 } },
+    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', at: { lat: 32.9112, lng: 45.0618 } },
+    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', at: { lat: 32.9019, lng: 45.0579 } },
+  ];
+  const drivers = []; // { id, def, pos, tripId }
+  const rides = new Map(); // orderId → { tripId, driverId, step }
+  let acceptMs = Number(process.env.DEMO_RIDE_ACCEPT_MS ?? 3000);
+  const seen = new Map(); // offerId → first seen (ms)
+
+  async function rideDriver(def, i) {
+    const phone = `07714${String(560000 + i).padStart(6, '0')}`;
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code } = await identity.devLastOtp(phone);
+    const id = (await identity.verifyOtp({ phone, code })).personId;
+    await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'driver' });
+    await identity.setName({ personId: id, sessionId: 'demo' }, def.name);
+    vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
+    await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
+    return { id, def, pos: { ...def.at }, tripId: null };
+  }
+
+  async function ensureDrivers() {
+    if (drivers.length === 0) for (const [i, def] of RIDE_DRIVERS.entries()) drivers.push(await rideDriver(def, i));
+    return drivers;
+  }
+
+  async function acceptOffer(d, offerId) {
+    const out = await dispatch.respond({ personId: d.id, sessionId: 'demo' }, { offerId, accept: true });
+    if (out.outcome !== 'assigned') return null;
+    const tripId = out.tripId;
+    const trip = await trips.get(tripId);
+    const orderId = trip.stops.find((s) => s.orderId)?.orderId;
+    const pickup = trip.stops.find((s) => s.type === 'pickup');
+    d.tripId = tripId;
+    rides.set(orderId, { tripId, driverId: d.id, step: 'to_pickup', driver: d });
+    // He drives to the pickup: a fix every 2 s along a straight-ish line.
+    const mid = { lat: (d.pos.lat + pickup.target.lat) / 2 + 0.0006, lng: (d.pos.lng + pickup.target.lng) / 2 - 0.0004 };
+    await startMover(tripId, d.id, [d.pos, mid, pickup.target], 22);
+    return orderId;
+  }
+
+  // The auto-accept loop: every driver's open offer, accepted once it has been open acceptMs.
+  setInterval(async () => {
+    for (const d of drivers) {
+      try {
+        if (d.tripId) continue;
+        await dispatch.presence.heartbeat(d.id, d.pos).catch(() => undefined);
+        const open = await dispatch.openOffer(d.id, 'aziziyah');
+        if (!open) continue;
+        const first = seen.get(open.offer.id) ?? Date.now();
+        seen.set(open.offer.id, first);
+        if (acceptMs > 0 && Date.now() - first >= acceptMs) await acceptOffer(d, open.offer.id);
+      } catch (err) {
+        console.error('ride demo', err?.message ?? err);
+      }
+    }
+  }, 500);
+
+  async function advanceRide(orderId) {
+    const r = rides.get(orderId);
+    if (!r) throw new Error(`no accepted demo ride ${orderId}`);
+    const trip = await trips.get(r.tripId);
+    const pickup = trip.stops.find((s) => s.type === 'pickup');
+    const drop = trip.stops.find((s) => s.type === 'dropoff');
+    if (r.step === 'to_pickup') {
+      stopMover(r.tripId);
+      await trips.reportPosition(r.driverId, { tripId: r.tripId, pin: pickup.target, at: new Date(), bearing: 200, speedKmh: 0 });
+      await trips.arrive(r.tripId, pickup.id, r.driverId, { pin: pickup.target });
+      r.step = 'at_pickup';
+    } else if (r.step === 'at_pickup') {
+      await trips.completeStop(r.tripId, pickup.id, r.driverId);
+      const mid = { lat: (pickup.target.lat + drop.target.lat) / 2 + 0.0008, lng: (pickup.target.lng + drop.target.lng) / 2 + 0.0006 };
+      await startMover(r.tripId, r.driverId, [pickup.target, mid, drop.target], 30);
+      r.step = 'on_trip';
+    } else if (r.step === 'on_trip') {
+      stopMover(r.tripId);
+      await trips.reportPosition(r.driverId, { tripId: r.tripId, pin: drop.target, at: new Date(), bearing: 330, speedKmh: 0 });
+      await trips.arrive(r.tripId, drop.id, r.driverId, { pin: drop.target });
+      const order = await orders.get(orderId);
+      await trips.completeStop(r.tripId, drop.id, r.driverId, { handover: { cashCollectedIqd: order.paymentMethod === 'cash' ? order.totalIqd : 0 } });
+      r.driver.pos = { ...drop.target };
+      r.driver.tripId = null;
+      r.step = 'arrived';
+    }
+    return r.step;
+  }
+
+  app.use('/demo/ride', async (req, res) => {
+    try {
+      const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://x');
+      if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
+      const orderId = url.searchParams.get('orderId');
+      if (url.pathname.endsWith('/advance')) return json(res, 200, { orderId, step: await advanceRide(orderId) });
+      if (url.pathname.endsWith('/accept')) {
+        const trip = await trips.activeForOrder(orderId);
+        if (!trip) return json(res, 404, { error: 'no trip' });
+        for (const d of await ensureDrivers()) {
+          const open = await dispatch.openOffer(d.id, 'aziziyah');
+          if (open && open.request.tripId === trip.id) return json(res, 200, { orderId: await acceptOffer(d, open.offer.id) });
+        }
+        return json(res, 409, { error: 'no open offer for that ride yet' });
+      }
+      if (url.searchParams.has('acceptMs')) acceptMs = Number(url.searchParams.get('acceptMs'));
+      const list = await ensureDrivers();
+      json(res, 200, { acceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

@@ -22,6 +22,9 @@
 //                                                                         POST /demo/ops-agent
 //   chat-*   order screen chat/call/share, courier + kitchen threads, quick reply, masked call,
 //            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
+//   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
+//            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
+//                                                                         POST /demo/ride
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -75,7 +78,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -180,6 +183,7 @@ try {
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
+  if (wants('ride')) await rideShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -678,6 +682,146 @@ async function chatShots(personId) {
   await guest.screenshot({ path: join(outDir, 'chat-share-ended.png') });
   console.log(join(outDir, 'chat-share-ended.png'));
   await guest.close();
+}
+
+/**
+ * City taxi / tuktuk (customer spec §5): home's "وين رايح؟" → search → choose ride (quotes, fare
+ * breakdown, door pickup) → an edge zone (tuktuk off) → a pin on the map → request a tuktuk →
+ * searching (radar, free cancel) → the demo driver accepts → at pickup → on the trip → arrival →
+ * rating. The demo API plays the drivers (POST /demo/ride; offers held until /demo/ride/accept).
+ */
+async function rideShots() {
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await byTestId('home-where-to').waitFor({ timeout: 15_000 });
+  await byTestId('home-where-to').scrollIntoViewIfNeeded();
+  await shot('ride-home');
+
+  await byTestId('home-where-to').click();
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid^="ride-spot-landmark:"]').first().waitFor({ timeout: 15_000 });
+  await settle(600);
+  await shot('ride-where');
+  await fullShot('ride-where-full');
+
+  await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
+  await page.locator('[data-testid="ride-results"]').waitFor();
+  await shot('ride-search');
+  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-tuktuk').waitFor({ timeout: 15_000 });
+  await settle(900);
+  await shot('ride-choose');
+  await fullShot('ride-choose-full');
+
+  await byTestId('ride-details-taxi').click();
+  await byTestId('ride-fare-panel').waitFor();
+  await settle(500);
+  await shot('ride-fare');
+  await byTestId('ride-fare-close').click();
+  await byTestId('ride-fare-panel').waitFor({ state: 'detached' });
+
+  await page.getByText('تعال للباب', { exact: false }).first().click();
+  await page.waitForTimeout(600);
+  await byTestId('ride-pickup-hint').scrollIntoViewIfNeeded();
+  await shot('ride-door');
+  await page.getByText('أطلع للشارع', { exact: true }).first().click();
+
+  // An edge zone: the tuktuk is off, with the reason and "try anyway".
+  await byTestId('ride-edit-route').click();
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await byTestId('ride-dropoff').click();
+  await byTestId('ride-zone-mashrou_owaid').scrollIntoViewIfNeeded();
+  await byTestId('ride-zone-mashrou_owaid').click();
+  await byTestId('ride-tuktuk-edge').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(900);
+  await shot('ride-edge');
+
+  // A fresh tuktuk booking from home's shortcut, the destination as a pin on the map: drag the map
+  // ~800 m north-west, the zone under the pin resolves (server side).
+  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await byTestId('where-to-tuktuk').click();
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await byTestId('ride-on-map').first().click();
+  await byTestId('ride-pin').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1200);
+  const box = await byTestId('ride-pin-map').boundingBox();
+  if (box) {
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    for (let i = 1; i <= 14; i++) await page.mouse.move(x + i * 12, y + i * 22, { steps: 2 });
+    await page.mouse.up();
+  }
+  await page.waitForFunction(() => !document.querySelector('[data-testid="ride-pin-confirm"]')?.getAttribute('aria-disabled')?.includes('true'), null, { timeout: 15_000 }).catch(() => undefined);
+  await settle(900);
+  await shot('ride-pin');
+  await byTestId('ride-pin-confirm').click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-tuktuk').waitFor({ timeout: 15_000 });
+
+  // Request a tuktuk with a note for the driver.
+  await byTestId('ride-vehicle-tuktuk').click();
+  await page.locator('[data-testid="ride-note"]').fill('يم الصيدلية، الباب الأخضر');
+  await settle(600);
+  await shot('ride-choose-tuktuk');
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(4200);
+  await shot('ride-searching');
+  await byTestId('ride-cancel-searching').waitFor({ state: 'attached', timeout: 5_000 }).catch(() => undefined);
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await byTestId('ride-cancel-searching').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('ride-searching-expanded');
+  await byTestId('ride-cancel-searching').click();
+  await byTestId('cancel-panel').waitFor();
+  await settle(900);
+  await shot('ride-cancel');
+  await page.getByText('لا، خليه').first().click().catch(async () => page.keyboard.press('Escape'));
+
+  // The nearest tuktuk accepts and drives over.
+  const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
+  if (!ok) return;
+  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(4500);
+  await shot('ride-matched');
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await byTestId('courier-card').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(2500);
+  await shot('ride-matched-expanded');
+
+  await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await byTestId('ride-wait-note').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('ride-at-pickup');
+
+  await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(5000);
+  await shot('ride-on-trip');
+  await page.goto(`${origin}/order/${orderId}?sheet=2`, { waitUntil: 'networkidle' });
+  await byTestId('sheet-body').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await page.waitForTimeout(1200);
+  await shot('ride-on-trip-actions');
+
+  await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await byTestId('arrival').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1200);
+  await shot('ride-arrived');
+  await byTestId('arrival-rate').click();
+  await byTestId('stars-delivery').waitFor();
+  await settle(500);
+  await shot('ride-rating');
 }
 
 if (errors.length) {

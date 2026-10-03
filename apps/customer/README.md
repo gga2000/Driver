@@ -15,6 +15,7 @@ app/
   order/[id]             live order / ride screen: map, courier, sheet timeline, arrival + rating
   chat/[orderId]         in-order chat (?kind=customer_courier|customer_merchant): bubbles, quick replies, photo, location
   share/[token]          PUBLIC share-trip page (no sign-in; `PUBLIC_SEGMENTS` in lib/guard.ts)
+  ride/                  تكسي / تكتك: index (وين رايح؟ search), pin (map pin adjust), choose (quotes → orders.place)
   rajaa/                 الرجعة: index (corridor + garage boards), departure/[id] (seat booking),
                          booking/[id] (10-min hold + pay), pass/[id] (boarding pass), demand, request
 src/
@@ -141,6 +142,29 @@ kitchen), `modifiers.ts` (required/min/max), `checkout.ts` (quote request, total
 under `expo start`). Metro notes for this pnpm monorepo live in `metro.config.js` (hierarchical
 lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 `tsconfig.typecheck.json`, which pins React 18 types.
+
+## City taxi / tuktuk (`app/ride/*`, `src/features/ride/`)
+
+- Entry: home's "وين رايح؟" bar (`WhereToBar`, with تكسي / تكتك shortcuts) and the تكسي service tile.
+- `/ride`: pickup defaults to the selected deliver-to place; one search (`searchSpots`, Arabic-folded:
+  ة/ه, أ/ا, گ/ك, Eastern digits, leading "ال") over saved places, recent destinations (device,
+  `store.ts`), landmarks (`places.landmarks`: seeded garages + meeting points, `AZIZIYAH_LANDMARKS`,
+  plus verified landmark places) and the 34 zones; or "حدد على الخريطة".
+- `/ride/pin?field=pickup|dropoff`: the map moves under a fixed pin; the zone under it comes from
+  `places.zoneFor`. Keep the bottom card a fixed height: resizing the map mid-drag cancels the drag.
+- `/ride/choose`: `pricing.quote` for taxi and tuktuk × door / street at the minute (the request
+  `orders.place` re-prices with, `rideQuoteRequest`), every component on "تفاصيل السعر", ride time,
+  night/peak line from the quote (hours from `config.city`), tuktuk off for edge zones with "try
+  anyway", door pickup price difference, cash / wallet (off when the balance is short), driver note.
+  Requests with the quoted fare; `price_changed` re-quotes and says the new fare.
+- `/order/[id]` for rides: tuktuk/taxi pill from `trip.vertical`, pickup pin + radar and an honest
+  wave line + counter while searching (dispatch waves from `config.city`), free-cancel button, route
+  card, free/paid wait counter at the pickup, "وصلت؟ خلّص المشوار" (`orders.confirmRideArrived`), one
+  fare line with how it is paid, and a ride receipt on the arrival screen.
+- Demo: `POST /demo/ride[?acceptMs=3000]` puts two taxis and two tuktuks online around the centre
+  (the nearest offered driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
+  `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid). `SHOTS=ride` writes
+  `ride-*.png`.
 
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
 

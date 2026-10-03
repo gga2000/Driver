@@ -172,7 +172,7 @@ export class TrackingService implements TrackingPort {
     const myDrop = stops.find((s) => s.mine && s.type === 'dropoff');
     const dropsBeforeMine = myDrop ? stops.filter((s) => !s.mine && s.type === 'dropoff' && s.seq < myDrop.seq && s.state !== 'completed' && s.state !== 'skipped').length : 0;
     const unreachable = trip.unreachable && (!trip.unreachable.stopId || trip.stops.some((s) => s.id === trip.unreachable!.stopId && s.orderId === orderId)) ? trip.unreachable : null;
-    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable };
+    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable, vertical: trip.vertical };
   }
 
   private async courierCard(trip: Trip, readerId: string, now: Date): Promise<CourierCard> {

@@ -16,6 +16,7 @@ export * from './domain-events.js';
 export * from './event.js';
 export * from './city-config.js';
 export * from './aziziyah-zones.js';
+export * from './aziziyah-landmarks.js';
 export * from './auth.js';
 export * from './dispatch-io.js';
 export * from './console-io.js';

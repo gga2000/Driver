@@ -6,7 +6,7 @@ import { Chip, Text, useTheme, type IconName } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { fitCamera, glideAt, mercX, mercY, nextGlide, type Camera, type Glide, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
-import { CourierMarker, PlacePin, RouteLine } from './map/Overlay';
+import { CourierMarker, PlacePin, RadarPulse, RouteLine } from './map/Overlay';
 import { POSITION_POLL_MS } from './queries';
 import { color } from '@driver/design-tokens';
 
@@ -22,6 +22,8 @@ export interface TrackMapProps {
   /** Heights covered by the top bar and the collapsed sheet: the camera frames the space between. */
   topInset: number;
   bottomInset: number;
+  /** Rides: dispatch is still looking for a driver (radar at the pickup). */
+  searching?: boolean;
 }
 
 /** Where the route still goes after the courier: next stops of this order, in order. */
@@ -41,7 +43,7 @@ export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoi
  * route shortening as the courier glides between 2-s fixes (interpolated and rotated by bearing on
  * the UI thread), the home and kitchen pins, and a follow camera with a re-centre chip.
  */
-export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapProps) {
+export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
@@ -50,6 +52,9 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
   const home = view.dropoff?.pin ?? view.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
   const kitchen = view.order.type === 'ride' ? null : (view.merchant?.pin ?? null);
   const pickedUp = Boolean(view.order.pickedUpAt);
+  // Rides: where the rider waits, until the driver has picked him up.
+  const ridePickupStop = view.order.type === 'ride' ? view.trip?.stops.find((s) => s.mine && s.type === 'pickup') : undefined;
+  const ridePickup = ridePickupStop && !ridePickupStop.completedAt ? ridePickupStop.target : null;
   const route = useMemo(() => routeWaypoints(view), [view]);
 
   // ── courier glide ──
@@ -104,7 +109,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
   const frame = useCallback(
     (force: boolean) => {
       if (size.w === 0 || focus.length === 0) return;
-      const pad = { top: topInset + 40, bottom: bottomInset + 40, left: 48, right: 48 };
+      const pad = { top: topInset + 40, bottom: bottomInset + (searching ? 120 : 40), left: 48, right: 48 };
       const target = fitCamera(focus, size, pad, [12.5, 16.5]);
       if (!placed.current) {
         placed.current = true;
@@ -127,7 +132,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [size, focusKey, topInset, bottomInset],
+    [size, focusKey, topInset, bottomInset, searching],
   );
 
   useEffect(() => {
@@ -154,6 +159,8 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => setFollow(false)} onUserCamera={setDrawn} />
           <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} />
+          {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
+          {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} testID="pin-pickup" /> : null}
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
           {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={glide} progress={progress} icon={VEHICLE_ICON[vehicle]} stale={stale} testID="courier-marker" />

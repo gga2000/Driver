@@ -6,6 +6,7 @@ import { FOOD_RATED_TYPES, type OrderTracking } from '@driver/contracts';
 import { Button, Icon, ltr, Text, useCountUp, useTheme, useToast, withAlpha } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { RideArrivalSummary } from '@/features/ride/LiveParts';
 import { BottomPanel } from './Panels';
 import { useRateOrder } from './queries';
 
@@ -47,7 +48,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         </View>
         {/* Gate photo placeholder: the saved place's photo replaces it when places carry photos. A ride
             ends wherever the rider asked, not at a door: no door picture there. */}
-        {ride ? null : (
+        {ride ? <RideArrivalSummary view={view} /> : (
         <View
           testID="arrival-photo"
           style={{

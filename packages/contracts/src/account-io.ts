@@ -102,6 +102,21 @@ export type ZoneForPinInput = z.input<typeof ZoneForPinInput>;
 export const ZoneForPinOutput = z.object({ zoneId: z.string().nullable(), zoneName_ar: z.string().nullable(), zoneName_en: z.string().nullable(), inService: z.boolean() });
 export type ZoneForPinOutput = z.infer<typeof ZoneForPinOutput>;
 
+/** "وين رايح؟": the city's landmarks (seeded garages and meeting points + verified landmark places). */
+export const RiderLandmarksInput = z.object({ cityId: CityId.default('aziziyah') });
+export type RiderLandmarksInput = z.input<typeof RiderLandmarksInput>;
+export const LandmarkView = z.object({
+  id: z.string(),
+  name_ar: z.string(),
+  name_en: z.string(),
+  pin: LatLng,
+  zoneId: z.string(),
+  kind: z.enum(['garage', 'meeting_point', 'landmark']),
+  aliases_ar: z.array(z.string()).default([]),
+  photoUrl: z.string().nullable().default(null),
+});
+export type LandmarkView = z.infer<typeof LandmarkView>;
+
 export const PhotoUploadInput = z.object({ contentType: PhotoContentType, sizeBytes: z.number().int().positive().max(PHOTO_MAX_BYTES) });
 export type PhotoUploadInput = z.infer<typeof PhotoUploadInput>;
 /** Signed upload: PUT the bytes to `uploadUrl` (relative URLs resolve against the API origin) before it expires. */
@@ -122,6 +137,8 @@ export interface PlacesPort {
   remove(actor: Actor, input: PlaceIdInput): Promise<{ ok: true }>;
   confirm(actor: Actor, input: ConfirmPlaceInput): Promise<SavedPlaceView>;
   zoneFor(input: z.infer<typeof ZoneForPinInput>): Promise<ZoneForPinOutput>;
+  /** Optional so older contexts keep compiling; the router answers [] without it. */
+  landmarks?(input: z.infer<typeof RiderLandmarksInput>): Promise<LandmarkView[]>;
   photoUpload(actor: Actor, input: PhotoUploadInput): Promise<PhotoUploadTicket>;
 }
 
