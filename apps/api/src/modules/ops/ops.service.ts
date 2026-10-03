@@ -17,6 +17,8 @@ import {
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { KeyedLock } from '../../shared/keyed-lock.js';
+import { localDateKey } from '../../shared/local-time.js';
 import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -27,6 +29,8 @@ import { OPS_REPOSITORY, type CashReceiptRecord, type OpsRepository, type TaskRe
 
 /** Computed cash task: a courier owing at least this share of his cap (or over it) is worth a visit. */
 export const CASH_TASK_SHARE_OF_CAP = 0.5;
+/** Wrong hand-over codes for one courier in a local day before his code locks until midnight. */
+export const HANDOVER_CODE_MAX_FAILURES = 5;
 const DAY_MS = 86_400_000;
 
 function taskView(t: TaskRecord): OpsTask {
@@ -66,6 +70,9 @@ export class OpsService implements OpsPort {
   ) {}
 
   private readonly zones = new ZoneResolver();
+  private readonly cashLock = new KeyedLock();
+  /** Wrong hand-over codes per `courierId:localDate` (this process). */
+  private readonly codeFailures = new Map<string, number>();
 
   /** Couriers holding customers' cash right now, most owed first, with names from the vault (logged). */
   async cashHolders(actor: Actor, _input: { cityId?: string | undefined }): Promise<OpsCashHolder[]> {
@@ -131,11 +138,19 @@ export class OpsService implements OpsPort {
       if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return this.receiptView(prior);
       if (prior) throw new DriverError('invalid_input');
     }
-    if (!this.accounts.verifyHandoverCode(input.courierId, input.code)) throw new DriverError('handover_code_invalid');
-    const before = await this.caps.status(input.courierId);
-    if (input.amountIqd > Math.max(0, -before.cashIqd)) throw new DriverError('cash_receipt_exceeds_held');
-    const now = this.clock.now();
-    const receipt = await this.uow.run(async (tx) => {
+    await this.checkHandoverCode(actor, input.courierId, input.code);
+    // One courier's receipts are serialised (in process, and across instances by an advisory lock in
+    // the transaction): the held-cash check, the reference sequence and the posting see each other.
+    const receipt = await this.cashLock.run(input.courierId, () => this.uow.run(async (tx) => {
+      await this.repo.lockCourierCash(input.courierId, tx);
+      if (input.idempotencyKey) {
+        const prior = await this.repo.cashReceiptByKey(input.idempotencyKey, tx);
+        if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return prior;
+        if (prior) throw new DriverError('invalid_input');
+      }
+      const before = await this.caps.status(input.courierId);
+      if (input.amountIqd > Math.max(0, -before.cashIqd)) throw new DriverError('cash_receipt_exceeds_held');
+      const now = this.clock.now();
       const reference = settlementReference('D', input.courierId, now, await this.repo.countCashReceipts(input.courierId, tx));
       const cashAfter = await this.merchantCash.recordDriverSettlement({ driverId: input.courierId, amountIqd: input.amountIqd, channel: 'ops_round', reference });
       const row = await this.repo.addCashReceipt(
@@ -155,8 +170,32 @@ export class OpsService implements OpsPort {
         { name: 'person', id: input.courierId },
       );
       return row;
-    });
+    }));
     return this.receiptView(receipt);
+  }
+
+  /**
+   * The courier's 4-digit daily code is his confirmation of the hand-over; 10,000 values are quick to
+   * walk, so after `HANDOVER_CODE_MAX_FAILURES` wrong codes for one courier in a local day the code is
+   * locked until local midnight (and ops is alerted). Counted per process; behind several instances
+   * the effective limit is that many times this (still far below 10,000).
+   */
+  private async checkHandoverCode(actor: Actor, courierId: string, code: string): Promise<void> {
+    const now = this.clock.now();
+    const key = `${courierId}:${localDateKey(now)}`;
+    const failures = this.codeFailures.get(key) ?? 0;
+    if (failures >= HANDOVER_CODE_MAX_FAILURES) throw new DriverError('handover_code_locked');
+    if (this.accounts.verifyHandoverCode(courierId, code)) return;
+    if (this.codeFailures.size > 10_000) this.codeFailures.clear();
+    this.codeFailures.set(key, failures + 1);
+    if (failures + 1 >= HANDOVER_CODE_MAX_FAILURES) {
+      await this.events.emit(
+        undefined,
+        { actorId: actor.personId, type: 'ops.handover_code_locked', occurredAt: now, payload: { courierId, localDate: localDateKey(now), failures: failures + 1 }, idempotencyKey: `ops.handover_code_locked:${key}` },
+        { name: 'person', id: courierId },
+      );
+    }
+    throw new DriverError('handover_code_invalid');
   }
 
   private async receiptView(r: CashReceiptRecord): Promise<CashReceiptView> {

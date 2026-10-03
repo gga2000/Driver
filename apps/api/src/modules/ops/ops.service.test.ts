@@ -62,6 +62,75 @@ describe('ops.recordCashReceipt', () => {
   });
 });
 
+describe('ops.recordCashReceipt under concurrency (review 2026-10-04 #1)', () => {
+  it('two field staff taking cash from one courier at once both post, under distinct references', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const other = (await h.id.login('07700000002')).actor;
+    const code = h.codes.code('k1', h.clock.now()).code;
+    const [a, b] = await Promise.all([
+      h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 5000, code, idempotencyKey: 'rc-a' }),
+      h.ops.recordCashReceipt(other, { courierId: 'k1', amountIqd: 5000, code, idempotencyKey: 'rc-b' }),
+    ]);
+    expect(a.reference).not.toBe(b.reference);
+    const settled = (await h.lh.ledger.eventsFor('cash:k1')).filter((e) => e.type === 'driver_settlement');
+    expect(settled.map((e) => e.amount)).toEqual([5000, 5000]);
+    expect(h.repo.receipts).toHaveLength(2);
+  });
+
+  it('never takes more than the courier holds when two receipts race past the check', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const held = -(await h.lh.caps.status('k1')).cashIqd;
+    expect(held).toBeGreaterThan(0);
+    // The first receipt's held-cash read is slow (a busy ledger): the second lands meanwhile.
+    let slowOnce = true;
+    let secondDone: () => void = () => {};
+    const secondFinished = new Promise<void>((r) => (secondDone = r));
+    const caps = new Proxy(h.lh.caps, {
+      get(target, prop, receiver) {
+        if (prop !== 'status') return Reflect.get(target, prop, receiver);
+        return async (id: string) => {
+          const s = await target.status(id);
+          if (slowOnce) {
+            slowOnce = false;
+            await Promise.race([secondFinished, new Promise((r) => setTimeout(r, 30))]);
+          }
+          return s;
+        };
+      },
+    });
+    const ops = new OpsService(h.repo, { verifyHandoverCode: () => true } as unknown as DriverAccountService, h.lh.merchantCash, caps, h.lh.ledger, h.orgs, h.id.service, h.ev.events, h.blobs, h.ev.uow, h.clock, h.places);
+    const other = (await h.id.login('07700000002')).actor;
+    const first = ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: held, code: '0000', idempotencyKey: 'rc-1' });
+    await new Promise((r) => setTimeout(r, 0));
+    const second = ops.recordCashReceipt(other, { courierId: 'k1', amountIqd: held, code: '0000', idempotencyKey: 'rc-2' }).finally(() => secondDone());
+    const results = await Promise.allSettled([first, second]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ code: 'cash_receipt_exceeds_held' });
+    // The courier's cash account never flips positive (the platform never "owes" him cash he did not hand in).
+    expect((await h.lh.caps.status('k1')).cashIqd).toBe(0);
+  });
+});
+
+describe('ops.recordCashReceipt code guessing (review 2026-10-04 #8)', () => {
+  it("locks a courier's hand-over code for the local day after 5 wrong codes, even for the right one", async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const good = h.codes.code('k1', h.clock.now()).code;
+    const wrong = (n: number) => String((Number(good) + n) % 10_000).padStart(4, '0');
+    for (let n = 1; n <= 5; n++) await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: wrong(n) })).rejects.toMatchObject({ code: 'handover_code_invalid' });
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: good })).rejects.toMatchObject({ code: 'handover_code_locked' });
+    expect((await h.ev.events.forActor(h.staff.personId)).some((e) => e.type === 'ops.handover_code_locked')).toBe(true);
+    // Another courier is unaffected; the next local day the courier's new code works again.
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k2' }));
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k2', amountIqd: 1000, code: h.codes.code('k2', h.clock.now()).code })).resolves.toMatchObject({ amountIqd: 1000 });
+    h.clock.advance(24 * 3600_000);
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: h.codes.code('k1', h.clock.now()).code })).resolves.toMatchObject({ amountIqd: 1000 });
+  });
+});
+
 describe('ops.merchantOnboarding and tasks', () => {
   it('drafts the merchant org with the owner in the vault, keeps menu photos and opens a follow-up task', async () => {
     const h = await setup();

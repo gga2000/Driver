@@ -63,6 +63,11 @@ export interface OpsRepository {
   addCashReceipt(input: Omit<CashReceiptRecord, 'id'>, tx?: Tx): Promise<CashReceiptRecord>;
   cashReceiptByKey(idempotencyKey: string, tx?: Tx): Promise<CashReceiptRecord | null>;
   countCashReceipts(courierId: string, tx?: Tx): Promise<number>;
+  /**
+   * Serialises cash receipts for one courier across API instances until `tx` ends (Postgres advisory
+   * lock); a no-op in memory, where the service's in-process lock already serialises them.
+   */
+  lockCourierCash(courierId: string, tx?: Tx): Promise<void>;
   addOnboarding(input: Omit<OnboardingRecord, 'id'>, tx?: Tx): Promise<OnboardingRecord>;
   addTask(input: Omit<TaskRecord, 'id'>, tx?: Tx): Promise<TaskRecord>;
   task(id: string, tx?: Tx): Promise<TaskRecord | null>;
@@ -108,6 +113,8 @@ export class InMemoryOpsRepository implements OpsRepository {
   async countCashReceipts(courierId: string): Promise<number> {
     return this.receipts.filter((r) => r.courierId === courierId).length;
   }
+
+  async lockCourierCash(): Promise<void> {}
 
   async addOnboarding(input: Omit<OnboardingRecord, 'id'>): Promise<OnboardingRecord> {
     const row = { id: this.id('mob'), ...input, menuPhotoRefs: [...input.menuPhotoRefs] };
@@ -188,6 +195,12 @@ export class PrismaOpsRepository implements OpsRepository {
 
   async countCashReceipts(courierId: string, tx?: Tx): Promise<number> {
     return this.db(tx).opsCashReceipt.count({ where: { courierId } });
+  }
+
+  async lockCourierCash(courierId: string, tx?: Tx): Promise<void> {
+    if (!tx) throw new Error('lockCourierCash needs a transaction');
+    const key = `ops.cash:${courierId}`;
+    await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${key}))) AS l`;
   }
 
   async addOnboarding(input: Omit<OnboardingRecord, 'id'>, tx?: Tx): Promise<OnboardingRecord> {

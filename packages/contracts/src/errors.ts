@@ -59,6 +59,7 @@ export const ERROR_TABLE = {
   vehicle_plate_taken: { message_ar: 'هذي اللوحة مسجّلة على مركبة ثانية', message_en: 'Plate already registered', retryHint: 'never', status: 'CONFLICT' },
   driver_not_in_fleet: { message_ar: 'هذا السايق مو ضمن أسطولك', message_en: 'Driver is not in this fleet', retryHint: 'never', status: 'FORBIDDEN' },
   handover_code_invalid: { message_ar: 'رمز التسليم غلط. خلي المندوب يقرا الرمز من تطبيقه', message_en: 'Hand-over code does not match', retryHint: 'now', status: 'BAD_REQUEST' },
+  handover_code_locked: { message_ar: 'انقفل رمز التسليم لهذا المندوب اليوم بعد محاولات غلط كثيرة. كلّم العمليات', message_en: 'Too many wrong hand-over codes for this courier today', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   cash_receipt_exceeds_held: { message_ar: 'المبلغ أكثر من الكاش اللي بذمة المندوب', message_en: 'Amount is more than the cash the courier holds', retryHint: 'never', status: 'CONFLICT' },
   task_not_found: { message_ar: 'ما لگينا المهمة', message_en: 'Task not found', retryHint: 'never', status: 'NOT_FOUND' },
   menu_item_not_found: { message_ar: 'ما لگينا الأكلة بالمنيو', message_en: 'Menu item not found', retryHint: 'never', status: 'NOT_FOUND' },
