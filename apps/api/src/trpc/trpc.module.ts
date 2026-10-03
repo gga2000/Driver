@@ -9,6 +9,7 @@ import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
+import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
@@ -32,6 +33,7 @@ export class TrpcService {
     private readonly trips: TripsRpc,
     private readonly dispatch: DispatchService,
     private readonly consoleReads: ConsoleReadService,
+    private readonly routes: RoutesRpc,
   ) {}
 
   /**
@@ -58,6 +60,7 @@ export class TrpcService {
       trips: this.trips,
       dispatch: this.dispatch,
       ledger: this.ledger,
+      routes: this.routes,
       console: this.consoleReads,
       auth,
       authError,
@@ -83,5 +86,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

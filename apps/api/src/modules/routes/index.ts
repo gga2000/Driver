@@ -1,3 +1,21 @@
 export { RoutesModule } from './routes.module.js';
-export { RoutesService, SeatError, CAR_SEATS } from './routes.service.js';
-export type { Seat, SeatPosition, SeatStatus, Departure } from './routes.service.js';
+export { RoutesRpc } from './routes.rpc.js';
+export { DeparturesService } from './departures.service.js';
+export type { Fill, NoShowVerdict, DepartBlocker } from './departures.service.js';
+export { DemandService } from './demand.service.js';
+export { RequestBoardService } from './request-board.service.js';
+/** Dispatch's DEPARTURES port (seats filled incl. counted walk-ups; low-fill cancel owned here). */
+export { RoutesDeparturesPort } from './departures.port.js';
+export { RoutesScheduler } from './scheduler.js';
+export type { RoutesTickResult } from './scheduler.js';
+export { INTERCITY_NETWORK, INTERCITY_RULES, GARAGES, CORRIDORS } from './intercity.config.js';
+export type { IntercityRules, CorridorConfig, GarageConfig } from './intercity.config.js';
+export { SEAT_ROWS, seatsOf, rowSeats, adjacencyViolation } from './seat-map.js';
+export { riderMeterMinutes, driverMeter, TrailCheckpointWaiver } from './late-meter.js';
+export type { CheckpointWaiver } from './late-meter.js';
+export { ROUTES_REPOSITORY, InMemoryRoutesRepository } from './routes.repository.js';
+export type { RoutesRepository } from './routes.repository.js';
+export { ROUTES_EVENTS, RecordingRoutesEvents } from './events.adapter.js';
+export type { RoutesEventEmitter, RoutesDomainEvent } from './events.adapter.js';
+export { ROUTES_WALLET, FakeWallet, LedgerWallet } from './wallet.js';
+export type { WalletPort } from './wallet.js';

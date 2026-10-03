@@ -14,7 +14,6 @@ export type { BatchOrder, BatchRules, BatchVerdict } from './batching.js';
 export { TRIP_OFFERS, CAPS, DEPARTURES, FakeTripOffers, FakeCaps, FakeDepartures } from './ports.js';
 export type { TripOffersPort, CapsPort, DeparturesPort, CourierTripInput, JobExposure } from './ports.js';
 export { TripsServiceTripOffers } from './trips.adapter.js';
-export { InMemoryDepartures } from './departures.adapter.js';
 /** The offer-timer queue (the simulator drains it on its fake clock). */
 export { DISPATCH_QUEUE } from './offer.orchestrator.js';
 export type { TimerJob as DispatchTimerJob } from './offer.orchestrator.js';

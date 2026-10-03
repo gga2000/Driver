@@ -64,6 +64,18 @@ export const MEETING_POINTS: SeedMeetingPoint[] = [
   { key: 'mp_khamas_bridge', cityId: 'aziziyah', zoneKey: 'khamas_bridge', nameAr: 'رأس جسر خماس', nameEn: 'Khamas bridge head', lat: 32.9382, lng: 45.0812, garage: false, reachableBy: ['tuktuk', 'car'] },
 ];
 
+/**
+ * الرجعة drafts (routes module): a Kut garage for the secondary corridor and three on-the-way meeting
+ * points along the Aziziyah ⇄ Baghdad road. DRAFT — plausible names and pins until field ops verify
+ * them on the ground; the API's intercity config carries the same ids (`mp_<key>`) with `draft: true`.
+ */
+export const INTERCITY_DRAFT_POINTS: SeedMeetingPoint[] = [
+  { key: 'garage_kut', cityId: 'kut', nameAr: 'كراج الكوت (مسودة)', nameEn: 'Kut garage (draft)', lat: 32.5126, lng: 45.8189, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'ic_aziziyah_north_exit', cityId: 'aziziyah', nameAr: 'مدخل العزيزية الشمالي (مسودة)', nameEn: 'Aziziyah north entrance (draft)', lat: 32.9455, lng: 45.0296, garage: false, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'ic_madain_junction', cityId: 'baghdad', nameAr: 'مفرق المدائن (مسودة)', nameEn: 'Al-Mada’in junction (draft)', lat: 33.0985, lng: 44.5802, garage: false, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'ic_diyala_bridge', cityId: 'baghdad', nameAr: 'جسر ديالى (مسودة)', nameEn: 'Diyala bridge (draft)', lat: 33.2348, lng: 44.5231, garage: false, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+];
+
 export interface SeedTaxonomyNode {
   slug: string;
   nameAr: string;

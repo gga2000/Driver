@@ -6,8 +6,8 @@ import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queu
 import { ConfigModule } from '../config/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { CAPS_PORT as LEDGER_CAPS_PORT, LedgerModule } from '../ledger/index.js';
+import { RoutesDeparturesPort, RoutesModule } from '../routes/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
-import { InMemoryDepartures } from './departures.adapter.js';
 import { DISPATCH_REPOSITORY, InMemoryDispatchRepository, PrismaDispatchRepository, type DispatchRepository } from './dispatch.repository.js';
 import { DISPATCH_POLICIES, DispatchService, defaultPolicies } from './dispatch.service.js';
 import { DISPATCH_STORE, InMemoryDispatchStore, RedisDispatchStore } from './dispatch.store.js';
@@ -56,12 +56,13 @@ export class DispatchRuntime implements OnModuleDestroy {
  * and the other way, `DispatchOfferCheck` is bound into `TripsService` so trips accepts or declines
  * only for a driver holding an open `DispatchOffer` (`dispatch.respond` is the only public path);
  * CAPS → the ledger's caps by role and tier (`isOverCap`, `canOffer` with the job's cash);
- * DEPARTURES → `InMemoryDepartures` until the intercity/routes module ships (see that file).
+ * DEPARTURES → the routes module's `RoutesDeparturesPort` (real fill, walk-ups counted after the
+ * driver's selfie). The routes module owns the T−30 low-fill rule; this port's cancel re-applies it.
  * Subscribers (`DispatchSubscribers`): `dispatch:auto-assign` on order acceptance, and
  * `dispatch:trip-events` for accept/decline from trips, completion, cancellation and pickup.
  */
 @Module({
-  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule],
+  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule, RoutesModule],
   providers: [
     ZoneDirectory,
     DriverRanker,
@@ -97,8 +98,7 @@ export class DispatchRuntime implements OnModuleDestroy {
     { provide: DISPATCH_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     { provide: TRIP_OFFERS, useFactory: (trips: TripsService) => new TripsServiceTripOffers(trips), inject: [TripsService] },
     { provide: CAPS, useExisting: LEDGER_CAPS_PORT },
-    InMemoryDepartures,
-    { provide: DEPARTURES, useExisting: InMemoryDepartures },
+    { provide: DEPARTURES, useExisting: RoutesDeparturesPort },
     PresenceService,
     OfferOrchestrator,
     DispatchRuntime,

@@ -1278,38 +1278,60 @@ model Route {
 
 /// One scheduled run of an intercity Route (domain §2).
 model Departure {
-  id                 String         @id @default(cuid())
-  routeId            String         @map("route_id")
-  scheduledAt        DateTime       @map("scheduled_at")
+  id                 String              @id @default(cuid())
+  routeId            String              @map("route_id")
+  scheduledAt        DateTime            @map("scheduled_at")
   /// Edge-case §8: late-meter reference is the announced departure time.
-  announcedAt        DateTime       @map("announced_at")
+  announcedAt        DateTime            @map("announced_at")
   /// Hard latest departure; forfeits after 20 min convert into holds on the next departure.
-  latestDepartureAt  DateTime?      @map("latest_departure_at")
-  state              DepartureState @default(scheduled)
-  driverId           String?        @map("driver_id")
-  vehicleId          String?        @map("vehicle_id")
-  parcelSlots        Int            @default(0) @map("parcel_slots")
-  minSeats           Int            @default(3) @map("min_seats")
-  driverCheckedInAt  DateTime?      @map("driver_checked_in_at")
-  lateMeterStartedAt DateTime?      @map("late_meter_started_at")
-  boardingAt         DateTime?      @map("boarding_at")
-  departedAt         DateTime?      @map("departed_at")
-  arrivedAt          DateTime?      @map("arrived_at")
-  closedAt           DateTime?      @map("closed_at")
-  cancelledAt        DateTime?      @map("cancelled_at")
-  cancellationReason String?        @map("cancellation_reason")
-  createdAt          DateTime       @default(now()) @map("created_at")
-  updatedAt          DateTime       @updatedAt @map("updated_at")
+  latestDepartureAt  DateTime?           @map("latest_departure_at")
+  state              DepartureState      @default(scheduled)
+  driverId           String?             @map("driver_id")
+  vehicleId          String?             @map("vehicle_id")
+  parcelSlots        Int                 @default(0) @map("parcel_slots")
+  minSeats           Int                 @default(3) @map("min_seats")
+  driverCheckedInAt  DateTime?           @map("driver_checked_in_at")
+  lateMeterStartedAt DateTime?           @map("late_meter_started_at")
+  boardingAt         DateTime?           @map("boarding_at")
+  departedAt         DateTime?           @map("departed_at")
+  arrivedAt          DateTime?           @map("arrived_at")
+  closedAt           DateTime?           @map("closed_at")
+  cancelledAt        DateTime?           @map("cancelled_at")
+  cancellationReason String?             @map("cancellation_reason")
+  /// الرجعة (routes module): corridor, origin garage (meeting point id) and direction of an announced run.
+  corridorId         String?             @map("corridor_id")
+  garageId           String?             @map("garage_id")
+  direction          IntercityDirection?
+  fromCityId         String?             @map("from_city_id")
+  toCityId           String?             @map("to_city_id")
+  /// Edge-case §9: seat map per vehicle (4 saloon, 6 SUV, 7 van) and the vehicle as announced.
+  seatLayout         Int?                @map("seat_layout")
+  vehicleSnapshot    Json?               @map("vehicle_snapshot")
+  /// Edge-case §9: family-only departures.
+  familyOnly         Boolean             @default(false) @map("family_only")
+  seatPriceIqd       Int?                @map("seat_price_iqd")
+  frontPremiumIqd    Int                 @default(0) @map("front_premium_iqd")
+  /// Review C-33: walk-ups count toward fill only after the driver's per-run selfie.
+  selfieAt           DateTime?           @map("selfie_at")
+  /// Run state the routes module owns: walk-ups, the driver's garage check-in fix, trail, last fix.
+  runState           Json                @default("{}") @map("run_state")
+  lowFillCheckedAt   DateTime?           @map("low_fill_checked_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
 
   route        Route         @relation(fields: [routeId], references: [id])
   driver       Person?       @relation(fields: [driverId], references: [id])
   vehicle      Vehicle?      @relation(fields: [vehicleId], references: [id])
   seats        Seat[]
+  bookings     SeatBooking[]
   trips        Trip[]
   ledgerEvents LedgerEvent[]
 
   @@index([routeId, scheduledAt])
   @@index([state, scheduledAt])
+  @@index([garageId, scheduledAt])
+  @@index([corridorId, direction, scheduledAt])
+  @@index([driverId, scheduledAt])
   @@map("departures")
   @@schema("public")
 }
@@ -1371,6 +1393,190 @@ model Subscription {
   @@index([routeId, state])
   @@index([riderId])
   @@map("subscriptions")
+  @@schema("public")
+}
+
+// ═════════════════════════════ الرجعة: seat bookings, demand board, request board ═════════════════════════════
+
+/// Relative to Aziziyah: الرجعة is `to_aziziyah`; the reverse leaves from the Aziziyah garages.
+enum IntercityDirection {
+  to_aziziyah
+  from_aziziyah
+
+  @@schema("public")
+}
+
+/// Domain §2 Seat states for one rider's booking (a position may be re-sold, so bookings are rows of their own).
+enum SeatBookingState {
+  held
+  booked
+  checked_in
+  completed
+  cancelled_by_rider
+  no_show
+  moved
+  expired
+  cancelled
+
+  @@schema("public")
+}
+
+enum DemandPostState {
+  open
+  claimed
+  expired
+  cancelled
+  lapsed
+
+  @@schema("public")
+}
+
+enum RideRequestState {
+  open
+  matched
+  driver_arrived
+  completed
+  cancelled
+  expired
+  rider_no_show
+  driver_no_show
+
+  @@schema("public")
+}
+
+enum RideRequestOfferState {
+  open
+  picked
+  withdrawn
+  lost
+
+  @@schema("public")
+}
+
+/// One rider's booking of one or more seats (a seat, a row or the car) on an intercity Departure.
+/// `seats` keeps one row per position (unique per departure); a booking is per rider and per sale,
+/// so a seat cancelled and re-sold gets a new booking (and a new ledger seat id).
+model SeatBooking {
+  id                 String           @id @default(cuid())
+  departureId        String           @map("departure_id")
+  riderId            String           @map("rider_id")
+  seatIds            String[]         @default([]) @map("seat_ids")
+  /// seats | row | car
+  selection          String
+  travellingAs       TravellingAs     @map("travelling_as")
+  state              SeatBookingState @default(held)
+  /// rider | demand_claim | moved | forfeit_hold
+  origin             String
+  seatPriceIqd       Int              @map("seat_price_iqd")
+  frontPremiumIqd    Int              @default(0) @map("front_premium_iqd")
+  pickupFeeIqd       Int              @default(0) @map("pickup_fee_iqd")
+  /// wallet | cash (null while held)
+  payment            String?
+  prepaid            Boolean          @default(false)
+  /// Review C-35: trusted rider (three completed seats) — cash seat with prepaid rights.
+  trusted            Boolean          @default(false)
+  pin                String
+  /// {kind, meetingPointId?, lat, lng, note?, feeIqd, status, detourMin?}
+  pickup             Json
+  largeBags          Boolean          @default(false) @map("large_bags")
+  heldUntil          DateTime?        @map("held_until")
+  bookedAt           DateTime?        @map("booked_at")
+  /// Rider's "أني بالكراج" inside the garage geofence: blocks a no-show (review C-32).
+  atGarageAt         DateTime?        @map("at_garage_at")
+  checkedInAt        DateTime?        @map("checked_in_at")
+  noShowAt           DateTime?        @map("no_show_at")
+  completedAt        DateTime?        @map("completed_at")
+  cancelledAt        DateTime?        @map("cancelled_at")
+  /// Server-computed late-meter minutes when settled (decisions §8).
+  lateMinutes        Int?             @map("late_minutes")
+  demandPostId       String?          @map("demand_post_id")
+  movedFromBookingId String?          @map("moved_from_booking_id")
+  movedToBookingId   String?          @map("moved_to_booking_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  departure Departure @relation(fields: [departureId], references: [id])
+
+  @@index([departureId, state])
+  @@index([riderId, state])
+  @@map("seat_bookings")
+  @@schema("public")
+}
+
+/// "أريد أرجع": a rider's demand post; expires at the end of its window, a driver's announcement claims it.
+model DemandPost {
+  id           String             @id @default(cuid())
+  riderId      String             @map("rider_id")
+  corridorId   String             @map("corridor_id")
+  direction    IntercityDirection
+  /// Null = any garage in the departure city.
+  garageId     String?            @map("garage_id")
+  /// {kind, garageId?, meetingPointId?, lat?, lng?, note?}
+  pickup       Json
+  windowStart  DateTime           @map("window_start")
+  windowEnd    DateTime           @map("window_end")
+  seats        Int
+  travellingAs TravellingAs       @map("travelling_as")
+  state        DemandPostState    @default(open)
+  bookingId    String?            @map("booking_id")
+  escalatedAt  DateTime?          @map("escalated_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@index([corridorId, direction, state, windowStart])
+  @@index([riderId])
+  @@map("demand_posts")
+  @@schema("public")
+}
+
+/// Request board (other destinations, private cars): post, driver offers, pick, 20 % wallet deposit.
+model RideRequest {
+  id               String           @id @default(cuid())
+  riderId          String           @map("rider_id")
+  /// {label, lat?, lng?, garageId?}
+  fromPlace        Json             @map("from_place")
+  toPlace          Json             @map("to_place")
+  cityId           String?          @map("city_id")
+  when             DateTime
+  seats            Int
+  privateCar       Boolean          @default(true) @map("private_car")
+  travellingAs     TravellingAs     @map("travelling_as")
+  note             String?
+  state            RideRequestState @default(open)
+  /// rider | stranded (opened by the platform at the seat price, review C-40/46)
+  origin           String           @default("rider")
+  priceCapIqd      Int?             @map("price_cap_iqd")
+  pickedOfferId    String?          @map("picked_offer_id")
+  depositIqd       Int?             @map("deposit_iqd")
+  driverArrivedAt  DateTime?        @map("driver_arrived_at")
+  /// {lat, lng} of the driver's arrival tap
+  driverArrivedPin Json?            @map("driver_arrived_pin")
+  closedAt         DateTime?        @map("closed_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  offers RideRequestOffer[]
+
+  @@index([state, when])
+  @@index([riderId])
+  @@map("ride_requests")
+  @@schema("public")
+}
+
+model RideRequestOffer {
+  id        String                @id @default(cuid())
+  requestId String                @map("request_id")
+  driverId  String                @map("driver_id")
+  priceIqd  Int                   @map("price_iqd")
+  state     RideRequestOfferState @default(open)
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+
+  request RideRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId])
+  @@index([driverId])
+  @@map("ride_request_offers")
   @@schema("public")
 }
 

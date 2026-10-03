@@ -4,6 +4,7 @@ import {
   CITIES,
   DEMO_RESTAURANT,
   DISPATCHER,
+  INTERCITY_DRAFT_POINTS,
   MEETING_POINTS,
   TAXONOMY,
   hexagonWkt,
@@ -53,6 +54,14 @@ describe('seed data (plan Step 1)', () => {
     const zoneKeys = new Set(AZIZIYAH_ZONES.map((z) => z.id));
     for (const m of MEETING_POINTS) if (m.zoneKey) expect(zoneKeys.has(m.zoneKey), m.key).toBe(true);
     expect(new Set(MEETING_POINTS.map((m) => m.key)).size).toBe(MEETING_POINTS.length);
+  });
+
+  it('الرجعة drafts: a Kut garage and three on-the-way points, ids distinct from the launch points', () => {
+    expect(INTERCITY_DRAFT_POINTS.filter((m) => m.garage).map((m) => m.cityId)).toEqual(['kut']);
+    expect(INTERCITY_DRAFT_POINTS.filter((m) => !m.garage)).toHaveLength(3);
+    for (const m of INTERCITY_DRAFT_POINTS) expect(m.nameAr).toContain('مسودة');
+    const keys = [...MEETING_POINTS, ...INTERCITY_DRAFT_POINTS].map((m) => m.key);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it('taxonomy parents precede their children and roots exist', () => {
