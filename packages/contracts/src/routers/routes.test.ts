@@ -139,6 +139,8 @@ const DRIVER: Array<[string, (c: Call) => Promise<unknown>]> = [
   ],
   ['requestBoard.complete', (c) => c.routes.requestBoard.complete({ postId: 'rq_1' })],
   ['requestBoard.riderNoShow', (c) => c.routes.requestBoard.riderNoShow({ postId: 'rq_1' })],
+  ['requestBoard.myRides', (c) => c.routes.requestBoard.myRides()],
+  ['driver.riders', (c) => c.routes.driver.riders({ departureId: 'dep_1' })],
 ];
 
 const OPS: Array<[string, (c: Call) => Promise<unknown>]> = [

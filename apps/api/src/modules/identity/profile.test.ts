@@ -62,4 +62,17 @@ describe('identity.updateProfile', () => {
     expect(logs.some((l) => l.accessorId === a.actor.personId && l.purpose === 'household_view')).toBe(true);
     expect((await h.repo.vaultAccessLogs(a.actor.personId)).some((l) => l.purpose === 'household_view')).toBe(false);
   });
+
+  it('first names for a work context: first token only, null without a name, each read logged with the purpose', async () => {
+    const h = harness();
+    const driver = await h.login('07712345670');
+    const zahraa = await h.login('07712345671');
+    const nameless = await h.login('07712345672');
+    await h.service.updateProfile(zahraa.actor, { name: 'زهراء علي حسين' });
+    const names = await h.service.firstNamesFor([zahraa.actor.personId, nameless.actor.personId, 'p_unknown'], driver.actor.personId, 'intercity_manifest');
+    expect(names).toEqual({ [zahraa.actor.personId]: 'زهراء', [nameless.actor.personId]: null });
+    expect(JSON.stringify(names)).not.toContain('حسين');
+    const logs = await h.repo.vaultAccessLogs(zahraa.actor.personId);
+    expect(logs.filter((l) => l.accessorId === driver.actor.personId && l.purpose === 'intercity_manifest')).toHaveLength(1);
+  });
 });
