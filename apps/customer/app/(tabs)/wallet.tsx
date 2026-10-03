@@ -1,13 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { Pressable, RefreshControl, View } from 'react-native';
 import type { WalletLine, WalletLineKind } from '@driver/contracts';
 import type { IconName } from '@driver/ui';
 import { Button, Card, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
-import { useClaimPoints, useHousehold, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
+import { useClaimPoints, useHousehold, useTopUpStatus, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
 import { balanceText, lineAmount, lineWhen, pointsWorthText } from '@/features/account/wallet-format';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -46,6 +46,7 @@ export default function Wallet() {
   const topup = useTopupOptions();
   const household = useHousehold();
   const claim = useClaimPoints();
+  const pendingTopUp = useTopUpStatus().data;
   const [refreshing, setRefreshing] = useState(false);
   const b = balance.data;
 
@@ -90,6 +91,23 @@ export default function Wallet() {
           <Text variant="footnote" color={theme.colors.border}>
             {b && b.moneyIqd < 0 ? t('wallet.owe_body') : t('wallet.balance_body')}
           </Text>
+          <Button testID="wallet-topup" icon="plus" label={t('wallet.topup_cta')} onPress={() => router.push('/topup')} style={{ marginTop: theme.space[2] }} />
+          {pendingTopUp?.state === 'pending' ? (
+            <Pressable
+              testID="wallet-topup-pending"
+              accessibilityRole="button"
+              onPress={() => router.push('/topup')}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: 'rgba(255,255,255,0.10)' }}
+            >
+              <Icon name="clock" size={18} color={theme.colors.accentTint} />
+              <Text variant="footnote" color={theme.colors.bg} style={{ flex: 1 }}>
+                {t('wallet.topup_pending', { amount: amountParam(pendingTopUp.amountIqd) })}
+              </Text>
+              <Text variant="label" weight={700} color={theme.colors.accentTint} tabular>
+                {`⁦${pendingTopUp.code.slice(0, 3)} ${pendingTopUp.code.slice(3)}⁩`}
+              </Text>
+            </Pressable>
+          ) : null}
           {b?.household ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' }}>
               <Icon name="user" size={16} color={theme.colors.accentTint} />

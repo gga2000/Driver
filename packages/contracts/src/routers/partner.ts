@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerStatus } from '../partner-io.js';
+import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -27,4 +28,14 @@ export const partnerRouter = router({
   activeJob: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerJob.nullable())
     .query(({ ctx }) => ctx.partner.activeJob(ctx.actor)),
+  /** Courier path of the cash top-up: only for a customer whose order he is carrying now. */
+  topUpLookup: protectedProcedure(['courier'])
+    .input(TopUpLookupInput)
+    .output(TopUpLookupView)
+    .query(({ ctx, input }) => ctx.topups.lookup(ctx.actor, input, 'courier')),
+  /** The courier took the cash: the wallet is credited and the cash counts as held by him (his cap). */
+  confirmTopUp: protectedProcedure(['courier'])
+    .input(ConfirmTopUpInput)
+    .output(TopUpConfirmation)
+    .mutation(({ ctx, input }) => ctx.topups.confirm(ctx.actor, input, 'courier')),
 });

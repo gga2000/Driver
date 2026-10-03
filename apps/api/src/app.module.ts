@@ -22,6 +22,7 @@ import { ScoringModule } from './modules/scoring/index.js';
 import { SimulatorModule } from './modules/simulator/index.js';
 import { SupportModule } from './modules/support/index.js';
 import { TripsModule } from './modules/trips/index.js';
+import { TopUpsModule } from './modules/topups/index.js';
 import { InfraModule } from './shared/infra.module.js';
 import { TrpcModule } from './trpc/trpc.module.js';
 
@@ -34,6 +35,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     FleetModule,
     OpsModule,
     PromotionsModule,
+    TopUpsModule,
     MerchantAdminModule,
     OrgsModule,
     ConfigModule,

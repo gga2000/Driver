@@ -843,6 +843,8 @@ model Order {
   discountIqd        Int           @default(0) @map("discount_iqd")
   /// M2 review follow-up: the server-resolved promotion behind discountIqd (null = no discount).
   promotionId        String?       @map("promotion_id")
+  /// The discount line {funder: merchant|platform, target: items|delivery|order, type, label_ar, label_en}; null = none.
+  discountMeta       Json?         @map("discount_meta")
   tipIqd             Int           @default(0) @map("tip_iqd")
   totalIqd           Int           @default(0) @map("total_iqd")
   /// Errands: customer ceiling and actual receipt total.
@@ -2121,6 +2123,31 @@ model OpsCashReceipt {
   @@index([courierId, createdAt])
   @@index([receivedById, createdAt])
   @@map("ops_cash_receipts")
+  @@schema("public")
+}
+
+/// Wallet top-up with cash (money §4): the customer's 6-digit code, confirmed once by an ops agent or
+/// the courier on his next order; the ledger credit is posting group `topup:<id>`.
+model WalletTopUp {
+  id            String    @id @default(cuid())
+  customerId    String    @map("customer_id")
+  amountIqd     Int       @map("amount_iqd")
+  code          String
+  /// pending | confirmed | cancelled (expired is derived from expires_at)
+  state         String    @default("pending")
+  expiresAt     DateTime  @map("expires_at")
+  confirmedAt   DateTime? @map("confirmed_at")
+  confirmedById String?   @map("confirmed_by_id")
+  /// ops_agent | courier | zaincash
+  channel       String?
+  reference     String?   @unique
+  idempotencyKey String?  @unique @map("idempotency_key")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([code, state])
+  @@index([customerId, createdAt])
+  @@map("wallet_topups")
   @@schema("public")
 }
 

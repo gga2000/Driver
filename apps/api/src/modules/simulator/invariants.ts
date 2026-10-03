@@ -267,12 +267,16 @@ export const INVARIANTS: readonly Definition[] = [
   },
   {
     name: 'merchant_cash_reconciles',
-    description: 'merchant cash balance = Σ payable (net of commission) − Σ paid by courier (+ cancellation fees)',
+    description: 'merchant cash balance = Σ payable (net of commission and of the merchant’s own deals) − Σ paid by courier (+ cancellation fees)',
     run: (s) => {
       const bad: string[] = [];
       for (const m of s.merchants) {
         const acct = `merchant_cash:${m.merchantId}`;
-        const payable = sum(s.ledger, (e) => e.toAccount === acct && e.type === 'merchant_payable') - sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'commission_accrued');
+        const payable =
+          sum(s.ledger, (e) => e.toAccount === acct && e.type === 'merchant_payable') -
+          sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'commission_accrued') -
+          // Merchant-funded deals (domain §11): items discounts and free deliveries the merchant pays for.
+          sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'promo_funded');
         const fees = sum(s.ledger, (e) => e.toAccount === acct && e.type === 'cancellation_fee');
         const paidLedger = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_paid_by_courier');
         const payouts = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_payout');

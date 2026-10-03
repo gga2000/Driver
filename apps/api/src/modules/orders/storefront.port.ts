@@ -1,8 +1,9 @@
-import type { DeliveryPoint } from '@driver/contracts';
+import type { DealBadge, DeliveryPoint } from '@driver/contracts';
 import type { StorefrontMerchants } from '../catalog/index.js';
 import type { MerchantDirectory } from './merchants.port.js';
 import { busyExtraMinutes } from './busy.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
+import type { PromotionsPort } from './promotions.port.js';
 
 /**
  * The customer catalog's view of a merchant (`catalog.restaurants` / `catalog.menu`): the kitchen
@@ -13,7 +14,15 @@ import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
 export class OrdersStorefrontMerchants implements StorefrontMerchants {
   readonly timeZone = DEFAULT_TIMEZONE;
 
-  constructor(private readonly directory: Pick<MerchantDirectory, 'profile'>) {}
+  constructor(
+    private readonly directory: Pick<MerchantDirectory, 'profile'>,
+    private readonly promotions?: Pick<PromotionsPort, 'badges'>,
+  ) {}
+
+  /** Live merchant deals for the card badge (the same deals `orders.quote` / `place` apply). */
+  async deals(orgId: string, at: Date = new Date()): Promise<DealBadge[]> {
+    return this.promotions ? this.promotions.badges(orgId, at) : [];
+  }
 
   async profile(
     orgId: string,

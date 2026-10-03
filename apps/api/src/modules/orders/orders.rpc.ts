@@ -8,6 +8,7 @@ import {
   type MerchantRejectInput,
   type OpenDisputeInput,
   type Order,
+  type OrderQuote,
   type OrdersPort,
   type PlaceOrderInput,
   type RateOrderInput,
@@ -43,6 +44,10 @@ export class OrdersRpc implements OrdersPort {
 
   place(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<Order> {
     return this.orders.place(actor.personId, input);
+  }
+
+  quote(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<OrderQuote> {
+    return this.orders.quote(actor.personId, input);
   }
 
   async get(actor: Actor, input: { orderId: string }): Promise<Order> {

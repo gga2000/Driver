@@ -1,6 +1,6 @@
 import type { DealSchedule, DealType } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
-import type { Tx } from '../../shared/db/unit-of-work.js';
+import { onRollback, type Tx } from '../../shared/db/unit-of-work.js';
 
 export interface DealProjection {
   ordersPerWeek: number;
@@ -37,6 +37,13 @@ export interface PromotionsRepository {
   deal(id: string, tx?: Tx): Promise<DealRecord | null>;
   dealsOf(merchantOrgId: string, tx?: Tx): Promise<DealRecord[]>;
   updateDeal(id: string, patch: Partial<Pick<DealRecord, 'active' | 'proposalState' | 'approvedAt'>>, tx?: Tx): Promise<DealRecord>;
+  /**
+   * Adds `amountIqd` to the deal's spend counter only if it stays within the budget cap — one atomic
+   * check-and-increment (no overspend under concurrent orders). False when the cap would be passed.
+   */
+  reserveSpend(id: string, amountIqd: number, tx?: Tx): Promise<boolean>;
+  /** Gives spend back (the order was cancelled or rejected before the deal cost anything); never below 0. */
+  releaseSpend(id: string, amountIqd: number, tx?: Tx): Promise<void>;
 }
 
 export const PROMOTIONS_REPOSITORY = Symbol('PROMOTIONS_REPOSITORY');
@@ -66,6 +73,29 @@ export class InMemoryPromotionsRepository implements PromotionsRepository {
     if (!r) throw new Error(`deal ${id} not found`);
     Object.assign(r, patch);
     return structuredClone(r);
+  }
+
+  /** Check and increment run without an await in between, so concurrent placements cannot both pass the cap. */
+  async reserveSpend(id: string, amountIqd: number, tx?: Tx): Promise<boolean> {
+    const r = this.rows.get(id);
+    if (!r) return false;
+    if (r.budgetCapIqd !== null && r.spentIqd + amountIqd > r.budgetCapIqd) return false;
+    r.spentIqd += amountIqd;
+    // No database to roll back: undo by hand if the order's unit of work fails after this.
+    onRollback(tx, () => {
+      r.spentIqd = Math.max(0, r.spentIqd - amountIqd);
+    });
+    return true;
+  }
+
+  async releaseSpend(id: string, amountIqd: number, tx?: Tx): Promise<void> {
+    const r = this.rows.get(id);
+    if (!r) return;
+    const before = r.spentIqd;
+    r.spentIqd = Math.max(0, r.spentIqd - amountIqd);
+    onRollback(tx, () => {
+      r.spentIqd = before;
+    });
   }
 }
 
@@ -179,5 +209,21 @@ export class PrismaPromotionsRepository implements PromotionsRepository {
 
   async updateDeal(id: string, patch: Partial<Pick<DealRecord, 'active' | 'proposalState' | 'approvedAt'>>, tx?: Tx): Promise<DealRecord> {
     return dealFromRow(await this.db(tx).promotion.update({ where: { id }, data: patch }));
+  }
+
+  /**
+   * One conditional UPDATE: Postgres takes the row lock and re-checks the WHERE after a concurrent
+   * writer commits (READ COMMITTED), so two orders can never both spend the last of the budget.
+   */
+  async reserveSpend(id: string, amountIqd: number, tx?: Tx): Promise<boolean> {
+    const n = await this.db(tx).$executeRaw`
+      UPDATE "public"."promotions" SET "spent_iqd" = "spent_iqd" + ${amountIqd}, "updated_at" = NOW()
+      WHERE "id" = ${id} AND ("budget_cap_iqd" IS NULL OR "spent_iqd" + ${amountIqd} <= "budget_cap_iqd")`;
+    return n === 1;
+  }
+
+  async releaseSpend(id: string, amountIqd: number, tx?: Tx): Promise<void> {
+    await this.db(tx).$executeRaw`
+      UPDATE "public"."promotions" SET "spent_iqd" = GREATEST(0, "spent_iqd" - ${amountIqd}), "updated_at" = NOW() WHERE "id" = ${id}`;
   }
 }

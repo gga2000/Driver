@@ -22,6 +22,7 @@ import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort } from './merchant-io.js';
+import type { TopUpPort } from './topup-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -61,6 +62,8 @@ export interface AppContext {
   places: PlacesPort;
   /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
   wallet: WalletPort;
+  /** Wallet top-up with cash: customer codes, ops-agent / courier confirmation (`modules/topups`). */
+  topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
   households: HouseholdsPort;
   /** Driver Partner: own presence, open offer, active job, today's money (`modules/partner`). */

@@ -64,6 +64,7 @@ export default function OpsHome() {
           <ActionTile testID="ops-go-landmark" glyph="camera" title={t('partner.ops_action_landmark')} sub={t('partner.ops_action_landmark_sub')} onPress={() => router.push('/ops/landmark')} style={{ flex: 1 }} />
           <ActionTile testID="ops-go-onboard" icon="bag" title={t('partner.ops_action_merchant')} sub={t('partner.ops_action_merchant_sub')} onPress={() => router.push('/ops/onboard')} style={{ flex: 1 }} />
         </View>
+        <ActionTile testID="ops-go-topup" icon="plus" title={t('partner.ops_action_topup')} sub={t('partner.ops_action_topup_sub')} onPress={() => router.push('/ops/topup')} />
       </View>
 
       <View style={{ gap: theme.space[2] }}>

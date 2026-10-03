@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DriverError, type DealSchedule, type DealState, type DealType, type DealView } from '@driver/contracts';
+import { DriverError, type DealBadge, type DealSchedule, type DealState, type DealType, type DealView } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import { localDow, localMinutes } from '../../shared/local-time.js';
+import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { localDow } from '../../shared/local-time.js';
 import { EventsService } from '../events/index.js';
+import { dealBadge, inDealHours } from './deal-pricing.js';
 import { PROMOTIONS_REPOSITORY, type DealProjection, type DealRecord, type PromotionsRepository } from './promotions.repository.js';
 
 const DAY_MS = 86_400_000;
@@ -29,18 +30,6 @@ export interface DealProposal {
   budgetCapIqd?: number | undefined;
 }
 
-function hhmm(s: string): number {
-  const [h, m] = s.split(':').map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
-function inHours(at: Date, hours: DealSchedule['hours']): boolean {
-  if (!hours) return true;
-  const m = localMinutes(at);
-  const start = hhmm(hours.start);
-  const end = hhmm(hours.end);
-  return start <= end ? m >= start && m < end : m >= start || m < end;
-}
 
 /**
  * Projected cost of a merchant deal (merchant app "projected cost"), server-side from the merchant's
@@ -55,7 +44,7 @@ export function projectDeal(orders: readonly OrderSample[], deal: DealProposal, 
   let cost = 0;
   for (const o of basis) {
     if (deal.schedule.days.length > 0 && !deal.schedule.days.includes(localDow(o.placedAt))) continue;
-    if (!inHours(o.placedAt, deal.schedule.hours)) continue;
+    if (!inDealHours(o.placedAt, deal.schedule.hours)) continue;
     if (o.itemsTotalIqd < deal.minOrderIqd) continue;
     const covered = items.size === 0 ? o.lines : o.lines.filter((l) => l.catalogItemId !== null && items.has(l.catalogItemId));
     if (covered.length === 0) continue;
@@ -117,8 +106,9 @@ export function dealView(d: DealRecord, now: Date): DealView {
 /**
  * Promotions (domain §11) — today: merchant self-serve deals. Each deal is a `promotions` row
  * (funder = merchant) with its projected cost, waiting for platform approval when the city's switch
- * says so. Discounts reach orders only through `PromotionsPort` (orders module); the binding that
- * resolves these deals is not in place yet (see docs/api/partner-merchant-wave2.md).
+ * says so. Orders reach them through `PromotionsPort` (`orders/promotions.adapter.ts`): live deals for
+ * the storefront badge and the checkout quote, and the spend counter reserved in the order's own
+ * unit of work (atomic against the budget cap) and released when the order is cancelled.
  */
 @Injectable()
 export class PromotionsService {
@@ -178,6 +168,26 @@ export class PromotionsService {
   async list(merchantOrgId: string): Promise<DealView[]> {
     const now = this.clock.now();
     return (await this.repo.dealsOf(merchantOrgId)).map((d) => dealView(d, now));
+  }
+
+  /** Every deal of a merchant as stored (the checkout evaluates liveness and budget per order). */
+  async dealsOf(merchantOrgId: string, tx?: Tx): Promise<DealRecord[]> {
+    return this.repo.dealsOf(merchantOrgId, tx);
+  }
+
+  /** Live deals with budget left, as customer badges (approved, on, in schedule now). */
+  async badges(merchantOrgId: string, at: Date = this.clock.now()): Promise<DealBadge[]> {
+    const deals = (await this.repo.dealsOf(merchantOrgId)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+    return deals.map((d) => dealBadge(d, at)).filter((b): b is DealBadge => b !== null);
+  }
+
+  /** Atomic check-and-increment of the deal's spend inside the caller's unit of work; false = cap reached. */
+  reserveSpend(dealId: string, amountIqd: number, tx?: Tx): Promise<boolean> {
+    return this.repo.reserveSpend(dealId, amountIqd, tx);
+  }
+
+  releaseSpend(dealId: string, amountIqd: number, tx?: Tx): Promise<void> {
+    return this.repo.releaseSpend(dealId, amountIqd, tx);
   }
 
   async get(dealId: string): Promise<DealRecord> {

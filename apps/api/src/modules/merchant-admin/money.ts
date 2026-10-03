@@ -26,14 +26,37 @@ export function tierPct(tier: CommissionTier, rules: MoneyRules = AZIZIYAH_MONEY
   return Math.round(rules.commission[tier] * 1000) / 10;
 }
 
-/** Per-order lines of the merchant cash account: items (payable), commission, fees received. */
+/** A merchant deal's ledger line (`promo_funded` out of the merchant cash account, memo `deal:<id>[:delivery]`). */
+function isDealLine(l: Statement['lines'][number]): boolean {
+  return l.type === 'promo_funded' && (l.memo ?? '').startsWith('deal:');
+}
+
+/** What a merchant's own deals cost per order (items deals and free delivery), from its ledger lines. */
+export function dealCostByOrder(statement: Statement): Map<string, { itemsIqd: number; deliveryIqd: number }> {
+  const out = new Map<string, { itemsIqd: number; deliveryIqd: number }>();
+  for (const l of statement.lines) {
+    if (!l.orderId || !isDealLine(l)) continue;
+    const row = out.get(l.orderId) ?? { itemsIqd: 0, deliveryIqd: 0 };
+    if ((l.memo ?? '').endsWith(':delivery')) row.deliveryIqd += Math.abs(l.amountIqd);
+    else row.itemsIqd += Math.abs(l.amountIqd);
+    out.set(l.orderId, row);
+  }
+  return out;
+}
+
+/**
+ * Per-order lines of the merchant cash account: items (payable), the merchant's own deal (discount
+ * funded by the merchant), commission (on items after that deal, G-87), fees received.
+ */
 export function orderLines(statement: Statement, orders: ReadonlyMap<string, Order>, rules: MoneyRules = AZIZIYAH_MONEY_RULES): StatementOrderLine[] {
   const byOrder = new Map<string, StatementOrderLine>();
   for (const l of statement.lines) {
     if (!l.orderId) continue;
-    if (l.type !== 'merchant_payable' && l.type !== 'commission_accrued' && l.type !== 'cancellation_fee') continue;
+    if (l.type !== 'merchant_payable' && l.type !== 'commission_accrued' && l.type !== 'cancellation_fee' && !isDealLine(l)) continue;
     const order = orders.get(l.orderId);
-    const discountIqd = order?.discountIqd ?? 0;
+    // A platform promo is shown for information (it does not lower the merchant's net); a merchant deal
+    // comes from its own ledger line below.
+    const platformDiscount = order && order.discountIqd > 0 && order.discount?.funder !== 'merchant' ? order.discountIqd : 0;
     const row: StatementOrderLine = byOrder.get(l.orderId) ?? {
       orderId: l.orderId,
       at: l.occurredAt,
@@ -42,14 +65,17 @@ export function orderLines(statement: Statement, orders: ReadonlyMap<string, Ord
       commissionTier: null,
       commissionPct: null,
       commissionIqd: 0,
-      // Merchant-funded deals are not redeemed on orders yet (G-87 binding pending): every discount today is a platform promo.
-      discountIqd,
-      discountFunder: discountIqd > 0 ? 'platform' : null,
+      discountIqd: platformDiscount,
+      discountFunder: platformDiscount > 0 ? 'platform' : null,
       feesIqd: 0,
       netIqd: 0,
     };
     if (l.type === 'merchant_payable') row.itemsIqd += l.amountIqd;
-    else if (l.type === 'commission_accrued') {
+    else if (isDealLine(l)) {
+      if (row.discountFunder !== 'merchant') row.discountIqd = 0;
+      row.discountIqd += Math.abs(l.amountIqd);
+      row.discountFunder = 'merchant';
+    } else if (l.type === 'commission_accrued') {
       row.commissionIqd -= l.amountIqd;
       row.commissionTier = tierOf(l.memo) ?? row.commissionTier;
       row.commissionPct = row.commissionTier ? tierPct(row.commissionTier, rules) : null;
@@ -71,11 +97,13 @@ export function composeMoneyToday(input: {
   rules: MoneyRules;
 }): MoneyToday {
   const lines = orderLines(input.statement, input.orders, input.rules);
+  const deals = dealCostByOrder(input.statement);
   const tiers = new Map<CommissionTier, { baseIqd: number; commissionIqd: number; orders: number }>();
   for (const l of lines) {
     if (!l.commissionTier) continue;
     const t = tiers.get(l.commissionTier) ?? { baseIqd: 0, commissionIqd: 0, orders: 0 };
-    t.baseIqd += l.itemsIqd;
+    // G-87: the base is the items after the merchant's own items deal (free delivery is not in it).
+    t.baseIqd += l.itemsIqd - (deals.get(l.orderId)?.itemsIqd ?? 0);
     t.commissionIqd += l.commissionIqd;
     t.orders += 1;
     tiers.set(l.commissionTier, t);
@@ -83,6 +111,7 @@ export function composeMoneyToday(input: {
   const salesIqd = lines.reduce((s, l) => s + l.itemsIqd, 0);
   const commissionIqd = lines.reduce((s, l) => s + l.commissionIqd, 0);
   const feesIqd = lines.reduce((s, l) => s + l.feesIqd, 0);
+  const dealsIqd = [...deals.values()].reduce((s, d) => s + d.itemsIqd + d.deliveryIqd, 0);
   const counted = [...input.orders.values()].filter((o) => !['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'placed'].includes(o.state)).length;
   return {
     merchantOrgId: input.merchantOrgId,
@@ -91,9 +120,9 @@ export function composeMoneyToday(input: {
     salesIqd,
     commissionIqd,
     commissionByTier: [...tiers.entries()].map(([tier, t]) => ({ tier, pct: tierPct(tier, input.rules), ...t })),
-    // Merchant-funded deals are not redeemed on orders yet (PromotionsPort binding pending): always 0.
-    dealsIqd: 0,
-    netIqd: salesIqd - commissionIqd + feesIqd,
+    // What the merchant's own deals cost today (items discounts + free deliveries it paid for).
+    dealsIqd,
+    netIqd: salesIqd - commissionIqd + feesIqd - dealsIqd,
     cashHeldByCouriersIqd: input.balance.holders.reduce((s, h) => s + h.amountIqd, 0),
     holders: input.balance.holders,
     payableBalanceIqd: input.balance.balanceIqd,

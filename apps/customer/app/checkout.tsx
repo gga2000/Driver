@@ -19,7 +19,7 @@ import {
 } from '@/features/food/checkout';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { priceItems } from '@/features/food/price-lines';
-import { useCartQuote, useDeliverTo, useMenu, usePlaceOrder } from '@/features/food/queries';
+import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
 import { useMyOrders } from '@/features/home/queries';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -34,7 +34,8 @@ const STREET_SAVING_IQD = 250;
  * receives it, when (now or a half-hour slot), payment (cash; the wallet appears once the customer
  * wallet read exists), the named price lines, a promo field, and "اطلب هسة · total". Places the
  * order with catalog ids, participants and the drop-off, and explains price_changed, sold-out items
- * and the new-customer cash cap in plain Arabic.
+ * and the new-customer cash cap in plain Arabic. The restaurant's deal is the server's own line
+ * (`orders.quote`); a deal that ended between cart and place refreshes the total (`deal_changed`).
  */
 export default function CheckoutScreen() {
   const theme = useTheme();
@@ -47,6 +48,7 @@ export default function CheckoutScreen() {
   const { place, dropoff } = useDeliverTo();
   const [street, setStreet] = useState(false);
   const quote = useCartQuote(cart, dropoff, street);
+  const orderQuote = useOrderQuote(cart, dropoff, street);
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
@@ -71,7 +73,8 @@ export default function CheckoutScreen() {
     );
   }
 
-  const totals = quote.data ? checkoutTotals(cart, quote.data) : null;
+  // The server's deal (orders.quote) is part of the total; place sends it back as an expectation.
+  const totals = quote.data && (orderQuote.data || orderQuote.isError) ? checkoutTotals(cart, quote.data, orderQuote.data) : null;
   const restaurant = menu.data?.restaurant;
   const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
   const { groups } = groupByPerson(cart);
@@ -114,14 +117,27 @@ export default function CheckoutScreen() {
     setProblem(null);
     try {
       const order = await placeOrder.mutateAsync(
-        buildPlaceOrderInput({ cart, dropoff, streetHandover: street, recipient: r, scheduledFor, paymentMethod: 'cash', fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd } }),
+        buildPlaceOrderInput({
+          cart,
+          dropoff,
+          streetHandover: street,
+          recipient: r,
+          scheduledFor,
+          paymentMethod: 'cash',
+          fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd },
+          ...(orderQuote.data ? { discountIqd: totals.discountIqd } : {}),
+        }),
       );
       cartStore.markPlaced(order.id);
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       router.replace({ pathname: '/kitchen/[id]', params: { id: order.id } });
     } catch (err) {
       const kind = placeProblem(apiErrorCode(err));
-      if (kind === 'price_changed' || kind === 'catalog_item_unavailable' || kind === 'modifier_invalid') {
+      if (kind === 'deal_changed') {
+        // The deal ended, ran out or changed since the cart: show the server's new total, ask again.
+        await Promise.all([orderQuote.refetch(), quote.refetch()]);
+        setProblem(t('checkout.deal_changed'));
+      } else if (kind === 'price_changed' || kind === 'catalog_item_unavailable' || kind === 'modifier_invalid') {
         try {
           const fresh = await queryClient.fetchQuery({ ...api.catalog.menu.queryOptions({ merchantId: merchant.id, dropoff }), staleTime: 0 });
           const res = reconcile(cart, fresh.categories);

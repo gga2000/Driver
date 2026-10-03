@@ -10,6 +10,7 @@ import {
   OpenDisputeInput,
   Order,
   OrderIdInput,
+  OrderQuote,
   PlaceOrderInput,
   RateOrderInput,
   RespondPartialInput,
@@ -27,6 +28,8 @@ const Ok = z.object({ ok: z.literal(true) });
 /** Orders procedures (plan Step 4). Implementations live in `modules/orders` behind `ctx.orders`. */
 export const ordersRouter = router({
   place: protectedProcedure().input(PlaceOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.place(ctx.actor, input)),
+  /** Checkout summary: the server's would-be charge for this input (merchant deal applied), nothing stored. */
+  quote: protectedProcedure().input(PlaceOrderInput).output(OrderQuote).query(({ ctx, input }) => ctx.orders.quote(ctx.actor, input)),
   get: protectedProcedure().input(OrderIdInput).output(Order).query(({ ctx, input }) => ctx.orders.get(ctx.actor, input)),
   mine: protectedProcedure().output(z.array(Order)).query(({ ctx }) => ctx.orders.mine(ctx.actor)),
   cancellationPreview: protectedProcedure()

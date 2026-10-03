@@ -22,6 +22,7 @@ import {
   ZoneForPinInput,
   ZoneForPinOutput,
 } from '../account-io.js';
+import { RequestTopUpInput, TopUpStatusInput, TopUpView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 const Ok = z.object({ ok: z.literal(true) });
@@ -79,6 +80,16 @@ export const walletRouter = router({
   claimPoints: protectedProcedure()
     .output(ClaimPointsOutput)
     .mutation(({ ctx }) => ctx.wallet.claimPoints(ctx.actor)),
+  /** "شحن المحفظة": a 6-digit code (+ QR) to hand over with the cash to an ops agent or the next courier. */
+  requestTopUp: protectedProcedure()
+    .input(RequestTopUpInput)
+    .output(TopUpView)
+    .mutation(({ ctx, input }) => ctx.topups.request(ctx.actor, input)),
+  /** A top-up request by id, else the caller's latest; the code screen polls it until confirmed. */
+  topUpStatus: protectedProcedure()
+    .input(TopUpStatusInput)
+    .output(TopUpView.nullable())
+    .query(({ ctx, input }) => ctx.topups.status(ctx.actor, input)),
 });
 
 /** Households (domain §12). Members read; payers invite, set limits and resolve approvals. */

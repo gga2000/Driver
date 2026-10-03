@@ -3,14 +3,15 @@ import { View } from 'react-native';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Icon, Stepper, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { lineTotal, type CartLine } from './cart';
 
 /**
  * One cart line: name, choices and note, line price, quantity stepper (down to 0 removes) and a
- * swipe toward the end side that removes it (the cart offers undo).
+ * swipe toward the end side that removes it (the cart offers undo). Under a restaurant deal the line
+ * shows its price after the deal, the menu price struck through and what it saves (server figures).
  */
-export function CartLineRow({ line, onQty, onRemove, divider }: { line: CartLine; onQty: (qty: number) => void; onRemove: () => void; divider?: boolean }) {
+export function CartLineRow({ line, onQty, onRemove, divider, savingIqd = 0 }: { line: CartLine; onQty: (qty: number) => void; onRemove: () => void; divider?: boolean; savingIqd?: number }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -66,9 +67,25 @@ export function CartLineRow({ line, onQty, onRemove, divider }: { line: CartLine
               </Text>
             </View>
           ) : null}
-          <Text variant="label" weight={600} tabular style={{ marginTop: 2 }}>
-            {iqd(lineTotal(line), { locale })}
-          </Text>
+          {savingIqd > 0 ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2], marginTop: 2 }} testID={`cart-line-saving-${line.itemId}`}>
+              <Text variant="label" weight={700} color="successText" tabular>
+                {iqd(lineTotal(line) - savingIqd, { locale })}
+              </Text>
+              <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
+                {iqd(lineTotal(line), { locale })}
+              </Text>
+              <View style={{ backgroundColor: theme.colors.successTint, borderRadius: theme.radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text variant="caption" weight={600} color="successText" tabular>
+                  {t('cart.line_saving', { amount: amountParam(savingIqd) })}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text variant="label" weight={600} tabular style={{ marginTop: 2 }}>
+              {iqd(lineTotal(line), { locale })}
+            </Text>
+          )}
         </View>
         <Stepper size="sm" value={line.qty} min={0} max={99} onChange={onQty} accessibilityLabel={`${t('item.qty')} · ${line.name}`} />
       </View>

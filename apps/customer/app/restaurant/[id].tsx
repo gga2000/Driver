@@ -7,6 +7,7 @@ import { Card, Chip, EmptyState, Icon, IconButton, Skeleton, StatusPill, Text, u
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
 import { CartBar } from '@/features/food/CartBar';
+import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
@@ -232,6 +233,8 @@ function Facts({ r }: { r: RestaurantCard }) {
         <Fact icon="bike" label={fee} highlight={r.deliveryFeeIqd === 0} testID="restaurant-fee" />
         <Fact icon="bag" label={t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })} testID="restaurant-min" />
       </View>
+      {/* The restaurant's live deals; the best one is applied by the server at checkout. */}
+      <DealBadges deals={r.deals ?? []} testID="restaurant-deals" />
       {r.busy ? (
         <Text variant="footnote" color="warningText">
           {t('restaurant.busy')}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 
@@ -76,6 +77,43 @@ export function useTopupOptions() {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({ ...api.wallet.topupOptions.queryOptions(), enabled: signedIn, staleTime: 10 * 60_000 });
+}
+
+/** "شحن المحفظة": asks for a 6-digit cash top-up code. */
+export function useRequestTopUp() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation(
+    api.wallet.requestTopUp.mutationOptions({
+      onSuccess: (view) => {
+        // The code screen polls this request by id: start it from the answer, not a blank fetch.
+        qc.setQueryData(api.wallet.topUpStatus.queryKey({ topUpId: view.topUpId }), view);
+        void qc.invalidateQueries({ queryKey: api.wallet.topUpStatus.queryKey({}) });
+      },
+    }),
+  );
+}
+
+/**
+ * A top-up request (by id, else the latest), polled every 3 s while it waits for the agent or courier;
+ * when it lands the balance and lines refresh.
+ */
+export function useTopUpStatus(topUpId?: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const signedIn = useSignedIn();
+  const q = useQuery({
+    ...api.wallet.topUpStatus.queryOptions(topUpId ? { topUpId } : {}),
+    enabled: signedIn,
+    refetchInterval: (query) => (query.state.data?.state === 'pending' ? 3000 : false),
+  });
+  const landed = q.data?.state === 'confirmed' ? q.data.topUpId : null;
+  useEffect(() => {
+    if (!landed) return;
+    void qc.invalidateQueries({ queryKey: api.wallet.balance.queryKey() });
+    void qc.invalidateQueries({ queryKey: api.wallet.transactions.queryKey() });
+  }, [landed, qc, api]);
+  return q;
 }
 
 export function useClaimPoints() {

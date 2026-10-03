@@ -15,6 +15,7 @@ import {
   OpsTask,
   RecordCashReceiptInput,
 } from '../ops-io.js';
+import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
@@ -52,4 +53,14 @@ export const opsRouter = router({
     .input(CompleteTaskInput)
     .output(OpsTask)
     .mutation(({ ctx, input }) => ctx.ops.completeTask(ctx.actor, input)),
+  /** A customer's wallet top-up code: amount, state and who it is for, before taking the cash. */
+  topUpLookup: protectedProcedure(FIELD_OPS_ROLES)
+    .input(TopUpLookupInput)
+    .output(TopUpLookupView)
+    .query(({ ctx, input }) => ctx.topups.lookup(ctx.actor, input, 'ops_agent')),
+  /** Cash counted: credits the customer's wallet once (single-use code, 24 h); the company holds the cash. */
+  confirmTopUp: protectedProcedure(FIELD_OPS_ROLES)
+    .input(ConfirmTopUpInput)
+    .output(TopUpConfirmation)
+    .mutation(({ ctx, input }) => ctx.topups.confirm(ctx.actor, input, 'ops_agent')),
 });

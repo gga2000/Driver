@@ -19,7 +19,7 @@ const NAMES: Partial<Record<QuoteComponent['key'], { label: MessageKey; reason?:
   wait: { label: 'quote.wait' },
 };
 
-/** The receipt lines for cart and checkout: items, then each non-zero delivery part, then the service fee. */
+/** The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, then the deal (negative). */
 export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en'): PriceItem[] {
   const out: PriceItem[] = [{ key: 'items', label: t('quote.subtotal'), amount: totals.itemsIqd }];
   for (const c of totals.components) {
@@ -31,6 +31,17 @@ export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en')
       label: name ? t(name.label) : locale === 'en' ? c.label_en : c.label_ar,
       amount: c.amount,
       ...(name?.reason ? { reason: t(name.reason) } : {}),
+    });
+  }
+  // The restaurant's deal, as the server applied it (domain §11: every discount is its own named line).
+  if (totals.discount && totals.discountIqd > 0) {
+    const d = totals.discount;
+    const label = locale === 'en' ? d.label_en : d.label_ar;
+    out.push({
+      key: 'deal',
+      label: d.funder === 'merchant' ? t(d.target === 'delivery' ? 'quote.deal_free_delivery' : 'quote.deal_discount') : label,
+      amount: -totals.discountIqd,
+      ...(d.funder === 'merchant' ? { reason: t('quote.deal_reason', { label }) } : {}),
     });
   }
   return out;

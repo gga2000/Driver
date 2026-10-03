@@ -158,9 +158,9 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   onboarding row persists, the org does not survive a restart. Fleet vehicles (`vehicles.owner_org_id`)
   and merchant deals (`promotions.merchant_org_id`) reference `orgs` rows, so with a database those orgs
   must exist as rows (seeded / Console). New wave-2 tables deliberately have no foreign keys to `orgs`.
-- **Deals are not redeemed at checkout yet.** They are stored, projected and approved; binding a
-  `PromotionsPort` that resolves merchant deals needs orders to put merchant-funded discounts into the
-  commission base (G-87) instead of the platform promo line. `money.today.dealsIqd` is 0 until then.
+- ~~Deals are not redeemed at checkout yet.~~ Done 2026-10-04: see `docs/api/deals-and-topup.md`
+  (best live deal applied server-side, spend reserved atomically against the cap, commission on items
+  after the deal, `money.today.dealsIqd` real).
 - **Menu photos** replaced by merchants are stored as `upload:<id>` in `catalog_items.photo_url`; the
   admin view signs them, the customer catalog (`catalog.*`) does not yet.
 - **Liveness and face match are stubs** (device SDK score, default 1); OCR for menu import is a stub

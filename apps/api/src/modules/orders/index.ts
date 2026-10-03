@@ -1,5 +1,5 @@
 export { OrdersModule } from './orders.module.js';
-export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, ORDERS_CASH_RISK, toOrderView, lineValue } from './orders.service.js';
+export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, ORDERS_CASH_RISK, toOrderView, lineValue, roundedDiscount, commissionBaseOf, merchantDealOf } from './orders.service.js';
 export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrderTimerJob } from './orders.service.js';
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';
@@ -20,7 +20,9 @@ export { busyExtraMinutes } from './busy.js';
 export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
 export type { CatalogPort, CatalogItemView } from './catalog.port.js';
 export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';
-export type { PromotionsPort, PromotionQuery, ResolvedPromotion } from './promotions.port.js';
+export type { PromotionsPort, PromotionQuery, ResolvedPromotion, MerchantDealQuery, MerchantDealResult } from './promotions.port.js';
+export { MerchantDealsPromotions } from './promotions.adapter.js';
+export type { DealSource } from './promotions.adapter.js';
 export { serverFees, verticalOf } from './fees.js';
 export type { ServerFees } from './fees.js';
 export { OrdersStorefrontMerchants } from './storefront.port.js';
