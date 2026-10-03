@@ -71,7 +71,7 @@ export interface PartnerDeps {
     get(tripId: string): Promise<Trip>;
   };
   orders: { get(orderId: string): Promise<Order | null> };
-  merchants: { name(orgId: string): string | null };
+  merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
   money: {
     cap(driverId: string): Promise<PartnerCapStatus>;

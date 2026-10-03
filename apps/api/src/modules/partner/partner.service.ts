@@ -127,7 +127,8 @@ export class PartnerService implements PartnerPort {
       take: this.deps.money.take(request.vertical),
     });
     const dropStop = trip.stops.find((s) => s.type === 'dropoff');
-    const pickupLabel = orders[0]?.merchantOrgId ? this.deps.merchants.name(orders[0].merchantOrgId) : null;
+    const names = await this.merchantNames(orders);
+    const pickupLabel = orders[0]?.merchantOrgId ? (names.get(orders[0].merchantOrgId) ?? null) : null;
     const dropPin = dropStop?.target ?? null;
     const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
     return {
@@ -145,7 +146,7 @@ export class PartnerService implements PartnerPort {
       tripKm: dropPin ? kmBetween(request.pickup, dropPin) : null,
       pay,
       batch: batchedSecond ? { extraIqd: pay.totalIqd, withTripIds: current.map((t) => t.id).filter((t) => t !== trip.id) } : null,
-      merchant: this.prepOf(orders[0], now),
+      merchant: this.prepOf(orders[0], now, names),
       collectIqd: collect > 0 ? collect : null,
     };
   }
@@ -157,6 +158,7 @@ export class PartnerService implements PartnerPort {
     if (!trip) return null;
     const now = this.clock.now();
     const orders = await this.ordersOf(trip);
+    const names = await this.merchantNames(orders);
     const byId = new Map(orders.map((o) => [o.id, o]));
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
@@ -170,7 +172,7 @@ export class PartnerService implements PartnerPort {
           state: s.state,
           zoneId: s.zoneKey,
           pin: s.target,
-          label: s.type === 'pickup' && order?.merchantOrgId ? this.deps.merchants.name(order.merchantOrgId) : null,
+          label: s.type === 'pickup' && order?.merchantOrgId ? (names.get(order.merchantOrgId) ?? null) : null,
           orderId: s.orderId,
           note: isDrop ? (order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
@@ -197,7 +199,7 @@ export class PartnerService implements PartnerPort {
       currentStopId: partnerCurrentStop(stops)?.stopId ?? null,
       unreachable: trip.unreachable,
       pay,
-      merchant: this.prepOf(orders[0], now),
+      merchant: this.prepOf(orders[0], now, names),
     };
   }
 
@@ -225,9 +227,15 @@ export class PartnerService implements PartnerPort {
     }
   }
 
-  private prepOf(order: Order | undefined, now: Date): PartnerMerchantPrep | null {
+  private prepOf(order: Order | undefined, now: Date, names: ReadonlyMap<string, string | null>): PartnerMerchantPrep | null {
     if (!order?.merchantOrgId) return null;
-    const name = this.deps.merchants.name(order.merchantOrgId);
+    const name = names.get(order.merchantOrgId) ?? null;
     return name ? merchantPrep(name, order, now) : null;
+  }
+
+  /** Kitchen names of the job's orders (the orgs module reads them from its store). */
+  private async merchantNames(orders: readonly Order[]): Promise<Map<string, string | null>> {
+    const ids = [...new Set(orders.map((o) => o.merchantOrgId).filter((id): id is string => !!id))];
+    return new Map(await Promise.all(ids.map(async (id) => [id, await this.deps.merchants.name(id)] as const)));
   }
 }

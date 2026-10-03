@@ -1,272 +1,202 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { DriverError, type CommissionTier, type DeliveryPoint } from '@driver/contracts';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { DriverError } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
-import { PrismaService } from '../../shared/db/prisma.service.js';
+import { NoDatabaseRunner, UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
+import { InMemoryOrgsRepository, ORGS_REPOSITORY, type OrgsRepository } from './orgs.repository.js';
+import {
+  DEFAULT_MERCHANT_SETTINGS,
+  isMerchantType,
+  type MerchantOrg,
+  type MerchantSettings,
+  type Org,
+  type OrgMember,
+  type OrgMemberRole,
+  type OrgType,
+  type PayerApprovalRequest,
+} from './orgs.types.js';
 
-export type OrgType = 'restaurant' | 'grocer' | 'fleet' | 'household';
-export type OrgMemberRole = 'payer' | 'orderer' | 'member';
-
-export interface OrgMember {
-  personId: string;
-  role: OrgMemberRole;
-  /** Household: orders above this ask the payer for one-tap approval. Null = no limit. */
-  spendingLimitIqd: number | null;
-}
-
-export interface Org {
-  id: string;
-  type: OrgType;
-  name: string;
-  cityId: string;
-  members: OrgMember[];
-  /** Restaurants and grocers: order-taking settings (mirrors orgs.auto_accept / pause_windows / last_heartbeat). */
-  merchant?: MerchantSettings;
-}
-
-/** Local-time weekly window, e.g. Friday prayer `{dow: 5, start: '11:45', end: '13:15'}`. */
-export interface MerchantPauseWindow {
-  dow: number;
-  start: string;
-  end: string;
-  reason?: string;
-}
-
-export interface MerchantSettings {
-  /** Earned by behaviour (domain §2): skips the 90-s acceptance. */
-  autoAccept: boolean;
-  /** Null = the city's seeded defaults (Friday prayer). */
-  pauseWindows: MerchantPauseWindow[] | null;
-  /** Last merchant-app heartbeat (edge-case review A.2). */
-  lastHeartbeatAt: Date | null;
-  defaultPrepMin: number | null;
-  /** Money §1 commission tier; null = the orders default. */
-  commissionTier: CommissionTier | null;
-  /** Pickup point couriers are sent to (zone key + pin); null until the merchant's place is on file. */
-  location: DeliveryPoint | null;
-  /** Busy mode (Driver Merchant): prep times +10 min until this time; null = off. */
-  busyUntil?: Date | null;
-  /** Closed by hand from the Merchant app (early-close reason); null = open. */
-  closed?: { reason: string; note: string | null; at: Date } | null;
-  /** The store's receipt printer as its tablet last reported it (printer-offline marker). */
-  printer?: { state: 'connected' | 'disconnected'; name: string | null; at: Date } | null;
-}
-
-const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null, busyUntil: null, closed: null, printer: null };
-
-/** A restaurant or grocer as the Console's merchant picker lists it. */
-export interface MerchantOrg {
-  id: string;
-  name: string;
-  type: 'restaurant' | 'grocer';
-  cityId: string;
-  lastHeartbeatAt: Date | null;
-}
-
-export interface PayerApprovalRequest {
-  id: string;
-  orgId: string;
-  orderId: string;
-  requestedBy: string;
-  payerId: string;
-  amountIqd: number;
-  state: 'pending' | 'approved' | 'declined';
-  createdAt: Date;
-}
+export type { MerchantOrg, MerchantPauseWindow, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
 
 /**
- * Orgs: restaurants, grocers, fleets and households (domain §12). In-memory in M2 Step 2; the
- * Prisma repository lands with the orders module (Step 4) which is the first real reader.
+ * Orgs: restaurants, grocers, fleets and households (domain §12) — members, merchant order-taking
+ * settings and household payer approvals. State lives behind `OrgsRepository` (Prisma with
+ * DATABASE_URL, in memory otherwise); every change commits with its domain event in one unit of work.
+ *
+ * Constructed by hand (tests) it runs on its own in-memory repository and a database-less unit of work.
  */
 @Injectable()
 export class OrgsService {
-  private readonly orgs = new Map<string, Org>();
-  private readonly approvals = new Map<string, PayerApprovalRequest>();
-  private seq = 0;
   private readonly clock: Clock;
-  private readonly logger = new Logger(OrgsService.name);
-  private readonly inflight = new Set<Promise<void>>();
+  private readonly repo: OrgsRepository;
+  private readonly uow: UnitOfWork;
 
   constructor(
     @Optional() private readonly events?: EventsService,
     @Optional() @Inject(CLOCK) clock?: Clock,
-    @Optional() private readonly prisma?: PrismaService,
+    @Optional() @Inject(ORGS_REPOSITORY) repo?: OrgsRepository,
+    @Optional() uow?: UnitOfWork,
   ) {
     this.clock = clock ?? new SystemClock();
+    this.repo = repo ?? new InMemoryOrgsRepository();
+    this.uow = uow ?? new UnitOfWork(new NoDatabaseRunner());
   }
 
-  create(input: { type: OrgType; name: string; cityId: string; ownerId: string }): Org {
-    this.seq += 1;
+  create(input: { type: OrgType; name: string; cityId: string; ownerId: string }): Promise<Org> {
     const ownerRole: OrgMemberRole = input.type === 'household' ? 'payer' : 'member';
-    const org: Org = {
-      id: `org_${this.seq}`,
-      type: input.type,
-      name: input.name,
-      cityId: input.cityId,
-      members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }],
-    };
-    this.orgs.set(org.id, org);
-    this.emit('org.created', input.ownerId, { orgId: org.id, type: org.type, cityId: org.cityId }, org.id);
-    return org;
+    return this.uow.run(async (tx) => {
+      const org = await this.repo.create({ type: input.type, name: input.name, cityId: input.cityId, members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }] }, tx);
+      await this.emit(tx, 'org.created', input.ownerId, { orgId: org.id, type: org.type, cityId: org.cityId }, org.id);
+      return org;
+    });
   }
 
   /** A household: the creator is its first payer. */
-  createHousehold(input: { name: string; cityId: string; payerId: string }): Org {
+  createHousehold(input: { name: string; cityId: string; payerId: string }): Promise<Org> {
     return this.create({ type: 'household', name: input.name, cityId: input.cityId, ownerId: input.payerId });
   }
 
-  addMember(orgId: string, personId: string, opts: { role?: OrgMemberRole; spendingLimitIqd?: number | null; actorId?: string } = {}): Org {
-    const org = this.get(orgId);
-    const existing = org.members.find((m) => m.personId === personId);
-    if (existing) {
-      if (opts.role) existing.role = opts.role;
-      if (opts.spendingLimitIqd !== undefined) existing.spendingLimitIqd = opts.spendingLimitIqd;
-      return org;
-    }
-    org.members.push({ personId, role: opts.role ?? 'member', spendingLimitIqd: opts.spendingLimitIqd ?? null });
-    this.emit('org.member_added', opts.actorId ?? personId, { orgId, personId, role: opts.role ?? 'member', spendingLimitIqd: opts.spendingLimitIqd ?? null }, orgId);
-    return org;
+  addMember(orgId: string, personId: string, opts: { role?: OrgMemberRole; spendingLimitIqd?: number | null; actorId?: string } = {}): Promise<Org> {
+    return this.uow.run(async (tx) => {
+      const org = await this.get(orgId, tx);
+      const existing = org.members.find((m) => m.personId === personId);
+      if (existing) {
+        const next: OrgMember = { ...existing, ...(opts.role ? { role: opts.role } : {}), ...(opts.spendingLimitIqd !== undefined ? { spendingLimitIqd: opts.spendingLimitIqd } : {}) };
+        if (next.role !== existing.role || next.spendingLimitIqd !== existing.spendingLimitIqd) await this.repo.upsertMember(orgId, next, tx);
+        return this.get(orgId, tx);
+      }
+      const member: OrgMember = { personId, role: opts.role ?? 'member', spendingLimitIqd: opts.spendingLimitIqd ?? null };
+      await this.repo.upsertMember(orgId, member, tx);
+      await this.emit(tx, 'org.member_added', opts.actorId ?? personId, { orgId, personId, role: member.role, spendingLimitIqd: member.spendingLimitIqd }, orgId);
+      return this.get(orgId, tx);
+    });
   }
 
-  setSpendingLimit(orgId: string, personId: string, spendingLimitIqd: number | null, actorId?: string): OrgMember {
-    const m = this.member(orgId, personId);
-    m.spendingLimitIqd = spendingLimitIqd;
-    if (actorId) this.emit('org.member_limit_set', actorId, { orgId, personId, spendingLimitIqd }, orgId);
-    return m;
+  setSpendingLimit(orgId: string, personId: string, spendingLimitIqd: number | null, actorId?: string): Promise<OrgMember> {
+    return this.uow.run(async (tx) => {
+      const m = { ...(await this.member(orgId, personId, tx)), spendingLimitIqd };
+      await this.repo.upsertMember(orgId, m, tx);
+      if (actorId) await this.emit(tx, 'org.member_limit_set', actorId, { orgId, personId, spendingLimitIqd }, orgId);
+      return m;
+    });
   }
 
-  member(orgId: string, personId: string): OrgMember {
-    const m = this.get(orgId).members.find((x) => x.personId === personId);
+  async member(orgId: string, personId: string, tx?: Tx): Promise<OrgMember> {
+    const m = (await this.get(orgId, tx)).members.find((x) => x.personId === personId);
     if (!m) throw new DriverError('not_household_member');
     return m;
   }
 
-  payersOf(orgId: string): OrgMember[] {
-    return this.get(orgId).members.filter((m) => m.role === 'payer');
+  async payersOf(orgId: string, tx?: Tx): Promise<OrgMember[]> {
+    return (await this.get(orgId, tx)).members.filter((m) => m.role === 'payer');
   }
 
   /** True when `amountIqd` is within the member's limit (payers are never limited). */
-  withinLimit(orgId: string, personId: string, amountIqd: number): boolean {
-    const m = this.member(orgId, personId);
+  async withinLimit(orgId: string, personId: string, amountIqd: number): Promise<boolean> {
+    const m = await this.member(orgId, personId);
     if (m.role === 'payer' || m.spendingLimitIqd === null) return true;
     return amountIqd <= m.spendingLimitIqd;
   }
 
   /** Orders over a member's limit request one-tap payer approval (domain §12). Idempotent per order. */
-  requestPayerApproval(input: { orgId: string; orderId: string; requestedBy: string; amountIqd: number }): PayerApprovalRequest {
-    const existing = [...this.approvals.values()].find((a) => a.orderId === input.orderId && a.orgId === input.orgId);
-    if (existing) return existing;
-    this.member(input.orgId, input.requestedBy);
-    const payer = this.payersOf(input.orgId)[0];
-    if (!payer) throw new DriverError('no_payer');
-    this.seq += 1;
-    const req: PayerApprovalRequest = {
-      id: `pay_${this.seq}`,
-      orgId: input.orgId,
-      orderId: input.orderId,
-      requestedBy: input.requestedBy,
-      payerId: payer.personId,
-      amountIqd: input.amountIqd,
-      state: 'pending',
-      createdAt: this.clock.now(),
-    };
-    this.approvals.set(req.id, req);
-    this.emit('org.payer_approval_requested', input.requestedBy, { orgId: input.orgId, orderId: input.orderId, payerId: payer.personId, amountIqd: input.amountIqd, requestId: req.id }, input.orgId);
-    return req;
+  requestPayerApproval(input: { orgId: string; orderId: string; requestedBy: string; amountIqd: number }): Promise<PayerApprovalRequest> {
+    return this.uow.run(async (tx) => {
+      const existing = await this.repo.approvalForOrder(input.orgId, input.orderId, tx);
+      if (existing) return existing;
+      await this.member(input.orgId, input.requestedBy, tx);
+      const payer = (await this.payersOf(input.orgId, tx))[0];
+      if (!payer) throw new DriverError('no_payer');
+      const req = await this.repo.addApproval(
+        { orgId: input.orgId, orderId: input.orderId, requestedBy: input.requestedBy, payerId: payer.personId, amountIqd: input.amountIqd, state: 'pending', createdAt: this.clock.now() },
+        tx,
+      );
+      await this.emit(tx, 'org.payer_approval_requested', input.requestedBy, { orgId: input.orgId, orderId: input.orderId, payerId: payer.personId, amountIqd: input.amountIqd, requestId: req.id }, input.orgId);
+      return req;
+    });
   }
 
-  resolvePayerApproval(requestId: string, payerId: string, decision: 'approved' | 'declined'): PayerApprovalRequest {
-    const req = this.approvals.get(requestId);
-    if (!req) throw new DriverError('not_found');
-    if (req.payerId !== payerId && !this.payersOf(req.orgId).some((p) => p.personId === payerId)) throw new DriverError('forbidden');
-    if (req.state !== 'pending') return req;
-    req.state = decision;
-    this.emit(decision === 'approved' ? 'org.payer_approved' : 'org.payer_declined', payerId, { orgId: req.orgId, orderId: req.orderId, requestId }, req.orgId);
-    return req;
+  resolvePayerApproval(requestId: string, payerId: string, decision: 'approved' | 'declined'): Promise<PayerApprovalRequest> {
+    return this.uow.run(async (tx) => {
+      const req = await this.repo.approval(requestId, tx);
+      if (!req) throw new DriverError('not_found');
+      if (req.payerId !== payerId && !(await this.payersOf(req.orgId, tx)).some((p) => p.personId === payerId)) throw new DriverError('forbidden');
+      if (req.state !== 'pending') return req;
+      const done = await this.repo.resolveApproval(requestId, decision, tx);
+      // Lost a race with another payer: theirs stands, nothing more to record.
+      if (!done) return (await this.repo.approval(requestId, tx)) ?? req;
+      await this.emit(tx, decision === 'approved' ? 'org.payer_approved' : 'org.payer_declined', payerId, { orgId: req.orgId, orderId: req.orderId, requestId }, req.orgId);
+      return done;
+    });
   }
 
-  approval(requestId: string): PayerApprovalRequest {
-    const req = this.approvals.get(requestId);
+  async approval(requestId: string): Promise<PayerApprovalRequest> {
+    const req = await this.repo.approval(requestId);
     if (!req) throw new DriverError('not_found');
     return req;
   }
 
   /** Every request of a household, newest first (pending and resolved). */
-  approvalsOf(orgId: string): PayerApprovalRequest[] {
-    return [...this.approvals.values()].filter((a) => a.orgId === orgId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+  approvalsOf(orgId: string): Promise<PayerApprovalRequest[]> {
+    return this.repo.approvals(orgId);
   }
 
-  pendingApprovals(orgId: string): PayerApprovalRequest[] {
-    return [...this.approvals.values()].filter((a) => a.orgId === orgId && a.state === 'pending');
+  pendingApprovals(orgId: string): Promise<PayerApprovalRequest[]> {
+    return this.repo.approvals(orgId, { state: 'pending' });
   }
 
-  get(orgId: string): Org {
-    const org = this.orgs.get(orgId);
+  async get(orgId: string, tx?: Tx): Promise<Org> {
+    const org = await this.repo.get(orgId, tx);
     if (!org) throw new DriverError('org_not_found');
     return org;
   }
 
-  inCity(cityId: string, type?: OrgType): Org[] {
-    return [...this.orgs.values()].filter((o) => o.cityId === cityId && (type === undefined || o.type === type));
+  /** The org, or null when unknown (ports that answer "no such merchant" rather than throw). */
+  find(orgId: string): Promise<Org | null> {
+    return this.repo.get(orgId);
   }
 
-  /**
-   * Restaurants and grocers of a city (Console merchant picker), by name: the seeded `orgs` rows
-   * when a database is configured, plus orgs created in this process.
-   */
+  inCity(cityId: string, type?: OrgType): Promise<Org[]> {
+    return this.repo.list({ cityId, ...(type ? { types: [type] } : {}) });
+  }
+
+  /** Restaurants and grocers of a city (Console merchant picker), by name. */
   async merchants(cityId: string): Promise<MerchantOrg[]> {
-    const out = new Map<string, MerchantOrg>();
-    if (this.prisma?.configured) {
-      const rows = await this.prisma.prisma.org.findMany({
-        where: { cityId, type: { in: ['restaurant', 'grocer'] } },
-        select: { id: true, name: true, type: true, cityId: true, lastHeartbeat: true },
-      });
-      for (const r of rows) out.set(r.id, { id: r.id, name: r.name, type: r.type as MerchantOrg['type'], cityId: r.cityId, lastHeartbeatAt: r.lastHeartbeat });
-    }
-    for (const o of this.inCity(cityId)) {
-      if (o.type !== 'restaurant' && o.type !== 'grocer') continue;
-      out.set(o.id, { id: o.id, name: o.name, type: o.type, cityId: o.cityId, lastHeartbeatAt: o.merchant?.lastHeartbeatAt ?? out.get(o.id)?.lastHeartbeatAt ?? null });
-    }
-    return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
+    const rows = await this.repo.list({ cityId, types: ['restaurant', 'grocer'] });
+    return rows
+      .filter((o): o is Org & { type: 'restaurant' | 'grocer' } => isMerchantType(o.type))
+      .map((o) => ({ id: o.id, name: o.name, type: o.type, cityId: o.cityId, lastHeartbeatAt: o.merchant?.lastHeartbeatAt ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
   }
 
   /** Order-taking settings of a restaurant or grocer (defaults when never set). */
-  merchantSettings(orgId: string): MerchantSettings {
-    return { ...DEFAULT_MERCHANT_SETTINGS, ...this.get(orgId).merchant };
+  async merchantSettings(orgId: string): Promise<MerchantSettings> {
+    return { ...DEFAULT_MERCHANT_SETTINGS, ...(await this.get(orgId)).merchant };
   }
 
-  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): MerchantSettings {
-    const org = this.get(orgId);
-    org.merchant = { ...DEFAULT_MERCHANT_SETTINGS, ...org.merchant, ...patch };
-    return { ...org.merchant };
+  /** Writes only the given settings and returns the result. */
+  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): Promise<MerchantSettings> {
+    return this.uow.run(async (tx) => {
+      await this.get(orgId, tx);
+      await this.repo.patchMerchant(orgId, patch, tx);
+      return { ...DEFAULT_MERCHANT_SETTINGS, ...(await this.get(orgId, tx)).merchant };
+    });
   }
 
   /** Merchant-app presence ping (edge-case review A.2). */
-  heartbeat(orgId: string, at: Date = this.clock.now()): void {
-    const org = this.get(orgId);
-    org.merchant = { ...DEFAULT_MERCHANT_SETTINGS, ...org.merchant, lastHeartbeatAt: at };
+  async heartbeat(orgId: string, at: Date = this.clock.now()): Promise<void> {
+    await this.get(orgId);
+    await this.repo.patchMerchant(orgId, { lastHeartbeatAt: at });
   }
 
-  householdsOf(personId: string): Org[] {
-    return [...this.orgs.values()].filter((o) => o.type === 'household' && o.members.some((m) => m.personId === personId));
+  householdsOf(personId: string): Promise<Org[]> {
+    return this.repo.list({ types: ['household'], memberId: personId });
   }
 
-  /**
-   * Orgs is still in-memory and synchronous (its Prisma repository is pending), so there is no
-   * caller transaction to join: each event commits in a transaction of its own. Callers that need
-   * to observe it (tests) await `settled()`.
-   */
-  private emit(type: string, actorId: string, payload: Record<string, unknown>, orgId: string): void {
+  /** Events now commit with their change (unit of work); kept so callers that awaited it still compile. */
+  async settled(): Promise<void> {}
+
+  private async emit(tx: Tx, type: string, actorId: string, payload: Record<string, unknown>, orgId: string): Promise<void> {
     if (!this.events) return;
-    const p = this.events
-      .emit(undefined, { actorId, type, occurredAt: this.clock.now(), payload }, { name: 'org', id: orgId })
-      .then(() => undefined, (err: unknown) => this.logger.error(`${type} not recorded: ${(err as Error).message}`));
-    this.inflight.add(p);
-    void p.finally(() => this.inflight.delete(p));
-  }
-
-  /** Resolves when every event emitted so far has been recorded (and, without Redis, delivered). */
-  async settled(): Promise<void> {
-    await Promise.all([...this.inflight]);
+    await this.events.emit(tx, { actorId, type, occurredAt: this.clock.now(), payload }, { name: 'org', id: orgId });
   }
 }

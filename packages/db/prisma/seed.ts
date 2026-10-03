@@ -5,7 +5,8 @@
  * 6 street-pickup meeting points (plus the الرجعة drafts: a Kut garage and 3 on-the-way points),
  * taxonomy roots, a demo restaurant org with a 10-item catalog
  * (modifier groups included), the four launch restaurants with storefronts and sectioned menus
- * (M3), and a dispatcher person whose phone lives only in the vault.
+ * (M3) — each an orderable merchant org: kitchen pin (PostGIS) and zone, prep time, commission tier,
+ * Friday-prayer pause — and a dispatcher person whose phone lives only in the vault.
  * Re-running updates in place; nothing is duplicated.
  */
 import { createHmac } from 'node:crypto';
@@ -37,6 +38,25 @@ function phoneHash(phoneE164: string): string {
 }
 
 const now = () => new Date();
+
+/** Day-1 order-taking defaults for a seeded kitchen (Friday prayer pause; money §1 base tier). */
+const FRIDAY_PRAYER = [{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }];
+
+/**
+ * What `orders.place` reads through the orgs module: the kitchen's zone + pin (couriers' pickup and the
+ * delivery quote), prep time and commission tier. The pin is PostGIS geography, so it goes in with SQL.
+ * Re-running resets the seeded values; busy mode, early close and the printer marker are left alone.
+ */
+async function seedMerchantSettings(tx: Tx, orgId: string, s: { zoneKey: string; pin: { lat: number; lng: number }; prepMin: number }): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE "public"."orgs" SET
+      "location_zone_key" = ${s.zoneKey},
+      "location_pin" = ST_GeogFromText(${pointWkt(s.pin)}),
+      "default_prep_min" = ${s.prepMin},
+      "commission_tier" = 'base',
+      "updated_at" = ${now()}
+    WHERE "id" = ${orgId}`;
+}
 
 async function seedCities(tx: Tx): Promise<void> {
   for (const c of CITIES) {
@@ -111,9 +131,11 @@ async function seedDemoRestaurant(tx: Tx, taxonomy: Map<string, string>): Promis
       type: 'restaurant',
       name: DEMO_RESTAURANT.name,
       cityId: DEMO_RESTAURANT.cityId,
-      pauseWindows: [{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }],
+      pauseWindows: FRIDAY_PRAYER,
     },
   });
+  const centre = AZIZIYAH_ZONES.find((z) => z.id === DEMO_RESTAURANT.zoneKey)!;
+  await seedMerchantSettings(tx, orgId, { zoneKey: DEMO_RESTAURANT.zoneKey, pin: { lat: centre.lat, lng: centre.lng }, prepMin: 15 });
   await tx.merchantSettlement.upsert({
     where: { orgId },
     update: {},
@@ -171,8 +193,9 @@ async function seedLaunchRestaurants(tx: Tx, taxonomy: Map<string, string>): Pro
     await tx.org.upsert({
       where: { id: orgId },
       update: { name: r.nameAr, cityId: r.cityId },
-      create: { id: orgId, type: 'restaurant', name: r.nameAr, cityId: r.cityId, pauseWindows: [{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }] },
+      create: { id: orgId, type: 'restaurant', name: r.nameAr, cityId: r.cityId, pauseWindows: FRIDAY_PRAYER },
     });
+    await seedMerchantSettings(tx, orgId, { zoneKey: r.zoneKey, pin: r.pin, prepMin: r.prepMin });
     await tx.merchantSettlement.upsert({ where: { orgId }, update: {}, create: { orgId, mode: 'nightly_courier', exposureCapIqd: 300000 } });
     const storefront = storefrontJson(r) as never;
     const catalog = await tx.catalog.upsert({
@@ -248,8 +271,13 @@ export async function seed(prisma: PrismaClient): Promise<void> {
 const prisma = createPrisma(DATABASE_URL);
 seed(prisma)
   .then(async () => {
-    const [zones, mps, items] = await Promise.all([prisma.zone.count(), prisma.meetingPoint.count(), prisma.catalogItem.count()]);
-    console.log(`seeded: ${CITIES.length} cities, ${zones} zones, ${mps} meeting points, ${TAXONOMY.length} taxonomy nodes, ${items} catalog items, 1 dispatcher`);
+    const [zones, mps, items, merchants] = await Promise.all([
+      prisma.zone.count(),
+      prisma.meetingPoint.count(),
+      prisma.catalogItem.count(),
+      prisma.org.count({ where: { type: { in: ['restaurant', 'grocer'] }, locationZoneKey: { not: null } } }),
+    ]);
+    console.log(`seeded: ${CITIES.length} cities, ${zones} zones, ${mps} meeting points, ${TAXONOMY.length} taxonomy nodes, ${merchants} orderable merchants, ${items} catalog items, 1 dispatcher`);
     await prisma.$disconnect();
   })
   .catch(async (err: unknown) => {

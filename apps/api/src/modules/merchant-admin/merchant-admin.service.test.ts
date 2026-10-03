@@ -82,7 +82,7 @@ async function setup(start = '2026-10-03T12:00:00Z') {
     },
   } as unknown as OrdersService;
   const orgs = new OrgsService(undefined, clock);
-  const org = orgs.create({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah', ownerId: 'x' });
+  const org = await orgs.create({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah', ownerId: 'x' });
   const repo = new InMemoryMerchantAdminRepository();
   const svc = new MerchantAdminService(repo, catalog, promotions, lh.ledger, lh.facade, ordersFake, orgs, id.service, new ConfigService(), ev.events, blobs, ev.uow, clock);
   async function person(phone: string, kind?: 'merchant_owner' | 'merchant_staff' | 'admin'): Promise<Actor> {

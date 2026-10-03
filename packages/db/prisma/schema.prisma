@@ -162,11 +162,29 @@ model Org {
   cityId         String   @map("city_id")
   /// Merchant: auto-accept flag earned by behaviour; busy mode; heartbeat.
   autoAccept     Boolean  @default(false) @map("auto_accept")
+  /// Superseded by `busy_until` (busy mode is time-boxed); kept for old readers.
   busyMode       Boolean  @default(false) @map("busy_mode")
   lastHeartbeat  DateTime? @map("last_heartbeat")
-  /// Per-merchant pause windows, e.g. Friday prayer, seeded by city: [{dow, start, end}].
-  pauseWindows   Json     @default("[]") @map("pause_windows")
+  /// Per-merchant pause windows, e.g. Friday prayer: [{dow, start, end, reason?}]. NULL = the city's seeded windows.
+  pauseWindows   Json?    @map("pause_windows")
   payoutSettings Json     @default("{}") @map("payout_settings")
+  /// Busy mode (Driver Merchant): every prep time +10 min until this time; NULL = off.
+  busyUntil       DateTime? @map("busy_until")
+  /// Closed by hand from the Merchant app (early-close reason); NULL = open.
+  closedAt        DateTime? @map("closed_at")
+  closedReason    String?   @map("closed_reason")
+  closedNote      String?   @map("closed_note")
+  /// Receipt printer as the store's tablet last reported it (printer-offline marker).
+  printerState    String?   @map("printer_state")
+  printerName     String?   @map("printer_name")
+  printerAt       DateTime? @map("printer_at")
+  /// NULL = the orders default.
+  defaultPrepMin  Int?      @map("default_prep_min")
+  /// Money §1 tier (base / featured / marketing); NULL = the orders default.
+  commissionTier  String?   @map("commission_tier")
+  /// Pickup point couriers are sent to: zone key + pin. NULL until the merchant's place is on file.
+  locationZoneKey String?   @map("location_zone_key")
+  locationPin     Unsupported("geography(Point, 4326)")? @map("location_pin")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -180,9 +198,39 @@ model Org {
   households Order[]             @relation("HouseholdOrders")
   settlement MerchantSettlement?
   promotions Promotion[]
+  approvals  PayerApproval[]
 
   @@index([cityId, type])
+  @@index([locationPin], type: Gist)
   @@map("orgs")
+  @@schema("public")
+}
+
+enum PayerApprovalState {
+  pending
+  approved
+  declined
+
+  @@schema("public")
+}
+
+/// Household: an order above a member's spending limit waits for one-tap payer approval (domain §12).
+model PayerApproval {
+  id          String             @id @default(cuid())
+  orgId       String             @map("org_id")
+  orderId     String             @map("order_id")
+  requestedBy String             @map("requested_by")
+  payerId     String             @map("payer_id")
+  amountIqd   Int                @map("amount_iqd")
+  state       PayerApprovalState @default(pending)
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, orderId])
+  @@index([orgId, state])
+  @@map("payer_approvals")
   @@schema("public")
 }
 
@@ -476,6 +524,18 @@ model Place {
   flaggedAt      DateTime?                             @map("flagged_at")
   /// Courier arrival taps near the pin: [{lat, lng, at, distanceM}] — pin drifts toward the median after 3+.
   arrivalSamples Json                                  @default("[]") @map("arrival_samples")
+  /// Customer saved place: home / work / custom. NULL = a learned place or a landmark.
+  label              String?
+  /// Zone key resolved from the pin on the server (saved places).
+  zoneKey            String?   @map("zone_key")
+  /// Gate / door photos: upload ids (`uploads.id`), never URLs; read through signed URLs only.
+  photoRefs          String[]  @default([]) @map("photo_refs")
+  /// The owner's on-site "موقعي هنا".
+  confirmedAt        DateTime? @map("confirmed_at")
+  /// Opt-in: household members may read (never edit) this place.
+  shareWithHousehold Boolean   @default(false) @map("share_with_household")
+  /// Offline save idempotency key, unique per owner.
+  clientRef          String?   @map("client_ref")
   createdAt      DateTime                              @default(now()) @map("created_at")
   updatedAt      DateTime                              @updatedAt @map("updated_at")
 
@@ -484,6 +544,7 @@ model Place {
   photos PlacePhoto[]
   stops  Stop[]
 
+  @@unique([ownerId, clientRef])
   @@index([cityId])
   @@index([ownerId])
   @@index([pin], type: Gist)
@@ -503,6 +564,27 @@ model PlacePhoto {
 
   @@index([placeId])
   @@map("place_photos")
+  @@schema("public")
+}
+
+/// A photo upload (gate photos, menu / shop photos, documents, evidence): who may reference it and what
+/// was declared. The bytes live in object storage under `storage_key` (private bucket, signed URLs only).
+model Upload {
+  /// `up_<uuid>`, minted by the API before the client uploads (the cuid default is never used).
+  id          String   @id @default(cuid())
+  ownerId     String   @map("owner_id")
+  contentType String   @map("content_type")
+  maxBytes    Int      @map("max_bytes")
+  sizeBytes   Int?     @map("size_bytes")
+  /// pending → stored (bytes received and checked).
+  state       String   @default("pending")
+  storageKey  String   @map("storage_key")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@map("uploads")
   @@schema("public")
 }
 

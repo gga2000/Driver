@@ -10,6 +10,10 @@ export {
   SAVED_PLACES_REPOSITORY,
 } from './saved-places.service.js';
 export type { SavedPlaceRecord, SavedPlacesRepository, HouseholdPeers } from './saved-places.service.js';
+export { InMemoryPlacesRepository, PrismaPlacesRepository, PrismaSavedPlacesRepository, PLACES_REPOSITORY } from './places.repository.js';
+export type { PlacesRepository } from './places.repository.js';
 export { PlacesRpc } from './places.rpc.js';
-export { BLOB_STORE, DevBlobStore, sniffImage } from './uploads.js';
-export type { BlobStore, BlobRecord } from './uploads.js';
+export { BLOB_STORE, DevBlobStore, ObjectBlobStore, InMemoryUploadRecords, PrismaUploadRecords, sniffImage } from './uploads.js';
+export type { BlobStore, BlobRecord, UploadRecords } from './uploads.js';
+export { DevObjectStorage, S3ObjectStorage, OBJECT_STORAGE, objectStorageFromEnv, s3ConfigFromEnv } from './object-storage.js';
+export type { ObjectStoragePort, S3StorageConfig } from './object-storage.js';

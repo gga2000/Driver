@@ -43,7 +43,7 @@ export interface TrackingIdentityPort {
 }
 export interface TrackingMerchantsPort {
   /** Name and pickup pin of a merchant org; null when unknown. */
-  merchant(orgId: string): { name: string; pin: LatLng | null } | null;
+  merchant(orgId: string): Promise<{ name: string; pin: LatLng | null } | null> | { name: string; pin: LatLng | null } | null;
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
 }
 export interface TrackingPointsPort {
@@ -111,7 +111,7 @@ export class TrackingService implements TrackingPort {
     const lostCourier = history.some((l) => l.detachedAt !== null) || trip?.state === 'driver_cancelled';
     const reassigning = !SETTLED_ORDER_STATES.has(order.state) && lostCourier && !working;
 
-    const merchant = agg.order.merchantOrgId ? this.merchants.merchant(agg.order.merchantOrgId) : null;
+    const merchant = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
     const items = await this.items(agg);
     const courier = trip?.courierId && (working || trip.state === 'completed') ? await this.courierCard(trip, actor.personId, now) : null;
 

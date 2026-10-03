@@ -44,9 +44,10 @@ export interface MerchantPeoplePort {
   courierVehicle(courierId: string, vehicleId: string | null): Promise<VehicleClass | null>;
 }
 export interface MerchantStoresPort {
-  get(orgId: string): Org;
-  merchantSettings(orgId: string): MerchantSettings;
-  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): MerchantSettings;
+  /** Throws `org_not_found` for an unknown org. */
+  get(orgId: string): Promise<Org>;
+  merchantSettings(orgId: string): Promise<MerchantSettings>;
+  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): Promise<MerchantSettings>;
 }
 export interface MerchantCatalogPort {
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
@@ -92,7 +93,7 @@ export class MerchantService implements MerchantPort {
     for (const g of grants) {
       let org: Org;
       try {
-        org = this.stores.get(g.orgId!);
+        org = await this.stores.get(g.orgId!);
       } catch {
         continue; // a grant on an org this process doesn't know (deleted, other city): not a store to show
       }
@@ -106,7 +107,7 @@ export class MerchantService implements MerchantPort {
   async board(actor: Actor, input: MerchantOrgInput): Promise<MerchantBoard> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
-    const kitchen = this.stores.merchantSettings(org.id).location?.pin ?? null;
+    const kitchen = (await this.stores.merchantSettings(org.id)).location?.pin ?? null;
     const live = await this.orders.listActive({ merchantOrgId: org.id });
     const itemIds = [...new Set(live.flatMap((o) => o.lines.map((l) => l.catalogItemId)).filter((id): id is string => id !== null))];
     const names = itemIds.length > 0 ? await this.catalog.itemNames(org.id, itemIds) : new Map<string, string>();
@@ -128,11 +129,11 @@ export class MerchantService implements MerchantPort {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
     if (input.open) {
-      this.stores.setMerchantSettings(org.id, { closed: null });
+      await this.stores.setMerchantSettings(org.id, { closed: null });
       await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString() });
     } else {
       const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now };
-      this.stores.setMerchantSettings(org.id, { closed });
+      await this.stores.setMerchantSettings(org.id, { closed });
       await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString() });
     }
     return this.status(org);
@@ -142,17 +143,17 @@ export class MerchantService implements MerchantPort {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
     const busyUntil = busyUntilFor(input.on, now);
-    this.stores.setMerchantSettings(org.id, { busyUntil });
+    await this.stores.setMerchantSettings(org.id, { busyUntil });
     await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null });
     return this.status(org);
   }
 
   async setPrinterStatus(actor: Actor, input: SetPrinterStatusInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
-    const before = this.stores.merchantSettings(org.id).printer ?? null;
+    const before = (await this.stores.merchantSettings(org.id)).printer ?? null;
     const now = this.clock.now();
     const name = input.name?.trim() || before?.name || null;
-    this.stores.setMerchantSettings(org.id, { printer: { state: input.state, name, at: now } });
+    await this.stores.setMerchantSettings(org.id, { printer: { state: input.state, name, at: now } });
     // Only a change is worth an event (the tablet reports on every check).
     if (before?.state !== input.state) await this.events.record('merchant.printer_status', actor.personId, org.id, { state: input.state, name });
     return this.status(org);
@@ -160,9 +161,9 @@ export class MerchantService implements MerchantPort {
 
   // ───────────────────────── internals ─────────────────────────
 
-  private status(org: Org): StoreStatusView {
+  private async status(org: Org): Promise<StoreStatusView> {
     const now = this.clock.now();
-    const s = this.stores.merchantSettings(org.id);
+    const s = await this.stores.merchantSettings(org.id);
     const windows = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, windows, DEFAULT_TIMEZONE);
     return toStoreStatus({
@@ -208,7 +209,7 @@ export class MerchantService implements MerchantPort {
     }
     let org: Org;
     try {
-      org = this.stores.get(merchantOrgId);
+      org = await this.stores.get(merchantOrgId);
     } catch {
       throw new DriverError('org_not_found');
     }

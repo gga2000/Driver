@@ -51,7 +51,7 @@ export const SAVED_PLACES_REPOSITORY = Symbol('SAVED_PLACES_REPOSITORY');
 export const HOUSEHOLD_PEERS = Symbol('HOUSEHOLD_PEERS');
 export interface HouseholdPeers {
   /** Everyone in any household with this person, excluding the person. */
-  peersOf(personId: string): string[];
+  peersOf(personId: string): Promise<string[]> | string[];
 }
 
 export class InMemorySavedPlacesRepository implements SavedPlacesRepository {
@@ -121,7 +121,7 @@ export class SavedPlacesService {
 
   /** Mine first (home, work, then by name), then places household members shared with me. */
   async mine(personId: string): Promise<SavedPlaceView[]> {
-    const peers = this.peers.peersOf(personId);
+    const peers = await this.peers.peersOf(personId);
     const rows = await this.repo.byOwners([personId, ...peers]);
     const visible = rows.filter((r) => r.ownerId === personId || r.shareWithHousehold);
     const order = (r: SavedPlaceRecord) => (r.ownerId === personId ? 0 : 10) + (r.label === 'home' ? 0 : r.label === 'work' ? 1 : 2);

@@ -63,13 +63,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId) },
         orders: { get: (orderId) => orders.get(orderId).catch(() => null) },
         merchants: {
-          name: (orgId) => {
-            try {
-              return orgs.get(orgId).name;
-            } catch {
-              return null;
-            }
-          },
+          name: async (orgId) => (await orgs.find(orgId))?.name ?? null,
         },
         quotes: {
           quote: ({ cityId, vertical, pickupZone, dropoffZone, at }) =>

@@ -20,7 +20,7 @@ Modules also never import the composition root (`app.module.ts`, `bootstrap.ts`)
 
 Why: the spec says "no module imports another module's repository or reads its tables". Keeping a single entry point per module is how that stays true as the codebase grows, and it is what lets a module be extracted into its own service later without touching callers.
 
-Cross-module data flows through the service interface or through domain events, never through shared repositories. The `ledger` module shows the pattern: `LedgerRepository` is an interface, `InMemoryLedgerRepository` and `PrismaLedgerRepository` are implementations, and nobody outside `ledger` knows which one is bound.
+Cross-module data flows through the service interface or through domain events, never through shared repositories. The `ledger` module shows the pattern: `LedgerRepository` is an interface, `InMemoryLedgerRepository` and `PrismaLedgerRepository` are implementations, and nobody outside `ledger` knows which one is bound. Every module picks its implementation by `DATABASE_URL` in its module factory; [persistence.md](persistence.md) lists every store and the few that still live in memory.
 
 ## 2. Event outbox
 

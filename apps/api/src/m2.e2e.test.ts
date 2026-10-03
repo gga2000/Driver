@@ -65,9 +65,8 @@ describe('M2 end to end: food order → dispatch → courier → ledger', () => 
     const { code } = await identity.devLastOtp('07712340001');
     const courierId = (await identity.verifyOtp({ phone: '07712340001', code: code! })).personId;
     await identity.grantRole({ personId: 'system:test' }, { personId: courierId, kind: 'courier' });
-    const rest = orgs.create({ type: 'restaurant', name: 'مطعم التجربة', cityId: 'aziziyah', ownerId: 'owner-1' });
-    orgs.setMerchantSettings(rest.id, { commissionTier: 'featured', location: { zoneKey: 'centre', pin: KITCHEN } });
-    await orgs.settled(); // orgs emits without awaiting; let its outbox drain finish before the order flow
+    const rest = await orgs.create({ type: 'restaurant', name: 'مطعم التجربة', cityId: 'aziziyah', ownerId: 'owner-1' });
+    await orgs.setMerchantSettings(rest.id, { commissionTier: 'featured', location: { zoneKey: 'centre', pin: KITCHEN } });
     // Its menu: orders prices lines from here (review C2), the client sends item ids only.
     const catalog = app.get(CatalogService);
     const kebab = await catalog.addItem({ orgId: rest.id, nameAr: 'كباب', priceIqd: 5000 });

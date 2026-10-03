@@ -232,8 +232,9 @@ export function claimablePending(account: string, events: readonly LedgerEvent[]
 export interface WalletPeople {
   phoneHashOf(personId: string): Promise<string | null>;
 }
+export type WalletHousehold = { id: string; name: string; role: 'payer' | 'orderer' | 'member' };
 export interface WalletHouseholds {
-  householdOf(personId: string): { id: string; name: string; role: 'payer' | 'orderer' | 'member' } | null;
+  householdOf(personId: string): Promise<WalletHousehold | null> | WalletHousehold | null;
 }
 export const WALLET_PEOPLE = Symbol('WALLET_PEOPLE');
 export const WALLET_HOUSEHOLDS = Symbol('WALLET_HOUSEHOLDS');
@@ -264,7 +265,7 @@ export class CustomerWalletService implements WalletPort {
   async balance(actor: Actor): Promise<WalletBalanceView> {
     const id = actor.personId;
     const [money, points, pending] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id)]);
-    const home = this.households.householdOf(id);
+    const home = await this.households.householdOf(id);
     const householdBalance = home ? (await this.ledger.balance(Accounts.household(home.id))).amount : 0;
     return {
       moneyIqd: money.amount,

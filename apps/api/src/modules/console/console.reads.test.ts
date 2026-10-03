@@ -155,7 +155,7 @@ describe('ConsoleReadService', () => {
 
   it('merchants: the city’s merchant orgs with their live cash balance and settlement mode', async () => {
     const w = await world();
-    const kebab = w.orgs.create({ type: 'restaurant', name: 'كباب', cityId: 'aziziyah', ownerId: 'p1' });
+    const kebab = await w.orgs.create({ type: 'restaurant', name: 'كباب', cityId: 'aziziyah', ownerId: 'p1' });
     await w.l.merchantCash.configure(kebab.id, { mode: 'daily_zaincash' });
     await w.l.posting.orderMoney(workedExample({ orderId: 'o1', merchantId: kebab.id }));
     const [m] = await w.reads.merchants('aziziyah');

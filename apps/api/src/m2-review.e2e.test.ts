@@ -60,8 +60,8 @@ describe('M2 review regressions end to end', () => {
 
   async function restaurant(): Promise<{ orgId: string; kebab: string }> {
     const orgs = app.get(OrgsService);
-    const rest = orgs.create({ type: 'restaurant', name: 'مطعم', cityId: 'aziziyah', ownerId: 'owner' });
-    orgs.setMerchantSettings(rest.id, { commissionTier: 'base', location: { zoneKey: 'centre', pin: KITCHEN } });
+    const rest = await orgs.create({ type: 'restaurant', name: 'مطعم', cityId: 'aziziyah', ownerId: 'owner' });
+    await orgs.setMerchantSettings(rest.id, { commissionTier: 'base', location: { zoneKey: 'centre', pin: KITCHEN } });
     await orgs.settled();
     const kebab = await app.get(CatalogService).addItem({ orgId: rest.id, nameAr: 'كباب', priceIqd: 10000 });
     return { orgId: rest.id, kebab: kebab.id };

@@ -34,17 +34,12 @@ export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
 
 /** Production binding over `OrgsService`. */
 export class OrgsMerchantDirectory implements MerchantDirectory {
-  constructor(private readonly orgs: Pick<OrgsService, 'get' | 'merchantSettings' | 'heartbeat'>) {}
+  constructor(private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'>) {}
 
   async profile(orgId: string): Promise<MerchantProfile | null> {
-    let org;
-    try {
-      org = this.orgs.get(orgId);
-    } catch {
-      return null;
-    }
-    if (org.type !== 'restaurant' && org.type !== 'grocer') return null;
-    const s = this.orgs.merchantSettings(orgId);
+    const org = await this.orgs.find(orgId);
+    if (!org || (org.type !== 'restaurant' && org.type !== 'grocer')) return null;
+    const s = org.merchant ?? { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
     return {
       orgId,
       cityId: org.cityId,
@@ -60,7 +55,7 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
   }
 
   async heartbeat(orgId: string, at: Date): Promise<void> {
-    this.orgs.heartbeat(orgId, at);
+    await this.orgs.heartbeat(orgId, at);
   }
 }
 
