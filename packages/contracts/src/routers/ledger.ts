@@ -14,7 +14,11 @@ import { protectedProcedure, router, toTrpcError } from '../trpc.js';
 
 /** Back-office roles that may read any driver's or merchant's book. */
 const BACK_OFFICE: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'support'];
-const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
+/**
+ * Merchant money is the owner's (partner & merchant apps spec: "roles gate money views"; the wave-2
+ * `merchantAdmin.money.*` is owner-only too). Staff run the kitchen, not the cash account.
+ */
+const MERCHANT_MONEY_ROLES: readonly RoleKind[] = ['merchant_owner'];
 
 async function hasAny(ctx: AppContext, personId: string, roles: readonly RoleKind[], orgId?: string): Promise<boolean> {
   for (const kind of roles) {
@@ -35,9 +39,9 @@ async function guarded<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** A merchant's staff (scoped to that org) or back office. */
+/** The merchant's owner (scoped to that org) or back office. */
 async function assertMerchantAccess(ctx: AppContext, personId: string, merchantId: string): Promise<void> {
-  if (await hasAny(ctx, personId, MERCHANT_ROLES, merchantId)) return;
+  if (await hasAny(ctx, personId, MERCHANT_MONEY_ROLES, merchantId)) return;
   if (await hasAny(ctx, personId, BACK_OFFICE)) return;
   throw new DriverError('forbidden');
 }

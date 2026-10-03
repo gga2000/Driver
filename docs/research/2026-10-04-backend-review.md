@@ -18,7 +18,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 |---|---|---|---|
 | 1 | High | ops cash receipts: race, duplicate reference | fixed |
 | 2 | High | fleet.addDriver: any phone → name, earnings, cash, documents | in progress |
-| 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | in progress |
+| 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | fixed |
 | 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | in progress |
 | 5 | Medium | online gate: heartbeat grace never ends | in progress |
 | 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
@@ -57,3 +57,14 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   (`handover_code_locked`, new error code) and emit `ops.handover_code_locked` (ops alert). Counter is per
   process (documented in the method); a shared Redis counter is the follow-up if we run many instances.
 - **Test:** `ops.service.test.ts` › "locks a courier's hand-over code for the local day after 5 wrong codes, even for the right one".
+
+### 3 · High · merchant staff read the owner's cash account (authorization)
+
+- **Where:** `packages/contracts/src/routers/ledger.ts` (`merchantBalance`, `requestSettlement`).
+- **What:** both accepted `merchant_owner` **or `merchant_staff`** of the org. Wave 2 made merchant money
+  owner-only (`merchantAdmin.money.*`, spec "roles gate money views", the Merchant app hides money from
+  staff client-side), but staff could still read the live balance, which couriers hold how much, and fire
+  "اطلب فلوسك" straight through `ledger.*`.
+- **Fix:** the merchant side of `assertMerchantAccess` is `merchant_owner` only (back office unchanged).
+- **Tests:** `packages/contracts/src/routers/ledger.test.ts` › "a merchant staff member cannot read the cash
+  balance or ask for the money"; "the owner can, but only for his own store"; "back office still reads any merchant".
