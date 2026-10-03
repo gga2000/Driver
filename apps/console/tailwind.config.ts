@@ -13,6 +13,8 @@ export default {
         success: color.success,
         warning: color.warning,
         danger: color.danger,
+        // Map "on a job" blue (packages/map MARKER_COLORS.on_job), for chips and markers.
+        info: { 100: '#cfe6f3', 500: '#4e9bc4' },
         // Theme roles: CSS variables defined once in globals.css (brand swap = one file).
         bg: 'var(--color-bg)',
         surface: 'var(--color-surface)',

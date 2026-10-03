@@ -35,6 +35,34 @@ export function fromLocalInputValue(value: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Countdown / elapsed as the guide writes it: `{minutes}:{seconds}` → `0:07`, `2:05`, `61:00`. Null → `—`. */
+export function formatCountdown(totalSec: number | null | undefined): string {
+  if (totalSec === null || totalSec === undefined || !Number.isFinite(totalSec)) return '—';
+  const s = Math.max(0, Math.floor(totalSec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Day and clock in the city zone: `3/10 · 7:05 م` (day/month, Western digits). */
+export function formatDayClock(d: Date, timeZone = 'Asia/Baghdad'): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, day: 'numeric', month: 'numeric' }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')}/${get('month')} · ${formatClock(d, timeZone)}`;
+}
+
+/** Shortens long ids for cards and tables: `cmh3x9…a1b2`. Short ids pass through. */
+export function shortId(id: string, head = 6, tail = 4): string {
+  return id.length <= head + tail + 1 ? id : `${id.slice(0, head)}…${id.slice(-tail)}`;
+}
+
+/** Route params may arrive percent-encoded; a malformed escape returns the raw value. */
+export function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 /** 12-hour clock as the guide formats it (`7:30 م`, `11:05 ص`), in the given IANA zone. */
 export function formatClock(d: Date, timeZone = 'Asia/Baghdad'): string {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hourCycle: 'h12' }).formatToParts(d);

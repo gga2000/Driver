@@ -1,5 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { MapPage } from '@/components/map-page';
 
 export default function Page() {
-  return <ComingSoon sectionKey="console.nav_map" />;
+  return <MapPage />;
 }
