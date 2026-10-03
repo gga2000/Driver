@@ -10,8 +10,16 @@
 //     زيد ناصر     van     واسط 61104  offline, licence expires in 9 days
 //     علي رزاق     —                   offline, no vehicle, insurance expired
 //
+//   Consent (review 2026-10-04 #2): each of them accepted the fleet's invite in his app; one more number
+//   (0770 111 0057) was invited and has not answered ("بانتظار موافقة السايق" on the owner's dashboard).
+//
+//   who=f_invitee  0770 111 0056  حيدر سلمان, tuktuk driver, checked in: سجاد's invite waits for him
+//                  (home banner + the full card on الحساب; accept/decline through fleet.respondInvite)
+//   who=f_mustafa  0770 111 0052  drives with the fleet: الحساب shows "تشتغل ويا أسطول الربيعي"
+//
 //   GET /demo/fleet/info   → { fleetOrgId, ownerId, drivers: {key: personId}, vehicles: [...] }
 //   POST /demo/fleet/live  → refreshes the online drivers' presence (it lives 90 s)
+//   POST /demo/fleet/invite-reset → the invitee's invite is pending again (after an accept/decline)
 import { Buffer } from 'node:buffer';
 
 const DAY = 86_400_000;
@@ -29,7 +37,7 @@ function rng(seed) {
 
 export default async function register(demo) {
   const { services, Accounts, CITY } = demo;
-  const { FleetService } = await demo.load('modules/fleet/index.js');
+  const { FleetService, FLEET_REPOSITORY } = await demo.load('modules/fleet/index.js');
   const { DriverAccountService } = await demo.load('modules/driver-account/index.js');
   const { BLOB_STORE } = await demo.load('modules/places/index.js');
   const fleet = demo.app.get(FleetService);
@@ -37,8 +45,16 @@ export default async function register(demo) {
   const blobs = demo.app.get(BLOB_STORE);
 
   const ownerId = await demo.person({ key: 'fleet', phone: '07701110005', name: 'سجاد الربيعي' });
-  const org = services.orgs.create({ type: 'fleet', name: 'أسطول الربيعي', cityId: CITY, ownerId });
-  await services.identity.grantRole({ personId: 'system:demo' }, { personId: ownerId, kind: 'fleet_owner', orgId: org.id });
+  const org = await services.orgs.create({
+    type: 'fleet',
+    name: 'أسطول الربيعي',
+    cityId: CITY,
+    ownerId,
+  });
+  await services.identity.grantRole(
+    { personId: 'system:demo' },
+    { personId: ownerId, kind: 'fleet_owner', orgId: org.id },
+  );
   const owner = { personId: ownerId, sessionId: 'demo' };
 
   const specs = [
@@ -60,9 +76,21 @@ export default async function register(demo) {
   for (const s of specs) {
     const id = await demo.person({ key: s.key, phone: s.phone, name: s.name, roles: ['driver'], vehicle: s.vehicle, plate: s.plate ?? null });
     await fleet.addDriver(owner, { phone: s.phone });
+    // He said yes in his Partner app: only then does the owner see him (and may give him a vehicle).
+    await fleet.respondInvite(
+      { personId: id, sessionId: 'demo' },
+      { fleetOrgId: org.id, accept: true },
+    );
     drivers[s.key] = id;
     if (vehicles[s.key]) await fleet.assignDriver(owner, { vehicleId: vehicles[s.key].vehicleId, driverId: id });
   }
+
+  // They joined weeks ago (the owner sees earnings only from the day a driver accepted): the in-memory
+  // links are back-dated so the week below shows.
+  const fleetRepo = demo.app.get(FLEET_REPOSITORY);
+  for (const row of fleetRepo.driverRows ?? [])
+    if (row.fleetOrgId === org.id && row.acceptedAt)
+      row.acceptedAt = new Date(Date.now() - 45 * DAY);
 
   // A week of fares (Sunday → now, Baghdad calendar), 10% platform take on each.
   const now = Date.now();
@@ -136,7 +164,56 @@ export default async function register(demo) {
     console.warn(`DEMO fleet: on-job ride skipped (${err?.message ?? err})`);
   }
 
+  // Invites still waiting: a number that never answered (owner's "بانتظار موافقة السايق" row), and حيدر,
+  // a tuktuk driver who sees سجاد's invite in his app.
+  await fleet.addDriver(owner, { phone: '07701110057' });
+  const invitee = await demo.person({
+    key: 'f_invitee',
+    phone: '07701110056',
+    name: 'حيدر سلمان',
+    roles: ['driver'],
+    vehicle: 'tuktuk',
+    plate: 'واسط 40777',
+  });
+  await fleet.addDriver(owner, { phone: '07701110056' });
+  drivers.f_invitee = invitee;
+  try {
+    // Papers and today's selfie, so his home shows the invite rather than the check-in banner.
+    for (const kind of ['national_id_front', 'national_id_back', 'photo'])
+      await doc(invitee, kind, new Date(now + 900 * DAY));
+    const challenge = await accounts.checkInChallenge({ personId: invitee, sessionId: 'demo' });
+    const ticket = await blobs.createUpload({
+      ownerId: invitee,
+      contentType: 'image/jpeg',
+      sizeBytes: JPEG.length,
+    });
+    const url = new URL(ticket.uploadUrl, 'http://local');
+    await blobs.receive({
+      id: ticket.uploadId,
+      exp: url.searchParams.get('exp') ?? undefined,
+      sig: url.searchParams.get('sig') ?? undefined,
+      contentType: 'image/jpeg',
+      bytes: JPEG,
+    });
+    await accounts.submitCheckIn(
+      { personId: invitee, sessionId: 'demo' },
+      { challengeId: challenge.challengeId, uploadId: ticket.uploadId, livenessScore: 0.97 },
+    );
+  } catch (err) {
+    console.warn(`DEMO fleet: invitee check-in skipped (${err?.message ?? err})`);
+  }
+
   demo.fleet = { fleetOrgId: org.id, ownerId, drivers, vehicles };
+  demo.route('/demo/fleet/invite-reset', async ({ res }) => {
+    await fleet
+      .respondInvite(
+        { personId: invitee, sessionId: 'demo' },
+        { fleetOrgId: org.id, accept: false },
+      )
+      .catch(() => undefined);
+    await fleet.addDriver(owner, { phone: '07701110056' });
+    demo.json(res, 200, { ok: true });
+  });
   demo.route('/demo/fleet/live', async ({ res }) => {
     for (const s of specs) if (s.state !== 'offline') await demo.online(drivers[s.key], s.at, s.vehicle);
     demo.json(res, 200, { ok: true });

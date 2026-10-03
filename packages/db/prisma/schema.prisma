@@ -185,6 +185,11 @@ model Org {
   /// Pickup point couriers are sent to: zone key + pin. NULL until the merchant's place is on file.
   locationZoneKey String?   @map("location_zone_key")
   locationPin     Unsupported("geography(Point, 4326)")? @map("location_pin")
+  /// Weekly opening shifts set from the Merchant app: [{dow, start, end}] (end may wrap midnight). NULL = the catalog's seeded hours.
+  openingHours    Json?     @map("opening_hours")
+  /// Dated closures (Eid, a family event): [{from, to, note}] as local dates, both included. NULL = none.
+  holidayClosures Json?     @map("holiday_closures")
+  hoursUpdatedAt  DateTime? @map("hours_updated_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

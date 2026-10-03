@@ -1,4 +1,9 @@
-import type { CommissionTier, DeliveryPoint } from '@driver/contracts';
+import type {
+  CommissionTier,
+  DeliveryPoint,
+  HolidayClosure,
+  WeeklyWindow,
+} from '@driver/contracts';
 
 export type OrgType = 'restaurant' | 'grocer' | 'fleet' | 'household';
 export type OrgMemberRole = 'payer' | 'orderer' | 'member';
@@ -47,6 +52,11 @@ export interface MerchantSettings {
   closed?: { reason: string; note: string | null; at: Date } | null;
   /** The store's receipt printer as its tablet last reported it (printer-offline marker). */
   printer?: { state: 'connected' | 'disconnected'; name: string | null; at: Date } | null;
+  /** Weekly opening shifts set from the Merchant app; null = the catalog's seeded hours. */
+  openingHours?: WeeklyWindow[] | null;
+  /** Dated closures (local dates, both included); null = none. */
+  holidays?: HolidayClosure[] | null;
+  hoursUpdatedAt?: Date | null;
 }
 
 export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
@@ -59,6 +69,9 @@ export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
   busyUntil: null,
   closed: null,
   printer: null,
+  openingHours: null,
+  holidays: null,
+  hoursUpdatedAt: null,
 };
 
 /** A restaurant or grocer as the Console's merchant picker lists it. */

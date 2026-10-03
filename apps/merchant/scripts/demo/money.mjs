@@ -85,7 +85,8 @@ export default async function register(ctx) {
   const DISPUTES = [
     { order: near(3.5, 'tikka_wrap'), kind: 'missing_item', note: 'طلبنا لفات تكة ووحدة ناقصة', openedAgo: 3 * HOUR },
     { order: near(41, 'tikka_plate'), kind: 'cold_or_late', note: 'الأكل وصل بارد والتكة يابسة', openedAgo: 40 * HOUR },
-    { order: near(55, 'kebab_plate'), kind: 'wrong_item', note: 'طلبت وجبة تكة وجاني كباب', openedAgo: 52 * HOUR, contest: 'الطلب بالتطبيق وجبة كباب، والكيس انطبع عليه صح. الصورة قبل ما نسلّمه للدليفري' },
+    // Answered inside its 48-h window (an answer after it is refused).
+    { order: near(31, 'kebab_plate'), kind: 'wrong_item', note: 'طلبت وجبة تكة وجاني كباب', openedAgo: 30 * HOUR, contest: 'الطلب بالتطبيق وجبة كباب، والكيس انطبع عليه صح. الصورة قبل ما نسلّمه للدليفري' },
     { order: near(150, 'lentil_soup'), kind: 'missing_item', note: 'الشوربة ما جت', openedAgo: 6 * 24 * HOUR, accept: true },
   ];
   const used = new Set();
@@ -101,7 +102,8 @@ export default async function register(ctx) {
       await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/png', bytes });
       await admin.moneyRespondDispute(owner, { merchantOrgId: khalid.orgId, orderId: d.order.id, decision: 'contest', note: d.contest, evidenceUploadIds: [ticket.uploadId] });
     }
-    if (d.accept) await admin.moneyRespondDispute(owner, { merchantOrgId: khalid.orgId, orderId: d.order.id, decision: 'accept_default', evidenceUploadIds: [] });
+    // Past its 48-h window the API refuses an answer (review #19): the default outcome simply stands.
+    if (d.accept) await admin.moneyRespondDispute(owner, { merchantOrgId: khalid.orgId, orderId: d.order.id, decision: 'accept_default', evidenceUploadIds: [] }).catch(() => undefined);
   }
 
   // ── "اطلب فلوسك" hooks ──

@@ -214,3 +214,156 @@ describe('busy mode and early close reach orders and the customer card', () => {
     expect(await front.profile(khalid.id, 'aziziyah', new Date(h.clock.now().getTime() + 61 * MIN))).toMatchObject({ busy: false });
   });
 });
+
+describe('MerchantService — opening hours', () => {
+  /** Lunch 12:00–15:30 and dinner 18:00–01:00; Friday dinner only. */
+  const split = () =>
+    Array.from({ length: 7 }, (_, dow) => ({
+      dow,
+      shifts:
+        dow === 5
+          ? [{ start: '18:00', end: '01:00' }]
+          : [
+              { start: '12:00', end: '15:30' },
+              { start: '18:00', end: '01:00' },
+            ],
+    }));
+
+  async function withCatalog() {
+    const base = await setup();
+    const fronts = new Map<string, Array<{ dow: number; start: string; end: string }>>([
+      [
+        base.khalid.id,
+        Array.from({ length: 7 }, (_, dow) => ({ dow, start: '11:00', end: '00:30' })),
+      ],
+    ]);
+    const catalog = {
+      itemNames: async () => new Map<string, string>(),
+      storefrontHours: async (orgId: string) => fronts.get(orgId) ?? null,
+      mirrorHours: async (
+        orgId: string,
+        w: ReadonlyArray<{ dow: number; start: string; end: string }>,
+      ) => {
+        if (fronts.has(orgId)) fronts.set(orgId, [...w]);
+      },
+    };
+    const people: MerchantPeoplePort = {
+      grants: async () => [],
+      hasRole: async (personId, kind, orgId) =>
+        (personId === 'o1' && kind === 'merchant_owner') ||
+        (personId === 's1' && kind === 'merchant_staff' && orgId === base.khalid.id),
+      courierFirstName: async () => null,
+      courierVehicle: async () => null,
+    };
+    const events: MerchantEventsPort = {
+      record: async (type, _a, _o, payload) => {
+        base.recorded.push({ type, payload });
+      },
+    };
+    const svc = new MerchantService(
+      base.h.orders,
+      base.h.trips,
+      people,
+      base.orgs,
+      catalog,
+      events,
+      base.h.clock,
+    );
+    return { ...base, svc, fronts };
+  }
+
+  it('reads the seeded storefront hours and the Friday-prayer pause; staff read, only the owner edits', async () => {
+    const { h, svc, staff, owner, khalid } = await withCatalog();
+    h.clock.set('2026-10-04T10:00:00Z'); // Sunday 13:00 Baghdad
+    const view = await svc.hours(staff, { merchantOrgId: khalid.id });
+    expect(view).toMatchObject({
+      source: 'catalog',
+      canEdit: false,
+      today: '2026-10-04',
+      state: { open: true, reason: null, closesAt: '00:30' },
+    });
+    expect(view.days).toHaveLength(7);
+    expect(view.pauses).toEqual([{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }]);
+    expect(
+      await code(svc.setHours(staff, { merchantOrgId: khalid.id, days: split(), holidays: [] })),
+    ).toBe('forbidden');
+    expect((await svc.hours(owner, { merchantOrgId: khalid.id })).canEdit).toBe(true);
+  });
+
+  it('saves split shifts and a holiday: persisted on the store, mirrored to the storefront, recorded', async () => {
+    const { h, svc, owner, khalid, orgs, fronts, recorded } = await withCatalog();
+    h.clock.set('2026-10-04T13:00:00Z'); // Sunday 16:00: between lunch and dinner
+    const saved = await svc.setHours(owner, {
+      merchantOrgId: khalid.id,
+      days: split(),
+      holidays: [
+        { from: '2026-10-20', to: '2026-10-22', note: ' عيد ' },
+        { from: '2026-09-01', to: '2026-09-02', note: 'old' }, // already past: dropped
+      ],
+    });
+    expect(saved).toMatchObject({
+      source: 'store',
+      state: { open: false, reason: 'hours', opensAt: { date: '2026-10-04', time: '18:00' } },
+      holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
+    });
+    expect(saved.days[0]!.shifts).toEqual([
+      { start: '12:00', end: '15:30' },
+      { start: '18:00', end: '01:00' },
+    ]);
+    expect((await orgs.merchantSettings(khalid.id)).openingHours).toHaveLength(13);
+    expect(fronts.get(khalid.id)).toHaveLength(13);
+    expect(recorded.find((r) => r.type === 'merchant.hours_set')?.payload).toMatchObject({
+      shifts: 13,
+      openDays: 7,
+    });
+    // The status header explains it: outside the schedule, opens at 18:00.
+    expect((await svc.storeStatus(owner, { merchantOrgId: khalid.id })).schedule).toMatchObject({
+      inHours: false,
+      opensAt: { time: '18:00' },
+    });
+  });
+
+  it('refuses overlapping shifts and an all-closed week (store_hours_invalid)', async () => {
+    const { svc, owner, khalid } = await withCatalog();
+    const bad = split();
+    bad[1]!.shifts = [
+      { start: '12:00', end: '16:00' },
+      { start: '15:00', end: '20:00' },
+    ];
+    expect(
+      await code(svc.setHours(owner, { merchantOrgId: khalid.id, days: bad, holidays: [] })),
+    ).toBe('store_hours_invalid');
+    expect(
+      await code(
+        svc.setHours(owner, {
+          merchantOrgId: khalid.id,
+          days: split().map((d) => ({ ...d, shifts: [] })),
+          holidays: [],
+        }),
+      ),
+    ).toBe('store_hours_invalid');
+  });
+
+  it('a holiday closes the store for orders and shows on the customer card as closed by hours', async () => {
+    const { h, svc, owner, khalid, orgs } = await withCatalog();
+    h.clock.set('2026-10-20T10:00:00Z');
+    await svc.setHours(owner, {
+      merchantOrgId: khalid.id,
+      days: split(),
+      holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
+    });
+    const view = await svc.hours(owner, { merchantOrgId: khalid.id });
+    expect(view.state).toMatchObject({
+      open: false,
+      reason: 'holiday',
+      opensAt: { date: '2026-10-23', time: '18:00' },
+    }); // Friday: dinner only
+    const directory = new OrgsMerchantDirectory(orgs, () => h.clock.now());
+    expect(await directory.profile(khalid.id)).toMatchObject({ closed: true, holiday: true });
+    expect(
+      await new OrdersStorefrontMerchants(directory).profile(khalid.id, 'aziziyah', h.clock.now()),
+    ).toMatchObject({ closed: true, holiday: true });
+    h.clock.set('2026-10-23T10:00:00Z');
+    expect(await directory.profile(khalid.id)).toMatchObject({ closed: false });
+  });
+});

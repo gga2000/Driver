@@ -76,12 +76,14 @@ Role: `fleet_owner` scoped to the fleet org. `fleetOrgId` may be omitted when th
 | `assignDriver` | mutation | `{fleetOrgId?, vehicleId, driverId \| null}` | `FleetVehicle` (a driver leaves his other vehicle) |
 | `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass, seats? (0–14; default by class: bike 0, tuktuk 3, car 4, suv 6, van 7)}` | `FleetVehicle` (seats stored as the vehicle's seat map) |
 | `addDriver` | mutation | `{fleetOrgId?, phone}` | `FleetDriver` with `pending: true` (person found or created by phone; the driving role still comes from ops review) |
-| `myInvites` | query | — (driving roles) | `[{fleetOrgId, invitedAt, invitedByName (owner's first name), accepted}]` — the driver's own fleet links |
+| `myInvites` | query | — (driving roles) | `[{fleetOrgId, invitedAt, invitedByName (owner's first name), fleetName (additive), accepted}]` — the driver's own fleet links |
 | `respondInvite` | mutation | `{fleetOrgId, accept}` (driving roles) | his links after: `accept` joins, `false` declines or leaves (his vehicle there is unassigned) |
 
 **Consent (review 2026-10-04):** a link is pending until the driver accepts it. A pending row is the bare
 `driverId` with `pending: true` — no name, phone, money, documents or live state, no vault read — and it
-cannot be assigned a vehicle or read through `driverEarnings` (`driver_not_in_fleet`). Once accepted,
+cannot be assigned a vehicle or read through `driverEarnings` (`driver_not_in_fleet`). Additive (follow-ups 2026-10-04): a pending row
+carries `phoneHint` ("0770 ••• 4567", the number the owner typed, kept on his own `fleet.driver_added` event — still no vault
+read) and `invitedAt`; the Partner app shows them under "بانتظار موافقة السايق" and the driver's invite card on home / الحساب. Once accepted,
 earnings shown to the owner start at the moment he joined. Names are vault reads logged with purpose
 `fleet_view`. Errors: `fleet_not_found` (also: no such link for `respondInvite`), `fleet_ambiguous`,
 `vehicle_not_found`, `vehicle_plate_taken`, `driver_not_in_fleet`.
@@ -137,7 +139,8 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deal
 | `staff.list` | query | `{merchantOrgId}` | `[{personId, name, phoneMasked, role, you}]` (vault reads logged, purpose `merchant_staff_view`) |
 | `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` (grants the role scoped to the org) |
 | `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` |
-| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` |
+| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` (also cancels a waiting invite) |
+| `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he signed in |
 
 Additive fields (Merchant app wave 2): statement lines carry `commissionPct`, `discountIqd`, `discountFunder`
 (platform promos today: they don't lower the merchant's net); disputes carry `respondBy` (opened + 48 h, then
@@ -147,9 +150,27 @@ the default outcome stands), `evidence.photos` and `response.photoUrls` (signed)
 for `merchant_staff`, `bestSellers[].salesIqd` is null and the list is ranked by quantity; prep honesty,
 rejections, ratings and peaks are unchanged); staff rows carry
 `pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup). `merchant.paid_by_courier` events carry `confirmedBy`.
+`orders`, and a rated order's food score goes to its main dish (largest line) only; staff rows carry
+`pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup), and pending rows carry `phoneHint` ("0780 ••• 3344"), `invitedAt`, `inviteSentAt`, `resendAfter` (follow-ups 2026-10-04). `merchant.paid_by_courier` events carry `confirmedBy`.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
-`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `upload_invalid`.
+`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `upload_invalid`.
+
+## `merchant.hours` / `merchant.setHours` — opening hours (follow-ups 2026-10-04)
+
+| Procedure | Roles | Input | Output |
+|---|---|---|---|
+| `merchant.hours` | owner or staff of the store | `{merchantOrgId}` | `StoreHoursView {source: store\|catalog\|none, days[7] {dow, shifts[] {start, end}}, holidays[] {from, to, note}, pauses[] {dow, start, end, reason}, now, today, state {open, reason: hours\|holiday\|pause\|closed\|null, closesAt, opensAt {date, dow, time}}, canEdit, updatedAt}` |
+| `merchant.setHours` | owner (staff `FORBIDDEN`) | `{merchantOrgId, days[7], holidays[] ≤ 20}` | `StoreHoursView` |
+
+Rules (`@driver/contracts` `store-hours.ts`, shared with the app): local "HH:MM" (Baghdad); up to 3 shifts a day; an end not after its
+start runs past midnight; shifts ≥ 30 min and never overlapping (across midnight and Saturday → Sunday too); at least one open day
+(closing every day is the early-close switch); closures in order and ≤ 31 days; past closures are dropped. Error `store_hours_invalid`.
+Stored on `orgs.opening_hours` / `holiday_closures` / `hours_updated_at` (migration `20261004200000_merchant_opening_hours`; NULL =
+the catalog's seeded hours) and mirrored onto the storefront's `hours`, which the customer card's open/closed reads. A holiday makes
+`MerchantProfile.closed` (and additive `holiday`) true for the day, so `orders.place` refuses like an early close and the card reads
+closed by hours. `merchant.storeStatus` carries an additive `schedule {inHours, holiday, closesAt, opensAt}`; `open` keeps its meaning
+(switch + pause), the board explains "برّا وقت الدوام" separately. Event `merchant.hours_set`.
 
 ## Persistence
 

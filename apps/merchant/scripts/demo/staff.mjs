@@ -28,10 +28,19 @@ export default async function register(ctx) {
   const ids = [];
   async function seed() {
     for (const m of TEAM) {
-      const id = m.verify ? await signIn(m.phone) : await identity.ensurePersonByPhone(m.phone, 'system:demo', 'demo');
-      if (m.name) await identity.updateProfile({ personId: id, sessionId: 'demo' }, { name: m.name });
-      for (const kind of ['merchant_owner', 'merchant_staff']) await identity.revokeRole(SYSTEM, { personId: id, kind, orgId: khalid.orgId }).catch(() => undefined);
+      const id = await identity.ensurePersonByPhone(m.phone, 'system:demo', 'demo');
+      if (m.name)
+        await identity.updateProfile({ personId: id, sessionId: 'demo' }, { name: m.name });
+      for (const kind of ['merchant_owner', 'merchant_staff'])
+        await identity
+          .revokeRole(SYSTEM, { personId: id, kind, orgId: khalid.orgId })
+          .catch(() => undefined);
       await identity.grantRole(SYSTEM, { personId: id, kind: m.role, orgId: khalid.orgId });
+      // Signed in after the role was given: a member, not a waiting invite (review 2026-10-04 #6).
+      if (m.verify) {
+        await new Promise((r) => setTimeout(r, 5));
+        await signIn(m.phone);
+      }
       ids.push(id);
     }
   }

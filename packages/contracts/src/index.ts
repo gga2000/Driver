@@ -31,6 +31,7 @@ export * from './ops-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';
 export * from './merchant-io.js';
+export * from './store-hours.js';
 export * from './topup-io.js';
 export * from './chat-io.js';
 export * from './share-io.js';

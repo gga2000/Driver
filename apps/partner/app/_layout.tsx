@@ -101,6 +101,7 @@ function RootNavigator() {
         <Stack.Screen name="khat/index" options={{ title: t('partner.hub_khat') }} />
         <Stack.Screen name="fleet/index" options={{ title: t('partner.hub_fleet') }} />
         <Stack.Screen name="ops/index" options={{ title: t('partner.hub_ops') }} />
+        <Stack.Screen name="job-topup" options={{ title: t('partner.job_topup_title') }} />
       </Stack>
       {status === 'signedIn' && gate === 'allowed' ? <OfferWatcher /> : null}
       {ready ? null : <Splash />}

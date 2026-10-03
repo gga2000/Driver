@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MerchantBoard, MerchantOrgInput, MerchantStore, SetBusyInput, SetPrinterStatusInput, SetStoreOpenInput, StoreStatusView } from '../merchant-io.js';
+import { MerchantBoard, MerchantOrgInput, MerchantStore, SetBusyInput, SetPrinterStatusInput, SetStoreHoursInput, SetStoreOpenInput, StoreHoursView, StoreStatusView } from '../merchant-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { MERCHANT_ROLES } from './orders.js';
 
@@ -22,4 +22,8 @@ export const merchantRouter = router({
     .input(SetPrinterStatusInput)
     .output(StoreStatusView)
     .mutation(({ ctx, input }) => ctx.merchant.setPrinterStatus(ctx.actor, input)),
+  /** Weekly schedule (split shifts), holiday closures and the Friday-prayer pause; open or closed now. */
+  hours: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(StoreHoursView).query(({ ctx, input }) => ctx.merchant.hours(ctx.actor, input)),
+  /** Owner only: replaces the schedule and closures; customers' cards and `orders.place` follow it. */
+  setHours: protectedProcedure(MERCHANT_ROLES).input(SetStoreHoursInput).output(StoreHoursView).mutation(({ ctx, input }) => ctx.merchant.setHours(ctx.actor, input)),
 });

@@ -21,3 +21,15 @@ export function isLastOwner(list: readonly StaffMember[], personId: string): boo
 export function roleKey(role: MerchantStaffRole): 'merchant.staff.role_owner' | 'merchant.staff.role_staff' {
   return role === 'merchant_owner' ? 'merchant.staff.role_owner' : 'merchant.staff.role_staff';
 }
+
+/** "0770 ••• 4567" (the number the owner typed), else the vault mask; LTR-isolated inside Arabic. */
+export function invitePhone(s: Pick<StaffMember, 'phoneHint' | 'phoneMasked'>): string | null {
+  const p = s.phoneHint ?? s.phoneMasked;
+  return p ? `\u2066${p}\u2069` : null;
+}
+
+/** Whole minutes until a resend is allowed (0 = now). */
+export function resendWaitMinutes(s: Pick<StaffMember, 'resendAfter'>, now: number): number {
+  if (!s.resendAfter) return 0;
+  return Math.max(0, Math.ceil((s.resendAfter.getTime() - now) / 60_000));
+}

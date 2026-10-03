@@ -45,6 +45,8 @@ export interface StorefrontMerchants {
     busy?: boolean;
     /** Closed by hand from the Merchant app (early close). */
     closed?: boolean;
+    /** One of the store's holiday closures (Merchant app hours): closed for the day, shown as hours. */
+    holiday?: boolean;
   }>;
   /** Live merchant deals as badges (bound by orders over the promotions module); none when absent. */
   deals?(orgId: string, at: Date): Promise<DealBadge[]>;
@@ -108,12 +110,16 @@ export class CatalogRpc implements CustomerCatalogPort {
   }
 
   private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {
-    const { location, pauseWindows: pauses, busy: merchantBusy, closed } = await this.merchants.profile(s.orgId, s.cityId, now);
+    const { location, pauseWindows: pauses, busy: merchantBusy, closed, holiday } = await this.merchants.profile(s.orgId, s.cityId, now);
     const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = location && dropoff ? etaRange(prep, rideMinutes(location, dropoff)) : null;
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
-    const state = closed ? { open: false, closedReason: 'paused' as const, opensAt: null } : openState(now, s.hours, pauses, this.merchants.timeZone);
+    const state = holiday
+      ? { open: false, closedReason: 'hours' as const, opensAt: null }
+      : closed
+        ? { open: false, closedReason: 'paused' as const, opensAt: null }
+        : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,
       cityId: s.cityId,

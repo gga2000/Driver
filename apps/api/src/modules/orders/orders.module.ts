@@ -51,7 +51,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_CASH_RISK, useExisting: CapsService },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
     { provide: ORDERS_CATALOG, useExisting: CatalogService },
-    { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService) => new OrgsMerchantDirectory(orgs), inject: [OrgsService] },
+    { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService, clock: Clock) => new OrgsMerchantDirectory(orgs, () => clock.now()), inject: [OrgsService, CLOCK] },
     {
       provide: PARTICIPANT_RESOLVER,
       useFactory: (identity: IdentityService): ParticipantResolver => ({ resolvePhone: (phone) => identity.phoneRef(phone) }),

@@ -2,8 +2,14 @@ import { router, Stack } from 'expo-router';
 import { RefreshControl, View } from 'react-native';
 import { Button, Card, EmptyState, Icon, Skeleton, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { DriverRow, EarningsHero, SectionHeader, StatTile } from '@/features/fleet/FleetParts';
-import { DOC_KEY, docAlertKey, localDateKey, sortDrivers } from '@/features/fleet/logic';
+import {
+  DriverRow,
+  EarningsHero,
+  PendingDriverRow,
+  SectionHeader,
+  StatTile,
+} from '@/features/fleet/FleetParts';
+import { DOC_KEY, docAlertKey, localDateKey, splitFleetDrivers } from '@/features/fleet/logic';
 import { useFleetOverview } from '@/features/fleet/queries';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -56,7 +62,8 @@ export default function FleetOverview() {
 
   const byId = new Map(o.vehicles.map((v) => [v.vehicleId, v]));
   const nameOf = new Map(o.drivers.map((d) => [d.driverId, d.name ?? '']));
-  const drivers = sortDrivers(o.drivers);
+  // Invites still waiting for the driver's yes are listed apart: no name, money or state yet.
+  const { active: drivers, pending } = splitFleetDrivers(o.drivers);
   const empty = o.vehicles.length === 0 && o.drivers.length === 0;
 
   return (
@@ -65,9 +72,24 @@ export default function FleetOverview() {
       <EarningsHero todayIqd={o.totals.todayEarningsIqd} weekIqd={o.totals.weekEarningsIqd} days={o.days} today={localDateKey(new Date())} />
 
       <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
-        <StatTile testID="fleet-stat-online" icon="user" value={t('partner.fleet_online_of', { online: o.totals.online, total: o.totals.drivers })} label={t('partner.fleet_stat_online')} tone={o.totals.online > 0 ? 'successText' : 'text'} />
-        <StatTile icon="car" value={String(o.totals.vehicles)} label={t('partner.fleet_stat_vehicles')} />
-        <StatTile icon="wallet" value={amountParam(o.totals.owedIqd)} label={t('partner.fleet_stat_owed')} tone={o.totals.owedIqd > 0 ? 'warningText' : 'text'} />
+        <StatTile
+          testID="fleet-stat-online"
+          icon="user"
+          value={t('partner.fleet_online_of', { online: o.totals.online, total: drivers.length })}
+          label={t('partner.fleet_stat_online')}
+          tone={o.totals.online > 0 ? 'successText' : 'text'}
+        />
+        <StatTile
+          icon="car"
+          value={String(o.totals.vehicles)}
+          label={t('partner.fleet_stat_vehicles')}
+        />
+        <StatTile
+          icon="wallet"
+          value={amountParam(o.totals.owedIqd)}
+          label={t('partner.fleet_stat_owed')}
+          tone={o.totals.owedIqd > 0 ? 'warningText' : 'text'}
+        />
       </View>
 
       <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
@@ -107,7 +129,7 @@ export default function FleetOverview() {
       ) : (
         <View style={{ gap: theme.space[2] }}>
           <SectionHeader
-            title={`${t('partner.fleet_drivers_title')} · ${o.drivers.length}`}
+            title={`${t('partner.fleet_drivers_title')} · ${drivers.length}`}
             action={
               o.totals.onJob > 0 ? (
                 <Text variant="caption" color="infoText" tabular>
@@ -138,6 +160,26 @@ export default function FleetOverview() {
               })}
             </Card>
           )}
+          {pending.length > 0 ? (
+            <View
+              style={{ gap: theme.space[2], paddingTop: theme.space[2] }}
+              testID="fleet-pending"
+            >
+              <SectionHeader title={`${t('partner.fleet_pending_title')} · ${pending.length}`} />
+              <Card elevation={0} padding={0} tone="sunken">
+                {pending.map((d, i) => (
+                  <PendingDriverRow key={d.driverId} driver={d} divider={i < pending.length - 1} />
+                ))}
+              </Card>
+              <Text
+                variant="footnote"
+                color="textMuted"
+                style={{ paddingHorizontal: theme.space[1] }}
+              >
+                {t('partner.fleet_pending_hint')}
+              </Text>
+            </View>
+          ) : null}
         </View>
       )}
     </Screen>

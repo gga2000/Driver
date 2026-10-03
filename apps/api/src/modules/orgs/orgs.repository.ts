@@ -1,5 +1,5 @@
 import { Prisma } from '@driver/db';
-import type { CommissionTier } from '@driver/contracts';
+import type { CommissionTier, HolidayClosure, WeeklyWindow } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import {
@@ -139,6 +139,9 @@ interface OrgRow {
   defaultPrepMin: number | null;
   commissionTier: string | null;
   locationZoneKey: string | null;
+  openingHours?: unknown;
+  holidayClosures?: unknown;
+  hoursUpdatedAt?: Date | null;
   members: Array<{ personId: string; role: string; spendingLimitIqd: number | null }>;
 }
 
@@ -149,6 +152,24 @@ function pauseWindowsFrom(v: unknown): MerchantPauseWindow[] | null {
   return v
     .filter((w): w is Record<string, unknown> => !!w && typeof w === 'object')
     .map((w) => ({ dow: Number(w['dow']), start: String(w['start']), end: String(w['end']), ...(typeof w['reason'] === 'string' ? { reason: w['reason'] } : {}) }));
+}
+
+function openingHoursFrom(v: unknown): WeeklyWindow[] | null {
+  if (!Array.isArray(v)) return null;
+  return v
+    .filter((w): w is Record<string, unknown> => !!w && typeof w === 'object')
+    .map((w) => ({ dow: Number(w['dow']), start: String(w['start']), end: String(w['end']) }));
+}
+
+function holidaysFrom(v: unknown): HolidayClosure[] | null {
+  if (!Array.isArray(v)) return null;
+  return v
+    .filter((h): h is Record<string, unknown> => !!h && typeof h === 'object')
+    .map((h) => ({
+      from: String(h['from']),
+      to: String(h['to']),
+      note: typeof h['note'] === 'string' ? h['note'] : null,
+    }));
 }
 
 function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
@@ -171,6 +192,9 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
       busyUntil: r.busyUntil,
       closed: r.closedAt ? { reason: r.closedReason ?? '', note: r.closedNote, at: r.closedAt } : null,
       printer: r.printerState && r.printerAt ? { state: r.printerState === 'connected' ? 'connected' : 'disconnected', name: r.printerName, at: r.printerAt } : null,
+      openingHours: openingHoursFrom(r.openingHours),
+      holidays: holidaysFrom(r.holidayClosures),
+      hoursUpdatedAt: r.hoursUpdatedAt ?? null,
     };
   }
   return org;
@@ -258,6 +282,17 @@ export class PrismaOrgsRepository implements OrgsRepository {
     if (patch.closed !== undefined) Object.assign(data, { closedAt: patch.closed?.at ?? null, closedReason: patch.closed?.reason ?? null, closedNote: patch.closed?.note ?? null });
     if (patch.printer !== undefined) Object.assign(data, { printerState: patch.printer?.state ?? null, printerName: patch.printer?.name ?? null, printerAt: patch.printer?.at ?? null });
     if (patch.location !== undefined) data.locationZoneKey = patch.location?.zoneKey ?? null;
+    if (patch.openingHours !== undefined)
+      data.openingHours =
+        patch.openingHours === null
+          ? Prisma.DbNull
+          : (patch.openingHours as unknown as Prisma.InputJsonValue);
+    if (patch.holidays !== undefined)
+      data.holidayClosures =
+        patch.holidays === null
+          ? Prisma.DbNull
+          : (patch.holidays as unknown as Prisma.InputJsonValue);
+    if (patch.hoursUpdatedAt !== undefined) data.hoursUpdatedAt = patch.hoursUpdatedAt;
     await db.org.update({ where: { id: orgId }, data });
     if (patch.location !== undefined) {
       const pin = patch.location?.pin;

@@ -15,7 +15,7 @@ app/
   menu/index         المنيو        ← wave 2 (placeholder now)
   money/index        الفلوس        ← wave 2 (placeholder now; owners only)
   insights           الإحصائيات    ← wave 2 (placeholder now)
-  more               المزيد: staff, deals, printer, hours, settings, switch store, sign out
+  more               المزيد: staff, deals, printer, hours (open/close, busy, weekly hours, holidays), settings, switch store, sign out
   deals/index        العروض        ← wave 2 (placeholder now)
   staff/index        الموظفين      ← wave 2 (placeholder now; owners only)
   printer, hours, settings
@@ -61,6 +61,17 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   `/money` or `/staff` see `OwnerOnly`. Demo: `scripts/demo/{insights,money,staff}.mjs` share five weeks of
   مطعم خالد history (`scripts/demo/lib/khalid-history.mjs`); `/demo/money/request` + `/demo/money/handover`
   (PIN 4821) walk "اطلب فلوسك" to the hand-over, `/demo/staff/reset` restores the team.
+
+## Opening hours and staff invites (follow-ups 2026-10-04)
+
+- **الدوام** (`app/hours.tsx`, `src/features/hours/`): besides open/close and busy mode, the weekly schedule from `merchant.hours` —
+  per day open/closed, up to three shifts (tap a shift: start/end hour grid in kitchen order and minutes; "نفس الأوقات لكل الأيام"),
+  shifts past midnight, the Friday-prayer pause under Friday, holiday closures (two-month calendar, range + reason). Owners edit and
+  save (`merchant.setHours`; problems shown before saving), staff read. The board shows "برّا وقت الدوام … يفتح …" / the holiday
+  from `storeStatus.schedule`. Demo `POST /demo/hours/reset` (`scripts/demo/hours.mjs`).
+- **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
+  out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
+- Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).
 
 ## Copy
 

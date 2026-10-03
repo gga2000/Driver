@@ -3,6 +3,9 @@ import { View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
 import { Avatar, Button, Card, ListRow, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
+import { splitInvites } from '@/features/fleet/logic';
+import { useFleetInvites } from '@/features/fleet/queries';
 import { useMe, useStatus } from '@/features/work/queries';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -31,6 +34,7 @@ export default function Account() {
   const client = useApiClient();
   const modes = s?.modes ?? [];
   const tier = s?.tier ?? 'bronze';
+  const invites = splitInvites(useFleetInvites(s?.canDrive ?? false).data ?? []);
 
   const work: HubRow[] = [
     { key: 'checkin', icon: 'shield', title: t('partner.hub_checkin'), subtitle: t('partner.hub_checkin_sub'), href: '/checkin' },
@@ -68,6 +72,13 @@ export default function Account() {
           <StatusPill label={t(`partner.tier_${tier}`)} tone={tier === 'gold' ? 'accent' : tier === 'silver' ? 'info' : 'neutral'} icon="star" size="sm" />
         </View>
       </Card>
+
+      {invites.pending.map((i) => (
+        <FleetInviteCard key={i.fleetOrgId} invite={i} />
+      ))}
+      {invites.member.map((i) => (
+        <FleetMemberCard key={i.fleetOrgId} invite={i} />
+      ))}
 
       <Section title={t('partner.hub_work')} rows={work} />
       {more.length > 0 ? <Section title={t('partner.hub_more')} rows={more} /> : null}

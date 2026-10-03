@@ -74,6 +74,8 @@ export const ERROR_TABLE = {
   dispute_response_closed: { message_ar: 'انتهت مهلة الرد على الشكوى (48 ساعة) والنتيجة الافتراضية ثبتت', message_en: 'The 48-hour window to answer this dispute has closed', retryHint: 'never', status: 'CONFLICT' },
   dispute_not_found: { message_ar: 'ما لگينا الشكوى', message_en: 'Dispute not found', retryHint: 'never', status: 'NOT_FOUND' },
   staff_last_owner: { message_ar: 'لازم يبقى صاحب واحد على الأقل', message_en: 'A merchant needs at least one owner', retryHint: 'never', status: 'CONFLICT' },
+  staff_invite_not_pending: { message_ar: 'هذا الموظف دخل للتطبيق، ما يحتاج دعوة', message_en: 'This person already signed in; no invite to resend', retryHint: 'never', status: 'CONFLICT' },
+  store_hours_invalid: { message_ar: 'أوقات الدوام مو صحيحة. شوف الفترات المتداخلة أو الفاضية', message_en: 'Invalid opening hours (overlapping or empty shifts)', retryHint: 'never', status: 'BAD_REQUEST' },
 
   // identity
   phone_invalid: { i18n: 'error.phone_invalid', message_ar: 'الرقم مو صحيح', message_en: 'Invalid phone number', retryHint: 'never', status: 'BAD_REQUEST' },

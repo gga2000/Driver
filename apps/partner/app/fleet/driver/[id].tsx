@@ -25,15 +25,24 @@ export default function FleetDriverDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [period, setPeriod] = useState<EarningsPeriod>('week');
   const o = useFleetOverview().data;
-  const e = useDriverEarnings(id ?? '', period);
   const d = o?.drivers.find((x) => x.driverId === id);
+  // A pending invite has no earnings to read (driver_not_in_fleet) until the driver accepts.
+  const e = useDriverEarnings(d && !d.pending ? (id ?? '') : '', period);
   const v = d?.vehicleId ? o?.vehicles.find((x) => x.vehicleId === d.vehicleId) : undefined;
   const title = d?.name ?? t('partner.hub_fleet');
 
   return (
     <Screen edges={['bottom']} testID="fleet-driver">
       <Stack.Screen options={{ title }} />
-      {!d ? (
+      {d?.pending ? (
+        <EmptyState
+          icon="clock"
+          title={t('partner.fleet_pending_title')}
+          body={t('partner.fleet_pending_hint')}
+          style={{ paddingTop: theme.space[8] }}
+        />
+      ) : null}
+      {d?.pending ? null : !d ? (
         <Skeleton lines={4} />
       ) : (
         <Card elevation={1} padding={4}>
@@ -73,19 +82,25 @@ export default function FleetDriverDetail() {
         </Card>
       )}
 
-      <SegmentedControl
-        accessibilityLabel={t('partner.fleet_jobs_title')}
-        value={period}
-        onChange={setPeriod}
-        options={[
-          { value: 'day', label: t('partner.fleet_period_day') },
-          { value: 'week', label: t('partner.fleet_period_week') },
-          { value: 'month', label: t('partner.fleet_period_month') },
-        ]}
-      />
+      {d?.pending ? null : (
+        <SegmentedControl
+          accessibilityLabel={t('partner.fleet_jobs_title')}
+          value={period}
+          onChange={setPeriod}
+          options={[
+            { value: 'day', label: t('partner.fleet_period_day') },
+            { value: 'week', label: t('partner.fleet_period_week') },
+            { value: 'month', label: t('partner.fleet_period_month') },
+          ]}
+        />
+      )}
 
-      {e.isError && !e.data ? (
-        <EmptyState icon="wallet" title={apiErrorMessage(e.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void e.refetch() }} />
+      {d?.pending ? null : e.isError && !e.data ? (
+        <EmptyState
+          icon="wallet"
+          title={apiErrorMessage(e.error, t('error.network'), locale)}
+          action={{ label: t('action.retry'), onPress: () => void e.refetch() }}
+        />
       ) : !e.data ? (
         <Skeleton height={220} radius={20} />
       ) : (

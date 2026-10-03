@@ -12,6 +12,8 @@ export interface StatusFacts {
   pause: { reason?: string | undefined; end: string } | null;
   lastHeartbeatAt: Date | null;
   defaultPrepMinutes: number;
+  /** The weekly schedule and holidays at `now` (absent: not computed). */
+  schedule?: StoreStatusView['schedule'];
 }
 
 const REASONS: ReadonlySet<string> = new Set<EarlyCloseReason>(['sold_out', 'too_busy', 'no_staff', 'power_cut', 'closing_early', 'other']);
@@ -36,5 +38,6 @@ export function toStoreStatus(f: StatusFacts): StoreStatusView {
     printer: f.printer ? { state: f.printer.state, name: f.printer.name, updatedAt: f.printer.at } : { state: 'not_set_up', name: null, updatedAt: null },
     lastHeartbeatAt: f.lastHeartbeatAt,
     defaultPrepMinutes: f.defaultPrepMinutes,
+    ...(f.schedule !== undefined ? { schedule: f.schedule } : {}),
   };
 }

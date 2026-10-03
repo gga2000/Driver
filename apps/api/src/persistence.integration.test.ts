@@ -101,6 +101,14 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         printer: { state: 'disconnected', name: 'XP-58', at },
       });
       await orgs.setMerchantSettings(store.id, { closed: { reason: 'sold_out', note: 'خلص اللحم', at } });
+      await orgs.setMerchantSettings(store.id, {
+        openingHours: [
+          { dow: 0, start: '12:00', end: '15:30' },
+          { dow: 0, start: '18:00', end: '01:00' },
+        ],
+        holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
+        hoursUpdatedAt: at,
+      });
       await orgs.heartbeat(store.id, at);
 
       const home = await households.create(as(state.ali), { name: 'بيت علي', cityId: 'aziziyah' });
@@ -152,6 +160,12 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         busyUntil: new Date(at.getTime() + 30 * 60_000),
         closed: { reason: 'sold_out', note: 'خلص اللحم', at },
         printer: { state: 'disconnected', name: 'XP-58', at },
+        openingHours: [
+          { dow: 0, start: '12:00', end: '15:30' },
+          { dow: 0, start: '18:00', end: '01:00' },
+        ],
+        holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
+        hoursUpdatedAt: at,
       });
       expect((await orgs.merchants('aziziyah')).map((m) => m.id)).toEqual(expect.arrayContaining([state.storeId, ...AZIZIYAH_RESTAURANTS.map((r) => r.orgId)]));
 

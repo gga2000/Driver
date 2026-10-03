@@ -5,7 +5,17 @@ import { Avatar, Icon, StatusPill, Text, useTheme, withAlpha, type IconName } fr
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { capShare, VEHICLE_ICON } from '../work/logic';
-import { cashTone, DOW_KEY, DOW_SHORT_KEY, maskedPhone, STATE_KEY, STATE_TONE, weekBars } from './logic';
+import { baghdadDate } from '../ops/logic';
+import {
+  cashTone,
+  DOW_KEY,
+  DOW_SHORT_KEY,
+  maskedPhone,
+  phoneHintText,
+  STATE_KEY,
+  STATE_TONE,
+  weekBars,
+} from './logic';
 
 /** Section label over a card, with an optional action at the end side. */
 export function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
@@ -258,5 +268,69 @@ export function DriverRow({ driver, vehicle, onPress, divider }: { driver: Fleet
         <TierPill tier={driver.tier} />
       </View>
     </Pressable>
+  );
+}
+
+/**
+ * An invite still waiting for the driver's yes: "دعوة مرسلة إلى 0770 ••• 4567" and when it went out.
+ * No name, money or live state (he hasn't agreed to share them), so the row doesn't open.
+ */
+export function PendingDriverRow({ driver, divider }: { driver: FleetDriver; divider: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const phone = phoneHintText(driver.phoneHint);
+  return (
+    <View
+      testID={`fleet-pending-${driver.driverId}`}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        paddingHorizontal: theme.space[4],
+        paddingVertical: theme.space[3],
+        borderBottomWidth: divider ? 1 : 0,
+        borderBottomColor: theme.colors.border,
+      }}
+    >
+      <View
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          borderWidth: 1.5,
+          borderStyle: 'dashed',
+          borderColor: theme.colors.borderStrong,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="user" size={22} color="textMuted" strokeWidth={2} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={600} tabular>
+          {phone
+            ? t('partner.fleet_pending_row', { phone })
+            : t('partner.fleet_pending_row_unknown')}
+        </Text>
+        {driver.invitedAt ? (
+          <Text variant="caption" color="textMuted" tabular>
+            {t('partner.fleet_invite_sent_on', { date: baghdadDate(driver.invitedAt) })}
+          </Text>
+        ) : null}
+      </View>
+      <View
+        accessibilityLabel={t('partner.fleet_pending_badge')}
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          backgroundColor: theme.colors.warningTint,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="clock" size={16} color="warningText" strokeWidth={2.2} />
+      </View>
+    </View>
   );
 }

@@ -6,6 +6,9 @@ import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
 import { gateKind } from '@/features/account/logic';
+import { FleetInviteBanner } from '@/features/fleet/InviteParts';
+import { splitInvites } from '@/features/fleet/logic';
+import { useFleetInvites } from '@/features/fleet/queries';
 import { DriverMap } from '@/features/map/DriverMap';
 import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip } from '@/features/work/HomeParts';
 import { VEHICLE_ICON } from '@/features/work/logic';
@@ -31,6 +34,9 @@ export default function Home() {
   const pulse = usePulse(online);
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
+  // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
+  const invites = useFleetInvites(s?.canDrive ?? false);
+  const invite = splitInvites(invites.data ?? []).pending[0] ?? null;
 
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -107,6 +113,7 @@ export default function Home() {
               ) : null}
 
               {s.activeTripId ? <ActiveJobBanner /> : null}
+              {invite && !s.activeTripId ? <FleetInviteBanner invite={invite} /> : null}
               {online && s.demand ? <DemandRow demand={s.demand} /> : null}
 
               {s.modes.includes('intercity') ? (

@@ -429,6 +429,58 @@ describe('merchantAdmin.staff invite is not a name lookup (review 2026-10-04 #6)
     await h.id.login('07700000088');
     expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === someone.actor.personId)).toMatchObject({ pending: false, name: 'مريم عبد الله صالح' });
   });
+
+  it('a pending invite shows the typed number as 0770 ••• 4567; the owner resends it at most every 10 minutes (follow-up 2026-10-04)', async () => {
+    const h = await setup();
+    const invited = await h.svc.staffInvite(h.owner, {
+      merchantOrgId: h.orgId,
+      phone: '07701234567',
+      role: 'merchant_staff',
+    });
+    expect(invited).toMatchObject({
+      pending: true,
+      name: null,
+      phoneHint: '0770 ••• 4567',
+      invitedAt: h.clock.now(),
+      inviteSentAt: h.clock.now(),
+    });
+    expect(invited.resendAfter).toEqual(new Date(h.clock.now().getTime() + 10 * 60_000));
+    const sent = async () =>
+      (await h.ev.events.forAggregate('merchant_staff', h.orgId)).filter(
+        (e) => e.type === 'merchant.staff_invite_sent',
+      );
+    expect((await sent()).map((e) => e.payload)).toEqual([
+      expect.objectContaining({
+        personId: invited.personId,
+        storeName: 'مطعم الريف',
+        resend: false,
+      }),
+    ]);
+    // Too soon: a no-op.
+    h.clock.advance(5 * 60_000);
+    await h.svc.staffResendInvite(h.owner, { merchantOrgId: h.orgId, personId: invited.personId });
+    expect(await sent()).toHaveLength(1);
+    h.clock.advance(6 * 60_000);
+    const again = await h.svc.staffResendInvite(h.owner, {
+      merchantOrgId: h.orgId,
+      personId: invited.personId,
+    });
+    expect(await sent()).toHaveLength(2);
+    expect(again.inviteSentAt).toEqual(h.clock.now());
+    // Staff can't; once he signs in there is nothing to resend.
+    await expect(
+      h.svc.staffResendInvite(h.staff, { merchantOrgId: h.orgId, personId: invited.personId }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await h.id.login('07701234567');
+    await expect(
+      h.svc.staffResendInvite(h.owner, { merchantOrgId: h.orgId, personId: invited.personId }),
+    ).rejects.toMatchObject({ code: 'staff_invite_not_pending' });
+    expect(
+      (await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find(
+        (s) => s.personId === invited.personId,
+      ),
+    ).not.toHaveProperty('phoneHint');
+  });
 });
 
 describe('merchantAdmin.staff', () => {

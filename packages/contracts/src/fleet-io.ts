@@ -50,6 +50,13 @@ export const FleetDriver = z.object({
    * money, documents or live state — until the driver says yes.
    */
   pending: z.boolean().default(false),
+  /**
+   * Pending rows only: the number the owner typed, as "0770 ••• 4567" (he knows it already; the name
+   * stays hidden until the driver accepts). Null on accepted rows. Additive (2026-10-04 follow-up).
+   */
+  phoneHint: z.string().nullable().optional(),
+  /** Pending rows only: when the owner sent the invite. */
+  invitedAt: z.coerce.date().nullable().optional(),
 });
 export type FleetDriver = z.infer<typeof FleetDriver>;
 
@@ -122,6 +129,8 @@ export const FleetInvite = z.object({
   invitedAt: z.coerce.date(),
   /** The inviting owner's first name (vault read, logged); null when unknown. */
   invitedByName: z.string().nullable(),
+  /** The fleet's name ("أسطول الربيعي"); null when the org is unknown here. Additive. */
+  fleetName: z.string().nullable().optional(),
   accepted: z.boolean(),
 });
 export type FleetInvite = z.infer<typeof FleetInvite>;

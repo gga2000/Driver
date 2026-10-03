@@ -6,8 +6,11 @@ import { SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { localDayKey } from '@/lib/calendar';
+import { useDates } from '@/lib/dates';
 import { useLayout } from '@/lib/layout';
 import { usePrefs } from '@/lib/prefs';
+import { scheduleBanner } from '@/features/hours/logic';
 import { usePrintOrder } from '@/features/print/runtime';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { StoreHeader } from '@/features/store/StoreHeader';
@@ -68,6 +71,7 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
 export function Board() {
   const theme = useTheme();
   const t = useT();
+  const dates = useDates();
   const locale = useLocale();
   const toast = useToast();
   const prefs = usePrefs();
@@ -161,6 +165,13 @@ export function Board() {
   );
 
   const s = status.data;
+  // Outside the weekly hours or on a holiday: the switch can read "open" while customers can't order.
+  const offHours =
+    s && !s.closed && !s.pause
+      ? scheduleBanner(t, s.schedule, localDayKey(s.now), (d) =>
+          dates.dayMonth(new Date(`${d}T12:00:00+03:00`)),
+        )
+      : null;
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.bg }} testID="board">
       <StoreHeader
@@ -179,7 +190,18 @@ export function Board() {
       {s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
       ) : s?.pause ? (
-        <InfoStrip tone="warning" text={t('merchant.board.paused_banner', { reason: s.pause.reason ?? '', time: s.pause.until })} />
+        <InfoStrip
+          tone="warning"
+          text={t('merchant.board.paused_banner', {
+            reason: s.pause.reason ?? '',
+            time: s.pause.until,
+          })}
+        />
+      ) : offHours ? (
+        <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
+      ) : null}
+      {board.isError && !board.data ? (
+        <InfoStrip tone="danger" text={t('merchant.board.error')} />
       ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
 

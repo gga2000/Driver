@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Iqd } from './common.js';
+import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
 import { VehicleClass } from './trip.js';
@@ -154,6 +155,21 @@ export const StoreStatusView = z.object({
   printer: z.object({ state: PrinterState, name: z.string().nullable(), updatedAt: z.coerce.date().nullable() }),
   lastHeartbeatAt: z.coerce.date().nullable(),
   defaultPrepMinutes: z.number().int(),
+  /**
+   * The weekly schedule and holiday closures (`merchant.hours`) at `now`; additive. `open` above
+   * stays the switch + pause state, so the board explains "برّا الدوام" separately.
+   */
+  schedule: z
+    .object({
+      inHours: z.boolean(),
+      holiday: z.object({ to: LocalDate, note: z.string().nullable() }).nullable(),
+      closesAt: HhMm.nullable(),
+      opensAt: z
+        .object({ date: LocalDate, dow: z.number().int().min(0).max(6), time: HhMm })
+        .nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type StoreStatusView = z.infer<typeof StoreStatusView>;
 
@@ -174,6 +190,53 @@ export const SetPrinterStatusInput = MerchantOrgInput.extend({
 });
 export type SetPrinterStatusInput = z.infer<typeof SetPrinterStatusInput>;
 
+// ───────────────────────── opening hours ─────────────────────────
+
+/** A pause window from the city (Friday prayer) or the store, shown on the hours screen. */
+export const StorePauseView = z.object({
+  dow: z.number().int().min(0).max(6),
+  start: HhMm,
+  end: HhMm,
+  reason: z.string().nullable(),
+});
+export type StorePauseView = z.infer<typeof StorePauseView>;
+
+export const StoreHoursView = z.object({
+  merchantOrgId: z.string(),
+  timeZone: z.string(),
+  /** `store`: set from the Merchant app; `catalog`: the onboarding seed; `none`: no hours on file (always open). */
+  source: z.enum(['store', 'catalog', 'none']),
+  /** Seven days, Sunday first; a day without shifts is closed. */
+  days: z.array(DayHours).length(7),
+  /** Current and upcoming closures, soonest first (past ones are dropped on read). */
+  holidays: z.array(HolidayClosure),
+  /** Orders pause here regardless of the schedule (Friday prayer). */
+  pauses: z.array(StorePauseView),
+  now: z.coerce.date(),
+  /** Local date at `now`. */
+  today: LocalDate,
+  state: z.object({
+    open: z.boolean(),
+    /** Why it is closed now: outside the schedule, a holiday, a pause window, or closed by hand. */
+    reason: z.enum(['hours', 'holiday', 'pause', 'closed']).nullable(),
+    closesAt: HhMm.nullable(),
+    opensAt: z
+      .object({ date: LocalDate, dow: z.number().int().min(0).max(6), time: HhMm })
+      .nullable(),
+  }),
+  /** Owners edit; staff read. */
+  canEdit: z.boolean(),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type StoreHoursView = z.infer<typeof StoreHoursView>;
+
+/** Replaces the whole schedule (validated with `storeHoursProblems`: `store_hours_invalid`). Owner only. */
+export const SetStoreHoursInput = MerchantOrgInput.extend({
+  days: z.array(DayHours).length(7),
+  holidays: z.array(HolidayClosure).max(20),
+});
+export type SetStoreHoursInput = z.infer<typeof SetStoreHoursInput>;
+
 /** What the API supplies to the `merchant` router (implemented by `modules/merchant`). */
 export interface MerchantPort {
   /** Stores the actor works at (owner or staff); empty when the account isn't activated for any. */
@@ -183,4 +246,6 @@ export interface MerchantPort {
   setOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView>;
   setBusy(actor: Actor, input: SetBusyInput): Promise<StoreStatusView>;
   setPrinterStatus(actor: Actor, input: SetPrinterStatusInput): Promise<StoreStatusView>;
+  hours(actor: Actor, input: MerchantOrgInput): Promise<StoreHoursView>;
+  setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView>;
 }

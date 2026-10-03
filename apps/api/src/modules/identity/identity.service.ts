@@ -36,7 +36,7 @@ import { IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js'
 import { GuardianService, guardianView } from './guardian.service.js';
 import { IDENTITY_REPOSITORY, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
-import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
+import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
 import { SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
@@ -440,6 +440,32 @@ export class IdentityService implements IdentityPort {
         if (!identity) continue;
         if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name', 'phone_e164'], now }, tx);
         out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164) };
+      }
+      return out;
+    });
+  }
+
+  /**
+   * The number an owner typed for an invite still waiting, as "0770 ••• 4567" (fleet drivers,
+   * merchant staff): head and tail only, never the name. Each read is a VaultAccessLog row.
+   */
+  async invitePhoneHints(
+    personIds: readonly string[],
+    accessorId: string,
+    purpose: string,
+  ): Promise<Record<string, string>> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const out: Record<string, string> = {};
+      for (const personId of new Set(personIds)) {
+        const identity = await this.repo.readIdentity(personId, tx);
+        if (!identity) continue;
+        if (personId !== accessorId)
+          await this.repo.logVaultAccess(
+            { personId, accessorId, purpose, fieldsRead: ['phone_e164'], now },
+            tx,
+          );
+        out[personId] = invitePhoneHint(identity.phoneE164);
       }
       return out;
     });
