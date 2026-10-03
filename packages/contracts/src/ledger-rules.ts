@@ -1,0 +1,142 @@
+import { z } from 'zod';
+import { Iqd } from './common.js';
+
+/**
+ * Money rules the ledger posts by (money & ops spec §1–5, edge-case decisions §1–4, edge-case
+ * review G). Every figure is config per city — `AZIZIYAH_MONEY_RULES` is the launch default —
+ * never a literal inside a posting function.
+ */
+
+const Rate = z.number().min(0).max(1);
+
+/** Restaurant commission tier (money §1); the base is the item subtotal after merchant-funded discounts (G-87). */
+export const CommissionTier = z.enum(['base', 'featured', 'marketing', 'pickup']);
+export type CommissionTier = z.infer<typeof CommissionTier>;
+
+/** Ride/seat/parcel service classes with their own platform take (money §3). */
+export const TakeClass = z.enum(['tuktuk', 'car', 'intercity_seat', 'front_seat_premium', 'intercity_private', 'khat_seat', 'parcel', 'parcel_intercity']);
+export type TakeClass = z.infer<typeof TakeClass>;
+
+export const TakeRule = z.object({
+  rate: Rate,
+  /** Floor on the take (tuktuk 10 % min 100). */
+  minIqd: Iqd.nonnegative().default(0),
+  /** Fixed amount on top of the rate (khat 8 % + 1,000 per rider-month). */
+  fixedIqd: Iqd.nonnegative().default(0),
+});
+export type TakeRule = z.infer<typeof TakeRule>;
+
+/** Who a cash cap applies to (G-80: caps by role). */
+export const CapRole = z.enum(['courier', 'driver', 'intercity_driver', 'khat_driver']);
+export type CapRole = z.infer<typeof CapRole>;
+export const CapTier = z.enum(['bronze', 'silver', 'gold']);
+export type CapTier = z.infer<typeof CapTier>;
+
+export const SettlementMode = z.enum(['nightly_courier', 'on_demand', 'daily_zaincash', 'weekly_bulk']);
+export type SettlementMode = z.infer<typeof SettlementMode>;
+
+const CapsByTier = z.object({ bronze: Iqd.positive(), silver: Iqd.positive(), gold: Iqd.positive() });
+
+export const MoneyRules = z.object({
+  commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
+  serviceFeeIqd: Iqd.nonnegative(),
+  smallOrder: z.object({ belowIqd: Iqd.nonnegative(), feeIqd: Iqd.nonnegative() }),
+  /** Batched second order: courier earns this share of its delivery fee; the customer pays in full (money §2). */
+  batchedSecondCourierShare: Rate,
+  take: z.object({
+    tuktuk: TakeRule,
+    car: TakeRule,
+    intercity_seat: TakeRule,
+    front_seat_premium: TakeRule,
+    intercity_private: TakeRule,
+    khat_seat: TakeRule,
+    parcel: TakeRule,
+    parcel_intercity: TakeRule,
+  }),
+  /** G-88: customer-facing totals are multiples of this; 250 only where a 250 component exists and it is enabled. */
+  rounding: z.object({ stepIqd: Iqd.positive(), allowQuarterStepWith250Component: z.boolean() }),
+  points: z.object({
+    /** Decisions §2: 1 point per this much platform revenue (service fee + commission) on food/grocery/parcels/errands. */
+    revenueIqdPerPoint: Iqd.positive(),
+    /** Rides and seats: 1 point per this much platform take. */
+    rideTakeIqdPerPoint: Iqd.positive(),
+    maxPerOrder: z.number().int().positive(),
+    organizerBonusRate: Rate,
+    /** 100 points = 1,000 IQD. */
+    pointValueIqd: Iqd.positive(),
+  }),
+  referral: z.object({
+    pointsPerSide: z.number().int().positive(),
+    minOrderIqd: Iqd.nonnegative(),
+    /** Unlocks on the referee's Nth completed cash order ≥ minOrderIqd. */
+    unlockOnQualifyingOrder: z.number().int().positive(),
+    monthlyCapPerReferrer: z.number().int().positive(),
+  }),
+  caps: z.object({
+    byRole: z.object({ courier: CapsByTier, driver: CapsByTier, intercity_driver: CapsByTier, khat_driver: CapsByTier }),
+    /** G-80: a single job may push a driver over the cap when its value ≤ this share of the cap. */
+    singleJobShareOfCap: Rate,
+  }),
+  newCustomerCash: z.object({ maxOrderIqd: Iqd.positive(), firstOrders: z.number().int().positive() }),
+  merchant: z.object({ exposureCapIqd: Iqd.positive(), defaultMode: SettlementMode }),
+  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative() }),
+  /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
+  driverPayoutAboveIqd: Iqd.nonnegative(),
+  /** G-91 shift guarantee conditions. */
+  guarantee: z.object({ amountIqd: Iqd.nonnegative(), minAcceptance: Rate, maxCancelsAfterAccept: z.number().int().nonnegative(), minCompletedJobs: z.number().int().nonnegative() }),
+  /** Domain §2 seat lateness meter; decisions §8 binds it to server time. */
+  lateMeter: z.object({
+    graceMin: z.number().int().nonnegative(),
+    blockMin: z.number().int().positive(),
+    capMin: z.number().int().positive(),
+    riderLateToDriverPerBlockIqd: Iqd.nonnegative(),
+    riderLateToEachRiderPerBlockIqd: Iqd.nonnegative(),
+    driverLateToEachRiderPerBlockIqd: Iqd.nonnegative(),
+  }),
+  /** Nightly close (money §4): 02:00 in the city's zone. */
+  nightly: z.object({ hour: z.number().int().min(0).max(23), utcOffsetMin: z.number().int() }),
+});
+export type MoneyRules = z.infer<typeof MoneyRules>;
+
+export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
+  commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
+  serviceFeeIqd: 500,
+  smallOrder: { belowIqd: 5000, feeIqd: 500 },
+  batchedSecondCourierShare: 0.7,
+  take: {
+    tuktuk: { rate: 0.1, minIqd: 100 },
+    car: { rate: 0.12 },
+    intercity_seat: { rate: 0.1 },
+    front_seat_premium: { rate: 0.25 },
+    intercity_private: { rate: 0.08 },
+    khat_seat: { rate: 0.08, fixedIqd: 1000 },
+    parcel: { rate: 0.15 },
+    parcel_intercity: { rate: 0.15 },
+  },
+  rounding: { stepIqd: 500, allowQuarterStepWith250Component: true },
+  points: { revenueIqdPerPoint: 100, rideTakeIqdPerPoint: 200, maxPerOrder: 50, organizerBonusRate: 0.1, pointValueIqd: 10 },
+  referral: { pointsPerSide: 200, minOrderIqd: 10000, unlockOnQualifyingOrder: 2, monthlyCapPerReferrer: 10 },
+  caps: {
+    byRole: {
+      courier: { bronze: 75000, silver: 150000, gold: 300000 },
+      driver: { bronze: 75000, silver: 150000, gold: 300000 },
+      khat_driver: { bronze: 75000, silver: 150000, gold: 300000 },
+      intercity_driver: { bronze: 300000, silver: 300000, gold: 300000 },
+    },
+    singleJobShareOfCap: 0.5,
+  },
+  newCustomerCash: { maxOrderIqd: 25000, firstOrders: 3 },
+  merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
+  adjustments: { secondApproverAboveIqd: 25000 },
+  driverPayoutAboveIqd: 20000,
+  guarantee: { amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3 },
+  lateMeter: {
+    graceMin: 5,
+    blockMin: 10,
+    capMin: 20,
+    riderLateToDriverPerBlockIqd: 1000,
+    riderLateToEachRiderPerBlockIqd: 500,
+    driverLateToEachRiderPerBlockIqd: 1000,
+  },
+  nightly: { hour: 2, utcOffsetMin: 180 },
+});

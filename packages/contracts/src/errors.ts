@@ -71,6 +71,13 @@ export const ERROR_TABLE = {
   org_not_found: { message_ar: 'ما لگينا الجهة', message_en: 'Org not found', retryHint: 'never', status: 'NOT_FOUND' },
   not_household_member: { message_ar: 'مو عضو بهذا البيت', message_en: 'Not a member of this household', retryHint: 'never', status: 'FORBIDDEN' },
   no_payer: { message_ar: 'ما أكو دافع بهذا البيت بعد', message_en: 'Household has no payer yet', retryHint: 'never', status: 'CONFLICT' },
+
+  // ledger (M2 Step 6)
+  settlement_nothing_due: { message_ar: 'ما عندك فلوس مستحقة هسة', message_en: 'Nothing is due to this merchant now', retryHint: 'never', status: 'CONFLICT' },
+  adjustment_incident_required: { message_ar: 'التصحيح يحتاج سبب وبلاغ مربوط', message_en: 'An adjustment needs a reason and a linked incident', retryHint: 'never', status: 'BAD_REQUEST' },
+  adjustment_second_approver: { message_ar: 'التصحيح فوق 25,000 يحتاج موافقة شخص ثاني من المالية', message_en: 'Adjustments above the threshold need a second finance approver', retryHint: 'never', status: 'FORBIDDEN' },
+  handover_mismatch: { message_ar: 'المبلغ أو الرمز ما يطابق. انفتح بلاغ للمراجعة', message_en: 'Hand-over amount or PIN mismatch; incident opened', retryHint: 'support', status: 'CONFLICT' },
+  new_customer_cash_cap: { message_ar: 'أول 3 طلبات كاش حدها 25,000 دينار', message_en: 'First three cash orders are capped', retryHint: 'never', status: 'BAD_REQUEST' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

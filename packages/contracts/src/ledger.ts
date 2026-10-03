@@ -28,6 +28,13 @@ export const MONEY_LEDGER_TYPES = [
   'debt_settled',
   'cash_rounding_credit',
   'refund_cash_delivered',
+  // M2 Step 6: named lines the posting groups need (money spec §2–3, edge-case G-86/88/91)
+  'service_fee',
+  'delivery_fee',
+  'fare',
+  'driver_incentive',
+  'driver_payout',
+  'rounding_residue',
 ] as const;
 
 /** Points event types (domain §5). Points never create money. */
@@ -38,6 +45,8 @@ export const POINTS_LEDGER_TYPES = [
   'points_redeemed',
   'points_expired',
   'organizer_bonus',
+  // edge-case decisions §1: referral 200 points per side after the referee's second qualifying order
+  'referral_bonus',
 ] as const;
 
 export const LedgerEventType = z.enum([...MONEY_LEDGER_TYPES, ...POINTS_LEDGER_TYPES]);
@@ -55,6 +64,11 @@ export function kindOf(type: LedgerEventType): LedgerKind {
 
 /**
  * Account ids are typed strings. Balance = Σ(to) − Σ(from).
+ *
+ * Sign convention (claims view): a positive balance is value owed TO the holder (or earned by it);
+ * a negative balance is value the holder owes. A courier who collected cash therefore has a
+ * negative `cash:` balance until he hands it to the merchant (`merchant_paid_by_courier`) or the
+ * company (`driver_settlement`); the company's real money (`bank`) is negative while it holds cash.
  * Money accounts:
  * - `platform`              the platform's own position (retained earnings)
  * - `driver:<id>`           earnings the platform owes a driver
@@ -63,7 +77,8 @@ export function kindOf(type: LedgerEventType): LedgerKind {
  * - `merchant_cash:<id>`    merchant cash account (edge-case §3): payable net of commission, settled by mode
  * - `customer:<id>`         a customer wallet; negative = net paid in cash
  * - `household:<orgId>`     a shared household wallet (domain §12)
- * - `bank`                  the outside world for payouts (bank transfer, Zain Cash)
+ * - `bank`                  the company's real-money channels (ZainCash wallet, ops till, bank); negative = money held
+ * - `rounding`              customer-total rounding residue (edge-case G-88)
  * - `promo:<promotionId>`   a promotion's budget line
  * Points accounts (never mixed with money):
  * - `points:<personId>`     a person's points balance
@@ -73,7 +88,7 @@ export function kindOf(type: LedgerEventType): LedgerKind {
 export const AccountId = z
   .string()
   .regex(
-    /^(platform|bank|points_pool|driver:[^:]+|merchant:[^:]+|merchant_cash:[^:]+|customer:[^:]+|household:[^:]+|cash:[^:]+|promo:[^:]+|points:[^:]+|points_pending:[^:]+)$/,
+    /^(platform|bank|rounding|points_pool|driver:[^:]+|merchant:[^:]+|merchant_cash:[^:]+|customer:[^:]+|household:[^:]+|cash:[^:]+|promo:[^:]+|points:[^:]+|points_pending:[^:]+)$/,
   );
 export type AccountId = z.infer<typeof AccountId>;
 

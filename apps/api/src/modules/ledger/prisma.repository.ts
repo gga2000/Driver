@@ -1,4 +1,5 @@
 import { kindOf, type LedgerEvent } from '@driver/contracts';
+import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { LedgerRepository, NewLedgerEvent } from './repository.js';
 
 /**
@@ -36,13 +37,37 @@ interface LedgerRow {
 export class PrismaLedgerRepository implements LedgerRepository {
   constructor(private readonly delegate: LedgerEventDelegate) {}
 
-  async append(event: NewLedgerEvent): Promise<LedgerEvent> {
-    if (event.idempotencyKey) {
-      const existing = await this.findByIdempotencyKey(event.idempotencyKey);
-      if (existing) return existing;
+  /** Inside a unit of work, write through the transaction's delegate so the group commits with it. */
+  private db(tx?: Tx): LedgerEventDelegate {
+    const scoped = (tx as unknown as { ledgerEvent?: LedgerEventDelegate } | undefined)?.ledgerEvent;
+    return scoped ?? this.delegate;
+  }
+
+  async append(event: NewLedgerEvent, tx?: Tx): Promise<LedgerEvent> {
+    const [stored] = await this.appendMany([event], tx);
+    return stored!;
+  }
+
+  async appendMany(events: readonly NewLedgerEvent[], tx?: Tx): Promise<LedgerEvent[]> {
+    const db = this.db(tx);
+    const out: LedgerEvent[] = [];
+    for (const event of events) {
+      if (event.idempotencyKey) {
+        const existing = await this.findByIdempotencyKey(event.idempotencyKey, tx);
+        if (existing) {
+          out.push(existing);
+          continue;
+        }
+      }
+      out.push(fromRow(await db.create({ data: toRow(event) })));
     }
-    const row = await this.delegate.create({ data: toRow(event) });
-    return fromRow(row);
+    return out;
+  }
+
+  async byPostingGroups(groupIds: readonly string[]): Promise<LedgerEvent[]> {
+    if (groupIds.length === 0) return [];
+    const rows = await this.delegate.findMany({ where: { postingGroupId: { in: [...groupIds] } }, orderBy: { occurredAt: 'asc' } });
+    return rows.map(fromRow);
   }
 
   async byAccount(accountId: string): Promise<LedgerEvent[]> {
@@ -63,8 +88,8 @@ export class PrismaLedgerRepository implements LedgerRepository {
     return rows.map(fromRow);
   }
 
-  async findByIdempotencyKey(key: string): Promise<LedgerEvent | undefined> {
-    const row = await this.delegate.findUnique({ where: { idempotencyKey: key } });
+  async findByIdempotencyKey(key: string, tx?: Tx): Promise<LedgerEvent | undefined> {
+    const row = await this.db(tx).findUnique({ where: { idempotencyKey: key } });
     return row ? fromRow(row) : undefined;
   }
 }

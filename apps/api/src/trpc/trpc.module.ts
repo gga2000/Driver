@@ -4,6 +4,7 @@ import { isDriverError, type AppContext, type ErrorCode, type SessionClaims } fr
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
+import { LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
@@ -20,6 +21,7 @@ export class TrpcService {
     private readonly pricing: PricingService,
     private readonly config: ConfigService,
     private readonly identity: IdentityService,
+    private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
   ) {}
@@ -41,6 +43,7 @@ export class TrpcService {
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
+      ledger: this.ledger,
       auth,
       authError,
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
@@ -64,5 +67,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, LedgerModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

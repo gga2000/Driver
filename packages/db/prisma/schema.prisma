@@ -1489,6 +1489,13 @@ enum LedgerEventType {
   debt_settled
   cash_rounding_credit
   refund_cash_delivered
+  // money — M2 Step 6 posting-group lines (migration 20261003000000_ledger_step6)
+  service_fee
+  delivery_fee
+  fare
+  driver_incentive
+  driver_payout
+  rounding_residue
   // points — domain §5
   points_earned
   points_pending
@@ -1496,6 +1503,8 @@ enum LedgerEventType {
   points_redeemed
   points_expired
   organizer_bonus
+  // points — edge-case decisions §1
+  referral_bonus
 
   @@schema("public")
 }

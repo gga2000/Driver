@@ -91,6 +91,24 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
     expect(r.rows[0].amount_iqd).toBe(1000);
   });
 
+  it('accepts the Step 6 ledger types (migration 20261003000000_ledger_step6)', async () => {
+    const t = `"public_${suffix}"."ledger_events"`;
+    const types = ['service_fee', 'delivery_fee', 'fare', 'driver_incentive', 'driver_payout', 'rounding_residue'];
+    for (const [i, type] of types.entries()) {
+      await client.query(
+        `INSERT INTO ${t} (id, kind, type, amount_iqd, from_account, to_account, occurred_at, updated_at)
+         VALUES ($1, 'money', $2, 500, 'customer:c1', 'platform', now(), now())`,
+        [`s6_${i}`, type],
+      );
+    }
+    await client.query(
+      `INSERT INTO ${t} (id, kind, type, amount_iqd, from_account, to_account, occurred_at, updated_at)
+       VALUES ('s6_ref', 'points', 'referral_bonus', 200, 'points_pool', 'points:c1', now(), now())`,
+    );
+    const r = await client.query(`SELECT count(*)::int AS n FROM ${t} WHERE id LIKE 's6_%'`);
+    expect(r.rows[0].n).toBe(types.length + 1);
+  });
+
   it('people has no PII columns', async () => {
     const r = await client.query(
       `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'people'`,
