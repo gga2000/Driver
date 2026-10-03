@@ -3,12 +3,10 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { EventsService } from '../events/index.js';
 
 /**
- * The trips module's only path to the event log, kept to this one file on purpose.
- *
- * TODO(M2 Step 3 merge): once `EventsService.emit(tx, event, aggregate)` lands (transactional
- * outbox, top-level `orderId` / `deviceUptimeMs`, late-replay quarantine), make
- * `EventsServiceAdapter.emit` a direct call and drop the payload folding below. Callers already
- * pass the `tx` they are inside, so nothing else changes.
+ * The trips module's only path to the event log, kept to this one file on purpose: a direct call
+ * to the transactional `EventsService.emit(tx, event, aggregate)`. `orderId` and `deviceUptimeMs`
+ * are top-level event fields (the events module uses them for late-replay quarantine and offline
+ * ordering), never folded into the payload.
  */
 export interface TripDomainEvent {
   type: string;
@@ -32,15 +30,8 @@ export const TRIP_EVENTS = Symbol('TRIP_EVENTS');
 export class EventsServiceAdapter implements TripEventEmitter {
   constructor(private readonly events: Pick<EventsService, 'emit'>) {}
 
-  async emit(_tx: Tx | undefined, event: TripDomainEvent, aggregate: { name: string; id: string }): Promise<void> {
-    const { orderId, deviceUptimeMs, payload, ...rest } = event;
-    this.events.emit(
-      {
-        ...rest,
-        payload: { ...payload, ...(orderId !== undefined ? { orderId } : {}), ...(deviceUptimeMs !== undefined ? { deviceUptimeMs } : {}) },
-      },
-      aggregate,
-    );
+  async emit(tx: Tx | undefined, event: TripDomainEvent, aggregate: { name: string; id: string }): Promise<void> {
+    await this.events.emit(tx, event, aggregate);
   }
 }
 

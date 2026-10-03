@@ -21,7 +21,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
 /**
  * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; timers on the
  * `orders.timers` queue; merchants read through `OrgsService`; participant phones resolved by
- * identity (hash only); trip events consumed from the events module.
+ * identity (hash only); trip events consumed from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
   imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule],
@@ -61,7 +61,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e).catch((err: unknown) => this.logger.error(`trip event ${e.type}: ${(err as Error).message}`)));
+    // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
+    this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {

@@ -31,8 +31,8 @@ export const DEFAULT_THRESHOLDS: ScoringThresholds = { silver: 70, gold: 85, obs
 export class ScoringService {
   constructor(private readonly events: EventsService) {}
 
-  scorecard(driverId: string, firstActiveAt: Date, now = new Date(), thresholds = DEFAULT_THRESHOLDS): Scorecard {
-    const evs = this.events.forActor(driverId);
+  async scorecard(driverId: string, firstActiveAt: Date, now = new Date(), thresholds = DEFAULT_THRESHOLDS): Promise<Scorecard> {
+    const evs = await this.events.forActor(driverId);
     const count = (type: string) => evs.filter((e) => e.type === type).length;
     const offers = count('offer.sent');
     const accepted = count('offer.accepted');

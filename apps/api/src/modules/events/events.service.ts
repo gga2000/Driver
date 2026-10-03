@@ -1,81 +1,151 @@
-import { Injectable } from '@nestjs/common';
-import type { Event } from '@driver/contracts';
-
-export type NewEvent = Omit<Event, 'id' | 'recordedAt'>;
-
-export interface OutboxRow {
-  id: string;
-  aggregate: string;
-  aggregateId: string;
-  type: string;
-  payload: Record<string, unknown>;
-  status: 'pending' | 'published';
-  createdAt: Date;
-}
-
-type Subscriber = (row: OutboxRow) => void;
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { CLOCK, type Clock } from '../../shared/clock.js';
+import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
+import { EVENTS_REPOSITORY, newId, type EventsRepository } from './events.repository.js';
+import type { Aggregate, EventHandler, NewEvent, OutboxStats, StoredEvent } from './events.types.js';
+import { OutboxPublisher } from './outbox.publisher.js';
+import { SubscriberRegistry, type SubscribeOptions } from './subscriber.registry.js';
+import { assessSkew, isLateReplay } from './timestamps.js';
 
 /**
- * Append-only event log plus a transactional-outbox shaped publisher.
- * Every state change in any module goes through `emit`, which stores the actor event and
- * writes an outbox row. `drain` is what the BullMQ worker will call in Milestone 2.
+ * The read model the trips module provides for late-replay quarantine. Structural copy of trips'
+ * `TripOrderLookup`: the events module cannot import trips (trips imports events), so it resolves
+ * the provider by the registered symbol trips binds it to.
+ */
+export interface TripOrderDetachments {
+  /** `detached_at` of the latest attachment of `orderId` to `tripId`; null while attached or unknown. */
+  detachedAt(tripId: string, orderId: string): Promise<Date | null>;
+}
+
+export const TRIP_ORDER_LOOKUP_TOKEN = Symbol.for('driver.trips.TripOrderLookup');
+
+/**
+ * Append-only actor event log and transactional outbox (plan Step 3, architecture §2).
+ *
+ * `emit(tx, event, aggregate)` writes the `events` row and its `outbox` row in the caller's
+ * transaction — both commit with the aggregate change or neither does. Nothing is published
+ * inline: after the commit the outbox publisher is poked and delivers to named subscribers.
+ *
+ * On receipt the server stamps `recordedAt`, flags device skew, and quarantines late offline
+ * replays (`late_replay`) so they are kept for support and never reach settlement.
  */
 @Injectable()
 export class EventsService {
-  private readonly log: Event[] = [];
-  private readonly outbox: OutboxRow[] = [];
-  private readonly subscribers = new Map<string, Subscriber[]>();
-  private seq = 0;
+  private readonly logger = new Logger(EventsService.name);
+  private tripOrders: TripOrderDetachments | null | undefined;
+  private readonly poked = new WeakSet<object>();
 
-  emit(event: NewEvent, aggregate: { name: string; id: string }): Event {
+  constructor(
+    @Inject(EVENTS_REPOSITORY) private readonly repo: EventsRepository,
+    readonly registry: SubscriberRegistry,
+    readonly publisher: OutboxPublisher,
+    @Inject(CLOCK) private readonly clock: Clock,
+    private readonly uow: UnitOfWork,
+    @Optional() private readonly moduleRef?: ModuleRef,
+  ) {}
+
+  /** Binds the trip/order detachment lookup explicitly (tests, the simulator). */
+  useTripOrderLookup(lookup: TripOrderDetachments | null): void {
+    this.tripOrders = lookup;
+  }
+
+  /**
+   * Records `event` for `aggregate` inside `tx` (or a transaction of its own when `tx` is
+   * undefined). A repeated idempotency key returns the first event and writes nothing.
+   */
+  async emit(tx: Tx | undefined, event: NewEvent, aggregate: Aggregate): Promise<StoredEvent> {
+    if (!tx) return this.uow.run((t) => this.emit(t, event, aggregate));
     if (event.idempotencyKey) {
-      const dup = this.log.find((e) => e.idempotencyKey === event.idempotencyKey);
-      if (dup) return dup;
+      const existing = await this.repo.findByIdempotencyKey(event.idempotencyKey, tx);
+      if (existing) return existing;
     }
-    this.seq += 1;
-    const stored: Event = Object.freeze({ ...event, id: `ev_${this.seq}`, recordedAt: new Date() });
-    this.log.push(stored);
-    this.outbox.push({
-      id: `ob_${this.seq}`,
+    const recordedAt = this.clock.now();
+    const skew = assessSkew(event.occurredAt, recordedAt);
+    const lateReplay = await this.isLateReplay(event, recordedAt);
+    const stored: StoredEvent = {
+      id: newId('ev', recordedAt),
+      type: event.type,
+      actorId: event.actorId,
+      occurredAt: event.occurredAt,
+      recordedAt,
       aggregate: aggregate.name,
       aggregateId: aggregate.id,
-      type: event.type,
-      payload: { ...event.payload, actorId: event.actorId, occurredAt: event.occurredAt.toISOString() },
-      status: 'pending',
-      createdAt: stored.recordedAt,
-    });
-    return stored;
+      payload: event.payload ?? {},
+      ...(event.tripId ? { tripId: event.tripId } : {}),
+      ...(event.orderId ? { orderId: event.orderId } : {}),
+      ...(event.location ? { location: event.location } : {}),
+      ...(event.idempotencyKey ? { idempotencyKey: event.idempotencyKey } : {}),
+      ...(event.deviceUptimeMs !== undefined ? { deviceUptimeMs: event.deviceUptimeMs } : {}),
+      skewMs: skew.skewMs,
+      flagged: skew.flagged,
+      ...(skew.flagReason ? { flagReason: skew.flagReason } : {}),
+      quarantined: lateReplay,
+      ...(lateReplay ? { quarantineReason: 'late_replay' } : {}),
+    };
+    const { event: saved, inserted } = await this.repo.insert(stored, tx);
+    if (inserted) await this.pokeAfterCommit(tx);
+    return saved;
   }
 
-  subscribe(type: string, fn: Subscriber): () => void {
-    const list = this.subscribers.get(type) ?? [];
-    list.push(fn);
-    this.subscribers.set(type, list);
-    return () => this.subscribers.set(type, (this.subscribers.get(type) ?? []).filter((s) => s !== fn));
+  /** Registers a named, idempotent subscriber (see `SubscriberRegistry`). */
+  subscribe(name: string, types: readonly string[] | '*', handler: EventHandler, opts?: SubscribeOptions): () => void {
+    return this.registry.subscribe(name, types, handler, opts);
   }
 
-  /** Publishes pending outbox rows to subscribers in order; returns how many were published. */
-  drain(): number {
-    let n = 0;
-    for (const row of this.outbox) {
-      if (row.status !== 'pending') continue;
-      for (const fn of this.subscribers.get(row.type) ?? []) fn(row);
-      for (const fn of this.subscribers.get('*') ?? []) fn(row);
-      row.status = 'published';
-      n += 1;
+  forActor(actorId: string): Promise<StoredEvent[]> {
+    return this.repo.find({ actorId });
+  }
+
+  forTrip(tripId: string): Promise<StoredEvent[]> {
+    return this.repo.find({ tripId });
+  }
+
+  forOrder(orderId: string): Promise<StoredEvent[]> {
+    return this.repo.find({ orderId });
+  }
+
+  async pendingOutbox(): Promise<number> {
+    return (await this.repo.outboxStats()).pending;
+  }
+
+  outboxStats(): Promise<OutboxStats> {
+    return this.repo.outboxStats();
+  }
+
+  /** Drains everything due now (tests, the simulator, a Console "drain" button). */
+  drain(): Promise<number> {
+    return this.publisher.drainUntilIdle();
+  }
+
+  // ───────────────────────── internals ─────────────────────────
+
+  /** One poke per transaction, after it commits; immediately when `tx` is not a managed transaction. */
+  private async pokeAfterCommit(tx: Tx): Promise<void> {
+    if (this.poked.has(tx as object)) return;
+    if (afterCommit(tx, () => this.publisher.poke())) {
+      this.poked.add(tx as object);
+      return;
     }
-    return n;
+    await this.publisher.poke();
   }
 
-  forActor(actorId: string): Event[] {
-    return this.log.filter((e) => e.actorId === actorId);
+  private async isLateReplay(event: NewEvent, recordedAt: Date): Promise<boolean> {
+    if (!event.tripId || !event.orderId) return false;
+    const lookup = this.lookup();
+    if (!lookup) return false;
+    return isLateReplay(event, recordedAt, await lookup.detachedAt(event.tripId, event.orderId));
   }
 
-  forTrip(tripId: string): Event[] {
-    return this.log.filter((e) => e.tripId === tripId);
-  }
-
-  pendingOutbox(): number {
-    return this.outbox.filter((r) => r.status === 'pending').length;
+  private lookup(): TripOrderDetachments | null {
+    if (this.tripOrders !== undefined) return this.tripOrders;
+    if (!this.moduleRef) return null;
+    try {
+      this.tripOrders = this.moduleRef.get<TripOrderDetachments>(TRIP_ORDER_LOOKUP_TOKEN, { strict: false });
+    } catch {
+      this.logger.debug('no TripOrderLookup bound yet; late-replay quarantine inactive');
+      return null;
+    }
+    return this.tripOrders;
   }
 }

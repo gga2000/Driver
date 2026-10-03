@@ -40,6 +40,26 @@ describe('InMemoryQueue', () => {
     expect(q.size).toBe(1);
   });
 
+  it('a transient job releases its jobId when it finishes, so the same id can be enqueued again', async () => {
+    const q = new InMemoryQueue<string>('outbox');
+    const ran: string[] = [];
+    q.process(async (j) => {
+      ran.push(j.data);
+    });
+    await q.add('tick', 'a', { jobId: 'tick', transient: true });
+    await q.add('tick', 'b', { jobId: 'tick', transient: true });
+    expect(q.size).toBe(1);
+    await q.drain();
+    await q.add('tick', 'c', { jobId: 'tick', transient: true });
+    await q.drain();
+    expect(ran).toEqual(['a', 'c']);
+    // non-transient ids stay taken (BullMQ keeps finished jobs)
+    await q.add('timer', 'x', { jobId: 'once' });
+    await q.drain();
+    await q.add('timer', 'y', { jobId: 'once' });
+    expect(q.size).toBe(0);
+  });
+
   it('retries a failing job while attempts remain, then throws', async () => {
     const q = new InMemoryQueue<string>('t');
     let calls = 0;

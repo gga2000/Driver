@@ -3,11 +3,9 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { EventsService } from '../events/index.js';
 
 /**
- * Thin adapter over the events module's current `emit(event, aggregate)` signature.
- *
- * TODO(M2 Step 3 merge): once `EventsService.emit(tx, event, aggregate)` lands (transactional
- * outbox), replace the body with a direct call and delete this file. Identity services already
- * pass the `tx` they are inside, so the switch is one line.
+ * Identity's only path to the event log: a direct call to the transactional
+ * `EventsService.emit(tx, event, aggregate)`, so the event and its outbox row commit with the
+ * identity rows written in the same `tx`. The interface exists so unit tests can record instead.
  */
 export interface IdentityEventEmitter {
   emit(tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event>;
@@ -16,14 +14,14 @@ export interface IdentityEventEmitter {
 export class EventsServiceAdapter implements IdentityEventEmitter {
   constructor(private readonly events: Pick<EventsService, 'emit'>) {}
 
-  async emit(_tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
-    return this.events.emit(event, aggregate);
+  emit(tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
+    return this.events.emit(tx, event, aggregate);
   }
 }
 
 /** Test double: keeps every emitted event in order. */
 export class RecordingEventEmitter implements IdentityEventEmitter {
-  readonly events: Array<Omit<Event, 'id' | 'recordedAt'> & { aggregate: { name: string; id: string } }> = [];
+  readonly events: Array<Omit<Event, 'id' | 'recordedAt' | 'aggregate'> & { aggregate: { name: string; id: string } }> = [];
   private seq = 0;
 
   async emit(_tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {

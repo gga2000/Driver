@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
-import { EventsService } from '../events/index.js';
+import { createInMemoryEvents } from '../events/index.js';
 import { OrgsService } from './orgs.service.js';
 
 function setup() {
-  const events = new EventsService();
-  const orgs = new OrgsService(events, new FakeClock());
+  const clock = new FakeClock();
+  const { events } = createInMemoryEvents({ clock });
+  const orgs = new OrgsService(events, clock);
   const seen: string[] = [];
-  events.subscribe('*', (row) => seen.push(row.type));
+  events.subscribe('test:seen', '*', async (e) => {
+    seen.push(e.type);
+  });
   return { events, orgs, seen };
 }
 
 describe('households (domain §12)', () => {
-  it('creator is the payer; members carry a role and a spending limit', () => {
+  it('creator is the payer; members carry a role and a spending limit', async () => {
     const { orgs, events, seen } = setup();
     const home = orgs.createHousehold({ name: 'بيت علي', cityId: 'aziziyah', payerId: 'p_ali' });
     expect(home.type).toBe('household');
@@ -24,13 +27,14 @@ describe('households (domain §12)', () => {
     expect(orgs.withinLimit(home.id, 'p_minar', 25_000)).toBe(true);
     expect(orgs.withinLimit(home.id, 'p_minar', 25_250)).toBe(false);
     expect(orgs.withinLimit(home.id, 'p_ali', 1_000_000)).toBe(true);
-    events.drain();
+    await orgs.settled();
     expect(seen).toEqual(['org.created', 'org.member_added']);
+    expect(await events.pendingOutbox()).toBe(0);
     expect(orgs.householdsOf('p_minar').map((o) => o.id)).toEqual([home.id]);
   });
 
-  it('requestPayerApproval emits org.payer_approval_requested once per order and the payer resolves it', () => {
-    const { orgs, events, seen } = setup();
+  it('requestPayerApproval emits org.payer_approval_requested once per order and the payer resolves it', async () => {
+    const { orgs, seen } = setup();
     const home = orgs.createHousehold({ name: 'بيت', cityId: 'aziziyah', payerId: 'p_ali' });
     orgs.addMember(home.id, 'p_kid', { role: 'orderer', spendingLimitIqd: 10_000 });
     const req = orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: 'p_kid', amountIqd: 18_000 });
@@ -38,7 +42,7 @@ describe('households (domain §12)', () => {
     expect(req.payerId).toBe('p_ali');
     expect(req.state).toBe('pending');
     expect(orgs.pendingApprovals(home.id)).toHaveLength(1);
-    events.drain();
+    await orgs.settled();
     expect(seen.filter((t) => t === 'org.payer_approval_requested')).toHaveLength(1);
     expect(() => orgs.resolvePayerApproval(req.id, 'p_kid', 'approved')).toThrow(DriverError);
     expect(orgs.resolvePayerApproval(req.id, 'p_ali', 'approved').state).toBe('approved');

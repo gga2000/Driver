@@ -11,6 +11,12 @@ export interface EnqueueOptions {
   jobId?: string;
   attempts?: number;
   backoffMs?: number;
+  /**
+   * Forget the job (and its `jobId`) as soon as it finishes, completed or failed, so the same id
+   * can be enqueued again. For pokes such as the outbox `tick`: one waiting at a time, never
+   * suppressed by a finished one.
+   */
+  transient?: boolean;
 }
 
 export type JobHandler<T> = (job: { id: string; name: string; data: T }) => Promise<void>;
@@ -51,8 +57,8 @@ class BullMqQueue<T> implements Queue<T> {
 
   async add(name: string, data: T, opts: EnqueueOptions = {}): Promise<void> {
     const jobOpts: JobsOptions = {
-      removeOnComplete: 1000,
-      removeOnFail: 5000,
+      removeOnComplete: opts.transient ? true : 1000,
+      removeOnFail: opts.transient ? true : 5000,
       attempts: opts.attempts ?? 1,
       ...(opts.delayMs !== undefined ? { delay: opts.delayMs } : {}),
       ...(opts.jobId !== undefined ? { jobId: opts.jobId } : {}),
@@ -142,6 +148,8 @@ interface PendingJob<T> {
   data: T;
   readyAt: number;
   attemptsLeft: number;
+  /** jobId to release when the job finishes (transient jobs only). */
+  release?: string;
 }
 
 /**
@@ -174,6 +182,7 @@ export class InMemoryQueue<T = unknown> implements Queue<T> {
       data,
       readyAt: this.now().getTime() + (opts.delayMs ?? 0),
       attemptsLeft: opts.attempts ?? 1,
+      ...(opts.transient && opts.jobId ? { release: opts.jobId } : {}),
     });
   }
 
@@ -204,10 +213,14 @@ export class InMemoryQueue<T = unknown> implements Queue<T> {
       try {
         await this.handler({ id: job.id, name: job.name, data: job.data });
         ran += 1;
+        if (job.release) this.seen.delete(job.release);
       } catch (err) {
         job.attemptsLeft -= 1;
         if (job.attemptsLeft > 0) this.jobs.push(job);
-        else throw err;
+        else {
+          if (job.release) this.seen.delete(job.release);
+          throw err;
+        }
       }
     }
     return ran;

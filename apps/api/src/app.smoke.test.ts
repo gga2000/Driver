@@ -156,8 +156,10 @@ describe('API smoke', () => {
     });
     expect((await authed.dispatch.board.query({ cityId: 'aziziyah' })).policies.find((p) => p.vertical === 'taxi')?.suggestOnly).toBe(true);
     await authed.dispatch.setPolicy.mutate({ cityId: 'aziziyah', vertical: 'taxi', clear: true });
-    const missing = (await authed.dispatch.override.mutate({ tripId: 'nope', driverId: 'd1' }).catch((e: unknown) => e)) as { data: { code: string; message_ar: string } };
+    const missing = (await authed.dispatch.override.mutate({ tripId: 'nope', driverId: 'd1' }).catch((e: unknown) => e)) as { data: { code: string; message_ar: string; httpStatus: number } };
     expect(missing.data.code).toBe('dispatch_not_found');
+    // A DriverError thrown in a resolver keeps its status over the wire (was 500 before the v11 result fix).
+    expect(missing.data.httpStatus).toBe(404);
     expect(missing.data.message_ar).toMatch(/[؀-ۿ]/);
   });
 

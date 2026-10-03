@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { DriverError } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { EventsService } from '../events/index.js';
@@ -65,6 +65,8 @@ export class OrgsService {
   private readonly approvals = new Map<string, PayerApprovalRequest>();
   private seq = 0;
   private readonly clock: Clock;
+  private readonly logger = new Logger(OrgsService.name);
+  private readonly inflight = new Set<Promise<void>>();
 
   constructor(
     @Optional() private readonly events?: EventsService,
@@ -197,7 +199,22 @@ export class OrgsService {
     return [...this.orgs.values()].filter((o) => o.type === 'household' && o.members.some((m) => m.personId === personId));
   }
 
+  /**
+   * Orgs is still in-memory and synchronous (its Prisma repository is pending), so there is no
+   * caller transaction to join: each event commits in a transaction of its own. Callers that need
+   * to observe it (tests) await `settled()`.
+   */
   private emit(type: string, actorId: string, payload: Record<string, unknown>, orgId: string): void {
-    this.events?.emit({ actorId, type, occurredAt: this.clock.now(), payload }, { name: 'org', id: orgId });
+    if (!this.events) return;
+    const p = this.events
+      .emit(undefined, { actorId, type, occurredAt: this.clock.now(), payload }, { name: 'org', id: orgId })
+      .then(() => undefined, (err: unknown) => this.logger.error(`${type} not recorded: ${(err as Error).message}`));
+    this.inflight.add(p);
+    void p.finally(() => this.inflight.delete(p));
+  }
+
+  /** Resolves when every event emitted so far has been recorded (and, without Redis, delivered). */
+  async settled(): Promise<void> {
+    await Promise.all([...this.inflight]);
   }
 }

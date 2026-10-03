@@ -26,8 +26,8 @@ Cross-module data flows through the service interface or through domain events, 
 
 Every state change emits a domain event. The `events` module owns both the actor event log and the transactional outbox:
 
-1. The mutating service writes its own rows **and** calls `events.emit(event, { aggregate, id })` in the same unit of work. In Milestone 1 that unit is a method call; with Prisma it becomes one `$transaction` that writes the aggregate row, the `events` row and the `outbox` row together.
-2. Nothing publishes inline. A worker (BullMQ in Milestone 2) calls `events.drain()`, which delivers pending outbox rows to subscribers in order and marks them `published`. Delivery is at-least-once; subscribers must be idempotent.
+1. The mutating service writes its own rows **and** calls `events.emit(tx, event, { name, id })` with the `tx` of its `UnitOfWork.run`: one transaction writes the aggregate row, the `events` row and the `outbox` row together, and a rollback leaves none of them.
+2. Nothing publishes inline. After the commit the `OutboxPublisher` is poked: with Redis a BullMQ worker on the `outbox` queue drains (500-ms tick, `SKIP LOCKED` claims, backoff 2^n s, `failed` after 10); without Redis the commit drains before `run` returns. Subscribers register by name (`events.subscribe(name, types, handler)`); each one's effect commits with its `subscriber_deliveries` record, so a redelivery skips it. Delivery is at-least-once; subscribers must be idempotent. Quarantined late replays reach only subscribers that opt in, never settlement.
 3. Offline actions carry device timestamps and idempotency keys. `emit` and `ledger.record` both short-circuit on a repeated key, so client retries never double-write. A contradiction between an offline action and server state emits `dispute_opened` rather than overwriting.
 
 The `Outbox` model in `packages/db/prisma/schema.prisma` is the durable form of this queue. Never bypass it by calling a notification or analytics sink directly from a service.

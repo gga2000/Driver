@@ -3,11 +3,9 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { EventsService } from '../events/index.js';
 
 /**
- * The only place dispatch touches the events module. Thin adapter over the current
- * `emit(event, aggregate)` signature.
- *
- * TODO(M2 Step 3 merge): once `EventsService.emit(tx, event, aggregate)` lands (transactional
- * outbox), replace the body with a direct call. Dispatch already passes the `tx` it is inside.
+ * The only place dispatch touches the events module: a direct call to the transactional
+ * `EventsService.emit(tx, event, aggregate)` with the `tx` dispatch is inside. The interface exists
+ * so unit tests can record instead.
  */
 export interface DispatchEventEmitter {
   emit(tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event>;
@@ -16,14 +14,14 @@ export interface DispatchEventEmitter {
 export class EventsServiceAdapter implements DispatchEventEmitter {
   constructor(private readonly events: Pick<EventsService, 'emit'>) {}
 
-  async emit(_tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
-    return this.events.emit(event, aggregate);
+  emit(tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
+    return this.events.emit(tx, event, aggregate);
   }
 }
 
 /** Test double: keeps every emitted event in order. */
 export class RecordingEventEmitter implements DispatchEventEmitter {
-  readonly events: Array<Omit<Event, 'id' | 'recordedAt'> & { aggregate: { name: string; id: string } }> = [];
+  readonly events: Array<Omit<Event, 'id' | 'recordedAt' | 'aggregate'> & { aggregate: { name: string; id: string } }> = [];
   private seq = 0;
 
   async emit(_tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {

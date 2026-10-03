@@ -4,7 +4,7 @@ import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
 import { DispatchService } from '../dispatch/index.js';
-import { EventsService } from '../events/index.js';
+import { createInMemoryEvents } from '../events/index.js';
 import { LedgerService } from '../ledger/index.js';
 import { InMemoryLedgerRepository } from '../ledger/repository.js';
 import { PricingService } from '../pricing/index.js';
@@ -13,8 +13,8 @@ import { SimulatorService, rng } from './simulator.service.js';
 
 function build() {
   const config = new ConfigService();
-  const events = new EventsService();
   const clock = new FakeClock();
+  const { events } = createInMemoryEvents({ clock });
   const trips = new TripsService(
     new InMemoryTripsRepository(),
     new TripEventsAdapter(events),
@@ -53,11 +53,11 @@ describe('SimulatorService', () => {
     expect(r.noDrivers).toBe(0);
     expect(r.totalFaresIqd % 250).toBe(0);
     expect(r.ledgerBalanced).toBe(true);
-    // every completed trip emitted the full state sequence as events
-    expect(events.forTrip('trip_1').map((e) => e.type)).toEqual(TRIP_TRAIL);
-    expect(events.pendingOutbox()).toBeGreaterThan(0);
-    expect(events.drain()).toBe(25 * TRIP_TRAIL.length);
-    expect(events.pendingOutbox()).toBe(0);
+    // every completed trip emitted the full state sequence as events, with the trip as a top-level field
+    expect((await events.forTrip('trip_1')).map((e) => e.type)).toEqual(TRIP_TRAIL);
+    // no Redis: each commit drained its outbox rows before returning, so nothing is left pending
+    expect(await events.outboxStats()).toEqual({ pending: 0, published: 25 * TRIP_TRAIL.length, failed: 0 });
+    expect(await events.drain()).toBe(0);
   });
 
   it('cancels trips when no drivers are online', async () => {

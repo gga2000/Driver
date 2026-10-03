@@ -1,12 +1,10 @@
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { EventsService, OutboxRow } from '../events/index.js';
+import type { EventsService, PublishedEvent } from '../events/index.js';
 
 /**
- * The orders module's only path to the event log, plus its subscription to trip events.
- *
- * TODO(M2 Step 3 merge): once `EventsService.emit(tx, event, aggregate)` lands, make `emit` a direct
- * call (top-level `orderId`, no payload folding), and register `subscribeToTrips` as a named,
- * idempotent subscriber in the new registry. Callers already pass their `tx`.
+ * The orders module's only path to the event log, plus its subscription to trip events: a direct
+ * call to the transactional `EventsService.emit(tx, event, aggregate)` (top-level `orderId`), and
+ * one named, idempotent subscriber (`ORDERS_TRIP_SUBSCRIBER`) in the events registry.
  */
 export interface OrderDomainEvent {
   type: string;
@@ -34,27 +32,37 @@ export interface TripEventEnvelope {
   payload: Record<string, unknown>;
 }
 
+/** Subscriber name, and so the dedupe key in `subscriber_deliveries`. */
+export const ORDERS_TRIP_SUBSCRIBER = 'orders:trip-events';
+
+/** A published trip-aggregate event as the orders module consumes it. */
+export function toTripEnvelope(e: PublishedEvent): TripEventEnvelope {
+  return {
+    type: e.type,
+    tripId: e.tripId ?? e.aggregateId,
+    actorId: e.actorId,
+    occurredAt: e.occurredAt,
+    ...(e.orderId ? { orderId: e.orderId } : {}),
+    payload: e.payload,
+  };
+}
+
 export class EventsServiceAdapter implements OrderEventEmitter {
   constructor(private readonly events: Pick<EventsService, 'emit' | 'subscribe'>) {}
 
-  async emit(_tx: Tx | undefined, event: OrderDomainEvent, aggregate: { name: string; id: string }): Promise<void> {
-    const { orderId, payload, ...rest } = event;
-    this.events.emit({ ...rest, payload: { ...payload, orderId } }, aggregate);
+  async emit(tx: Tx | undefined, event: OrderDomainEvent, aggregate: { name: string; id: string }): Promise<void> {
+    await this.events.emit(tx, event, aggregate);
   }
 
-  /** Delivers published trip/stop events (aggregate `trip`) to `handler`. */
+  /**
+   * Delivers published trip/stop events (aggregate `trip`) to `handler` through the outbox. A
+   * throwing handler is retried with backoff; once it succeeds the delivery is recorded and a
+   * redelivery skips it. Quarantined late replays never arrive here.
+   */
   subscribeToTrips(handler: (e: TripEventEnvelope) => Promise<unknown>): () => void {
-    return this.events.subscribe('*', (row: OutboxRow) => {
-      if (row.aggregate !== 'trip') return;
-      const { actorId, occurredAt, orderId, ...payload } = row.payload as { actorId?: string; occurredAt?: string; orderId?: string } & Record<string, unknown>;
-      void handler({
-        type: row.type,
-        tripId: row.aggregateId,
-        actorId: actorId ?? 'system',
-        occurredAt: occurredAt ? new Date(occurredAt) : row.createdAt,
-        ...(orderId ? { orderId } : {}),
-        payload,
-      });
+    return this.events.subscribe(ORDERS_TRIP_SUBSCRIBER, '*', async (e) => {
+      if (e.aggregate !== 'trip') return;
+      await handler(toTripEnvelope(e));
     });
   }
 }

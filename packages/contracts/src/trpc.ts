@@ -64,12 +64,23 @@ export const t = initTRPC.context<AppContext>().create({
 });
 
 export const router = t.router;
+
+/**
+ * Maps a DriverError thrown anywhere below to its tRPC code (and so its HTTP status: offer_taken →
+ * 409, dev_only → 403…). tRPC v11 does not throw out of `next()`: a failing resolver or middleware
+ * comes back as `{ ok: false, error }` with the DriverError wrapped as INTERNAL_SERVER_ERROR's
+ * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
+ * tRPC with the new code.
+ */
 export const publicProcedure = t.procedure.use(async ({ next }) => {
+  let result;
   try {
-    return await next();
+    result = await next();
   } catch (err) {
     throw toTrpcError(err);
   }
+  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) throw toTrpcError(result.error.cause);
+  return result;
 });
 
 /**

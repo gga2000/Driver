@@ -1,14 +1,13 @@
-import { Logger } from '@nestjs/common';
 import type { Event } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { EventsService } from '../events/index.js';
+import type { EventsService, PublishedEvent } from '../events/index.js';
 
 /**
- * The ledger's only contact with the events module (copy of the identity adapter pattern).
- *
- * TODO(M2 Step 3 merge): when `EventsService.emit(tx, event, aggregate)` (transactional outbox) and
- * the named, idempotent subscriber registry land, replace both bodies with direct calls and delete
- * this file. Ledger services already pass the `tx` they are inside and register named handlers.
+ * The ledger's only contact with the events module: the transactional `EventsService.emit(tx, …)`
+ * and named, idempotent subscribers in the events registry (`ledger:<event type>`). A handler's
+ * postings and its delivery record commit in one transaction, so a redelivered event posts nothing;
+ * a throwing handler is retried with backoff by the outbox publisher. Quarantined late replays are
+ * never delivered here (edge-case §10: never settled).
  */
 export type LedgerHandler = (payload: Record<string, unknown>, meta: { eventId?: string; type: string }) => Promise<void>;
 
@@ -18,29 +17,36 @@ export interface LedgerEventBus {
   subscribe(name: string, type: string, handler: LedgerHandler): void;
 }
 
-export class EventsServiceLedgerBus implements LedgerEventBus {
-  private readonly logger = new Logger('LedgerEvents');
+/**
+ * The payload a ledger handler parses: the producer's payload with the envelope's actor, device
+ * time and top-level trip/order ids underneath (payload keys win). Dates arrive as ISO strings,
+ * as they would off the wire.
+ */
+export function ledgerPayload(e: PublishedEvent): Record<string, unknown> {
+  return {
+    actorId: e.actorId,
+    occurredAt: e.occurredAt.toISOString(),
+    ...(e.tripId ? { tripId: e.tripId } : {}),
+    ...(e.orderId ? { orderId: e.orderId } : {}),
+    ...e.payload,
+  };
+}
 
+export class EventsServiceLedgerBus implements LedgerEventBus {
   constructor(private readonly events: Pick<EventsService, 'emit' | 'subscribe'>) {}
 
-  async emit(_tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
-    return this.events.emit(event, aggregate);
+  emit(tx: Tx | undefined, event: Omit<Event, 'id' | 'recordedAt'>, aggregate: { name: string; id: string }): Promise<Event> {
+    return this.events.emit(tx, event, aggregate);
   }
 
   subscribe(name: string, type: string, handler: LedgerHandler): void {
-    // The M1 bus delivers synchronously from `drain()`; the handler's promise is awaited by nobody,
-    // so failures are logged here. Step 3's registry retries with backoff instead.
-    this.events.subscribe(type, (row) => {
-      handler(row.payload, { eventId: row.id, type: row.type }).catch((err: unknown) =>
-        this.logger.error(`${name} failed on ${row.type} ${row.id}: ${(err as Error).message}`, (err as Error).stack),
-      );
-    });
+    this.events.subscribe(name, [type], (e) => handler(ledgerPayload(e), { eventId: e.id, type: e.type }));
   }
 }
 
 /** Test double: records emitted events and lets tests publish to the registered handlers, awaited. */
 export class RecordingLedgerBus implements LedgerEventBus {
-  readonly emitted: Array<Omit<Event, 'id' | 'recordedAt'> & { aggregate: { name: string; id: string } }> = [];
+  readonly emitted: Array<Omit<Event, 'id' | 'recordedAt' | 'aggregate'> & { aggregate: { name: string; id: string } }> = [];
   readonly handlers = new Map<string, Array<{ name: string; handler: LedgerHandler }>>();
   private seq = 0;
 
