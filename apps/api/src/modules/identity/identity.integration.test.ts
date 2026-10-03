@@ -38,11 +38,10 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
 
   afterAll(async () => {
     const db = prisma.prisma;
-    await db.vaultAccessLog.deleteMany({ where: { personId } });
+    // vault_access_logs is append-only (by design) and references the person, so the person and
+    // its audit trail stay; the CI database is thrown away after the run. Clear what can be cleared.
     await db.session.deleteMany({ where: { personId } });
     await db.role.deleteMany({ where: { personId } });
-    await db.personIdentity.deleteMany({ where: { personId } });
-    await db.person.deleteMany({ where: { id: personId } });
     await prisma.onModuleDestroy();
   });
 
