@@ -86,3 +86,19 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path
 under `expo start`). Metro notes for this pnpm monorepo live in `metro.config.js` (hierarchical
 lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 `tsconfig.typecheck.json`, which pins React 18 types.
+
+## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
+
+- Reads `orders.track` (own order + trip summary + courier card, every 4 s while live) and
+  `orders.courierPosition` (every 2 s, only between accept and complete); rates with `orders.rate`
+  (`delivery`, `food`).
+- Map: `map/BaseMap.web.tsx` is MapLibre GL with the `@driver/map` light style (lazy chunk; the SVG
+  base if WebGL is missing); `map/BaseMap.tsx` (native) is the SVG zone base until
+  `@maplibre/maplibre-react-native` ships in a dev-client build. The overlay (courier glide +
+  bearing, shortening route, pins) runs on Reanimated worklets over either base, from one camera in
+  shared values (`geo.ts`: 512-px Web Mercator, same as MapLibre).
+- Pure logic with tests: `geo.ts` (projection, glide, bearing, route), `timeline.ts` (status →
+  steps), `eta.ts` (live ETA, lateness, signal lost).
+- Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|unreachable|arrived|late|signal_lost|reassigning`
+  and `POST /demo/track/advance?orderId=…`; `SHOTS=track node scripts/web-shots.mjs` writes `track-*.png`.
+  `?sheet=1|2` opens the sheet at a detent.

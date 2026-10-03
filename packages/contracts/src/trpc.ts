@@ -10,6 +10,7 @@ import { DriverError, errorEnvelope, isDriverError, type ErrorCode } from './err
 import type { OrdersPort } from './order.js';
 import type { PriceRequest, Quote } from './pricing.js';
 import type { TripsPort } from './trip.js';
+import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { transformer } from './transformer.js';
@@ -33,6 +34,8 @@ export interface AppContext {
   routes: RoutesPort;
   /** Console read side: cross-module views composed by the API's `console` module. */
   console: ConsolePort;
+  /** Customer live order/ride screen reads (`modules/tracking`): owner-checked, narrow courier card. */
+  tracking: TrackingPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

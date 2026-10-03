@@ -1,4 +1,4 @@
-import type { DeliveryPoint, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
+import type { DeliveryPoint, OrderRating, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -48,6 +48,8 @@ export interface OrderRecord {
   cancellationReason: string | null;
   cancellationFeeIqd: number;
   ratedAt: Date | null;
+  /** Customer app §4 two-tap rating (`orders.rating`, JSON); absent/null until rated. */
+  rating?: OrderRating | null;
 }
 
 /** Partial-accept marker kept in `order_lines.substitution` (review A.4). */
@@ -96,6 +98,7 @@ export type NewOrder = Omit<
   | 'cancellationReason'
   | 'cancellationFeeIqd'
   | 'ratedAt'
+  | 'rating'
   | 'merchantOfferedAt'
   | 'promisedReadyAt'
   | 'refundState'
@@ -183,7 +186,13 @@ function orderFromRow(r: any): OrderRecord {
     cancellationReason: r.cancellationReason,
     cancellationFeeIqd: r.cancellationFeeIqd,
     ratedAt: r.ratedAt,
+    rating: ratingFromJson(r.rating),
   };
+}
+
+function ratingFromJson(v: any): OrderRating | null {
+  if (!v || typeof v !== 'object') return null;
+  return { delivery: v.delivery ?? null, food: v.food ?? null, tags: Array.isArray(v.tags) ? v.tags : [], note: v.note ?? null, ratedAt: new Date(v.ratedAt) };
 }
 
 function lineFromRow(r: any): OrderLineRecord {
@@ -209,8 +218,10 @@ function participantFromRow(r: any): ParticipantRecord {
 
 /** A patch as Prisma wants it: JSON columns take `Prisma.DbNull`, not `null`. */
 function toData(patch: OrderPatch) {
-  const { dropoff, ...rest } = patch;
-  return dropoff === undefined ? rest : { ...rest, dropoff: dropoff ? (dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull };
+  const { dropoff, rating, ...rest } = patch;
+  const data: Record<string, unknown> = dropoff === undefined ? rest : { ...rest, dropoff: dropoff ? (dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull };
+  if (rating !== undefined) data['rating'] = rating ? ({ ...rating, ratedAt: rating.ratedAt.toISOString() } as unknown as Prisma.InputJsonObject) : Prisma.DbNull;
+  return data;
 }
 
 /** Bound when DATABASE_URL is set. Touches only orders, order_lines and participants. */

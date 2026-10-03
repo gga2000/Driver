@@ -131,6 +131,23 @@ export const OrderLine = z.object({
 });
 export type OrderLine = z.infer<typeof OrderLine>;
 
+// ───────────────────────── rating ─────────────────────────
+
+/** One-tap reasons under a low score. Stored as given; support reads them with the order. */
+export const RatingTag = z.enum(['late', 'cold', 'missing_item', 'rude', 'great_service', 'tasty', 'well_packed', 'careful_driving']);
+export type RatingTag = z.infer<typeof RatingTag>;
+
+export const RatingScore = z.number().int().min(1).max(5);
+
+export const OrderRating = z.object({
+  delivery: RatingScore.nullable(),
+  food: RatingScore.nullable(),
+  tags: z.array(RatingTag),
+  note: z.string().nullable(),
+  ratedAt: z.coerce.date(),
+});
+export type OrderRating = z.infer<typeof OrderRating>;
+
 export const Order = z.object({
   id: z.string(),
   cityId: CityId,
@@ -169,6 +186,8 @@ export const Order = z.object({
   cancellationFeeIqd: Iqd,
   refundState: RefundState,
   note: z.string().nullable(),
+  /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */
+  rating: OrderRating.nullable().optional(),
 });
 export type Order = z.infer<typeof Order>;
 
@@ -198,6 +217,23 @@ export type DisputeKind = z.infer<typeof DisputeKind>;
 // ───────────────────────── procedure I/O ─────────────────────────
 
 export const OrderIdInput = z.object({ orderId: z.string().min(1) });
+
+/**
+ * `orders.rate` input. The scores are optional so the old "rate = close early" call (order id only)
+ * still works; the live screen sends the delivery score (courier/driver) and, for kitchen orders,
+ * the food score separately (spec §4 "two-tap rating").
+ */
+export const RateOrderInput = OrderIdInput.extend({
+  delivery: RatingScore.optional(),
+  food: RatingScore.optional(),
+  tags: z.array(RatingTag).max(6).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+export type RateOrderInput = z.infer<typeof RateOrderInput>;
+
+/** Order types whose food/items come from a merchant kitchen or shop: only these take a food score. */
+export const FOOD_RATED_TYPES = ['food', 'grocery_catalog'] as const;
+
 export const MerchantAcceptInput = z.object({
   orderId: z.string().min(1),
   prepMinutes: z.number().int().min(1).max(240),
@@ -227,7 +263,8 @@ export interface OrdersPort {
   cancel(actor: Actor, input: CancelOrderInput): Promise<Order>;
   respondPartial(actor: Actor, input: RespondPartialInput): Promise<Order>;
   openDispute(actor: Actor, input: OpenDisputeInput): Promise<Order>;
-  rate(actor: Actor, input: { orderId: string }): Promise<Order>;
+  /** Closes the order early; with scores, also stores the two-tap rating (validated by the API). */
+  rate(actor: Actor, input: RateOrderInput): Promise<Order>;
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
   merchantAccept(actor: Actor, input: z.infer<typeof MerchantAcceptInput>): Promise<Order>;
   merchantReject(actor: Actor, input: MerchantRejectInput): Promise<Order>;

@@ -10,6 +10,7 @@ import {
   type Order,
   type OrdersPort,
   type PlaceOrderInput,
+  type RateOrderInput,
   type RespondPartialInput,
   type RoleKind,
   type MerchantAcceptInput,
@@ -85,7 +86,7 @@ export class OrdersRpc implements OrdersPort {
     return this.orders.openDispute(actor.personId, input);
   }
 
-  rate(actor: Actor, input: { orderId: string }): Promise<Order> {
+  rate(actor: Actor, input: RateOrderInput): Promise<Order> {
     return this.orders.rate(actor.personId, input);
   }
 

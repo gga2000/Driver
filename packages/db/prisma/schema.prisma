@@ -854,6 +854,8 @@ model Order {
   cancellationReason String?       @map("cancellation_reason")
   cancellationFeeIqd Int           @default(0) @map("cancellation_fee_iqd")
   ratedAt            DateTime?     @map("rated_at")
+  /// Customer app §4: the two-tap rating {delivery, food, tags[], note, ratedAt} (null = not rated).
+  rating             Json?
   /// Step 4 (edge-case review A.12): when the merchant was offered the order; scheduled orders wait until T − prep − 10 min.
   merchantOfferedAt  DateTime?     @map("merchant_offered_at")
   /// Step 4 (edge-case review A.2): accept time + prep; heartbeat checks run at +10 and +15 min.
