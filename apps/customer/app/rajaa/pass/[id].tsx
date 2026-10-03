@@ -11,7 +11,7 @@ import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 
 const MIN = 60_000;
 
@@ -168,7 +168,7 @@ export default function BoardingPassScreen() {
         <View style={{ padding: theme.space[5], flexDirection: 'row', flexWrap: 'wrap', rowGap: theme.space[4], columnGap: theme.space[3] }}>
           <Field icon="seat" label={t('rajaa.seat_label')} value={seatsList(t, b.seatIds)} />
           <Field icon={atPoint ? 'map-pin' : 'garage'} label={atPoint ? t('rajaa.stop_label') : t('rajaa.garage_label')} value={stopName} />
-          <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${amountParam(b.totalIqd)}`} />
+          <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
           <Field icon="car" label={t('rajaa.car_label')} value={vehicleLine(t, b.departure.vehicle)} />
         </View>
         {b.pickup.status === 'pending' ? (

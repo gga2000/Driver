@@ -203,6 +203,21 @@ describe('status → timeline', () => {
     expect(phaseOf(v)).toBe('on_the_way');
   });
 
+  it('ready with a courier on the job: the status says where he is, like the kitchen board', () => {
+    const ready = { state: 'ready' as const, acceptedAt: at(1), readyAt: at(5) };
+    expect(phaseOf(view(ready, { trip: trip('en_route_to_pickup'), courier }))).toBe('to_pickup');
+    expect(statusLine(view(ready, { trip: trip('en_route_to_pickup'), courier }), t)).toBe(t('track.courier_to_kitchen_short'));
+    expect(phaseOf(view(ready, { trip: trip('arrived_pickup'), courier }))).toBe('at_pickup');
+    expect(phaseOf(view(ready, { trip: trip('offered') }))).toBe('preparing');
+    expect(phaseOf(view({ state: 'preparing' }, { trip: trip('en_route_to_pickup'), courier }))).toBe('preparing');
+  });
+
+  it('courier at my door: "الدليفري عند بابك", not "on the way"', () => {
+    const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff'), courier });
+    expect(statusLine(v, t)).toBe(t('track.courier_at_door'));
+    expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
+  });
+
   it('batched courier: says another drop comes first', () => {
     const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('in_transit', { dropsBeforeMine: 1 }), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);

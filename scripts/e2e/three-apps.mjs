@@ -251,7 +251,7 @@ async function foodFlow() {
   check(offer.vertical === 'food' && offer.pickup.label === khalid.seed.nameAr, `offer: food pickup at ${offer.pickup.label}`);
   check(offer.collectIqd === order.totalIqd, 'offer: cash to collect = order total', offer.collectIqd);
   check(offer.pay.totalIqd > 0, `offer: named pay ${offer.pay.components?.map((p) => `${p.key}=${p.amountIqd}`).join(', ')}`);
-  await capture('3-offer', { customer: `/order/${orderId}`, merchant: '/', partner: '/offer' });
+  await capture('3-offer', { partner: '@current', customer: `/order/${orderId}`, merchant: '/', order: ['partner', 'customer', 'merchant'] });
 
   step('courier accepts (dispatch.respond)');
   const resp = await courier.api.dispatch.respond.mutate({ offerId: offer.offerId, accept: true });
@@ -339,7 +339,8 @@ async function rajaaFlow() {
   step('driver announces a car from كراج النهضة (routes.driver.announce)');
   const network = await intercity.api.routes.network.query();
   check(JSON.stringify(network).includes(GARAGE), 'network lists كراج النهضة');
-  const departAt = new Date(Math.ceil((Date.now() + 25 * 60_000) / 300_000) * 300_000);
+  // 45+ min ahead: the T−30 low-fill check (< 3 seats → cancelled) must not fire mid-walk.
+  const departAt = new Date(Math.ceil((Date.now() + 45 * 60_000) / 900_000) * 900_000);
   const dep = await intercity.api.routes.driver.announce.mutate({
     garageId: GARAGE,
     corridorId: CORRIDOR,
@@ -348,7 +349,7 @@ async function rajaaFlow() {
     vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', model: 'كامري', color: 'بيضاء' },
   });
   check(dep.id && dep.direction === 'to_aziziyah', `departure ${dep.id} announced, direction ${dep.direction}`);
-  await capture('r1-announced', { customer: '/rajaa', partner: `/intercity/departure/${dep.id}` });
+  await capture('r1-announced', { customer: '/rajaa', partner: `/intercity/departure/${dep.id}`, partnerAs: 'intercity' });
 
   step('customer finds it on the الرجعة board and books the front seat (cash)');
   const board = await customer.api.routes.board.query({ corridorId: CORRIDOR, direction: 'to_aziziyah', travellingAs: 'rijal' });
@@ -359,12 +360,12 @@ async function rajaaFlow() {
   check(booked.state === 'booked', 'seat booked, cash reservation', booked.state);
   const pass = await customer.api.routes.boardingPass.query({ bookingId: hold.id });
   check(/^\d{4}$/.test(pass.pin), `boarding pass PIN ${pass.pin}`);
-  await capture('r2-booked', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+  await capture('r2-booked', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}`, partnerAs: 'intercity' });
 
   step('driver sees the rider');
   const dv = await intercity.api.routes.driver.departure.query({ departureId: dep.id });
   const b = dv.bookings.find((x) => x.bookingId === hold.id);
-  check(b && b.state === 'booked', 'driver departure: the booking is on his car', b);
+  check(b && b.state === 'booked', 'driver departure: the booking is on his car', { state: dv.state, cancelReason: dv.cancelReason, bookings: dv.bookings });
   const names = await intercity.api.routes.driver.riders.query({ departureId: dep.id });
   check(names.some((n) => n.bookingId === hold.id && n.firstName === 'علي'), 'driver manifest: rider first name علي', names);
 
@@ -385,7 +386,7 @@ async function rajaaFlow() {
   check(ci.bookings.find((x) => x.bookingId === hold.id)?.state === 'checked_in', 'PIN check-in: rider on board');
   const mine = await customer.api.routes.myBookings.query();
   check(mine.find((x) => x.id === hold.id)?.state === 'checked_in', 'customer bookings: checked in', mine.find((x) => x.id === hold.id)?.state);
-  await capture('r3-checked-in', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+  await capture('r3-checked-in', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}`, partnerAs: 'intercity' });
   // Before the departure time a car leaves only when full: three men walk up at the garage.
   const early = await intercity.api.routes.driver.departure.query({ departureId: dep.id });
   check(early.departBlockers.some((x) => x.reason === 'too_early_not_full'), 'before its time a half-empty car may not leave (too_early_not_full)');
@@ -395,7 +396,10 @@ async function rajaaFlow() {
   const mineAfter = (await customer.api.routes.myBookings.query()).find((x) => x.id === hold.id);
   console.log(`  · customer booking after departure: ${JSON.stringify({ state: mineAfter?.state, departure: mineAfter?.departure?.state })}`);
   check(mineAfter && JSON.stringify(mineAfter).includes('departed'), 'customer booking: the car shows as departed', mineAfter?.state);
-  await capture('r4-departed', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+  await intercity.api.routes.driver.position.mutate({ departureId: dep.id, lat: garagePin.lat - 0.01, lng: garagePin.lng + 0.01 });
+  const passAfter = await customer.api.routes.boardingPass.query({ bookingId: hold.id });
+  check(passAfter.boardingOpen && passAfter.car, 'boarding pass: a car that left early is live on the rider\'s map', { boardingOpen: passAfter.boardingOpen, car: passAfter.car });
+  await capture('r4-departed', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}`, partnerAs: 'intercity' });
 }
 
 // ───────────────────────── flow 3: tuktuk ride ─────────────────────────
@@ -411,6 +415,7 @@ async function rideFlow() {
   const st = await tuktuk.api.partner.goOnline.mutate({ cityId: CITY, at: { lat: 32.8975, lng: 45.0655 }, vehicleClass: 'tuktuk' });
   check(st.online && st.vehicleClass === 'tuktuk', 'online on a tuktuk');
   const cashBefore = st.cash.heldIqd;
+  await capture('t0-online', { partner: '/', partnerAs: 'tuktuk' });
 
   step('customer asks for a tuktuk (pricing.quote → orders.place type ride)');
   const quote = await customer.api.pricing.quote.query({
@@ -425,14 +430,14 @@ async function rideFlow() {
   });
   const ride = await customer.api.orders.place.mutate({ cityId: CITY, type: 'ride', rideVertical: 'tuktuk', fareIqd: quote.total, quoteId: quote.id, paymentMethod: 'cash', pickup: PICKUP, dropoff: DROPOFF });
   check(ride.state === 'placed' && ride.totalIqd === quote.total, `ride placed (${ride.id}), fare ${ride.totalIqd}`);
-  await capture('t1-requested', { customer: `/order/${ride.id}`, partner: '/' });
+  await capture('t1-requested', { customer: `/order/${ride.id}` });
 
   step('the driver gets the offer');
   const offer = await until(() => tuktuk.api.partner.currentOffer.query(), { timeoutMs: 8000 });
   check(offer && offer.vertical === 'tuktuk', 'partner.currentOffer: tuktuk ride offer', offer?.vertical);
   if (!offer) return;
   check(offer.collectIqd === ride.totalIqd, `offer: collect ${offer.collectIqd} cash`, offer.collectIqd);
-  await capture('t2-offer', { customer: `/order/${ride.id}`, partner: '/offer' });
+  await capture('t2-offer', { partner: '@current', partnerAs: 'tuktuk' });
   const resp = await tuktuk.api.dispatch.respond.mutate({ offerId: offer.offerId, accept: true });
   check(resp.outcome === 'assigned', 'accepted');
   let t = await customer.api.orders.track.query({ orderId: ride.id });
@@ -446,7 +451,7 @@ async function rideFlow() {
   await tuktuk.api.trips.arrive.mutate({ tripId: job.tripId, stopId: pickup.stopId, pin: PICKUP.pin, occurredAt: new Date() });
   t = await customer.api.orders.track.query({ orderId: ride.id });
   check(t.trip?.state === 'arrived_pickup', 'customer: driver at the pickup', t.trip?.state);
-  await capture('t3-arrived', { customer: `/order/${ride.id}`, partner: '/job' });
+  await capture('t3-arrived', { customer: `/order/${ride.id}`, partner: '/job', partnerAs: 'tuktuk' });
   await tuktuk.api.trips.completeStop.mutate({ tripId: job.tripId, stopId: pickup.stopId, handover: {}, occurredAt: new Date() });
   await tuktuk.api.trips.reportPosition.mutate({ pin: DROPOFF.pin, at: new Date(), speedKmh: 0 });
   await tuktuk.api.trips.arrive.mutate({ tripId: job.tripId, stopId: drop.stopId, pin: DROPOFF.pin, occurredAt: new Date() });
@@ -463,7 +468,7 @@ async function rideFlow() {
     { timeoutMs: 5000 },
   );
   check(status, `partner: cash held rises after the ride (${cashBefore} → ${status?.cash.heldIqd})`);
-  await capture('t4-completed', { customer: `/order/${ride.id}`, partner: '/' });
+  await capture('t4-completed', { customer: `/order/${ride.id}`, partner: '/', partnerAs: 'tuktuk' });
 
   step('customer rates the driver');
   const rated = await customer.api.orders.rate.mutate({ orderId: ride.id, delivery: 5 });

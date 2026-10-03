@@ -115,3 +115,11 @@ describe('light theme (customer app)', () => {
     expect(buildMapStyle().name).toBe('Driver dark');
   });
 });
+
+describe('zone labels', () => {
+  it('show Western digits on the map (the seed keeps "شارع ٣٠")', () => {
+    const labels = [...buildZonesGeoJSON().features, ...buildZoneCentroidsGeoJSON().features].map((f) => f.properties.name_ar);
+    expect(labels.some((l) => /[٠-٩۰-۹]/.test(l))).toBe(false);
+    expect(labels).toContain('شارع 30');
+  });
+});

@@ -3,7 +3,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES } from '@driver/contracts';
+import { FOOD_RATED_TYPES, orderTicketNumber } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
@@ -116,7 +116,7 @@ export default function OrderLiveScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
-      <TopBar orderNo={v ? t('order.number', { id: v.order.id.replace(/^ord_/, '').slice(-6).toUpperCase() }) : undefined}>
+      <TopBar orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}>
         {lostMin !== null ? (
           <DegradedBanner
             testID="signal-lost"
@@ -147,7 +147,7 @@ export default function OrderLiveScreen() {
             <SheetHeader
               phase={phase}
               status={statusLine(v, t)}
-              pill={[t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
+              pill={[ride && v.courier?.vehicleClass === 'tuktuk' ? t('track.vehicle.tuktuk') : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
               eta={eta}
               now={now}
               lateMin={lateMin}

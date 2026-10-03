@@ -21,3 +21,4 @@ apps/partner/dist-web*/
 apps/partner/web-shots/
 apps/merchant/dist-web*/
 apps/merchant/web-shots/
+apps/*/dist-e2e/

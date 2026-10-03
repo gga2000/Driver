@@ -15,6 +15,14 @@ export interface ZoneProps {
   radiusM: number;
 }
 
+/**
+ * Map labels in Western digits (voice guide: 0–9 everywhere): the zone seed keeps the official
+ * spelling ("شارع ٣٠"), the map shows "شارع 30" like every other screen.
+ */
+export function labelDigits(s: string): string {
+  return s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+}
+
 export type ZoneFeature = Feature<Polygon, ZoneProps>;
 export type ZoneCollection = FeatureCollection<Polygon, ZoneProps>;
 
@@ -34,7 +42,7 @@ export function buildZonesGeoJSON(zones: readonly AziziyahZoneSeed[] = AZIZIYAH_
       properties: {
         id: z.id,
         extId: z.extId,
-        name_ar: z.name_ar,
+        name_ar: labelDigits(z.name_ar),
         name_en: z.name_en,
         tier: z.tier,
         group: z.group,
@@ -56,7 +64,7 @@ export function buildZoneCentroidsGeoJSON(zones: readonly AziziyahZoneSeed[] = A
       properties: {
         id: z.id,
         extId: z.extId,
-        name_ar: z.name_ar,
+        name_ar: labelDigits(z.name_ar),
         name_en: z.name_en,
         tier: z.tier,
         group: z.group,

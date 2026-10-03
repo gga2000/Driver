@@ -1,4 +1,5 @@
 import {
+  orderTicketNumber,
   travelMinutes,
   type BoardColumn,
   type BoardCourier,
@@ -34,12 +35,7 @@ export function boardColumn(state: OrderState): BoardColumn | null {
  * board are rare and harmless (the card and receipt also carry the time and the people).
  */
 export function ticketNumber(orderId: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < orderId.length; i++) {
-    h ^= orderId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return String(1000 + (h % 9000));
+  return orderTicketNumber(orderId);
 }
 
 /** A line's modifiers as names: `{groupId, modifierId, nameAr, priceIqd}` from `orders.place`. */

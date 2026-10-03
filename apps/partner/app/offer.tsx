@@ -216,7 +216,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
             }
           />
 
-          {!ride ? (
+          {!ride || offer.collectIqd ? (
             <View
               testID="offer-cash"
               style={{

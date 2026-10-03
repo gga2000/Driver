@@ -384,7 +384,7 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text variant="caption" color="textMuted" tabular>
-              {`${t('partner.cash_owed_label')} ${amountParam(cap.owedIqd)}`}
+              {`${t('partner.cash_owed_label')} ${amountParam(cap.owedIqd)} ${t('quote.currency')}`}
             </Text>
             <Text variant="caption" weight={600} tabular>
               {t('partner.cash_cap_tier', { tier: t(`partner.tier_${cap.tier}`), amount: amountParam(cap.capIqd) })}
