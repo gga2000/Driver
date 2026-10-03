@@ -5,7 +5,7 @@ import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
-import { DevBlobStore, type BlobStore } from '../places/index.js';
+import { DevBlobStore, PlacesService, type BlobStore } from '../places/index.js';
 import { InMemoryOpsRepository } from './ops.repository.js';
 import { OpsService } from './ops.service.js';
 
@@ -28,9 +28,10 @@ async function setup() {
   const accounts = { verifyHandoverCode: (driverId: string, code: string) => codes.verify(driverId, code, clock.now()) } as unknown as DriverAccountService;
   const orgs = new OrgsService(undefined, clock);
   const repo = new InMemoryOpsRepository();
-  const ops = new OpsService(repo, accounts, lh.merchantCash, lh.caps, lh.ledger, orgs, id.service, ev.events, blobs, ev.uow, clock);
+  const places = new PlacesService();
+  const ops = new OpsService(repo, accounts, lh.merchantCash, lh.caps, lh.ledger, orgs, id.service, ev.events, blobs, ev.uow, clock, places);
   const staff = (await id.login('07700000001')).actor;
-  return { id, clock, lh, ev, blobs, codes, orgs, repo, ops, staff };
+  return { id, clock, lh, ev, blobs, codes, orgs, repo, ops, staff, places };
 }
 
 describe('ops.recordCashReceipt', () => {
@@ -113,5 +114,55 @@ describe('ops.addLandmarkPhoto', () => {
     const p = await h.ops.addLandmarkPhoto(h.staff, { target: { kind: 'landmark', id: 'lm_mosque' }, uploadId: await upload(h.blobs, h.staff.personId), localNames: ['يم الجامع الكبير'] });
     expect(p).toMatchObject({ state: 'proposed', target: { kind: 'landmark', id: 'lm_mosque' } });
     expect((await h.ev.events.forActor(h.staff.personId)).find((e) => e.type === 'landmark.proposed')?.payload).toMatchObject({ localNames: ['يم الجامع الكبير'] });
+  });
+});
+
+describe('ops.cashHolders', () => {
+  it('lists couriers holding cash with vault names, over-cap and most owed first', async () => {
+    const h = await setup();
+    const big = (await h.id.login('07700000061')).actor.personId;
+    const small = (await h.id.login('07700000062')).actor.personId;
+    await h.id.service.setName({ personId: big, sessionId: 's' }, 'حيدر');
+    for (const o of ['o1', 'o2', 'o3']) await h.lh.posting.orderMoney(workedExample({ orderId: o, courierId: big }));
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o4', courierId: small }));
+    const rows = await h.ops.cashHolders(h.staff, {});
+    expect(rows.map((r) => r.courierId)).toEqual([big, small]);
+    const s = await h.lh.caps.status(big);
+    expect(rows[0]).toMatchObject({ name: 'حيدر', phoneMasked: '+96477*****61', owedIqd: s.owedIqd, capIqd: s.capIqd, tier: s.tier, overCap: s.overCap });
+    expect(rows[0]!.heldIqd).toBe(-s.cashIqd);
+    expect(h.id.repo.accessLogs.some((l) => l.personId === big && l.purpose === 'ops_cash_round')).toBe(true);
+  });
+});
+
+describe('ops.landmarks', () => {
+  it('lists landmark places by zone, fewest photos first, counting proposed ones', async () => {
+    const h = await setup();
+    const mosque = h.places.save({ cityId: 'aziziyah', pin: { lat: 32.905, lng: 45.06 }, name: 'الجامع الكبير', photos: [], confidence: 1, sharedWith: [], landmark: true });
+    h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9055, lng: 45.0605 }, name: 'بيت أبو علي', photos: [], confidence: 0.5, sharedWith: [], landmark: false });
+    const park = h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9165, lng: 45.0585 }, name: 'حديقة الشاشة', photos: [], confidence: 1, sharedWith: [], landmark: true });
+    await h.ops.addLandmarkPhoto(h.staff, { target: { kind: 'landmark', id: mosque.id }, uploadId: await upload(h.blobs, h.staff.personId), localNames: [] });
+    const all = await h.ops.landmarks(h.staff, { cityId: 'aziziyah' });
+    expect(all.map((l) => [l.name, l.zoneKey, l.photos])).toEqual([
+      ['حديقة الشاشة', 'mahdood_2', 0],
+      ['الجامع الكبير', 'centre', 1],
+    ]);
+    expect((await h.ops.landmarks(h.staff, { cityId: 'aziziyah', zoneKey: 'centre' })).map((l) => l.placeId)).toEqual([mosque.id]);
+    expect(park.landmark).toBe(true);
+  });
+});
+
+describe('ops.merchantOnboarding settlement mode', () => {
+  it("sets the merchant's settlement mode when the visit chose one", async () => {
+    const h = await setup();
+    const v = await h.ops.merchantOnboarding(h.staff, {
+      cityId: 'aziziyah',
+      name: 'أسواق النور',
+      type: 'grocer',
+      contact: { name: 'أبو نور', phone: '07800000125' },
+      location: { zoneKey: 'hashimi' },
+      menuPhotoUploadIds: [],
+      settlementMode: 'daily_zaincash',
+    });
+    expect((await h.lh.merchantCash.settings(v.merchantOrgId)).mode).toBe('daily_zaincash');
   });
 });

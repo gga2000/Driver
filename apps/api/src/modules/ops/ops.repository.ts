@@ -69,6 +69,8 @@ export interface OpsRepository {
   updateTask(id: string, patch: Partial<Pick<TaskRecord, 'state' | 'completedAt' | 'completedById' | 'payload'>>, tx?: Tx): Promise<TaskRecord>;
   /** Open tasks assigned to `assigneeId` or to nobody. */
   openTasks(assigneeId: string, tx?: Tx): Promise<TaskRecord[]>;
+  /** Photos still `proposed` per target id (landmark picker counts). */
+  proposedPhotoCounts(targetIds: readonly string[], tx?: Tx): Promise<Map<string, number>>;
 }
 
 export const OPS_REPOSITORY = Symbol('OPS_REPOSITORY');
@@ -133,6 +135,13 @@ export class InMemoryOpsRepository implements OpsRepository {
 
   async openTasks(assigneeId: string): Promise<TaskRecord[]> {
     return this.tasks.filter((t) => t.state === 'open' && (t.assigneeId === null || t.assigneeId === assigneeId)).map((t) => ({ ...t }));
+  }
+
+  async proposedPhotoCounts(targetIds: readonly string[]): Promise<Map<string, number>> {
+    const ids = new Set(targetIds);
+    const out = new Map<string, number>();
+    for (const p of this.photos) if (p.state === 'proposed' && ids.has(p.targetId)) out.set(p.targetId, (out.get(p.targetId) ?? 0) + 1);
+    return out;
   }
 }
 
@@ -203,5 +212,11 @@ export class PrismaOpsRepository implements OpsRepository {
   async openTasks(assigneeId: string, tx?: Tx): Promise<TaskRecord[]> {
     const rows = await this.db(tx).opsTask.findMany({ where: { state: 'open', OR: [{ assigneeId: null }, { assigneeId }] }, orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }] });
     return rows.map(taskFromRow);
+  }
+
+  async proposedPhotoCounts(targetIds: readonly string[], tx?: Tx): Promise<Map<string, number>> {
+    if (targetIds.length === 0) return new Map();
+    const rows = await this.db(tx).landmarkPhoto.groupBy({ by: ['targetId'], where: { state: 'proposed', targetId: { in: [...targetIds] } }, _count: { _all: true } });
+    return new Map(rows.map((r) => [r.targetId, r._count._all]));
   }
 }
