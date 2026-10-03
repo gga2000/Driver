@@ -52,6 +52,7 @@ export const ERROR_TABLE = {
   online_document_expired: { message_ar: 'عندك مستمسك منتهي. جدّده حتى تشتغل', message_en: 'A document has expired; renew it to go online', retryHint: 'never', status: 'FORBIDDEN' },
   khat_not_child_stop: { message_ar: 'هذي المحطة ما بيها طفل لهذا الإجراء', message_en: 'This stop has no child for this tap', retryHint: 'never', status: 'BAD_REQUEST' },
   khat_child_not_on_trip: { message_ar: 'هذا الطفل مو على هذا الخط اليوم', message_en: 'The child is not on this run', retryHint: 'never', status: 'NOT_FOUND' },
+  khat_child_not_tapped_in: { message_ar: 'هذا الطفل ما انسجل صعوده بالبيت. سجّل صعوده أول', message_en: 'The child was never tapped in on this run', retryHint: 'never', status: 'CONFLICT' },
   khat_child_absent: { message_ar: 'هذا الطفل مسجّل غايب اليوم', message_en: 'The child was reported absent for this run', retryHint: 'never', status: 'CONFLICT' },
   fleet_not_found: { message_ar: 'ما لگينا الأسطول', message_en: 'Fleet not found', retryHint: 'never', status: 'NOT_FOUND' },
   fleet_ambiguous: { message_ar: 'عندك أكثر من أسطول. اختار واحد', message_en: 'Several fleets: pass fleetOrgId', retryHint: 'never', status: 'BAD_REQUEST' },

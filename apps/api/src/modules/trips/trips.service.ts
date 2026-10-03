@@ -376,6 +376,12 @@ export class TripsService implements OnModuleInit {
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
+      // Edge-case §5: the guardian's "arrived" push rides on the tap-out, so a child is only tapped out
+      // after being tapped in on this run (when the run picks him up at all).
+      if (child.tap === 'out') {
+        const pickup = (await this.repo.stopsOf(tripId, tx)).find((s) => s.type === 'pickup' && s.childRef === stop.childRef);
+        if (pickup && !pickup.childTapInAt) throw new DriverError('khat_child_not_tapped_in');
+      }
       const now = this.clock.now();
       await this.repo.updateStop(
         stop.id,

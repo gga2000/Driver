@@ -19,7 +19,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 1 | High | ops cash receipts: race, duplicate reference | fixed |
 | 2 | High | fleet.addDriver: any phone → name, earnings, cash, documents | in progress |
 | 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | fixed |
-| 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | in progress |
+| 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | fixed |
 | 5 | Medium | online gate: heartbeat grace never ends | in progress |
 | 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | in progress |
@@ -68,3 +68,14 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** the merchant side of `assertMerchantAccess` is `merchant_owner` only (back office unchanged).
 - **Tests:** `packages/contracts/src/routers/ledger.test.ts` › "a merchant staff member cannot read the cash
   balance or ask for the money"; "the owner can, but only for his own store"; "back office still reads any merchant".
+
+### 4 · Medium · خطوط tap-out without tap-in (state machine, child safety)
+
+- **Where:** `apps/api/src/modules/khat/khat.service.ts` `tapOut`, and underneath it
+  `apps/api/src/modules/trips/trips.service.ts` `completeStop` (also reachable directly via `trips.completeStop`).
+- **What:** a dropoff stop completed with `childTap: 'out'` without the child's pickup ever being tapped in.
+  `khat.child_tapped_out` (`notifyGuardian: true`) is the guardian's "arrived at school" push (decisions §5),
+  so a driver could tell a parent the child arrived when he was never picked up.
+- **Fix:** `completeStop` refuses a tap-out when the same run has a pickup stop for that child with no
+  `childTapInAt` (`khat_child_not_tapped_in`, new error code). Lives in trips so both entry points are covered.
+- **Test:** `khat.service.test.ts` › "never taps a child out at school who was not tapped in at home (review 2026-10-04 #4)".

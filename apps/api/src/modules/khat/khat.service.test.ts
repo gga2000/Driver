@@ -81,6 +81,17 @@ describe('khat.tapIn / tapOut', () => {
     expect((await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id })).delivered).toBe(1);
   });
 
+  it('never taps a child out at school who was not tapped in at home (review 2026-10-04 #4)', async () => {
+    const h = await setup();
+    const [, , d1] = h.trip.stops;
+    await expect(h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school })).rejects.toMatchObject({ code: 'khat_child_not_tapped_in' });
+    // Nor straight through trips.completeStop with a hand-made child tap.
+    await h.t.trips.arrive(h.trip.id, d1!.id, h.driver.personId, { pin: PINS.school });
+    await expect(h.t.trips.completeStop(h.trip.id, d1!.id, h.driver.personId, { handover: { childTap: 'out' } })).rejects.toMatchObject({ code: 'khat_child_not_tapped_in' });
+    // No "arrived" push went to the guardian.
+    expect(h.t.events.events.some((e) => e.type === 'khat.child_tapped_out')).toBe(false);
+  });
+
   it('only the run’s own driver may tap', async () => {
     const h = await setup();
     await expect(h.khat.tapIn(h.guardian, { tripId: h.trip.id, stopId: h.trip.stops[0]!.id })).rejects.toMatchObject({ code: 'forbidden' });
