@@ -430,12 +430,34 @@ export const StaffMember = z.object({
   you: z.boolean(),
   /** Invited but has not signed in yet (the invite is waiting). */
   pending: z.boolean().default(false),
+  /**
+   * Pending rows only: the invited number as "0770 ••• 4567" (the owner typed it; the name stays
+   * hidden until the invitee signs in). Additive (2026-10-04 follow-up).
+   */
+  phoneHint: z.string().nullable().optional(),
+  /** Pending rows only: when the role was given (the invite). */
+  invitedAt: z.coerce.date().nullable().optional(),
+  /** Pending rows only: when the invite link last went out (the invite, or the latest resend). */
+  inviteSentAt: z.coerce.date().nullable().optional(),
+  /** Pending rows only: a resend is allowed from this time (one per `STAFF_INVITE_RULES.resendCooldownMin`). */
+  resendAfter: z.coerce.date().nullable().optional(),
 });
 export type StaffMember = z.infer<typeof StaffMember>;
 
-export const InviteStaffInput = MerchantScope.extend({ phone: z.string().min(7).max(20), role: MerchantStaffRole.default('merchant_staff') });
-export const SetStaffRoleInput = MerchantScope.extend({ personId: z.string().min(1), role: MerchantStaffRole });
+/** Re-sending a staff invite (WhatsApp link with the store name): at most once per cooldown. */
+export const STAFF_INVITE_RULES = { resendCooldownMin: 10 } as const;
+
+export const InviteStaffInput = MerchantScope.extend({
+  phone: z.string().min(7).max(20),
+  role: MerchantStaffRole.default('merchant_staff'),
+});
+export const SetStaffRoleInput = MerchantScope.extend({
+  personId: z.string().min(1),
+  role: MerchantStaffRole,
+});
 export const RemoveStaffInput = MerchantScope.extend({ personId: z.string().min(1) });
+/** Sends a pending invite again (`staff_invite_not_pending` once he signed in; within the cooldown it is a no-op). */
+export const ResendStaffInviteInput = MerchantScope.extend({ personId: z.string().min(1) });
 
 export interface MerchantAdminPort {
   myMerchants(actor: Actor): Promise<Array<z.infer<typeof MyMerchant>>>;
@@ -467,4 +489,8 @@ export interface MerchantAdminPort {
   staffInvite(actor: Actor, input: z.output<typeof InviteStaffInput>): Promise<StaffMember>;
   staffSetRole(actor: Actor, input: z.infer<typeof SetStaffRoleInput>): Promise<StaffMember>;
   staffRemove(actor: Actor, input: z.infer<typeof RemoveStaffInput>): Promise<{ removed: boolean }>;
+  staffResendInvite(
+    actor: Actor,
+    input: z.infer<typeof ResendStaffInviteInput>,
+  ): Promise<StaffMember>;
 }

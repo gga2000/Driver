@@ -64,7 +64,7 @@ export default function AssignDriver() {
             </View>
           </View>
           <Card elevation={1} padding={0}>
-            {o.drivers.map((d) => {
+            {o.drivers.filter((d) => !d.pending).map((d) => {
               const elsewhere = plateOf.get(d.driverId);
               const moving = elsewhere && elsewhere.vehicleId !== vehicle.vehicleId;
               return (

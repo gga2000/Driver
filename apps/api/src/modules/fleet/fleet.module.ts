@@ -5,12 +5,13 @@ import { DispatchModule } from '../dispatch/index.js';
 import { DriverAccountModule } from '../driver-account/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
+import { OrgsModule } from '../orgs/index.js';
 import { FLEET_REPOSITORY, InMemoryFleetRepository, PrismaFleetRepository, type FleetRepository } from './fleet.repository.js';
 import { FleetService } from './fleet.service.js';
 
 /** Fleet owner dashboard: owns the `vehicles` registry writes and `fleet_drivers`. */
 @Module({
-  imports: [ConfigModule, DispatchModule, DriverAccountModule, EventsModule, IdentityModule],
+  imports: [ConfigModule, DispatchModule, DriverAccountModule, EventsModule, IdentityModule, OrgsModule],
   providers: [
     {
       provide: FLEET_REPOSITORY,

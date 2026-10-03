@@ -181,6 +181,20 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 - Demo-only: the scorecard history (offer answers, past trips, ratings) is fed to `DriverAccountService`
   through wrapped reads in `scripts/demo/50-driver-account.mjs`; the in-memory API has no past.
 
+## Follow-ups (2026-10-04)
+
+- **Fleet invites (consent)** — `src/features/fleet/InviteParts.tsx`: a driver with a pending `fleet.myInvites` row sees a home
+  banner and, on الحساب, the full card (owner's first name, fleet name, what the owner will see: earnings from the day he accepts,
+  cash vs cap, documents, online / on a job — and not his customers); `fleet.respondInvite` accepts or declines. Members get
+  "تشتغل ويا …" with a leave confirm. The owner's dashboard lists invites apart under "بانتظار موافقة السايق" ("دعوة مرسلة إلى
+  0770 ••• 4567"), not counted, not assignable, not opened; adding a driver returns to the dashboard.
+- **Wallet top-up on a job** — `app/job-topup.tsx` over `src/features/ops/TopUpDesk.tsx` (shared with `app/ops/topup.tsx`): the
+  job screen shows "الزبون يريد يشحن محفظته" while a courier carries a live delivery (`canTopUpOnJob`); code pad →
+  `partner.topUpLookup` → amount → `partner.confirmTopUp`, with the cash cap before / after and an over-cap warning.
+- Demo: `0770 111 0056` (حيدر, invited, checked in), `0770 111 0052` (a member), the owner `0770 111 0005` (two invites waiting);
+  `POST /demo/fleet/invite-reset`, `POST /demo/topup?who=courier&step=at_dropoff&amount=25000` (`scripts/demo/70-topup.mjs`).
+  Shots: `SHOTS=followups` (`scripts/shots/70-followups.mjs`). Copy test: `src/lib/copy.test.ts` (partner.* voice + parity).
+
 ## Chat and masked calls (`src/features/chat/`, `app/chat/[orderId].tsx`)
 
 The job screen's quick-contact row: **اتصال** (`chat.requestCall`: the kitchen while at the pickup of a

@@ -10,7 +10,16 @@ import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
-import { isRide, jobAction, KIND_KEY, mapsUrl, taskProgress, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import {
+  canTopUpOnJob,
+  isRide,
+  jobAction,
+  KIND_KEY,
+  mapsUrl,
+  taskProgress,
+  VEHICLE_ICON,
+  zoneName,
+} from '@/features/work/logic';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -46,10 +55,31 @@ export default function JobScreen() {
       </SafeAreaView>
     );
   }
-  return <JobView job={job.data} self={status.data?.position ?? null} vehicle={status.data?.vehicleClass ?? 'bike'} onDone={setDone} />;
+  return (
+    <JobView
+      job={job.data}
+      self={status.data?.position ?? null}
+      vehicle={status.data?.vehicleClass ?? 'bike'}
+      topUp={canTopUpOnJob(job.data, status.data?.roles ?? [])}
+      onDone={setDone}
+    />
+  );
 }
 
-function JobView({ job, self, vehicle, onDone }: { job: PartnerJob; self: { lat: number; lng: number } | null; vehicle: keyof typeof VEHICLE_ICON; onDone: (d: { earnedIqd: number; failed: boolean }) => void }) {
+function JobView({
+  job,
+  self,
+  vehicle,
+  topUp,
+  onDone,
+}: {
+  job: PartnerJob;
+  self: { lat: number; lng: number } | null;
+  vehicle: keyof typeof VEHICLE_ICON;
+  /** A courier carrying a live order: the customer may hand him cash for his wallet. */
+  topUp: boolean;
+  onDone: (d: { earnedIqd: number; failed: boolean }) => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -225,6 +255,8 @@ function JobView({ job, self, vehicle, onDone }: { job: PartnerJob; self: { lat:
                 <QuickAction icon="map-pin" label={t('partner.open_maps')} onPress={openMaps} testID="job-maps" />
               </View>
 
+              {topUp ? <TopUpEntry /> : null}
+
               <StopList job={job} ride={ride} />
 
               <View style={{ gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}>
@@ -263,7 +295,66 @@ function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 
   return s.label ?? (ride ? t('partner.offer_rider') : zoneName(s.zoneId, locale, t));
 }
 
-function QuickAction({ icon, label, onPress, testID, badge = 0, disabled }: { icon: IconName; label: string; onPress: () => void; testID: string; badge?: number; disabled?: boolean }) {
+/** "الزبون يريد يشحن محفظته" — opens the top-up desk (code pad → amount → confirm; counts on his cap). */
+function TopUpEntry() {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Pressable
+      testID="job-topup-entry"
+      accessibilityRole="button"
+      onPress={() => router.push('/job-topup')}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        padding: theme.space[3],
+        borderRadius: theme.radius.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+      })}
+    >
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: theme.colors.accentTint,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="wallet" size={20} color="accentText" strokeWidth={2.2} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text variant="label" weight={600}>
+          {t('partner.job_topup_entry')}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {t('partner.job_topup_entry_sub')}
+        </Text>
+      </View>
+      <Icon name="chevron-forward" size={18} color="textMuted" />
+    </Pressable>
+  );
+}
+
+function QuickAction({
+  icon,
+  label,
+  onPress,
+  testID,
+  badge = 0,
+  disabled,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  testID: string;
+  badge?: number;
+  disabled?: boolean;
+}) {
   const theme = useTheme();
   return (
     <Pressable

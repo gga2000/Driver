@@ -22,6 +22,7 @@ import {
   PriceUpdateOutput,
   ProposeDealInput,
   RemoveStaffInput,
+  ResendStaffInviteInput,
   ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
@@ -93,5 +94,7 @@ export const merchantAdminRouter = router({
     invite: p.input(InviteStaffInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffInvite(ctx.actor, input)),
     setRole: p.input(SetStaffRoleInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffSetRole(ctx.actor, input)),
     remove: p.input(RemoveStaffInput).output(z.object({ removed: z.boolean() })).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRemove(ctx.actor, input)),
+    /** A pending invite goes out again (owner only; once per 10 min; the row after). */
+    resendInvite: p.input(ResendStaffInviteInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffResendInvite(ctx.actor, input)),
   }),
 });

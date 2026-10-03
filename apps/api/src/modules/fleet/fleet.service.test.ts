@@ -5,6 +5,7 @@ import type { DispatchService, LiveDriver } from '../dispatch/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
+import { OrgsService } from '../orgs/index.js';
 import { InMemoryFleetRepository } from './fleet.repository.js';
 import { FleetService, fleetWeek } from './fleet.service.js';
 
@@ -96,6 +97,47 @@ describe('fleet', () => {
 });
 
 describe('fleet consent (review 2026-10-04 #2)', () => {
+  it("the driver's invite card names the owner (first name) and the fleet", async () => {
+    const h = await setup();
+    const orgs = new OrgsService(undefined, h.id.clock);
+    const org = await orgs.create({
+      type: 'fleet',
+      name: 'أسطول الربيعي',
+      cityId: 'aziziyah',
+      ownerId: h.owner.personId,
+    });
+    await h.id.service.grantRole(
+      { personId: 'admin' },
+      { personId: h.owner.personId, kind: 'fleet_owner', orgId: org.id },
+    );
+    await h.id.service.updateProfile(h.owner, { name: 'سجاد الربيعي' });
+    const fleet = new FleetService(
+      h.repo,
+      h.id.service,
+      {
+        earningsFor: async () => earnings('x', 0),
+        documentsOf: async () => new Map(),
+      } as unknown as DriverAccountService,
+      { liveDrivers: async () => [] } as unknown as DispatchService,
+      { cityIds: () => ['aziziyah'] } as unknown as ConfigService,
+      h.ev.events,
+      h.ev.uow,
+      h.id.clock,
+      orgs,
+    );
+    await fleet.addDriver(h.owner, { fleetOrgId: org.id, phone: '07700000061' });
+    const driver = (await h.id.login('07700000061')).actor;
+    expect(await fleet.myInvites(driver)).toEqual([
+      {
+        fleetOrgId: org.id,
+        invitedAt: expect.any(Date),
+        invitedByName: 'سجاد',
+        fleetName: 'أسطول الربيعي',
+        accepted: false,
+      },
+    ]);
+  });
+
   it("adding a phone shows nothing of that person until he accepts the fleet's invite", async () => {
     const h = await setup();
     // An independent courier with a name in the vault and money on his book.
@@ -103,7 +145,19 @@ describe('fleet consent (review 2026-10-04 #2)', () => {
     await h.id.service.updateProfile(courier, { name: 'حيدر كاظم جواد' });
     const before = h.id.repo.accessLogs.filter((l) => l.personId === courier.personId).length;
     const row = await h.fleet.addDriver(h.owner, { phone: '07700000060' });
-    expect(row).toMatchObject({ driverId: courier.personId, pending: true, name: null, phoneMasked: null, todayEarningsIqd: 0, weekEarningsIqd: 0, owedIqd: 0, cashHeldIqd: 0, documents: null });
+    expect(row).toMatchObject({
+      driverId: courier.personId,
+      pending: true,
+      name: null,
+      phoneMasked: null,
+      todayEarningsIqd: 0,
+      weekEarningsIqd: 0,
+      owedIqd: 0,
+      cashHeldIqd: 0,
+      documents: null,
+    });
+    // Only the number he typed, as he typed it (head and tail), from his own invite: "بانتظار موافقة السايق".
+    expect(row).toMatchObject({ phoneHint: '0770 ••• 0060', invitedAt: h.id.clock.now() });
     expect(JSON.stringify(await h.fleet.overview(h.owner, {}))).not.toContain('حيدر');
     expect((await h.fleet.overview(h.owner, {})).totals).toMatchObject({ drivers: 1, todayEarningsIqd: 0, weekEarningsIqd: 0 });
     // No vault read of his name or phone on the owner's behalf.
@@ -114,7 +168,15 @@ describe('fleet consent (review 2026-10-04 #2)', () => {
 
     // He sees the invite in his app and accepts it: from then on the owner sees him.
     const invites = await h.fleet.myInvites(courier);
-    expect(invites).toEqual([{ fleetOrgId: 'fleet_1', invitedAt: expect.any(Date), invitedByName: null, accepted: false }]);
+    expect(invites).toEqual([
+      {
+        fleetOrgId: 'fleet_1',
+        invitedAt: expect.any(Date),
+        invitedByName: null,
+        fleetName: null,
+        accepted: false,
+      },
+    ]);
     await h.fleet.respondInvite(courier, { fleetOrgId: 'fleet_1', accept: true });
     const after = (await h.fleet.drivers(h.owner, {}))[0]!;
     expect(after).toMatchObject({ pending: false, name: 'حيدر كاظم جواد', todayEarningsIqd: 12500 });

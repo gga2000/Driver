@@ -8,7 +8,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 
-/** سايق جديد — add a driver to the fleet by phone; ops review gives him the driving role. */
+/** سايق جديد — invite a driver by phone; he accepts in his Partner app, ops review gives him the driving role. */
 export default function AddDriver() {
   const theme = useTheme();
   const t = useT();
@@ -23,9 +23,10 @@ export default function AddDriver() {
     setTouched(true);
     if (!e164) return;
     try {
-      const d = await add.mutateAsync({ phone: e164 });
+      await add.mutateAsync({ phone: e164 });
       toast.show({ tone: 'success', message: t('partner.fleet_driver_added') });
-      router.replace({ pathname: '/fleet/driver/[id]', params: { id: d.driverId } });
+      // He shows under "بانتظار موافقة السايق" until he accepts in his app.
+      router.replace('/fleet');
     } catch (err) {
       toast.show({ tone: 'danger', message: apiErrorMessage(err, t('error.network'), locale) });
     }

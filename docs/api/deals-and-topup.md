@@ -109,7 +109,8 @@ table `wallet_topups`.
 
 ## Known gaps
 
-- Courier top-up has API only; the Partner job screen has no top-up button yet (Ops mode has the screen).
+- ~~Courier top-up has API only.~~ Done 2026-10-04: the Partner job screen has "الزبون يريد يشحن محفظته" while a courier
+  carries a live delivery (code → amount → confirm, the cash cap before and after); Ops mode shares the same desk.
 - Platform promo codes still resolve nothing (`MerchantDealsPromotions.resolve`).
 - Deals are evaluated at the placement instant: a scheduled order gets the deal live when it is placed.
 - No `PromoRedemption` rows yet (order + spend counter are the record); deal auto-stop at the cap is the

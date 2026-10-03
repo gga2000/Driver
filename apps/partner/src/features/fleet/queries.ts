@@ -46,6 +46,31 @@ export function useAddDriver() {
   return useMutation({ ...api.fleet.addDriver.mutationOptions(), onSuccess: () => void invalidate() });
 }
 
+/**
+ * Driver side: fleets that invited him (pending) or that he drives with. Only people with a driving
+ * role ask (`fleet.myInvites` is FORBIDDEN otherwise); a minute is fresh enough for an invite.
+ */
+export function useFleetInvites(canDrive: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.fleet.myInvites.queryOptions(),
+    enabled: signedIn && canDrive,
+    refetchInterval: 60_000,
+    staleTime: 15_000,
+  });
+}
+
+/** Accept an invite, or decline it / leave the fleet; the list comes back with the answer. */
+export function useRespondInvite() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.fleet.respondInvite.mutationOptions(),
+    onSuccess: (links) => qc.setQueryData(api.fleet.myInvites.queryKey(), links),
+  });
+}
+
 export function useAssignDriver() {
   const api = useApi();
   const invalidate = useInvalidateFleet();

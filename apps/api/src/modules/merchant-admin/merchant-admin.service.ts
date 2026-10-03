@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
+  STAFF_INVITE_RULES,
   type Actor,
   type AdminMenu,
   type AdminMenuItem,
@@ -520,16 +521,95 @@ export class MerchantAdminService implements MerchantAdminPort {
       return last === null || last < grantedAt.get(personId)!;
     };
     const cards = ids.length > 0 ? await this.identity.memberCards(ids, actor.personId, 'merchant_staff_view') : {};
+    const pendingIds = ids.filter(pendingOf);
+    const hints =
+      pendingIds.length > 0
+        ? await this.identity.invitePhoneHints(pendingIds, actor.personId, 'merchant_staff_invite')
+        : {};
+    const sends =
+      pendingIds.length > 0 ? await this.inviteSends(merchantOrgId) : new Map<string, Date>();
+    const cooldownMs = STAFF_INVITE_RULES.resendCooldownMin * 60_000;
     return ids
-      .map((personId) => ({
-        personId,
-        name: pendingOf(personId) ? null : (cards[personId]?.name ?? null),
-        phoneMasked: cards[personId]?.phoneMasked ?? null,
-        role: roleOf.get(personId)!,
-        you: personId === actor.personId,
-        pending: pendingOf(personId),
-      }))
+      .map((personId) => {
+        const pending = pendingOf(personId);
+        const invitedAt = grantedAt.get(personId)!;
+        const resent = sends.get(personId);
+        const sentAt = resent && resent > invitedAt ? resent : invitedAt;
+        return {
+          personId,
+          name: pending ? null : (cards[personId]?.name ?? null),
+          phoneMasked: cards[personId]?.phoneMasked ?? null,
+          role: roleOf.get(personId)!,
+          you: personId === actor.personId,
+          pending,
+          ...(pending
+            ? {
+                phoneHint: hints[personId] ?? null,
+                invitedAt,
+                inviteSentAt: sentAt,
+                resendAfter: new Date(sentAt.getTime() + cooldownMs),
+              }
+            : {}),
+        };
+      })
       .sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
+  }
+
+  /** When each invite last went out again (`merchant.staff_invite_sent` on the store's staff stream). */
+  private async inviteSends(merchantOrgId: string): Promise<Map<string, Date>> {
+    const out = new Map<string, Date>();
+    for (const e of await this.events.forAggregate('merchant_staff', merchantOrgId)) {
+      if (e.type !== 'merchant.staff_invite_sent') continue;
+      const personId = (e.payload as { personId?: unknown }).personId;
+      if (typeof personId !== 'string') continue;
+      const prev = out.get(personId);
+      if (!prev || e.occurredAt > prev) out.set(personId, e.occurredAt);
+    }
+    return out;
+  }
+
+  /**
+   * The invite link goes out (WhatsApp, outbox `merchant.staff_invite_sent`): the store's name and the
+   * app link, to the invited number. No name read: the notifier resolves the number in the vault.
+   */
+  private async sendInvite(
+    actor: Actor,
+    merchantOrgId: string,
+    personId: string,
+    role: MerchantStaffRole,
+    resend: boolean,
+  ): Promise<void> {
+    const org = await this.orgs.find(merchantOrgId);
+    await this.events.emit(
+      undefined,
+      {
+        actorId: actor.personId,
+        type: 'merchant.staff_invite_sent',
+        occurredAt: this.clock.now(),
+        payload: { merchantOrgId, personId, role, storeName: org?.name ?? null, resend },
+      },
+      { name: 'merchant_staff', id: merchantOrgId },
+    );
+  }
+
+  /** Owner sends a waiting invite again; within the cooldown it is a no-op that returns the row. */
+  async staffResendInvite(
+    actor: Actor,
+    input: { merchantOrgId: string; personId: string },
+  ): Promise<StaffMember> {
+    await this.owner(actor, input.merchantOrgId);
+    const row = (await this.staffRows(actor, input.merchantOrgId)).find(
+      (s) => s.personId === input.personId,
+    );
+    if (!row) throw new DriverError('not_found');
+    if (!row.pending) throw new DriverError('staff_invite_not_pending');
+    if (row.resendAfter && row.resendAfter.getTime() > this.clock.now().getTime()) return row;
+    await this.sendInvite(actor, input.merchantOrgId, input.personId, row.role, true);
+    return (
+      (await this.staffRows(actor, input.merchantOrgId)).find(
+        (s) => s.personId === input.personId,
+      ) ?? row
+    );
   }
 
   async staffList(actor: Actor, input: MerchantScope): Promise<StaffMember[]> {
@@ -541,7 +621,9 @@ export class MerchantAdminService implements MerchantAdminPort {
   async staffInvite(actor: Actor, input: { merchantOrgId: string; phone: string; role: MerchantStaffRole }): Promise<StaffMember> {
     await this.owner(actor, input.merchantOrgId);
     const personId = await this.identity.ensurePersonByPhone(input.phone, actor.personId, 'merchant_staff_invite');
-    return this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
+    const row = await this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
+    if (row.pending) await this.sendInvite(actor, input.merchantOrgId, personId, row.role, false);
+    return row;
   }
 
   async staffSetRole(actor: Actor, input: { merchantOrgId: string; personId: string; role: MerchantStaffRole }): Promise<StaffMember> {

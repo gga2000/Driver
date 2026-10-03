@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
@@ -25,7 +25,8 @@ import { ConfigService } from '../config/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { DriverAccountService, worstStatus } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
-import { IdentityService } from '../identity/index.js';
+import { IdentityService, invitePhoneHint, normalizeIraqiPhone } from '../identity/index.js';
+import { OrgsService } from '../orgs/index.js';
 import { FLEET_REPOSITORY, type FleetRepository, type VehicleRecord } from './fleet.repository.js';
 
 function vehicleView(v: VehicleRecord): FleetVehicle {
@@ -70,6 +71,8 @@ export class FleetService implements FleetPort {
     private readonly events: EventsService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    /** Fleet names for the driver's invite card ("أسطول الربيعي"); absent in narrow tests. */
+    @Optional() private readonly orgs?: OrgsService,
   ) {}
 
   /** The fleet the caller owns: the one named, or his only one. */
@@ -105,11 +108,26 @@ export class FleetService implements FleetPort {
     const live = new Map<string, LiveDriver>();
     if (ids.length > 0) for (const cityId of this.config.cityIds()) for (const d of await this.dispatch.liveDrivers(cityId, now)) live.set(d.presence.driverId, d);
     const noCards: Record<string, { name: string | null; phoneMasked: string }> = {};
-    const [cards, docs] = ids.length > 0 ? await Promise.all([this.identity.memberCards(ids, actor.personId, 'fleet_view'), this.accounts.documentsOf(ids)]) : [noCards, new Map<string, DriverDocumentView[]>()];
+    const [cards, docs] =
+      ids.length > 0
+        ? await Promise.all([
+            this.identity.memberCards(ids, actor.personId, 'fleet_view'),
+            this.accounts.documentsOf(ids),
+          ])
+        : [noCards, new Map<string, DriverDocumentView[]>()];
+    // Pending: only the number the owner typed, as "0770 ••• 4567", kept on his own invite event —
+    // no vault read for someone who has not said yes.
+    const hints = links.some((l) => l.acceptedAt === null)
+      ? await this.inviteHints(fleetOrgId)
+      : new Map<string, string>();
     const rows: FleetDriver[] = [];
     for (const link of links) {
       if (link.acceptedAt === null) {
-        rows.push(pendingRow(link.personId));
+        rows.push({
+          ...pendingRow(link.personId),
+          phoneHint: hints.get(link.personId) ?? null,
+          invitedAt: link.createdAt,
+        });
         continue;
       }
       const id = link.personId;
@@ -133,6 +151,18 @@ export class FleetService implements FleetPort {
       });
     }
     return { rows, weekJobs };
+  }
+
+  /** The phone hint each invite was sent with (`fleet.driver_added.phoneHint`), latest per person. */
+  private async inviteHints(fleetOrgId: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const e of await this.events.forAggregate('org', fleetOrgId)) {
+      if (e.type !== 'fleet.driver_added') continue;
+      const p = e.payload as { personId?: unknown; phoneHint?: unknown };
+      if (typeof p.personId === 'string' && typeof p.phoneHint === 'string')
+        out.set(p.personId, p.phoneHint);
+    }
+    return out;
   }
 
   async overview(actor: Actor, input: FleetScopeInput): Promise<FleetOverview> {
@@ -212,7 +242,17 @@ export class FleetService implements FleetPort {
       const link = await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now() }, tx);
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'fleet.driver_added', occurredAt: this.clock.now(), payload: { fleetOrgId, personId, pending: link.acceptedAt === null } },
+        {
+          actorId: actor.personId,
+          type: 'fleet.driver_added',
+          occurredAt: this.clock.now(),
+          payload: {
+            fleetOrgId,
+            personId,
+            pending: link.acceptedAt === null,
+            phoneHint: invitePhoneHint(normalizeIraqiPhone(input.phone)),
+          },
+        },
         { name: 'org', id: fleetOrgId },
       );
     });
@@ -226,8 +266,20 @@ export class FleetService implements FleetPort {
   async myInvites(actor: Actor): Promise<FleetInvite[]> {
     const links = await this.repo.linksOf(actor.personId);
     const owners = [...new Set(links.map((l) => l.addedById))];
-    const names = owners.length > 0 ? await this.identity.firstNamesFor(owners, actor.personId, 'fleet_invite') : {};
-    return links.map((l) => ({ fleetOrgId: l.fleetOrgId, invitedAt: l.createdAt, invitedByName: names[l.addedById] ?? null, accepted: l.acceptedAt !== null }));
+    const names =
+      owners.length > 0
+        ? await this.identity.firstNamesFor(owners, actor.personId, 'fleet_invite')
+        : {};
+    const fleetNames = new Map<string, string | null>();
+    for (const id of new Set(links.map((l) => l.fleetOrgId)))
+      fleetNames.set(id, (await this.orgs?.find(id))?.name ?? null);
+    return links.map((l) => ({
+      fleetOrgId: l.fleetOrgId,
+      invitedAt: l.createdAt,
+      invitedByName: names[l.addedById] ?? null,
+      fleetName: fleetNames.get(l.fleetOrgId) ?? null,
+      accepted: l.acceptedAt !== null,
+    }));
   }
 
   /** The driver accepts a fleet's invite, or declines it / leaves the fleet (his vehicle there is freed). */

@@ -19,6 +19,12 @@ export function maskPhone(e164: string): string {
   return `${e164.slice(0, 6)}*****${e164.slice(-2)}`;
 }
 
+/** "+9647701234567" → "0770 ••• 4567": the local head and the last four, for an invite the reader typed. */
+export function invitePhoneHint(e164: string): string {
+  const national = e164.startsWith('+964') ? `0${e164.slice(4)}` : e164;
+  return `${national.slice(0, 4)} ••• ${national.slice(-4)}`;
+}
+
 /**
  * Peppered HMAC-SHA256 of the E.164 number. The pepper is a server secret (PHONE_HASH_PEPPER), so a
  * leaked `people`/`participants` table cannot be joined to a phone list by brute force.

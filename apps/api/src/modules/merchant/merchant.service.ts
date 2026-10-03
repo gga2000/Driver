@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  daysFromWindows,
+  localClock,
+  scheduleState,
+  storeHoursProblems,
+  upcomingHolidays,
+  windowsFromDays,
   type Actor,
   type BoardCourier,
   type BoardOrder,
@@ -13,10 +19,13 @@ import {
   type RoleKind,
   type SetBusyInput,
   type SetPrinterStatusInput,
+  type SetStoreHoursInput,
   type SetStoreOpenInput,
+  type StoreHoursView,
   type StoreStatusView,
   type Trip,
   type VehicleClass,
+  type WeeklyWindow,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
@@ -51,6 +60,10 @@ export interface MerchantStoresPort {
 }
 export interface MerchantCatalogPort {
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
+  /** The customer storefront's weekly hours (the onboarding seed); null when the store has none. */
+  storefrontHours?(orgId: string): Promise<WeeklyWindow[] | null>;
+  /** Writes the store's own weekly hours onto its customer storefront (the card's open/closed). */
+  mirrorHours?(orgId: string, windows: readonly WeeklyWindow[]): Promise<void>;
 }
 /** Records the store's switches on its event stream (`merchant:<orgId>`). */
 export interface MerchantEventsPort {
@@ -159,6 +172,104 @@ export class MerchantService implements MerchantPort {
     return this.status(org);
   }
 
+  // ───────────────────────── opening hours ─────────────────────────
+
+  /** The weekly schedule, holiday closures and pause windows, and whether the store is open now. */
+  async hours(actor: Actor, input: MerchantOrgInput): Promise<StoreHoursView> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    return this.hoursView(org, await this.people.hasRole(actor.personId, OWNER, org.id));
+  }
+
+  /**
+   * Owner only. Replaces the schedule (split shifts, past-midnight shifts) and the closures; the
+   * customer storefront gets the same weekly hours, so cards and `orders.place` follow them, and a
+   * holiday closes the store for orders like the early-close switch.
+   */
+  async setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    if (!(await this.people.hasRole(actor.personId, OWNER, org.id)))
+      throw new DriverError('forbidden');
+    if (storeHoursProblems(input.days, input.holidays).length > 0)
+      throw new DriverError('store_hours_invalid');
+    const now = this.clock.now();
+    const today = localClock(now, DEFAULT_TIMEZONE).date;
+    const windows = windowsFromDays(input.days);
+    const holidays = upcomingHolidays(
+      input.holidays.map((h) => ({ from: h.from, to: h.to, note: h.note?.trim() || null })),
+      today,
+    );
+    await this.stores.setMerchantSettings(org.id, {
+      openingHours: windows,
+      holidays,
+      hoursUpdatedAt: now,
+    });
+    await this.catalog.mirrorHours?.(org.id, windows);
+    await this.events.record('merchant.hours_set', actor.personId, org.id, {
+      shifts: windows.length,
+      openDays: new Set(windows.map((w) => w.dow)).size,
+      holidays: holidays.map((h) => ({ from: h.from, to: h.to })),
+    });
+    return this.hoursView(org, true);
+  }
+
+  /** The store's own hours, else the storefront's seeded ones, else none (always open). */
+  private async weeklyHours(
+    orgId: string,
+    s: MerchantSettings,
+  ): Promise<{ windows: WeeklyWindow[]; source: StoreHoursView['source'] }> {
+    if (s.openingHours) return { windows: s.openingHours, source: 'store' };
+    const seeded = (await this.catalog.storefrontHours?.(orgId)) ?? [];
+    return seeded.length > 0
+      ? { windows: seeded, source: 'catalog' }
+      : { windows: [], source: 'none' };
+  }
+
+  private async hoursView(org: Org, canEdit: boolean): Promise<StoreHoursView> {
+    const now = this.clock.now();
+    const s = await this.stores.merchantSettings(org.id);
+    const { windows, source } = await this.weeklyHours(org.id, s);
+    const local = localClock(now, DEFAULT_TIMEZONE);
+    const holidays = upcomingHolidays(s.holidays ?? [], local.date);
+    const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
+    const pause = activePauseWindow(now, pauses, DEFAULT_TIMEZONE);
+    const sched = scheduleState(now, windows, holidays, DEFAULT_TIMEZONE);
+    const state: StoreHoursView['state'] = s.closed
+      ? { open: false, reason: 'closed', closesAt: null, opensAt: null }
+      : !sched.inHours
+        ? {
+            open: false,
+            reason: sched.holiday ? 'holiday' : 'hours',
+            closesAt: null,
+            opensAt: sched.opensAt,
+          }
+        : pause
+          ? {
+              open: false,
+              reason: 'pause',
+              closesAt: null,
+              opensAt: { date: local.date, dow: local.dow, time: pause.end },
+            }
+          : { open: true, reason: null, closesAt: sched.closesAt, opensAt: null };
+    return {
+      merchantOrgId: org.id,
+      timeZone: DEFAULT_TIMEZONE,
+      source,
+      days: daysFromWindows(windows),
+      holidays,
+      pauses: pauses.map((p) => ({
+        dow: p.dow,
+        start: p.start,
+        end: p.end,
+        reason: p.reason ?? null,
+      })),
+      now,
+      today: local.date,
+      state,
+      canEdit,
+      updatedAt: s.hoursUpdatedAt ?? null,
+    };
+  }
+
   // ───────────────────────── internals ─────────────────────────
 
   private async status(org: Org): Promise<StoreStatusView> {
@@ -166,7 +277,15 @@ export class MerchantService implements MerchantPort {
     const s = await this.stores.merchantSettings(org.id);
     const windows = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, windows, DEFAULT_TIMEZONE);
+    const { windows: weekly } = await this.weeklyHours(org.id, s);
+    const sched = scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
     return toStoreStatus({
+      schedule: {
+        inHours: sched.inHours,
+        holiday: sched.holiday ? { to: sched.holiday.to, note: sched.holiday.note } : null,
+        closesAt: sched.closesAt,
+        opensAt: sched.opensAt,
+      },
       merchantOrgId: org.id,
       name: org.name,
       now,

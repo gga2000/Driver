@@ -1,4 +1,12 @@
-import type { DriverDocumentKind, DriverDocumentStatus, FleetDay, FleetDriver, FleetDriverState, VehicleClass } from '@driver/contracts';
+import type {
+  DriverDocumentKind,
+  DriverDocumentStatus,
+  FleetDay,
+  FleetDriver,
+  FleetDriverState,
+  FleetInvite,
+  VehicleClass,
+} from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { toWesternDigits } from '@/lib/phone';
 import { pluralForm } from '../work/logic';
@@ -160,3 +168,61 @@ export function cashTone(heldIqd: number, capIqd: number, overCap: boolean): 'su
 export function maskedPhone(masked: string | null): string {
   return masked ? `⁦${masked}⁩` : '';
 }
+
+// ───────────────────────── invites (consent, review 2026-10-04 #2) ─────────────────────────
+
+/**
+ * The owner's list: drivers who accepted (sorted as `sortDrivers`) and invites still waiting for the
+ * driver's yes — those carry no name, money or state, cannot be assigned or opened.
+ */
+export function splitFleetDrivers<
+  T extends Pick<FleetDriver, 'pending' | 'state' | 'todayEarningsIqd' | 'name' | 'driverId'> & {
+    invitedAt?: Date | null;
+  },
+>(drivers: readonly T[]): { active: T[]; pending: T[] } {
+  const active = sortDrivers(drivers.filter((d) => !d.pending));
+  const pending = drivers
+    .filter((d) => d.pending)
+    .sort((a, b) => (b.invitedAt?.getTime() ?? 0) - (a.invitedAt?.getTime() ?? 0));
+  return { active, pending };
+}
+
+/** "0770 ••• 4567", LTR-isolated so the digits keep their order inside Arabic. */
+export function phoneHintText(hint: string | null | undefined): string | null {
+  return hint ? `⁦${hint}⁩` : null;
+}
+
+/** The driver's side: invites waiting for him (newest first) and the fleets he drives with. */
+export function splitInvites<T extends Pick<FleetInvite, 'accepted' | 'invitedAt'>>(
+  invites: readonly T[],
+): { pending: T[]; member: T[] } {
+  const newest = (a: T, b: T) => b.invitedAt.getTime() - a.invitedAt.getTime();
+  return {
+    pending: invites.filter((i) => !i.accepted).sort(newest),
+    member: invites.filter((i) => i.accepted).sort(newest),
+  };
+}
+
+/** Owner first name and fleet name for the card, with neutral fallbacks when either is unknown. */
+export function inviteNames(
+  invite: Pick<FleetInvite, 'invitedByName' | 'fleetName'>,
+  t: (key: MessageKey) => string,
+): { owner: string; fleet: string; ownerKnown: boolean } {
+  const owner = invite.invitedByName?.trim() || '';
+  return {
+    owner: owner || t('partner.fleet_invite_owner_fallback'),
+    fleet: invite.fleetName?.trim() || t('partner.fleet_invite_fleet_fallback'),
+    ownerKnown: owner.length > 0,
+  };
+}
+
+/** What the owner sees once the driver says yes (the card lists it before he decides). */
+export const INVITE_SEES: ReadonlyArray<{
+  key: MessageKey;
+  icon: 'trend-up' | 'wallet' | 'id-card' | 'map-pin';
+}> = [
+  { key: 'partner.fleet_invite_see_earnings', icon: 'trend-up' },
+  { key: 'partner.fleet_invite_see_cash', icon: 'wallet' },
+  { key: 'partner.fleet_invite_see_docs', icon: 'id-card' },
+  { key: 'partner.fleet_invite_see_live', icon: 'map-pin' },
+];

@@ -185,3 +185,41 @@ export function km(n: number): string {
 export function mapsUrl(pin: { lat: number; lng: number }): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${pin.lat.toFixed(6)},${pin.lng.toFixed(6)}&travelmode=driving`;
 }
+
+// ───────────────────────── wallet top-up on a job ─────────────────────────
+
+/**
+ * "الزبون يريد يشحن محفظته" shows while a courier carries a live order: a delivery (not a ride) with
+ * a drop-off still to do. The API checks the same (`topup_courier_not_assigned`), and only couriers
+ * may confirm (`partner.confirmTopUp`).
+ */
+export function canTopUpOnJob(
+  job: Pick<PartnerJob, 'vertical' | 'stops'> | null | undefined,
+  roles: readonly string[],
+): boolean {
+  if (!job || !roles.includes('courier') || isRide(job.vertical)) return false;
+  return job.stops.some(
+    (s) =>
+      s.type === 'dropoff' &&
+      s.orderId !== null &&
+      s.state !== 'completed' &&
+      s.state !== 'skipped',
+  );
+}
+
+/**
+ * The cash cap before and after taking a top-up in cash (money §4: it counts until he settles). The
+ * bar is cash in hand against the cap; "over" follows the server's maths (owed, net of what we owe him).
+ */
+export function topUpCapEffect(
+  cash: { heldIqd: number; owedIqd: number; capIqd: number },
+  amountIqd: number,
+): { heldIqd: number; afterIqd: number; capIqd: number; overCap: boolean } {
+  const add = Math.max(0, amountIqd);
+  return {
+    heldIqd: cash.heldIqd,
+    afterIqd: cash.heldIqd + add,
+    capIqd: cash.capIqd,
+    overCap: cash.capIqd > 0 && cash.owedIqd + add > cash.capIqd,
+  };
+}

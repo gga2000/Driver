@@ -6,10 +6,12 @@ import { MIcon } from '@/components/MIcon';
 import { OwnerOnly } from '@/components/OwnerOnly';
 import { Page } from '@/components/Page';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
-import { roleKey, splitStaff } from '@/features/staff/logic';
+import { useServerNow } from '@/features/board/queries';
+import { invitePhone, roleKey, splitStaff } from '@/features/staff/logic';
 import { useStaff } from '@/features/staff/queries';
 import { InviteSheet, MemberSheet } from '@/features/staff/StaffSheets';
 import { useCurrentStore } from '@/features/store/queries';
+import { useDates } from '@/lib/dates';
 import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 
@@ -67,7 +69,50 @@ export default function StaffScreen() {
 function Row({ member: s, first, onPress }: { member: StaffMember; first: boolean; onPress: () => void }) {
   const theme = useTheme();
   const t = useT();
+  const dates = useDates();
+  const now = useServerNow(0, 60_000);
   const owner = s.role === 'merchant_owner';
+  if (s.pending) {
+    // A waiting invite has no name (inviting a number is not a name lookup): say who it went to.
+    const phone = invitePhone(s);
+    return (
+      <PanelRow first={first} onPress={onPress} testID={`staff-${s.personId}`}>
+        <View
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            borderWidth: 1.5,
+            borderStyle: 'dashed',
+            borderColor: theme.colors.warning,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <MIcon name="user" size={20} color="warningText" strokeWidth={2} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="bodyStrong" tabular>
+            {phone
+              ? t('merchant.staff.invite_to', { phone })
+              : t('merchant.staff.invite_to_unknown')}
+          </Text>
+          {s.inviteSentAt ? (
+            <Text variant="caption" color="textMuted">
+              {t('merchant.staff.invite_sent_at', { when: dates.when(s.inviteSentAt, now) })}
+            </Text>
+          ) : null}
+        </View>
+        {/* The section title already says they are waiting; the role is what the owner may still change. */}
+        <Tag
+          label={t(roleKey(s.role))}
+          tone={owner ? 'accent' : 'info'}
+          icon={owner ? 'shield' : undefined}
+        />
+        <MIcon name="chevron-forward" size={18} color="textMuted" />
+      </PanelRow>
+    );
+  }
   return (
     <PanelRow first={first} onPress={onPress} testID={`staff-${s.personId}`}>
       <Avatar name={s.name ?? undefined} icon={s.name ? undefined : 'user'} size={44} tone={owner ? 'accent' : s.pending ? 'warning' : 'info'} />

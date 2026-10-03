@@ -47,6 +47,20 @@ import {
       provide: MERCHANT_CATALOG,
       useFactory: (catalog: CatalogService): MerchantCatalogPort => ({
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
+        storefrontHours: async (orgId) =>
+          (await catalog.storefront(orgId))?.hours.map((w) => ({
+            dow: w.dow,
+            start: w.start,
+            end: w.end,
+          })) ?? null,
+        mirrorHours: async (orgId, windows) => {
+          const front = await catalog.storefront(orgId);
+          if (front)
+            await catalog.saveStorefront({
+              ...front,
+              hours: windows.map((w) => ({ dow: w.dow, start: w.start, end: w.end })),
+            });
+        },
       }),
       inject: [CatalogService],
     },
