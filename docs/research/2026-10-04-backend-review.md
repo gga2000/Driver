@@ -27,7 +27,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | fixed |
 | 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | in progress |
 | 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
-| 12 | Low | menu import applied twice concurrently duplicates items | documented |
+| 12 | Low | menu import applied twice concurrently duplicates items | fixed |
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
 | 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
 | 15 | Medium (perf) | `events` has no index for `forAggregate` (Merchant cash screen) | fixed |
@@ -214,3 +214,12 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   document list still shows the latest per kind (the pending renewal).
 - **Test:** `driver-account.service.test.ts` › "uploads to pending …, derives expiring / expired and blocks
   going online" (extended: the pending renewal keeps the gate closed; approval opens it).
+
+### 12 · Low · menu import applied twice (state machine)
+
+- **Where:** `apps/api/src/modules/catalog/catalog.service.ts` `applyImport`.
+- **What:** the `draft` check and the final `applied` write were a read-then-write; two tablets applying the
+  same import at once both created every item.
+- **Fix:** `CatalogRepository.claimImportJob` — a conditional `draft → applied` update (`updateMany … where
+  state = 'draft'`) before any item is created; the loser gets `import_state_conflict`.
+- **Test:** `merchant-admin.service.test.ts` › "a menu import applied from two tablets at once creates its items once (review 2026-10-04 #12)".

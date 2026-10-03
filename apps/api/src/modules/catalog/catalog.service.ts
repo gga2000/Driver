@@ -242,6 +242,9 @@ export class CatalogService {
   async applyImport(orgId: string, jobId: string, items: readonly ImportedItemRecord[], actorId: string, tx?: Tx): Promise<MenuImportJobRecord> {
     const job = await this.importJob(orgId, jobId, tx);
     if (job.state !== 'draft') throw new DriverError('import_state_conflict');
+    // Claim first (conditional draft → applied): a second apply racing this one gets the conflict
+    // instead of creating every item again (review 2026-10-04 #12).
+    if (!(await this.repo.claimImportJob(jobId, this.clock.now(), tx))) throw new DriverError('import_state_conflict');
     const existing = await this.repo.menu(orgId);
     let order = existing.reduce((m, i) => Math.max(m, i.sortOrder), 0);
     for (const row of items) {

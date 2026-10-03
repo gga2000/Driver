@@ -179,6 +179,19 @@ describe('merchantAdmin.menu', () => {
     await expect(h.svc.menuReorderCategories(await h.person('07700000004'), { merchantOrgId: h.orgId, order: ['تكة'] })).rejects.toMatchObject({ code: 'forbidden' });
   });
 
+  it('a menu import applied from two tablets at once creates its items once (review 2026-10-04 #12)', async () => {
+    const h = await setup();
+    const job = await h.svc.menuImportFromPhotos(h.staff, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.staff.personId)] });
+    const items = [{ nameAr: 'كباب', priceIqd: 5000 }];
+    const results = await Promise.allSettled([
+      h.svc.menuApplyImport(h.staff, { merchantOrgId: h.orgId, jobId: job.jobId, items }),
+      h.svc.menuApplyImport(h.owner, { merchantOrgId: h.orgId, jobId: job.jobId, items }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'import_state_conflict' } });
+    expect((await h.catalog.adminMenu(h.orgId)).map((i) => i.nameAr)).toEqual(['كباب']);
+  });
+
   it('imports a menu from photos: draft (OCR stub) → staff-corrected rows → items, once', async () => {
     const h = await setup();
     const job = await h.svc.menuImportFromPhotos(h.staff, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.staff.personId)] });

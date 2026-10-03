@@ -176,6 +176,11 @@ export interface CatalogRepository {
   createImportJob(input: Omit<MenuImportJobRecord, 'id'>, tx?: Tx): Promise<MenuImportJobRecord>;
   updateImportJob(id: string, patch: Partial<Pick<MenuImportJobRecord, 'state' | 'items' | 'appliedAt' | 'appliedCount'>>, tx?: Tx): Promise<MenuImportJobRecord>;
   importJob(id: string, tx?: Tx): Promise<MenuImportJobRecord | null>;
+  /**
+   * Moves a `draft` job to `applied` (stamped `at`) if, and only if, it is still a draft: true for the
+   * one caller that wins (a conditional update, so two concurrent applies cannot both create items).
+   */
+  claimImportJob(id: string, at: Date, tx?: Tx): Promise<boolean>;
 }
 
 function toStorefront(input: NewStorefront): StorefrontRecord {
@@ -348,6 +353,14 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     if (!job) throw new Error(`menu import ${id} not found`);
     Object.assign(job, structuredClone(patch));
     return structuredClone(job);
+  }
+
+  async claimImportJob(id: string, at: Date): Promise<boolean> {
+    const j = this.imports.get(id);
+    if (!j || j.state !== 'draft') return false;
+    j.state = 'applied';
+    j.appliedAt = at;
+    return true;
   }
 
   async importJob(id: string): Promise<MenuImportJobRecord | null> {
@@ -610,6 +623,11 @@ export class PrismaCatalogRepository implements CatalogRepository {
     const { items, ...rest } = patch;
     const row = await this.db(tx).menuImportJob.update({ where: { id }, data: { ...rest, ...(items ? { items: items as never } : {}) } });
     return importJobFromRow(row);
+  }
+
+  async claimImportJob(id: string, at: Date, tx?: Tx): Promise<boolean> {
+    const res = await this.db(tx).menuImportJob.updateMany({ where: { id, state: 'draft' }, data: { state: 'applied', appliedAt: at } });
+    return res.count === 1;
   }
 
   async importJob(id: string, tx?: Tx): Promise<MenuImportJobRecord | null> {
