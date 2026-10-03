@@ -6,6 +6,7 @@ import { EventsServiceAdapter, IDENTITY_EVENTS } from './events.adapter.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
 import { IdentityService, PHONE_PEPPER } from './identity.service.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
+import { ROLE_READER } from './role-reader.js';
 import { SessionService, sessionConfigFromEnv } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { GatewaySmsProvider, smsProviderFromEnv } from './sms/gateway.provider.js';
@@ -37,7 +38,8 @@ import { SMS_PROVIDER } from './sms/provider.js';
       inject: [IDENTITY_REPOSITORY, CLOCK],
     },
     IdentityService,
+    { provide: ROLE_READER, useExisting: IdentityService },
   ],
-  exports: [IdentityService],
+  exports: [IdentityService, ROLE_READER],
 })
 export class IdentityModule {}

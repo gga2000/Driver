@@ -1,11 +1,13 @@
 import { Inject, Logger, Module, type OnModuleInit } from '@nestjs/common';
-import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type MoneyRules } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
+import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
+import { ScoringModule, ScoringService } from '../scoring/index.js';
 import { AdjustmentService } from './adjustments.service.js';
-import { CAP_PROFILE_RESOLVER, CapsService, StaticCapProfiles } from './caps.js';
+import { CAP_PROFILE_RESOLVER, CapsService, IdentityScoringCapProfiles } from './caps.js';
 import { EventsServiceLedgerBus, type LedgerEventBus } from './events.adapter.js';
 import { LedgerIncidents } from './incidents.js';
 import { LedgerFacade } from './ledger.facade.js';
@@ -25,7 +27,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
  * scheduled on BullMQ when REDIS_URL is set (the Console can always run it by hand).
  */
 @Module({
-  imports: [EventsModule],
+  imports: [EventsModule, IdentityModule, ScoringModule],
   providers: [
     {
       provide: LEDGER_REPOSITORY,
@@ -41,8 +43,12 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     { provide: MONEY_RULES, useValue: AZIZIYAH_MONEY_RULES },
     { provide: LEDGER_EVENTS, useFactory: (events: EventsService) => new EventsServiceLedgerBus(events), inject: [EventsService] },
     { provide: LEDGER_INCIDENTS, useFactory: (bus: LedgerEventBus, clock: Clock) => new LedgerIncidents(bus, clock), inject: [LEDGER_EVENTS, CLOCK] },
-    // TODO(identity/scoring): resolve role + tier from the driver's grants and trust tier.
-    { provide: CAP_PROFILE_RESOLVER, useFactory: () => new StaticCapProfiles() },
+    // Caps by role (G-80): role from identity's narrow role port, tier from the driver's scorecard (bronze without one).
+    {
+      provide: CAP_PROFILE_RESOLVER,
+      useFactory: (roles: RoleReader, scoring: ScoringService, clock: Clock, rules: MoneyRules) => new IdentityScoringCapProfiles(roles, scoring, clock, rules),
+      inject: [ROLE_READER, ScoringService, CLOCK, MONEY_RULES],
+    },
     LedgerService,
     CapsService,
     { provide: CAPS_PORT, useExisting: CapsService },

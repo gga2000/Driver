@@ -5,8 +5,8 @@ import {
   RideMoneyPayload,
   SeatMoneyPayload,
   SubscriptionChargePayload,
-  type CancellationPayload,
   type DepartureCancelledPayload,
+  type DomainEventInput,
   type LateMeterPayload,
   type MoneyRules,
 } from '@driver/contracts';
@@ -115,7 +115,12 @@ export class PostingService {
     return result;
   }
 
-  /** Ride/parcel completed (or its cash collected): money plus points on the platform take. */
+  /** Cash collected at the end of a ride/parcel: money only (points wait for `order.closed`). */
+  async rideMoney(input: RideMoneyPayload): Promise<RecordAllResult> {
+    return this.record([postRideCompleted(RideMoneyPayload.parse(input), this.rules).money]);
+  }
+
+  /** Ride/parcel settled: money (if cash collection did not already post it) plus points on the platform take. */
   async ride(input: RideMoneyPayload): Promise<RecordAllResult> {
     const r = RideMoneyPayload.parse(input);
     const posted = postRideCompleted(r, this.rules);
@@ -157,7 +162,7 @@ export class PostingService {
     return this.record([postLateMeter(input, this.rules)]);
   }
 
-  async cancellation(input: CancellationPayload): Promise<RecordAllResult> {
+  async cancellation(input: DomainEventInput<'order.cancelled'>): Promise<RecordAllResult> {
     return this.record([postCancellation(input)]);
   }
 

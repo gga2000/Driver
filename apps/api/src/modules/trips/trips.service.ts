@@ -1,6 +1,8 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
+  encodeDomainEvent,
+  isDomainEventType,
   type HandoverProof,
   type LatLng,
   type ReportPositionOutput,
@@ -12,7 +14,7 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import type { Queue } from '../../shared/queue.js';
+import { jobKey, type Queue } from '../../shared/queue.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
 import { childHandover, isStopFinished } from './stops.js';
@@ -268,7 +270,7 @@ export class TripsService implements OnModuleInit {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
             const atMs = input.at.getTime();
-            await this.queue.add(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: `trip:${trip.id}:autocomplete:${atMs}` });
+            await this.queue.add(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
           }
         }
       }
@@ -491,6 +493,21 @@ export class TripsService implements OnModuleInit {
     return null;
   }
 
+  /**
+   * Who carried (or is carrying) an order: the most recent trip it is still attached to that has a
+   * driver. Orders uses it to settle money on `closed` (the courier's delivery fee, the ride's driver).
+   */
+  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null> {
+    return this.uow.run(async (tx) => {
+      const links = (await this.repo.linksForOrder(orderId, tx)).filter((l) => l.detachedAt === null).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime());
+      for (const l of links) {
+        const trip = await this.repo.findTrip(l.tripId, tx);
+        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical };
+      }
+      return null;
+    });
+  }
+
   /** Attach/detach history of an order across trips. */
   async orderHistory(orderId: string): Promise<TripOrderRecord[]> {
     return this.repo.linksForOrder(orderId);
@@ -642,7 +659,8 @@ export class TripsService implements OnModuleInit {
         actorId,
         occurredAt: opts.occurredAt ?? this.clock.now(),
         tripId,
-        payload,
+        // Cross-module events are validated against their shared contract before they reach the outbox.
+        payload: isDomainEventType(type) ? encodeDomainEvent(type, payload as never) : payload,
         ...(opts.orderId ? { orderId: opts.orderId } : {}),
         ...(opts.location ? { location: opts.location } : {}),
         ...(opts.idempotencyKey ? { idempotencyKey: `${type}:${opts.idempotencyKey}` } : {}),

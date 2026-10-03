@@ -40,6 +40,20 @@ export interface QueueFactory {
 
 export const QUEUE_FACTORY = Symbol('QUEUE_FACTORY');
 
+/**
+ * BullMQ refuses custom job ids that contain ':' ("Custom Id cannot contain :", it reserves the
+ * colon for its own Redis keys). Both queue implementations enforce it, so a bad id fails in a unit
+ * test instead of silently never scheduling in production. Build ids with `jobKey`.
+ */
+export function assertJobId(jobId: string): void {
+  if (jobId.includes(':')) throw new Error(`Custom Id cannot contain : (${jobId})`);
+}
+
+/** A BullMQ-safe job id from its parts, joined with '.' (`jobKey('order', id, 'autoClose')`). */
+export function jobKey(...parts: ReadonlyArray<string | number>): string {
+  return parts.join('.');
+}
+
 // ───────────────────────── BullMQ ─────────────────────────
 
 class BullMqQueue<T> implements Queue<T> {
@@ -56,6 +70,7 @@ class BullMqQueue<T> implements Queue<T> {
   }
 
   async add(name: string, data: T, opts: EnqueueOptions = {}): Promise<void> {
+    if (opts.jobId !== undefined) assertJobId(opts.jobId);
     const jobOpts: JobsOptions = {
       removeOnComplete: opts.transient ? true : 1000,
       removeOnFail: opts.transient ? true : 5000,
@@ -172,6 +187,7 @@ export class InMemoryQueue<T = unknown> implements Queue<T> {
 
   async add(name: string, data: T, opts: EnqueueOptions = {}): Promise<void> {
     if (opts.jobId) {
+      assertJobId(opts.jobId);
       if (this.seen.has(opts.jobId)) return;
       this.seen.add(opts.jobId);
     }

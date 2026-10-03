@@ -1,4 +1,5 @@
 import type { UnreachableStatus } from '@driver/contracts';
+import { jobKey } from '../../shared/queue.js';
 
 /**
  * Unreachable-customer protocol (domain §2): the courier taps "can't reach" at the door → automatic
@@ -50,5 +51,5 @@ export function unreachableStatus(input: { stopId: string | null; startedAt: Dat
 
 /** Stable job ids so a retried `startUnreachable` never schedules the timers twice. */
 export function unreachableJobId(kind: keyof typeof UNREACHABLE_JOBS, tripId: string, startedAtMs: number): string {
-  return `trip:${tripId}:unreachable:${kind}:${startedAtMs}`;
+  return jobKey('trip', tripId, 'unreachable', kind, startedAtMs);
 }

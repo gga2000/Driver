@@ -22,7 +22,10 @@ describe('events wiring smoke', () => {
     const names = app.get(EventsService).registry.names();
     expect(names).toContain('orders:trip-events');
     expect(names).toContain('ledger:order.closed');
-    expect(names).toContain('ledger:trip.completed');
+    expect(names).toContain('ledger:order.cash_collected');
+    expect(names).toContain('ledger:order.cancelled');
+    expect(names).toContain('dispatch:auto-assign');
+    expect(names).toContain('dispatch:trip-events');
     expect(names).toContain('events:contradiction-detector');
   });
 

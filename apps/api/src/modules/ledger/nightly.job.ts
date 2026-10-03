@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { nightlyMessage, type MoneyRules, type NightlyReport } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import type { Queue } from '../../shared/queue.js';
+import { jobKey, type Queue } from '../../shared/queue.js';
 import { idOf } from './accounts.js';
 import { CapsService } from './caps.js';
 import type { LedgerEventBus } from './events.adapter.js';
@@ -91,7 +91,7 @@ export class NightlyJob {
   async schedule(queue: Queue<{ day: string }>): Promise<Date> {
     const at = nextNightlyRunAt(this.clock.now(), this.rules);
     const day = localDay(at, this.rules);
-    await queue.add('nightly', { day }, { delayMs: at.getTime() - this.clock.now().getTime(), jobId: `ledger-nightly:${day}` });
+    await queue.add('nightly', { day }, { delayMs: at.getTime() - this.clock.now().getTime(), jobId: jobKey(NIGHTLY_QUEUE, day) });
     return at;
   }
 

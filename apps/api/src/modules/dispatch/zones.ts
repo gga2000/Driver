@@ -42,6 +42,12 @@ export class ZoneDirectory {
     return this.geo.get(cityId)?.get(zoneId)?.centre;
   }
 
+  /** The city's first centre-tier zone: where a job with no known place is anchored (and flagged by its caller). */
+  defaultZone(cityId: string): string | undefined {
+    const zones = this.config.city(cityId)?.zones ?? [];
+    return (zones.find((z) => z.tier === 'centre') ?? zones[0])?.id;
+  }
+
   /** Nearest zone centroid to a position (draft: centroid-nearest until polygons are verified). */
   zoneAt(cityId: string, at: LatLng): string | undefined {
     let best: { id: string; d: number } | undefined;

@@ -1,19 +1,24 @@
-import { Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { ConfigModule } from '../config/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
+import { CAPS_PORT as LEDGER_CAPS_PORT, LedgerModule } from '../ledger/index.js';
+import { TripsModule, TripsService } from '../trips/index.js';
+import { InMemoryDepartures } from './departures.adapter.js';
 import { DISPATCH_REPOSITORY, InMemoryDispatchRepository, PrismaDispatchRepository } from './dispatch.repository.js';
 import { DISPATCH_POLICIES, DispatchService, defaultPolicies } from './dispatch.service.js';
 import { DISPATCH_STORE, InMemoryDispatchStore, RedisDispatchStore } from './dispatch.store.js';
 import { DISPATCH_EVENTS, EventsServiceAdapter } from './events.adapter.js';
+import { DispatchSubscribers } from './events.subscribers.js';
 import { GEO_INDEX, InMemoryGeoIndex, RedisGeoIndex } from './geo-index.js';
 import { DISPATCH_QUEUE, DISPATCH_QUEUE_NAME, OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
-import { CAPS, DEPARTURES, TRIP_OFFERS, UnwiredCaps, UnwiredDepartures, UnwiredTripOffers } from './ports.js';
+import { CAPS, DEPARTURES, TRIP_OFFERS, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
+import { TripsServiceTripOffers } from './trips.adapter.js';
 import { ZoneDirectory } from './zones.js';
 
 export const DISPATCH_REDIS = Symbol('DISPATCH_REDIS');
@@ -46,14 +51,14 @@ export class DispatchRuntime implements OnModuleDestroy {
  * Wiring: Redis-backed geo index, state store and BullMQ timers when REDIS_URL is set, in-memory
  * twins otherwise; Prisma `DispatchOffer` repository when DATABASE_URL is set.
  *
- * TODO(M2 Step 4 merge): bind TRIP_OFFERS to the rebuilt TripsService (offer/assign) and subscribe
- *   `order.merchant_accepted` → `DispatchService.request` (auto-assign), trip pickup/completion →
- *   `markPickedUp` / `jobFinished`, customer cancel → `cancel`.
- * TODO(M2 Step 6 merge): bind CAPS to the ledger's caps-by-role `isOverCap(driverId)`.
- * TODO(routes): bind DEPARTURES to the routes module (seats incl. walk-ups, cancelled_low_fill).
+ * Ports: TRIP_OFFERS → `TripsService` (create the courier trip, offer / accept / decline / timeout);
+ * CAPS → the ledger's caps by role and tier (`isOverCap`, `canOffer` with the job's cash);
+ * DEPARTURES → `InMemoryDepartures` until the intercity/routes module ships (see that file).
+ * Subscribers (`DispatchSubscribers`): `dispatch:auto-assign` on order acceptance, and
+ * `dispatch:trip-events` for accept/decline from trips, completion, cancellation and pickup.
  */
 @Module({
-  imports: [ConfigModule, EventsModule],
+  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule],
   providers: [
     ZoneDirectory,
     DriverRanker,
@@ -87,10 +92,10 @@ export class DispatchRuntime implements OnModuleDestroy {
       inject: [BullMqQueueFactory, CLOCK],
     },
     { provide: DISPATCH_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
-    // TODO(M2 Step 4/6 merge): real ports — see the class comment.
-    { provide: TRIP_OFFERS, useClass: UnwiredTripOffers },
-    { provide: CAPS, useClass: UnwiredCaps },
-    { provide: DEPARTURES, useClass: UnwiredDepartures },
+    { provide: TRIP_OFFERS, useFactory: (trips: TripsService) => new TripsServiceTripOffers(trips), inject: [TripsService] },
+    { provide: CAPS, useExisting: LEDGER_CAPS_PORT },
+    InMemoryDepartures,
+    { provide: DEPARTURES, useExisting: InMemoryDepartures },
     PresenceService,
     OfferOrchestrator,
     DispatchRuntime,
@@ -98,4 +103,21 @@ export class DispatchRuntime implements OnModuleDestroy {
   ],
   exports: [DispatchService],
 })
-export class DispatchModule {}
+export class DispatchModule implements OnModuleInit, OnModuleDestroy {
+  private unsubscribe: Array<() => void> = [];
+
+  constructor(
+    private readonly events: EventsService,
+    private readonly orchestrator: OfferOrchestrator,
+    private readonly zones: ZoneDirectory,
+    @Inject(TRIP_OFFERS) private readonly trips: TripOffersPort,
+  ) {}
+
+  onModuleInit(): void {
+    this.unsubscribe = new DispatchSubscribers(this.orchestrator, this.trips, this.zones).register(this.events);
+  }
+
+  onModuleDestroy(): void {
+    for (const off of this.unsubscribe) off();
+  }
+}

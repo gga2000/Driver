@@ -1,4 +1,4 @@
-import type { OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
+import type { DeliveryPoint, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -32,6 +32,8 @@ export interface OrderRecord {
   merchantOfferedAt: Date | null;
   promisedReadyAt: Date | null;
   minVehicleClass: VehicleClass | null;
+  /** Customer's delivery point (`orders.dropoff`, JSON); dispatch builds the courier trip's drop-off stop from it. */
+  dropoff: DeliveryPoint | null;
   placedAt: Date;
   acceptedAt: Date | null;
   preparingAt: Date | null;
@@ -148,6 +150,7 @@ function orderFromRow(r: any): OrderRecord {
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
     minVehicleClass: r.minVehicleClass,
+    dropoff: (r.dropoff as DeliveryPoint | null) ?? null,
     placedAt: r.placedAt,
     acceptedAt: r.acceptedAt,
     preparingAt: r.preparingAt,
@@ -183,6 +186,12 @@ function participantFromRow(r: any): ParticipantRecord {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** A patch as Prisma wants it: JSON columns take `Prisma.DbNull`, not `null`. */
+function toData(patch: OrderPatch) {
+  const { dropoff, ...rest } = patch;
+  return dropoff === undefined ? rest : { ...rest, dropoff: dropoff ? (dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull };
+}
+
 /** Bound when DATABASE_URL is set. Touches only orders, order_lines and participants. */
 export class PrismaOrdersRepository implements OrdersRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -193,7 +202,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
   async create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[], tx?: Tx): Promise<OrderAggregate> {
     const db = this.db(tx);
-    const row = await db.order.create({ data: { ...order } });
+    const row = await db.order.create({ data: { ...order, dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull } });
     const byRef = new Map<string, string>();
     for (const p of participants) {
       const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
@@ -224,11 +233,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
   }
 
   async update(id: string, patch: OrderPatch, tx?: Tx): Promise<OrderRecord> {
-    return orderFromRow(await this.db(tx).order.update({ where: { id }, data: patch }));
+    return orderFromRow(await this.db(tx).order.update({ where: { id }, data: toData(patch) }));
   }
 
   async updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null> {
-    const res = await this.db(tx).order.updateMany({ where: { id, state: expectState }, data: patch });
+    const res = await this.db(tx).order.updateMany({ where: { id, state: expectState }, data: toData(patch) });
     if (res.count === 0) return null;
     return (await this.find(id, tx))!.order;
   }

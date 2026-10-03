@@ -1,4 +1,4 @@
-import type { VehicleClass } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type CommissionTier, type VehicleClass } from '@driver/contracts';
 import type { PauseWindow } from './pause.js';
 
 /**
@@ -24,8 +24,11 @@ export const ORDERS_RULES = {
   courierReleaseCompensationIqd: 500,
   /** Spec §4: merchant rejects after accepting → 500 customer credit funded by the merchant. */
   merchantLateRejectCreditIqd: 500,
-  /** Money §1 worked example: 2,250 on 15,000. Per-merchant tier overrides it. */
-  defaultCommissionPct: 15,
+  /**
+   * Money §1 tier for merchants without one on file: `featured` (15 %) keeps the worked example
+   * (2,250 on 15,000) and the pre-tier default. The rate itself comes from the money rules.
+   */
+  defaultCommissionTier: 'featured' as CommissionTier,
   /** Money §3: car in city 12 %. Ride orders do not carry their vertical yet, so cars set the rate. */
   rideTakePct: 12,
   /** Edge-case §2: 1 point per 100 IQD of platform revenue (rides 1 per 200), capped per order. */
@@ -52,3 +55,8 @@ export const CITY_PAUSE_WINDOWS: Readonly<Record<string, readonly PauseWindow[]>
 };
 
 export const DEFAULT_TIMEZONE = 'Asia/Baghdad';
+
+/** Commission percent of a tier, from the city's money rules (the ledger posts by the same rules). */
+export function commissionPctOf(tier: CommissionTier): number {
+  return Math.round(AZIZIYAH_MONEY_RULES.commission[tier] * 10_000) / 100;
+}

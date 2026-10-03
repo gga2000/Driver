@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { CapRole, CapTier, MoneyRules } from '@driver/contracts';
+import type { Clock } from '../../shared/clock.js';
 import { Accounts } from './accounts.js';
 import { LedgerService } from './ledger.service.js';
 import { MONEY_RULES } from './tokens.js';
@@ -74,7 +75,7 @@ export function newCustomerCashDecision(priorCashOrders: number, orderTotalIqd: 
   return { allowed: !isNew || orderTotalIqd <= rules.newCustomerCash.maxOrderIqd, requiresArrivingCall: isNew };
 }
 
-/** Where a driver's role and tier come from. Identity/scoring own them; until they expose a port the default is courier/bronze. */
+/** Where a driver's role and tier come from (identity and scoring own them; `IdentityScoringCapProfiles` in production). */
 export interface DriverCapProfileResolver {
   profile(driverId: string): Promise<{ role: CapRole; tier: CapTier }>;
 }
@@ -93,6 +94,53 @@ export class StaticCapProfiles implements DriverCapProfileResolver {
 
   async profile(driverId: string): Promise<{ role: CapRole; tier: CapTier }> {
     return this.profiles.get(driverId) ?? this.fallback;
+  }
+}
+
+/** Identity's role port, as the ledger needs it (structural: `RoleReader` from `modules/identity`). */
+export interface CapRoleSource {
+  activeRoles(personId: string): Promise<readonly string[]>;
+}
+
+/** Scoring's cap tier, as the ledger needs it (structural: `ScoringService.capTier`). Null = no scorecard yet. */
+export interface CapTierSource {
+  capTier(driverId: string, now: Date): Promise<CapTier | null>;
+}
+
+/** Driving roles → the cap role they are capped as (shoppers carry cash like couriers). */
+const CAP_ROLE_OF: Readonly<Record<string, CapRole>> = {
+  courier: 'courier',
+  shopper: 'courier',
+  driver: 'driver',
+  khat_driver: 'khat_driver',
+  intercity_driver: 'intercity_driver',
+};
+const CAP_ROLE_PREFERENCE: readonly CapRole[] = ['intercity_driver', 'driver', 'khat_driver', 'courier'];
+
+/**
+ * G-80 caps by role for a person holding several driving roles: the one with the highest cap (at
+ * the bronze row) wins, so an intercity driver who also delivers keeps his intercity cap. No
+ * driving role at all (shouldn't be offered anything) → courier, the smallest.
+ */
+export function capRoleOf(roles: readonly string[], rules: MoneyRules): CapRole {
+  // Preference order breaks ties: a driver who also delivers is capped as a driver.
+  const held = CAP_ROLE_PREFERENCE.filter((r) => roles.some((k) => CAP_ROLE_OF[k] === r));
+  if (held.length === 0) return 'courier';
+  return held.reduce((best, r) => (rules.caps.byRole[r].bronze > rules.caps.byRole[best].bronze ? r : best));
+}
+
+/** Production resolver: role from identity, tier from scoring (bronze while there is no scorecard). */
+export class IdentityScoringCapProfiles implements DriverCapProfileResolver {
+  constructor(
+    private readonly roles: CapRoleSource,
+    private readonly tiers: CapTierSource,
+    private readonly clock: Clock,
+    private readonly rules: MoneyRules,
+  ) {}
+
+  async profile(driverId: string): Promise<{ role: CapRole; tier: CapTier }> {
+    const [roles, tier] = await Promise.all([this.roles.activeRoles(driverId), this.tiers.capTier(driverId, this.clock.now())]);
+    return { role: capRoleOf(roles, this.rules), tier: tier ?? 'bronze' };
   }
 }
 

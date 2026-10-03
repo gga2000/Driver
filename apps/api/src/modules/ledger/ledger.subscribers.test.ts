@@ -12,7 +12,7 @@ describe('ledger subscribers', () => {
   it('subscribes to exactly the domain events the ledger settles', () => {
     expect(LEDGER_SUBSCRIBED_EVENTS.sort()).toEqual(
       [
-        'cash.collected',
+        'order.cash_collected',
         'departure.cancelled',
         'merchant.settlement_requested',
         'order.cancelled',
@@ -23,24 +23,27 @@ describe('ledger subscribers', () => {
         'subscription.prorated',
         'subscription.renewed',
         'subscription.started',
-        'trip.completed',
       ].sort(),
     );
   });
 
-  it('food: cash.collected posts money at once, order.closed adds points on revenue, replays add nothing', async () => {
+  /** The producer-side extras every `order.cash_collected` carries next to the money fact. */
+  const cash = (o: ReturnType<typeof workedExample>) => ({ tripId: 't1', courierId: o.courierId ?? 'k1', amountIqd: 16500, expectedIqd: 16500, discrepancyIqd: 0 });
+  const closed = { from: 'delivered', to: 'closed', reason: 'auto_2h', totalIqd: 16500 };
+
+  it('food: order.cash_collected posts money at once, order.closed adds points on revenue, replays add nothing', async () => {
     const h = ledgerHarness();
-    await h.bus.publish('cash.collected', wire({ kind: 'order', order: workedExample() }));
+    await h.bus.publish('order.cash_collected', wire({ kind: 'order', order: workedExample(), ...cash(workedExample()) }));
     expect((await h.ledger.balance('merchant_cash:m1')).amount).toBe(12750);
     expect((await h.ledger.balance('points:c1')).amount).toBe(0);
 
-    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample() }));
+    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample(), ...closed }));
     expect((await h.ledger.balance('points:c1')).amount).toBe(27); // 2,750 revenue → 27 points, not 165 on GMV
     expect((await h.ledger.balance('platform')).amount).toBe(2750);
 
     const before = (await h.repo.all()).length;
-    await h.bus.publish('cash.collected', wire({ kind: 'order', order: workedExample() }));
-    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample() }));
+    await h.bus.publish('order.cash_collected', wire({ kind: 'order', order: workedExample(), ...cash(workedExample()) }));
+    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample(), ...closed }));
     expect((await h.repo.all()).length).toBe(before);
     const inv = await h.ledger.checkInvariant();
     expect(inv.ok).toBe(true);
@@ -49,7 +52,7 @@ describe('ledger subscribers', () => {
 
   it('points on revenue are capped at 50 however big the order', async () => {
     const h = ledgerHarness();
-    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample({ itemsSubtotalIqd: 300000, commissionTier: 'marketing' }) }));
+    await h.bus.publish('order.closed', wire({ kind: 'order', order: workedExample({ itemsSubtotalIqd: 300000, commissionTier: 'marketing' }), ...closed }));
     expect((await h.ledger.balance('points:c1')).amount).toBe(50);
   });
 
@@ -89,12 +92,15 @@ describe('ledger subscribers', () => {
     expect(await referrerLines()).toBe(11);
   });
 
-  it('rides: trip.completed posts money and points on take; a food trip without a ride payload posts nothing', async () => {
+  it('rides: cash collected at the door posts money only, order.closed adds points on the take; replays add nothing', async () => {
     const h = ledgerHarness();
-    await h.bus.publish('trip.completed', wire({ ride: { tripId: 't1', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 3000 } }));
+    const ride = { tripId: 't1', orderId: 'r1', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 3000 };
+    await h.bus.publish('order.cash_collected', wire({ kind: 'ride', ride, tripId: 't1', courierId: 'd1', amountIqd: 3000, expectedIqd: 3000, discrepancyIqd: 0 }));
     expect((await h.ledger.balance('driver:d1')).amount).toBe(2700);
+    expect((await h.ledger.balance('points:c1')).amount).toBe(0);
+    await h.bus.publish('order.closed', wire({ kind: 'ride', ride, from: 'completed', to: 'closed', reason: 'auto_2h', totalIqd: 3000 }));
     expect((await h.ledger.balance('points:c1')).amount).toBe(1);
-    await h.bus.publish('trip.completed', wire({}));
+    await h.bus.publish('order.closed', wire({ kind: 'ride', ride, from: 'completed', to: 'closed', reason: 'auto_2h', totalIqd: 3000 }));
     expect((await h.repo.all()).filter((e) => e.kind === 'money')).toHaveLength(3);
   });
 
@@ -112,7 +118,10 @@ describe('ledger subscribers', () => {
 
   it('cancellations, departure cancels and khat subscriptions settle from their events', async () => {
     const h = ledgerHarness();
-    await h.bus.publish('order.cancelled', wire({ orderId: 'o9', occurredAt: at, customerId: 'c1', feeIqd: 1000, beneficiary: { kind: 'driver', id: 'k1' } }));
+    await h.bus.publish(
+      'order.cancelled',
+      wire({ from: 'merchant_accepted', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: 'o9', occurredAt: at, customerId: 'c1', by: 'customer', reason: 'customer_request', free: false, feeIqd: 1000, beneficiaries: [{ kind: 'driver', id: 'k1', amountIqd: 1000 }] }),
+    );
     await h.bus.publish('departure.cancelled', wire({ departureId: 'dep9', occurredAt: at, driverId: 'd2', cancelledBy: 'driver', feeIqd: 2000, riderIds: ['r1', 'r2'] }));
     await h.bus.publish('subscription.renewed', wire({ subscriptionId: 'sub1', routeId: 'kh1', cycle: '2026-11', occurredAt: at, customerId: 'g1', payment: 'cash', driverId: 'd3', amountIqd: 30000 }));
     await h.bus.publish('subscription.prorated', wire({ subscriptionId: 'sub2', routeId: 'kh1', cycle: '2026-10', occurredAt: at, customerId: 'g2', payment: 'wallet', driverId: 'd3', amountIqd: 12000 }));

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { LatLng, PlaceOrderInput } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
@@ -9,7 +9,7 @@ import { InMemoryTripsRepository, RecordingTripEvents, TripsService, type TripTi
 import { RecordingOrderEvents } from './events.adapter.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository } from './orders.repository.js';
-import { OrdersService, type OrderTimerJob } from './orders.service.js';
+import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
 import type { ParticipantResolver } from './participants.js';
 
 /** Stand-in for identity's peppered HMAC: deterministic, and the number cannot be read back from it. */
@@ -19,6 +19,20 @@ export function fakePhoneHash(phone: string): string {
 
 export const KITCHEN: LatLng = { lat: 32.9105, lng: 45.0665 };
 export const HOME: LatLng = { lat: 32.9185, lng: 45.0712 };
+
+/** The ledger's new-customer cash rule (decisions §4) over a settable count of completed cash orders. */
+export class FakeCashRisk implements OrdersCashRiskPort {
+  readonly prior = new Map<string, number>();
+  readonly asked: Array<{ customerId: string; totalIqd: number }> = [];
+
+  async newCustomerCash(customerId: string, orderTotalIqd: number) {
+    this.asked.push({ customerId, totalIqd: orderTotalIqd });
+    const priorCashOrders = this.prior.get(customerId) ?? 0;
+    const rule = AZIZIYAH_MONEY_RULES.newCustomerCash;
+    const isNew = priorCashOrders < rule.firstOrders;
+    return { allowed: !isNew || orderTotalIqd <= rule.maxOrderIqd, requiresArrivingCall: isNew, priorCashOrders };
+  }
+}
 
 /**
  * Orders + trips on in-memory everything, one fake clock, two in-memory timer queues, and a fake
@@ -39,11 +53,14 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   const events = new RecordingOrderEvents();
   const queue = new InMemoryQueue<OrderTimerJob>('orders.timers', () => clock.now());
   const merchants = new InMemoryMerchantDirectory();
-  merchants.add('rest_1');
+  merchants.add('rest_1', { location: { zoneKey: 'centre', pin: KITCHEN } });
+  // `c1`, the customer of most tests, is an established account; `FakeCashRisk` applies the cap to everyone else.
+  const cashRisk = new FakeCashRisk();
+  cashRisk.prior.set('c1', 3);
   const people = new Map<string, string>(); // phone → personId
   const resolver: ParticipantResolver = { resolvePhone: async (phone) => ({ personId: people.get(phone) ?? null, phoneHash: fakePhoneHash(phone) }) };
   const pricing = new PricingService(new ConfigService());
-  const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver);
+  const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk);
   orders.onModuleInit();
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
@@ -111,5 +128,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

@@ -1,4 +1,4 @@
-import type { DispatchConfig, DispatchPolicyKind, LatLng, Vertical } from '@driver/contracts';
+import type { DispatchConfig, DispatchPolicyKind, LatLng, VehicleClass, Vertical } from '@driver/contracts';
 
 /** A driver candidate as seen by dispatch: position, current load and scoring tier. */
 export interface DriverCandidate {
@@ -33,6 +33,10 @@ export interface DispatchJob {
   readyAt?: Date;
   /** auto_assign: hot food never waits more than `batchMaxHotWaitMin` from ready. */
   hot?: boolean;
+  /** Smallest vehicle that may carry the job (the order cap, review A.16); smaller vehicles are never offered it. */
+  minVehicleClass?: VehicleClass | null;
+  /** Cash the driver will collect for others (a cash order's total): checked against his cap room. 0 = prepaid. */
+  cashIqd?: number;
   /** scheduled: the departure checked for low fill at T−30. */
   departureId?: string;
   /** pre_assigned: vetted substitutes whose stops match the route (caller-filtered). */

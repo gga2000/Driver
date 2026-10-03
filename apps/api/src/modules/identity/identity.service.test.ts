@@ -239,6 +239,8 @@ describe('re-verification (edge-case §7)', () => {
     expect(me.roles.find((r) => r.kind === 'merchant_staff')?.frozen).toBe(false);
     expect(await h.service.hasRole(driver.personId, 'driver')).toBe(false);
     expect(await h.service.hasRole(driver.personId, 'merchant_staff')).toBe(true);
+    // the narrow role port the ledger's cash caps read: frozen roles do not count
+    expect(await h.service.activeRoles(driver.personId)).toEqual(['customer', 'merchant_staff']);
     expect(h.events.last('person.reverification_required')?.payload['reason']).toBe('idle_120_days');
     await expectCode(h.service.linkGuardian(driver, { wardPhone: '07700000003' }), 'reverification_required');
     expect(tokens.refreshToken).toBeTruthy();

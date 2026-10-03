@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { DriverError } from '@driver/contracts';
+import { DriverError, type CommissionTier, type DeliveryPoint } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { EventsService } from '../events/index.js';
 
@@ -39,10 +39,13 @@ export interface MerchantSettings {
   /** Last merchant-app heartbeat (edge-case review A.2). */
   lastHeartbeatAt: Date | null;
   defaultPrepMin: number | null;
-  commissionPct: number | null;
+  /** Money §1 commission tier; null = the orders default. */
+  commissionTier: CommissionTier | null;
+  /** Pickup point couriers are sent to (zone key + pin); null until the merchant's place is on file. */
+  location: DeliveryPoint | null;
 }
 
-const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionPct: null };
+const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
 
 export interface PayerApprovalRequest {
   id: string;

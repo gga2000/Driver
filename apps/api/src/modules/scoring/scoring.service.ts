@@ -27,9 +27,27 @@ export interface ScoringThresholds {
 
 export const DEFAULT_THRESHOLDS: ScoringThresholds = { silver: 70, gold: 85, observationDays: 30 };
 
+/** Scoring §2: Gold needs index ≥ 85 and at least this many completed trips. */
+export const GOLD_MIN_TRIPS = 100;
+
 @Injectable()
 export class ScoringService {
   constructor(private readonly events: EventsService) {}
+
+  /**
+   * The tier that sets a driver's cash cap (money §4: 75k / 150k / 300k), or null when the driver
+   * has no scorecard yet (never active). Scoring §2: days 1–30 are observation at the new-driver
+   * cap (bronze); Gold also needs ≥ 100 completed trips.
+   */
+  async capTier(driverId: string, now = new Date()): Promise<Tier | null> {
+    const evs = await this.events.forActor(driverId);
+    if (evs.length === 0) return null;
+    const firstActiveAt = new Date(Math.min(...evs.map((e) => e.occurredAt.getTime())));
+    const card = await this.scorecard(driverId, firstActiveAt, now);
+    if (card.observation) return 'bronze';
+    const trips = evs.filter((e) => e.type === 'trip.completed').length;
+    return card.tier === 'gold' && trips < GOLD_MIN_TRIPS ? 'silver' : card.tier;
+  }
 
   async scorecard(driverId: string, firstActiveAt: Date, now = new Date(), thresholds = DEFAULT_THRESHOLDS): Promise<Scorecard> {
     const evs = await this.events.forActor(driverId);

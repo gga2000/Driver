@@ -10,4 +10,7 @@ export { canBatch } from './batching.js';
 export type { BatchOrder, BatchRules, BatchVerdict } from './batching.js';
 /** Ports other modules implement (trips: offers/assign; ledger: caps; routes: departures). */
 export { TRIP_OFFERS, CAPS, DEPARTURES, FakeTripOffers, FakeCaps, FakeDepartures } from './ports.js';
-export type { TripOffersPort, CapsPort, DeparturesPort } from './ports.js';
+export type { TripOffersPort, CapsPort, DeparturesPort, CourierTripInput, JobExposure } from './ports.js';
+export { TripsServiceTripOffers } from './trips.adapter.js';
+export { InMemoryDepartures } from './departures.adapter.js';
+export { DispatchSubscribers, DISPATCH_AUTO_ASSIGN_SUBSCRIBER, DISPATCH_TRIP_SUBSCRIBER } from './events.subscribers.js';

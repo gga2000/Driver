@@ -40,6 +40,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     new PricingService(new ConfigService()),
     merchants,
     { resolvePhone: async (phone) => ({ personId: null, phoneHash: fakePhoneHash(phone) }) },
+    { newCustomerCash: async () => ({ allowed: true, requiresArrivingCall: false, priorCashOrders: 3 }) },
   );
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
   const ids = { customer: '', courier: '', org: '', order: '', trip: '' };

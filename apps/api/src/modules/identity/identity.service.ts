@@ -224,6 +224,15 @@ export class IdentityService implements IdentityPort {
     return roles.some((r) => r.kind === kind && r.frozenAt === null && (orgId === undefined || r.orgId === orgId));
   }
 
+  /**
+   * Live (unfrozen) role kinds of a person, deduplicated across orgs. The narrow read other modules
+   * get through `ROLE_READER` (the ledger's cash caps by role, G-80); nothing else about the person.
+   */
+  async activeRoles(personId: string): Promise<RoleKind[]> {
+    const roles = await this.repo.rolesOf(personId);
+    return [...new Set(roles.filter((r) => r.frozenAt === null).map((r) => r.kind))];
+  }
+
   /** Idempotent: granting an existing role returns it and emits nothing. */
   async grantRole(actor: Actor | { personId: string }, input: GrantRole): Promise<RoleGrant> {
     return this.uow.run(async (tx) => {

@@ -4,6 +4,7 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { CapsService, LedgerModule } from '../ledger/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
@@ -11,7 +12,7 @@ import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
-import { ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, OrdersService, type OrderTimerJob } from './orders.service.js';
+import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, OrdersService, type OrderTimerJob } from './orders.service.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
@@ -21,10 +22,11 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
 /**
  * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; timers on the
  * `orders.timers` queue; merchants read through `OrgsService`; participant phones resolved by
- * identity (hash only); trip events consumed from the outbox as the `orders:trip-events` subscriber.
+ * identity (hash only); the new-customer cash cap read from the ledger's caps; trip events consumed
+ * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -35,6 +37,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_QUEUE, useFactory: (f: BullMqQueueFactory, clock: Clock) => timersQueue<OrderTimerJob>('orders.timers', f, clock), inject: [BullMqQueueFactory, CLOCK] },
     { provide: ORDERS_TRIPS, useExisting: TripsService },
     { provide: ORDERS_PRICING, useExisting: PricingService },
+    // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
+    { provide: ORDERS_CASH_RISK, useExisting: CapsService },
     { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService) => new OrgsMerchantDirectory(orgs), inject: [OrgsService] },
     {
       provide: PARTICIPANT_RESOLVER,

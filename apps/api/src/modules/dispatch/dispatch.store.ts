@@ -1,4 +1,4 @@
-import type { DispatchPolicyKind, DispatchStatus, LatLng, Vertical } from '@driver/contracts';
+import type { DispatchPolicyKind, DispatchStatus, LatLng, VehicleClass, Vertical } from '@driver/contracts';
 import type { Redis } from 'ioredis';
 
 /**
@@ -40,6 +40,10 @@ export interface DispatchRequest {
   departAt: number | null;
   /** The courier has the order in the bag (trips tells us); batching then skips its pickup. */
   pickedUp: boolean;
+  /** Order cap (review A.16): smaller vehicles are not offered the job. Absent on records saved before M2 wiring. */
+  minVehicleClass?: VehicleClass | null;
+  /** Cash exposure checked against the driver's cap room (0 = prepaid). Absent on records saved before M2 wiring. */
+  cashIqd?: number;
   // scheduled / pre_assigned
   routeId: string | null;
   routeDriverId: string | null;

@@ -3,21 +3,27 @@ import {
   DriverError,
   PlaceOrderInput,
   TERMINAL_ORDER_STATES,
+  encodeDomainEvent,
+  isDomainEventType,
+  type CancellationBeneficiary,
   type CancellationFee,
   type DisputeKind,
+  type DomainEventInput,
   type Order,
   type OrderState,
+  type ParticipantShare,
   type Trip,
+  type Vertical,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import type { Queue } from '../../shared/queue.js';
+import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
-import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES } from './orders.config.js';
+import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
 import {
   ORDERS_REPOSITORY,
   type LineUnavailability,
@@ -31,13 +37,25 @@ import {
 import { activePauseWindow } from './pause.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
 
-/** The slice of trips the orders module drives (courier release, cancellations, rider completion). */
+/** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
 export interface OrdersTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
   detachOrder(tripId: string, orderId: string, actorId?: string, reason?: string): Promise<Trip>;
   cancel(tripId: string, by: 'driver' | 'customer' | 'platform', actorId: string, reason: string): Promise<Trip>;
   customerComplete(tripId: string, customerId: string, reason?: string): Promise<Trip>;
+  /** Who carried the order (for settlement on `closed`); null when no driver ever took it. */
+  courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
 }
+
+/**
+ * Ledger's new-customer cash rule (decisions §4): the first three cash orders of an account are
+ * capped at 25,000 and need the arriving call. Bound to the ledger's `CapsService`.
+ */
+export interface OrdersCashRiskPort {
+  newCustomerCash(customerId: string, orderTotalIqd: number): Promise<{ allowed: boolean; requiresArrivingCall: boolean; priorCashOrders: number }>;
+}
+
+export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
 
 export interface OrdersPricingPort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
@@ -89,6 +107,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(ORDERS_PRICING) private readonly pricing: OrdersPricingPort,
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
     @Inject(PARTICIPANT_RESOLVER) private readonly participants: ParticipantResolver,
+    @Inject(ORDERS_CASH_RISK) private readonly cashRisk: OrdersCashRiskPort,
   ) {}
 
   onModuleInit(): void {
@@ -133,6 +152,9 @@ export class OrdersService implements OnModuleInit {
         ? Math.max(0, (input.fareIqd ?? 0) + input.tipIqd - input.discountIqd)
         : Math.max(0, itemsTotal + input.deliveryFeeIqd + input.serviceFeeIqd + input.tipIqd - input.discountIqd);
     const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
+    // Decisions §4: a new account's first three cash orders are capped and get the arriving call.
+    const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
+    if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
 
     return this.uow.run(async (tx) => {
       const agg = await this.repo.create(
@@ -153,6 +175,7 @@ export class OrdersService implements OnModuleInit {
           note: input.note ?? null,
           scheduledFor: input.scheduledFor ?? null,
           minVehicleClass: caps?.minVehicleClass ?? null,
+          dropoff: input.dropoff ?? null,
           placedAt: now,
         },
         newLines,
@@ -171,6 +194,7 @@ export class OrdersService implements OnModuleInit {
         cateringRequest: caps?.catering ?? false,
         scheduledFor: order.scheduledFor?.toISOString() ?? null,
         participantCount: agg.participants.length,
+        arrivingCallRequired: risk?.requiresArrivingCall ?? false,
       });
       for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
       if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
@@ -178,7 +202,7 @@ export class OrdersService implements OnModuleInit {
       if (merchantType && profile) {
         const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - (profile.defaultPrepMin + ORDERS_RULES.scheduledLeadMin) * 60_000) : now;
         if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
-        else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: `order:${order.id}:offer` });
+        else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
       }
       return this.view(order.id, tx);
     });
@@ -202,7 +226,7 @@ export class OrdersService implements OnModuleInit {
       await this.accept(offered, profile.defaultPrepMin, SYSTEM, tx, { auto: true });
       return;
     }
-    await this.queue.add(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: `order:${order.id}:autoReject:${now.getTime()}` });
+    await this.queue.add(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: jobKey('order', order.id, 'autoReject', now.getTime()) });
   }
 
   // ───────────────────────── merchant side ─────────────────────────
@@ -236,7 +260,7 @@ export class OrdersService implements OnModuleInit {
         deadline: deadline.toISOString(),
         prepMinutes: input.prepMinutes,
       });
-      await this.queue.add(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: `order:${order.id}:partial:${now.getTime()}` });
+      await this.queue.add(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: jobKey('order', order.id, 'partial', now.getTime()) });
       return this.view(order.id, tx);
     });
   }
@@ -301,7 +325,7 @@ export class OrdersService implements OnModuleInit {
       if (!input.approve) {
         for (const l of proposal.lines) await this.repo.updateLine(l.id, { substitution: { ...l.substitution!, state: 'restored' } }, tx);
         await this.emit(tx, 'order.partial_declined', actorId, order, { unavailableLineIds: proposal.lines.map((l) => l.id) });
-        await this.move(order, 'customer_cancelled', actorId, tx, { cancelledAt: now, cancellationReason: 'partial_declined', cancellationFeeIqd: 0 }, { by: 'customer', reason: 'partial_declined', feeIqd: 0, free: true });
+        await this.move(order, 'customer_cancelled', actorId, tx, { cancelledAt: now, cancellationReason: 'partial_declined', cancellationFeeIqd: 0 }, this.cancelled(order, { by: 'customer', reason: 'partial_declined', free: true, feeIqd: 0 }));
         return this.view(order.id, tx);
       }
       for (const l of proposal.lines) await this.repo.updateLine(l.id, { substitution: { ...l.substitution!, state: 'removed' } }, tx);
@@ -316,7 +340,7 @@ export class OrdersService implements OnModuleInit {
   /** Fee the customer would pay to cancel now (dispatch & pricing §4). */
   async cancellationPreview(orderId: string): Promise<CancellationFee> {
     const { order } = await this.load(orderId);
-    return this.feeFor(order);
+    return (await this.feeFor(order)).fee;
   }
 
   /**
@@ -329,21 +353,18 @@ export class OrdersService implements OnModuleInit {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
       if (order.state === 'customer_cancelled') return this.view(order.id, tx);
-      const fee = await this.feeFor(order);
+      const { fee, trip } = await this.feeFor(order);
       if (!fee.allowed) throw new DriverError(order.state === 'picked_up' ? 'order_cancel_after_pickup' : 'order_state_conflict');
       const now = this.clock.now();
       const reason = input.reason ?? 'customer_request';
-      await this.move(order, 'customer_cancelled', actorId, tx, { cancelledAt: now, cancellationReason: reason, cancellationFeeIqd: fee.amountIqd }, {
-        by: 'customer',
-        reason,
-        feeIqd: fee.amountIqd,
-        free: fee.free,
-        payer: fee.payer,
-        splits: fee.splits,
-        label_ar: fee.label_ar,
-        reason_ar: fee.reason_ar,
-      });
-      const trip = await this.trips.activeForOrder(order.id);
+      await this.move(
+        order,
+        'customer_cancelled',
+        actorId,
+        tx,
+        { cancelledAt: now, cancellationReason: reason, cancellationFeeIqd: fee.amountIqd },
+        this.cancelled(order, { by: 'customer', reason, free: fee.free, feeIqd: fee.amountIqd, beneficiaries: beneficiariesOf(fee, order, trip), tripId: trip?.id, label_ar: fee.label_ar, reason_ar: fee.reason_ar }),
+      );
       if (trip) {
         if (order.type === 'ride') await this.trips.cancel(trip.id, 'customer', actorId, reason);
         else await this.trips.detachOrder(trip.id, order.id, actorId, 'order_cancelled');
@@ -494,7 +515,7 @@ export class OrdersService implements OnModuleInit {
           const proposal = pendingProposal(agg.lines);
           if (order.state !== 'placed' || !proposal || proposal.proposedAt.getTime() !== job.refMs) return;
           for (const l of proposal.lines) await this.repo.updateLine(l.id, { substitution: { ...l.substitution!, state: 'restored' } }, tx);
-          await this.move(order, 'platform_cancelled', SYSTEM, tx, { cancelledAt: now, cancellationReason: 'partial_timeout', cancellationFeeIqd: 0 }, { by: 'platform', reason: 'partial_timeout', feeIqd: 0, free: true });
+          await this.move(order, 'platform_cancelled', SYSTEM, tx, { cancelledAt: now, cancellationReason: 'partial_timeout', cancellationFeeIqd: 0 }, this.cancelled(order, { by: 'platform', reason: 'partial_timeout', free: true, feeIqd: 0 }));
           return;
         }
         case ORDER_JOBS.readyOverdue:
@@ -548,16 +569,26 @@ export class OrdersService implements OnModuleInit {
   private async accept(order: OrderRecord, prepMinutes: number, actorId: string, tx: Tx, opts: { auto: boolean; partial?: boolean }): Promise<OrderRecord> {
     const now = this.clock.now();
     const promisedReadyAt = new Date(now.getTime() + prepMinutes * 60_000);
-    const next = await this.move(order, 'merchant_accepted', actorId, tx, { acceptedAt: now, promisedReadyAt }, {
+    const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
+    // Contract `order.accepted`: what dispatch needs to time and route the courier (auto-assign).
+    const accepted: Omit<DomainEventInput<'order.accepted'>, 'from' | 'to'> = {
+      orderType: order.type,
+      cityId: order.cityId,
+      merchantOrgId: order.merchantOrgId,
       prepMinutes,
-      promisedReadyAt: promisedReadyAt.toISOString(),
+      promisedReadyAt,
       minVehicleClass: order.minVehicleClass,
       auto: opts.auto,
       partial: opts.partial ?? false,
-    }, opts.auto ? 'order.auto_accepted' : 'order.accepted');
+      pickup: profile?.location ?? null,
+      dropoff: order.dropoff,
+      paymentMethod: order.paymentMethod,
+      totalIqd: order.totalIqd,
+    };
+    const next = await this.move(order, 'merchant_accepted', actorId, tx, { acceptedAt: now, promisedReadyAt }, accepted, opts.auto ? 'order.auto_accepted' : 'order.accepted');
     const ref = promisedReadyAt.getTime();
-    await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: `order:${order.id}:readyOverdue:${ref}` });
-    await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: `order:${order.id}:courierRelease:${ref}` });
+    await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+    await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
     return next;
   }
 
@@ -576,13 +607,14 @@ export class OrdersService implements OnModuleInit {
 
   private async delivered(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
     if (order.type === 'ride') {
-      return order.state === 'matched' ? this.completeRide(order, e.actorId, tx, { by: 'driver', tripId: e.tripId }) : undefined;
+      const cash = typeof e.payload['cashCollectedIqd'] === 'number' ? (e.payload['cashCollectedIqd'] as number) : null;
+      return order.state === 'matched' ? this.completeRide(order, e.actorId, tx, { by: 'driver', tripId: e.tripId }, cash) : undefined;
     }
     if (order.state !== 'picked_up') return;
     const now = this.clock.now();
     const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now }, { tripId: e.tripId, courierId: e.actorId });
     const cash = typeof e.payload['cashCollectedIqd'] === 'number' ? (e.payload['cashCollectedIqd'] as number) : null;
-    if (order.paymentMethod === 'cash') await this.cashCollected(next, e, cash ?? order.totalIqd, tx);
+    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? order.totalIqd, tx);
     await this.scheduleClose(next, now);
     return next;
   }
@@ -590,53 +622,134 @@ export class OrdersService implements OnModuleInit {
   /**
    * Edge-case §3 merchant cash account: a cash order creates `merchant_payable` net of commission
    * the moment the courier collects; the courier now holds the merchant's money until settlement.
+   * `order.cash_collected` carries the full money fact, so the ledger posts it at once.
    */
-  private async cashCollected(order: OrderRecord, e: TripEventEnvelope, amountIqd: number, tx: Tx): Promise<void> {
-    await this.emit(tx, 'order.cash_collected', e.actorId, order, { tripId: e.tripId, courierId: e.actorId, amountIqd, expectedIqd: order.totalIqd, discrepancyIqd: amountIqd - order.totalIqd });
+  private async cashCollected(order: OrderRecord, courier: Courier, amountIqd: number, tx: Tx): Promise<void> {
+    const fact = await this.moneyFact(order, courier, amountIqd, tx);
+    const collected: DomainEventInput<'order.cash_collected'> = {
+      ...fact,
+      tripId: courier.tripId,
+      courierId: courier.courierId,
+      amountIqd,
+      expectedIqd: order.totalIqd,
+      discrepancyIqd: amountIqd - order.totalIqd,
+    };
+    await this.emit(tx, 'order.cash_collected', courier.courierId, order, collected);
     if (!order.merchantOrgId) return;
     const profile = await this.merchants.profile(order.merchantOrgId);
-    const pct = profile?.commissionPct ?? ORDERS_RULES.defaultCommissionPct;
+    const tier = profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier;
+    const pct = commissionPctOf(tier);
     const commission = Math.round((order.itemsTotalIqd * pct) / 100);
-    await this.emit(tx, 'merchant.payable_accrued', SYSTEM, order, {
+    const accrued: DomainEventInput<'merchant.payable_accrued'> = {
       merchantOrgId: order.merchantOrgId,
-      courierId: e.actorId,
+      courierId: courier.courierId,
+      tripId: courier.tripId,
       grossIqd: order.itemsTotalIqd,
+      commissionTier: tier,
       commissionPct: pct,
       commissionIqd: commission,
       netIqd: order.itemsTotalIqd - commission,
       heldBy: 'courier',
-    });
+    };
+    await this.emit(tx, 'merchant.payable_accrued', SYSTEM, order, accrued);
   }
 
-  private async completeRide(order: OrderRecord, actorId: string, tx: Tx, payload: Record<string, unknown>): Promise<OrderRecord> {
+  /**
+   * The order's money fact as the ledger settles it (contracts `OrderMoneyPayload` /
+   * `ErrandMoneyPayload` / `RideMoneyPayload`), from this module's own rows plus the courier who
+   * carried it. `cashCollectedIqd` is what the courier actually took (cash collection only).
+   * Known gap: `discountIqd` has no promotion behind it yet, so it is not posted.
+   */
+  private async moneyFact(order: OrderRecord, courier: Courier | null, cashCollectedIqd: number | undefined, tx: Tx): Promise<MoneyFact> {
+    const now = this.clock.now();
+    const payer = {
+      customerId: order.ordererId,
+      ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
+      payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
+      ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
+    };
+    if (order.type === 'food' || order.type === 'grocery_catalog') {
+      const agg = (await this.repo.find(order.id, tx))!;
+      const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
+      return {
+        kind: 'order',
+        order: {
+          orderId: order.id,
+          ...(courier ? { tripId: courier.tripId, courierId: courier.courierId } : {}),
+          orderType: order.type,
+          occurredAt: now,
+          ...payer,
+          merchantId: order.merchantOrgId ?? '',
+          itemsSubtotalIqd: order.itemsTotalIqd,
+          commissionTier: profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
+          serviceFeeIqd: order.serviceFeeIqd,
+          deliveryFeeIqd: order.deliveryFeeIqd,
+          tipIqd: order.tipIqd,
+          participants: participantShares(agg),
+        },
+      };
+    }
+    if (order.type === 'errand') {
+      return {
+        kind: 'errand',
+        errand: {
+          orderId: order.id,
+          ...(courier ? { tripId: courier.tripId } : {}),
+          occurredAt: now,
+          ...payer,
+          shopperId: courier?.courierId ?? '',
+          actualCostIqd: order.receiptTotalIqd ?? order.itemsTotalIqd,
+          errandFeeIqd: order.deliveryFeeIqd,
+          serviceFeeIqd: order.serviceFeeIqd,
+          tipIqd: order.tipIqd,
+        },
+      };
+    }
+    // Rides and parcels: the driver keeps the fare less the platform take by class (money §3).
+    return {
+      kind: 'ride',
+      ride: {
+        tripId: courier?.tripId ?? '',
+        orderId: order.id,
+        occurredAt: now,
+        ...payer,
+        driverId: courier?.courierId ?? '',
+        takeClass: order.type === 'parcel' ? 'parcel' : courier?.vertical === 'tuktuk' ? 'tuktuk' : 'car',
+        fareIqd: order.totalIqd - order.tipIqd,
+        tipIqd: order.tipIqd,
+      },
+    };
+  }
+
+  private async completeRide(order: OrderRecord, actorId: string, tx: Tx, payload: Record<string, unknown>, cashCollectedIqd?: number | null): Promise<OrderRecord> {
     const now = this.clock.now();
     const next = await this.move(order, 'completed', actorId, tx, { deliveredAt: now }, payload);
+    if (order.paymentMethod === 'cash') {
+      // The driver took the fare at the door: his cash cap moves now; the money posts once more, idempotently, on closed.
+      const courier = await this.trips.courierOf(order.id);
+      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? order.totalIqd, tx);
+    }
     await this.scheduleClose(next, now);
     return next;
   }
 
   private async scheduleClose(order: OrderRecord, from: Date): Promise<void> {
-    await this.queue.add(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: `order:${order.id}:autoClose` });
+    await this.queue.add(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: jobKey('order', order.id, 'autoClose') });
   }
 
   /** `closed`: money settles (ledger subscribes) and points are allocated to participants. */
   private async close(order: OrderRecord, actorId: string, reason: string, tx: Tx): Promise<void> {
     const agg = (await this.repo.find(order.id, tx))!;
     const now = this.clock.now();
-    const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, {
-      reason,
-      totalIqd: agg.order.totalIqd,
-      itemsTotalIqd: agg.order.itemsTotalIqd,
-      deliveryFeeIqd: agg.order.deliveryFeeIqd,
-      serviceFeeIqd: agg.order.serviceFeeIqd,
-      paymentMethod: agg.order.paymentMethod,
-      merchantOrgId: agg.order.merchantOrgId,
-    });
+    // Money settles on closed (domain §2): the ledger posts the fact (a no-op if cash collection already did).
+    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), undefined, tx);
+    const closedPayload: DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to'> = { ...fact, reason, totalIqd: agg.order.totalIqd };
+    const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, closedPayload);
     const profile = closed.merchantOrgId ? await this.merchants.profile(closed.merchantOrgId) : null;
     const revenue =
       closed.type === 'ride'
         ? Math.round((closed.totalIqd * ORDERS_RULES.rideTakePct) / 100)
-        : closed.serviceFeeIqd + Math.round((closed.itemsTotalIqd * (profile?.commissionPct ?? ORDERS_RULES.defaultCommissionPct)) / 100);
+        : closed.serviceFeeIqd + Math.round((closed.itemsTotalIqd * commissionPctOf(profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier)) / 100);
     const basePoints = orderPoints({ type: closed.type, platformRevenueIqd: revenue });
     const allocations = allocatePoints({
       type: closed.type,
@@ -696,14 +809,14 @@ export class OrdersService implements OnModuleInit {
     if (trip) await this.trips.detachOrder(trip.id, order.id, SYSTEM, reason);
   }
 
-  private async feeFor(order: OrderRecord): Promise<CancellationFee> {
+  private async feeFor(order: OrderRecord): Promise<{ fee: CancellationFee; trip: Trip | null }> {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {
       const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && s.arrivedAt)?.arrivedAt ?? null;
-      return this.pricing.cancellationFee({ kind: 'trip', by: 'customer', state: trip.state, acceptedAt: trip.acceptedAt, arrivedPickupAt, fareIqd: order.totalIqd }, now, order.cityId);
+      return { fee: this.pricing.cancellationFee({ kind: 'trip', by: 'customer', state: trip.state, acceptedAt: trip.acceptedAt, arrivedPickupAt, fareIqd: order.totalIqd }, now, order.cityId), trip };
     }
-    return this.pricing.cancellationFee(
+    const fee = this.pricing.cancellationFee(
       {
         kind: 'order',
         type: order.type,
@@ -720,6 +833,28 @@ export class OrdersService implements OnModuleInit {
       now,
       order.cityId,
     );
+    return { fee, trip };
+  }
+
+  /** The `order.cancelled` contract fields beyond the transition (`move` adds from/to/cancelledState). */
+  private cancelled(
+    order: OrderRecord,
+    c: { by: 'customer' | 'platform'; reason: string; free: boolean; feeIqd: number; beneficiaries?: CancellationBeneficiary[]; tripId?: string | undefined; label_ar?: string; reason_ar?: string },
+  ): Omit<DomainEventInput<'order.cancelled'>, 'from' | 'to' | 'cancelledState'> {
+    return {
+      orderId: order.id,
+      ...(c.tripId ? { tripId: c.tripId } : {}),
+      occurredAt: this.clock.now(),
+      customerId: order.ordererId,
+      ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
+      by: c.by,
+      reason: c.reason,
+      free: c.free,
+      feeIqd: c.feeIqd,
+      beneficiaries: c.beneficiaries ?? [],
+      ...(c.label_ar ? { label_ar: c.label_ar } : {}),
+      ...(c.reason_ar ? { reason_ar: c.reason_ar } : {}),
+    };
   }
 
   private async evidence(order: OrderRecord): Promise<Record<string, unknown>> {
@@ -739,7 +874,7 @@ export class OrdersService implements OnModuleInit {
     actorId: string,
     tx: Tx,
     patch: OrderPatch = {},
-    payload: Record<string, unknown> = {},
+    payload: object = {},
     eventType?: string,
   ): Promise<OrderRecord> {
     if (order.state === to) return order;
@@ -750,8 +885,10 @@ export class OrdersService implements OnModuleInit {
     return next;
   }
 
-  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: Record<string, unknown>): Promise<void> {
-    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload }, { name: 'order', id: order.id });
+  /** Cross-module events (contracts `DOMAIN_EVENT_PAYLOADS`) are validated against their shared contract here. */
+  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: object): Promise<void> {
+    const wire = isDomainEventType(type) ? encodeDomainEvent(type, payload as never) : (payload as Record<string, unknown>);
+    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload: wire }, { name: 'order', id: order.id });
   }
 
   private async view(orderId: string, tx?: Tx): Promise<Order> {
@@ -771,6 +908,47 @@ function pendingProposal(lines: readonly OrderLineRecord[]): { lines: OrderLineR
   if (proposed.length === 0) return null;
   const first = proposed[0]!.substitution!;
   return { lines: proposed, proposedAt: new Date(first.proposedAt), prepMinutes: first.prepMinutes };
+}
+
+interface Courier {
+  tripId: string;
+  courierId: string;
+  vertical: Vertical;
+}
+
+/** The kind-tagged money fact shared by `order.cash_collected` and `order.closed`. */
+type MoneyFact = DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to' | 'reason' | 'totalIqd'>;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+function verticalOf(e: TripEventEnvelope): Vertical {
+  const v = e.payload['vertical'];
+  return typeof v === 'string' ? (v as Vertical) : 'food';
+}
+
+/** Lines tagged to a participant, as the ledger's points split wants them (domain §3); untagged lines are the orderer's. */
+function participantShares(agg: OrderAggregate): ParticipantShare[] {
+  const byParticipant = new Map<string, number>();
+  for (const l of agg.lines) {
+    if (!l.participantId || l.substitution?.state === 'removed') continue;
+    byParticipant.set(l.participantId, (byParticipant.get(l.participantId) ?? 0) + lineValue(l));
+  }
+  const out: ParticipantShare[] = [];
+  for (const p of agg.participants) {
+    const itemsIqd = byParticipant.get(p.id);
+    if (!itemsIqd) continue;
+    if (p.personId) out.push({ personId: p.personId, itemsIqd });
+    else if (p.phoneHash) out.push({ phoneHash: p.phoneHash, itemsIqd });
+  }
+  return out;
+}
+
+/** Pricing's fee splits resolved to who gets the money: the merchant, or the driver on the trip. */
+function beneficiariesOf(fee: CancellationFee, order: OrderRecord, trip: Trip | null): CancellationBeneficiary[] {
+  return fee.splits.map((s) => {
+    if (s.to === 'merchant' && order.merchantOrgId) return { kind: 'merchant' as const, id: order.merchantOrgId, amountIqd: s.amountIqd };
+    if ((s.to === 'courier' || s.to === 'driver') && trip?.courierId) return { kind: 'driver' as const, id: trip.courierId, amountIqd: s.amountIqd };
+    throw new Error(`cancellation split to ${s.to} has no party on order ${order.id}`);
+  });
 }
 
 function dateOrNull(v: unknown): Date | null {

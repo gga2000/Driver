@@ -5,9 +5,9 @@ import { LedgerEventType } from './ledger.js';
 import { CapRole, CapTier, CommissionTier, SettlementMode, TakeClass } from './ledger-rules.js';
 
 /**
- * Plain payloads of the domain events the ledger reacts to (domain §6), and the IO of the ledger
- * router. Producers (orders, trips, routes, merchants) publish these shapes; the ledger turns each
- * into one balanced posting group. Amounts are what the locked quote charged — the ledger only
+ * The money facts inside the domain events the ledger reacts to (domain §6; the event payloads
+ * themselves are in `domain-events.ts`), and the IO of the ledger router. The ledger turns each
+ * fact into one balanced posting group. Amounts are what the locked quote charged — the ledger only
  * splits them (commission, take, points), it never re-prices.
  */
 
@@ -116,19 +116,6 @@ export const LateMeterPayload = z.object({
 });
 export type LateMeterPayload = z.input<typeof LateMeterPayload>;
 
-export const CancellationPayload = z.object({
-  orderId: z.string().min(1),
-  tripId: z.string().min(1).optional(),
-  occurredAt: z.coerce.date(),
-  customerId: z.string().min(1),
-  householdId: z.string().min(1).optional(),
-  /** From pricing.cancellationFee(); 0 = free cancel, nothing posts. */
-  feeIqd: Iqd.nonnegative(),
-  /** The wronged party gets 100 % (money §3). */
-  beneficiary: z.object({ kind: z.enum(['merchant', 'driver']), id: z.string().min(1) }),
-});
-export type CancellationPayload = z.input<typeof CancellationPayload>;
-
 export const DepartureCancelledPayload = z.object({
   departureId: z.string().min(1),
   routeId: z.string().min(1).optional(),
@@ -153,23 +140,6 @@ export const SubscriptionChargePayload = z.object({
   prorated: z.boolean().default(false),
 });
 export type SubscriptionChargePayload = z.input<typeof SubscriptionChargePayload>;
-
-export const CashCollectedPayload = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('order'), order: OrderMoneyPayload }),
-  z.object({ kind: z.literal('errand'), errand: ErrandMoneyPayload }),
-  z.object({ kind: z.literal('ride'), ride: RideMoneyPayload }),
-  z.object({ kind: z.literal('seat'), seat: SeatMoneyPayload }),
-]);
-export type CashCollectedPayload = z.input<typeof CashCollectedPayload>;
-
-export const OrderClosedPayload = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('order'), order: OrderMoneyPayload }),
-  z.object({ kind: z.literal('errand'), errand: ErrandMoneyPayload }),
-]);
-export type OrderClosedPayload = z.input<typeof OrderClosedPayload>;
-
-export const TripCompletedPayload = z.object({ ride: RideMoneyPayload.optional() });
-export type TripCompletedPayload = z.input<typeof TripCompletedPayload>;
 
 export const SettlementRequestReason = z.enum(['merchant_request', 'exposure_cap', 'mode_schedule']);
 export type SettlementRequestReason = z.infer<typeof SettlementRequestReason>;

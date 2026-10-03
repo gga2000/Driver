@@ -1,6 +1,6 @@
 import {
-  CancellationPayload,
   DepartureCancelledPayload,
+  OrderCancelledPayload,
   ErrandMoneyPayload,
   LateMeterPayload,
   OrderMoneyPayload,
@@ -13,6 +13,7 @@ import {
   type MoneyRules,
   type TakeRule,
 } from '@driver/contracts';
+import type { z } from 'zod';
 import { Accounts } from './accounts.js';
 
 /**
@@ -347,15 +348,13 @@ export function postLateMeter(input: LateMeterPayload, rules: MoneyRules): Posti
 // ───────────────────────── cancellations ─────────────────────────
 
 /** Cancellation fee, 100 % to the wronged party; unpaid it stays as wallet debt. */
-export function postCancellation(input: CancellationPayload): PostingGroup | null {
-  const c = CancellationPayload.parse(input);
+export function postCancellation(input: z.input<typeof OrderCancelledPayload>): PostingGroup | null {
+  const c = OrderCancelledPayload.parse(input);
   if (c.feeIqd === 0) return null;
   const payer = payerAccount(c);
-  const to = c.beneficiary.kind === 'merchant' ? Accounts.merchantCash(c.beneficiary.id) : Accounts.driver(c.beneficiary.id);
-  return new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId })
-    .add('cancellation_fee', c.feeIqd, payer, to, c.beneficiary.kind)
-    .control(payer, -c.feeIqd)
-    .build();
+  const b = new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId });
+  for (const to of c.beneficiaries) b.add('cancellation_fee', to.amountIqd, payer, to.kind === 'merchant' ? Accounts.merchantCash(to.id) : Accounts.driver(to.id), to.kind);
+  return b.control(payer, -c.feeIqd).build();
 }
 
 /** Driver cancels inside 2 h: his fee is shared by the booked riders as credit; low-fill cancels post nothing. */

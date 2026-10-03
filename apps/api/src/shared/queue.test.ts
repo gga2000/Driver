@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FakeClock } from './clock.js';
-import { BullMqQueueFactory, InMemoryQueue, InMemoryQueueFactory } from './queue.js';
+import { BullMqQueueFactory, InMemoryQueue, InMemoryQueueFactory, jobKey } from './queue.js';
 
 describe('InMemoryQueue', () => {
   it('runs jobs in order on drain', async () => {
@@ -58,6 +58,15 @@ describe('InMemoryQueue', () => {
     await q.drain();
     await q.add('timer', 'y', { jobId: 'once' });
     expect(q.size).toBe(0);
+  });
+
+  it('rejects custom ids BullMQ rejects ("Custom Id cannot contain :"), so a bad id fails in unit tests, not in production', async () => {
+    const q = new InMemoryQueue<string>('t');
+    await expect(q.add('nightly', 'x', { jobId: 'ledger-nightly:2026-10-04' })).rejects.toThrow('Custom Id cannot contain :');
+    await expect(q.add('t', 'x', { jobId: 'order:o1:autoReject:1700000000000' })).rejects.toThrow('Custom Id cannot contain :');
+    expect(q.size).toBe(0);
+    await q.add('t', 'x', { jobId: jobKey('order', 'o1', 'autoReject', 1700000000000) });
+    expect(q.pending().map((j) => j.id)).toEqual(['order.o1.autoReject.1700000000000']);
   });
 
   it('retries a failing job while attempts remain, then throws', async () => {

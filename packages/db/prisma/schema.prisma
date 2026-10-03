@@ -836,6 +836,8 @@ model Order {
   promisedReadyAt    DateTime?     @map("promised_ready_at")
   /// Step 4 (edge-case review A.16): smallest vehicle class that may carry the order.
   minVehicleClass    VehicleClass? @map("min_vehicle_class")
+  /// M2 wiring: the customer's delivery point {zoneKey, pin?}; dispatch builds the courier trip's drop-off stop from it.
+  dropoff            Json?
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 

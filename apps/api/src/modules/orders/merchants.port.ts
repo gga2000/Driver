@@ -1,3 +1,4 @@
+import type { CommissionTier, DeliveryPoint } from '@driver/contracts';
 import type { OrgsService } from '../orgs/index.js';
 import { CITY_PAUSE_WINDOWS, ORDERS_RULES } from './orders.config.js';
 import type { PauseWindow } from './pause.js';
@@ -14,7 +15,10 @@ export interface MerchantProfile {
   pauseWindows: PauseWindow[];
   lastHeartbeatAt: Date | null;
   defaultPrepMin: number;
-  commissionPct: number;
+  /** Money §1 tier; the rate comes from the money rules so orders and the ledger agree. */
+  commissionTier: CommissionTier;
+  /** Where couriers pick up (zone key + pin); null until the merchant's place is on file. */
+  location: DeliveryPoint | null;
 }
 
 export interface MerchantDirectory {
@@ -44,7 +48,8 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
       pauseWindows: s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])],
       lastHeartbeatAt: s.lastHeartbeatAt,
       defaultPrepMin: s.defaultPrepMin ?? ORDERS_RULES.defaultPrepMin,
-      commissionPct: s.commissionPct ?? ORDERS_RULES.defaultCommissionPct,
+      commissionTier: s.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
+      location: s.location ?? null,
     };
   }
 
@@ -66,7 +71,8 @@ export class InMemoryMerchantDirectory implements MerchantDirectory {
       pauseWindows: [...(CITY_PAUSE_WINDOWS[cityId] ?? [])],
       lastHeartbeatAt: null,
       defaultPrepMin: ORDERS_RULES.defaultPrepMin,
-      commissionPct: ORDERS_RULES.defaultCommissionPct,
+      commissionTier: ORDERS_RULES.defaultCommissionTier,
+      location: null,
       ...patch,
     };
     this.merchants.set(orgId, p);

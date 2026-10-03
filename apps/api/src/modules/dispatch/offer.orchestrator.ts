@@ -4,6 +4,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
+import { vehicleFits } from '../trips/index.js';
 import { canBatch, type BatchOrder } from './batching.js';
 import { buildCard, sortCards } from './board.js';
 import { DISPATCH_REPOSITORY, OPEN_STATES, type DispatchRepository, type NewOffer, type OfferRecord } from './dispatch.repository.js';
@@ -13,7 +14,7 @@ import { etaMin, haversineKm } from './geo.js';
 import { CITY_RADIUS_KM, type DriverPresence } from './geo-index.js';
 import { DEFAULT_WAVES } from './policies.js';
 import type { DispatchJob } from './policy.js';
-import { CAPS, DEPARTURES, TRIP_OFFERS, type CapsPort, type DeparturesPort, type TripOffersPort } from './ports.js';
+import { CAPS, DEPARTURES, TRIP_OFFERS, type CapsPort, type DeparturesPort, type JobExposure, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker, type RankedDriver } from './ranker.js';
 import { batchLimit, vehicleFit } from './vehicles.js';
@@ -189,6 +190,8 @@ export class OfferOrchestrator {
       batchWith: [],
       departAt: null,
       pickedUp: false,
+      minVehicleClass: job.minVehicleClass ?? null,
+      cashIqd: job.cashIqd ?? 0,
       routeId: job.routeId ?? null,
       routeDriverId: job.routeDriverId ?? null,
       departureId: job.departureId ?? null,
@@ -338,7 +341,8 @@ export class OfferOrchestrator {
     if (r.readyAt === null) return now;
     const cands = await this.candidates(r, cfg, { requireIdle: false });
     const eta = cands.length === 0 ? 0 : Math.min(...cands.map((c) => etaMin(c.presence, r.pickup)));
-    return Math.max(now, r.readyAt - (eta + cfg.arriveBeforeReadyMin) * 60_000);
+    // Whole milliseconds: a fractional start time would never be reached by a millisecond clock.
+    return Math.max(now, Math.ceil(r.readyAt - (eta + cfg.arriveBeforeReadyMin) * 60_000));
   }
 
   private async startPass(r: DispatchRequest, cfg: DispatchConfig, pass: number): Promise<void> {
@@ -523,6 +527,7 @@ export class OfferOrchestrator {
       await this.repo.updateOffer(offer.id, OPEN_STATES, { state: 'withdrawn', respondedAt: this.clock.now() });
       throw new DriverError('offer_taken');
     }
+    const vehicle = (await this.presence.get(driverId))?.vehicle;
     return this.uow.run(async (tx) => {
       const accepted = await this.repo.updateOffer(offer.id, OPEN_STATES, { state: 'accepted', respondedAt: this.clock.now() }, tx);
       if (!accepted) {
@@ -530,8 +535,16 @@ export class OfferOrchestrator {
         throw new DriverError('offer_expired');
       }
       const fresh = (await this.store.getRequest(r.tripId)) ?? r;
-      await this.withdrawOpen(fresh, offer.id);
       const batchWith = fresh.policy === 'auto_assign' ? await this.store.driverJobs(driverId) : [];
+      // Trips first: if it refuses (vehicle too small for the order, trip gone) nobody is told he won.
+      try {
+        await this.trips.assign(fresh.tripId, driverId, { compensationIqd: offer.compensationIqd, batchWith, ...(vehicle ? { vehicleClass: vehicle } : {}) });
+      } catch (err) {
+        await this.repo.updateOffer(offer.id, ['accepted'], { state: 'withdrawn' }, tx);
+        await this.store.unlock(lockKey(r.tripId));
+        throw err;
+      }
+      await this.withdrawOpen(fresh, offer.id);
       fresh.status = 'assigned';
       fresh.assignedDriverId = driverId;
       fresh.compensationIqd = offer.compensationIqd;
@@ -542,7 +555,6 @@ export class OfferOrchestrator {
       await this.store.addDriverJob(driverId, fresh.tripId);
       await this.store.saveRequest(fresh);
       await this.presence.resetZoneClock(driverId);
-      await this.trips.assign(fresh.tripId, driverId, { compensationIqd: offer.compensationIqd, batchWith });
       const payload = {
         driverId,
         offerId: offer.id,
@@ -553,6 +565,7 @@ export class OfferOrchestrator {
         compensationFundedBy: offer.compensationIqd > 0 ? 'platform' : null,
         batchWith,
         departAt: fresh.departAt === null ? null : new Date(fresh.departAt).toISOString(),
+        via: 'dispatch',
       };
       await this.emit('dispatch.assigned', fresh, payload, driverId);
       if (offer.policy === 'pre_assigned' && offer.pass === 2) await this.emit('substitute.assigned', fresh, { driverId, routeId: fresh.routeId }, driverId);
@@ -560,9 +573,11 @@ export class OfferOrchestrator {
     });
   }
 
-  private async decline(r: DispatchRequest, offer: OfferRecord) {
+  private async decline(r: DispatchRequest, offer: OfferRecord, opts: { notifyTrips: boolean } = { notifyTrips: true }) {
     return this.uow.run(async (tx) => {
-      await this.repo.updateOffer(offer.id, OPEN_STATES, { state: 'declined', respondedAt: this.clock.now() }, tx);
+      const declined = await this.repo.updateOffer(offer.id, OPEN_STATES, { state: 'declined', respondedAt: this.clock.now() }, tx);
+      if (!declined) return { outcome: 'declined' as const, tripId: offer.tripId, compensationIqd: 0 };
+      if (opts.notifyTrips) await this.trips.decline(offer.tripId, offer.driverId, { othersPending: await this.hasOpen(offer.tripId) });
       await this.emit('dispatch.offer_declined', r, { offerId: offer.id, driverId: offer.driverId, wave: offer.wave, pass: offer.pass }, offer.driverId);
       const fresh = (await this.store.getRequest(r.tripId)) ?? r;
       const cfg = this.baseConfig(fresh.cityId, fresh.vertical);
@@ -581,6 +596,72 @@ export class OfferOrchestrator {
     const r = await this.store.getRequest(offer.tripId);
     if (!r) throw new DriverError('dispatch_not_found');
     return { offer, r };
+  }
+
+  // ───────────────────────── trips → dispatch ─────────────────────────
+
+  /**
+   * Trips says a driver accepted: either the echo of an assignment dispatch made (a no-op) or a
+   * driver who accepted from the Partner app straight through `trips.accept`. The latter claims the
+   * first-accept lock and assigns the request exactly as `respond` would, without calling trips again.
+   */
+  async onTripAccepted(tripId: string, driverId: string): Promise<void> {
+    const r = await this.store.getRequest(tripId);
+    if (!r || r.status === 'cancelled' || r.status === 'assigned') return;
+    if (!(await this.store.tryLock(lockKey(tripId), driverId, LOCK_TTL_MS))) return;
+    await this.uow.run(async (tx) => {
+      const mine = (await this.repo.listByTrip(tripId)).find((o) => o.driverId === driverId && OPEN_STATES.includes(o.state)) ?? null;
+      if (mine) await this.repo.updateOffer(mine.id, OPEN_STATES, { state: 'accepted', respondedAt: this.clock.now() }, tx);
+      await this.withdrawOpen(r, mine?.id);
+      const batchWith = r.policy === 'auto_assign' ? await this.store.driverJobs(driverId) : [];
+      r.status = 'assigned';
+      r.assignedDriverId = driverId;
+      r.compensationIqd = mine?.compensationIqd ?? 0;
+      r.batchWith = batchWith;
+      r.red = false;
+      r.nextTimerAt = null;
+      r.epoch += 1;
+      await this.store.addDriverJob(driverId, tripId);
+      await this.store.saveRequest(r);
+      await this.presence.resetZoneClock(driverId);
+      await this.emit(
+        'dispatch.assigned',
+        r,
+        {
+          driverId,
+          offerId: mine?.id ?? null,
+          policy: mine?.policy ?? r.policy,
+          wave: mine?.wave ?? r.wave,
+          pass: mine?.pass ?? r.pass,
+          compensationIqd: r.compensationIqd,
+          compensationFundedBy: r.compensationIqd > 0 ? 'platform' : null,
+          batchWith,
+          departAt: r.departAt === null ? null : new Date(r.departAt).toISOString(),
+          via: 'trip',
+        },
+        driverId,
+      );
+    });
+  }
+
+  /**
+   * Trips says a driver declined (Partner app → `trips.decline`, or the echo of `respond`): same as
+   * `respond(…, false)`. A decline made straight on trips does not know the wave is still open
+   * (`othersPending: false` moved the trip to `declined`), so the trip is put back on offer to the
+   * drivers who still hold an open offer; otherwise their accept would hit a non-offered trip.
+   */
+  async onTripDeclined(tripId: string, driverId: string, opts: { othersPendingOnTrip?: boolean } = {}): Promise<void> {
+    const r = await this.store.getRequest(tripId);
+    if (!r) return;
+    const offers = await this.repo.listByTrip(tripId);
+    const mine = offers.find((o) => o.driverId === driverId && OPEN_STATES.includes(o.state));
+    if (!mine) return;
+    const others = offers.filter((o) => o.id !== mine.id && OPEN_STATES.includes(o.state));
+    await this.decline(r, mine, { notifyTrips: false });
+    if (others.length > 0 && !opts.othersPendingOnTrip) {
+      const until = Math.max(...others.map((o) => o.expiresAt.getTime()));
+      await this.trips.offer(tripId, others.map((o) => o.driverId), Math.max(1, Math.round((until - this.now()) / 1000)));
+    }
   }
 
   // ───────────────────────── dispatcher ─────────────────────────
@@ -738,9 +819,9 @@ export class OfferOrchestrator {
   }
 
   /**
-   * Eligible drivers, ranked: online (TTL), vehicle fits the vertical, tuktuk edge rule, not over
-   * cap (money & ops §4: over-cap drivers finish the current job and get nothing new), not excluded,
-   * idle when required, and within the batch limit otherwise.
+   * Eligible drivers, ranked: online (TTL), vehicle fits the vertical and the order cap, tuktuk edge
+   * rule, cap room for this job's cash (money & ops §4: over-cap drivers finish the current job and
+   * get nothing new), not excluded, idle when required, and within the batch limit otherwise.
    */
   private async candidates(r: DispatchRequest, cfg: DispatchConfig, f: CandidateFilter): Promise<Candidate[]> {
     const nearby = await this.presence.nearby(r.cityId, r.pickup, f.radiusKm ?? CITY_RADIUS_KM);
@@ -752,10 +833,11 @@ export class OfferOrchestrator {
       const fit = vehicleFit(r.vertical, p.vehicle);
       if (fit === 0) continue;
       if (this.edgeBlocked(r, p)) continue;
+      if (!vehicleFits(p.vehicle, r.minVehicleClass ?? null)) continue;
       const jobs = await this.store.driverJobs(p.driverId);
       if (f.requireIdle && jobs.length > 0) continue;
       if (jobs.length > 0 && jobs.length >= batchLimit(p.vehicle, cfg.maxBatch)) continue;
-      if (await this.caps.isOverCap(p.driverId)) continue;
+      if (!(await this.caps.canOffer(p.driverId, this.exposure(r)))) continue;
       pool.push({ presence: p, jobs, distanceKm, fit });
     }
     const byId = new Map(pool.map((c) => [c.presence.driverId, c]));
@@ -800,8 +882,20 @@ export class OfferOrchestrator {
     for (const o of await this.repo.listByTrip(r.tripId)) {
       if (!OPEN_STATES.includes(o.state) || !which(o)) continue;
       const updated = await this.repo.updateOffer(o.id, OPEN_STATES, { state: 'timed_out' });
-      if (updated) await this.emit('dispatch.offer_timed_out', r, { offerId: o.id, driverId: o.driverId, wave: o.wave, pass: o.pass, ignored: o.seenAt !== null });
+      if (!updated) continue;
+      await this.trips.timeout(r.tripId, o.driverId, { othersPending: await this.hasOpen(r.tripId) });
+      await this.emit('dispatch.offer_timed_out', r, { offerId: o.id, driverId: o.driverId, wave: o.wave, pass: o.pass, ignored: o.seenAt !== null });
     }
+  }
+
+  private async hasOpen(tripId: string): Promise<boolean> {
+    return (await this.repo.listByTrip(tripId)).some((o) => OPEN_STATES.includes(o.state));
+  }
+
+  /** Cash the job puts in the driver's hand (a cash order's total); none = prepaid. */
+  private exposure(r: DispatchRequest): JobExposure {
+    const cash = r.cashIqd ?? 0;
+    return cash > 0 ? { valueIqd: cash, prepaid: false } : { valueIqd: 0, prepaid: true };
   }
 
   private async withdrawOpen(r: DispatchRequest, exceptOfferId?: string): Promise<void> {

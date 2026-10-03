@@ -66,7 +66,48 @@ describe('OrdersService — placing', () => {
   });
 });
 
+describe('OrdersService — new-customer cash cap (decisions §4)', () => {
+  it('the first three cash orders of a new account are capped at 25,000 and flagged for the arriving call', async () => {
+    const h = ordersHarness();
+    const big = h.foodInput({ lines: [{ catalogItemId: 'tray', qty: 3, unitPriceIqd: 9000 }] }); // 27,000 + 1,500 fees
+    expect(await code(h.orders.place('new1', big))).toBe('new_customer_cash_cap');
+    expect(h.cashRisk.asked).toEqual([{ customerId: 'new1', totalIqd: 28500 }]);
+    // wallet orders are not cash exposure
+    expect((await h.orders.place('new1', { ...big, paymentMethod: 'wallet' })).state).toBe('placed');
+    const small = await h.orders.place('new1', h.foodInput());
+    expect(h.events.ofType('order.placed').find((e) => e.orderId === small.id)!.payload).toMatchObject({ arrivingCallRequired: true });
+    // three completed cash orders later the cap is gone
+    h.cashRisk.prior.set('new1', 3);
+    const ok = await h.orders.place('new1', big);
+    expect(ok.state).toBe('placed');
+    expect(h.events.ofType('order.placed').find((e) => e.orderId === ok.id)!.payload).toMatchObject({ arrivingCallRequired: false });
+  });
+});
+
 describe('OrdersService — merchant acceptance', () => {
+  it('order.accepted carries what dispatch needs: ready time, vehicle, pickup and drop-off points, cash exposure', async () => {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'zakur', pin: { lat: 32.9185, lng: 45.0712 } } }));
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    expect(h.events.last('order.accepted')!.payload).toEqual({
+      from: 'placed',
+      to: 'merchant_accepted',
+      orderType: 'food',
+      cityId: 'aziziyah',
+      merchantOrgId: 'rest_1',
+      prepMinutes: 15,
+      promisedReadyAt: new Date(h.clock.now().getTime() + 15 * MIN).toISOString(),
+      minVehicleClass: 'bike',
+      auto: false,
+      partial: false,
+      pickup: { zoneKey: 'centre', pin: { lat: 32.9105, lng: 45.0665 } },
+      dropoff: { zoneKey: 'zakur', pin: { lat: 32.9185, lng: 45.0712 } },
+      paymentMethod: 'cash',
+      totalIqd: 16500,
+    });
+  });
+
+
   it('auto-rejects after 90 s with a dispatch alert, scored', async () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());
@@ -219,8 +260,22 @@ describe('OrdersService — cancellation fees (spec §4)', () => {
     ]);
     const c = await h.orders.cancel('c1', { orderId: preparing.id, reason: 'غيرت رأيي' });
     expect(c.cancellationFeeIqd).toBe(15500);
-    expect(h.events.last('order.cancelled')!.payload).toMatchObject({ by: 'customer', feeIqd: 15500, reason: 'غيرت رأيي' });
+    // Shared contract (domain-events): the splits resolved to the merchant and the courier en route.
+    expect(h.events.last('order.cancelled')!.payload).toMatchObject({
+      by: 'customer',
+      feeIqd: 15500,
+      reason: 'غيرت رأيي',
+      orderId: preparing.id,
+      customerId: 'c1',
+      tripId: trip.id,
+      beneficiaries: [
+        { kind: 'merchant', id: 'rest_1', amountIqd: 15000 },
+        { kind: 'driver', id: 'd1', amountIqd: 500 },
+      ],
+    });
     expect((await h.trips.get(trip.id)).state).toBe('platform_cancelled');
+    // the free cancel carried no beneficiaries
+    expect(h.events.ofType('order.cancelled')[0]!.payload).toMatchObject({ feeIqd: 0, free: true, beneficiaries: [] });
   });
 
   it('no cancel after pickup — it becomes a dispute', async () => {

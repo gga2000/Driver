@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CityId, Iqd } from './common.js';
+import { CityId, DeliveryPoint, Iqd } from './common.js';
 import type { Actor } from './identity-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
@@ -72,6 +72,8 @@ export const PlaceOrderInput = z.object({
   /** Rides: the locked quote total. Ignored for item orders (computed from lines). */
   fareIqd: Iqd.min(0).optional(),
   paymentMethod: PaymentMethod.default('cash'),
+  /** Where the courier delivers (the customer's saved place: zone key + pin). Dispatch builds the courier trip from it. */
+  dropoff: DeliveryPoint.optional(),
   /** Scheduled orders are offered to the merchant at T − prep − 10 min (edge-case review A.12). */
   scheduledFor: z.coerce.date().optional(),
   note: z.string().max(500).optional(),

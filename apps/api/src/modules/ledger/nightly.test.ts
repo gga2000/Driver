@@ -61,12 +61,12 @@ describe('nightly close (02:00 Asia/Baghdad)', () => {
     const queue = new InMemoryQueue<{ day: string }>('ledger-nightly', () => h.clock.now());
     h.nightly.attach(queue);
     await h.nightly.schedule(queue);
-    expect(queue.pending().map((j) => [j.id, j.readyAt.toISOString()])).toEqual([['ledger-nightly:2026-10-04', '2026-10-03T23:00:00.000Z']]);
+    expect(queue.pending().map((j) => [j.id, j.readyAt.toISOString()])).toEqual([['ledger-nightly.2026-10-04', '2026-10-03T23:00:00.000Z']]);
     expect(await queue.drain(new Date('2026-10-03T22:59:00Z'))).toBe(0);
     h.clock.set('2026-10-03T23:00:00Z');
     expect(await queue.drain()).toBe(1);
     expect(h.bus.types()).toContain('ledger.nightly_closed');
-    expect(queue.pending().map((j) => j.id)).toEqual(['ledger-nightly:2026-10-05']);
+    expect(queue.pending().map((j) => j.id)).toEqual(['ledger-nightly.2026-10-05']);
   });
 
   it('Sunday runs mark every positive driver balance as payout due (G-86 weekly)', async () => {

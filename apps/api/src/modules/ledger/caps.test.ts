@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_MONEY_RULES as rules } from '@driver/contracts';
-import { canOfferJob, capFor, isOverCapAmount, newCustomerCashDecision, owedOf, payoutDue } from './caps.js';
+import { CapsService, IdentityScoringCapProfiles, canOfferJob, capFor, capRoleOf, isOverCapAmount, newCustomerCashDecision, owedOf, payoutDue } from './caps.js';
 import { postMerchantPaidByCourier, postRideCompleted, postSettlement } from './postings.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
 
@@ -81,5 +81,29 @@ describe('CapsService (CapsPort for dispatch)', () => {
     for (let i = 0; i < 3; i++) await h.posting.orderMoney(workedExample({ orderId: `o${i}` }));
     await h.posting.orderMoney(workedExample({ orderId: 'w1', payment: 'wallet' }));
     expect(await h.caps.newCustomerCash('c1', 30000)).toEqual({ allowed: true, requiresArrivingCall: false, priorCashOrders: 3 });
+  });
+});
+
+describe('cap profiles from identity (role) and scoring (tier)', () => {
+  const roles = (byPerson: Record<string, string[]>) => ({ activeRoles: async (id: string) => byPerson[id] ?? [] });
+  const tiers = (byDriver: Record<string, 'bronze' | 'silver' | 'gold'>) => ({ capTier: async (id: string) => byDriver[id] ?? null });
+
+  it('the driving role with the highest cap wins; no driving role is a courier', () => {
+    expect(capRoleOf(['customer', 'courier'], rules)).toBe('courier');
+    expect(capRoleOf(['driver'], rules)).toBe('driver');
+    expect(capRoleOf(['courier', 'intercity_driver'], rules)).toBe('intercity_driver');
+    expect(capRoleOf(['shopper'], rules)).toBe('courier');
+    expect(capRoleOf([], rules)).toBe('courier');
+  });
+
+  it('tier from the scorecard, bronze when there is none; the cap follows', async () => {
+    const h = ledgerHarness();
+    const profiles = new IdentityScoringCapProfiles(roles({ k1: ['courier'], d1: ['driver'], x1: ['intercity_driver'] }), tiers({ k1: 'silver' }), h.clock, rules);
+    expect(await profiles.profile('k1')).toEqual({ role: 'courier', tier: 'silver' });
+    expect(await profiles.profile('d1')).toEqual({ role: 'driver', tier: 'bronze' });
+    const caps = new CapsService(h.ledger, rules, profiles);
+    expect((await caps.status('k1')).capIqd).toBe(150000);
+    expect((await caps.status('d1')).capIqd).toBe(75000);
+    expect((await caps.status('x1')).capIqd).toBe(300000);
   });
 });

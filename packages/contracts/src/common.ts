@@ -17,6 +17,10 @@ export const LatLng = z.object({
 });
 export type LatLng = z.infer<typeof LatLng>;
 
+/** Where a stop is: the zone key fares and dispatch use, and the pin when the app knows it. */
+export const DeliveryPoint = z.object({ zoneKey: z.string().min(1), pin: LatLng.optional() });
+export type DeliveryPoint = z.infer<typeof DeliveryPoint>;
+
 export const CityId = z.string().min(1);
 export type CityId = z.infer<typeof CityId>;
 

@@ -211,11 +211,18 @@ describe('late meter — 100 % to the wronged party', () => {
 });
 
 describe('cancellations', () => {
-  it('fee goes 100 % to the wronged party and stays as wallet debt; free cancel posts nothing', () => {
-    const g = postCancellation({ orderId: 'o2', occurredAt: at, customerId: 'c1', feeIqd: 1000, beneficiary: { kind: 'merchant', id: 'm1' } })!;
+  const cancelled = (over: Record<string, unknown>) =>
+    ({ from: 'merchant_accepted', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: 'o2', occurredAt: at, customerId: 'c1', by: 'customer', reason: 'customer_request', free: false, ...over }) as Parameters<typeof postCancellation>[0];
+
+  it('fee goes 100 % to the wronged parties and stays as wallet debt; free cancel posts nothing', () => {
+    const g = postCancellation(cancelled({ feeIqd: 1500, beneficiaries: [{ kind: 'merchant', id: 'm1', amountIqd: 1000 }, { kind: 'driver', id: 'k1', amountIqd: 500 }] }))!;
     validateGroup(g);
-    expect(nets(g)).toEqual({ 'customer:c1': -1000, 'merchant_cash:m1': 1000 });
-    expect(postCancellation({ orderId: 'o3', occurredAt: at, customerId: 'c1', feeIqd: 0, beneficiary: { kind: 'driver', id: 'd1' } })).toBeNull();
+    expect(nets(g)).toEqual({ 'customer:c1': -1500, 'merchant_cash:m1': 1000, 'driver:k1': 500 });
+    expect(postCancellation(cancelled({ orderId: 'o3', feeIqd: 0, free: true, beneficiaries: [] }))).toBeNull();
+  });
+
+  it('a fee whose beneficiaries do not add up is refused (the contract refine)', () => {
+    expect(() => postCancellation(cancelled({ feeIqd: 1000, beneficiaries: [{ kind: 'merchant', id: 'm1', amountIqd: 500 }] }))).toThrow(/add up/);
   });
 
   it('driver cancelling a departure inside 2 h shares his fee across booked riders; low-fill posts nothing', () => {
