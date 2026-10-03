@@ -139,8 +139,10 @@ export class PartnerService implements PartnerPort {
       expiresAt: offer.expiresAt,
       ringSec: Math.max(1, Math.round((offer.expiresAt.getTime() - offer.sentAt.getTime()) / 1000)),
       seen: offer.seenAt !== null || offer.state === 'seen',
-      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: request.pickup },
-      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: dropPin },
+      // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the
+      // dropoff, a ride's pickup) stays off it; the one who accepts gets the pins on `activeJob`.
+      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null },
+      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null },
       distanceToPickupKm: offer.distanceKm ?? (presence ? kmBetween(presence, request.pickup) : null),
       tripKm: dropPin ? kmBetween(request.pickup, dropPin) : null,
       pay,

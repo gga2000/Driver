@@ -28,6 +28,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | in progress |
 | 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
 | 12 | Low | menu import applied twice concurrently duplicates items | documented |
+| 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
 
 ## Details
 
@@ -149,3 +150,13 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Test:** `merchant-admin.service.test.ts` › "inviting a phone does not reveal the person's name until he signs in after the invite".
 - **Follow-up (documented):** an explicit accept step (like the fleet invite in #2) would be stronger; it
   needs a Merchant-app screen, so it is left as a product decision.
+
+### 13 · Medium · offer card carries the customer's door pin (PII, location)
+
+- **Where:** `apps/api/src/modules/partner/partner.service.ts` `currentOffer`.
+- **What:** the offer sent to every driver in every wave (most decline) carried `dropoff.pin` = the exact
+  drop target (the customer's home), and for rides `pickup.pin` = the rider's location. The spec's offer card
+  names zones; the pins belong to the one driver who accepts.
+- **Fix:** `dropoff.pin` is always null on an offer; `pickup.pin` only for a merchant pickup. Distances
+  (`distanceToPickupKm`, `tripKm`) are still computed server-side; `activeJob` keeps the pins.
+- **Test:** `partner.service.test.ts` › "an offer names zones, never the customer's exact door (review 2026-10-04 #13)".

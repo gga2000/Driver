@@ -231,6 +231,16 @@ describe('PartnerService', () => {
     expect(offer!.tripKm).toBeGreaterThan(2);
   });
 
+  it("an offer names zones, never the customer's exact door (review 2026-10-04 #13)", async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
+    const offer = (await harness({ online: true, offerTrip: t }).currentOffer(actor))!;
+    // Every driver in every wave sees the offer; only the one who accepts gets the door (activeJob).
+    expect(offer.dropoff.pin).toBeNull();
+    expect(JSON.stringify(offer)).not.toContain(String(HOME.lat));
+    expect(offer.pickup.pin).toEqual(KITCHEN); // a merchant's kitchen is public
+    expect(offer.tripKm).toBeGreaterThan(2); // the distance is still computed server-side
+  });
+
   it('currentOffer while on a job is a batch: 70 % as the batch bonus', async () => {
     const current = trip('t0', [stop('a', 0, 'pickup', 'street_30', KITCHEN)]);
     const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered' });
