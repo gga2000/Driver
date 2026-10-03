@@ -1,8 +1,9 @@
-import { Injectable, Module, type INestApplication } from '@nestjs/common';
+import { Injectable, Logger, Module, type INestApplication } from '@nestjs/common';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
-import type { AppContext } from '@driver/contracts';
+import { isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
+import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
@@ -13,18 +14,36 @@ export const TRPC_PATH = '/trpc';
 /** Builds the tRPC context from Nest providers; the router itself lives in @driver/contracts. */
 @Injectable()
 export class TrpcService {
+  private readonly logger = new Logger(TrpcService.name);
+
   constructor(
     private readonly pricing: PricingService,
     private readonly config: ConfigService,
+    private readonly identity: IdentityService,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
   ) {}
 
-  context(): AppContext {
+  /** Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. */
+  async context(authorization?: string): Promise<AppContext> {
+    let auth: SessionClaims | null = null;
+    let authError: ErrorCode | null = null;
+    const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+    if (token) {
+      try {
+        auth = await this.identity.verifyAccessToken(token);
+      } catch (err) {
+        authError = isDriverError(err) ? err.code : 'token_invalid';
+      }
+    }
     return {
       pricing: { quote: (req) => this.pricing.quote(req) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
+      identity: this.identity,
+      auth,
+      authError,
+      env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
       now: () => new Date(),
       version: API_VERSION,
     };
@@ -35,11 +54,15 @@ export class TrpcService {
       TRPC_PATH,
       createExpressMiddleware({
         router: appRouter,
-        createContext: () => this.context(),
+        createContext: ({ req }) => this.context(req.headers.authorization),
+        // Clients get the Arabic envelope; the stack stays in the server log.
+        onError: ({ error, path }) => {
+          if (error.code === 'INTERNAL_SERVER_ERROR') this.logger.error(`${path ?? '?'}: ${error.message}`, (error.cause as Error | undefined)?.stack ?? error.stack);
+        },
       }),
     );
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

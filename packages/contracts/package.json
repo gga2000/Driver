@@ -23,9 +23,10 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "zod": "3.25.76",
+    "@driver/i18n": "workspace:*",
     "@trpc/server": "11.19.0",
-    "superjson": "2.2.6"
+    "superjson": "2.2.6",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
