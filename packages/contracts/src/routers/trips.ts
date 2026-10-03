@@ -15,7 +15,9 @@ import {
   Trip,
   TripIdInput,
 } from '../trip.js';
+import { EventLog } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { CONSOLE_READ_ROLES } from './console.js';
 
 /** Everyone who drives a job for the platform. */
 export const DRIVING_ROLES: readonly RoleKind[] = ['courier', 'shopper', 'driver', 'intercity_driver', 'khat_driver'];
@@ -26,6 +28,8 @@ export const OPS_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'admin']
 export const tripsRouter = router({
   get: protectedProcedure([...DRIVING_ROLES, ...OPS_ROLES]).input(TripIdInput).output(Trip).query(({ ctx, input }) => ctx.trips.get(ctx.actor, input)),
   mine: protectedProcedure(DRIVING_ROLES).output(z.array(Trip)).query(({ ctx }) => ctx.trips.mine(ctx.actor)),
+  /** The trip's actor event log (quarantined late replays included and marked). */
+  events: protectedProcedure(CONSOLE_READ_ROLES).input(TripIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.tripEvents(input.tripId)),
   board: protectedProcedure(OPS_ROLES).input(ActiveTripsInput).output(z.array(Trip)).query(({ ctx, input }) => ctx.trips.board(ctx.actor, input)),
   accept: protectedProcedure(DRIVING_ROLES).input(AcceptTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.accept(ctx.actor, input)),
   decline: protectedProcedure(DRIVING_ROLES).input(DeclineTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.decline(ctx.actor, input)),

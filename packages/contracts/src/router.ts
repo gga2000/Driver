@@ -6,6 +6,7 @@ import { identityRouter } from './routers/identity.js';
 import { ordersRouter } from './routers/orders.js';
 import { tripsRouter } from './routers/trips.js';
 import { ledgerRouter } from './routers/ledger.js';
+import { consoleRouter, driversRouter, merchantsRouter, systemRouter } from './routers/console.js';
 import { publicProcedure, router } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -39,6 +40,10 @@ export const appRouter = router({
   trips: tripsRouter,
   dispatch: dispatchRouter,
   ledger: ledgerRouter,
+  console: consoleRouter,
+  drivers: driversRouter,
+  merchants: merchantsRouter,
+  system: systemRouter,
 });
 
 export type AppRouter = typeof appRouter;

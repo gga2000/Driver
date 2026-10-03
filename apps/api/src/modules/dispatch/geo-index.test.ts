@@ -67,6 +67,18 @@ function contract(
       await index.remove('kut', `${prefix}mover`);
       expect(await index.search('kut', north(0), 1)).toEqual([]);
     });
+
+    it('list() returns every live driver of the city by id, skipping expired hashes (Console map)', async () => {
+      const { index, expire } = await make();
+      await index.put(presence(`${prefix}ls-b`, 30));
+      await index.put(presence(`${prefix}ls-a`, 0.1));
+      await index.put(presence(`${prefix}ls-x`, 0.1));
+      await expire(`${prefix}ls-x`);
+      await index.put(presence(`${prefix}ls-k`, 0.1, { cityId: 'kut' }));
+      const mine = (await index.list('aziziyah')).map((p) => p.driverId).filter((id) => id.startsWith(`${prefix}ls-`));
+      expect(mine).toEqual([`${prefix}ls-a`, `${prefix}ls-b`]);
+      expect((await index.list('kut')).map((p) => p.driverId)).toContain(`${prefix}ls-k`);
+    });
   });
 }
 

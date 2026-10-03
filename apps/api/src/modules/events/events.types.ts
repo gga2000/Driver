@@ -70,6 +70,18 @@ export interface OutboxStats {
   failed: number;
 }
 
+/** A failed outbox row as the Console shows it. */
+export interface OutboxFailure {
+  id: string;
+  eventId: string;
+  type: string;
+  aggregate: string;
+  aggregateId: string;
+  attempts: number;
+  lastError: string | null;
+  createdAt: Date;
+}
+
 /** What a subscriber receives: the stored event plus the outbox row it came from. */
 export interface PublishedEvent extends StoredEvent {
   outboxId: string;

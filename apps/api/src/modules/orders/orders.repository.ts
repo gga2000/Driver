@@ -1,5 +1,6 @@
 import type { DeliveryPoint, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
+import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -119,6 +120,23 @@ export interface OrdersRepository {
   findMany(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
+  search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
+  /** Orders placed in the city at or after `since`. */
+  countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
+}
+
+export interface OrderSearchFilter {
+  cityId: string;
+  states?: readonly OrderState[] | undefined;
+  type?: OrderType | undefined;
+  merchantOrgId?: string | undefined;
+  /** Case-insensitive substring of the order, orderer or merchant id, or the note. */
+  text?: string | undefined;
+  from?: Date | undefined;
+  to?: Date | undefined;
+  after?: { placedAt: Date; id: string } | null | undefined;
+  limit: number;
 }
 
 export const ORDERS_REPOSITORY = Symbol('ORDERS_REPOSITORY');
@@ -266,6 +284,25 @@ export class PrismaOrdersRepository implements OrdersRepository {
     });
     return rows.map(orderFromRow);
   }
+
+  async search(f: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]> {
+    const and: Prisma.OrderWhereInput[] = [{ cityId: f.cityId }];
+    if (f.states && f.states.length > 0) and.push({ state: { in: [...f.states] } });
+    if (f.type) and.push({ type: f.type });
+    if (f.merchantOrgId) and.push({ merchantOrgId: f.merchantOrgId });
+    if (f.from || f.to) and.push({ placedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } });
+    if (f.text) {
+      const contains = { contains: f.text, mode: 'insensitive' as const };
+      and.push({ OR: [{ id: contains }, { ordererId: contains }, { merchantOrgId: contains }, { note: contains }] });
+    }
+    if (f.after) and.push({ OR: [{ placedAt: { lt: f.after.placedAt } }, { placedAt: f.after.placedAt, id: { lt: f.after.id } }] });
+    const rows = await this.db(tx).order.findMany({ where: { AND: and }, orderBy: [{ placedAt: 'desc' }, { id: 'desc' }], take: f.limit });
+    return rows.map(orderFromRow);
+  }
+
+  async countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number> {
+    return this.db(tx).order.count({ where: { cityId, placedAt: { gte: since } } });
+  }
 }
 
 // ───────────────────────── In-memory twin ─────────────────────────
@@ -359,5 +396,24 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .filter((o) => o.ordererId === personId || viaParticipant.has(o.id))
       .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
       .map((o) => ({ ...o }));
+  }
+
+  async search(f: OrderSearchFilter): Promise<OrderRecord[]> {
+    const text = f.text?.toLowerCase();
+    return [...this.orders.values()]
+      .filter((o) => o.cityId === f.cityId)
+      .filter((o) => !f.states || f.states.length === 0 || f.states.includes(o.state))
+      .filter((o) => !f.type || o.type === f.type)
+      .filter((o) => !f.merchantOrgId || o.merchantOrgId === f.merchantOrgId)
+      .filter((o) => (!f.from || o.placedAt >= f.from) && (!f.to || o.placedAt < f.to))
+      .filter((o) => !text || [o.id, o.ordererId, o.merchantOrgId ?? '', o.note ?? ''].some((v) => v.toLowerCase().includes(text)))
+      .filter((o) => !f.after || isAfterCursor(o, f.after))
+      .sort(newestFirst)
+      .slice(0, f.limit)
+      .map((o) => ({ ...o }));
+  }
+
+  async countPlacedSince(cityId: string, since: Date): Promise<number> {
+    return [...this.orders.values()].filter((o) => o.cityId === cityId && o.placedAt >= since).length;
   }
 }

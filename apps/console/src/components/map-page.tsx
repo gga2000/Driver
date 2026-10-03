@@ -2,14 +2,15 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { AZIZIYAH_ZONES, type BoardCard, type Trip } from '@driver/contracts';
+import { AZIZIYAH_ZONES, type BoardCard, type DriverPin, type Trip } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { GARAGES, MARKER_COLORS, MARKER_STATES, TIER_COLORS, TIERS_IN_ORDER } from '@driver/map';
 import { useCallback, useMemo, useState } from 'react';
-import { shortId } from '@/lib/format';
-import { tierLabel, tripStateLabel, verticalLabel } from '@/lib/labels';
-import { buildLiveGeoJSON, driverPosition } from '@/lib/live-map';
-import { LIVE_POLL_MS, useActiveTrips, useDispatchBoard } from '@/lib/live';
+import { formatClock, formatIqd, shortId } from '@/lib/format';
+import { capTierLabel, pinStateLabel, tierLabel, tripStateLabel, vehicleLabel, verticalLabel, zoneName } from '@/lib/labels';
+import { buildLiveGeoJSON, capUsePct, driverPosition } from '@/lib/live-map';
+import { LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins } from '@/lib/live';
+import { PIN_STATE_TONE } from '@/lib/roster';
 import { useSignedIn } from '@/lib/session';
 import type { MapSelection } from './live-map-canvas';
 import { TripDetails } from './trip-details';
@@ -28,24 +29,33 @@ export function MapPage() {
   const signedIn = useSignedIn();
   const board = useDispatchBoard();
   const trips = useActiveTrips();
+  const positions = useDriverPins();
   const [selected, setSelected] = useState<MapSelection | null>(null);
   const [fitKey, setFitKey] = useState(0);
   const [focus, setFocus] = useState<{ lng: number; lat: number } | null>(null);
 
   const tripList = useMemo(() => trips.data ?? [], [trips.data]);
   const cards = useMemo(() => board.data?.cards ?? [], [board.data]);
-  const live = useMemo(() => buildLiveGeoJSON(tripList, cards), [tripList, cards]);
+  // Presence feed when it answered; null falls back to approximate markers from trips.
+  const pins = useMemo(() => (positions.isSuccess ? positions.data.drivers : null), [positions.isSuccess, positions.data]);
+  const live = useMemo(() => buildLiveGeoJSON(tripList, cards, pins), [tripList, cards, pins]);
   const close = useCallback(() => setSelected(null), []);
 
   const driverCount = live.drivers.features.length;
-  const empty = signedIn && trips.isSuccess && tripList.length === 0 && cards.length === 0;
+  const empty = signedIn && trips.isSuccess && tripList.length === 0 && cards.length === 0 && driverCount === 0;
   const error = trips.error ?? board.error;
 
   const selectTrip = (tripId: string) => {
     const trip = tripList.find((x) => x.id === tripId);
-    const pos = trip ? driverPosition(trip) : null;
+    const pin = trip?.courierId ? pins?.find((p) => p.driverId === trip.courierId) : undefined;
+    const pos = pin ?? (trip ? driverPosition(trip) : null);
     setSelected(trip?.courierId ? { kind: 'driver', id: trip.courierId, tripId } : { kind: 'trip', id: tripId });
-    if (pos) setFocus({ ...pos });
+    if (pos) setFocus({ lat: pos.lat, lng: pos.lng });
+  };
+
+  const selectDriver = (pin: DriverPin) => {
+    setSelected({ kind: 'driver', id: pin.driverId, tripId: pin.tripId ?? '' });
+    setFocus({ lat: pin.lat, lng: pin.lng });
   };
 
   return (
@@ -59,7 +69,7 @@ export function MapPage() {
 
       {error && (
         <div className="mb-4">
-          <QueryError error={error} onRetry={() => void Promise.all([trips.refetch(), board.refetch()])} />
+          <QueryError error={error} onRetry={() => void Promise.all([trips.refetch(), board.refetch(), positions.refetch()])} />
         </div>
       )}
 
@@ -88,7 +98,7 @@ export function MapPage() {
           )}
 
           <Drawer open={selected !== null} title={selectionTitle(selected)} onClose={close}>
-            {selected && <SelectionBody selected={selected} tripList={tripList} cards={cards} />}
+            {selected && <SelectionBody selected={selected} tripList={tripList} cards={cards} pins={pins} />}
           </Drawer>
         </div>
 
@@ -120,8 +130,30 @@ export function MapPage() {
                 {t('console.legend_trip')}
               </li>
             </ul>
-            <p className="mt-3 text-xs text-faint">{t('console.map_position_note')}</p>
+            {!pins && <p className="mt-3 text-xs text-faint">{t('console.map_position_note')}</p>}
           </Card>
+
+          {signedIn && pins && pins.length > 0 && (
+            <Card title={t('console.map_drivers_online', { n: pins.length })}>
+              <ul className="max-h-[30vh] space-y-1 overflow-y-auto">
+                {pins.map((p) => (
+                  <li key={p.driverId}>
+                    <button
+                      type="button"
+                      onClick={() => selectDriver(p)}
+                      aria-pressed={selected?.kind === 'driver' && selected.id === p.driverId}
+                      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-surface-2 aria-pressed:bg-surface-2"
+                    >
+                      <span className="min-w-0 truncate">
+                        <Mono>{shortId(p.driverId)}</Mono> · {vehicleLabel(p.vehicleClass)}
+                      </span>
+                      <Chip tone={PIN_STATE_TONE[p.state]}>{pinStateLabel(p.state)}</Chip>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {signedIn && (
             <Card title={t('console.map_counts', { drivers: driverCount, trips: tripList.length })}>
@@ -172,24 +204,45 @@ function SelectionBody({
   selected,
   tripList,
   cards,
+  pins,
 }: {
   selected: MapSelection;
   tripList: readonly Trip[];
   cards: readonly BoardCard[];
+  pins: readonly DriverPin[] | null;
 }) {
   if (selected.kind === 'driver' || selected.kind === 'trip') {
     const tripId = selected.kind === 'driver' ? selected.tripId : selected.id;
-    const trip = tripList.find((x) => x.id === tripId);
-    const card = cards.find((c) => c.tripId === tripId);
+    const trip = tripId ? tripList.find((x) => x.id === tripId) : undefined;
+    const card = tripId ? cards.find((c) => c.tripId === tripId) : undefined;
+    const pin = selected.kind === 'driver' ? pins?.find((p) => p.driverId === selected.id) : undefined;
     return (
       <div className="space-y-4">
         {selected.kind === 'driver' && (
           <dl>
             <Row k={t('console.id')} v={<Mono title={selected.id}>{shortId(selected.id)}</Mono>} />
-            <Row k={t('console.drawer_driver')} v={<Chip>{t('console.approx')}</Chip>} />
+            {pin ? (
+              <>
+                <Row k={t('console.col_state')} v={<Chip tone={PIN_STATE_TONE[pin.state]}>{pinStateLabel(pin.state)}</Chip>} />
+                <Row k={t('console.driver_vehicle')} v={vehicleLabel(pin.vehicleClass)} />
+                <Row k={t('console.driver_tier')} v={capTierLabel(pin.tier)} />
+                {pin.zoneId && <Row k={t('console.drawer_zone')} v={zoneName(pin.zoneId)} />}
+                <Row
+                  k={t('console.driver_cash_vs_cap')}
+                  v={
+                    <span className={`tabular-nums ${pin.overCap ? 'text-bad' : ''}`}>
+                      {t('console.driver_cash_of_cap', { held: formatIqd(pin.cashHeldIqd), owed: formatIqd(pin.owedIqd), cap: formatIqd(pin.capIqd), pct: capUsePct(pin) })}
+                    </span>
+                  }
+                />
+                <Row k={t('console.driver_last_seen')} v={formatClock(pin.lastSeenAt)} />
+              </>
+            ) : (
+              <Row k={t('console.drawer_driver')} v={<Chip>{pins ? t('console.driver_not_online') : t('console.approx')}</Chip>} />
+            )}
           </dl>
         )}
-        <TripDetails trip={trip} card={card} />
+        {(trip || card || selected.kind === 'trip') && <TripDetails trip={trip} card={card} />}
         <div className="flex flex-wrap gap-2">
           {selected.kind === 'driver' && (
             <Link href={`/drivers/${encodeURIComponent(selected.id)}/ledger`} className={ghostBtn}>

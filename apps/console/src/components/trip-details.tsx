@@ -6,6 +6,7 @@ import { t } from '@driver/i18n';
 import { formatClock, formatCountdown, shortId } from '@/lib/format';
 import { offerStateLabel, stopStateLabel, stopTypeLabel, tripStateLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { markerStateForTrip, nextStop } from '@/lib/live-map';
+import { TripEventLog } from './event-timeline';
 import { Chip, Mono, Row, type ChipTone } from './ui';
 
 const TONE: Record<string, ChipTone> = { on_job: 'live', offered: 'ready', offline: 'neutral', free: 'done', over_cap: 'bad' };
@@ -97,6 +98,12 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {trip && (
+        <div>
+          <h3 className="mb-2 text-sm font-semibold">{t('console.trip_event_log')}</h3>
+          <TripEventLog tripId={trip.id} />
         </div>
       )}
     </div>

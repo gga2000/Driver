@@ -1,7 +1,7 @@
 import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.js';
-import type { EventFilter, EventsRepository } from './events.repository.js';
+import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
 import { newId } from './events.repository.js';
-import type { OutboxPatch, OutboxRecord, OutboxStats, OutboxStatus, StoredEvent } from './events.types.js';
+import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
 
 interface Delivery {
   outboxId: string;
@@ -121,8 +121,10 @@ export class InMemoryEventsRepository implements EventsRepository {
     return stats;
   }
 
-  async outbox(filter: { status?: OutboxStatus; eventId?: string } = {}): Promise<OutboxRecord[]> {
-    return this.rows.filter((r) => (!filter.status || r.status === filter.status) && (!filter.eventId || r.eventId === filter.eventId)).map((r) => ({ ...r }));
+  async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
+    const rows = this.rows.filter((r) => (!filter.status || r.status === filter.status) && (!filter.eventId || r.eventId === filter.eventId)).map((r) => ({ ...r }));
+    if (filter.newestFirst) rows.reverse();
+    return filter.limit === undefined ? rows : rows.slice(0, filter.limit);
   }
 
   async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {

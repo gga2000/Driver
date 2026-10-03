@@ -3,6 +3,7 @@ import type { RoleKind, SessionClaims } from './auth.js';
 import type { Actor, IdentityPort } from './identity-io.js';
 export type { Actor, IdentityPort } from './identity-io.js';
 import type { CityPricingConfig } from './city-config.js';
+import type { ConsolePort } from './console-io.js';
 import type { DispatchPort } from './dispatch-io.js';
 import type { LedgerPort } from './ledger-io.js';
 import { DriverError, errorEnvelope, isDriverError, type ErrorCode } from './errors.js';
@@ -27,6 +28,8 @@ export interface AppContext {
   trips: TripsPort;
   dispatch: DispatchPort;
   ledger: LedgerPort;
+  /** Console read side: cross-module views composed by the API's `console` module. */
+  console: ConsolePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

@@ -7,9 +7,10 @@ import { useMemo } from 'react';
 import { formatClock, formatDayClock, formatIqd, formatSigned, shortId } from '@/lib/format';
 import { orderStateLabel, orderTypeLabel, participantRoleLabel, paymentLabel, priceLabel, timelineStepLabel } from '@/lib/labels';
 import { queryRetry, useActiveTrips } from '@/lib/live';
-import { groupLinesByParticipant, lineTotal, ORDER_STATE_TONE, orderTimeline, priceCheck, priceRows } from '@/lib/orders';
+import { eventTimeline, groupLinesByParticipant, lineTotal, ORDER_STATE_TONE, orderTimeline, priceCheck, priceRows } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { EventTimeline, TripEventLog } from './event-timeline';
 import { MerchantBalanceCard } from './merchant-balance-card';
 import { Card, Chip, EmptyState, httpStatusOf, Mono, NeedLogin, QueryError, Row } from './ui';
 
@@ -17,11 +18,20 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const trpc = useTRPC();
   const signedIn = useSignedIn();
   const order = useQuery(trpc.orders.get.queryOptions({ orderId }, { enabled: signedIn, retry: queryRetry, refetchInterval: 5_000 }));
+  const log = useQuery(trpc.orders.events.queryOptions({ orderId }, { enabled: signedIn, retry: queryRetry, refetchInterval: 5_000 }));
   const trips = useActiveTrips();
   const o = order.data;
   const timeline = useMemo(() => (o ? orderTimeline(o) : []), [o]);
+  const events = useMemo(() => eventTimeline(log.data ?? []), [log.data]);
+  // Trips this order rode on, from its own log (history), plus the live one.
   const groups = useMemo(() => (o ? groupLinesByParticipant(o) : []), [o]);
   const trip = useMemo(() => trips.data?.find((tr) => tr.orders.some((l) => l.orderId === orderId && l.detachedAt === null)), [trips.data, orderId]);
+  const tripIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (trip) ids.add(trip.id);
+    for (const e of events) if (e.tripId) ids.add(e.tripId);
+    return [...ids];
+  }, [trip, events]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -67,26 +77,46 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
             <div className="space-y-4">
-              <Card title={t('console.order_timeline')}>
-                <ol className="relative space-y-3 border-s border-line ps-5">
-                  {timeline.map((e) => (
-                    <li key={e.step} className="relative">
-                      <span
-                        aria-hidden
-                        className={`absolute -start-[1.6rem] top-1.5 h-2.5 w-2.5 rounded-pill ${e.step === 'cancelled' ? 'bg-bad' : 'bg-accent'}`}
-                      />
-                      <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                        <span className="font-semibold">{timelineStepLabel(e.step)}</span>
-                        <span className="text-xs text-muted tabular-nums">
-                          {formatClock(e.at)}
-                          {e.step !== 'placed' && e.offsetMin >= 0 && <> · {t('console.step_offset', { minutes: e.offsetMin })}</>}
-                        </span>
-                      </p>
-                    </li>
-                  ))}
-                </ol>
-                <p className="mt-3 text-xs text-faint">{t('console.order_timeline_note')}</p>
+              <Card title={t('console.order_event_log')}>
+                {log.error && <QueryError error={log.error} onRetry={() => void log.refetch()} />}
+                {events.length > 0 ? (
+                  <EventTimeline entries={events} />
+                ) : (
+                  <>
+                    <ol className="relative space-y-3 border-s border-line ps-5">
+                      {timeline.map((e) => (
+                        <li key={e.step} className="relative">
+                          <span
+                            aria-hidden
+                            className={`absolute -start-[1.6rem] top-1.5 h-2.5 w-2.5 rounded-pill ${e.step === 'cancelled' ? 'bg-bad' : 'bg-accent'}`}
+                          />
+                          <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                            <span className="font-semibold">{timelineStepLabel(e.step)}</span>
+                            <span className="text-xs text-muted tabular-nums">
+                              {formatClock(e.at)}
+                              {e.step !== 'placed' && e.offsetMin >= 0 && <> · {t('console.step_offset', { minutes: e.offsetMin })}</>}
+                            </span>
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                    {log.isSuccess && <p className="mt-3 text-xs text-faint">{t('console.order_log_empty')}</p>}
+                  </>
+                )}
               </Card>
+
+              {tripIds.map((id) => (
+                <Card
+                  key={id}
+                  title={
+                    <span className="flex items-center gap-2">
+                      {t('console.trip_event_log')} <Mono title={id}>{shortId(id)}</Mono>
+                    </span>
+                  }
+                >
+                  <TripEventLog tripId={id} />
+                </Card>
+              ))}
 
               <Card title={t('console.order_details')}>
                 <dl>

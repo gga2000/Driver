@@ -34,6 +34,8 @@ export interface DispatchRepository {
   /** Applies `patch` only while the offer is in one of `from`; returns the updated row or null. */
   updateOffer(id: string, from: readonly DispatchOfferState[], patch: OfferPatch, tx?: Tx): Promise<OfferRecord | null>;
   listByTrip(tripId: string, tx?: Tx): Promise<OfferRecord[]>;
+  /** Offers accepted at or after `since` (the Console's time-to-accept). */
+  acceptedSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
 }
 
 export const DISPATCH_REPOSITORY = Symbol('DISPATCH_REPOSITORY');
@@ -68,6 +70,10 @@ export class PrismaDispatchRepository implements DispatchRepository {
   async listByTrip(tripId: string, tx?: Tx): Promise<OfferRecord[]> {
     return (await this.db(tx).dispatchOffer.findMany({ where: { tripId }, orderBy: [{ sentAt: 'asc' }, { rank: 'asc' }] })) as OfferRecord[];
   }
+
+  async acceptedSince(since: Date, tx?: Tx): Promise<OfferRecord[]> {
+    return (await this.db(tx).dispatchOffer.findMany({ where: { state: 'accepted', respondedAt: { gte: since } }, orderBy: { respondedAt: 'asc' } })) as OfferRecord[];
+  }
 }
 
 // ───────────────────────── In-memory ─────────────────────────
@@ -100,6 +106,12 @@ export class InMemoryDispatchRepository implements DispatchRepository {
 
   async listByTrip(tripId: string): Promise<OfferRecord[]> {
     return [...this.rows.values()].filter((r) => r.tripId === tripId).map((r) => ({ ...r }));
+  }
+
+  async acceptedSince(since: Date): Promise<OfferRecord[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.state === 'accepted' && r.respondedAt !== null && r.respondedAt.getTime() >= since.getTime())
+      .map((r) => ({ ...r }));
   }
 
   all(): OfferRecord[] {

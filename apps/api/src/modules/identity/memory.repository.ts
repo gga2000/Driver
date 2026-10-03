@@ -8,6 +8,7 @@ import type {
   OtpRecord,
   PersonRecord,
   RoleRecord,
+  RosterPage,
   SessionRecord,
   VaultAccessLogRecord,
 } from './identity.repository.js';
@@ -89,6 +90,20 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async rolesOf(personId: string) {
     return this.roles.filter((r) => r.personId === personId && !r.revokedAt);
+  }
+
+  async peopleWithRoles(kinds: readonly RoleKind[], page: RosterPage) {
+    const q = page.idContains?.toLowerCase();
+    const matches = [...this.people.values()]
+      .filter((p) => !p.deletedAt && (!q || p.id.toLowerCase().includes(q)))
+      .filter((p) => this.roles.some((r) => r.personId === p.id && !r.revokedAt && kinds.includes(r.kind)))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const after = page.afterId;
+    const people = matches
+      .filter((p) => after === undefined || p.id > after)
+      .slice(0, page.limit)
+      .map((person) => ({ person: { ...person }, roles: this.roles.filter((r) => r.personId === person.id && !r.revokedAt).map((r) => ({ ...r })) }));
+    return { people, total: matches.length };
   }
 
   async upsertRole(input: { personId: string; kind: RoleKind; orgId: string | null; grantedBy: string | null; now: Date }) {

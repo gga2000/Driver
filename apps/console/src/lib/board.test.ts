@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { columnOf, driversFromBoard, groupBoard, isRedCard, policyMode, rightNow, setPolicyInput } from './board';
-import { card, offer, trip } from './fixtures';
+import { columnOf, driversFromBoard, groupBoard, isRedCard, outboxHealth, policyMode, rightNow, serverNowTiles, setPolicyInput } from './board';
+import { card, offer, rightNowData, trip } from './fixtures';
 
 describe('board grouping', () => {
   it('puts each status in its queue column', () => {
@@ -92,5 +92,30 @@ describe('drivers from the board', () => {
   });
   it('is empty without data', () => {
     expect(driversFromBoard(undefined)).toEqual([]);
+  });
+});
+
+describe('right-now bar, server half (console.rightNow)', () => {
+  it('outbox health: failed rows first, then a pending backlog', () => {
+    expect(outboxHealth({ pending: 3, failed: 0 })).toBe('ok');
+    expect(outboxHealth({ pending: 100, failed: 0 })).toBe('backlog');
+    expect(outboxHealth({ pending: 0, failed: 1 })).toBe('failing');
+  });
+
+  it('formats the tiles and flags late orders and outbox trouble', () => {
+    const tiles = serverNowTiles(rightNowData({ ordersLastHour: 12, activeDrivers: 7, avgTimeToAcceptSec: 65, lateOrders: 2, cashInFieldIqd: 1_250_000, outbox: { pending: 4, failed: 1 } }));
+    expect(tiles.map((x) => [x.key, x.value, x.alert])).toEqual([
+      ['orders_hour', '12', false],
+      ['drivers', '7', false],
+      ['time_to_accept', '1:05', false],
+      ['late', '2', true],
+      ['cash_field', '1,250,000', false],
+      ['outbox', '4 / 1', true],
+    ]);
+  });
+
+  it('shows dashes until it loads; no accept yet shows a dash too', () => {
+    expect(serverNowTiles(undefined).every((x) => x.value === '—' && !x.alert)).toBe(true);
+    expect(serverNowTiles(rightNowData()).find((x) => x.key === 'time_to_accept')?.value).toBe('—');
   });
 });

@@ -48,6 +48,20 @@ type LinkGuardian = z.infer<typeof LinkGuardianInput>;
 type ChangePhoneStart = z.infer<typeof ChangePhoneStartInput>;
 type ChangePhoneConfirm = z.infer<typeof ChangePhoneConfirmInput>;
 
+export interface RosterRow {
+  personId: string;
+  roles: RoleKind[];
+  frozen: boolean;
+  trustTier: string;
+  joinedAt: Date;
+}
+
+export interface RosterResult {
+  rows: RosterRow[];
+  nextCursor: string | null;
+  total: number;
+}
+
 /** Who can hold a role on behalf of the system when no human actor is involved. */
 const SYSTEM_ACTOR = 'system';
 
@@ -231,6 +245,38 @@ export class IdentityService implements IdentityPort {
   async activeRoles(personId: string): Promise<RoleKind[]> {
     const roles = await this.repo.rolesOf(personId);
     return [...new Set(roles.filter((r) => r.frozenAt === null).map((r) => r.kind))];
+  }
+
+  /**
+   * The narrow roster port (Console drivers list): people holding any of `kinds`, paged by person
+   * id, with those grants and whether any is frozen. Pseudonymous: nothing is read from the vault.
+   */
+  async roster(input: { kinds: readonly RoleKind[]; cursor?: string | undefined; limit: number; q?: string | undefined }): Promise<RosterResult> {
+    const { people, total } = await this.repo.peopleWithRoles(input.kinds, { afterId: input.cursor, limit: input.limit + 1, idContains: input.q || undefined });
+    const page = people.slice(0, input.limit);
+    return {
+      rows: page.map(({ person, roles }) => {
+        const held = roles.filter((r) => input.kinds.includes(r.kind));
+        return {
+          personId: person.id,
+          roles: [...new Set(held.map((r) => r.kind))].sort(),
+          frozen: held.some((r) => r.frozenAt !== null),
+          trustTier: person.trustTier,
+          joinedAt: person.createdAt,
+        };
+      }),
+      nextCursor: people.length > input.limit ? (page.at(-1)?.person.id ?? null) : null,
+      total,
+    };
+  }
+
+  /** Live roles of one person, limited to `kinds` (the roster's presence-first path). */
+  async rosterEntry(personId: string, kinds: readonly RoleKind[]): Promise<RosterRow | null> {
+    const person = await this.repo.findPersonById(personId);
+    if (!person || person.deletedAt) return null;
+    const held = (await this.repo.rolesOf(personId)).filter((r) => kinds.includes(r.kind));
+    if (held.length === 0) return null;
+    return { personId, roles: [...new Set(held.map((r) => r.kind))].sort(), frozen: held.some((r) => r.frozenAt !== null), trustTier: person.trustTier, joinedAt: person.createdAt };
   }
 
   /** Idempotent: granting an existing role returns it and emits nothing. */

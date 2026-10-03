@@ -1,4 +1,4 @@
-import type { BoardCard, BoardOffer, Order, OrderLine, Participant, Stop, Trip } from '@driver/contracts';
+import type { BoardCard, BoardOffer, DriverPin, EventLogEntry, Order, OrderLine, Participant, RightNow, Stop, Trip } from '@driver/contracts';
 
 /** Test fixtures for the pure helpers (not imported by app code). */
 
@@ -139,3 +139,53 @@ export function order(p: Partial<Order> & { id: string }): Order {
 }
 
 export const at = (min: number) => new Date(D.getTime() + min * 60_000);
+
+export function pin(p: Partial<DriverPin> & { driverId: string }): DriverPin {
+  return {
+    cityId: 'aziziyah',
+    lat: 32.91,
+    lng: 45.06,
+    heading: null,
+    state: 'free',
+    vehicleClass: 'bike',
+    tier: 'bronze',
+    zoneId: 'centre',
+    lastSeenAt: D,
+    cashHeldIqd: 0,
+    owedIqd: 0,
+    capIqd: 75_000,
+    overCap: false,
+    tripId: null,
+    ...p,
+  };
+}
+
+export function logEvent(p: Partial<EventLogEntry> & { id: string; type: string }): EventLogEntry {
+  return {
+    actorId: 'person-1',
+    occurredAt: D,
+    recordedAt: D,
+    payload: {},
+    aggregate: 'order',
+    aggregateId: 'ord-1',
+    skewMs: 0,
+    flagged: false,
+    quarantined: false,
+    ...p,
+  };
+}
+
+export function rightNowData(p: Partial<RightNow> = {}): RightNow {
+  return {
+    cityId: 'aziziyah',
+    at: D,
+    ordersLastHour: 0,
+    activeOrders: 0,
+    lateOrders: 0,
+    activeDrivers: 0,
+    avgTimeToAcceptSec: null,
+    cashInFieldIqd: 0,
+    outbox: { pending: 0, failed: 0 },
+    ...p,
+  };
+}

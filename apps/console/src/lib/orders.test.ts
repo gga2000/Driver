@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { at, line, order, participant } from './fixtures';
-import { countByFilter, filterOrders, groupLinesByParticipant, orderTimeline, priceCheck, priceRows } from './orders';
+import { at, line, logEvent, order, participant } from './fixtures';
+import { countByFilter, eventLabel, eventTimeline, filterOrders, groupLinesByParticipant, orderTimeline, priceCheck, priceRows, searchInput } from './orders';
 
 describe('orders list filters', () => {
   const list = [
@@ -75,5 +75,44 @@ describe('price components', () => {
     ]);
     expect(priceCheck(o)).toEqual({ sumIqd: 10000, matches: true });
     expect(priceCheck({ ...o, totalIqd: 10250 }).matches).toBe(false);
+  });
+});
+
+describe('history search input', () => {
+  const base = { state: 'all' as const, type: 'all' as const, q: '', from: null, to: null };
+  it('sends nothing but the city and page size for the default filter', () => {
+    expect(searchInput('aziziyah', base)).toEqual({ cityId: 'aziziyah', limit: 50 });
+  });
+  it('maps chips to states, trims text and passes the window', () => {
+    expect(searchInput('aziziyah', { ...base, state: 'delivered', type: 'food', q: '  kebab ', from: at(0), to: at(60) }, 20)).toEqual({
+      cityId: 'aziziyah',
+      limit: 20,
+      states: ['delivered', 'completed', 'closed'],
+      type: 'food',
+      text: 'kebab',
+      from: at(0),
+      to: at(60),
+    });
+  });
+});
+
+describe('event log timeline', () => {
+  it('labels known types in Arabic and falls back to the raw type', () => {
+    expect(eventLabel('order.placed')).not.toBe('order.placed');
+    expect(eventLabel('order.something_new')).toBe('order.something_new');
+  });
+
+  it('merges order and trip logs, de-duplicates, keeps recording order and the quarantine mark', () => {
+    const placed = logEvent({ id: 'e1', type: 'order.placed', occurredAt: at(0), recordedAt: at(0) });
+    const accepted = logEvent({ id: 'e2', type: 'trip.accepted', occurredAt: at(3), recordedAt: at(3), tripId: 't1' });
+    const replay = logEvent({ id: 'e3', type: 'stop.completed', occurredAt: at(4), recordedAt: at(9), quarantined: true, quarantineReason: 'late_replay', tripId: 't1' });
+    const tl = eventTimeline([placed, accepted], [accepted, replay]);
+    expect(tl.map((e) => [e.id, e.offsetMin])).toEqual([
+      ['e1', 0],
+      ['e2', 3],
+      ['e3', 4],
+    ]);
+    expect(tl[2]).toMatchObject({ quarantined: true, quarantineReason: 'late_replay', tripId: 't1' });
+    expect(eventTimeline([])).toEqual([]);
   });
 });

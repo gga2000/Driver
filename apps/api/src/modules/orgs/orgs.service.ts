@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { DriverError, type CommissionTier, type DeliveryPoint } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
+import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsService } from '../events/index.js';
 
 export type OrgType = 'restaurant' | 'grocer' | 'fleet' | 'household';
@@ -47,6 +48,15 @@ export interface MerchantSettings {
 
 const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
 
+/** A restaurant or grocer as the Console's merchant picker lists it. */
+export interface MerchantOrg {
+  id: string;
+  name: string;
+  type: 'restaurant' | 'grocer';
+  cityId: string;
+  lastHeartbeatAt: Date | null;
+}
+
 export interface PayerApprovalRequest {
   id: string;
   orgId: string;
@@ -74,6 +84,7 @@ export class OrgsService {
   constructor(
     @Optional() private readonly events?: EventsService,
     @Optional() @Inject(CLOCK) clock?: Clock,
+    @Optional() private readonly prisma?: PrismaService,
   ) {
     this.clock = clock ?? new SystemClock();
   }
@@ -179,6 +190,26 @@ export class OrgsService {
 
   inCity(cityId: string, type?: OrgType): Org[] {
     return [...this.orgs.values()].filter((o) => o.cityId === cityId && (type === undefined || o.type === type));
+  }
+
+  /**
+   * Restaurants and grocers of a city (Console merchant picker), by name: the seeded `orgs` rows
+   * when a database is configured, plus orgs created in this process.
+   */
+  async merchants(cityId: string): Promise<MerchantOrg[]> {
+    const out = new Map<string, MerchantOrg>();
+    if (this.prisma?.configured) {
+      const rows = await this.prisma.prisma.org.findMany({
+        where: { cityId, type: { in: ['restaurant', 'grocer'] } },
+        select: { id: true, name: true, type: true, cityId: true, lastHeartbeat: true },
+      });
+      for (const r of rows) out.set(r.id, { id: r.id, name: r.name, type: r.type as MerchantOrg['type'], cityId: r.cityId, lastHeartbeatAt: r.lastHeartbeat });
+    }
+    for (const o of this.inCity(cityId)) {
+      if (o.type !== 'restaurant' && o.type !== 'grocer') continue;
+      out.set(o.id, { id: o.id, name: o.name, type: o.type, cityId: o.cityId, lastHeartbeatAt: o.merchant?.lastHeartbeatAt ?? out.get(o.id)?.lastHeartbeatAt ?? null });
+    }
+    return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
   }
 
   /** Order-taking settings of a restaurant or grocer (defaults when never set). */

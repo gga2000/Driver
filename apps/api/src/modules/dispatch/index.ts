@@ -6,6 +6,8 @@ export type { Policy, DispatchJob, DispatchPlan, DriverCandidate, Wave } from '.
 export type { DispatchRequest } from './dispatch.store.js';
 export type { DriverPresence } from './geo-index.js';
 export type { GoOnlineInput } from './presence.service.js';
+export { liveDriver } from './driver-pins.js';
+export type { LiveDriver, LiveJobs, DispatchDriverState } from './driver-pins.js';
 export { canBatch } from './batching.js';
 export type { BatchOrder, BatchRules, BatchVerdict } from './batching.js';
 /** Ports other modules implement (trips: offers/assign; ledger: caps; routes: departures). */
