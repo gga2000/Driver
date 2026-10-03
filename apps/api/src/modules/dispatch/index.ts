@@ -4,6 +4,7 @@ export { DriverRanker, DEFAULT_WEIGHTS, DEFAULT_DECAY, campingFactor } from './r
 export type { RankWeights, RankedDriver, CampingDecay } from './ranker.js';
 export type { Policy, DispatchJob, DispatchPlan, DriverCandidate, Wave } from './policy.js';
 export type { DispatchRequest } from './dispatch.store.js';
+export type { OfferRecord } from './dispatch.repository.js';
 export type { DriverPresence } from './geo-index.js';
 export type { GoOnlineInput } from './presence.service.js';
 export { liveDriver } from './driver-pins.js';
