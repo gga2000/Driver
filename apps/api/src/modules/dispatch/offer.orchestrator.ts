@@ -346,6 +346,22 @@ export class OfferOrchestrator {
     return Math.max(now, Math.ceil(r.readyAt - (eta + cfg.arriveBeforeReadyMin) * 60_000));
   }
 
+  /**
+   * The order is ready early: an auto-assign request still waiting for its timed start begins its
+   * first pass now, with `readyAt` moved to now (the batching and ETA rules read it). Anything else
+   * (already searching, assigned, suggest-only, scheduled departures) is left alone.
+   */
+  async readyNow(tripId: string): Promise<void> {
+    const r = await this.store.getRequest(tripId);
+    if (!r || r.status !== 'scheduled' || r.policy !== 'auto_assign') return;
+    await this.uow.run(async () => {
+      const now = this.now();
+      r.readyAt = Math.min(r.readyAt ?? now, now);
+      r.searchStartedAt = now;
+      await this.startPass(r, this.baseConfig(r.cityId, r.vertical), 1);
+    });
+  }
+
   private async startPass(r: DispatchRequest, cfg: DispatchConfig, pass: number): Promise<void> {
     if (pass > cfg.passes) {
       await this.needsDispatcher(r, 'passes_exhausted');

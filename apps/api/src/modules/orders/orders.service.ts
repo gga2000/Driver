@@ -232,6 +232,8 @@ export class OrdersService implements OnModuleInit {
         scheduledFor: order.scheduledFor?.toISOString() ?? null,
         participantCount: agg.participants.length,
         arrivingCallRequired: risk?.requiresArrivingCall ?? false,
+        // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
+        ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null } } : {}),
       });
       for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
       if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });

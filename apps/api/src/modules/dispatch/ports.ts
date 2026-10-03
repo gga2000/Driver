@@ -16,10 +16,24 @@ export interface CourierTripInput {
   dropoff: DeliveryPoint;
 }
 
+/** A ride's trip: the rider's pickup and drop-off, in the ride's own vertical. */
+export interface RideTripInput {
+  orderId: string;
+  cityId: string;
+  vertical: 'taxi' | 'tuktuk';
+  pickup: DeliveryPoint;
+  dropoff: DeliveryPoint;
+  quoteId: string | null;
+}
+
 /** Trips: create the courier trip, tell it it was offered / assigned, and how each offer ended. */
 export interface TripOffersPort {
   /** Idempotent: an order already on a live trip returns that trip. */
   createCourierTrip(input: CourierTripInput): Promise<string>;
+  /** The live trip carrying this order, if any (the kitchen's "ready" finds the courier request through it). */
+  liveTripFor?(orderId: string): Promise<string | null>;
+  /** Idempotent: a ride already on a live trip returns that trip. */
+  createRideTrip?(input: RideTripInput): Promise<string>;
   offer(tripId: string, driverIds: string[], timeoutSec: number): Promise<void>;
   assign(tripId: string, driverId: string, opts?: { compensationIqd?: number; batchWith?: string[]; vehicleClass?: VehicleClass }): Promise<void>;
   /** The driver said no; `othersPending`: other offers on this trip are still open. */
@@ -71,6 +85,17 @@ export class FakeTripOffers implements TripOffersPort {
 
   async createCourierTrip(input: CourierTripInput): Promise<string> {
     this.created.push(input);
+    return `trip-${input.orderId}`;
+  }
+
+  async liveTripFor(orderId: string): Promise<string | null> {
+    return this.created.some((c) => c.orderId === orderId) || this.rides.some((c) => c.orderId === orderId) ? `trip-${orderId}` : null;
+  }
+
+  readonly rides: RideTripInput[] = [];
+
+  async createRideTrip(input: RideTripInput): Promise<string> {
+    if (!this.rides.some((r) => r.orderId === input.orderId)) this.rides.push(input);
     return `trip-${input.orderId}`;
   }
 

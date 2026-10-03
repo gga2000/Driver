@@ -128,7 +128,8 @@ export default async function register(demo) {
         pickup: { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } },
         dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
       });
-      const trip = await trips.createForOrders({
+      // Placing the ride built its trip and broadcast it (dispatch:ride-request).
+      const trip = (await trips.activeForOrder(ride.id)) ?? await trips.createForOrders({
         cityId: CITY,
         vertical: 'tuktuk',
         orders: [{ orderId: ride.id }],

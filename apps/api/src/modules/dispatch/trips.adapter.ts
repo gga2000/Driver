@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { isDriverError, type Trip, type VehicleClass } from '@driver/contracts';
 import type { CreateTripInput, TripsService } from '../trips/index.js';
-import type { CourierTripInput, TripOffersPort } from './ports.js';
+import type { CourierTripInput, RideTripInput, TripOffersPort } from './ports.js';
 
 /** The slice of `TripsService` dispatch drives. */
 export type TripsForDispatch = Pick<TripsService, 'activeForOrder' | 'createForOrders' | 'offer' | 'accept' | 'decline' | 'timeout'>;
@@ -33,6 +33,26 @@ export class TripsServiceTripOffers implements TripOffersPort {
       ],
     };
     return (await this.trips.createForOrders(trip)).id;
+  }
+
+  async createRideTrip(input: RideTripInput): Promise<string> {
+    const live = await this.trips.activeForOrder(input.orderId);
+    if (live) return live.id;
+    const trip: CreateTripInput = {
+      cityId: input.cityId,
+      vertical: input.vertical,
+      quoteId: input.quoteId,
+      orders: [{ orderId: input.orderId }],
+      stops: [
+        { orderId: input.orderId, type: 'pickup', zoneKey: input.pickup.zoneKey, target: input.pickup.pin ?? null },
+        { orderId: input.orderId, type: 'dropoff', zoneKey: input.dropoff.zoneKey, target: input.dropoff.pin ?? null },
+      ],
+    };
+    return (await this.trips.createForOrders(trip)).id;
+  }
+
+  async liveTripFor(orderId: string): Promise<string | null> {
+    return (await this.trips.activeForOrder(orderId))?.id ?? null;
   }
 
   async offer(tripId: string, driverIds: string[]): Promise<void> {
