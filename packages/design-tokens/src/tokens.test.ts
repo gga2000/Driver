@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { color, fontFamily, space, tokens } from './tokens.js';
+import { color, fontFamily, space, themes, tokens } from './tokens.js';
 
 describe('design tokens', () => {
   it('spacing is a scale of 4', () => {
@@ -13,6 +13,19 @@ describe('design tokens', () => {
       }
     };
     walk(color);
+  });
+  it('theme roles are hex, except the translucent scrim', () => {
+    for (const t of Object.values(themes)) {
+      for (const [k, v] of Object.entries(t)) {
+        if (k === 'scrim') expect(v).toMatch(/^rgba\(/);
+        else expect(v).toMatch(/^#[0-9A-F]{6}$/);
+      }
+    }
+  });
+  it('light theme is the brand palette and onAccent is ink', () => {
+    expect(themes.light.bg).toBe('#FBF6EE');
+    expect(themes.light.accent).toBe(color.primary[500]);
+    expect(themes.light.onAccent).toBe(color.neutral[900]);
   });
   it('font stacks start with an Arabic face', () => {
     expect(fontFamily.sans[0]).toBe('IBM Plex Sans Arabic');

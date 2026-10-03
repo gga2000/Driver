@@ -13,3 +13,5 @@ packages/db/src/generated/
 .DS_Store
 .claude/
 simulation-report.json
+packages/ui/gallery-dist/
+packages/ui/gallery-shots/

@@ -1,43 +1,33 @@
-import { StyleSheet, Text, View } from 'react-native';
-import type { Quote } from '@driver/contracts';
-import { color, radius, space, type } from '@driver/design-tokens';
-import { t } from '@driver/i18n';
+import type { Quote, QuoteComponent } from '@driver/contracts';
+import { t, type MessageKey } from '@driver/i18n';
+import { Card, PriceBreakdown, type PriceItem } from '@driver/ui';
 
-const iqd = (n: number) => n.toLocaleString('en-US');
+/** Reason lines per component (voice spec: every fee has a reason), where one exists. */
+const REASON: Partial<Record<QuoteComponent['key'], MessageKey>> = {
+  service_fee: 'quote.reason.service_fee',
+  door_pickup: 'quote.reason.door_pickup',
+  street_pickup: 'quote.reason.street_pickup',
+  peak: 'quote.reason.peak',
+  weather: 'quote.reason.rain',
+};
 
-export function QuoteCard({ quote }: { quote: Quote }) {
-  return (
-    <View style={styles.card}>
-      {quote.components.map((c, i) => (
-        <View key={`${c.key}-${i}`} style={styles.row}>
-          <Text style={styles.label}>{c.label_ar}</Text>
-          <Text style={styles.amount}>{iqd(c.amount)}</Text>
-        </View>
-      ))}
-      <View style={[styles.row, styles.total]}>
-        <Text style={styles.totalLabel}>{t('quote.total')}</Text>
-        <Text style={styles.totalAmount}>
-          {iqd(quote.total)} <Text style={styles.currency}>{t('quote.currency')}</Text>
-        </Text>
-      </View>
-    </View>
-  );
+export function quoteItems(quote: Quote): PriceItem[] {
+  return [
+    ...quote.components.map((c, i) => ({
+      key: `${c.key}-${c.leg ?? i}`,
+      label: c.label_ar,
+      amount: c.amount,
+      reason: REASON[c.key] ? t(REASON[c.key]!) : undefined,
+    })),
+    ...quote.shadowComponents.map((c, i) => ({ key: `shadow-${c.key}-${i}`, label: c.label_ar, amount: c.amount, shadow: true })),
+  ];
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: color.neutral[0],
-    borderRadius: radius.xl,
-    padding: space[4],
-    gap: space[2],
-    borderWidth: 1,
-    borderColor: color.neutral[200],
-  },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  label: { fontSize: type.body.size, color: color.neutral[700], textAlign: 'left' },
-  amount: { fontSize: type.body.size, color: color.neutral[900], fontVariant: ['tabular-nums'] },
-  total: { borderTopWidth: 1, borderTopColor: color.neutral[200], paddingTop: space[3], marginTop: space[1] },
-  totalLabel: { fontSize: type.title.size, fontWeight: '600', color: color.neutral[900] },
-  totalAmount: { fontSize: type.amount.size, fontWeight: '700', color: color.primary[700] },
-  currency: { fontSize: type.body.size, fontWeight: '400', color: color.neutral[500] },
-});
+/** The server's quote as named lines with the locked total (rounding shown as its own line). */
+export function QuoteCard({ quote }: { quote: Quote }) {
+  return (
+    <Card>
+      <PriceBreakdown items={quoteItems(quote)} total={quote.total} note={quote.lockedAt ? t('quote.quote_locked') : undefined} />
+    </Card>
+  );
+}
