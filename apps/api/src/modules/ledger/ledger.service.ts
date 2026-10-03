@@ -1,100 +1,219 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { isPointsAccount, kindOf, type LedgerEvent } from '@driver/contracts';
-import { LEDGER_REPOSITORY } from './tokens.js';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { AccountId, isPointsAccount, kindOf, ledgerLineLabel, type LedgerEvent, type LedgerKind, type Statement, type StatementLine } from '@driver/contracts';
+import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { Accounts } from './accounts.js';
+import type { PostingGroup } from './postings.js';
 import type { LedgerRepository, NewLedgerEvent } from './repository.js';
+import { LEDGER_REPOSITORY } from './tokens.js';
 
-/** Typed account ids (contracts `AccountId`). */
-export const Accounts = {
-  platform: 'platform' as const,
-  driver: (id: string) => `driver:${id}` as const,
-  /** Cash physically held by a driver; the credit cap is a rule on this balance. */
-  cash: (driverId: string) => `cash:${driverId}` as const,
-  merchant: (id: string) => `merchant:${id}` as const,
-  /** Merchant cash account (edge-case §3): payable net of commission, settled by mode. */
-  merchantCash: (id: string) => `merchant_cash:${id}` as const,
-  customer: (id: string) => `customer:${id}` as const,
-  household: (orgId: string) => `household:${orgId}` as const,
-  promo: (promotionId: string) => `promo:${promotionId}` as const,
-  /** Outside world: payouts leave the system here. */
-  bank: 'bank' as const,
-  // points book — never mixed with money
-  points: (personId: string) => `points:${personId}` as const,
-  pointsPending: (phoneHash: string) => `points_pending:${phoneHash}` as const,
-  pointsPool: 'points_pool' as const,
-};
+export { Accounts } from './accounts.js';
 
 export interface Balance {
   accountId: string;
-  /** Sum of inflows minus outflows, in IQD. */
+  /** Sum of inflows minus outflows, in IQD (or points on points accounts). */
   amount: number;
   events: number;
 }
 
-export interface Invariant {
+export interface BookCheck {
   ok: boolean;
-  /** Σ(inflows) − Σ(outflows) across all accounts; must be exactly 0. */
+  /** Σ(inflows) − Σ(outflows) over this book's accounts; must be exactly 0. */
   net: number;
   events: number;
 }
 
+export interface Invariant {
+  /** Both books balance and no row crosses books. */
+  ok: boolean;
+  /** Money-book net, kept for M1 callers. */
+  net: number;
+  events: number;
+  money: BookCheck;
+  points: BookCheck;
+  /** Rows whose kind disagrees with their type or their accounts. */
+  kindViolations: number;
+}
+
+export interface RecordAllResult {
+  recorded: string[];
+  /** Groups already in the ledger (replayed facts): nothing was written for them. */
+  skipped: string[];
+  events: LedgerEvent[];
+}
+
 @Injectable()
 export class LedgerService {
-  constructor(@Inject(LEDGER_REPOSITORY) private readonly repo: LedgerRepository) {}
+  constructor(
+    @Inject(LEDGER_REPOSITORY) private readonly repo: LedgerRepository,
+    @Optional() @Inject(UnitOfWork) private readonly uow?: UnitOfWork,
+  ) {}
 
-  /** Append a money event. Amount must be positive; direction is from → to. */
-  async record(event: Omit<NewLedgerEvent, 'currency'> & { currency?: 'IQD' }): Promise<LedgerEvent> {
-    if (!Number.isInteger(event.amount) || event.amount <= 0) {
-      throw new LedgerError('invalid_amount', `amount must be a positive integer IQD, got ${event.amount}`);
+  /** Append one event. Amount must be positive; direction is from → to. Prefer `recordAll` for business facts. */
+  async record(event: Omit<NewLedgerEvent, 'currency'> & { currency?: 'IQD' }, tx?: Tx): Promise<LedgerEvent> {
+    const kind = validateLine(event);
+    return this.repo.append({ ...event, kind, currency: 'IQD' }, tx);
+  }
+
+  /**
+   * Records balanced posting groups atomically: every line and every control total of every group
+   * is validated first, and one failure writes nothing. A group already recorded (same id) is
+   * skipped, so replays of a domain event are no-ops. Runs inside the caller's unit of work.
+   */
+  async recordAll(groups: PostingGroup | readonly PostingGroup[], tx?: Tx): Promise<RecordAllResult> {
+    const list = (Array.isArray(groups) ? groups : [groups]) as readonly PostingGroup[];
+    const ids = new Set<string>();
+    for (const g of list) {
+      if (ids.has(g.id)) throw new LedgerError('unbalanced', `posting group ${g.id} appears twice in one batch`);
+      ids.add(g.id);
+      validateGroup(g);
     }
-    if (event.fromAccount === event.toAccount) {
-      throw new LedgerError('same_account', `same account on both sides: ${event.fromAccount}`);
-    }
-    // Points never create money: the event's book must match both accounts' book.
-    const kind = event.kind ?? kindOf(event.type);
-    if (kind !== kindOf(event.type)) {
-      throw new LedgerError('kind_mismatch', `${event.type} is a ${kindOf(event.type)} event, not ${kind}`);
-    }
-    for (const account of [event.fromAccount, event.toAccount]) {
-      if (isPointsAccount(account) !== (kind === 'points')) {
-        throw new LedgerError('kind_mismatch', `${kind} event ${event.type} cannot touch account ${account}`);
+    const write = async (t?: Tx): Promise<RecordAllResult> => {
+      const fresh: PostingGroup[] = [];
+      const skipped: string[] = [];
+      for (const g of list) {
+        if (await this.repo.findByIdempotencyKey(lineKey(g.id, 0), t)) skipped.push(g.id);
+        else fresh.push(g);
       }
-    }
-    return this.repo.append({ ...event, kind, currency: 'IQD' });
+      const rows: NewLedgerEvent[] = fresh.flatMap((g) =>
+        g.lines.map((l, i) => ({
+          ...g.refs,
+          type: l.type,
+          kind: g.kind,
+          amount: l.amount,
+          currency: 'IQD' as const,
+          fromAccount: l.fromAccount,
+          toAccount: l.toAccount,
+          postingGroupId: g.id,
+          idempotencyKey: lineKey(g.id, i),
+          occurredAt: g.occurredAt,
+          ...(l.memo ? { memo: l.memo } : {}),
+        })),
+      );
+      const events = rows.length > 0 ? await this.repo.appendMany(rows, t) : [];
+      return { recorded: fresh.map((g) => g.id), skipped, events };
+    };
+    if (tx || !this.uow) return write(tx);
+    return this.uow.run((t) => write(t));
+  }
+
+  /** True when the group (by id) is already in the ledger. */
+  async hasGroup(groupId: string): Promise<boolean> {
+    return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0)));
   }
 
   /** Balance is computed, never stored. */
-  async balance(accountId: string): Promise<Balance> {
-    const events = await this.repo.byAccount(accountId);
+  async balance(accountId: string, before?: Date): Promise<Balance> {
+    const events = (await this.repo.byAccount(accountId)).filter((e) => !before || e.occurredAt < before);
     return { accountId, amount: sumFor(accountId, events), events: events.length };
   }
 
-  /** Driver credit cap rule: cash held ≥ cap blocks new offers after the current job. */
-  async isOverCap(driverId: string, capIqd: number): Promise<boolean> {
-    const { amount } = await this.balance(Accounts.cash(driverId));
-    return amount >= capIqd;
+  async eventsFor(accountId: string): Promise<LedgerEvent[]> {
+    return sortByTime(await this.repo.byAccount(accountId));
   }
 
   async eventsForTrip(tripId: string): Promise<LedgerEvent[]> {
     return this.repo.byTrip(tripId);
   }
 
-  /** Double-entry invariant: every event moves value from one account to another, so the net is zero. */
+  async eventsForGroups(groupIds: readonly string[]): Promise<LedgerEvent[]> {
+    return sortByTime(await this.repo.byPostingGroups(groupIds));
+  }
+
+  /** Every account that ever appears, for the nightly per-driver report. */
+  async accounts(): Promise<string[]> {
+    const set = new Set<string>();
+    for (const e of await this.repo.all()) {
+      set.add(e.fromAccount);
+      set.add(e.toAccount);
+    }
+    return [...set].sort();
+  }
+
+  /**
+   * Account statement with Arabic line labels (packages/i18n `ledger.line.*`) and running balance.
+   * `from` inclusive, `to` exclusive.
+   */
+  async statement(accountId: string, range: { from?: Date | undefined; to?: Date | undefined } = {}): Promise<Statement> {
+    const events = await this.eventsFor(accountId);
+    let opening = 0;
+    let running = 0;
+    let inIqd = 0;
+    let outIqd = 0;
+    const lines: StatementLine[] = [];
+    for (const e of events) {
+      const signed = (e.toAccount === accountId ? e.amount : 0) - (e.fromAccount === accountId ? e.amount : 0);
+      if (range.from && e.occurredAt < range.from) {
+        opening += signed;
+        running += signed;
+        continue;
+      }
+      if (range.to && e.occurredAt >= range.to) continue;
+      running += signed;
+      if (signed > 0) inIqd += signed;
+      else outIqd -= signed;
+      lines.push({
+        id: e.id,
+        occurredAt: e.occurredAt,
+        type: e.type,
+        label_ar: ledgerLineLabel(e.type, 'ar-IQ'),
+        label_en: ledgerLineLabel(e.type, 'en'),
+        accountId,
+        counterparty: e.toAccount === accountId ? e.fromAccount : e.toAccount,
+        amountIqd: signed,
+        balanceAfterIqd: running,
+        ...(e.orderId ? { orderId: e.orderId } : {}),
+        ...(e.tripId ? { tripId: e.tripId } : {}),
+        ...(e.memo ? { memo: e.memo } : {}),
+      });
+    }
+    return { accountId, from: range.from ?? null, to: range.to ?? null, openingIqd: opening, closingIqd: running, inIqd, outIqd, lines };
+  }
+
+  /**
+   * Double-entry invariant, per book: Σ over money accounts = 0 and Σ over points accounts = 0,
+   * computed from the accounts each row actually touches. A row that crosses books (only possible
+   * if something bypassed `record`) unbalances both and is counted as a kind violation.
+   */
   async checkInvariant(): Promise<Invariant> {
     const events = await this.repo.all();
-    const accounts = new Set<string>();
+    let moneyNet = 0;
+    let pointsNet = 0;
+    let moneyEvents = 0;
+    let pointsEvents = 0;
+    let kindViolations = 0;
     for (const e of events) {
-      accounts.add(e.fromAccount);
-      accounts.add(e.toAccount);
+      for (const [account, sign] of [
+        [e.toAccount, 1],
+        [e.fromAccount, -1],
+      ] as const) {
+        if (isPointsAccount(account)) pointsNet += sign * e.amount;
+        else moneyNet += sign * e.amount;
+      }
+      const kind = e.kind ?? kindOf(e.type);
+      if (kind === 'points') pointsEvents += 1;
+      else moneyEvents += 1;
+      if (kind !== kindOf(e.type) || isPointsAccount(e.fromAccount) !== (kind === 'points') || isPointsAccount(e.toAccount) !== (kind === 'points')) kindViolations += 1;
     }
-    let net = 0;
-    for (const a of accounts) net += sumFor(a, events);
-    return { ok: net === 0, net, events: events.length };
+    const money = { ok: moneyNet === 0, net: moneyNet, events: moneyEvents };
+    const points = { ok: pointsNet === 0, net: pointsNet, events: pointsEvents };
+    return { ok: money.ok && points.ok && kindViolations === 0, net: moneyNet, events: events.length, money, points, kindViolations };
+  }
+
+  /** Completed cash orders of a customer at or above a size (referral unlock, new-customer cap). */
+  async cashOrders(customerId: string, minIqd = 0): Promise<string[]> {
+    const events = await this.repo.byAccount(Accounts.customer(customerId));
+    const orders = new Set<string>();
+    for (const e of events) {
+      if (e.type !== 'cash_collected' || e.toAccount !== Accounts.customer(customerId) || !e.orderId) continue;
+      if (e.amount >= minIqd) orders.add(e.orderId);
+    }
+    return [...orders];
   }
 }
 
 export class LedgerError extends Error {
   constructor(
-    readonly code: 'invalid_amount' | 'same_account' | 'kind_mismatch',
+    readonly code: 'invalid_amount' | 'same_account' | 'kind_mismatch' | 'invalid_account' | 'unbalanced',
     message: string,
   ) {
     super(message);
@@ -109,4 +228,53 @@ export function sumFor(accountId: string, events: readonly LedgerEvent[]): numbe
     if (e.fromAccount === accountId) total -= e.amount;
   }
   return total;
+}
+
+function lineKey(groupId: string, index: number): string {
+  return `${groupId}#${index}`;
+}
+
+function sortByTime(events: LedgerEvent[]): LedgerEvent[] {
+  return [...events].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+}
+
+/** Validates one line and returns its book. Points never create money: type, kind and both accounts must agree. */
+function validateLine(event: { type: LedgerEvent['type']; kind?: LedgerKind | undefined; amount: number; fromAccount: string; toAccount: string }): LedgerKind {
+  if (!Number.isInteger(event.amount) || event.amount <= 0) {
+    throw new LedgerError('invalid_amount', `amount must be a positive integer IQD, got ${event.amount}`);
+  }
+  if (event.fromAccount === event.toAccount) {
+    throw new LedgerError('same_account', `same account on both sides: ${event.fromAccount}`);
+  }
+  for (const account of [event.fromAccount, event.toAccount]) {
+    if (!AccountId.safeParse(account).success) throw new LedgerError('invalid_account', `not a ledger account: ${account}`);
+  }
+  const kind = event.kind ?? kindOf(event.type);
+  if (kind !== kindOf(event.type)) {
+    throw new LedgerError('kind_mismatch', `${event.type} is a ${kindOf(event.type)} event, not ${kind}`);
+  }
+  for (const account of [event.fromAccount, event.toAccount]) {
+    if (isPointsAccount(account) !== (kind === 'points')) {
+      throw new LedgerError('kind_mismatch', `${kind} event ${event.type} cannot touch account ${account}`);
+    }
+  }
+  return kind;
+}
+
+/** Every line valid and of the group's book; every control total met; the book nets to zero. */
+export function validateGroup(g: PostingGroup): void {
+  if (g.lines.length === 0) throw new LedgerError('unbalanced', `posting group ${g.id} has no lines`);
+  const net = new Map<string, number>();
+  for (const line of g.lines) {
+    validateLine({ ...line, kind: g.kind });
+    net.set(line.toAccount, (net.get(line.toAccount) ?? 0) + line.amount);
+    net.set(line.fromAccount, (net.get(line.fromAccount) ?? 0) - line.amount);
+  }
+  let total = 0;
+  for (const v of net.values()) total += v;
+  if (total !== 0) throw new LedgerError('unbalanced', `posting group ${g.id} nets to ${total}`);
+  for (const c of g.controls) {
+    const actual = net.get(c.account) ?? 0;
+    if (actual !== c.net) throw new LedgerError('unbalanced', `posting group ${g.id}: ${c.account} nets ${actual}, expected ${c.net}`);
+  }
 }

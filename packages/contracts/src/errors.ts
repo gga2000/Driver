@@ -105,6 +105,12 @@ export const ERROR_TABLE = {
   over_cap: { message_ar: 'وصلت حد النقد. سدّد حتى توصلك طلبات جديدة', message_en: 'Cash cap reached; settle to get new offers', retryHint: 'support', status: 'FORBIDDEN' },
   override_invalid: { message_ar: 'ما يصير نعيّن هذا السايق هسه', message_en: 'This driver cannot be assigned now', retryHint: 'never', status: 'CONFLICT' },
   override_reason_required: { message_ar: 'اكتب سبب التعيين الإجباري', message_en: 'A forced assign needs a reason', retryHint: 'never', status: 'BAD_REQUEST' },
+  // ledger (M2 Step 6)
+  settlement_nothing_due: { message_ar: 'ما عندك فلوس مستحقة هسة', message_en: 'Nothing is due to this merchant now', retryHint: 'never', status: 'CONFLICT' },
+  adjustment_incident_required: { message_ar: 'التصحيح يحتاج سبب وبلاغ مربوط', message_en: 'An adjustment needs a reason and a linked incident', retryHint: 'never', status: 'BAD_REQUEST' },
+  adjustment_second_approver: { message_ar: 'التصحيح فوق 25,000 يحتاج موافقة شخص ثاني من المالية', message_en: 'Adjustments above the threshold need a second finance approver', retryHint: 'never', status: 'FORBIDDEN' },
+  handover_mismatch: { message_ar: 'المبلغ أو الرمز ما يطابق. انفتح بلاغ للمراجعة', message_en: 'Hand-over amount or PIN mismatch; incident opened', retryHint: 'support', status: 'CONFLICT' },
+  new_customer_cash_cap: { message_ar: 'أول 3 طلبات كاش حدها 25,000 دينار', message_en: 'First three cash orders are capped', retryHint: 'never', status: 'BAD_REQUEST' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

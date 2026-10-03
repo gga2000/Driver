@@ -4,6 +4,7 @@ import type { Actor, IdentityPort } from './identity-io.js';
 export type { Actor, IdentityPort } from './identity-io.js';
 import type { CityPricingConfig } from './city-config.js';
 import type { DispatchPort } from './dispatch-io.js';
+import type { LedgerPort } from './ledger-io.js';
 import { DriverError, errorEnvelope, isDriverError, type ErrorCode } from './errors.js';
 import type { OrdersPort } from './order.js';
 import type { PriceRequest, Quote } from './pricing.js';
@@ -25,6 +26,7 @@ export interface AppContext {
   orders: OrdersPort;
   trips: TripsPort;
   dispatch: DispatchPort;
+  ledger: LedgerPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

@@ -1,14 +1,80 @@
-import { Module } from '@nestjs/common';
+import { Inject, Logger, Module, type OnModuleInit } from '@nestjs/common';
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
+import { CLOCK, type Clock } from '../../shared/clock.js';
+import { PrismaService } from '../../shared/db/prisma.service.js';
+import { BullMqQueueFactory } from '../../shared/queue.js';
+import { EventsModule, EventsService } from '../events/index.js';
+import { AdjustmentService } from './adjustments.service.js';
+import { CAP_PROFILE_RESOLVER, CapsService, StaticCapProfiles } from './caps.js';
+import { EventsServiceLedgerBus, type LedgerEventBus } from './events.adapter.js';
+import { LedgerIncidents } from './incidents.js';
+import { LedgerFacade } from './ledger.facade.js';
 import { LedgerService } from './ledger.service.js';
+import { registerLedgerSubscribers } from './ledger.subscribers.js';
+import { MerchantCashService } from './merchant-cash.service.js';
+import { InMemoryMerchantSettingsRepository, PrismaMerchantSettingsRepository } from './merchant-settings.repository.js';
+import { NIGHTLY_QUEUE, NightlyJob } from './nightly.job.js';
+import { PostingService } from './posting.service.js';
+import { PrismaLedgerRepository, type LedgerEventDelegate } from './prisma.repository.js';
 import { InMemoryLedgerRepository } from './repository.js';
-import { LEDGER_REPOSITORY } from './tokens.js';
+import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT_SETTINGS_REPOSITORY, MONEY_RULES } from './tokens.js';
 
 /**
- * Until a DATABASE_URL is wired in (Milestone 2), the API runs on the in-memory repository.
- * Swapping to Prisma is a provider change here, nothing else in the module moves.
+ * Wiring: Prisma repositories when DATABASE_URL is set, in-memory twins otherwise; Aziziyah money
+ * rules until config serves them per city; subscribers registered on boot; the 02:00 nightly close
+ * scheduled on BullMQ when REDIS_URL is set (the Console can always run it by hand).
  */
 @Module({
-  providers: [{ provide: LEDGER_REPOSITORY, useClass: InMemoryLedgerRepository }, LedgerService],
-  exports: [LedgerService],
+  imports: [EventsModule],
+  providers: [
+    {
+      provide: LEDGER_REPOSITORY,
+      useFactory: (prisma: PrismaService) =>
+        prisma.configured ? new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate) : new InMemoryLedgerRepository(),
+      inject: [PrismaService],
+    },
+    {
+      provide: MERCHANT_SETTINGS_REPOSITORY,
+      useFactory: (prisma: PrismaService) => (prisma.configured ? new PrismaMerchantSettingsRepository(prisma) : new InMemoryMerchantSettingsRepository()),
+      inject: [PrismaService],
+    },
+    { provide: MONEY_RULES, useValue: AZIZIYAH_MONEY_RULES },
+    { provide: LEDGER_EVENTS, useFactory: (events: EventsService) => new EventsServiceLedgerBus(events), inject: [EventsService] },
+    { provide: LEDGER_INCIDENTS, useFactory: (bus: LedgerEventBus, clock: Clock) => new LedgerIncidents(bus, clock), inject: [LEDGER_EVENTS, CLOCK] },
+    // TODO(identity/scoring): resolve role + tier from the driver's grants and trust tier.
+    { provide: CAP_PROFILE_RESOLVER, useFactory: () => new StaticCapProfiles() },
+    LedgerService,
+    CapsService,
+    { provide: CAPS_PORT, useExisting: CapsService },
+    MerchantCashService,
+    PostingService,
+    AdjustmentService,
+    NightlyJob,
+    LedgerFacade,
+  ],
+  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade],
 })
-export class LedgerModule {}
+export class LedgerModule implements OnModuleInit {
+  private readonly logger = new Logger(LedgerModule.name);
+
+  constructor(
+    @Inject(LEDGER_EVENTS) private readonly bus: LedgerEventBus,
+    private readonly posting: PostingService,
+    private readonly merchantCash: MerchantCashService,
+    private readonly nightly: NightlyJob,
+    private readonly queues: BullMqQueueFactory,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    registerLedgerSubscribers(this.bus, this.posting, this.merchantCash);
+    if (!this.queues.configured) return;
+    try {
+      const queue = this.queues.queue<{ day: string }>(NIGHTLY_QUEUE);
+      this.nightly.attach(queue);
+      const at = await this.nightly.schedule(queue);
+      this.logger.log(`nightly close scheduled for ${at.toISOString()}`);
+    } catch (err) {
+      this.logger.warn(`nightly close not scheduled: ${(err as Error).message}`);
+    }
+  }
+}

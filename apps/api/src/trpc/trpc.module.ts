@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
+import { LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
@@ -23,6 +24,7 @@ export class TrpcService {
     private readonly pricing: PricingService,
     private readonly config: ConfigService,
     private readonly identity: IdentityService,
+    private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
     private readonly orders: OrdersRpc,
@@ -50,6 +52,7 @@ export class TrpcService {
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,
+      ledger: this.ledger,
       auth,
       authError,
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
@@ -73,5 +76,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

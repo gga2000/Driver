@@ -200,8 +200,10 @@ describe('prisma schema — exact enum sets', () => {
       'parcel_fee', 'adjustment',
       // amendments
       'merchant_paid_by_courier', 'merchant_settlement_requested', 'debt_settled', 'cash_rounding_credit', 'refund_cash_delivered',
-      // points (domain §5)
-      'points_earned', 'points_pending', 'points_claimed', 'points_redeemed', 'points_expired', 'organizer_bonus',
+      // M2 Step 6 posting-group lines
+      'service_fee', 'delivery_fee', 'fare', 'driver_incentive', 'driver_payout', 'rounding_residue',
+      // points (domain §5 + edge-case decisions §1)
+      'points_earned', 'points_pending', 'points_claimed', 'points_redeemed', 'points_expired', 'organizer_bonus', 'referral_bonus',
     ]));
   it('SettlementMode (edge-case §3)', () => exact('SettlementMode', ['nightly_courier', 'on_demand', 'daily_zaincash', 'weekly_bulk']));
   it('OutboxStatus', () => exact('OutboxStatus', ['pending', 'published', 'failed']));
