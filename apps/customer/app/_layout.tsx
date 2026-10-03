@@ -25,7 +25,7 @@ const chrome = createTheme('light');
  * App shell. Route groups:
  *   (auth)/   welcome → phone → otp → setup        signed-out flow (+ post-OTP setup)
  *   (tabs)/   الرئيسية · طلباتي · المحفظة · حسابي     signed-in home
- *   restaurant/[id], cart, checkout, order/[id], rajaa, places/   flows pushed over the tabs
+ *   restaurant/[id], cart, checkout, order/[id], rajaa/*, places/   flows pushed over the tabs
  * Later milestones add their own folders here and register them in <Stack> below.
  */
 export default function RootLayout() {
@@ -101,7 +101,13 @@ function RootNavigator() {
         <Stack.Screen name="cart" options={{ title: t('cart.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="checkout" options={{ title: t('checkout.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
-        <Stack.Screen name="rajaa" options={{ title: t('home.rajaa_title') }} />
+        {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
+        <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title') }} />
+        <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title') }} />
+        <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title') }} />
+        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass') }} />
+        <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title') }} />
+        <Stack.Screen name="rajaa/request" options={{ title: t('request.title') }} />
       </Stack>
       {ready ? null : <Splash />}
     </View>

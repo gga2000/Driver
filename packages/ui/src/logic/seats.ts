@@ -27,6 +27,11 @@ export interface SeatInfo {
   state: SeatState;
   /** Premium over the base seat price (front seat +2,000). */
   premium?: number;
+  /**
+   * A free seat this viewer may not take (travelling-as adjacency, family-only run). Drawn locked;
+   * a tap is rejected with `blocked` so the screen can explain why.
+   */
+  blocked?: boolean;
 }
 
 /** Rows from the front, three physical columns (left, centre, right). `driver` is a fixed, non-seat cell. */
@@ -56,7 +61,7 @@ export function seatIds(layout: SeatLayout): SeatId[] {
   return SEAT_ROWS[layout].flat().filter((c): c is SeatId => c !== null && c !== 'driver');
 }
 
-export type SelectRejection = 'taken' | 'walkup' | 'held' | 'unknown' | 'max';
+export type SelectRejection = 'taken' | 'walkup' | 'held' | 'unknown' | 'max' | 'blocked';
 
 export interface SelectResult {
   selection: SeatId[];
@@ -76,6 +81,7 @@ export function toggleSeat(seats: readonly SeatInfo[], selection: readonly SeatI
   const seat = seats.find((s) => s.id === id);
   if (!seat) return { selection: [...selection], rejected: 'unknown' };
   if (seat.state !== 'free') return { selection: [...selection], rejected: seat.state };
+  if (seat.blocked) return { selection: [...selection], rejected: 'blocked' };
   if (max === 1) return { selection: [id], rejected: null };
   if (selection.length >= max) return { selection: [...selection], rejected: 'max' };
   return { selection: [...selection, id], rejected: null };
@@ -92,7 +98,7 @@ export function toggleWalkup(seats: readonly SeatInfo[], id: SeatId): SeatInfo[]
 }
 
 export function seatsLeft(seats: readonly SeatInfo[]): number {
-  return seats.filter((s) => s.state === 'free').length;
+  return seats.filter((s) => s.state === 'free' && !s.blocked).length;
 }
 
 /** Sum of base price × seats plus premiums of the selected seats. */

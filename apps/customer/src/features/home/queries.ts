@@ -3,6 +3,9 @@ import { useMemo } from 'react';
 import { TERMINAL_ORDER_STATES, type Order, type OrderState, type RestaurantCard } from '@driver/contracts';
 import { CITY_ID, useDeliverTo } from '@/features/food/queries';
 import { FIXTURE_RAJAA } from '@/fixtures/rajaa';
+import { useQuery } from '@tanstack/react-query';
+import { TERMINAL_ORDER_STATES, type Order, type OrderState } from '@driver/contracts';
+import { fetchFixtureRestaurants, type RestaurantSummary } from '@/fixtures/restaurants';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { favouriteIds, toSummary, type RestaurantSummary } from './restaurant-summary';
@@ -56,9 +59,4 @@ export function useRestaurants() {
       return cards.map((c) => toSummary(c, fav.has(c.id)));
     },
   });
-}
-
-/** TODO(api): intercity departures board. Static sample until then. */
-export function useRajaaSummary() {
-  return FIXTURE_RAJAA;
 }

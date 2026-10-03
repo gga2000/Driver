@@ -42,6 +42,10 @@ export type CountdownRingProps =
       paused?: boolean;
       /** Caption under the number; defaults to nothing (the ring says enough). */
       caption?: string;
+      /** `seconds` (default: "14") for short offers; `clock` ("9:41") for long holds such as the 10-minute seat hold. */
+      format?: 'seconds' | 'clock';
+      /** Last stretch that turns the ring danger (default 5 s). */
+      urgentMs?: number;
     })
   | (RingProps & {
       mode: 'late';
@@ -131,6 +135,8 @@ function AcceptRing({
   onExpire,
   paused = false,
   caption,
+  format = 'seconds',
+  urgentMs,
   size,
   strokeWidth,
   clock,
@@ -140,7 +146,7 @@ function AcceptRing({
   const theme = useTheme();
   const [done, setDone] = useState(false);
   const now = useNow(clock, !done && !paused);
-  const s = acceptRing(now, startedAt, durationMs);
+  const s = acceptRing(now, startedAt, durationMs, urgentMs);
   const urgentRef = useRef(false);
 
   useEffect(() => {
@@ -161,7 +167,7 @@ function AcceptRing({
       testID={testID}
       accessible
       accessibilityRole="timer"
-      accessibilityLabel={t('ui.seconds_left', { seconds })}
+      accessibilityLabel={format === 'clock' ? formatCountdown(s.remainingMs) : t('ui.seconds_left', { seconds })}
       style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, style]}
     >
       <View style={{ position: 'absolute' }}>
@@ -175,7 +181,7 @@ function AcceptRing({
         />
       </View>
       <Text variant="display" tabular color={s.urgent ? 'dangerText' : 'text'} testID={`${testID}-value`} style={{ lineHeight: 40 }}>
-        {seconds}
+        {format === 'clock' ? formatCountdown(s.remainingMs) : seconds}
       </Text>
       {caption ? (
         <Text variant="caption" color="textMuted">
