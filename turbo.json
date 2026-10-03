@@ -29,6 +29,12 @@
         "^build"
       ]
     },
+    "test:integration": {
+      "dependsOn": [
+        "^build"
+      ],
+      "cache": false
+    },
     "dev": {
       "cache": false,
       "persistent": true
@@ -39,8 +45,11 @@
     "PRISMA_SCHEMA_ENGINE_BINARY",
     "PRISMA_QUERY_ENGINE_LIBRARY",
     "DATABASE_URL",
+    "SHADOW_DATABASE_URL",
     "REDIS_URL",
     "JWT_SECRET",
+    "JWT_KID",
+    "PHONE_HASH_PEPPER",
     "SMS_PROVIDER",
     "NEXT_PUBLIC_API_URL",
     "PORT",

@@ -19,10 +19,12 @@
     "validate": "prisma validate",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
+    "migrate:drift": "prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code",
     "migrate:reset": "prisma migrate reset --force --skip-seed",
     "seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
-    "test": "vitest run"
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
