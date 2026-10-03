@@ -1,3 +1,6 @@
+# Driver (درايفر) CI — plan docs/plans/2026-10-02-milestone-2-platform-core.md, Step 9.
+# One job against real Postgres+PostGIS and Redis service containers. How to read a failure and how to
+# run the same thing locally with docker compose: docs/ci.md.
 name: CI
 
 on:
@@ -9,35 +12,99 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # No database in CI for Milestone 1: validate/generate run without the schema engine.
-  PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: '1'
-  PRISMA_SCHEMA_ENGINE_BINARY: /bin/true
-  TURBO_TELEMETRY_DISABLED: '1'
-  NEXT_TELEMETRY_DISABLED: '1'
+permissions:
+  contents: read
 
 jobs:
   verify:
-    name: install · lint · typecheck · test · build
+    name: migrate · lint · typecheck · test · build · smoke · simulate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: driver
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d driver"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    # Real Prisma engines here: no PRISMA_SCHEMA_ENGINE_BINARY=/bin/true stub (that escape hatch is for
+    # offline laptops/sandboxes only — docs/ci.md). All secrets below are dummies for throwaway services.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/driver
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/driver_shadow
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-dummy-jwt-secret-not-used-anywhere-else
+      JWT_KID: ci
+      PHONE_HASH_PEPPER: ci-only-dummy-pepper
+      SMS_PROVIDER: fake
+      TURBO_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    defaults:
+      run:
+        # Explicit bash => `bash -eo pipefail`, so `cmd | tee log` still fails the step when cmd fails.
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.28.0
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: Enable pnpm (corepack, version from package.json "packageManager")
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+          pnpm --version
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
 
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages
+      - name: Build packages (prisma generate with real engines)
         run: pnpm turbo run build --filter='./packages/*'
+
+      - name: Migrate (prisma migrate deploy)
+        run: pnpm db:migrate
+
+      - name: Create shadow database for the drift check
+        run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres driver_shadow
+
+      - name: Drift check (migrations vs schema.prisma)
+        # Exit 0 = migrations reproduce schema.prisma exactly; 2 = drift (the diff is printed above).
+        run: pnpm db:drift
+
+      - name: Seed
+        run: pnpm db:seed
 
       - name: Lint
         run: pnpm lint
@@ -45,17 +112,60 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
+      - name: Unit tests
         run: pnpm test
+
+      - name: Integration tests (Postgres + Redis)
+        run: pnpm test:integration
 
       - name: Build API and console
         run: pnpm turbo run build --filter=@driver/api --filter=@driver/console
 
-      - name: Smoke the built API
+      - name: Smoke the built API (health.ping → db ok, redis ok)
         run: |
-          PORT=3999 node apps/api/dist/main.js &
-          for i in $(seq 1 20); do
-            curl -fsS http://localhost:3999/trpc/health.ping && break
+          PORT=3999 node apps/api/dist/main.js > api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          body=''
+          for _ in $(seq 1 40); do
+            if body=$(curl -fsS http://localhost:3999/trpc/health.ping 2>/dev/null); then break; fi
+            body=''
             sleep 0.5
           done
-          kill %1
+          if [ -z "$body" ]; then
+            echo "::error title=API smoke::driver-api never answered /trpc/health.ping"
+            cat api.log
+            exit 1
+          fi
+          echo "$body" | jq .
+          if ! echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null; then
+            echo "::error title=API smoke::health.ping must report db: ok and redis: ok"
+            cat api.log
+            exit 1
+          fi
+
+      - name: Simulate (pnpm sim --orders 2000 --seed 1 --ci)
+        # Fails the job on a non-zero exit (any invariant violation). `--ci` is accepted but ignored until
+        # Step 7 lands the Aziziyah simulator, which also writes simulation-report.json.
+        timeout-minutes: 10
+        run: pnpm sim --orders 2000 --seed 1 --ci 2>&1 | tee simulation.log
+
+      - name: Upload simulation report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulation-report
+          path: |
+            simulation-report.json
+            apps/api/simulation-report.json
+          if-no-files-found: warn
+
+      - name: Upload logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: |
+            api.log
+            simulation.log
+          if-no-files-found: ignore

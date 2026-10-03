@@ -10,7 +10,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "sim": "node --import @swc-node/register/esm-register src/sim.ts"
   },
   "dependencies": {

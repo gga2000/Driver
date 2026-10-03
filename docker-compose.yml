@@ -1,5 +1,6 @@
 # Local infrastructure for Driver (درايفر) — plan §0.2.
 # `pnpm db:up` starts both; the API is the only client of either.
+# Mirrors the CI service containers (.github/workflows/ci.yml, docs/ci.md).
 services:
   postgres:
     image: postgis/postgis:16-3.4
@@ -12,6 +13,11 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - driver-pg:/var/lib/postgresql/data
+    configs:
+      # Empty `driver_shadow` database for `pnpm db:drift` (SHADOW_DATABASE_URL). Init scripts run only
+      # on a fresh volume; for an existing one: docker compose exec postgres createdb -U postgres driver_shadow
+      - source: shadow-db
+        target: /docker-entrypoint-initdb.d/20-shadow-db.sql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d driver']
       interval: 5s
@@ -31,6 +37,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+configs:
+  shadow-db:
+    # Inline config content needs Docker Compose >= 2.23.1.
+    content: |
+      CREATE DATABASE driver_shadow;
 
 volumes:
   driver-pg:
