@@ -452,6 +452,22 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * When each person last used the app: the later of his last OTP sign-in and his latest session
+   * start or refresh (null = never). Person and session rows only, no vault fields.
+   */
+  async lastActiveAtOf(personIds: readonly string[]): Promise<Record<string, Date | null>> {
+    const ids = [...new Set(personIds)];
+    const [verified, sessions] = await Promise.all([this.verifiedAtOf(ids), this.repo.lastSessionAtOf(ids)]);
+    const out: Record<string, Date | null> = {};
+    for (const id of ids) {
+      const v = verified[id] ?? null;
+      const s = sessions[id] ?? null;
+      out[id] = v && s ? (v > s ? v : s) : (v ?? s);
+    }
+    return out;
+  }
+
+  /**
    * Household invite by phone (domain §12): the Person behind the number, created pseudonymously when
    * the number has never signed in (as a guardian link does). The number stays in the vault.
    */
@@ -554,10 +570,10 @@ export class IdentityService implements IdentityPort {
     return roles.filter((r) => r.orgId !== null && r.frozenAt === null && kinds.includes(r.kind)).map((r) => ({ orgId: r.orgId!, kind: r.kind }));
   }
 
-  /** Who holds `kinds` at `orgId` (pseudonymous; names through `memberCards`, logged). */
-  async orgRoleHolders(orgId: string, kinds: readonly RoleKind[]): Promise<Array<{ personId: string; kind: RoleKind; frozen: boolean }>> {
+  /** Who holds `kinds` at `orgId`, since when and granted by whom (pseudonymous; names through `memberCards`, logged). */
+  async orgRoleHolders(orgId: string, kinds: readonly RoleKind[]): Promise<Array<{ personId: string; kind: RoleKind; frozen: boolean; grantedAt: Date; grantedBy: string | null }>> {
     const roles = await this.repo.orgRoleHolders(orgId, kinds);
-    return roles.map((r) => ({ personId: r.personId, kind: r.kind, frozen: r.frozenAt !== null }));
+    return roles.map((r) => ({ personId: r.personId, kind: r.kind, frozen: r.frozenAt !== null, grantedAt: r.createdAt, grantedBy: r.grantedBy }));
   }
 
   /** Field-ops onboarding: names a person created by phone, only when the vault has no name yet. */

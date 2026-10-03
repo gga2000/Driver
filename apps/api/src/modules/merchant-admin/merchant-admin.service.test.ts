@@ -377,6 +377,23 @@ describe('merchantAdmin.insights rating attribution', () => {
   });
 });
 
+describe('merchantAdmin.staff invite is not a name lookup (review 2026-10-04 #6)', () => {
+  it("inviting a phone does not reveal the person's name until he signs in after the invite", async () => {
+    const h = await setup();
+    // Someone already on Driver as a customer, with a full name in the vault.
+    const someone = await h.id.login('07700000088');
+    await h.id.service.updateProfile(someone.actor, { name: 'مريم عبد الله صالح' });
+    h.clock.advance(60_000);
+    const invited = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000088', role: 'merchant_staff' });
+    expect(invited).toMatchObject({ personId: someone.actor.personId, pending: true, name: null });
+    expect(JSON.stringify(await h.svc.staffList(h.owner, { merchantOrgId: h.orgId }))).not.toContain('مريم');
+    // He opens the Merchant app (a new sign-in after the invite): now he is staff with a name.
+    h.clock.advance(60_000);
+    await h.id.login('07700000088');
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === someone.actor.personId)).toMatchObject({ pending: false, name: 'مريم عبد الله صالح' });
+  });
+});
+
 describe('merchantAdmin.staff', () => {
   it('owner invites by phone, changes roles and removes staff; a merchant keeps at least one owner', async () => {
     const h = await setup();

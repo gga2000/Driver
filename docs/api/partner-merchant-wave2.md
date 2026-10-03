@@ -144,7 +144,7 @@ Additive fields (Merchant app wave 2): statement lines carry `commissionPct`, `d
 the default outcome stands), `evidence.photos` and `response.photoUrls` (signed); insights carry
 `rejection.trend[]` (7-day buckets), `peakGrid[7][24]` (weekday × hour), `bestSellers[]` (by sales) and
 `orders`, and a rated order's food score goes to its main dish (largest line) only; staff rows carry
-`pending` (invited, never signed in). `merchant.paid_by_courier` events carry `confirmedBy`.
+`pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup). `merchant.paid_by_courier` events carry `confirmedBy`.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
 `deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `staff_last_owner`, `upload_invalid`.

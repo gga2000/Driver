@@ -199,9 +199,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
       existing.revokedAt = null;
       existing.frozenAt = null;
       existing.grantedBy = input.grantedBy;
+      existing.createdAt = input.now;
       return { role: existing, created: true };
     }
-    const role: RoleRecord = { id: this.id('role'), personId: input.personId, kind: input.kind, orgId: input.orgId, grantedBy: input.grantedBy, frozenAt: null, revokedAt: null };
+    const role: RoleRecord = { id: this.id('role'), personId: input.personId, kind: input.kind, orgId: input.orgId, grantedBy: input.grantedBy, frozenAt: null, revokedAt: null, createdAt: input.now };
     this.roles.push(role);
     this.added(tx, this.roles, role);
     return { role, created: true };
@@ -271,6 +272,17 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     this.keep(tx, s);
     Object.assign(s, patch);
     return s;
+  }
+
+  async lastSessionAtOf(personIds: readonly string[]) {
+    const ids = new Set(personIds);
+    const out: Record<string, Date> = {};
+    for (const s of this.sessions) {
+      if (!ids.has(s.personId)) continue;
+      const at = s.rotatedAt && s.rotatedAt > s.createdAt ? s.rotatedAt : s.createdAt;
+      if (!out[s.personId] || at > out[s.personId]!) out[s.personId] = at;
+    }
+    return out;
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {

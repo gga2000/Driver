@@ -30,6 +30,8 @@ export interface RoleRecord {
   grantedBy: string | null;
   frozenAt: Date | null;
   revokedAt: Date | null;
+  /** When the live grant began (set again when a revoked grant is re-granted). */
+  createdAt: Date;
 }
 
 export interface DeviceRecord {
@@ -158,6 +160,8 @@ export interface IdentityRepository {
   findSessionByRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
   revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
+  /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
+  lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
 
   // otp
   latestOtp(phoneHash: string, purpose: OtpPurpose, tx?: Tx): Promise<OtpRecord | null>;
@@ -292,10 +296,10 @@ export class PrismaIdentityRepository implements IdentityRepository {
     const existing = await db.role.findFirst({ where: { personId: input.personId, kind: input.kind, orgId: input.orgId } });
     if (existing && !existing.revokedAt) return { role: existing, created: false };
     if (existing) {
-      const role = await db.role.update({ where: { id: existing.id }, data: { revokedAt: null, frozenAt: null, grantedBy: input.grantedBy } });
+      const role = await db.role.update({ where: { id: existing.id }, data: { revokedAt: null, frozenAt: null, grantedBy: input.grantedBy, createdAt: input.now } });
       return { role, created: true };
     }
-    const role = await db.role.create({ data: { personId: input.personId, kind: input.kind, orgId: input.orgId, grantedBy: input.grantedBy } });
+    const role = await db.role.create({ data: { personId: input.personId, kind: input.kind, orgId: input.orgId, grantedBy: input.grantedBy, createdAt: input.now } });
     return { role, created: true };
   }
 
@@ -368,6 +372,17 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
     return this.db(tx).session.update({ where: { id }, data: patch });
+  }
+
+  async lastSessionAtOf(personIds: readonly string[], tx?: Tx) {
+    const out: Record<string, Date> = {};
+    if (personIds.length === 0) return out;
+    const rows = await this.db(tx).session.findMany({ where: { personId: { in: [...personIds] } }, select: { personId: true, createdAt: true, rotatedAt: true } });
+    for (const r of rows) {
+      const at = r.rotatedAt && r.rotatedAt > r.createdAt ? r.rotatedAt : r.createdAt;
+      if (!out[r.personId] || at > out[r.personId]!) out[r.personId] = at;
+    }
+    return out;
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {

@@ -499,21 +499,36 @@ export class MerchantAdminService implements MerchantAdminPort {
 
   // ───────────────────────── staff ─────────────────────────
 
+  /**
+   * The store's people. A member who has not used the app since he was given the role is `pending`
+   * and shown without his name: the owner typed the phone, but inviting a number must not tell him
+   * whose it is (review 2026-10-04 #6). The name appears once the invitee signs in or refreshes.
+   */
   private async staffRows(actor: Actor, merchantOrgId: string): Promise<StaffMember[]> {
     const holders = await this.identity.orgRoleHolders(merchantOrgId, STAFF_KINDS);
     const roleOf = new Map<string, MerchantStaffRole>();
-    for (const h of holders) if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
+    const grantedAt = new Map<string, Date>();
+    for (const h of holders) {
+      if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
+      const prev = grantedAt.get(h.personId);
+      if (!prev || h.grantedAt > prev) grantedAt.set(h.personId, h.grantedAt);
+    }
     const ids = [...roleOf.keys()];
+    const active = ids.length > 0 ? await this.identity.lastActiveAtOf(ids) : {};
+    const pendingOf = (personId: string) => {
+      if (personId === actor.personId) return false;
+      const last = active[personId] ?? null;
+      return last === null || last < grantedAt.get(personId)!;
+    };
     const cards = ids.length > 0 ? await this.identity.memberCards(ids, actor.personId, 'merchant_staff_view') : {};
-    const verified = ids.length > 0 ? await this.identity.verifiedAtOf(ids) : {};
     return ids
       .map((personId) => ({
         personId,
-        name: cards[personId]?.name ?? null,
+        name: pendingOf(personId) ? null : (cards[personId]?.name ?? null),
         phoneMasked: cards[personId]?.phoneMasked ?? null,
         role: roleOf.get(personId)!,
         you: personId === actor.personId,
-        pending: personId !== actor.personId && !verified[personId],
+        pending: pendingOf(personId),
       }))
       .sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
   }

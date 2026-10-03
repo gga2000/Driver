@@ -21,7 +21,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | fixed |
 | 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | fixed |
 | 5 | Medium | online gate: heartbeat grace never ends | fixed |
-| 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
+| 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | fixed |
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | fixed |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
 | 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | fixed |
@@ -135,3 +135,17 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   `packages/contracts/src/routers/wave2.test.ts`; Prisma round-trip in `apps/api/src/wave2.integration.test.ts`.
 - **Client follow-up:** the Partner app needs an invites card (`fleet.myInvites` / `respondInvite`) and the
   fleet dashboard should render `pending` rows as "بانتظار موافقة السايق".
+
+### 6 · Medium · staff invite as a phone → name lookup (PII)
+
+- **Where:** `apps/api/src/modules/merchant-admin/merchant-admin.service.ts` `staffInvite` / `staffRows`.
+- **What:** any merchant owner could type any phone number into "invite staff" and get back that person's
+  **full vault name** at once (then remove him and try the next number). `pending` only covered people who
+  had never signed in at all.
+- **Fix:** a member is `pending` until he uses the app after being given the role (OTP sign-in or a session
+  start/refresh after the grant), and a pending row carries `name: null`. Identity gained the narrow reads
+  this needs: role rows carry `createdAt` (re-set on re-grant) surfaced as `orgRoleHolders().grantedAt`, and
+  `IdentityService.lastActiveAtOf` (person + session rows, no vault fields). The role still works at once.
+- **Test:** `merchant-admin.service.test.ts` › "inviting a phone does not reveal the person's name until he signs in after the invite".
+- **Follow-up (documented):** an explicit accept step (like the fleet invite in #2) would be stronger; it
+  needs a Merchant-app screen, so it is left as a product decision.
