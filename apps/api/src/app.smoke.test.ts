@@ -107,6 +107,25 @@ describe('API smoke', () => {
     expect(err.data.code).toBe('forbidden');
   });
 
+  it('orders and trips routers: a customer places and cancels a ride; the trip board is ops-only', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const phone = '07712340003';
+    await anon.identity.requestOtp.mutate({ phone, purpose: 'login' });
+    const { code } = await anon.identity.devLastOtp.query({ phone });
+    const login = await anon.identity.verifyOtp.mutate({ phone, code: code! });
+    const authed = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
+    });
+    const order = await authed.orders.place.mutate({ cityId: 'aziziyah', type: 'ride', fareIqd: 3000 });
+    expect(order).toMatchObject({ state: 'placed', totalIqd: 3000, ordererId: login.personId });
+    expect((await authed.orders.mine.query()).map((o) => o.id)).toEqual([order.id]);
+    expect((await authed.orders.cancellationPreview.query({ orderId: order.id })).free).toBe(true);
+    expect((await authed.orders.cancel.mutate({ orderId: order.id })).state).toBe('customer_cancelled');
+    const err = (await authed.trips.board.query({ cityId: 'aziziyah' }).catch((e: unknown) => e)) as { data: { code: string; httpStatus: number } };
+    expect(err.data.httpStatus).toBe(403);
+    expect(err.data.code).toBe('forbidden');
+  });
+
   it('returns the city config and null for unknown cities', async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const city = await client.config.city.query({ cityId: 'aziziyah' });

@@ -2,6 +2,8 @@ import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
 import { CityConfigInput, HealthPing } from './router-io.js';
 import { identityRouter } from './routers/identity.js';
+import { ordersRouter } from './routers/orders.js';
+import { tripsRouter } from './routers/trips.js';
 import { publicProcedure, router } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -31,6 +33,8 @@ export const appRouter = router({
       .query(({ ctx, input }) => ctx.config.city(input.cityId) ?? null),
   }),
   identity: identityRouter,
+  orders: ordersRouter,
+  trips: tripsRouter,
 });
 
 export type AppRouter = typeof appRouter;

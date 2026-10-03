@@ -830,6 +830,12 @@ model Order {
   cancellationReason String?       @map("cancellation_reason")
   cancellationFeeIqd Int           @default(0) @map("cancellation_fee_iqd")
   ratedAt            DateTime?     @map("rated_at")
+  /// Step 4 (edge-case review A.12): when the merchant was offered the order; scheduled orders wait until T − prep − 10 min.
+  merchantOfferedAt  DateTime?     @map("merchant_offered_at")
+  /// Step 4 (edge-case review A.2): accept time + prep; heartbeat checks run at +10 and +15 min.
+  promisedReadyAt    DateTime?     @map("promised_ready_at")
+  /// Step 4 (edge-case review A.16): smallest vehicle class that may carry the order.
+  minVehicleClass    VehicleClass? @map("min_vehicle_class")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -920,6 +926,8 @@ model TripOrder {
   detachedAt DateTime? @map("detached_at")
   reason     String?
   changedBy  String?   @map("changed_by")
+  /// Step 4: the order's vehicle-class requirement snapshotted at attach; acceptance checks the max over active links.
+  minVehicleClass VehicleClass? @map("min_vehicle_class")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
@@ -1067,7 +1075,9 @@ model Stop {
   placeId                String?                                @map("place_id")
   meetingPointId         String?                                @map("meeting_point_id")
   zoneKey                String                                 @map("zone_key")
-  windowStart            DateTime?                              @map("window_start")
+  /// Step 4: where the stop is (snapshot of the place / meeting point pin); the 60 m geofence is drawn around it.
+  targetPin              Unsupported("geography(Point, 4326)")? @map("target_pin")
+  windowStart           DateTime?                              @map("window_start")
   windowEnd              DateTime?                              @map("window_end")
   geofenceEnteredAt      DateTime?                              @map("geofence_entered_at")
   arrivedAt              DateTime?                              @map("arrived_at")

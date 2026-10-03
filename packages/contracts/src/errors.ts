@@ -71,6 +71,31 @@ export const ERROR_TABLE = {
   org_not_found: { message_ar: 'ما لگينا الجهة', message_en: 'Org not found', retryHint: 'never', status: 'NOT_FOUND' },
   not_household_member: { message_ar: 'مو عضو بهذا البيت', message_en: 'Not a member of this household', retryHint: 'never', status: 'FORBIDDEN' },
   no_payer: { message_ar: 'ما أكو دافع بهذا البيت بعد', message_en: 'Household has no payer yet', retryHint: 'never', status: 'CONFLICT' },
+
+  // orders
+  order_not_found: { message_ar: 'ما لگينا الطلب', message_en: 'Order not found', retryHint: 'never', status: 'NOT_FOUND' },
+  order_state_conflict: { message_ar: 'حالة الطلب تغيّرت. حدّث الصفحة', message_en: 'The order is not in a state that allows this', retryHint: 'never', status: 'CONFLICT' },
+  order_type_not_supported: { message_ar: 'هذا النوع من الطلبات مو متاح هنا', message_en: 'Order type not supported here', retryHint: 'never', status: 'BAD_REQUEST' },
+  order_empty: { message_ar: 'الطلب فارغ', message_en: 'The order has no lines', retryHint: 'never', status: 'BAD_REQUEST' },
+  merchant_required: { message_ar: 'لازم تختار مطعم أو محل', message_en: 'A merchant is required for this order', retryHint: 'never', status: 'BAD_REQUEST' },
+  one_merchant_per_order: { message_ar: 'كل طلب من محل واحد. الثاني يصير طلب منفصل', message_en: 'One merchant per order; start a second order', retryHint: 'never', status: 'BAD_REQUEST' },
+  merchant_paused: { message_ar: 'مغلق مؤقتاً', message_en: 'Merchant is temporarily closed', retryHint: 'later', status: 'CONFLICT' },
+  participant_unknown: { message_ar: 'السطر مربوط بشخص مو موجود بالطلب', message_en: 'Line tagged to an unknown participant', retryHint: 'never', status: 'BAD_REQUEST' },
+  order_cancel_after_pickup: { message_ar: 'ما ينلغي بعد الاستلام. افتح شكوى', message_en: 'Cannot cancel after pickup; open a dispute', retryHint: 'never', status: 'CONFLICT' },
+  partial_accept_not_pending: { message_ar: 'ما أكو تعديل بانتظار موافقتك', message_en: 'No partial acceptance is awaiting approval', retryHint: 'never', status: 'CONFLICT' },
+  partial_accept_invalid: { message_ar: 'الأسطر المختارة مو صحيحة', message_en: 'Invalid unavailable lines', retryHint: 'never', status: 'BAD_REQUEST' },
+  dispute_window_closed: { message_ar: 'انتهى وقت الشكوى. تواصل ويا الدعم', message_en: 'Dispute window closed; contact support', retryHint: 'support', status: 'CONFLICT' },
+
+  // trips
+  trip_not_found: { message_ar: 'ما لگينا المشوار', message_en: 'Trip not found', retryHint: 'never', status: 'NOT_FOUND' },
+  stop_not_found: { message_ar: 'ما لگينا الوقفة', message_en: 'Stop not found', retryHint: 'never', status: 'NOT_FOUND' },
+  trip_state_conflict: { message_ar: 'حالة المشوار تغيّرت. حدّث الصفحة', message_en: 'The trip is not in a state that allows this', retryHint: 'never', status: 'CONFLICT' },
+  stop_state_conflict: { message_ar: 'حالة الوقفة ما تسمح بهذا', message_en: 'The stop is not in a state that allows this', retryHint: 'never', status: 'CONFLICT' },
+  not_trip_courier: { message_ar: 'هذا المشوار مو إلك', message_en: 'Not the courier on this trip', retryHint: 'never', status: 'FORBIDDEN' },
+  vehicle_too_small: { message_ar: 'الطلب أكبر من سعة مركبتك', message_en: 'Order exceeds this vehicle class cap', retryHint: 'never', status: 'CONFLICT' },
+  child_handover_required: { message_ar: 'لازم تأكد استلام/تسليم الطفل بالاسم', message_en: 'Per-child tap-in/tap-out required', retryHint: 'never', status: 'BAD_REQUEST' },
+  unreachable_not_started: { message_ar: 'ابدأ "ما أگدر أوصله" أول', message_en: 'Start the unreachable protocol first', retryHint: 'never', status: 'CONFLICT' },
+  unreachable_too_early: { message_ar: 'انتظر لحد ما يخلص العداد', message_en: 'Too early to fail; wait for the timer', retryHint: 'later', status: 'CONFLICT' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

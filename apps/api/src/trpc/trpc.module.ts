@@ -4,7 +4,9 @@ import { isDriverError, type AppContext, type ErrorCode, type SessionClaims } fr
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
+import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
+import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -22,6 +24,8 @@ export class TrpcService {
     private readonly identity: IdentityService,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
+    private readonly orders: OrdersRpc,
+    private readonly trips: TripsRpc,
   ) {}
 
   /** Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. */
@@ -41,6 +45,8 @@ export class TrpcService {
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
+      orders: this.orders,
+      trips: this.trips,
       auth,
       authError,
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
@@ -64,5 +70,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}
