@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  DriverError,
   PARTNER_DRIVING_ROLES,
   partnerCurrentStop,
   partnerModesOf,
@@ -16,7 +17,7 @@ import {
   type Trip,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { buildPay, demandHint, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /**
@@ -46,9 +47,10 @@ export class PartnerService implements PartnerPort {
     const modes = partnerModesOf(roles);
     const canDrive = roles.some((r) => PARTNER_DRIVING_ROLES.includes(r));
     const cityId = presence?.cityId ?? DEFAULT_CITY;
-    const [offer, demand] = await Promise.all([
+    const [offer, demand, gate] = await Promise.all([
       canDrive && presence ? this.deps.dispatch.openOffer(id, cityId) : Promise.resolve(null),
       canDrive ? this.demand(cityId, presence) : Promise.resolve(null),
+      canDrive ? this.deps.gate.onlineGate(id) : Promise.resolve(null),
     ]);
     const heldIqd = Math.max(0, -cap.cashIqd);
     return {
@@ -74,11 +76,22 @@ export class PartnerService implements PartnerPort {
       demand,
       activeTripId: trips[0]?.id ?? null,
       offerId: offer?.offer.id ?? null,
+      gate,
     };
   }
 
+  /**
+   * Scoring §2: no daily check-in, a lock-out after two failed check-ins or an expired document keep
+   * him offline. A refused call while he is online (the heartbeat) also takes him out of the index,
+   * except across local midnight for the check-in alone (`gateAllowsHeartbeat`).
+   */
   async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus> {
     const id = actor.personId;
+    const [gate, present] = await Promise.all([this.deps.gate.onlineGate(id), this.deps.presence.get(id)]);
+    if (!gateAllowsHeartbeat(gate, present !== null)) {
+      if (present) await this.deps.presence.offline(id);
+      throw new DriverError(gateErrorCode(gate.reasons));
+    }
     const [cap, registered] = await Promise.all([this.deps.money.cap(id), this.deps.vehicles.vehicleOf(id)]);
     await this.deps.presence.online(id, {
       cityId: input.cityId,

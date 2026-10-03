@@ -1,7 +1,9 @@
 import type {
+  ErrorCode,
   Order,
   PartnerDemand,
   PartnerMerchantPrep,
+  PartnerOnlineGate,
   PartnerPay,
   PartnerPayComponent,
   PartnerPayKey,
@@ -172,3 +174,24 @@ export function kmBetween(a: { lat: number; lng: number }, b: { lat: number; lng
 
 /** Cap share at which the app starts warning (money §4 / partner.cap_warning). */
 export const NEAR_CAP_SHARE = 0.8;
+
+/**
+ * The typed error `partner.goOnline` answers with when the online gate is closed, worst reason
+ * first: a lock-out (ops must call him) over an expired document over a missing check-in.
+ */
+export function gateErrorCode(reasons: PartnerOnlineGate['reasons']): ErrorCode {
+  const codes = new Set(reasons.map((r) => r.code));
+  if (codes.has('checkin_locked')) return 'checkin_locked';
+  if (codes.has('document_expired')) return 'online_document_expired';
+  return 'online_checkin_required';
+}
+
+/**
+ * Whether a closed gate still lets this `goOnline` through: the app re-sends `goOnline` every 30 s
+ * as a heartbeat, so a driver already online when the local day turns keeps his shift until he next
+ * goes online (check-in is "at first online each day"). A lock-out or an expired document ends it.
+ */
+export function gateAllowsHeartbeat(gate: PartnerOnlineGate, alreadyOnline: boolean): boolean {
+  if (gate.canGoOnline) return true;
+  return alreadyOnline && gate.reasons.every((r) => r.code === 'checkin_required');
+}

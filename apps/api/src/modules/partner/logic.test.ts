@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { QuoteComponent } from '@driver/contracts';
-import { buildPay, demandHint, kmBetween, merchantPrep, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
 
 const food = (deliveryFeeIqd: number, tipIqd = 0) => ({ type: 'food' as const, deliveryFeeIqd, tipIqd, totalIqd: 15_000 + deliveryFeeIqd + tipIqd });
 const comp = (key: QuoteComponent['key'], amount: number): QuoteComponent => ({ key, amount, label_ar: key, label_en: key, driverShareRule: 'driver_full', visibility: 'shown' });
@@ -80,5 +80,21 @@ describe('today and prep', () => {
   });
   it('measures town distances in km', () => {
     expect(kmBetween({ lat: 32.905, lng: 45.06 }, { lat: 32.887, lng: 45.0765 })).toBeCloseTo(2.5, 0);
+  });
+});
+
+describe('online gate', () => {
+  const r = (code: 'checkin_required' | 'checkin_locked' | 'document_expired') => ({ code, message_ar: '…' });
+  it('names the worst reason as the error code', () => {
+    expect(gateErrorCode([r('checkin_required')])).toBe('online_checkin_required');
+    expect(gateErrorCode([r('checkin_required'), r('document_expired')])).toBe('online_document_expired');
+    expect(gateErrorCode([r('document_expired'), r('checkin_locked')])).toBe('checkin_locked');
+  });
+  it('lets only a missing check-in through as a heartbeat of someone already online', () => {
+    expect(gateAllowsHeartbeat({ canGoOnline: true, reasons: [] }, false)).toBe(true);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, true)).toBe(true);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, false)).toBe(false);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_locked')] }, true)).toBe(false);
+    expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required'), r('document_expired')] }, true)).toBe(false);
   });
 });

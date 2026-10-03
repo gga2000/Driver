@@ -209,7 +209,7 @@ const NUDGES: Record<ScoreMetricKey, (m: ScoreMetric) => { ar: string; en: strin
     en: 'You cancelled jobs after accepting. Finish the job or call dispatch instead of cancelling.',
   }),
   on_time: (m) => ({
-    ar: `وصولك بالوقت ${m.display}. حاول توصل خلال ٣ دقايق من الوقت المتوقع.`,
+    ar: `وصولك بالوقت ${m.display}. حاول توصل خلال 3 دقايق من الوقت المتوقع.`,
     en: `On-time arrival is ${m.display}. Try to arrive within 3 minutes of the ETA.`,
   }),
   rating: (m) => ({

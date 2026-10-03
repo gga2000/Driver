@@ -13,7 +13,7 @@ app/
   (tabs)/               index (الرئيسية: map, online switch) · earnings (الأرباح) · account (الحساب hub)
   offer.tsx             full-screen offer card (ring, named pay, batch banner, accept/decline)
   job.tsx               the job: one task + one advancing button, stops, contact, maps, handover, unreachable
-  earnings/statement.tsx  scorecard.tsx  documents/index.tsx  checkin.tsx            ← wave-2 placeholders
+  earnings/statement.tsx  scorecard.tsx  documents/index.tsx  checkin.tsx            ← wave 2 (driver account)
   intercity/index.tsx  khat/index.tsx  fleet/index.tsx  ops/index.tsx                ← wave-2 placeholders
 src/
   lib/                  api (tRPC + React Query), session (+ storage), guard, i18n, money, phone, fonts,
@@ -22,6 +22,10 @@ src/
   features/auth/        AuthHeader
   features/map/         DriverMap (own puck with radar pulse, job pins, dashed route) over the customer
                         app's base map (MapLibre on web, SVG zones on native) — geo.ts + base/*
+  features/account/     driverAccount.* (wave 2): queries, logic (pure, tested), EarningsParts (hero with
+                        count-up + chart, breakdown, cash cap card, job lines), HandoverSheet, ScoreParts,
+                        DocumentParts (+ upload sheet), CheckInParts (animated liveness move), GateParts
+                        (home banner + locked switch), photo (image-picker + signed upload), ModalSheet
   features/work/        queries (partner.*, dispatch.*, trips.*), logic (pure, tested), OnlineSwitch,
                         HomeParts (today pill, vehicle chip, cash bar, demand row, mode cards),
                         OfferParts (pay lines, prep pill, route nodes), JobPanels (handover/cash,
@@ -65,12 +69,33 @@ role reader, the vehicle registry):
 | Procedure | Roles | What |
 |---|---|---|
 | `partner.status` | partner roles | online, vehicle, tier, zone, position, cash vs cap, today, demand hint, active trip, open offer |
-| `partner.goOnline` / `goOffline` | driving roles | presence in the dispatch geo index (`DispatchService.presence`) |
+| `partner.goOnline` / `goOffline` | driving roles | presence in the dispatch geo index (`DispatchService.presence`); `goOnline` enforces the online gate (below) |
 | `partner.currentOffer` | driving roles | open offer: zones, pins, ring, pay components, batch, kitchen state, cash to collect |
 | `partner.activeJob` | driving roles | current trip: stops (merchant names, notes, cash per stop), current stop, unreachable, pay |
 
 Pay components are named (`delivery`, `night`, `weather`, `batch_bonus` 70 %, `pickup_compensation`,
 `fare` after the open take, `tip`, …) and labelled client-side with `partner.pay_<key>`.
+
+## Driver account (wave 2)
+
+- **الأرباح** (`app/(tabs)/earnings.tsx`) and **كشف الحساب** (`app/earnings/statement.tsx?period=&anchor=`):
+  `driverAccount.earnings` by day / week / month with ‹ › to earlier periods; the net counts up on a dark
+  hero with a per-hour / per-day chart (tap a bar), the change vs the previous period, the breakdown (pay,
+  tips, bonuses, guarantee top-ups, our take), the cash cap card (cash in hand, owed vs the role/tier cap,
+  green → orange → amber → red, next tier) and "سلّم الفلوس" → the daily code from `driverAccount.handoverCode`.
+  Every job opens to every component (memo-named: night, rain, guarantee…) and the cash taken.
+- **التقييم** (`app/scorecard.tsx`): from day 31 the index gauge, tier ladder with caps, nudges with the
+  Sunday they would apply, each metric against target + Silver line; days 1–30 "تقييمك يبين بعد 30 يوم".
+- **المستمسكات** (`app/documents/index.tsx`): rows most urgent first (expired, rejected + reason, missing,
+  expiring + days left, under review, approved), upload sheet (camera / library, expiry month for licence,
+  registration, insurance) → `places.photoUpload` + PUT → `driverAccount.uploadDocument`.
+- **التسجيل اليومي** (`app/checkin.tsx`): `checkInChallenge` → animated move + 2-minute countdown → selfie
+  (front camera; file picker on the web) → `submitCheckIn` → passed / one try left / locked.
+- **Online gate**: `partner.status.gate` (`{canGoOnline, reasons[]}`, null for non-drivers) drives the home
+  banner ("سوّي التسجيل اليومي", locked, expired document) and a locked switch that says why.
+  `partner.goOnline` refuses with `online_checkin_required`, `checkin_locked` or `online_document_expired`
+  (worst first) and takes an online driver out of the index on a lock-out or expired document; a missing
+  check-in alone does not end a shift that crossed midnight (the 30 s heartbeat keeps going).
 
 ## Adding a flow (wave 2)
 
@@ -128,9 +153,12 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
   node scripts/web-shots.mjs <out-dir>                # SHOTS=core,… ; DIST_DIR, DEMO_API
 ```
 
-Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 12,500 · 6 طلبات today,
-45,000 cash held), tuktuk `0770 111 0002`, intercity `0770 111 0003`, khat `0770 111 0004`,
-customer-only `0770 111 0009`. Food dispatch runs suggest-only in the demo so the three orders
+Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 14,000 · 6 طلبات today,
+68,500 cash held ≈ 73 % of his cap, two months of history, scorecard day 65), tuktuk `0770 111 0002`
+(rides with the take; licence expiring, registration rejected), intercity `0770 111 0003`, khat
+`0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (no check-in
+yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
+Everyone else is checked in for today. `POST /demo/account/fail-next-checkin?who=…` fails his next selfie. Food dispatch runs suggest-only in the demo so the three orders
 waiting at مشويات الحاج كريم keep the demand hint at "الطلب عالي بالمركز"; demo offers go out
 through the dispatcher override, the tuktuk ride through the real wave-1 broadcast.
 
@@ -143,3 +171,12 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 - The handover photo stays on the device (upload + `handover.photoUrl` in wave 2).
 - Realtime push for offers is polling (2 s) until the realtime channel ships.
 - The customer's first name is not on the job card (no vault read for drivers yet).
+
+## Known gaps (wave 2, driver account)
+
+- Liveness is the API's stub: the app sends no SDK score (web/native), so any stored selfie passes; the
+  real on-device SDK plugs into `submitCheckIn`'s `livenessScore`.
+- The scorecard's cap tier (scoring) and the ledger's cap tier can differ until scoring writes tiers.
+- "كلّم العمليات واتساب" on the locked screen is a stub toast (no ops WhatsApp number in config yet).
+- Demo-only: the scorecard history (offer answers, past trips, ratings) is fed to `DriverAccountService`
+  through wrapped reads in `scripts/demo/50-driver-account.mjs`; the in-memory API has no past.

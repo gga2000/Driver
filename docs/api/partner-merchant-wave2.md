@@ -153,9 +153,11 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   admin view signs them, the customer catalog (`catalog.*`) does not yet.
 - **Liveness and face match are stubs** (device SDK score, default 1); OCR for menu import is a stub
   (empty draft, staff type the rows).
-- **Online gate enforcement** lives with the `partner` presence path (wave-1 agent): it should call
-  `DriverAccountService.onlineGateFor`. Nothing else forces a driver offline on `driver.checkin_locked`
-  or an expired document yet.
+- **Online gate enforcement**: `partner.goOnline` calls `DriverAccountService.onlineGateFor` and refuses with
+  `online_checkin_required` / `checkin_locked` / `online_document_expired`; `partner.status.gate` carries
+  the reasons. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
+  Nothing pushes a driver offline the moment `driver.checkin_locked` fires or a document expires: it
+  happens at his next heartbeat (≤ 30 s while the app is open).
 - Shift-guarantee top-ups are shown when the ledger has them (`driver_incentive`, memo `guarantee…`);
   no job posts them yet. Courier-waiting charges to merchants are not ledger lines yet.
 - The khat run is read from the driver's khat trips; spawning a day's trips from a khat `Route` /

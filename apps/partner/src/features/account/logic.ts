@@ -1,0 +1,424 @@
+import type {
+  DocumentsView,
+  DriverDocumentKind,
+  DriverDocumentStatus,
+  DriverDocumentView,
+  EarningsJobLine,
+  EarningsPeriod,
+  EarningsView,
+  PartnerOnlineGate,
+  ScoreMetric,
+} from '@driver/contracts';
+import type { MessageKey } from '@driver/i18n';
+import { pluralForm } from '@/features/work/logic';
+
+/**
+ * Pure rules behind the driver-account screens (الأرباح, التقييم, المستمسكات, التسجيل اليومي).
+ * Plain Node, no React Native: unit-tested in logic.test.ts.
+ */
+
+type T = (key: MessageKey, params?: Record<string, string | number>) => string;
+
+// ───────────────────────── Baghdad local calendar ─────────────────────────
+
+/** Asia/Baghdad is UTC+3 all year (no DST); the API's periods are cut on the same clock. */
+export const BAGHDAD_OFFSET_MS = 3 * 3_600_000;
+export const DAY_MS = 86_400_000;
+
+export interface LocalParts {
+  year: number;
+  /** 1–12 */
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  /** 0 = Sunday … 6 = Saturday */
+  weekday: number;
+}
+
+export function local(at: Date): LocalParts {
+  const d = new Date(at.getTime() + BAGHDAD_OFFSET_MS);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), weekday: d.getUTCDay() };
+}
+
+/** Local midnight (as a UTC instant) of the day containing `at`. */
+export function startOfLocalDay(at: Date): Date {
+  const shifted = at.getTime() + BAGHDAD_OFFSET_MS;
+  return new Date(shifted - (((shifted % DAY_MS) + DAY_MS) % DAY_MS) - BAGHDAD_OFFSET_MS);
+}
+
+export function sameLocalDay(a: Date, b: Date): boolean {
+  return startOfLocalDay(a).getTime() === startOfLocalDay(b).getTime();
+}
+
+/** 12-hour clock, Western digits, no am/pm (voice guide §5): `7:30`, `12:05`. */
+export function clockTime(at: Date): string {
+  const { hour, minute } = local(at);
+  const h = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h}:${String(minute).padStart(2, '0')}`;
+}
+
+/** 12-hour label of an hour of the day for chart ticks: 0 → 12, 13 → 1. */
+export function hour12(hour: number): number {
+  return hour % 12 === 0 ? 12 : hour % 12;
+}
+
+/** "3 تشرين الأول" */
+export function dayMonth(at: Date, t: T): string {
+  const p = local(at);
+  return t('partner.date_day_month', { day: p.day, month: t(`partner.month_${p.month}` as MessageKey) });
+}
+
+export function weekdayName(at: Date, t: T, short = false): string {
+  return t(`partner.weekday_${short ? 'short_' : ''}${local(at).weekday}` as MessageKey);
+}
+
+// ───────────────────────── earnings periods ─────────────────────────
+
+/** "اليوم" · "أمس" · "الخميس 1 تشرين الأول" · "هالأسبوع" · "27 أيلول – 3 تشرين الأول" · "هالشهر" · "آب". */
+export function rangeLabel(period: EarningsPeriod, range: { from: Date; to: Date }, now: Date, t: T): string {
+  const from = range.from.getTime();
+  if (period === 'day') {
+    const today = startOfLocalDay(now).getTime();
+    if (from === today) return t('partner.earn_range_today');
+    if (from === today - DAY_MS) return t('partner.earn_range_yesterday');
+    const p = local(range.from);
+    return t('partner.earn_range_day', { weekday: weekdayName(range.from, t), day: p.day, month: t(`partner.month_${p.month}` as MessageKey) });
+  }
+  if (period === 'week') {
+    const today = startOfLocalDay(now).getTime();
+    const thisWeek = today - local(now).weekday * DAY_MS;
+    if (from === thisWeek) return t('partner.earn_range_this_week');
+    if (from === thisWeek - 7 * DAY_MS) return t('partner.earn_range_last_week');
+    return t('partner.earn_range_span', { from: dayMonth(range.from, t), to: dayMonth(new Date(range.to.getTime() - 1), t) });
+  }
+  const f = local(range.from);
+  const n = local(now);
+  const monthsAgo = (n.year - f.year) * 12 + (n.month - f.month);
+  if (monthsAgo === 0) return t('partner.earn_range_this_month');
+  if (monthsAgo === 1) return t('partner.earn_range_last_month');
+  const name = t(`partner.month_${f.month}` as MessageKey);
+  return f.year === n.year ? name : `${name} ${f.year}`;
+}
+
+/** An instant inside the period before / after `range` (the API takes any anchor inside a period). */
+export function prevAnchor(range: { from: Date }): Date {
+  return new Date(range.from.getTime() - 1);
+}
+export function nextAnchor(range: { to: Date }): Date {
+  return new Date(range.to.getTime());
+}
+/** The period still running (no "next" arrow). */
+export function isCurrentPeriod(range: { to: Date }, now: Date): boolean {
+  return range.to.getTime() > now.getTime();
+}
+
+/** Whether the period starting at `start` is the one running now (then the screen follows "now" live). */
+export function periodContainsNow(period: EarningsPeriod, start: Date, now: Date): boolean {
+  if (start.getTime() > now.getTime()) return false;
+  if (period === 'day') return now.getTime() - start.getTime() < DAY_MS;
+  if (period === 'week') return now.getTime() - start.getTime() < 7 * DAY_MS;
+  const a = local(start);
+  const b = local(now);
+  return a.year === b.year && a.month === b.month;
+}
+
+/** A job line from a real job (trip or order), not a stand-alone adjustment. */
+export function isJob(j: Pick<EarningsJobLine, 'tripId' | 'orderId'>): boolean {
+  return j.tripId !== null || j.orderId !== null;
+}
+
+export interface ChartBucket {
+  key: string;
+  /** Tick label: hour (12-hour) for a day, short weekday for a week, day of month for a month. */
+  tick: string;
+  /** Long label for the tooltip ("الخميس", "الساعة 7", "12 تشرين الأول"). */
+  label: string;
+  amountIqd: number;
+  jobs: number;
+  from: Date;
+}
+
+/**
+ * Bars for the earnings chart: hours of the day (from 6, or earlier when he worked earlier), days of
+ * the week, or days of the month. Each job's net lands in the local hour/day it happened.
+ */
+export function chartBuckets(period: EarningsPeriod, range: { from: Date; to: Date }, jobs: readonly Pick<EarningsJobLine, 'at' | 'netIqd' | 'tripId' | 'orderId'>[], t: T): ChartBucket[] {
+  const out: ChartBucket[] = [];
+  if (period === 'day') {
+    const firstHour = Math.min(6, ...jobs.map((j) => local(j.at).hour));
+    for (let h = firstHour; h <= 23; h++) {
+      out.push({ key: `h${h}`, tick: String(hour12(h)), label: t('partner.earn_hour', { hour: hour12(h) }), amountIqd: 0, jobs: 0, from: new Date(range.from.getTime() + h * 3_600_000) });
+    }
+    for (const j of jobs) {
+      const b = out[local(j.at).hour - firstHour];
+      if (!b) continue;
+      b.amountIqd += j.netIqd;
+      if (isJob(j)) b.jobs += 1;
+    }
+    return out;
+  }
+  const days = Math.round((range.to.getTime() - range.from.getTime()) / DAY_MS);
+  for (let i = 0; i < days; i++) {
+    const from = new Date(range.from.getTime() + i * DAY_MS);
+    const p = local(from);
+    out.push({
+      key: `d${i}`,
+      tick: period === 'week' ? weekdayName(from, t, true) : String(p.day),
+      label: period === 'week' ? weekdayName(from, t) : dayMonth(from, t),
+      amountIqd: 0,
+      jobs: 0,
+      from,
+    });
+  }
+  for (const j of jobs) {
+    const i = Math.floor((startOfLocalDay(j.at).getTime() - range.from.getTime()) / DAY_MS);
+    const b = out[i];
+    if (!b) continue;
+    b.amountIqd += j.netIqd;
+    if (isJob(j)) b.jobs += 1;
+  }
+  return out;
+}
+
+export function bestBucket(buckets: readonly ChartBucket[]): ChartBucket | null {
+  return buckets.reduce<ChartBucket | null>((best, b) => (b.amountIqd > 0 && (!best || b.amountIqd > best.amountIqd) ? b : best), null);
+}
+
+/** Whole-percent change against the previous period; null without a previous figure to compare. */
+export function percentChange(current: number, previous: number | null | undefined): number | null {
+  if (previous === null || previous === undefined || previous <= 0) return null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+/** Pay components the ledger books under a generic type but names in its memo (night, rain, batch…). */
+const MEMO_PAY_KEY: Record<string, MessageKey> = {
+  night: 'partner.pay_night',
+  weather: 'partner.pay_weather',
+  rain: 'partner.pay_weather',
+  peak: 'partner.pay_peak',
+  batch_bonus: 'partner.pay_batch_bonus',
+  pickup_compensation: 'partner.pay_pickup_compensation',
+  rebroadcast_compensation: 'partner.pay_pickup_compensation',
+  door_pickup: 'partner.pay_door_pickup',
+  wait: 'partner.pay_wait',
+};
+
+/**
+ * The name a component shows: the ledger's own label (`ledger.line.<type>`), refined by its memo
+ * where the memo names the pay ("guarantee:…" → تكملة ضمان الشفت, "night" → إضافة الليل).
+ */
+export function componentLabel(c: { label_ar: string; memo: string | null }, t: T): string {
+  const memo = (c.memo ?? '').split(':')[0] ?? '';
+  if (memo === 'guarantee') return t('partner.earn_guarantee_memo');
+  const key = MEMO_PAY_KEY[memo];
+  return key ? t(key) : c.label_ar;
+}
+
+export function componentsKey(n: number): MessageKey {
+  return ({ zero: 'partner.earn_components_one', one: 'partner.earn_components_one', few: 'partner.earn_components_few', many: 'partner.earn_components_many' } as const)[pluralForm(n)];
+}
+
+/** Last 4 characters of an id, upper-cased: a short reference he can read to support. */
+export function shortRef(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+}
+
+/** Breakdown rows of a period's totals, in reading order; empty rows dropped (net always shown). */
+export function breakdownRows(totals: EarningsView['totals']): Array<{ key: MessageKey; amountIqd: number; strong?: boolean }> {
+  const rows: Array<{ key: MessageKey; amountIqd: number; strong?: boolean }> = [
+    { key: 'partner.earn_gross', amountIqd: totals.grossIqd },
+    { key: 'partner.earn_tips', amountIqd: totals.tipsIqd },
+    { key: 'partner.earn_bonuses', amountIqd: totals.bonusesIqd },
+    { key: 'partner.earn_guarantee', amountIqd: totals.guaranteeTopUpsIqd },
+    { key: 'partner.earn_take', amountIqd: -totals.takeIqd },
+    { key: 'partner.earn_penalties', amountIqd: -totals.penaltiesIqd },
+  ];
+  return [...rows.filter((r) => r.amountIqd !== 0), { key: 'partner.earn_net', amountIqd: totals.netIqd, strong: true }];
+}
+
+// ───────────────────────── the cash cap ─────────────────────────
+
+export type CapTone = 'success' | 'accent' | 'warning' | 'danger';
+
+/** Green while comfortable, orange from 60 %, amber from 80 % (the server's near-cap line), red over. */
+export function capTone(cap: Pick<EarningsView['cap'], 'fill' | 'overCap'>): CapTone {
+  if (cap.overCap || cap.fill >= 1) return 'danger';
+  if (cap.fill >= 0.8) return 'warning';
+  if (cap.fill >= 0.6) return 'accent';
+  return 'success';
+}
+
+/** The next tier's cap when it is higher than his own (intercity caps are flat). */
+export function nextTierCap(cap: Pick<EarningsView['cap'], 'tier' | 'capIqd' | 'byTier'>): { tier: 'silver' | 'gold'; capIqd: number } | null {
+  const next = cap.tier === 'bronze' ? 'silver' : cap.tier === 'silver' ? 'gold' : null;
+  if (!next || cap.byTier[next] <= cap.capIqd) return null;
+  return { tier: next, capIqd: cap.byTier[next] };
+}
+
+// ───────────────────────── scorecard ─────────────────────────
+
+/** "85%" for rates, "4.8" for the rating; completion's full mark reads "100%". */
+export function metricFormat(key: ScoreMetric['key'], x: number): string {
+  // Left-to-right isolate so "85%" keeps its sign after the digits inside Arabic text.
+  return key === 'rating' ? x.toFixed(1) : `\u2066${Math.round(x * 100)}%\u2069`;
+}
+
+/**
+ * Where a value sits on the metric's bar (0–1). The bar spans from a little under the zero mark to the
+ * best possible (100 % or 5.0) so the target and the Silver line read as ticks on the same track.
+ */
+export function metricScale(m: Pick<ScoreMetric, 'key' | 'zeroAt' | 'fullAt'>): { lo: number; hi: number } {
+  const hi = m.key === 'rating' ? 5 : 1;
+  const lo = Math.max(m.key === 'rating' ? 1 : 0, m.zeroAt - (m.fullAt - m.zeroAt) * 0.6);
+  return { lo, hi };
+}
+export function metricPos(m: Pick<ScoreMetric, 'key' | 'zeroAt' | 'fullAt'>, x: number): number {
+  const { lo, hi } = metricScale(m);
+  return Math.max(0, Math.min(1, (x - lo) / (hi - lo)));
+}
+
+/** Points to the next tier (Silver at 70, Gold at 85 and 100 completed jobs). */
+export function nextTierProgress(index: number, completedTrips: number): { key: MessageKey; points: number } | null {
+  if (index < 70) return { key: 'partner.score_next_silver', points: 70 - index };
+  if (index < 85) return { key: 'partner.score_next_gold', points: 85 - index };
+  if (completedTrips < 100) return { key: 'partner.score_gold_trips', points: 0 };
+  return null;
+}
+
+/** Month one: day n of 30, share done, days until the card shows (day 31). */
+export function observation(dayNumber: number): { day: number; share: number; daysLeft: number } {
+  const day = Math.max(1, Math.min(30, dayNumber));
+  return { day, share: day / 30, daysLeft: Math.max(1, 31 - dayNumber) };
+}
+
+export const METRIC_DESC: Record<ScoreMetric['key'], MessageKey> = {
+  acceptance: 'partner.score_desc_acceptance',
+  completion: 'partner.score_desc_completion',
+  on_time: 'partner.score_desc_on_time',
+  rating: 'partner.score_desc_rating',
+  cash_return: 'partner.score_desc_cash_return',
+};
+
+/** The five components and their targets, for the month-one preview (scoring spec §1). */
+export const METRIC_PREVIEW: ReadonlyArray<{ key: ScoreMetric['key']; target: string; weight: number }> = [
+  { key: 'acceptance', target: '\u206685%\u2069', weight: 20 },
+  { key: 'on_time', target: '\u206690%\u2069', weight: 20 },
+  { key: 'completion', target: '\u2066100%\u2069', weight: 15 },
+  { key: 'rating', target: '4.8', weight: 15 },
+  { key: 'cash_return', target: '\u206695%\u2069', weight: 5 },
+];
+
+export const METRIC_NAME: Record<ScoreMetric['key'], MessageKey> = {
+  acceptance: 'partner.score_metric_acceptance',
+  completion: 'partner.score_metric_completion',
+  on_time: 'partner.score_metric_on_time',
+  rating: 'partner.score_metric_rating',
+  cash_return: 'partner.score_metric_cash_return',
+};
+
+// ───────────────────────── documents ─────────────────────────
+
+export type DocRowStatus = DriverDocumentStatus | 'missing';
+
+export interface DocRow {
+  kind: DriverDocumentKind;
+  doc: DriverDocumentView | null;
+  status: DocRowStatus;
+  required: boolean;
+}
+
+const KIND_ORDER: readonly DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration', 'insurance'];
+const ALWAYS_REQUIRED: ReadonlySet<DriverDocumentKind> = new Set(['national_id_front', 'national_id_back', 'photo']);
+const URGENCY: Record<DocRowStatus, number> = { expired: 0, rejected: 1, missing: 2, expiring: 3, pending: 4, approved: 5 };
+
+/**
+ * One row per document kind he has or needs, most urgent first: expired, rejected, missing,
+ * expiring, under review, approved. Insurance is never required (an "other" row, offered when absent).
+ */
+export function documentRows(view: Pick<DocumentsView, 'documents' | 'missing'>): DocRow[] {
+  const rows: DocRow[] = [
+    ...view.documents.map((d) => ({ kind: d.kind, doc: d, status: d.status as DocRowStatus, required: d.kind !== 'insurance' })),
+    ...view.missing.filter((k) => !view.documents.some((d) => d.kind === k)).map((kind) => ({ kind, doc: null, status: 'missing' as const, required: true })),
+  ];
+  // Insurance is optional: offered as an "other" row until he has one on file.
+  if (!rows.some((r) => r.kind === 'insurance')) rows.push({ kind: 'insurance', doc: null, status: 'missing', required: false });
+  return rows.sort((a, b) => URGENCY[a.status] - URGENCY[b.status] || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
+}
+
+export function isAlwaysRequired(kind: DriverDocumentKind): boolean {
+  return ALWAYS_REQUIRED.has(kind);
+}
+
+export type DocsSummary = 'blocked' | 'action' | 'review' | 'ok';
+
+export function docsSummary(view: Pick<DocumentsView, 'documents' | 'missing' | 'blocksOnline'>): DocsSummary {
+  if (view.blocksOnline || view.documents.some((d) => d.status === 'expired')) return 'blocked';
+  if (view.missing.length > 0 || view.documents.some((d) => d.status === 'rejected' || d.status === 'expiring')) return 'action';
+  if (view.documents.some((d) => d.status === 'pending')) return 'review';
+  return 'ok';
+}
+
+export const DOC_TONE: Record<DocRowStatus, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
+  approved: 'success',
+  pending: 'info',
+  expiring: 'warning',
+  rejected: 'danger',
+  expired: 'danger',
+  missing: 'neutral',
+};
+
+export const DOC_STATUS_KEY: Record<DocRowStatus, MessageKey> = {
+  approved: 'partner.docs_status_approved',
+  pending: 'partner.docs_status_pending',
+  expiring: 'partner.docs_status_expiring',
+  rejected: 'partner.docs_status_rejected',
+  expired: 'partner.docs_status_expired',
+  missing: 'partner.docs_status_missing',
+};
+
+/** What the row's button does: nothing while it is fine or under review. */
+export function docAction(status: DocRowStatus): MessageKey | null {
+  if (status === 'missing') return 'partner.docs_upload';
+  if (status === 'rejected') return 'partner.docs_reupload';
+  if (status === 'expired' || status === 'expiring') return 'partner.docs_renew';
+  return null;
+}
+
+/** "باقي 12 يوم" · "باقي يوم واحد" · "انتهى اليوم" · "انتهى قبل 3 يوم"; null without an expiry. */
+export function expiryText(days: number | null, t: T): string | null {
+  if (days === null) return null;
+  if (days > 1) return t('partner.docs_days_left', { n: days });
+  if (days === 1) return t('partner.docs_day_left');
+  if (days === 0) return t('partner.docs_expired_today');
+  return t('partner.docs_expired_ago', { n: -days });
+}
+
+/** Kinds printed with an expiry date (asked on upload). */
+export function hasExpiry(kind: DriverDocumentKind): boolean {
+  return kind === 'licence' || kind === 'vehicle_registration' || kind === 'insurance';
+}
+
+/** Last day of `month` (1–12) in `year`, as the end of that local day: what "valid until 10/2027" means. */
+export function expiryFromMonth(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month, 1) - BAGHDAD_OFFSET_MS - 1);
+}
+
+// ───────────────────────── online gate ─────────────────────────
+
+export type GateKind = 'checkin' | 'locked' | 'document';
+
+/** The one thing blocking him, worst first: a lock-out, then an expired document, then the check-in. */
+export function gateKind(gate: PartnerOnlineGate | null | undefined): GateKind | null {
+  if (!gate || gate.canGoOnline) return null;
+  const codes = new Set(gate.reasons.map((r) => r.code));
+  if (codes.has('checkin_locked')) return 'locked';
+  if (codes.has('document_expired')) return 'document';
+  if (codes.has('checkin_required')) return 'checkin';
+  return null;
+}
+
+/** "m:ss" left on a check-in challenge. */
+export function secondsLeftOf(expiresAt: Date, now: number): number {
+  return Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000));
+}

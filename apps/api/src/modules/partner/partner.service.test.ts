@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Order, RoleKind, Stop, Trip } from '@driver/contracts';
+import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
 import type { PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
@@ -84,7 +84,18 @@ const order = (extra: Partial<Order> = {}): Order =>
     ...extra,
   }) as Order;
 
-function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; offerTrip?: Trip | null; cap?: Partial<PartnerCapStatus> } = {}) {
+const OPEN: PartnerOnlineGate = { canGoOnline: true, reasons: [] };
+const NO_CHECKIN: PartnerOnlineGate = { canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: 'سوّي التحقق اليومي بالسيلفي قبل ما تشتغل' }] };
+const LOCKED: PartnerOnlineGate = { canGoOnline: false, reasons: [{ code: 'checkin_locked', message_ar: 'فشل التحقق مرتين اليوم' }] };
+const EXPIRED: PartnerOnlineGate = {
+  canGoOnline: false,
+  reasons: [
+    { code: 'checkin_required', message_ar: 'سوّي التحقق اليومي' },
+    { code: 'document_expired', message_ar: 'إجازة السوق منتهية. جدّدها حتى تشتغل' },
+  ],
+};
+
+function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; offerTrip?: Trip | null; cap?: Partial<PartnerCapStatus>; gate?: PartnerOnlineGate } = {}) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
   const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
@@ -127,6 +138,7 @@ function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; o
     },
     roles: { activeRoles: async () => opts.roles ?? ['customer', 'courier'] },
     vehicles: { vehicleOf: async () => 'bike' },
+    gate: { onlineGate: async () => opts.gate ?? OPEN },
   };
   return new PartnerService(deps, new FakeClock(NOW));
 }
@@ -146,12 +158,18 @@ describe('PartnerService', () => {
       demand: { level: 'high', zoneId: 'centre', waitingJobs: 3 },
       activeTripId: null,
       offerId: null,
+      gate: { canGoOnline: true, reasons: [] },
     });
   });
 
   it('fleet owners and field ops get a status without driving', async () => {
     const s = await harness({ roles: ['fleet_owner', 'field_ops'] }).status(actor);
-    expect(s).toMatchObject({ modes: ['fleet', 'ops'], primaryMode: 'fleet', canDrive: false, demand: null });
+    expect(s).toMatchObject({ modes: ['fleet', 'ops'], primaryMode: 'fleet', canDrive: false, demand: null, gate: null });
+  });
+
+  it('status carries the online gate with its reasons (the home banner and the blocked switch)', async () => {
+    const s = await harness({ gate: NO_CHECKIN }).status(actor);
+    expect(s.gate).toEqual(NO_CHECKIN);
   });
 
   it('goOnline puts him in the presence index with his vehicle; goOffline takes him out', async () => {
@@ -159,6 +177,32 @@ describe('PartnerService', () => {
     const on = await svc.goOnline(actor, { cityId: 'aziziyah', at: { lat: 32.9095, lng: 45.0635 } });
     expect(on).toMatchObject({ online: true, zoneId: 'street_30', vehicleClass: 'bike', position: { lat: 32.9095, lng: 45.0635 } });
     expect((await svc.goOffline(actor)).online).toBe(false);
+  });
+
+  it.each([
+    ['no check-in today', NO_CHECKIN, 'online_checkin_required'],
+    ['locked out after two failed check-ins', LOCKED, 'checkin_locked'],
+    ['an expired document (worse than the missing check-in)', EXPIRED, 'online_document_expired'],
+  ] as const)('goOnline is refused with a typed code and Arabic message: %s', async (_name, gate, code) => {
+    const svc = harness({ gate });
+    const err = await svc.goOnline(actor, { cityId: 'aziziyah', at: KITCHEN }).catch((e: unknown) => e);
+    expect(isDriverError(err)).toBe(true);
+    expect(err).toMatchObject({ code, status: 'FORBIDDEN' });
+    expect((err as { envelope: { message_ar: string } }).envelope.message_ar.length).toBeGreaterThan(5);
+    expect((await svc.status(actor)).online).toBe(false);
+  });
+
+  it('a heartbeat across local midnight keeps an online driver on until he next goes online', async () => {
+    const on = await harness({ online: true, gate: NO_CHECKIN }).goOnline(actor, { cityId: 'aziziyah', at: KITCHEN });
+    expect(on.online).toBe(true);
+  });
+
+  it('a lock-out or an expired document refuses the heartbeat and takes him offline', async () => {
+    for (const gate of [LOCKED, EXPIRED]) {
+      const svc = harness({ online: true, gate });
+      await expect(svc.goOnline(actor, { cityId: 'aziziyah', at: KITCHEN })).rejects.toMatchObject({ code: gate === LOCKED ? 'checkin_locked' : 'online_document_expired' });
+      expect((await svc.status(actor)).online).toBe(false);
+    }
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {

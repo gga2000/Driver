@@ -76,6 +76,17 @@ export const PartnerCash = z.object({
 });
 export type PartnerCash = z.infer<typeof PartnerCash>;
 
+/** Why he may not go online now (same codes as `driverAccount.onlineGate`): scoring §2. */
+export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired']);
+export type PartnerGateCode = z.infer<typeof PartnerGateCode>;
+
+/** The online gate as `partner.status` carries it: `partner.goOnline` refuses while `canGoOnline` is false. */
+export const PartnerOnlineGate = z.object({
+  canGoOnline: z.boolean(),
+  reasons: z.array(z.object({ code: PartnerGateCode, message_ar: z.string() })),
+});
+export type PartnerOnlineGate = z.infer<typeof PartnerOnlineGate>;
+
 export const PartnerStatus = z.object({
   personId: z.string(),
   roles: z.array(RoleKind),
@@ -94,6 +105,8 @@ export const PartnerStatus = z.object({
   demand: PartnerDemand.nullable(),
   activeTripId: z.string().nullable(),
   offerId: z.string().nullable(),
+  /** Daily check-in / lock-out / expired documents; null for people without a driving role. */
+  gate: PartnerOnlineGate.nullable(),
 });
 export type PartnerStatus = z.infer<typeof PartnerStatus>;
 

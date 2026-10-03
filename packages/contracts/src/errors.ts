@@ -47,6 +47,9 @@ export const ERROR_TABLE = {
   document_not_found: { message_ar: 'ما لگينا المستمسك', message_en: 'Document not found', retryHint: 'never', status: 'NOT_FOUND' },
   checkin_challenge_invalid: { message_ar: 'انتهى وقت التحقق. ابدأ من جديد', message_en: 'Check-in challenge unknown or expired', retryHint: 'never', status: 'BAD_REQUEST' },
   checkin_locked: { message_ar: 'فشل التحقق مرتين اليوم. فريق العمليات راح يتواصل وياك', message_en: 'Two failed check-ins today; ops will contact you', retryHint: 'support', status: 'FORBIDDEN' },
+  // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
+  online_checkin_required: { message_ar: 'سوّي التسجيل اليومي بالسيلفي قبل ما تشتغل', message_en: 'Do the daily selfie check-in before going online', retryHint: 'never', status: 'FORBIDDEN' },
+  online_document_expired: { message_ar: 'عندك مستمسك منتهي. جدّده حتى تشتغل', message_en: 'A document has expired; renew it to go online', retryHint: 'never', status: 'FORBIDDEN' },
   khat_not_child_stop: { message_ar: 'هذي المحطة ما بيها طفل لهذا الإجراء', message_en: 'This stop has no child for this tap', retryHint: 'never', status: 'BAD_REQUEST' },
   khat_child_not_on_trip: { message_ar: 'هذا الطفل مو على هذا الخط اليوم', message_en: 'The child is not on this run', retryHint: 'never', status: 'NOT_FOUND' },
   khat_child_absent: { message_ar: 'هذا الطفل مسجّل غايب اليوم', message_en: 'The child was reported absent for this run', retryHint: 'never', status: 'CONFLICT' },

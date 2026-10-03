@@ -1,4 +1,4 @@
-import type { LatLng, Order, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { LatLng, Order, PartnerOnlineGate, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -81,6 +81,8 @@ export interface PartnerDeps {
   };
   roles: { activeRoles(personId: string): Promise<RoleKind[]> };
   vehicles: { vehicleOf(driverId: string): Promise<VehicleClass | null> };
+  /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
+  gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
 }
 
 export const PARTNER_DEPS = Symbol('PARTNER_DEPS');

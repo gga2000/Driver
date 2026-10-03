@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon, Skeleton, Text, useTheme, usePulse, type IconName } from '@driver/ui';
 import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
+import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
+import { gateKind } from '@/features/account/logic';
 import { DriverMap } from '@/features/map/DriverMap';
 import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip } from '@/features/work/HomeParts';
 import { VEHICLE_ICON } from '@/features/work/logic';
@@ -27,6 +29,8 @@ export default function Home() {
   const online = s?.online ?? false;
   const vehicle = s?.vehicleClass ?? 'bike';
   const pulse = usePulse(online);
+  // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
+  const gate = online ? null : gateKind(s?.gate);
 
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -96,8 +100,10 @@ export default function Home() {
               ) : null}
               {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
 
+              {s.canDrive && gate ? <GateBanner kind={gate} /> : null}
               {s.canDrive ? <CashBar cash={s.cash} /> : null}
-              {s.canDrive ? <OnlineSwitch online={online} busy={presence.busy} onGoOnline={() => void presence.goOnline()} onGoOffline={() => void presence.goOffline()} /> : null}
+              {s.canDrive && gate ? <BlockedSwitch kind={gate} /> : null}
+              {s.canDrive && !gate ? <OnlineSwitch online={online} busy={presence.busy} onGoOnline={() => void presence.goOnline()} onGoOffline={() => void presence.goOffline()} /> : null}
             </>
           )}
         </View>
