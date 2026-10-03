@@ -30,6 +30,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 12 | Low | menu import applied twice concurrently duplicates items | documented |
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
 | 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
+| 15 | Medium (perf) | `events` has no index for `forAggregate` (Merchant cash screen) | fixed |
 
 ## Details
 
@@ -169,3 +170,11 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
   `^build`), whose `prisma generate` rewrites `src/generated/**` mid-`tsc` → `TS6053 File … not found`.
   Reproduced on two consecutive runs after a schema change.
 - **Fix:** `"@driver/db#typecheck": { "dependsOn": ["build"] }`. Verified with `--force`.
+
+### 15 · Medium (perf) · events by aggregate unindexed
+
+- **Where:** `EventsService.forAggregate` (new in wave 2), called by `merchantAdmin.money.cash` on every open
+  of the Merchant Money screen; `events` (the largest table) had no `(aggregate, aggregate_id)` index, so
+  each call scanned it.
+- **Fix:** `@@index([aggregate, aggregateId, occurredAt])`, migration `20261004120100_events_aggregate_index`.
+- **Test:** `packages/db/src/schema.test.ts` › "events by aggregate: the Merchant app's cash screen reads merchant/<id> on every open".

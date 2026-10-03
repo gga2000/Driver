@@ -312,3 +312,12 @@ describe('prisma schema — الرجعة (routes module, additive)', () => {
     for (const c of ['requestId', 'driverId', 'priceIqd', 'state']) expect(fields(model('RideRequestOffer'))).toContain(c);
   });
 });
+
+describe('prisma schema — hot-query indexes (review 2026-10-04)', () => {
+  it("events by aggregate: the Merchant app's cash screen reads merchant/<id> on every open", () => {
+    expect(model('Event')).toMatch(/@@index\(\[aggregate, aggregateId(, [a-zA-Z]+)?\]\)/);
+  });
+  it('fleet links carry the driver consent column', () => {
+    expect(fields(model('FleetDriver'))).toContain('acceptedAt');
+  });
+});

@@ -1869,6 +1869,8 @@ model Event {
   outbox Outbox[]
 
   @@index([actorId, occurredAt])
+  // Review 2026-10-04: `EventsService.forAggregate` (Merchant app cash screen, merchant/<id>).
+  @@index([aggregate, aggregateId, occurredAt])
   @@index([tripId])
   @@index([orderId])
   @@index([type, recordedAt])
