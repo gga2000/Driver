@@ -117,8 +117,10 @@ describe('API smoke', () => {
     const authed = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
     });
-    const order = await authed.orders.place.mutate({ cityId: 'aziziyah', type: 'ride', fareIqd: 3000, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
-    expect(order).toMatchObject({ state: 'placed', totalIqd: 3000, ordererId: login.personId });
+    // The fare is the server's quote right now (night/peak fees apply after 22:00 Baghdad), never a constant.
+    const quote = await authed.pricing.quote.query({ cityId: 'aziziyah', vertical: 'taxi', stops: [{ zoneId: 'centre', type: 'pickup' }, { zoneId: 'street_30', type: 'dropoff' }], options: { doorPickup: false, streetHandover: false }, at: new Date() });
+    const order = await authed.orders.place.mutate({ cityId: 'aziziyah', type: 'ride', fareIqd: quote.total, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
+    expect(order).toMatchObject({ state: 'placed', totalIqd: quote.total, ordererId: login.personId });
     expect((await authed.orders.mine.query()).map((o) => o.id)).toEqual([order.id]);
     expect((await authed.orders.cancellationPreview.query({ orderId: order.id })).free).toBe(true);
     expect((await authed.orders.cancel.mutate({ orderId: order.id })).state).toBe('customer_cancelled');

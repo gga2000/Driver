@@ -3,6 +3,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createApp } from './bootstrap.js';
 import { EventsService } from './modules/events/index.js';
 import { OrdersService } from './modules/orders/index.js';
+import { PricingService } from './modules/pricing/index.js';
+import { PriceRequest } from '@driver/contracts';
 import { TripsService } from './modules/trips/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
 import { DISPATCH_REPOSITORY, type DispatchRepository } from './modules/dispatch/dispatch.repository.js';
@@ -35,7 +37,9 @@ describe('events wiring smoke', () => {
     const events = app.get(EventsService);
     const trips = app.get(TripsService);
     const orders = app.get(OrdersService);
-    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
+    // The fare is the server's quote right now (night/peak fees apply after 22:00 Baghdad), never a constant.
+    const fareIqd = app.get(PricingService).quote(PriceRequest.parse({ cityId: 'aziziyah', vertical: 'taxi', stops: [{ zoneId: 'centre', type: 'pickup' }, { zoneId: 'street_30', type: 'dropoff' }], options: { doorPickup: false, streetHandover: false }, at: new Date() })).total;
+    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
     const trip = await trips.createForOrders({
       cityId: 'aziziyah',
       vertical: 'taxi',
