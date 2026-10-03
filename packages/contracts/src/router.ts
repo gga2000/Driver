@@ -1,6 +1,7 @@
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
 import { CityConfigInput, HealthPing } from './router-io.js';
+import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
 import { publicProcedure, router } from './trpc.js';
 
@@ -31,6 +32,7 @@ export const appRouter = router({
       .query(({ ctx, input }) => ctx.config.city(input.cityId) ?? null),
   }),
   identity: identityRouter,
+  dispatch: dispatchRouter,
 });
 
 export type AppRouter = typeof appRouter;

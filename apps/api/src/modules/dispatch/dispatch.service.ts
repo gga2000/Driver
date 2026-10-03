@@ -1,8 +1,24 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { DispatchConfig, DispatchPolicyKind, Vertical } from '@driver/contracts';
+import type {
+  Actor,
+  BoardPolicy,
+  DispatchBoard,
+  DispatchConfig,
+  DispatchPolicyKind,
+  DispatchPort,
+  OverrideInput,
+  OverrideOutput,
+  RespondInput,
+  RespondOutput,
+  SetPolicyInput,
+  Vertical,
+} from '@driver/contracts';
 import { ConfigService } from '../config/index.js';
+import type { DispatchRequest } from './dispatch.store.js';
+import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
+import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
 
 export const DISPATCH_POLICIES = Symbol('DISPATCH_POLICIES');
@@ -13,7 +29,7 @@ export function defaultPolicies(): Policy[] {
 
 export class DispatchError extends Error {
   constructor(
-    readonly code: 'no_policy_for_city_vertical' | 'unknown_policy',
+    readonly code: 'no_policy_for_city_vertical' | 'unknown_policy' | 'not_wired',
     message: string,
   ) {
     super(message);
@@ -22,11 +38,13 @@ export class DispatchError extends Error {
 }
 
 /**
- * Selects the policy by (cityId, vertical) from config and asks it for a plan over
- * ranked candidates. In "suggest only" mode the plan is wrapped so the console decides.
+ * Dispatch façade. `plan()` is the pure M1 planner (policy by city × vertical over ranked
+ * candidates). The Step 5 lifecycle — presence, waves, first-accept lock, re-broadcast,
+ * passes, auctions, overrides and the board — lives in `OfferOrchestrator` and is reached
+ * through the methods below, which also implement the transport's `DispatchPort`.
  */
 @Injectable()
-export class DispatchService {
+export class DispatchService implements DispatchPort {
   private readonly policies: ReadonlyMap<DispatchPolicyKind, Policy>;
 
   private readonly ranker: DriverRanker;
@@ -35,6 +53,8 @@ export class DispatchService {
     private readonly config: ConfigService,
     @Optional() ranker?: DriverRanker,
     @Optional() @Inject(DISPATCH_POLICIES) policies?: Policy[],
+    @Optional() private readonly orchestrator?: OfferOrchestrator,
+    @Optional() private readonly presenceService?: PresenceService,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.policies = new Map((policies ?? defaultPolicies()).map((p) => [p.kind, p]));
@@ -56,7 +76,60 @@ export class DispatchService {
   plan(job: DispatchJob, candidates: DriverCandidate[]): DispatchPlan {
     const cfg = this.configFor(job.cityId, job.vertical);
     const policy = this.policyFor(job.cityId, job.vertical);
-    const plan = policy.plan(job, this.ranker.rank(candidates), cfg);
+    const plan = policy.plan(job, this.ranker.withWeights(cfg.rankWeights).rank(candidates), cfg);
     return cfg.suggestOnly ? { kind: 'suggest', suggestion: plan } : plan;
+  }
+
+  // ───────────────────────── Step 5 lifecycle ─────────────────────────
+
+  private get o(): OfferOrchestrator {
+    if (!this.orchestrator) throw new DispatchError('not_wired', 'dispatch orchestrator is not wired');
+    return this.orchestrator;
+  }
+
+  get presence(): PresenceService {
+    if (!this.presenceService) throw new DispatchError('not_wired', 'presence is not wired');
+    return this.presenceService;
+  }
+
+  /** Starts dispatch for a trip (auto-assign on `order.merchant_accepted`, broadcast on ride request…). */
+  request(job: DispatchRequestInput): Promise<DispatchRequest> {
+    return this.o.request(job);
+  }
+
+  cancel(tripId: string, actorId?: string): Promise<void> {
+    return this.o.cancel(tripId, actorId);
+  }
+
+  markPickedUp(tripId: string): Promise<void> {
+    return this.o.markPickedUp(tripId);
+  }
+
+  jobFinished(tripId: string): Promise<void> {
+    return this.o.jobFinished(tripId);
+  }
+
+  getRequest(tripId: string): Promise<DispatchRequest | null> {
+    return this.o.getRequest(tripId);
+  }
+
+  board(cityId: string): Promise<DispatchBoard> {
+    return this.o.board(cityId);
+  }
+
+  override(actor: Actor, input: OverrideInput): Promise<OverrideOutput> {
+    return this.o.override(actor.personId, input);
+  }
+
+  setPolicy(actor: Actor, input: SetPolicyInput): Promise<BoardPolicy> {
+    return this.o.setPolicy(actor.personId, input);
+  }
+
+  respond(actor: Actor, input: RespondInput): Promise<RespondOutput> {
+    return this.o.respond(actor.personId, input.offerId, input.accept);
+  }
+
+  async offerSeen(actor: Actor, input: { offerId: string; foregroundMs: number }): Promise<{ seen: boolean }> {
+    return { seen: await this.o.offerSeen(actor.personId, input.offerId, input.foregroundMs) };
   }
 }
