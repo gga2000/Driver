@@ -13,9 +13,9 @@ import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobP
 import { isRide, jobAction, KIND_KEY, mapsUrl, taskProgress, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
-import { bestFix } from '@/features/work/usePresence';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
+import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
 
 /**
@@ -83,7 +83,10 @@ function JobView({ job, self, vehicle, onDone }: { job: PartnerJob; self: { lat:
     }
     try {
       if (action.kind === 'arrive') {
-        const trip = await actions.arrive.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, pin: await bestFix(undefined), occurredAt: new Date() });
+        // A real fix only: without one the server judges the arrival from his last reported position
+        // (a made-up town-centre pin would flag every web/desktop arrival as outside the geofence).
+        const fix = await currentFix(4000);
+        const trip = await actions.arrive.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, ...(fix ? { pin: fix } : {}), occurredAt: new Date() });
         const s = trip.stops.find((x) => x.id === stop.stopId);
         if (s?.arrivedOutsideGeofence) toast.show({ message: t('partner.arrived_outside'), tone: 'warning' });
       } else {

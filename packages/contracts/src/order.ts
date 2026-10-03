@@ -298,3 +298,18 @@ export interface OrdersPort {
   markReady(actor: Actor, input: { orderId: string }): Promise<Order>;
   merchantHeartbeat(actor: Actor, input: { merchantOrgId: string }): Promise<{ ok: true }>;
 }
+
+/**
+ * The order number every app shows (the kitchen calls it out, the receipt prints it, the customer
+ * reads it on the live screen and in طلباتي): four digits from the order id (FNV-1a), stable across
+ * polls and devices without a per-store counter. Collisions in one evening are rare and harmless
+ * (cards and receipts also carry the time and the people).
+ */
+export function orderTicketNumber(orderId: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < orderId.length; i++) {
+    h ^= orderId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return String(1000 + (h % 9000));
+}

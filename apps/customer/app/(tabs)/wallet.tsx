@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, RefreshControl, View } from 'react-native';
 import type { WalletLine, WalletLineKind } from '@driver/contracts';
 import type { IconName } from '@driver/ui';
-import { Button, Card, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
@@ -12,6 +12,7 @@ import { balanceText, lineAmount, lineWhen, pointsWorthText } from '@/features/a
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { color } from '@driver/design-tokens';
 
 const KIND_ICON: Record<WalletLineKind, IconName> = {
   food: 'bag',
@@ -109,7 +110,7 @@ export default function Wallet() {
             </Pressable>
           ) : null}
           {b?.household ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: withAlpha(color.neutral[0], 0.12) }}>
               <Icon name="user" size={16} color={theme.colors.accentTint} />
               <Text variant="footnote" color={theme.colors.bg}>
                 {t('wallet.household_balance', { name: b.household.name, amount: amountParam(b.household.balanceIqd) })}

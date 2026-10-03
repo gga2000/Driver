@@ -39,20 +39,17 @@ describe('events wiring smoke', () => {
     const orders = app.get(OrdersService);
     // The fare is the server's quote right now (night/peak fees apply after 22:00 Baghdad), never a constant.
     const fareIqd = app.get(PricingService).quote(PriceRequest.parse({ cityId: 'aziziyah', vertical: 'taxi', stops: [{ zoneId: 'centre', type: 'pickup' }, { zoneId: 'street_30', type: 'dropoff' }], options: { doorPickup: false, streetHandover: false }, at: new Date() })).total;
-    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
-    const trip = await trips.createForOrders({
-      cityId: 'aziziyah',
-      vertical: 'taxi',
-      orders: [{ orderId: order.id }],
-      stops: [
-        { orderId: order.id, type: 'pickup', zoneKey: 'centre' },
-        { orderId: order.id, type: 'dropoff', zoneKey: 'zakur' },
-      ],
-    });
-    // The driver answers dispatch's offer (dispatch.respond is the only accept path).
+    // The driver is online first: placing the ride builds its trip and broadcasts it (dispatch:ride-request).
     const dispatch = app.get(DispatchService);
     await dispatch.presence.online('smoke-driver', { cityId: 'aziziyah', at: { lat: 32.9055, lng: 45.0605 }, vehicle: 'car', tier: 'bronze' });
-    await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre' });
+    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
+    const trip = (await trips.activeForOrder(order.id))!;
+    expect(trip.vertical).toBe('taxi');
+    expect(trip.stops.map((s) => [s.type, s.zoneKey])).toEqual([
+      ['pickup', 'centre'],
+      ['dropoff', 'street_30'],
+    ]);
+    // The driver answers dispatch's offer (dispatch.respond is the only accept path).
     const offer = (await app.get<DispatchRepository>(DISPATCH_REPOSITORY, { strict: false }).listByTrip(trip.id)).find((o) => o.driverId === 'smoke-driver')!;
     await dispatch.respond({ personId: 'smoke-driver', sessionId: 's' }, { offerId: offer.id, accept: true });
     // delivered to orders through the outbox before respond() returned: the ride is matched

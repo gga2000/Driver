@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import { Icon, Text, useTheme } from '@driver/ui';
+import { Icon, Text, useTheme, withAlpha } from '@driver/ui';
+import { color } from '@driver/design-tokens';
 import { MIcon } from '@/components/MIcon';
 import { unlock } from '@/lib/alert-sound';
 import { useT } from '@/lib/i18n';
@@ -24,22 +25,22 @@ export function NewOrderBanner({ count, soundBlocked, onSilence }: { count: numb
   const glow = useAnimatedStyle(() => ({ opacity: 0.55 + p.value * 0.45 }));
   return (
     <View testID="new-order-banner" accessibilityLiveRegion="assertive" style={{ backgroundColor: theme.colors.accent, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[5], paddingVertical: theme.space[3] }}>
-      <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: '#F2A43A' }, glow]} />
+      <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: color.primary[400] }, glow]} />
       <Animated.View style={[{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: 'center', justifyContent: 'center' }, bell]}>
-        <Icon name="bell" size={22} color="#FFFFFF" strokeWidth={2.2} />
+        <Icon name="bell" size={22} color={theme.colors.surface} strokeWidth={2.2} />
       </Animated.View>
       <Text weight={700} style={{ flex: 1, fontSize: 22, lineHeight: 34, color: theme.colors.onAccent }}>
         {count > 1 ? t('merchant.board.alert_count', { count }) : t('merchant.board.alert_new')}
       </Text>
       {soundBlocked ? (
-        <Pressable testID="sound-enable" onPress={unlock} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 40, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.text }}>
-          <MIcon name="volume" size={18} color="#FFFFFF" />
-          <Text variant="label" weight={700} style={{ color: '#FFFFFF' }}>
+        <Pressable hitSlop={2} testID="sound-enable" accessibilityRole="button" onPress={unlock} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 40, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.text }}>
+          <MIcon name="volume" size={18} color={theme.colors.surface} />
+          <Text variant="label" weight={700} style={{ color: theme.colors.surface }}>
             {t('merchant.sound.enable')}
           </Text>
         </Pressable>
       ) : (
-        <Pressable testID="alarm-silence" onPress={onSilence} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 40, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: 'rgba(31, 26, 20, 0.12)' }}>
+        <Pressable hitSlop={2} testID="alarm-silence" onPress={onSilence} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 40, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: withAlpha(theme.colors.text, 0.12) }}>
           <MIcon name="volume" size={18} color="text" />
           <Text variant="label" weight={700}>
             {t('merchant.board.alert_silence')}
@@ -62,7 +63,7 @@ export function InfoStrip({ tone, text, action, testID }: { tone: 'danger' | 'wa
         {text}
       </Text>
       {action ? (
-        <Pressable onPress={action.onPress} style={{ height: 36, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, justifyContent: 'center' }}>
+        <Pressable hitSlop={4} accessibilityRole="button" onPress={action.onPress} style={{ height: 36, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, justifyContent: 'center' }}>
           <Text variant="label" weight={700} color={fg}>
             {action.label}
           </Text>

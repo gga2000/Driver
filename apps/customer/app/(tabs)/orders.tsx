@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { View } from 'react-native';
-import type { Order, OrderType } from '@driver/contracts';
+import { orderTicketNumber, type Order, type OrderType } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Card, EmptyState, formatClock, ListRow, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
@@ -72,7 +72,7 @@ export default function Orders() {
               key={o.id}
               testID={`order-${o.id}`}
               leading={TYPE_ICON[o.type]}
-              title={`${t(`order.type.${o.type}` as MessageKey)} · ${t('order.number', { id: o.id.replace(/^ord_/, '').slice(-6).toUpperCase() })}`}
+              title={`${t(`order.type.${o.type}` as MessageKey)} · ${t('order.number', { id: orderTicketNumber(o.id) })}`}
               subtitle={`${formatClock(o.placedAt)} · ${iqd(o.totalIqd, { locale })}`}
               trailing={<StatusPill size="sm" tone={tone(o)} live={isActiveOrder(o)} label={t(`order.status.${o.state}` as MessageKey)} />}
               divider={i < orders.data.length - 1}

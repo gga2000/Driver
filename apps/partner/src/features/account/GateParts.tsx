@@ -39,7 +39,7 @@ export function GateBanner({ kind }: { kind: GateKind }) {
       })}
     >
       <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: danger ? theme.colors.danger : theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-        <Glyph name={kind === 'checkin' ? 'face' : kind === 'locked' ? 'lock' : 'id-card'} size={22} color={danger ? '#FFFFFF' : theme.colors.onAccent} strokeWidth={2.2} />
+        <Glyph name={kind === 'checkin' ? 'face' : kind === 'locked' ? 'lock' : 'id-card'} size={22} color={danger ? theme.colors.onDanger : theme.colors.onAccent} strokeWidth={2.2} />
       </View>
       <View style={{ flex: 1 }}>
         <Text variant="label" weight={700} color={danger ? 'dangerText' : 'accentText'}>

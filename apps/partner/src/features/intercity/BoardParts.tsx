@@ -159,7 +159,7 @@ export function DemandRow({ bucket, garage, cityId, onAnnounce }: { bucket: Dema
           {[garage?.nameAr ?? t('partner.ic_demand_any_garage', { city: cityName(t, cityId) }), bucket.claimedSeats > 0 ? t('partner.ic_demand_claimed', { n: bucket.claimedSeats }) : null].filter(Boolean).join(' · ')}
         </Text>
       </View>
-      <Pressable
+      <Pressable hitSlop={4}
         testID="demand-announce"
         accessibilityRole="button"
         onPress={onAnnounce}

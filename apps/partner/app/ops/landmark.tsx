@@ -167,7 +167,7 @@ export default function OpsLandmark() {
         {photo ? (
           <View style={{ borderRadius: theme.radius.xl, overflow: 'hidden' }}>
             <Image testID="ops-landmark-preview" source={{ uri: photo.uri }} style={{ width: '100%', aspectRatio: 4 / 3 }} resizeMode="cover" />
-            <Pressable
+            <Pressable hitSlop={4}
               accessibilityRole="button"
               onPress={() => void pick('camera')}
               style={{ position: 'absolute', bottom: theme.space[3], start: theme.space[3], flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.surface, borderRadius: theme.radius.pill, paddingHorizontal: 14, height: 36 }}

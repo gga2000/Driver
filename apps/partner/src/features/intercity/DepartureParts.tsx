@@ -367,7 +367,7 @@ export function PickupRoute({ stops, garageName, names }: { stops: readonly Pick
                   </Text>
                 ) : null}
                 {s.kind !== 'garage' ? (
-                  <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(mapsUrl(s.at))} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, height: 28, borderRadius: 14, backgroundColor: withAlpha(theme.colors.info, 0.1) }}>
+                  <Pressable hitSlop={8} accessibilityRole="link" onPress={() => void Linking.openURL(mapsUrl(s.at))} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, height: 28, borderRadius: 14, backgroundColor: withAlpha(theme.colors.info, 0.1) }}>
                     <Icon name="location-arrow" size={13} color="infoText" />
                     <Text variant="caption" weight={600} color="infoText">
                       {t('partner.ic_route_open')}

@@ -1,4 +1,3 @@
-import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
@@ -25,7 +24,8 @@ import {
 } from '@/features/intercity/logic';
 import { useDeparture, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
 import { useNow } from '@/features/intercity/useNow';
-import { apiErrorCode, apiErrorMessage } from '@/lib/api';
+import { pickPhoto, uploadPhoto } from '@/features/account/photo';
+import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
@@ -71,6 +71,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const now = useNow(5_000);
   const network = useNetwork();
   const actions = useDriverActions();
+  const client = useApiClient();
   const bookingIds = useMemo(() => dep.bookings.map((b) => b.bookingId), [dep.bookings]);
   const riders = useRiderNames(dep.id, bookingIds);
   const names = useMemo(() => new Map((riders.data ?? []).map((r) => [r.bookingId, r.firstName])), [riders.data]);
@@ -108,10 +109,16 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
   const takeSelfie = async () => {
     try {
-      const res = await ImagePicker.launchCameraAsync({ quality: 0.5, cameraType: ImagePicker.CameraType.front }).catch(() => ImagePicker.launchImageLibraryAsync({ quality: 0.5 }));
-      if (res.canceled || !res.assets[0]) return;
-      // TODO(upload): send the photo through places.photoUpload and pass the upload ref.
-      await actions.selfie.mutateAsync({ departureId: dep.id, selfieRef: `device:${Date.now()}` });
+      // Front camera on a phone, the file picker on the web; the photo is uploaded (signed PUT) and
+      // its upload id is the run's selfie ref, so ops can see who drove.
+      const photo = await pickPhoto('camera', { selfie: true });
+      if (photo === 'denied') {
+        toast.show({ message: t('partner.docs_camera_denied'), tone: 'warning' });
+        return;
+      }
+      if (!photo) return;
+      const uploadId = await uploadPhoto(photo, (input) => client.places.photoUpload.mutate(input));
+      await actions.selfie.mutateAsync({ departureId: dep.id, selfieRef: uploadId });
       theme.haptic('success');
     } catch (err) {
       fail(err);

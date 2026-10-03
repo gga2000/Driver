@@ -15,9 +15,9 @@ describe('work logic', () => {
 
   it('today pill agrees with the number like Iraqis say it', () => {
     expect(todayKey(0)).toBe('partner.today_zero');
-    expect(t(todayKey(1), { amount: '1,000' })).toBe('1,000 · طلب واحد');
-    expect(t(todayKey(6), { amount: '12,500', n: 6 })).toBe('12,500 · 6 طلبات');
-    expect(t(todayKey(14), { amount: '30,000', n: 14 })).toBe('30,000 · 14 طلب');
+    expect(t(todayKey(1), { amount: '1,000' })).toBe('1,000 دينار · طلب واحد');
+    expect(t(todayKey(6), { amount: '12,500', n: 6 })).toBe('12,500 دينار · 6 طلبات');
+    expect(t(todayKey(14), { amount: '30,000', n: 14 })).toBe('30,000 دينار · 14 طلب');
     expect(t(jobsKey(7), { n: 7 })).toBe('7 طلبات');
     expect(t(driversKey(1), { n: 1 })).toBe('سايق واحد قريب');
     expect(t(waitingKey(3), { n: 3 })).toBe('3 طلبات تنتظر');

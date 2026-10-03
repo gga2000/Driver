@@ -8,6 +8,7 @@ import { baghdadClock, baghdadDate } from '@/features/ops/logic';
 import { useMe } from '@/features/work/queries';
 import { useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { color } from '@driver/design-tokens';
 
 /**
  * وصل استلام — the cash hand-over receipt, laid out like the WhatsApp receipt the courier gets
@@ -55,7 +56,7 @@ export default function OpsReceipt() {
       </View>
 
       <View>
-        <View style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, padding: theme.space[5], gap: theme.space[4], shadowColor: '#5A3A12', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
+        <View style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, padding: theme.space[5], gap: theme.space[4], shadowColor: color.primary[900], shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text variant="label" weight={700} color="accentText">
               {t('partner.ops_rcpt_brand')}

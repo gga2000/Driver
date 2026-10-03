@@ -42,7 +42,7 @@ const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warni
 function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <Pressable hitSlop={2}
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -78,7 +78,7 @@ function OpenSwitch({ status, onPress }: { status: StoreStatusView; onPress: () 
   const color = open ? theme.colors.success : paused ? theme.colors.warning : theme.colors.danger;
   const label = open ? t('merchant.status.open') : paused ? t('merchant.status.paused', { time: status.pause!.until }) : t('merchant.status.closed');
   return (
-    <Pressable
+    <Pressable hitSlop={2}
       testID="store-open-toggle"
       accessibilityRole="switch"
       accessibilityState={{ checked: open }}

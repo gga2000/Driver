@@ -5,6 +5,7 @@ import { Page } from '@/components/Page';
 import { playNewOrder, unlock } from '@/lib/alert-sound';
 import { useT } from '@/lib/i18n';
 import { prefs, usePrefs, type AppLocale } from '@/lib/prefs';
+import { color } from '@driver/design-tokens';
 
 function Toggle({ value, onChange, testID }: { value: boolean; onChange: (v: boolean) => void; testID: string }) {
   const theme = useTheme();
@@ -14,8 +15,8 @@ function Toggle({ value, onChange, testID }: { value: boolean; onChange: (v: boo
       value={value}
       onValueChange={onChange}
       trackColor={{ true: theme.colors.success, false: theme.colors.borderStrong }}
-      thumbColor="#FFFFFF"
-      {...({ activeThumbColor: '#FFFFFF' } as object)}
+      thumbColor={color.neutral[0]}
+      {...({ activeThumbColor: color.neutral[0] } as object)}
     />
   );
 }

@@ -359,7 +359,7 @@ function FilterChip({ label, selected, onPress, testID, tone }: { label: string;
 function SectionChip({ label, selected, onPress, testID, glyph }: { label: string; selected: boolean; onPress: () => void; testID: string; glyph?: 'plus' | 'sort' }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <Pressable hitSlop={2}
       testID={testID}
       accessibilityRole={glyph ? 'button' : 'radio'}
       accessibilityState={glyph ? undefined : { selected }}

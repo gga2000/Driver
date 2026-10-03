@@ -8,6 +8,7 @@ import { fitCamera, glideAt, mercX, mercY, nextGlide, type Camera, type Glide, t
 import { BaseMap } from './map/BaseMap';
 import { CourierMarker, PlacePin, RouteLine } from './map/Overlay';
 import { POSITION_POLL_MS } from './queries';
+import { color } from '@driver/design-tokens';
 
 const VEHICLE_ICON: Record<VehicleClass, IconName> = { bike: 'bike', tuktuk: 'tuktuk', car: 'car', suv: 'car', van: 'car', intercity: 'car' };
 const AZIZIYAH: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
@@ -154,7 +155,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => setFollow(false)} onUserCamera={setDrawn} />
           <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} />
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
-          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t('track.home_pin')} testID="pin-home" /> : null}
+          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={glide} progress={progress} icon={VEHICLE_ICON[vehicle]} stale={stale} testID="courier-marker" />
         </>
       ) : null}
@@ -166,7 +167,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset }: TrackMapPr
             left: theme.space[4],
             borderRadius: theme.radius.pill,
             backgroundColor: theme.colors.surface,
-            shadowColor: '#000',
+            shadowColor: color.neutral[1000],
             shadowOpacity: 0.14,
             shadowRadius: 8,
             shadowOffset: { width: 0, height: 2 },

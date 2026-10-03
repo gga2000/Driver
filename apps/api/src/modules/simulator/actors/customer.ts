@@ -76,7 +76,10 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
   }
   run.orderId = order.id;
   run.state = order.state;
-  const trip = await ctx.call('customer.ride_trip', () =>
+  // Placing the ride already built its trip (dispatch:ride-request); older stacks without the
+  // subscriber get it built here.
+  const trip = await ctx.call('customer.ride_trip', async () =>
+    (await ctx.s.trips.activeForOrder(order.id)) ??
     ctx.s.trips.createForOrders(
       {
         cityId: CITY,

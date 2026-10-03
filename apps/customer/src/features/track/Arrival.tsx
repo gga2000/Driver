@@ -45,7 +45,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {ride ? t('track.arrived_ride') : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
-        {/* Gate photo placeholder: the saved place's photo replaces it when places carry photos. */}
+        {/* Gate photo placeholder: the saved place's photo replaces it when places carry photos. A ride
+            ends wherever the rider asked, not at a door: no door picture there. */}
+        {ride ? null : (
         <View
           testID="arrival-photo"
           style={{
@@ -72,6 +74,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {t('track.arrived_photo')}
           </Text>
         </View>
+        )}
       </View>
       <View style={{ gap: theme.space[2], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <Button label={t('track.arrived_continue')} icon="star" size="lg" fullWidth onPress={onRate} testID="arrival-rate" />

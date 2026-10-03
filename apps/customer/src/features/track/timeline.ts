@@ -60,6 +60,12 @@ export function phaseOf(v: OrderTracking): Phase {
   }
   if (o.state === 'placed') return 'waiting_merchant';
   if (o.state === 'picked_up') return 'on_the_way';
+  // The food is ready and a courier holds the job: say where he is (the kitchen's board already
+  // shows "حيدر بالطريق" / "الدليفري وصل"), instead of "ready and waiting for a courier".
+  if (o.state === 'ready' && trip) {
+    if (trip.state === 'arrived_pickup') return 'at_pickup';
+    if (trip.state === 'accepted' || trip.state === 'en_route_to_pickup') return 'to_pickup';
+  }
   return 'preparing';
 }
 
@@ -87,7 +93,9 @@ export function statusLine(v: OrderTracking, t: TFn): string {
     case 'at_pickup':
       return t('trip.status.arrived_pickup');
     case 'on_the_way':
-      return ride ? t('trip.status.in_transit') : t('track.on_the_way');
+      if (ride) return t('trip.status.in_transit');
+      // He pressed "وصلت" at my door (not someone else's drop first): say so, not "on the way".
+      return v.trip?.state === 'arrived_dropoff' && v.trip.dropsBeforeMine === 0 ? t('track.courier_at_door') : t('track.on_the_way');
     case 'unreachable':
       return t('unreachable.customer_title');
     case 'arrived':

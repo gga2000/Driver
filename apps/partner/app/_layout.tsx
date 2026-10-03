@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { useCurrentOffer, usePartnerGate, useStatus } from '@/features/work/queries';
+import { useJobPositions } from '@/features/work/useJobPositions';
 import { ApiProvider } from '@/lib/api';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard } from '@/lib/guard';
@@ -115,6 +116,8 @@ function OfferWatcher() {
   const status = useStatus();
   const online = status.data?.online ?? false;
   const offer = useCurrentOffer(online);
+  // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
+  useJobPositions(Boolean(status.data?.activeTripId));
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);

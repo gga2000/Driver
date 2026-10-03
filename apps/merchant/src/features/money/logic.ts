@@ -1,4 +1,4 @@
-import type { MerchantCashAccount, MerchantDispute, SettlementRequestView, StatementOrderLine } from '@driver/contracts';
+import { orderTicketNumber, type MerchantCashAccount, type MerchantDispute, type SettlementRequestView, type StatementOrderLine } from '@driver/contracts';
 import { localDayKey, startOfLocalWeek } from '@/lib/calendar';
 
 /**
@@ -50,12 +50,7 @@ export function canRequest(account: Pick<MerchantCashAccount, 'balanceIqd' | 're
  * statement and disputes name an order the way the board and the printed receipt did.
  */
 export function ticketNumber(orderId: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < orderId.length; i++) {
-    h ^= orderId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return String(1000 + (h % 9000));
+  return orderTicketNumber(orderId);
 }
 
 export interface StatementDay {

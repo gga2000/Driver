@@ -149,8 +149,13 @@ export class RoutesRpc implements RoutesPort {
     const dep = await s.departure(b.departureId);
     const bookings = await this.repo.bookingsFor(dep.id);
     const now = s.now();
+    // T−30, or earlier when the car is already boarding / left early because it filled up: the
+    // rider on board must see the live car, not "the car shows 30 min before departure".
     const boardingOpen =
-      now.getTime() >= dep.departAt.getTime() - s.rules.boardingWindowMin * MIN_MS;
+      now.getTime() >= dep.departAt.getTime() - s.rules.boardingWindowMin * MIN_MS ||
+      dep.state === 'boarding' ||
+      dep.state === 'departed' ||
+      dep.state === 'arrived';
     // Review C-45: the car's position from the boarding window to arrival, never the stop list.
     const sharing =
       boardingOpen &&

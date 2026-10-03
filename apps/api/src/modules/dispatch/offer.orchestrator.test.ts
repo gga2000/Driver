@@ -327,6 +327,24 @@ describe('auto_assign (food, grocery)', () => {
     expect(h.trips.offers).toEqual([{ tripId: 'f1', driverIds: ['k1'], timeoutSec: 20 }]);
   });
 
+  it('the kitchen marking ready early starts the search now (readyNow), and the stale timer does nothing', async () => {
+    const h = dispatchHarness();
+    await h.online('k1', 1, { vehicle: 'bike' });
+    h.keepAlive.add('k1');
+    const r = await food(h, 'f1', { readyAt: new Date(h.clock.now().getTime() + 15 * 60_000) });
+    expect(r.status).toBe('scheduled');
+    await h.advance(60);
+    expect(h.trips.offers).toEqual([]);
+    await h.orchestrator.readyNow('f1');
+    expect(h.trips.offers).toEqual([{ tripId: 'f1', driverIds: ['k1'], timeoutSec: 20 }]);
+    await h.advance(15 * 60);
+    expect(h.trips.offeredTo('f1').filter((d) => d === 'k1').length).toBeGreaterThanOrEqual(1);
+    // A request that is already searching is left alone.
+    const before = h.trips.offers.length;
+    await h.orchestrator.readyNow('f1');
+    expect(h.trips.offers.length).toBe(before);
+  });
+
   it('starts at once when the courier is already further than the time to ready (review J114)', async () => {
     const h = dispatchHarness();
     await h.online('k-far', 4, { vehicle: 'bike' });

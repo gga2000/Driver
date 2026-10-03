@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Icon, Text, useTheme, usePulse, withAlpha, type IconName } from '@driver/ui';
 import { glideAt, pathD, project, type Glide, type LngLat, type Size } from '../geo';
 import type { CameraValues } from './types';
+import { color as palette } from '@driver/design-tokens';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -34,7 +35,7 @@ export function RouteLine({ cam, size, glide, progress, start, waypoints, color 
   });
   return (
     <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-      <AnimatedPath animatedProps={props} stroke="#ffffff" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
+      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
       <AnimatedPath animatedProps={props} stroke={color} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 9" fill="none" />
     </Svg>
   );
@@ -78,7 +79,7 @@ export function CourierMarker({ cam, size, glide, progress, icon, stale, testID 
             backgroundColor: theme.colors.surface,
             borderWidth: 3,
             borderColor: ring,
-            shadowColor: '#000',
+            shadowColor: palette.neutral[1000],
             shadowOpacity: 0.18,
             shadowRadius: 6,
             shadowOffset: { width: 0, height: 2 },
@@ -118,7 +119,7 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
             backgroundColor: fill,
             borderWidth: home ? 0 : 1.5,
             borderColor: theme.colors.borderStrong,
-            shadowColor: '#000',
+            shadowColor: palette.neutral[1000],
             shadowOpacity: 0.16,
             shadowRadius: 5,
             shadowOffset: { width: 0, height: 2 },

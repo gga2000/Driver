@@ -6,6 +6,7 @@ import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { BaseMap } from './base/BaseMap';
 import type { CameraValues } from './base/types';
 import { fitCamera, pathD, project, type Camera, type LngLat, type Size } from './geo';
+import { color as palette } from '@driver/design-tokens';
 
 const AZIZIYAH: Camera = { lat: 32.905, lng: 45.062, zoom: 13.6 };
 const ease = { duration: 700, easing: Easing.inOut(Easing.cubic) };
@@ -116,7 +117,7 @@ function RouteLine({ cam, size, points }: LayerProps & { points: readonly LngLat
   }, [points]);
   return (
     <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-      <AnimatedPath animatedProps={props} stroke="#ffffff" strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.95} />
+      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.95} />
       <AnimatedPath animatedProps={props} stroke={theme.colors.text} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 9" fill="none" />
     </Svg>
   );
@@ -158,7 +159,7 @@ function SelfPuck({ cam, size, at, icon, online }: LayerProps & { at: LngLat; ic
           borderColor: theme.colors.surface,
           alignItems: 'center',
           justifyContent: 'center',
-          shadowColor: '#000',
+          shadowColor: palette.neutral[1000],
           shadowOpacity: 0.22,
           shadowRadius: 6,
           shadowOffset: { width: 0, height: 2 },
@@ -196,7 +197,7 @@ function Pin({ cam, size, pin }: LayerProps & { pin: MapPin }) {
             backgroundColor: fill,
             borderWidth: pickup ? 1.5 : 0,
             borderColor: theme.colors.borderStrong,
-            shadowColor: '#000',
+            shadowColor: palette.neutral[1000],
             shadowOpacity: 0.16,
             shadowRadius: 5,
             shadowOffset: { width: 0, height: 2 },
