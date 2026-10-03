@@ -1,4 +1,5 @@
-import type { Order, OrderLine, OrderState, OrderType, Participant } from '@driver/contracts';
+import type { EventLogEntry, Order, OrderLine, OrderSearchInput, OrderState, OrderType, Participant } from '@driver/contracts';
+import { t, type MessageKey } from '@driver/i18n';
 
 /** Pure helpers for the orders list and the order detail page. */
 
@@ -48,6 +49,27 @@ export function filterOrders(orders: readonly Order[], f: OrderFilter): Order[] 
     .filter((o) => (f.type === 'all' ? true : o.type === f.type))
     .filter((o) => (q ? [o.id, o.merchantOrgId ?? '', o.ordererId].some((s) => s.toLowerCase().includes(q)) : true))
     .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
+}
+
+/** The history filter: the chips and search box plus an optional placement window. */
+export interface HistoryFilter extends OrderFilter {
+  from: Date | null;
+  to: Date | null;
+}
+
+/** `orders.search` input for the list's filter (server-side: history, not only active orders). */
+export function searchInput(cityId: string, f: HistoryFilter, limit = 50): OrderSearchInput {
+  const states = STATE_FILTERS[f.state] as readonly OrderState[] | null;
+  const text = f.q.trim();
+  return {
+    cityId,
+    limit,
+    ...(states ? { states: [...states] } : {}),
+    ...(f.type !== 'all' ? { type: f.type } : {}),
+    ...(text ? { text } : {}),
+    ...(f.from ? { from: f.from } : {}),
+    ...(f.to ? { to: f.to } : {}),
+  };
 }
 
 /** Count per filter chip, for the chip badges. */
@@ -168,4 +190,56 @@ export function priceCheck(o: Order): { sumIqd: number; matches: boolean } {
     .filter((r) => r.key !== 'cancellation_fee')
     .reduce((s, r) => s + r.amountIqd, 0);
   return { sumIqd, matches: sumIqd === o.totalIqd };
+}
+
+// ───────────────────────── event log ─────────────────────────
+
+export interface LogEntry {
+  id: string;
+  type: string;
+  /** Arabic label, or the raw type when no string exists yet. */
+  label: string;
+  /** Device time of the action (what the actor saw). */
+  at: Date;
+  recordedAt: Date;
+  /** Minutes from the first entry. */
+  offsetMin: number;
+  actorId: string;
+  quarantined: boolean;
+  quarantineReason: string | null;
+  flagged: boolean;
+  flagReason: string | null;
+  tripId: string | null;
+}
+
+/** `order.picked_up` → "استلم السايق الطلب", falling back to the type itself. */
+export function eventLabel(type: string): string {
+  const key = `console.ev_${type.replace(/[^a-z0-9]+/gi, '_')}` as MessageKey;
+  const label = t(key);
+  return label === key ? type : label;
+}
+
+/**
+ * The actor event log as a timeline: merged (order + trip logs share events), de-duplicated by id,
+ * in recording order. Quarantined late replays stay in, marked.
+ */
+export function eventTimeline(...logs: ReadonlyArray<readonly EventLogEntry[]>): LogEntry[] {
+  const byId = new Map<string, EventLogEntry>();
+  for (const log of logs) for (const e of log) if (!byId.has(e.id)) byId.set(e.id, e);
+  const events = [...byId.values()].sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime() || a.id.localeCompare(b.id));
+  const t0 = events[0]?.occurredAt.getTime() ?? 0;
+  return events.map((e) => ({
+    id: e.id,
+    type: e.type,
+    label: eventLabel(e.type),
+    at: e.occurredAt,
+    recordedAt: e.recordedAt,
+    offsetMin: Math.round((e.occurredAt.getTime() - t0) / 60_000),
+    actorId: e.actorId,
+    quarantined: e.quarantined,
+    quarantineReason: e.quarantineReason ?? null,
+    flagged: e.flagged,
+    flagReason: e.flagReason ?? null,
+    tripId: e.tripId ?? null,
+  }));
 }

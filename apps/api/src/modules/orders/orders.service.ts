@@ -6,6 +6,7 @@ import {
   type CancellationFee,
   type DisputeKind,
   type Order,
+  type OrderSearchPage,
   type OrderState,
   type Trip,
 } from '@driver/contracts';
@@ -15,6 +16,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
+import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES } from './orders.config.js';
@@ -26,6 +28,7 @@ import {
   type OrderLineRecord,
   type OrderPatch,
   type OrderRecord,
+  type OrderSearchFilter,
   type OrdersRepository,
 } from './orders.repository.js';
 import { activePauseWindow } from './pause.js';
@@ -454,6 +457,25 @@ export class OrdersService implements OnModuleInit {
   async listForPerson(personId: string): Promise<Order[]> {
     const orders = await this.repo.forPerson(personId);
     return Promise.all(orders.map((o) => this.view(o.id)));
+  }
+
+  /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
+  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined }): Promise<OrderSearchPage> {
+    const { cursor, ...filter } = input;
+    const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
+    const page = rows.slice(0, input.limit);
+    const now = this.clock.now();
+    return { rows: page.map((o) => toSummary(o, now)), nextCursor: rows.length > input.limit ? encodeCursor(page.at(-1)!) : null };
+  }
+
+  /** Right-now bar: orders placed in the last hour, active orders and how many of them are late. */
+  async liveStats(cityId: string): Promise<{ ordersLastHour: number; activeOrders: number; lateOrders: number }> {
+    const now = this.clock.now();
+    const [ordersLastHour, active] = await Promise.all([
+      this.repo.countPlacedSince(cityId, new Date(now.getTime() - 60 * 60_000)),
+      this.repo.findMany({ cityId, states: ACTIVE_ORDER_STATES }),
+    ]);
+    return { ordersLastHour, activeOrders: active.length, lateOrders: active.filter((o) => isLate(o, now)).length };
   }
 
   /** Raw aggregate for authorisation checks in the transport layer. */

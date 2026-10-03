@@ -15,6 +15,7 @@ import type {
 } from '@driver/contracts';
 import { ConfigService } from '../config/index.js';
 import type { DispatchRequest } from './dispatch.store.js';
+import { liveDriver, type LiveDriver } from './driver-pins.js';
 import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
@@ -131,5 +132,18 @@ export class DispatchService implements DispatchPort {
 
   async offerSeen(actor: Actor, input: { offerId: string; foregroundMs: number }): Promise<{ seen: boolean }> {
     return { seen: await this.o.offerSeen(actor.personId, input.offerId, input.foregroundMs) };
+  }
+
+  // ───────────────────────── Console reads ─────────────────────────
+
+  /** Every live driver in the city with his board state (free / offered / on job / recently offline). */
+  async liveDrivers(cityId: string, now: Date): Promise<LiveDriver[]> {
+    const [present, jobs] = await Promise.all([this.presence.list(cityId), this.o.liveJobs(cityId)]);
+    return present.map((p) => liveDriver(p, jobs, now.getTime()));
+  }
+
+  /** Offers accepted since `since` and the mean seconds from send to accept. */
+  acceptStats(since: Date): Promise<{ accepted: number; avgSec: number | null }> {
+    return this.o.acceptStats(since);
   }
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardCard, BoardPolicy, Vertical } from '@driver/contracts';
+import type { BoardCard, BoardPolicy, RightNow as ServerRightNow, Vertical } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
@@ -12,14 +12,17 @@ import {
   isRedCard,
   POLICY_MODES,
   policyMode,
+  outboxHealth,
   rightNow,
+  serverNowTiles,
   setPolicyInput,
+  type NowTile,
   type BoardColumn,
   type PolicyMode,
 } from '@/lib/board';
 import { formatCountdown, shortId } from '@/lib/format';
 import { offerStateLabel, verticalLabel, zoneName } from '@/lib/labels';
-import { CITY_ID, LIVE_POLL_MS, useActiveTrips, useDispatchBoard } from '@/lib/live';
+import { CITY_ID, LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, useSecondsSince } from './ui';
@@ -30,6 +33,15 @@ const COLUMN_KEY = {
   assigned: 'console.col_assigned',
   needs_dispatcher: 'console.col_needs_dispatcher',
 } as const satisfies Record<BoardColumn, string>;
+
+const NOW_TILE_KEY = {
+  orders_hour: 'console.now_orders_hour',
+  drivers: 'console.now_drivers_online',
+  time_to_accept: 'console.now_time_to_accept',
+  late: 'console.now_late',
+  cash_field: 'console.now_cash_field',
+  outbox: 'console.now_outbox',
+} as const satisfies Record<NowTile['key'], string>;
 
 const MODE_KEY = {
   broadcast: 'console.policy_broadcast',
@@ -42,6 +54,8 @@ export function DispatchPage() {
   const signedIn = useSignedIn();
   const board = useDispatchBoard();
   const trips = useActiveTrips();
+  const server = useRightNow();
+  const positions = useDriverPins();
   const tick = useSecondsSince(board.dataUpdatedAt);
   const [override, setOverride] = useState<{ card: BoardCard; driverId?: string } | null>(null);
   const [sound, setSound] = useState(false);
@@ -49,7 +63,11 @@ export function DispatchPage() {
   const cards = useMemo(() => board.data?.cards ?? [], [board.data]);
   const grouped = useMemo(() => groupBoard(cards), [cards]);
   const now = useMemo(() => rightNow(cards), [cards]);
-  const knownDrivers = useMemo(() => driversFromBoard(board.data, trips.data ?? []).map((d) => d.driverId), [board.data, trips.data]);
+  const knownDrivers = useMemo(() => {
+    const ids = new Set(driversFromBoard(board.data, trips.data ?? []).map((d) => d.driverId));
+    for (const p of positions.data?.drivers ?? []) if (p.state === 'free') ids.add(p.driverId);
+    return [...ids].sort();
+  }, [board.data, trips.data, positions.data]);
 
   useAlertSound(sound, now.needsDispatcher);
 
@@ -77,7 +95,7 @@ export function DispatchPage() {
         </div>
       )}
 
-      <RightNowBar now={now} />
+      <RightNowBar now={now} server={server.data} serverError={server.error !== null} />
 
       {board.data && <PolicySwitches policies={board.data.policies} />}
 
@@ -122,20 +140,21 @@ export function DispatchPage() {
 
 // ───────────────────────── right-now bar ─────────────────────────
 
-function RightNowBar({ now }: { now: ReturnType<typeof rightNow> }) {
+function RightNowBar({ now, server, serverError }: { now: ReturnType<typeof rightNow>; server: ServerRightNow | undefined; serverError: boolean }) {
+  const health = server ? outboxHealth(server.outbox) : 'ok';
   const items: [string, string | number, boolean?][] = [
+    ...serverNowTiles(server).map((tile): [string, string, boolean] => [t(NOW_TILE_KEY[tile.key]), tile.value, tile.alert]),
     [t('console.now_searching'), now.searching],
     [t('console.now_offered'), now.offered],
     [t('console.now_assigned'), now.assigned],
     [t('console.now_needs'), now.needsDispatcher, now.needsDispatcher > 0],
     [t('console.now_red'), now.red, now.red > 0],
     [t('console.now_avg_wait'), formatCountdown(now.avgWaitSec)],
-    [t('console.now_drivers'), now.activeDrivers],
     [t('console.now_compensated'), now.compensated],
   ];
   return (
     <section aria-label={t('console.now_bar')} className="rounded-xl border border-line bg-surface p-3">
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         {items.map(([label, value, bad]) => (
           <div key={label} className={`rounded-lg px-3 py-2 ${bad ? 'bg-danger-500/15' : 'bg-surface-2'}`}>
             <dt className="truncate text-xs text-muted">{label}</dt>
@@ -143,7 +162,9 @@ function RightNowBar({ now }: { now: ReturnType<typeof rightNow> }) {
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-xs text-faint">{t('console.now_missing')}</p>
+      <p className="mt-2 text-xs text-faint">
+        {serverError ? t('console.now_unavailable') : health === 'failing' ? t('console.now_outbox_failing') : health === 'backlog' ? t('console.now_outbox_backlog') : t('console.now_outbox_hint')}
+      </p>
     </section>
   );
 }

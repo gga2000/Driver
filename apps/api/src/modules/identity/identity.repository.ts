@@ -115,6 +115,11 @@ export interface IdentityRepository {
   upsertRole(input: { personId: string; kind: RoleKind; orgId: string | null; grantedBy: string | null; now: Date }, tx?: Tx): Promise<{ role: RoleRecord; created: boolean }>;
   revokeRole(id: string, now: Date, tx?: Tx): Promise<RoleRecord>;
   setRolesFrozen(personId: string, kinds: readonly RoleKind[], frozenAt: Date | null, tx?: Tx): Promise<number>;
+  /**
+   * People holding a live grant of any of `kinds`, ordered by id, starting after `afterId`, each
+   * with their live roles; `total` counts every match (before paging). No vault fields.
+   */
+  peopleWithRoles(kinds: readonly RoleKind[], page: RosterPage, tx?: Tx): Promise<{ people: Array<{ person: PersonRecord; roles: RoleRecord[] }>; total: number }>;
 
   // devices
   findDevice(personId: string, fingerprint: string, tx?: Tx): Promise<DeviceRecord | null>;
@@ -140,6 +145,13 @@ export interface IdentityRepository {
   findPendingGuardianLink(guardianId: string, ward: { wardPersonId: string | null; wardParticipantId: string | null }, tx?: Tx): Promise<GuardianLinkRecord | null>;
   updateGuardianLink(id: string, patch: Partial<Pick<GuardianLinkRecord, 'state' | 'consentedAt' | 'revokedAt'>>, tx?: Tx): Promise<GuardianLinkRecord>;
   guardianLinksOf(guardianId: string, tx?: Tx): Promise<GuardianLinkRecord[]>;
+}
+
+export interface RosterPage {
+  afterId?: string | undefined;
+  limit: number;
+  /** Person id substring, case-insensitive. */
+  idContains?: string | undefined;
 }
 
 export const IDENTITY_REPOSITORY = Symbol('IDENTITY_REPOSITORY');
@@ -224,6 +236,25 @@ export class PrismaIdentityRepository implements IdentityRepository {
   async setRolesFrozen(personId: string, kinds: readonly RoleKind[], frozenAt: Date | null, tx?: Tx) {
     const res = await this.db(tx).role.updateMany({ where: { personId, kind: { in: [...kinds] }, revokedAt: null }, data: { frozenAt } });
     return res.count;
+  }
+
+  async peopleWithRoles(kinds: readonly RoleKind[], page: RosterPage, tx?: Tx) {
+    const db = this.db(tx);
+    const base = {
+      deletedAt: null,
+      roles: { some: { kind: { in: [...kinds] }, revokedAt: null } },
+      ...(page.idContains ? { id: { contains: page.idContains, mode: 'insensitive' as const } } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      db.person.findMany({
+        where: page.afterId ? { AND: [base, { id: { gt: page.afterId } }] } : base,
+        orderBy: { id: 'asc' },
+        take: page.limit,
+        include: { roles: { where: { revokedAt: null } } },
+      }),
+      db.person.count({ where: base }),
+    ]);
+    return { people: rows.map(({ roles, ...person }) => ({ person, roles })), total };
   }
 
   async findDevice(personId: string, fingerprint: string, tx?: Tx) {

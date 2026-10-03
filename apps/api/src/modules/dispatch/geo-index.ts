@@ -41,6 +41,8 @@ export interface GeoIndex {
   remove(cityId: string, driverId: string): Promise<void>;
   /** Live drivers within `radiusKm` of `at`, nearest first. */
   search(cityId: string, at: LatLng, radiusKm: number, count?: number): Promise<NearbyDriver[]>;
+  /** Every live driver in the city, by id (the Console map). */
+  list(cityId: string): Promise<DriverPresence[]>;
 }
 
 export const GEO_INDEX = Symbol('GEO_INDEX');
@@ -122,6 +124,23 @@ export class RedisGeoIndex implements GeoIndex {
     if (stale.length > 0) await this.redis.zrem(geoKey(cityId), ...stale);
     return out;
   }
+
+  async list(cityId: string): Promise<DriverPresence[]> {
+    const members = await this.redis.zrange(geoKey(cityId), '0', '-1');
+    if (members.length === 0) return [];
+    const pipe = this.redis.pipeline();
+    for (const m of members) pipe.hgetall(driverKey(m));
+    const hashes = (await pipe.exec()) ?? [];
+    const out: DriverPresence[] = [];
+    const stale: string[] = [];
+    members.forEach((m, i) => {
+      const p = fromHash((hashes[i]?.[1] as Record<string, string> | undefined) ?? {});
+      if (!p || p.cityId !== cityId) stale.push(m);
+      else out.push(p);
+    });
+    if (stale.length > 0) await this.redis.zrem(geoKey(cityId), ...stale);
+    return out.sort((a, b) => a.driverId.localeCompare(b.driverId));
+  }
 }
 
 // ───────────────────────── In-memory ─────────────────────────
@@ -176,5 +195,16 @@ export class InMemoryGeoIndex implements GeoIndex {
     }
     out.sort((a, b) => a.distanceKm - b.distanceKm || a.presence.driverId.localeCompare(b.presence.driverId));
     return count === undefined ? out : out.slice(0, count);
+  }
+
+  async list(cityId: string): Promise<DriverPresence[]> {
+    const members = this.cities.get(cityId) ?? new Set<string>();
+    const out: DriverPresence[] = [];
+    for (const id of [...members]) {
+      const p = this.live(id);
+      if (p) out.push({ ...p });
+      else members.delete(id);
+    }
+    return out.sort((a, b) => a.driverId.localeCompare(b.driverId));
   }
 }

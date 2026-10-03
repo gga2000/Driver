@@ -28,7 +28,8 @@ export interface EventsRepository {
   /** Events in recording order. */
   find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]>;
   outboxStats(): Promise<OutboxStats>;
-  outbox(filter?: { status?: OutboxStatus; eventId?: string }): Promise<OutboxRecord[]>;
+  /** Oldest first, unless `newestFirst`; `limit` caps the rows read. */
+  outbox(filter?: OutboxFilter): Promise<OutboxRecord[]>;
   /**
    * Locks up to `limit` due pending rows (oldest first) that no other drain holds, runs `fn` with
    * them inside the claim, then releases. Postgres: `FOR NO KEY UPDATE SKIP LOCKED` in one
@@ -40,6 +41,13 @@ export interface EventsRepository {
   deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>>;
   markDelivered(outboxId: string, subscriber: string, at: Date, tx?: Tx): Promise<void>;
   recordDeliveryFailure(outboxId: string, subscriber: string, error: string, tx?: Tx): Promise<void>;
+}
+
+export interface OutboxFilter {
+  status?: OutboxStatus;
+  eventId?: string;
+  newestFirst?: boolean;
+  limit?: number;
 }
 
 export const EVENTS_REPOSITORY = Symbol('EVENTS_REPOSITORY');
@@ -144,10 +152,12 @@ export class PrismaEventsRepository implements EventsRepository {
     return stats;
   }
 
-  async outbox(filter: { status?: OutboxStatus; eventId?: string } = {}): Promise<OutboxRecord[]> {
+  async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
+    const dir = filter.newestFirst ? 'desc' : 'asc';
     const rows = await this.prisma.prisma.outbox.findMany({
       where: { ...(filter.status ? { status: filter.status } : {}), ...(filter.eventId ? { eventId: filter.eventId } : {}) },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      orderBy: [{ createdAt: dir }, { id: dir }],
+      ...(filter.limit !== undefined ? { take: filter.limit } : {}),
     });
     return rows.map((r) => ({
       id: r.id,

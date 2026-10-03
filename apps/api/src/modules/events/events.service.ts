@@ -3,7 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
 import { EVENTS_REPOSITORY, newId, type EventsRepository } from './events.repository.js';
-import type { Aggregate, EventHandler, NewEvent, OutboxStats, StoredEvent } from './events.types.js';
+import type { Aggregate, EventHandler, NewEvent, OutboxFailure, OutboxStats, StoredEvent } from './events.types.js';
 import { OutboxPublisher } from './outbox.publisher.js';
 import { SubscriberRegistry, type SubscribeOptions } from './subscriber.registry.js';
 import { assessSkew, isLateReplay } from './timestamps.js';
@@ -111,6 +111,21 @@ export class EventsService {
 
   outboxStats(): Promise<OutboxStats> {
     return this.repo.outboxStats();
+  }
+
+  /** The most recent failed outbox rows, newest first (Console system page). */
+  async recentFailedOutbox(limit = 20): Promise<OutboxFailure[]> {
+    const rows = await this.repo.outbox({ status: 'failed', newestFirst: true, limit });
+    return rows.map((r) => ({
+      id: r.id,
+      eventId: r.eventId,
+      type: r.type,
+      aggregate: r.aggregate,
+      aggregateId: r.aggregateId,
+      attempts: r.attempts,
+      lastError: r.lastError ?? null,
+      createdAt: r.createdAt,
+    }));
   }
 
   /** Drains everything due now (tests, the simulator, a Console "drain" button). */

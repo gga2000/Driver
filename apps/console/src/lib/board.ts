@@ -1,4 +1,5 @@
-import type { BoardCard, BoardPolicy, DispatchBoard, SetPolicyInput, Trip, Vertical } from '@driver/contracts';
+import type { BoardCard, BoardPolicy, DispatchBoard, RightNow as ServerRightNow, SetPolicyInput, Trip, Vertical } from '@driver/contracts';
+import { formatCountdown, formatIqd } from './format';
 
 /**
  * Pure helpers for the dispatch board (console spec "Dispatch board"). The API returns one flat,
@@ -91,6 +92,36 @@ export function rightNow(cards: readonly BoardCard[]): RightNow {
     activeDrivers: drivers.size,
     compensated: cards.filter((c) => c.status !== 'cancelled' && c.compensationLabel_ar !== null).length,
   };
+}
+
+// ───────────────────────── right-now bar (server half) ─────────────────────────
+
+export type OutboxHealth = 'ok' | 'backlog' | 'failing';
+
+/** Failed rows need a human; a pending backlog above `backlogAt` means the publisher is behind. */
+export function outboxHealth(o: { pending: number; failed: number }, backlogAt = 100): OutboxHealth {
+  if (o.failed > 0) return 'failing';
+  return o.pending >= backlogAt ? 'backlog' : 'ok';
+}
+
+export interface NowTile {
+  key: 'orders_hour' | 'drivers' | 'time_to_accept' | 'late' | 'cash_field' | 'outbox';
+  value: string;
+  alert: boolean;
+}
+
+/** The `console.rightNow` tiles; `—` while it has not loaded (or failed). */
+export function serverNowTiles(now: ServerRightNow | undefined): NowTile[] {
+  const dash = '—';
+  const health = now ? outboxHealth(now.outbox) : 'ok';
+  return [
+    { key: 'orders_hour', value: now ? String(now.ordersLastHour) : dash, alert: false },
+    { key: 'drivers', value: now ? String(now.activeDrivers) : dash, alert: false },
+    { key: 'time_to_accept', value: now ? formatCountdown(now.avgTimeToAcceptSec) : dash, alert: false },
+    { key: 'late', value: now ? String(now.lateOrders) : dash, alert: (now?.lateOrders ?? 0) > 0 },
+    { key: 'cash_field', value: now ? formatIqd(now.cashInFieldIqd) : dash, alert: false },
+    { key: 'outbox', value: now ? `${now.outbox.pending} / ${now.outbox.failed}` : dash, alert: health !== 'ok' },
+  ];
 }
 
 // ───────────────────────── policy switches ─────────────────────────

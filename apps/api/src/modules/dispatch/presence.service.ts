@@ -83,6 +83,11 @@ export class PresenceService {
     return this.geo.search(cityId, at, radiusKm, count);
   }
 
+  /** Every live driver in the city (the Console map). */
+  list(cityId: string): Promise<DriverPresence[]> {
+    return this.geo.list(cityId);
+  }
+
   /** Taking or finishing a job is not camping: restart the zone clock. */
   async resetZoneClock(driverId: string): Promise<void> {
     const prev = await this.geo.get(driverId);

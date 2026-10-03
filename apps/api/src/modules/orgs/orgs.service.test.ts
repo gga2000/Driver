@@ -57,3 +57,21 @@ describe('households (domain §12)', () => {
     expect(() => orgs.requestPayerApproval({ orgId: home.id, orderId: 'o', requestedBy: 'p_ali', amountIqd: 5 })).toThrow(/payer/);
   });
 });
+
+describe('merchants (Console picker)', () => {
+  it('lists the city’s restaurants and grocers by name, with their heartbeat; no households or fleets', async () => {
+    const { orgs } = setup();
+    const kebab = orgs.create({ type: 'restaurant', name: 'كباب الزهراء', cityId: 'aziziyah', ownerId: 'p1' });
+    const grocer = orgs.create({ type: 'grocer', name: 'أسواق الأمانة', cityId: 'aziziyah', ownerId: 'p2' });
+    orgs.create({ type: 'restaurant', name: 'مطعم الكوت', cityId: 'kut', ownerId: 'p3' });
+    orgs.createHousehold({ name: 'بيت', cityId: 'aziziyah', payerId: 'p4' });
+    orgs.create({ type: 'fleet', name: 'أسطول', cityId: 'aziziyah', ownerId: 'p5' });
+    const at = new Date('2026-10-03T09:00:00Z');
+    orgs.heartbeat(kebab.id, at);
+    expect(await orgs.merchants('aziziyah')).toEqual([
+      { id: grocer.id, name: 'أسواق الأمانة', type: 'grocer', cityId: 'aziziyah', lastHeartbeatAt: null },
+      { id: kebab.id, name: 'كباب الزهراء', type: 'restaurant', cityId: 'aziziyah', lastHeartbeatAt: at },
+    ]);
+    expect(await orgs.merchants('nowhere')).toEqual([]);
+  });
+});

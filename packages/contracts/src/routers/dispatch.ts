@@ -11,6 +11,8 @@ import {
   RespondOutput,
   SetPolicyInput,
 } from '../dispatch-io.js';
+import { DriverPositions, DriverPositionsInput } from '../console-io.js';
+import { CONSOLE_READ_ROLES } from './console.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Console roles that run the dispatch board. */
@@ -24,6 +26,11 @@ export const dispatchRouter = router({
     .input(DispatchBoardInput)
     .output(DispatchBoard)
     .query(({ ctx, input }) => ctx.dispatch.board(input.cityId)),
+  /** Live driver pins for the map: presence + job state + cash vs cap (composed by the console reads). */
+  drivers: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(DriverPositionsInput)
+    .output(DriverPositions)
+    .query(({ ctx, input }) => ctx.console.driverPositions(input.cityId)),
   override: protectedProcedure(DISPATCH_CONSOLE_ROLES)
     .input(OverrideInput)
     .output(OverrideOutput)

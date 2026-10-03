@@ -8,6 +8,7 @@ import { canBatch, type BatchOrder } from './batching.js';
 import { buildCard, sortCards } from './board.js';
 import { DISPATCH_REPOSITORY, OPEN_STATES, type DispatchRepository, type NewOffer, type OfferRecord } from './dispatch.repository.js';
 import { DISPATCH_STORE, lockKey, type DispatchRequest, type DispatchStore, type PolicyOverride } from './dispatch.store.js';
+import type { LiveJobs } from './driver-pins.js';
 import { DISPATCH_EVENTS, type DispatchEventEmitter } from './events.adapter.js';
 import { etaMin, haversineKm } from './geo.js';
 import { CITY_RADIUS_KM, type DriverPresence } from './geo-index.js';
@@ -687,6 +688,34 @@ export class OfferOrchestrator {
 
   getRequest(tripId: string): Promise<DispatchRequest | null> {
     return this.store.getRequest(tripId);
+  }
+
+  /**
+   * Who is busy on the city's live board (Console map): the trip each driver is assigned to, and
+   * the trip each driver holds an unanswered offer for. Read-only.
+   */
+  async liveJobs(cityId: string): Promise<LiveJobs> {
+    const assigned = new Map<string, string>();
+    const offered = new Map<string, string>();
+    for (const r of await this.store.activeRequests(cityId)) {
+      if (r.status === 'cancelled') continue;
+      if (r.assignedDriverId) {
+        if (!assigned.has(r.assignedDriverId)) assigned.set(r.assignedDriverId, r.tripId);
+        continue;
+      }
+      for (const o of await this.repo.listByTrip(r.tripId)) {
+        if (OPEN_STATES.includes(o.state) && !offered.has(o.driverId)) offered.set(o.driverId, r.tripId);
+      }
+    }
+    return { assigned, offered };
+  }
+
+  /** Offers accepted since `since` and the mean seconds from send to accept (Console right-now bar). */
+  async acceptStats(since: Date): Promise<{ accepted: number; avgSec: number | null }> {
+    const rows = (await this.repo.acceptedSince(since)).filter((o) => o.respondedAt !== null);
+    if (rows.length === 0) return { accepted: 0, avgSec: null };
+    const total = rows.reduce((s, o) => s + Math.max(0, o.respondedAt!.getTime() - o.sentAt.getTime()), 0);
+    return { accepted: rows.length, avgSec: Math.round(total / rows.length / 1000) };
   }
 
   // ───────────────────────── timers ─────────────────────────

@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
+import { outboxHealth } from '@/lib/board';
 import { formatClock, formatDayClock, formatIqd, shortId } from '@/lib/format';
+import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Card, Chip, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Row } from './ui';
+import { Card, Chip, ghostBtn, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Row } from './ui';
 
 export function SystemPage() {
   return (
@@ -15,8 +17,8 @@ export function SystemPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <HealthCard />
         <NightlyCard />
-        <PlaceholderCard title={t('console.outbox')} hint={t('console.outbox_hint')} />
-        <PlaceholderCard title={t('console.simulator')} hint={t('console.simulator_hint')} />
+        <OutboxCard />
+        <SimulatorCard />
       </div>
     </div>
   );
@@ -94,13 +96,109 @@ function NightlyCard() {
   );
 }
 
-function PlaceholderCard({ title, hint }: { title: string; hint: string }) {
+function OutboxCard() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const outbox = useQuery(trpc.system.outbox.queryOptions(undefined, { enabled: signedIn, refetchInterval: 5_000, retry: queryRetry }));
+  const o = outbox.data;
+  const health = o ? outboxHealth(o) : 'ok';
   return (
-    <Card title={title}>
-      <p className="text-sm text-muted">{hint}</p>
-      <p className="mt-3">
-        <Chip>{t('console.coming_next_step')}</Chip>
-      </p>
+    <Card
+      title={t('console.outbox')}
+      tone={health === 'failing' ? 'bad' : 'default'}
+      actions={signedIn ? <LiveBadge seconds={5} updatedAt={outbox.dataUpdatedAt} fetching={outbox.isFetching} /> : undefined}
+    >
+      <p className="text-sm text-muted">{t('console.outbox_hint')}</p>
+      {!signedIn && (
+        <div className="mt-3">
+          <NeedLogin />
+        </div>
+      )}
+      {outbox.error && <QueryError error={outbox.error} onRetry={() => void outbox.refetch()} />}
+      {o && (
+        <>
+          <dl className="mt-3">
+            <Row k={t('console.outbox_pending')} v={<span className={`tabular-nums ${health === 'backlog' ? 'text-accent' : ''}`}>{o.pending}</span>} />
+            <Row k={t('console.outbox_failed')} v={<span className={`tabular-nums ${o.failed > 0 ? 'text-bad' : ''}`}>{o.failed}</span>} />
+            <Row k={t('console.outbox_published')} v={<span className="tabular-nums">{o.published}</span>} />
+          </dl>
+          {o.recentFailed.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs text-muted">{t('console.outbox_recent_failed')}</p>
+              <ul className="mt-1 max-h-72 space-y-2 overflow-y-auto text-sm">
+                {o.recentFailed.map((f) => (
+                  <li key={f.id} className="rounded-md border border-danger-500/50 bg-danger-500/5 px-2 py-1.5">
+                    <p className="flex flex-wrap items-center justify-between gap-2">
+                      <Mono title={f.eventId}>{f.type}</Mono>
+                      <span className="text-xs text-muted">
+                        {t('console.outbox_attempts', { n: f.attempts })} · {formatDayClock(f.createdAt)}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted">
+                      {f.aggregate} · <Mono title={f.aggregateId}>{shortId(f.aggregateId)}</Mono>
+                    </p>
+                    {f.lastError && (
+                      <p dir="ltr" className="mt-1 break-words font-mono text-xs text-bad">
+                        {f.lastError}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {o.failed === 0 && <p className="mt-3 text-sm text-ok">{t('console.outbox_all_ok')}</p>}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Calls the simulator contract; until the rebuilt simulator lands it answers `available: false`. */
+function SimulatorCard() {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const signedIn = useSignedIn();
+  const status = useQuery(trpc.system.simulator.status.queryOptions(undefined, { enabled: signedIn, refetchInterval: 5_000, retry: queryRetry }));
+  const refresh = { onSuccess: () => void qc.invalidateQueries({ queryKey: trpc.system.simulator.status.queryKey() }) };
+  const start = useMutation(trpc.system.simulator.start.mutationOptions(refresh));
+  const stop = useMutation(trpc.system.simulator.stop.mutationOptions(refresh));
+  const s = status.data;
+  return (
+    <Card title={t('console.simulator')}>
+      <p className="text-sm text-muted">{t('console.simulator_hint')}</p>
+      {!signedIn && (
+        <div className="mt-3">
+          <NeedLogin />
+        </div>
+      )}
+      {status.error && <QueryError error={status.error} onRetry={() => void status.refetch()} />}
+      {s && !s.available && (
+        <p className="mt-3">
+          <Chip>{t('console.simulator_unavailable')}</Chip>
+        </p>
+      )}
+      {s?.available && (
+        <>
+          <dl className="mt-3">
+            <Row k={t('console.simulator_state')} v={<Chip tone={s.running ? 'live' : 'neutral'}>{s.running ? t('console.simulator_running') : t('console.simulator_stopped')}</Chip>} />
+            <Row k={t('console.simulator_drivers')} v={<span className="tabular-nums">{s.drivers}</span>} />
+            {s.startedAt && <Row k={t('console.simulator_started')} v={formatDayClock(s.startedAt)} />}
+          </dl>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" className={primaryBtn} disabled={s.running || start.isPending} onClick={() => start.mutate({ cityId: CITY_ID })}>
+              {t('console.simulator_start')}
+            </button>
+            <button type="button" className={ghostBtn} disabled={!s.running || stop.isPending} onClick={() => stop.mutate()}>
+              {t('console.simulator_stop')}
+            </button>
+          </div>
+        </>
+      )}
+      <div role="status" className="mt-2 text-sm">
+        {start.error && <p className="text-bad">{start.error.message}</p>}
+        {stop.error && <p className="text-bad">{stop.error.message}</p>}
+      </div>
     </Card>
   );
 }

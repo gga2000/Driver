@@ -163,6 +163,32 @@ describe('API smoke', () => {
     expect(missing.data.message_ar).toMatch(/[؀-ۿ]/);
   });
 
+  it('console reads: wired end to end and refused to customers', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const phone = '07712340009';
+    await anon.identity.requestOtp.mutate({ phone, purpose: 'login' });
+    const { code } = await anon.identity.devLastOtp.query({ phone });
+    const login = await anon.identity.verifyOtp.mutate({ phone, code: code! });
+    const authed = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
+    });
+    const refused = (await authed.console.rightNow.query({ cityId: 'aziziyah' }).catch((e: unknown) => e)) as { data: { code: string } };
+    expect(refused.data.code).toBe('forbidden');
+
+    await app.get(IdentityService).grantRole({ personId: 'system' }, { personId: login.personId, kind: 'support' });
+    const now = await authed.console.rightNow.query({ cityId: 'aziziyah' });
+    expect(now).toMatchObject({ cityId: 'aziziyah', activeDrivers: 0, cashInFieldIqd: 0 });
+    expect(now.at).toBeInstanceOf(Date);
+    expect((await authed.dispatch.drivers.query({ cityId: 'aziziyah' })).drivers).toEqual([]);
+    expect((await authed.drivers.list.query({ cityId: 'aziziyah' })).rows).toEqual([]);
+    expect((await authed.orders.search.query({ cityId: 'aziziyah', states: ['customer_cancelled'] })).rows.length).toBeGreaterThanOrEqual(0);
+    expect(await authed.orders.events.query({ orderId: 'nope' })).toEqual([]);
+    expect(await authed.trips.events.query({ tripId: 'nope' })).toEqual([]);
+    expect((await authed.system.outbox.query()).recentFailed).toEqual([]);
+    expect(await authed.merchants.list.query({ cityId: 'aziziyah' })).toEqual([]);
+    expect(await authed.system.simulator.status.query()).toMatchObject({ available: false });
+  });
+
   it('returns the city config and null for unknown cities', async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const city = await client.config.city.query({ cityId: 'aziziyah' });

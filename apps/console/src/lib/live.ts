@@ -37,4 +37,25 @@ export function useActiveOrders() {
   return useQuery(trpc.orders.listActive.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, refetchInterval: SLOW_POLL_MS, retry }));
 }
 
+/** Live driver pins from presence (`dispatch.drivers`): positions, states, cash vs cap. */
+export function useDriverPins() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  return useQuery(trpc.dispatch.drivers.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, refetchInterval: LIVE_POLL_MS, retry, staleTime: 0 }));
+}
+
+/** The dispatch board's right-now bar (`console.rightNow`). */
+export function useRightNow() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  return useQuery(trpc.console.rightNow.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, refetchInterval: LIVE_POLL_MS, retry, staleTime: 0 }));
+}
+
+/** Merchant orgs with live balances (`merchants.list`) for pickers. */
+export function useMerchants() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  return useQuery(trpc.merchants.list.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, refetchInterval: 10_000, retry }));
+}
+
 export { retry as queryRetry };

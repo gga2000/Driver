@@ -1,32 +1,54 @@
 'use client';
 
 import Link from 'next/link';
-import { OrderType as OrderTypeEnum, type OrderType } from '@driver/contracts';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { OrderType as OrderTypeEnum, type OrderSummary, type OrderType } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useId, useMemo, useState } from 'react';
-import { formatDayClock, formatIqd, shortId } from '@/lib/format';
+import { useDeferredValue, useId, useMemo, useState } from 'react';
+import { formatDayClock, formatIqd, fromLocalInputValue, shortId, toLocalInputValue } from '@/lib/format';
 import { orderStateLabel, orderTypeLabel, paymentLabel } from '@/lib/labels';
-import { SLOW_POLL_MS, useActiveOrders } from '@/lib/live';
-import { countByFilter, filterOrders, ORDER_STATE_TONE, STATE_FILTERS, type OrderFilter, type StateFilter } from '@/lib/orders';
+import { CITY_ID, queryRetry, SLOW_POLL_MS } from '@/lib/live';
+import { ORDER_STATE_TONE, searchInput, STATE_FILTERS, type HistoryFilter, type StateFilter } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
-import { Chip, EmptyState, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, QueryError } from './ui';
+import { useTRPC } from '@/lib/trpc';
+import { Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, QueryError } from './ui';
 
 const FILTERS = Object.keys(STATE_FILTERS) as StateFilter[];
 const filterKey = (f: StateFilter) => `console.filter_${f}` as MessageKey;
+const PAGE = 50;
 
+/** Order history (`orders.search`): every state, newest first, filtered on the server, paged by cursor. */
 export function OrdersPage() {
   const signedIn = useSignedIn();
-  const orders = useActiveOrders();
-  const [filter, setFilter] = useState<OrderFilter>({ state: 'all', type: 'all', q: '' });
-  const ids = { q: useId(), type: useId() };
+  const trpc = useTRPC();
+  const [filter, setFilter] = useState<HistoryFilter>({ state: 'all', type: 'all', q: '', from: null, to: null });
+  const q = useDeferredValue(filter.q);
+  const ids = { q: useId(), type: useId(), from: useId(), to: useId() };
 
-  const all = useMemo(() => orders.data ?? [], [orders.data]);
-  const counts = useMemo(() => countByFilter(all), [all]);
-  const shown = useMemo(() => filterOrders(all, filter), [all, filter]);
+  const orders = useInfiniteQuery(
+    trpc.orders.search.infiniteQueryOptions(searchInput(CITY_ID, { ...filter, q }, PAGE), {
+      enabled: signedIn,
+      retry: queryRetry,
+      refetchInterval: SLOW_POLL_MS,
+      getNextPageParam: (last) => last.nextCursor ?? undefined,
+    }),
+  );
+  const shown = useMemo(() => {
+    const seen = new Set<string>();
+    const out: OrderSummary[] = [];
+    for (const page of orders.data?.pages ?? []) {
+      for (const o of page.rows) {
+        if (seen.has(o.id)) continue;
+        seen.add(o.id);
+        out.push(o);
+      }
+    }
+    return out;
+  }, [orders.data]);
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageHeader title={t('console.orders_title')} subtitle={t('console.orders_subtitle')}>
+      <PageHeader title={t('console.orders_title')} subtitle={t('console.orders_history_subtitle')}>
         {signedIn && <LiveBadge seconds={SLOW_POLL_MS / 1000} updatedAt={orders.dataUpdatedAt} fetching={orders.isFetching} />}
       </PageHeader>
 
@@ -47,11 +69,10 @@ export function OrdersPage() {
                   }`}
                 >
                   {t(filterKey(f))}
-                  <span className="tabular-nums opacity-80">{counts[f]}</span>
                 </button>
               ))}
             </div>
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem]">
               <div>
                 <label htmlFor={ids.q} className="sr-only">
                   {t('console.search')}
@@ -60,7 +81,7 @@ export function OrdersPage() {
                   id={ids.q}
                   type="search"
                   dir="auto"
-                  placeholder={t('console.orders_search')}
+                  placeholder={t('console.orders_search_history')}
                   className={inputCls}
                   value={filter.q}
                   onChange={(e) => setFilter((p) => ({ ...p, q: e.target.value }))}
@@ -70,12 +91,7 @@ export function OrdersPage() {
                 <label htmlFor={ids.type} className="sr-only">
                   {t('console.orders_type')}
                 </label>
-                <select
-                  id={ids.type}
-                  className={inputCls}
-                  value={filter.type}
-                  onChange={(e) => setFilter((p) => ({ ...p, type: e.target.value as OrderType | 'all' }))}
-                >
+                <select id={ids.type} className={inputCls} value={filter.type} onChange={(e) => setFilter((p) => ({ ...p, type: e.target.value as OrderType | 'all' }))}>
                   <option value="all">{t('console.orders_type_all')}</option>
                   {OrderTypeEnum.options.map((ty) => (
                     <option key={ty} value={ty}>
@@ -84,8 +100,31 @@ export function OrdersPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label htmlFor={ids.from} className="mb-1 block text-xs text-muted">
+                  {t('console.orders_from')}
+                </label>
+                <input
+                  id={ids.from}
+                  type="datetime-local"
+                  className={inputCls}
+                  value={filter.from ? toLocalInputValue(filter.from) : ''}
+                  onChange={(e) => setFilter((p) => ({ ...p, from: fromLocalInputValue(e.target.value) }))}
+                />
+              </div>
+              <div>
+                <label htmlFor={ids.to} className="mb-1 block text-xs text-muted">
+                  {t('console.orders_to')}
+                </label>
+                <input
+                  id={ids.to}
+                  type="datetime-local"
+                  className={inputCls}
+                  value={filter.to ? toLocalInputValue(filter.to) : ''}
+                  onChange={(e) => setFilter((p) => ({ ...p, to: fromLocalInputValue(e.target.value) }))}
+                />
+              </div>
             </div>
-            <p className="text-xs text-faint">{t('console.orders_active_only')}</p>
           </div>
 
           {orders.error && <QueryError error={orders.error} onRetry={() => void orders.refetch()} />}
@@ -118,7 +157,10 @@ export function OrdersPage() {
                         </td>
                         <td className="px-3 py-2">{orderTypeLabel(o.type)}</td>
                         <td className="px-3 py-2">
-                          <Chip tone={ORDER_STATE_TONE[o.state]}>{orderStateLabel(o.state)}</Chip>
+                          <span className="flex flex-wrap gap-1">
+                            <Chip tone={ORDER_STATE_TONE[o.state]}>{orderStateLabel(o.state)}</Chip>
+                            {o.late && <Chip tone="bad">{t('console.order_late')}</Chip>}
+                          </span>
                         </td>
                         <td className="px-3 py-2">{o.merchantOrgId ? <Mono>{shortId(o.merchantOrgId)}</Mono> : '—'}</td>
                         <td className="px-3 py-2">{paymentLabel(o.paymentMethod)}</td>
@@ -139,7 +181,10 @@ export function OrdersPage() {
                         <span className="font-semibold">
                           {orderTypeLabel(o.type)} · <Mono>{shortId(o.id)}</Mono>
                         </span>
-                        <Chip tone={ORDER_STATE_TONE[o.state]}>{orderStateLabel(o.state)}</Chip>
+                        <span className="flex gap-1">
+                          {o.late && <Chip tone="bad">{t('console.order_late')}</Chip>}
+                          <Chip tone={ORDER_STATE_TONE[o.state]}>{orderStateLabel(o.state)}</Chip>
+                        </span>
                       </div>
                       <div className="mt-1 flex justify-between text-xs text-muted">
                         <span>{formatDayClock(o.placedAt)}</span>
@@ -151,6 +196,12 @@ export function OrdersPage() {
                   </li>
                 ))}
               </ul>
+
+              {orders.hasNextPage && (
+                <button type="button" className={`${ghostBtn} mt-4 w-full`} disabled={orders.isFetchingNextPage} onClick={() => void orders.fetchNextPage()}>
+                  {orders.isFetchingNextPage ? t('status.loading') : t('console.load_more')}
+                </button>
+              )}
             </>
           )}
         </>

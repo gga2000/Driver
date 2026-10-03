@@ -12,6 +12,7 @@ export type {
   DeliveryContext,
   EventHandler,
   NewEvent,
+  OutboxFailure,
   OutboxStats,
   PublishedEvent,
   StoredEvent,

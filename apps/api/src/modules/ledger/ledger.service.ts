@@ -199,6 +199,24 @@ export class LedgerService {
     return { ok: money.ok && points.ok && kindViolations === 0, net: moneyNet, events: events.length, money, points, kindViolations };
   }
 
+  /**
+   * Cash in the field (Console right-now bar): what every courier and driver holds right now, i.e.
+   * the negative `cash:` balances, largest first. One pass over the book.
+   * TODO(perf): a per-account balance projection once the book outgrows a full read per poll.
+   */
+  async cashInField(): Promise<{ totalIqd: number; holders: Array<{ driverId: string; amountIqd: number }> }> {
+    const net = new Map<string, number>();
+    for (const e of await this.repo.all()) {
+      if (e.toAccount.startsWith('cash:')) net.set(e.toAccount, (net.get(e.toAccount) ?? 0) + e.amount);
+      if (e.fromAccount.startsWith('cash:')) net.set(e.fromAccount, (net.get(e.fromAccount) ?? 0) - e.amount);
+    }
+    const holders = [...net.entries()]
+      .filter(([, amount]) => amount < 0)
+      .map(([account, amount]) => ({ driverId: account.slice('cash:'.length), amountIqd: -amount }))
+      .sort((a, b) => b.amountIqd - a.amountIqd || a.driverId.localeCompare(b.driverId));
+    return { totalIqd: holders.reduce((s, h) => s + h.amountIqd, 0), holders };
+  }
+
   /** Completed cash orders of a customer at or above a size (referral unlock, new-customer cap). */
   async cashOrders(customerId: string, minIqd = 0): Promise<string[]> {
     const events = await this.repo.byAccount(Accounts.customer(customerId));

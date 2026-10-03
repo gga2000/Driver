@@ -23,6 +23,8 @@ export const settleModeLabel = (s: string) => k('settle_mode', s);
 export const channelLabel = (s: string) => k('channel', s);
 export const timelineStepLabel = (s: string) => k('step', s);
 export const priceLabel = (s: string) => k('price', s);
+export const vehicleLabel = (s: string) => k('vehicle', s);
+export const pinStateLabel = (s: string) => k('pin_state', s);
 
 const ZONES = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z]));
 

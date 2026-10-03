@@ -13,7 +13,9 @@ import {
   PlaceOrderInput,
   RespondPartialInput,
 } from '../order.js';
+import { EventLog, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { CONSOLE_READ_ROLES } from './console.js';
 
 /** Merchant-side roles; the API additionally checks the role is scoped to the order's merchant org. */
 export const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_staff', 'merchant_owner'];
@@ -35,6 +37,10 @@ export const ordersRouter = router({
   rate: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.rate(ctx.actor, input)),
   /** Customer-side ride completion ("وصلت") at the locked quote (edge-case review B.24). */
   confirmRideArrived: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.confirmRideArrived(ctx.actor, input)),
+  /** Console history: any state, newest first, keyset-paginated. */
+  search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
+  /** The order's actor event log (quarantined late replays included and marked). */
+  events: protectedProcedure(CONSOLE_READ_ROLES).input(OrderIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.orderEvents(input.orderId)),
   listActive: protectedProcedure(BOARD_ROLES).input(ListActiveOrdersInput).output(z.array(Order)).query(({ ctx, input }) => ctx.orders.listActive(ctx.actor, input)),
   merchant: router({
     accept: protectedProcedure(MERCHANT_ROLES).input(MerchantAcceptInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantAccept(ctx.actor, input)),
