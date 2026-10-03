@@ -1,6 +1,6 @@
-import { PlaceholderScreen } from '@/components/PlaceholderScreen';
+import { DealsScreen } from '@/features/deals/DealsScreen';
 
-/** العروض — wave 2 replaces this file (self-serve deals with projected cost, platform approval). */
-export default function DealsScreen() {
-  return <PlaceholderScreen title="merchant.more.deals" icon="tag" back testID="deals" />;
+/** العروض — the store's deals with state, projected cost and the owner's pause/resume (src/features/deals). */
+export default function Deals() {
+  return <DealsScreen />;
 }

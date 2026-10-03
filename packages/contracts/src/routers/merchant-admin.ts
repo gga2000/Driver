@@ -4,6 +4,7 @@ import {
   AdminMenu,
   AdminMenuItem,
   ApplyImportInput,
+  DealProjectionView,
   DealView,
   ImportFromPhotosInput,
   ImportJobInput,
@@ -20,6 +21,7 @@ import {
   PriceUpdateOutput,
   ProposeDealInput,
   RemoveStaffInput,
+  ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
   ReviewDealInput,
@@ -45,7 +47,7 @@ const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 
 /**
  * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. Owner-only:
- * `money.*`, `staff.*`, `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
+ * `money.*`, `staff.*`, `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
  */
 export const merchantAdminRouter = router({
   /** Merchants the caller works at, with his role at each. */
@@ -60,6 +62,8 @@ export const merchantAdminRouter = router({
     replacePhoto: p.input(ReplacePhotoInput).output(AdminMenuItem).mutation(({ ctx, input }) => ctx.merchantAdmin.menuReplacePhoto(ctx.actor, input)),
     upsertItem: p.input(UpsertItemInput).output(AdminMenuItem).mutation(({ ctx, input }) => ctx.merchantAdmin.menuUpsertItem(ctx.actor, input)),
     upsertCategory: p.input(UpsertCategoryInput).output(AdminMenu).mutation(({ ctx, input }) => ctx.merchantAdmin.menuUpsertCategory(ctx.actor, input)),
+    /** Section order (items keep theirs inside each section). */
+    reorderCategories: p.input(ReorderCategoriesInput).output(AdminMenu).mutation(({ ctx, input }) => ctx.merchantAdmin.menuReorderCategories(ctx.actor, input)),
     /** Replaces the item's modifier groups. */
     setModifiers: p.input(SetModifiersInput).output(AdminMenuItem).mutation(({ ctx, input }) => ctx.merchantAdmin.menuSetModifiers(ctx.actor, input)),
     importFromPhotos: p.input(ImportFromPhotosInput).output(MenuImportJob).mutation(({ ctx, input }) => ctx.merchantAdmin.menuImportFromPhotos(ctx.actor, input)),
@@ -68,6 +72,8 @@ export const merchantAdminRouter = router({
   }),
   deals: router({
     list: p.input(MerchantScope).output(z.array(DealView)).query(({ ctx, input }) => ctx.merchantAdmin.dealsList(ctx.actor, input)),
+    /** Projected cost of a draft (owner, nothing stored): shown before the owner submits. */
+    project: p.input(ProposeDealInput).output(DealProjectionView).query(({ ctx, input }) => ctx.merchantAdmin.dealsProject(ctx.actor, input)),
     propose: p.input(ProposeDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsPropose(ctx.actor, input)),
     setActive: p.input(SetDealActiveInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsSetActive(ctx.actor, input)),
     review: protectedProcedure(DEAL_REVIEWERS).input(ReviewDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsReview(ctx.actor, input)),

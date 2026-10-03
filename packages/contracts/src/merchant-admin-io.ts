@@ -91,6 +91,13 @@ export const UpsertCategoryInput = MerchantScope.extend({
 });
 export type UpsertCategoryInput = z.infer<typeof UpsertCategoryInput>;
 
+/**
+ * Section order as the customer menu shows it: names in this order first, any section not named keeps
+ * its place after them, the unnamed section stays last. Items keep their order inside each section.
+ */
+export const ReorderCategoriesInput = MerchantScope.extend({ order: z.array(z.string().trim().min(1).max(40)).min(1).max(50) });
+export type ReorderCategoriesInput = z.infer<typeof ReorderCategoriesInput>;
+
 export const SetModifiersInput = MenuItemIdInput.extend({
   groups: z
     .array(
@@ -125,6 +132,8 @@ export const MenuImportJob = z.object({
   merchantOrgId: z.string(),
   state: z.enum(['draft', 'applied', 'discarded']),
   photoUploadIds: z.array(z.string()),
+  /** Signed read URLs of those photos, same order (staff correct the rows while looking at them). */
+  photoUrls: z.array(z.string()),
   /** OCR is stubbed: the draft starts empty and staff type the items while looking at the photos. */
   items: z.array(ImportedItem),
   ocr: z.enum(['stub', 'done']),
@@ -168,6 +177,20 @@ export const ProposeDealInput = MerchantScope.extend({
 });
 export type ProposeDealInput = z.input<typeof ProposeDealInput>;
 
+/** Server-computed from the last 28 days of orders: what the deal is expected to cost the merchant. */
+export const DealProjection = z.object({ ordersPerWeek: z.number(), costPerOrderIqd: Iqd, weeklyCostIqd: Iqd, totalCostIqd: Iqd, basisOrders: z.number().int() });
+export type DealProjection = z.infer<typeof DealProjection>;
+
+/** `deals.project`: the projection of a draft before the owner submits it (nothing is stored). */
+export const DealProjectionView = z.object({
+  projected: DealProjection,
+  /** Days of order history the projection read. */
+  basisDays: z.number().int(),
+  /** The city's switch: the deal waits for platform approval once proposed. */
+  requiresApproval: z.boolean(),
+});
+export type DealProjectionView = z.infer<typeof DealProjectionView>;
+
 export const DealState = z.enum(['pending_approval', 'approved', 'rejected', 'paused', 'ended']);
 export type DealState = z.infer<typeof DealState>;
 
@@ -183,7 +206,7 @@ export const DealView = z.object({
   budgetCapIqd: Iqd.nullable(),
   spentIqd: Iqd,
   /** Server-computed from the last 28 days of orders: what the deal is expected to cost the merchant. */
-  projected: z.object({ ordersPerWeek: z.number(), costPerOrderIqd: Iqd, weeklyCostIqd: Iqd, totalCostIqd: Iqd, basisOrders: z.number().int() }),
+  projected: DealProjection,
   state: DealState,
   state_ar: z.string(),
   active: z.boolean(),
@@ -334,11 +357,13 @@ export interface MerchantAdminPort {
   menuReplacePhoto(actor: Actor, input: z.infer<typeof ReplacePhotoInput>): Promise<AdminMenuItem>;
   menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem>;
   menuUpsertCategory(actor: Actor, input: UpsertCategoryInput): Promise<AdminMenu>;
+  menuReorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu>;
   menuSetModifiers(actor: Actor, input: z.output<typeof SetModifiersInput>): Promise<AdminMenuItem>;
   menuImportFromPhotos(actor: Actor, input: z.infer<typeof ImportFromPhotosInput>): Promise<MenuImportJob>;
   menuImportJob(actor: Actor, input: z.infer<typeof ImportJobInput>): Promise<MenuImportJob>;
   menuApplyImport(actor: Actor, input: z.infer<typeof ApplyImportInput>): Promise<MenuImportJob>;
   dealsList(actor: Actor, input: MerchantScope): Promise<DealView[]>;
+  dealsProject(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealProjectionView>;
   dealsPropose(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealView>;
   dealsSetActive(actor: Actor, input: z.infer<typeof SetDealActiveInput>): Promise<DealView>;
   dealsReview(actor: Actor, input: z.infer<typeof ReviewDealInput>): Promise<DealView>;

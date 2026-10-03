@@ -194,6 +194,30 @@ export class CatalogService {
     return touched;
   }
 
+  /**
+   * Section order: named sections in `order` first, the rest after them in their current order, the
+   * unnamed section last. Items keep their order inside a section; sort orders become
+   * section × 100 + position, so the customer menu (sections in first-item order) follows.
+   */
+  async reorderCategories(orgId: string, order: readonly string[], tx?: Tx): Promise<number> {
+    const items = await this.repo.menu(orgId);
+    const sections = new Map<string | null, CatalogItemRecord[]>();
+    for (const i of items) sections.set(i.categoryAr, [...(sections.get(i.categoryAr) ?? []), i]);
+    const wanted = [...new Set(order)].filter((name) => sections.has(name));
+    const rest = [...sections.keys()].filter((k): k is string => k !== null && !wanted.includes(k));
+    const names: Array<string | null> = [...wanted, ...rest, ...(sections.has(null) ? [null] : [])];
+    let touched = 0;
+    for (const [s, name] of names.entries()) {
+      for (const [n, item] of (sections.get(name) ?? []).entries()) {
+        const sortOrder = s * 100 + n;
+        if (item.sortOrder === sortOrder) continue;
+        await this.repo.updateItem(item.id, { sortOrder }, tx);
+        touched += 1;
+      }
+    }
+    return touched;
+  }
+
   async setModifiers(orgId: string, itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
     for (const g of groups) if ((g.minSelect ?? 0) > (g.maxSelect ?? 1)) throw new DriverError('invalid_input');

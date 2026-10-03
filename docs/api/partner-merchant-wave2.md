@@ -99,7 +99,7 @@ Errors: `handover_code_invalid`, `cash_receipt_exceeds_held`, `task_not_found`, 
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.propose`, `deals.setActive`.
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`.
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
@@ -112,11 +112,13 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.propose`, `deal
 | `menu.replacePhoto` | mutation | `{merchantOrgId, itemId, uploadId}` | `AdminMenuItem` |
 | `menu.upsertItem` | mutation | `{merchantOrgId, itemId?, nameAr, nameEn?, description?, priceIqd, categoryAr?, sortOrder?, prepTimeMin?, available?}` | `AdminMenuItem` (new items get a first price-history row) |
 | `menu.upsertCategory` | mutation | `{merchantOrgId, nameAr, renameFrom?, itemIds?}` | `AdminMenu` (sections are item `categoryAr`; `itemIds` places items in order) |
+| `menu.reorderCategories` | mutation | `{merchantOrgId, order[] (section names)}` | `AdminMenu` — named sections in that order, others after them, the unnamed one last; items keep their order inside (sort orders become section × 100 + position, so the customer menu follows) |
 | `menu.setModifiers` | mutation | `{merchantOrgId, itemId, groups[] {nameAr, nameEn?, minSelect, maxSelect, required, modifiers[] {nameAr, nameEn?, priceIqd, available}}}` | `AdminMenuItem` (replaces all groups) |
-| `menu.importFromPhotos` | mutation | `{merchantOrgId, uploadIds[]}` | `MenuImportJob {jobId, state: 'draft', photoUploadIds, items: [], ocr: 'stub', …}` |
+| `menu.importFromPhotos` | mutation | `{merchantOrgId, uploadIds[]}` | `MenuImportJob {jobId, state: 'draft', photoUploadIds, photoUrls (signed, same order), items: [], ocr: 'stub', …}` |
 | `menu.importJob` | query | `{merchantOrgId, jobId}` | `MenuImportJob` |
 | `menu.applyImport` | mutation | `{merchantOrgId, jobId, items[] {nameAr, priceIqd, categoryAr?, description?, sourceUploadId?}}` | `MenuImportJob` (`applied`, items created) |
 | `deals.list` | query | `{merchantOrgId}` | `DealView[]` |
+| `deals.project` | query | same input as `deals.propose` | `{projected {ordersPerWeek, costPerOrderIqd, weeklyCostIqd, totalCostIqd, basisOrders}, basisDays: 28, requiresApproval}` — owner only; the draft's projected cost before submitting (validated like `propose`, nothing stored) |
 | `deals.propose` | mutation | `{merchantOrgId, type: percent\|fixed\|free_delivery\|bogo, value, nameAr, itemIds[], schedule {startsAt, endsAt, days[] 0–6, hours? {start, end}}, budgetCapIqd?, minOrderIqd}` | `DealView {dealId, …, projected {ordersPerWeek, costPerOrderIqd, weeklyCostIqd, totalCostIqd, basisOrders}, state: pending_approval\|approved\|rejected\|paused\|ended, state_ar, active, funder: 'merchant'}` — projection from the last 28 days of orders, server-side; city config `merchantDeals.requirePlatformApproval` (Aziziyah: true) |
 | `deals.setActive` | mutation | `{merchantOrgId, dealId, active}` | `DealView` |
 | `deals.review` | mutation | `{dealId, approve, reason?}` — roles `admin`, `support` | `DealView` |

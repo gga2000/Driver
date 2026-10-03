@@ -29,7 +29,11 @@
       "permissions": ["BLUETOOTH_CONNECT", "BLUETOOTH_SCAN", "VIBRATE"]
     },
     "web": { "name": "درايفر للمطاعم", "shortName": "درايفر للمطاعم", "lang": "ar", "themeColor": "#FBF6EE", "backgroundColor": "#FBF6EE" },
-    "plugins": ["expo-router", ["expo-localization", {}]],
+    "plugins": [
+      "expo-router",
+      ["expo-localization", {}],
+      ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }]
+    ],
     "experiments": { "typedRoutes": true }
   }
 }
