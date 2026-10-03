@@ -7,6 +7,7 @@ import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
+import { PartnerModule, PartnerService } from '../modules/partner/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
 import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
@@ -43,6 +44,7 @@ export class TrpcService {
     private readonly places: PlacesRpc,
     private readonly wallet: CustomerWalletService,
     private readonly households: HouseholdsRpc,
+    private readonly partner: PartnerService,
   ) {}
 
   /**
@@ -76,6 +78,7 @@ export class TrpcService {
       places: this.places,
       wallet: this.wallet,
       households: this.households,
+      partner: this.partner,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -100,5 +103,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

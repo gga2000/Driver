@@ -843,6 +843,23 @@ export class OfferOrchestrator {
     return { assigned, offered };
   }
 
+  /**
+   * The driver's own open, unexpired offer in the city with its request (Partner app's offer card).
+   * Newest first when two reached him at once. Read-only.
+   */
+  async openOfferFor(driverId: string, cityId: string): Promise<{ offer: OfferRecord; request: DispatchRequest } | null> {
+    const now = this.now();
+    let best: { offer: OfferRecord; request: DispatchRequest } | null = null;
+    for (const r of await this.store.activeRequests(cityId)) {
+      if (r.status === 'cancelled' || r.assignedDriverId) continue;
+      for (const o of await this.repo.listByTrip(r.tripId)) {
+        if (o.driverId !== driverId || !OPEN_STATES.includes(o.state) || o.expiresAt.getTime() <= now) continue;
+        if (!best || o.sentAt.getTime() > best.offer.sentAt.getTime()) best = { offer: o, request: r };
+      }
+    }
+    return best;
+  }
+
   /** Offers accepted since `since` and the mean seconds from send to accept (Console right-now bar). */
   async acceptStats(since: Date): Promise<{ accepted: number; avgSec: number | null }> {
     const rows = (await this.repo.acceptedSince(since)).filter((o) => o.respondedAt !== null);

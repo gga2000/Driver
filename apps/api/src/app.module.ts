@@ -8,6 +8,7 @@ import { LedgerModule } from './modules/ledger/index.js';
 import { NotifyModule } from './modules/notify/index.js';
 import { OrdersModule } from './modules/orders/index.js';
 import { OrgsModule } from './modules/orgs/index.js';
+import { PartnerModule } from './modules/partner/index.js';
 import { PlacesModule } from './modules/places/index.js';
 import { PricingModule } from './modules/pricing/index.js';
 import { RoutesModule } from './modules/routes/index.js';
@@ -37,6 +38,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     SupportModule,
     EventsModule,
     SimulatorModule,
+    PartnerModule,
     TrpcModule,
   ],
 })

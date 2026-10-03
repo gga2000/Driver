@@ -10,6 +10,7 @@ import { routesRouter } from './routers/routes.js';
 import { catalogRouter } from './routers/catalog.js';
 import { consoleRouter, driversRouter, merchantsRouter, systemRouter } from './routers/console.js';
 import { householdRouter, placesRouter, walletRouter } from './routers/account.js';
+import { partnerRouter } from './routers/partner.js';
 import { publicProcedure, router } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -52,6 +53,7 @@ export const appRouter = router({
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,
+  partner: partnerRouter,
 });
 
 export type AppRouter = typeof appRouter;

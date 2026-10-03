@@ -14,6 +14,7 @@ import type {
   Vertical,
 } from '@driver/contracts';
 import { ConfigService } from '../config/index.js';
+import type { OfferRecord } from './dispatch.repository.js';
 import type { DispatchRequest } from './dispatch.store.js';
 import { liveDriver, type LiveDriver } from './driver-pins.js';
 import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
@@ -140,6 +141,13 @@ export class DispatchService implements DispatchPort {
   async liveDrivers(cityId: string, now: Date): Promise<LiveDriver[]> {
     const [present, jobs] = await Promise.all([this.presence.list(cityId), this.o.liveJobs(cityId)]);
     return present.map((p) => liveDriver(p, jobs, now.getTime()));
+  }
+
+  // ───────────────────────── Partner reads ─────────────────────────
+
+  /** A driver's own open offer and its request (the Partner app's offer card), or null. */
+  openOffer(driverId: string, cityId: string): Promise<{ offer: OfferRecord; request: DispatchRequest } | null> {
+    return this.o.openOfferFor(driverId, cityId);
   }
 
   /** Offers accepted since `since` and the mean seconds from send to accept. */

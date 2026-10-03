@@ -14,6 +14,7 @@ import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, PlacesPort, WalletPort } from './account-io.js';
+import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { transformer } from './transformer.js';
 
@@ -46,6 +47,8 @@ export interface AppContext {
   wallet: WalletPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
   households: HouseholdsPort;
+  /** Driver Partner: own presence, open offer, active job, today's money (`modules/partner`). */
+  partner: PartnerPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

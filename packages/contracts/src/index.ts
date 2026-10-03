@@ -23,6 +23,7 @@ export * from './routes-io.js';
 export * from './catalog-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
+export * from './partner-io.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
