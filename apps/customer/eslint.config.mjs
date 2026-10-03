@@ -3,7 +3,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist-web/**', 'web-shots/**', 'node_modules/**', '.expo/**', 'expo-env.d.ts'] },
+  { ignores: ['dist-web/**', 'dist-web-*/**', 'web-shots/**', 'node_modules/**', '.expo/**', 'expo-env.d.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -19,6 +19,7 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       globals: { process: 'readonly', URL: 'readonly', console: 'readonly', document: 'readonly', getComputedStyle: 'readonly', localStorage: 'readonly', fetch: 'readonly', setInterval: 'readonly', setTimeout: 'readonly' },
+      globals: { process: 'readonly', URL: 'readonly', console: 'readonly', document: 'readonly', getComputedStyle: 'readonly', localStorage: 'readonly', fetch: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
     },
   },
 );

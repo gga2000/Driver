@@ -21,6 +21,7 @@ export * from './dispatch-io.js';
 export * from './console-io.js';
 export * from './routes-io.js';
 export * from './catalog-io.js';
+export * from './tracking.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';

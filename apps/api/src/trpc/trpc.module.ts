@@ -10,6 +10,7 @@ import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
+import { TrackingModule, TrackingService } from '../modules/tracking/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
@@ -36,6 +37,7 @@ export class TrpcService {
     private readonly consoleReads: ConsoleReadService,
     private readonly routes: RoutesRpc,
     private readonly catalog: CatalogRpc,
+    private readonly tracking: TrackingService,
   ) {}
 
   /**
@@ -65,6 +67,7 @@ export class TrpcService {
       routes: this.routes,
       catalog: this.catalog,
       console: this.consoleReads,
+      tracking: this.tracking,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -89,5 +92,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

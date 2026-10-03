@@ -11,8 +11,10 @@ import {
   Order,
   OrderIdInput,
   PlaceOrderInput,
+  RateOrderInput,
   RespondPartialInput,
 } from '../order.js';
+import { CourierPosition, OrderTracking } from '../tracking.js';
 import { EventLog, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
@@ -34,7 +36,15 @@ export const ordersRouter = router({
   cancel: protectedProcedure().input(CancelOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.cancel(ctx.actor, input)),
   respondPartial: protectedProcedure().input(RespondPartialInput).output(Order).mutation(({ ctx, input }) => ctx.orders.respondPartial(ctx.actor, input)),
   openDispute: protectedProcedure().input(OpenDisputeInput).output(Order).mutation(({ ctx, input }) => ctx.orders.openDispute(ctx.actor, input)),
-  rate: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.rate(ctx.actor, input)),
+  /** Closes early; `delivery` / `food` (1–5), tags and a note store the two-tap rating (food only on kitchen orders). */
+  rate: protectedProcedure().input(RateOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.rate(ctx.actor, input)),
+  /** Customer live screen (spec §4): own order + trip summary + courier card. Orderer or participant only. */
+  track: protectedProcedure().input(OrderIdInput).output(OrderTracking).query(({ ctx, input }) => ctx.tracking.track(ctx.actor, input)),
+  /** Courier's last fix for the customer, only between accept and complete (null otherwise). Polled every 2 s. */
+  courierPosition: protectedProcedure()
+    .input(OrderIdInput)
+    .output(CourierPosition.nullable())
+    .query(({ ctx, input }) => ctx.tracking.courierPosition(ctx.actor, input)),
   /** Customer-side ride completion ("وصلت") at the locked quote (edge-case review B.24). */
   confirmRideArrived: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.confirmRideArrived(ctx.actor, input)),
   /** Console history: any state, newest first, keyset-paginated. */

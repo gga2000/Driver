@@ -10,9 +10,11 @@ import {
   type DisputeKind,
   type DomainEventInput,
   type Order,
+  type OrderRating,
   type OrderSearchPage,
   type OrderState,
   type ParticipantShare,
+  type RateOrderInput,
   type Trip,
   type Vertical,
 } from '@driver/contracts';
@@ -439,15 +441,25 @@ export class OrdersService implements OnModuleInit {
     });
   }
 
-  /** Rating closes the order early (domain §2). */
-  async rate(actorId: string, input: { orderId: string }): Promise<Order> {
+  /**
+   * Rating closes the order early (domain §2). With scores (customer app §4 two-tap rating) it also
+   * stores them: delivery for the courier/driver, food only on kitchen/shop orders. The first rating
+   * stands (a replay returns the order unchanged); an order auto-closed before the customer rated can
+   * still take its rating.
+   */
+  async rate(actorId: string, input: RateOrderInput): Promise<Order> {
     return this.uow.run(async (tx) => {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
-      if (order.state === 'closed') return this.view(order.id, tx);
+      const rating = ratingFrom(order, input, this.clock.now());
+      if (order.rating) return this.view(order.id, tx);
+      if (order.state === 'closed') {
+        if (rating) await this.repo.update(order.id, { rating, ratedAt: order.ratedAt ?? rating.ratedAt }, tx);
+        return this.view(order.id, tx);
+      }
       if (!DISPUTABLE_STATES.includes(order.state)) throw new DriverError('order_state_conflict');
-      await this.repo.update(order.id, { ratedAt: this.clock.now() }, tx);
-      await this.close(order, actorId, 'rated', tx);
+      const updated = await this.repo.update(order.id, { ratedAt: this.clock.now(), ...(rating ? { rating } : {}) }, tx);
+      await this.close(updated, actorId, 'rated', tx);
       return this.view(order.id, tx);
     });
   }
@@ -991,6 +1003,23 @@ export class OrdersService implements OnModuleInit {
 
 // ───────────────────────── helpers ─────────────────────────
 
+/**
+ * The stored rating from `orders.rate` input, or null for the plain "close early" call. Food is
+ * scored only on kitchen/shop orders; tags or a note need a score to hang on (`invalid_input`).
+ */
+export function ratingFrom(order: Pick<OrderRecord, 'type'>, input: RateOrderInput, at: Date): OrderRating | null {
+  const delivery = input.delivery ?? null;
+  const food = input.food ?? null;
+  const tags = [...new Set(input.tags ?? [])];
+  const note = input.note?.trim() ? input.note.trim() : null;
+  if (food !== null && !MERCHANT_ORDER_TYPES.includes(order.type)) throw new DriverError('invalid_input');
+  if (delivery === null && food === null) {
+    if (tags.length > 0 || note !== null) throw new DriverError('invalid_input');
+    return null;
+  }
+  return { delivery, food, tags, note, ratedAt: at };
+}
+
 export function lineValue(l: Pick<OrderLineRecord, 'qty' | 'unitPriceIqd' | 'modifiers'>): number {
   const mods = l.modifiers.reduce((a, m) => a + (typeof m.priceIqd === 'number' ? m.priceIqd : 0), 0);
   return l.qty * (l.unitPriceIqd + mods);
@@ -1118,5 +1147,6 @@ export function toOrderView(agg: OrderAggregate): Order {
     cancellationFeeIqd: order.cancellationFeeIqd,
     refundState: order.refundState,
     note: order.note,
+    rating: order.rating ?? null,
   };
 }

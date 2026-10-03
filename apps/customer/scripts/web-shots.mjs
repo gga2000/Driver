@@ -10,6 +10,8 @@
 //
 // Writes app-welcome, app-phone, app-otp, app-setup, app-home (+ app-home-full), app-orders and
 // app-profile PNGs at 390×844 (@2x). Exits non-zero on console errors or a missing screen.
+// SHOTS=track adds the live order screen (track-*.png: preparing, on the way collapsed/expanded,
+// unreachable, late, signal lost, reassigning, arrival, rating, points), seeded via POST /demo/track.
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -47,7 +49,8 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 }, devi
 const errors = [];
 page.on('console', (m) => {
   const text = m.text();
-  if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection/.test(text)) errors.push(text);
+  // ERR_TUNNEL_CONNECTION_FAILED: map tiles (OSM) are blocked in the sandbox; the map draws without them.
+  if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED/.test(text)) errors.push(text);
 });
 page.on('pageerror', (e) => errors.push(e.stack ?? e.message));
 page.on('response', (r) => {
@@ -144,6 +147,80 @@ try {
   //    waiting for the kitchen → accepted (/order/[id]); then a second order the kitchen rejects →
   //    suggestions → cart carried over to another kitchen.
   if (!only || only === 'food') await foodFlow(khalid);
+  // Live order screen (/order/[id]) — `SHOTS=track` (or `all`). Each scenario seeds a real order
+  // through POST /demo/track; the demo courier reports a position every 2 s along an Aziziyah path.
+  if (/track|all/.test(process.env.SHOTS ?? '') && personId) {
+    const seed = async (scenario) => {
+      const r = await fetch(`${apiBase}/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}`, { method: 'POST' });
+      const body = await r.json();
+      if (!r.ok) throw new Error(`seed ${scenario}: ${body.error}`);
+      return body.orderId;
+    };
+    const openOrder = async (orderId, query = '') => {
+      await page.goto(`${origin}/order/${orderId}${query}`, { waitUntil: 'networkidle' });
+      await byTestId('sheet-header').waitFor({ timeout: 15_000 });
+      await byTestId('status-line').waitFor({ timeout: 15_000 });
+    };
+    // Map tiles are blocked here; MapLibre (or the SVG fallback) draws the zones. Let the courier glide.
+    const live = (ms = 2600) => page.waitForTimeout(ms);
+
+    // Orders tab rows open the live screen.
+    const prepId = await seed('preparing');
+    await page.goto(`${origin}/orders`, { waitUntil: 'networkidle' });
+    await byTestId(`order-${prepId}`).click();
+    await byTestId('order-live').waitFor({ timeout: 15_000 });
+    await byTestId('courier-marker').waitFor({ timeout: 15_000 });
+    await live();
+    await shot('track-preparing');
+
+    const wayId = await seed('on_the_way');
+    await openOrder(wayId);
+    await live();
+    await shot('track-on-the-way');
+    await live(4200);
+    await shot('track-on-the-way-moved');
+    await openOrder(wayId, '?sheet=2');
+    await live(1500);
+    await shot('track-on-the-way-expanded');
+    await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 640));
+    await shot('track-on-the-way-expanded-details');
+    await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+    await shot('track-on-the-way-expanded-actions');
+
+    await openOrder(await seed('unreachable'));
+    await byTestId('unreachable-panel').waitFor({ timeout: 10_000 });
+    await live(1500);
+    await shot('track-unreachable');
+
+    await openOrder(await seed('late'));
+    await byTestId('running-late').waitFor({ timeout: 10_000 }).catch(() => errors.push('running-late banner not shown'));
+    await live();
+    await shot('track-late');
+
+    await openOrder(await seed('signal_lost'));
+    await byTestId('signal-lost').waitFor({ timeout: 10_000 }).catch(() => errors.push('signal-lost banner not shown'));
+    await shot('track-signal-lost');
+
+    await openOrder(await seed('reassigning'));
+    await byTestId('reassigning').waitFor({ timeout: 10_000 }).catch(() => errors.push('reassigning banner not shown'));
+    await shot('track-reassigning');
+
+    await openOrder(await seed('arrived'));
+    await byTestId('arrival').waitFor({ timeout: 10_000 });
+    await live(1200);
+    await shot('track-arrival');
+    await byTestId('arrival-rate').click();
+    await byTestId('stars-delivery').waitFor();
+    await shot('track-rating');
+    await byTestId('stars-delivery-5').click();
+    await byTestId('stars-food').waitFor();
+    await settle(400);
+    await shot('track-rating-food');
+    await byTestId('stars-food-4').click();
+    await byTestId('points-earned').waitFor({ timeout: 10_000 });
+    await live(2400);
+    await shot('track-rating-points');
+  }
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});

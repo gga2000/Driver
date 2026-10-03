@@ -352,6 +352,22 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /**
+   * The courier card a customer sees on an order the courier carries (customer app §4): his first
+   * name only — read from the vault and logged with purpose `courier_card` — and when he last
+   * verified himself (OTP re-verification; the Partner shift selfie replaces it when it ships).
+   */
+  async courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null }> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(courierId, tx);
+      if (!person || person.deletedAt) return { firstName: null, lastVerifiedAt: null };
+      const identity = await this.repo.readIdentity(courierId, tx);
+      await this.repo.logVaultAccess({ personId: courierId, accessorId, purpose: 'courier_card', fieldsRead: ['name'], now: this.clock.now() }, tx);
+      const first = identity?.name?.trim().split(/\s+/)[0] ?? '';
+      return { firstName: first || null, lastVerifiedAt: person.lastVerifiedAt };
+    });
+  }
+
   /** Looks a person up by phone without creating one. Used by orgs/households and support. */
   async personIdByPhone(rawPhone: string): Promise<string | null> {
     const { hash } = this.phone(rawPhone);

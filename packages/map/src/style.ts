@@ -1,6 +1,6 @@
 import type { LayerSpecification, SourceSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import type { FeatureCollection } from 'geojson';
-import { MAP_COLORS } from './colors.js';
+import { MAP_COLORS, MAP_COLORS_LIGHT } from './colors.js';
 import { buildGaragesGeoJSON } from './garages.js';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM, buildZonesGeoJSON } from './zones.js';
 
@@ -51,6 +51,11 @@ export interface DriverStyleOptions {
   glyphs?: string;
   /** Include النهضة (Baghdad) in the garage layer. Default: town garages only. */
   includeOutOfTownGarages?: boolean;
+  /**
+   * `dark` (default): the Console's dark map. `light`: the customer app's cream map — OSM raster kept
+   * light (slightly desaturated) and zones as a faint neighbourhood wash instead of pricing bands.
+   */
+  theme?: 'dark' | 'light';
 }
 
 /**
@@ -59,6 +64,8 @@ export interface DriverStyleOptions {
  */
 export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification {
   const vector = Boolean(opts.pmtilesUrl);
+  const light = opts.theme === 'light';
+  const C = light ? MAP_COLORS_LIGHT : MAP_COLORS;
   const sources: Record<string, SourceSpecification> = {
     [SOURCE.osm]: {
       type: 'raster',
@@ -77,17 +84,17 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
     sources[SOURCE.basemap] = { type: 'vector', url: opts.pmtilesUrl!, attribution: OSM_ATTRIBUTION };
   }
 
-  const base: LayerSpecification[] = [{ id: LAYER.background, type: 'background', paint: { 'background-color': MAP_COLORS.background } }];
+  const base: LayerSpecification[] = [{ id: LAYER.background, type: 'background', paint: { 'background-color': C.background } }];
   if (vector) {
     base.push(
-      { id: 'earth', type: 'fill', source: SOURCE.basemap, 'source-layer': 'earth', paint: { 'fill-color': MAP_COLORS.land } },
-      { id: 'water', type: 'fill', source: SOURCE.basemap, 'source-layer': 'water', paint: { 'fill-color': MAP_COLORS.water } },
+      { id: 'earth', type: 'fill', source: SOURCE.basemap, 'source-layer': 'earth', paint: { 'fill-color': C.land } },
+      { id: 'water', type: 'fill', source: SOURCE.basemap, 'source-layer': 'water', paint: { 'fill-color': C.water } },
       {
         id: 'roads',
         type: 'line',
         source: SOURCE.basemap,
         'source-layer': 'roads',
-        paint: { 'line-color': MAP_COLORS.road, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 4] },
+        paint: { 'line-color': C.road, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 4] },
       },
     );
   } else {
@@ -97,14 +104,16 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       id: LAYER.osm,
       type: 'raster',
       source: SOURCE.osm,
-      paint: {
-        'raster-brightness-min': 0.92,
-        'raster-brightness-max': 0.08,
-        'raster-hue-rotate': 180,
-        'raster-saturation': -0.85,
-        'raster-contrast': 0.1,
-        'raster-opacity': 0.9,
-      },
+      paint: light
+        ? { 'raster-saturation': -0.35, 'raster-contrast': -0.05, 'raster-opacity': 0.95 }
+        : {
+            'raster-brightness-min': 0.92,
+            'raster-brightness-max': 0.08,
+            'raster-hue-rotate': 180,
+            'raster-saturation': -0.85,
+            'raster-contrast': 0.1,
+            'raster-opacity': 0.9,
+          },
     });
   }
 
@@ -115,21 +124,21 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       source: SOURCE.zones,
       paint: {
         'fill-color': ['get', 'color'],
-        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.42, 0.22],
+        'fill-opacity': light ? 0.1 : ['case', ['boolean', ['feature-state', 'hover'], false], 0.42, 0.22],
       },
     },
     {
       id: LAYER.zoneLine,
       type: 'line',
       source: SOURCE.zones,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 1.2, 'line-opacity': 0.85 },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1.2, 'line-opacity': light ? 0.4 : 0.85 },
     },
     {
       id: LAYER.tripLines,
       type: 'line',
       source: SOURCE.trips,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': ['coalesce', ['get', 'color'], MAP_COLORS.accent], 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 1.5] },
+      paint: { 'line-color': ['coalesce', ['get', 'color'], C.accent], 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 1.5] },
     },
     {
       id: LAYER.tripStops,
@@ -137,8 +146,8 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       source: SOURCE.stops,
       paint: {
         'circle-radius': 4,
-        'circle-color': MAP_COLORS.background,
-        'circle-stroke-color': ['coalesce', ['get', 'color'], MAP_COLORS.accent],
+        'circle-color': C.background,
+        'circle-stroke-color': ['coalesce', ['get', 'color'], C.accent],
         'circle-stroke-width': 2,
       },
     },
@@ -148,8 +157,8 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       source: SOURCE.garages,
       paint: {
         'circle-radius': 7,
-        'circle-color': MAP_COLORS.background,
-        'circle-stroke-color': MAP_COLORS.accentStrong,
+        'circle-color': C.background,
+        'circle-stroke-color': C.accentStrong,
         'circle-stroke-width': 3,
       },
     },
@@ -170,7 +179,7 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       paint: {
         'circle-radius': 7,
         'circle-color': ['get', 'color'],
-        'circle-stroke-color': MAP_COLORS.background,
+        'circle-stroke-color': C.background,
         'circle-stroke-width': 2,
       },
     },
@@ -184,14 +193,14 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
           source: SOURCE.basemap,
           'source-layer': 'places',
           layout: { 'text-field': ARABIC_FIRST_NAME as never, 'text-font': ['Noto Sans Regular'], 'text-size': 12 },
-          paint: { 'text-color': MAP_COLORS.label, 'text-halo-color': MAP_COLORS.labelHalo, 'text-halo-width': 1.2 },
+          paint: { 'text-color': C.label, 'text-halo-color': C.labelHalo, 'text-halo-width': 1.2 },
         },
       ]
     : [];
 
   return {
     version: 8,
-    name: 'Driver dark',
+    name: light ? 'Driver light' : 'Driver dark',
     metadata: { 'driver:basemap': vector ? 'pmtiles' : 'osm-raster-fallback', 'driver:labels': 'ar-first' },
     center: AZIZIYAH_CENTER,
     zoom: AZIZIYAH_DEFAULT_ZOOM,

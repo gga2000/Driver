@@ -100,3 +100,18 @@ describe('style', () => {
     expect(JSON.stringify(labels)).toContain('name:ar');
   });
 });
+
+describe('light theme (customer app)', () => {
+  it('is a valid style with the cream base, a light raster and faint zones; dark stays the default', () => {
+    const light = buildMapStyle({ theme: 'light' });
+    expect(validateStyleMin(light)).toEqual([]);
+    expect(light.name).toBe('Driver light');
+    const bg = light.layers.find((l) => l.id === LAYER.background) as { paint: Record<string, unknown> };
+    expect(bg.paint['background-color']).toBe('#efe7da');
+    const raster = light.layers.find((l) => l.id === LAYER.osm) as { paint: Record<string, unknown> };
+    expect(raster.paint['raster-hue-rotate']).toBeUndefined();
+    const zones = light.layers.find((l) => l.id === LAYER.zoneFill) as { paint: Record<string, unknown> };
+    expect(zones.paint['fill-opacity']).toBe(0.1);
+    expect(buildMapStyle().name).toBe('Driver dark');
+  });
+});

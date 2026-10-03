@@ -566,6 +566,12 @@ export class TripsService implements OnModuleInit {
     return this.repo.linksForOrder(orderId);
   }
 
+  /** The trip's latest trail point (device time, pin, bearing, speed); null before the first fix. */
+  async lastPosition(tripId: string): Promise<{ at: Date; pin: LatLng; bearing: number | null; speedKmh: number | null; driverId: string } | null> {
+    const p = await this.repo.lastTrailPoint({ tripId });
+    return p ? { at: p.at, pin: p.pin, bearing: p.bearing, speedKmh: p.speedKmh, driverId: p.driverId } : null;
+  }
+
   /** `TripOrderLookup` for the events module (edge-case §10 late replays). */
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
     return this.repo.detachedAt(tripId, orderId);

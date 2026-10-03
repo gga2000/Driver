@@ -18,6 +18,23 @@ export const MAP_COLORS = {
 } as const;
 
 /**
+ * Light map for the customer app (cream base like the app's `bg`, white roads, brand orange accent).
+ * Same keys as `MAP_COLORS` so a renderer can switch palettes by theme.
+ */
+export const MAP_COLORS_LIGHT: Readonly<Record<keyof typeof MAP_COLORS, string>> = {
+  background: '#efe7da',
+  water: '#c9dce6',
+  land: '#f4ede2',
+  road: '#ffffff',
+  label: '#4a4038',
+  labelHalo: '#fbf6ee',
+  accent: '#e08a1e',
+  accentStrong: '#c77700',
+  line: '#d8ccbb',
+  muted: '#8a7f73',
+};
+
+/**
  * Tier shading, centre → edge: amber at the centre cooling outwards so the pricing bands read at a
  * glance (centre/near 500, mid 1,000, far 1,500, edge 2,000).
  */
