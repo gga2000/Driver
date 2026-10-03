@@ -158,10 +158,32 @@ describe('merchantAdmin.menu', () => {
     await expect(h.svc.menuUpdatePrice(h.owner, { merchantOrgId: h.orgId, itemId: other.id, priceIqd: 2000 })).rejects.toMatchObject({ code: 'menu_item_not_found' });
   });
 
+  it('reorders sections for the customer menu, keeping item order inside each and the unnamed one last', async () => {
+    const h = await setup();
+    const add = (nameAr: string, categoryAr?: string) => h.svc.menuUpsertItem(h.staff, { merchantOrgId: h.orgId, nameAr, priceIqd: 1000, ...(categoryAr ? { categoryAr } : {}) });
+    await add('لفة تكة', 'تكة');
+    await add('صحن تكة', 'تكة');
+    await add('بيبسي');
+    await add('لفة كص', 'كص');
+    await add('باجة', 'باجة');
+    const menu = await h.svc.menuReorderCategories(h.staff, { merchantOrgId: h.orgId, order: ['باجة', 'تكة', 'ما موجود'] });
+    expect(menu.categories.map((c) => [c.nameAr, c.items.map((i) => i.nameAr)])).toEqual([
+      ['باجة', ['باجة']],
+      ['تكة', ['لفة تكة', 'صحن تكة']],
+      ['كص', ['لفة كص']],
+      [null, ['بيبسي']],
+    ]);
+    // The customer menu reads the same order.
+    expect((await h.catalog.menu(h.orgId)).map((i) => i.nameAr)).toEqual(['باجة', 'لفة تكة', 'صحن تكة', 'لفة كص', 'بيبسي']);
+    expect((await h.ev.events.forActor(h.staff.personId)).map((e) => e.type)).toContain('menu.categories_reordered');
+    await expect(h.svc.menuReorderCategories(await h.person('07700000004'), { merchantOrgId: h.orgId, order: ['تكة'] })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
   it('imports a menu from photos: draft (OCR stub) → staff-corrected rows → items, once', async () => {
     const h = await setup();
     const job = await h.svc.menuImportFromPhotos(h.staff, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.staff.personId)] });
     expect(job).toMatchObject({ state: 'draft', ocr: 'stub', items: [] });
+    expect(job.photoUrls).toEqual([expect.stringMatching(/\/files\/up_[0-9a-f]+\?exp=\d+&sig=/)]);
     const applied = await h.svc.menuApplyImport(h.staff, {
       merchantOrgId: h.orgId,
       jobId: job.jobId,
@@ -188,6 +210,18 @@ describe('merchantAdmin.deals', () => {
     const schedule = { startsAt: h.clock.now(), endsAt: new Date(h.clock.now().getTime() + 14 * 86_400_000), days: [] };
     await expect(h.svc.dealsPropose(h.staff, { merchantOrgId: h.orgId, type: 'percent', value: 20, nameAr: 'خصم', itemIds: [], schedule, minOrderIqd: 0 })).rejects.toMatchObject({ code: 'forbidden' });
     await expect(h.svc.dealsPropose(h.owner, { merchantOrgId: h.orgId, type: 'percent', value: 80, nameAr: 'خصم', itemIds: [], schedule, minOrderIqd: 0 })).rejects.toMatchObject({ code: 'deal_invalid' });
+
+    // The owner sees the projection of a draft before submitting; nothing is stored.
+    const draft = { merchantOrgId: h.orgId, type: 'percent' as const, value: 20, nameAr: 'خصم اللفات', itemIds: [wrap.id], schedule, minOrderIqd: 0 };
+    expect(await h.svc.dealsProject(h.owner, draft)).toEqual({
+      projected: { ordersPerWeek: 2, costPerOrderIqd: 1200, weeklyCostIqd: 2400, totalCostIqd: 4800, basisOrders: 8 },
+      basisDays: 28,
+      requiresApproval: true,
+    });
+    expect(await h.svc.dealsList(h.owner, { merchantOrgId: h.orgId })).toEqual([]);
+    await expect(h.svc.dealsProject(h.staff, draft)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.svc.dealsProject(h.owner, { ...draft, itemIds: ['not_mine'] })).rejects.toMatchObject({ code: 'deal_invalid' });
+    expect((await h.svc.dealsProject(h.owner, { ...draft, minOrderIqd: 7000 })).projected).toMatchObject({ ordersPerWeek: 0, totalCostIqd: 0, basisOrders: 8 });
 
     const deal = await h.svc.dealsPropose(h.owner, { merchantOrgId: h.orgId, type: 'percent', value: 20, nameAr: 'خصم اللفات', itemIds: [wrap.id], schedule, minOrderIqd: 0 });
     expect(deal.projected).toEqual({ ordersPerWeek: 2, costPerOrderIqd: 1200, weeklyCostIqd: 2400, totalCostIqd: 4800, basisOrders: 8 });

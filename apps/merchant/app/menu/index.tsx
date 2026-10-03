@@ -1,6 +1,6 @@
-import { PlaceholderScreen } from '@/components/PlaceholderScreen';
+import { MenuScreen } from '@/features/menu/MenuScreen';
 
-/** المنيو — wave 2 replaces this file (categories, availability, sold-out today, prices, photos, modifiers). */
-export default function MenuScreen() {
-  return <PlaceholderScreen title="merchant.nav.menu" icon="utensils" testID="menu" />;
+/** المنيو — sections and dishes, availability, sold out today, search (src/features/menu). */
+export default function Menu() {
+  return <MenuScreen />;
 }

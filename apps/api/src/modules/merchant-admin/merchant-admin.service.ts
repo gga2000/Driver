@@ -5,6 +5,7 @@ import {
   type Actor,
   type AdminMenu,
   type AdminMenuItem,
+  type DealProjectionView,
   type DealView,
   type MenuImportJob,
   type MerchantAdminPort,
@@ -15,6 +16,7 @@ import {
   type MoneyToday,
   type Order,
   type PriceChange,
+  type ReorderCategoriesInput,
   type StaffMember,
   type UpsertCategoryInput,
   type UpsertItemInput,
@@ -31,7 +33,7 @@ import { Accounts, LedgerFacade, LedgerService } from '../ledger/index.js';
 import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
-import { projectDeal, PromotionsService } from '../promotions/index.js';
+import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
 import { composeInsights, defaultOutcome, disputeKindOf } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeMoneyToday, composeStatement } from './money.js';
@@ -248,6 +250,19 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.menuView(input.merchantOrgId);
   }
 
+  async menuReorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu> {
+    await this.roleAt(actor, input.merchantOrgId);
+    await this.uow.run(async (tx) => {
+      const touched = await this.catalog.reorderCategories(input.merchantOrgId, input.order, tx);
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'menu.categories_reordered', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, order: [...input.order], items: touched } },
+        { name: 'org', id: input.merchantOrgId },
+      );
+    });
+    return this.menuView(input.merchantOrgId);
+  }
+
   async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean }> }> }): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx));
@@ -259,6 +274,7 @@ export class MerchantAdminService implements MerchantAdminPort {
       merchantOrgId: j.orgId,
       state: j.state,
       photoUploadIds: [...j.photoRefs],
+      photoUrls: j.photoRefs.map((id) => this.blobs.readUrl(id)),
       items: j.items.map((i) => ({ nameAr: i.nameAr, priceIqd: i.priceIqd, categoryAr: i.categoryAr ?? null, description: i.description ?? null, sourceUploadId: i.sourceUploadId ?? null })),
       ocr: j.ocr,
       createdAt: j.createdAt,
@@ -306,25 +322,44 @@ export class MerchantAdminService implements MerchantAdminPort {
     }
   }
 
-  async dealsPropose(
-    actor: Actor,
-    input: { merchantOrgId: string; type: DealView['type']; value: number; nameAr: string; itemIds: string[]; schedule: DealView['schedule']; budgetCapIqd?: number | undefined; minOrderIqd: number },
-  ): Promise<DealView> {
+  private dealRules(cityId: string): { requirePlatformApproval: boolean; maxPercent: number; maxDays: number } {
+    return { requirePlatformApproval: true, maxPercent: 50, maxDays: 60, ...this.config.city(cityId)?.merchantDeals };
+  }
+
+  /** Owner check, validation (city rules, own items) and the server-side projection of a draft. */
+  private async draftDeal(actor: Actor, input: { merchantOrgId: string } & DealProposal) {
     await this.owner(actor, input.merchantOrgId);
     const cityId = this.cityOf(input.merchantOrgId);
-    const rules = { requirePlatformApproval: true, maxPercent: 50, maxDays: 60, ...this.config.city(cityId)?.merchantDeals };
+    const rules = this.dealRules(cityId);
     this.promotions.validate(input, rules);
     if (input.itemIds.length > 0) {
       const own = new Set((await this.catalog.adminMenu(input.merchantOrgId)).map((i) => i.id));
       if (input.itemIds.some((id) => !own.has(id))) throw new DriverError('deal_invalid');
     }
     const now = this.clock.now();
-    const history = await this.orders.merchantOrders(input.merchantOrgId, { from: new Date(now.getTime() - 28 * DAY_MS), to: now });
+    const history = await this.orders.merchantOrders(input.merchantOrgId, { from: new Date(now.getTime() - PROJECTION_BASIS_DAYS * DAY_MS), to: now });
     const projection = projectDeal(
       history.map((o) => ({ placedAt: o.placedAt, state: o.state, itemsTotalIqd: o.itemsTotalIqd, deliveryFeeIqd: o.deliveryFeeIqd, lines: o.lines.map((l) => ({ catalogItemId: l.catalogItemId, qty: l.qty, unitPriceIqd: l.unitPriceIqd })) })),
       input,
       now,
     );
+    return { cityId, rules, projection };
+  }
+
+  /** What a draft would cost, before the owner submits it (nothing is stored). */
+  async dealsProject(
+    actor: Actor,
+    input: { merchantOrgId: string; type: DealView['type']; value: number; nameAr: string; itemIds: string[]; schedule: DealView['schedule']; budgetCapIqd?: number | undefined; minOrderIqd: number },
+  ): Promise<DealProjectionView> {
+    const { rules, projection } = await this.draftDeal(actor, input);
+    return { projected: projection, basisDays: PROJECTION_BASIS_DAYS, requiresApproval: rules.requirePlatformApproval };
+  }
+
+  async dealsPropose(
+    actor: Actor,
+    input: { merchantOrgId: string; type: DealView['type']; value: number; nameAr: string; itemIds: string[]; schedule: DealView['schedule']; budgetCapIqd?: number | undefined; minOrderIqd: number },
+  ): Promise<DealView> {
+    const { cityId, rules, projection } = await this.draftDeal(actor, input);
     return this.promotions.propose({ ...input, cityId, ownerId: actor.personId, projection, requireApproval: rules.requirePlatformApproval });
   }
 
