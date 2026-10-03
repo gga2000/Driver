@@ -73,6 +73,8 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['fleet.addVehicle', (c) => c.fleet.addVehicle({ plate: 'واسط 1', vehicleClass: 'car' }), 'fleet_owner', 'driver'],
   ['fleet.addVehicle', (c) => c.fleet.addVehicle({ plate: 'واسط 2', vehicleClass: 'van', seats: 11 }), 'fleet_owner', 'courier'],
   ['fleet.addDriver', (c) => c.fleet.addDriver({ phone: '07700000001' }), 'fleet_owner', 'driver'],
+  ['fleet.myInvites', (c) => c.fleet.myInvites(), 'courier', 'fleet_owner'],
+  ['fleet.respondInvite', (c) => c.fleet.respondInvite({ fleetOrgId: 'fleet_1', accept: true }), 'driver', 'customer'],
   ['ops.addLandmarkPhoto', (c) => c.ops.addLandmarkPhoto({ target: { kind: 'landmark', id: 'l1' }, uploadId: 'up_1' }), 'field_ops', 'courier'],
   ['ops.recordCashReceipt', (c) => c.ops.recordCashReceipt({ courierId: 'k1', amountIqd: 1000, code: '1234' }), 'field_ops', 'finance'],
   [

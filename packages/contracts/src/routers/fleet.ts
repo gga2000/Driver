@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import { EarningsView } from '../driver-account-io.js';
-import { AddFleetDriverInput, AddVehicleInput, AssignDriverInput, FleetDriver, FleetDriverEarningsInput, FleetOverview, FleetScopeInput, FleetVehicle } from '../fleet-io.js';
+import { AddFleetDriverInput, AddVehicleInput, AssignDriverInput, FleetDriver, FleetDriverEarningsInput, FleetInvite, FleetOverview, FleetScopeInput, FleetVehicle, RespondFleetInviteInput } from '../fleet-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { DRIVING_ROLES } from './trips.js';
 
 export const FLEET_ROLES: readonly RoleKind[] = ['fleet_owner'];
 
@@ -36,4 +37,13 @@ export const fleetRouter = router({
     .input(AddFleetDriverInput)
     .output(FleetDriver)
     .mutation(({ ctx, input }) => ctx.fleet.addDriver(ctx.actor, input)),
+  /** Driver side: fleets that invited him (pending) or that he works for (accepted). */
+  myInvites: protectedProcedure(DRIVING_ROLES)
+    .output(z.array(FleetInvite))
+    .query(({ ctx }) => ctx.fleet.myInvites(ctx.actor)),
+  /** Driver side: accept an invite, or decline it / leave the fleet. Returns his links after. */
+  respondInvite: protectedProcedure(DRIVING_ROLES)
+    .input(RespondFleetInviteInput)
+    .output(z.array(FleetInvite))
+    .mutation(({ ctx, input }) => ctx.fleet.respondInvite(ctx.actor, input)),
 });

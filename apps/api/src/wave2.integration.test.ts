@@ -91,6 +91,13 @@ describe.skipIf(!url)('wave 2 repositories on Postgres (needs DATABASE_URL)', ()
     const link = await repo.addDriver({ fleetOrgId, personId, addedById: otherId, at });
     expect((await repo.addDriver({ fleetOrgId, personId, addedById: otherId, at })).id).toBe(link.id);
     expect((await repo.drivers(fleetOrgId)).map((d) => d.personId)).toEqual([personId]);
+    // Consent (review 2026-10-04 #2): pending until the driver accepts; leaving ends the link.
+    expect(link.acceptedAt).toBeNull();
+    expect((await repo.answerLink({ fleetOrgId, personId, accept: true, at }))?.acceptedAt).toEqual(at);
+    expect((await repo.linksOf(personId)).map((l) => [l.fleetOrgId, l.acceptedAt])).toEqual([[fleetOrgId, at]]);
+    expect((await repo.answerLink({ fleetOrgId, personId, accept: false, at }))?.removedAt).toEqual(at);
+    expect(await repo.drivers(fleetOrgId)).toEqual([]);
+    expect((await repo.addDriver({ fleetOrgId, personId, addedById: otherId, at })).acceptedAt).toBeNull();
   });
 
   it('ops photos, cash receipts, onboardings and tasks', async () => {

@@ -17,7 +17,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | # | Sev | Area | Status |
 |---|---|---|---|
 | 1 | High | ops cash receipts: race, duplicate reference | fixed |
-| 2 | High | fleet.addDriver: any phone → name, earnings, cash, documents | in progress |
+| 2 | High | fleet.addDriver: any phone → name, earnings, cash, documents | fixed |
 | 3 | High | ledger.merchantBalance / requestSettlement open to merchant staff | fixed |
 | 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | fixed |
 | 5 | Medium | online gate: heartbeat grace never ends | fixed |
@@ -115,3 +115,23 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Test:** `merchant-cash.test.ts` › "\"اطلب فلوسك\" pressed twice (or at once from two phones) is one request (review 2026-10-04 #9)".
 - **Follow-up (documented):** `recordPayout` should refuse more than the merchant balance (or require an
   explicit negative-balance flag per the adopted "negative-balance payouts" rule); left to the ledger owners.
+
+### 2 · High · fleet owner reads any person by phone (authorization, PII, money)
+
+- **Where:** `apps/api/src/modules/fleet/fleet.service.ts` `addDriver`, `driverRows`, `driverEarnings`.
+- **What:** `fleet.addDriver({phone})` linked whoever owns that number — no consent — and returned and
+  listed him with his **full name** from the vault, masked phone, today's/week's earnings, cash held and
+  owed, cap, document status and live state; `driverEarnings` then opened his whole book for any period
+  (anchor anywhere in the past). Any fleet owner could look up any courier/driver (or any registered
+  person) by typing a phone number.
+- **Fix:** consent. `fleet_drivers.accepted_at` (migration `20261004120000_fleet_driver_consent`, existing
+  links start pending); new driver-side procedures `fleet.myInvites` / `fleet.respondInvite` (driving roles).
+  A pending row is the bare id (`pending: true`), with no vault read, ledger read, documents or presence;
+  `driverEarnings` and `assignDriver` refuse it (`driver_not_in_fleet`). Accepted: earnings are clipped to
+  the moment he joined (`DriverAccountService.earningsFor(…, {notBefore})`). Declining/leaving removes the
+  link and frees his vehicle. Re-adding a removed driver is a fresh invite.
+- **Tests:** `fleet.service.test.ts` › "adding a phone shows nothing of that person until he accepts the
+  fleet's invite"; "an accepted driver's earnings start at the day he joined"; router gates in
+  `packages/contracts/src/routers/wave2.test.ts`; Prisma round-trip in `apps/api/src/wave2.integration.test.ts`.
+- **Client follow-up:** the Partner app needs an invites card (`fleet.myInvites` / `respondInvite`) and the
+  fleet dashboard should render `pending` rows as "بانتظار موافقة السايق".

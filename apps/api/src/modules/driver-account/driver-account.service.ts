@@ -150,11 +150,15 @@ export class DriverAccountService implements DriverAccountPort {
     return this.earningsFor(await this.subject(actor, input.driverId), input.period, input.anchor);
   }
 
-  /** Public read for fleet owners' dashboards (the fleet module checks membership). */
-  async earningsFor(driverId: string, period: EarningsPeriod, anchor?: Date): Promise<EarningsView> {
+  /**
+   * Public read for fleet owners' dashboards (the fleet module checks membership). `notBefore` clips
+   * the period to when he joined the reader's fleet: what he earned before is not the owner's.
+   */
+  async earningsFor(driverId: string, period: EarningsPeriod, anchor?: Date, opts: { notBefore?: Date | undefined } = {}): Promise<EarningsView> {
     const range = localPeriod(period, anchor ?? this.clock.now());
-    const view = await this.ledger.driverLedger({ driverId, from: range.from, to: range.to });
-    return composeEarnings(view, period, range, AZIZIYAH_MONEY_RULES);
+    const from = opts.notBefore && opts.notBefore > range.from ? (opts.notBefore < range.to ? opts.notBefore : range.to) : range.from;
+    const view = await this.ledger.driverLedger({ driverId, from, to: range.to });
+    return composeEarnings(view, period, { from, to: range.to }, AZIZIYAH_MONEY_RULES);
   }
 
   // ───────────────────────── scorecard ─────────────────────────

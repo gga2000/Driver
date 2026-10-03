@@ -56,8 +56,12 @@ describe('fleet', () => {
     const v1 = await h.fleet.addVehicle(h.owner, { plate: 'واسط 12345', vehicleClass: 'car' });
     const v2 = await h.fleet.addVehicle(h.owner, { plate: 'واسط 777', vehicleClass: 'tuktuk' });
     await expect(h.fleet.addVehicle(h.owner, { plate: 'واسط  12345', vehicleClass: 'car' })).rejects.toMatchObject({ code: 'vehicle_plate_taken' });
-    const d = await h.fleet.addDriver(h.owner, { phone: '07700000050' });
-    expect(d).toMatchObject({ state: 'offline', vehicleId: null, todayEarningsIqd: 12500, weekEarningsIqd: 80000, tier: 'silver', phoneMasked: '+96477*****50', cashHeldIqd: 0, capIqd: 150000 });
+    const invited = await h.fleet.addDriver(h.owner, { phone: '07700000050' });
+    expect(invited).toMatchObject({ pending: true, name: null, todayEarningsIqd: 0 });
+    // The driver accepts in his Partner app; from then on the owner sees him.
+    await h.fleet.respondInvite((await h.id.login('07700000050')).actor, { fleetOrgId: 'fleet_1', accept: true });
+    const d = (await h.fleet.drivers(h.owner, {})).find((x) => x.driverId === invited.driverId)!;
+    expect(d).toMatchObject({ pending: false, state: 'offline', vehicleId: null, todayEarningsIqd: 12500, weekEarningsIqd: 80000, tier: 'silver', phoneMasked: '+96477*****50', cashHeldIqd: 0, capIqd: 150000 });
     expect([v1.seats, v2.seats]).toEqual([4, 3]);
     expect((await h.fleet.addVehicle(h.owner, { plate: 'واسط 999', vehicleClass: 'van', seats: 11 })).seats).toBe(11);
     // Names are read through the vault with the fleet purpose.
@@ -85,8 +89,71 @@ describe('fleet', () => {
   it("shows a fleet driver's earnings only to his fleet's owner", async () => {
     const h = await setup();
     const d = await h.fleet.addDriver(h.owner, { phone: '07700000050' });
+    await h.fleet.respondInvite((await h.id.login('07700000050')).actor, { fleetOrgId: 'fleet_1', accept: true });
     expect((await h.fleet.driverEarnings(h.owner, { driverId: d.driverId, period: 'week' })).driverId).toBe(d.driverId);
     await expect(h.fleet.driverEarnings(h.owner, { driverId: 'someone', period: 'week' })).rejects.toMatchObject({ code: 'driver_not_in_fleet' });
+  });
+});
+
+describe('fleet consent (review 2026-10-04 #2)', () => {
+  it("adding a phone shows nothing of that person until he accepts the fleet's invite", async () => {
+    const h = await setup();
+    // An independent courier with a name in the vault and money on his book.
+    const courier = (await h.id.login('07700000060')).actor;
+    await h.id.service.updateProfile(courier, { name: 'حيدر كاظم جواد' });
+    const before = h.id.repo.accessLogs.filter((l) => l.personId === courier.personId).length;
+    const row = await h.fleet.addDriver(h.owner, { phone: '07700000060' });
+    expect(row).toMatchObject({ driverId: courier.personId, pending: true, name: null, phoneMasked: null, todayEarningsIqd: 0, weekEarningsIqd: 0, owedIqd: 0, cashHeldIqd: 0, documents: null });
+    expect(JSON.stringify(await h.fleet.overview(h.owner, {}))).not.toContain('حيدر');
+    expect((await h.fleet.overview(h.owner, {})).totals).toMatchObject({ drivers: 1, todayEarningsIqd: 0, weekEarningsIqd: 0 });
+    // No vault read of his name or phone on the owner's behalf.
+    expect(h.id.repo.accessLogs.filter((l) => l.personId === courier.personId)).toHaveLength(before);
+    await expect(h.fleet.driverEarnings(h.owner, { driverId: courier.personId, period: 'week' })).rejects.toMatchObject({ code: 'driver_not_in_fleet' });
+    const v = await h.fleet.addVehicle(h.owner, { plate: 'واسط 4040', vehicleClass: 'car' });
+    await expect(h.fleet.assignDriver(h.owner, { vehicleId: v.vehicleId, driverId: courier.personId })).rejects.toMatchObject({ code: 'driver_not_in_fleet' });
+
+    // He sees the invite in his app and accepts it: from then on the owner sees him.
+    const invites = await h.fleet.myInvites(courier);
+    expect(invites).toEqual([{ fleetOrgId: 'fleet_1', invitedAt: expect.any(Date), invitedByName: null, accepted: false }]);
+    await h.fleet.respondInvite(courier, { fleetOrgId: 'fleet_1', accept: true });
+    const after = (await h.fleet.drivers(h.owner, {}))[0]!;
+    expect(after).toMatchObject({ pending: false, name: 'حيدر كاظم جواد', todayEarningsIqd: 12500 });
+    expect((await h.fleet.driverEarnings(h.owner, { driverId: courier.personId, period: 'week' })).driverId).toBe(courier.personId);
+
+    // Leaving the fleet hides him again and frees the vehicle.
+    await h.fleet.assignDriver(h.owner, { vehicleId: v.vehicleId, driverId: courier.personId });
+    await h.fleet.respondInvite(courier, { fleetOrgId: 'fleet_1', accept: false });
+    expect(await h.fleet.drivers(h.owner, {})).toEqual([]);
+    expect((await h.fleet.vehicles(h.owner, {}))[0]!.activeDriverId).toBeNull();
+    await expect(h.fleet.respondInvite(courier, { fleetOrgId: 'fleet_9', accept: true })).rejects.toMatchObject({ code: 'fleet_not_found' });
+  });
+
+  it("an accepted driver's earnings start at the day he joined", async () => {
+    const h = await setup();
+    const calls: Array<{ notBefore: Date | undefined }> = [];
+    const fleet = new FleetService(
+      h.repo,
+      h.id.service,
+      {
+        earningsFor: async (driverId: string, period: 'day' | 'week', _anchor?: Date, opts?: { notBefore?: Date }) => {
+          calls.push({ notBefore: opts?.notBefore });
+          return earnings(driverId, period === 'day' ? 1 : 2);
+        },
+        documentsOf: async (ids: readonly string[]) => new Map(ids.map((i) => [i, []])),
+      } as unknown as DriverAccountService,
+      { liveDrivers: async () => [] } as unknown as DispatchService,
+      { cityIds: () => ['aziziyah'] } as unknown as ConfigService,
+      h.ev.events,
+      h.ev.uow,
+      h.id.clock,
+    );
+    const courier = (await h.id.login('07700000061')).actor;
+    await fleet.addDriver(h.owner, { phone: '07700000061' });
+    h.id.clock.advance(60_000);
+    await fleet.respondInvite(courier, { fleetOrgId: 'fleet_1', accept: true });
+    calls.length = 0;
+    await fleet.driverEarnings(h.owner, { driverId: courier.personId, period: 'month' });
+    expect(calls.map((c) => c.notBefore)).toEqual([h.id.clock.now()]);
   });
 });
 

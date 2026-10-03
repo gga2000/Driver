@@ -45,6 +45,11 @@ export const FleetDriver = z.object({
   capIqd: Iqd,
   /** Worst document status (expired > expiring > pending > rejected > approved); null without documents. */
   documents: DriverDocumentStatus.nullable(),
+  /**
+   * Invited, not yet accepted (`fleet.respondInvite`): the owner sees only the id — no name, phone,
+   * money, documents or live state — until the driver says yes.
+   */
+  pending: z.boolean().default(false),
 });
 export type FleetDriver = z.infer<typeof FleetDriver>;
 
@@ -100,13 +105,30 @@ export const AddVehicleInput = FleetScopeInput.extend({
 });
 export type AddVehicleInput = z.infer<typeof AddVehicleInput>;
 
-/** Links a driver to the fleet by phone; the driving role itself still comes from ops review. */
+/**
+ * Invites a driver to the fleet by phone (the driving role itself still comes from ops review). The
+ * link stays pending until the driver accepts it in his app (`fleet.respondInvite`).
+ */
 export const AddFleetDriverInput = FleetScopeInput.extend({ phone: z.string().min(7).max(20) });
 export type AddFleetDriverInput = z.infer<typeof AddFleetDriverInput>;
 
 /** One of the fleet's drivers' earnings, every component named (same view as `driverAccount.earnings`). */
 export const FleetDriverEarningsInput = FleetScopeInput.extend({ driverId: z.string().min(1), period: EarningsPeriod.default('week'), anchor: z.coerce.date().optional() });
 export type FleetDriverEarningsInput = z.output<typeof FleetDriverEarningsInput>;
+
+/** A driver's own fleet links (Partner app): invites to accept, and fleets he works for. */
+export const FleetInvite = z.object({
+  fleetOrgId: z.string(),
+  invitedAt: z.coerce.date(),
+  /** The inviting owner's first name (vault read, logged); null when unknown. */
+  invitedByName: z.string().nullable(),
+  accepted: z.boolean(),
+});
+export type FleetInvite = z.infer<typeof FleetInvite>;
+
+/** Accept a fleet's invite, or decline it / leave the fleet. */
+export const RespondFleetInviteInput = z.object({ fleetOrgId: z.string().min(1), accept: z.boolean() });
+export type RespondFleetInviteInput = z.infer<typeof RespondFleetInviteInput>;
 
 export interface FleetPort {
   driverEarnings(actor: Actor, input: FleetDriverEarningsInput): Promise<EarningsView>;
@@ -116,4 +138,6 @@ export interface FleetPort {
   assignDriver(actor: Actor, input: AssignDriverInput): Promise<FleetVehicle>;
   addVehicle(actor: Actor, input: AddVehicleInput): Promise<FleetVehicle>;
   addDriver(actor: Actor, input: AddFleetDriverInput): Promise<FleetDriver>;
+  myInvites(actor: Actor): Promise<FleetInvite[]>;
+  respondInvite(actor: Actor, input: RespondFleetInviteInput): Promise<FleetInvite[]>;
 }

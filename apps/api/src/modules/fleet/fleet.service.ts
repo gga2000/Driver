@@ -5,15 +5,18 @@ import {
   type AddFleetDriverInput,
   type AddVehicleInput,
   type AssignDriverInput,
+  type DriverDocumentView,
   type EarningsView,
   type FleetDay,
   type FleetDriver,
   type FleetDriverEarningsInput,
   type FleetDriverState,
+  type FleetInvite,
   type FleetOverview,
   type FleetPort,
   type FleetScopeInput,
   type FleetVehicle,
+  type RespondFleetInviteInput,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
@@ -91,16 +94,27 @@ export class FleetService implements FleetPort {
 
   private async driverRows(actor: Actor, fleetOrgId: string): Promise<{ rows: FleetDriver[]; weekJobs: Array<{ at: Date; netIqd: number }> }> {
     const [links, vehicles] = await Promise.all([this.repo.drivers(fleetOrgId), this.repo.vehicles(fleetOrgId)]);
-    const ids = links.map((l) => l.personId);
     const weekJobs: Array<{ at: Date; netIqd: number }> = [];
-    if (ids.length === 0) return { rows: [], weekJobs };
+    if (links.length === 0) return { rows: [], weekJobs };
+    // Only drivers who accepted the fleet are read (vault, ledger, documents, presence); an invite
+    // still pending shows as a bare id.
+    const accepted = links.filter((l) => l.acceptedAt !== null);
+    const joinedAt = new Map(accepted.map((l) => [l.personId, l.acceptedAt!]));
+    const ids = accepted.map((l) => l.personId);
     const now = this.clock.now();
     const live = new Map<string, LiveDriver>();
-    for (const cityId of this.config.cityIds()) for (const d of await this.dispatch.liveDrivers(cityId, now)) live.set(d.presence.driverId, d);
-    const [cards, docs] = await Promise.all([this.identity.memberCards(ids, actor.personId, 'fleet_view'), this.accounts.documentsOf(ids)]);
+    if (ids.length > 0) for (const cityId of this.config.cityIds()) for (const d of await this.dispatch.liveDrivers(cityId, now)) live.set(d.presence.driverId, d);
+    const noCards: Record<string, { name: string | null; phoneMasked: string }> = {};
+    const [cards, docs] = ids.length > 0 ? await Promise.all([this.identity.memberCards(ids, actor.personId, 'fleet_view'), this.accounts.documentsOf(ids)]) : [noCards, new Map<string, DriverDocumentView[]>()];
     const rows: FleetDriver[] = [];
-    for (const id of ids) {
-      const [today, week] = await Promise.all([this.accounts.earningsFor(id, 'day', now), this.accounts.earningsFor(id, 'week', now)]);
+    for (const link of links) {
+      if (link.acceptedAt === null) {
+        rows.push(pendingRow(link.personId));
+        continue;
+      }
+      const id = link.personId;
+      const notBefore = joinedAt.get(id);
+      const [today, week] = await Promise.all([this.accounts.earningsFor(id, 'day', now, { notBefore }), this.accounts.earningsFor(id, 'week', now, { notBefore })]);
       for (const j of week.jobs) weekJobs.push({ at: j.at, netIqd: j.netIqd });
       rows.push({
         driverId: id,
@@ -115,6 +129,7 @@ export class FleetService implements FleetPort {
         cashHeldIqd: today.cash.heldIqd,
         capIqd: today.cap.capIqd,
         documents: worstStatus((docs.get(id) ?? []).map((d) => d.status)),
+        pending: false,
       });
     }
     return { rows, weekJobs };
@@ -123,7 +138,7 @@ export class FleetService implements FleetPort {
   async overview(actor: Actor, input: FleetScopeInput): Promise<FleetOverview> {
     const fleetOrgId = await this.fleetOf(actor, input.fleetOrgId);
     const [vehicles, { rows: drivers, weekJobs }] = await Promise.all([this.repo.vehicles(fleetOrgId), this.driverRows(actor, fleetOrgId)]);
-    const docs = await this.accounts.documentsOf(drivers.map((d) => d.driverId));
+    const docs = await this.accounts.documentsOf(drivers.filter((d) => !d.pending).map((d) => d.driverId));
     const expiring = [...docs.entries()]
       .flatMap(([driverId, list]) => list.filter((d) => d.status === 'expired' || d.status === 'expiring').map((d) => ({ driverId, kind: d.kind, status: d.status, expiresAt: d.expiresAt, daysToExpiry: d.daysToExpiry })))
       .sort((a, b) => (a.daysToExpiry ?? 0) - (b.daysToExpiry ?? 0));
@@ -147,12 +162,15 @@ export class FleetService implements FleetPort {
 
   async driverEarnings(actor: Actor, input: FleetDriverEarningsInput): Promise<EarningsView> {
     const fleetOrgId = await this.fleetOf(actor, input.fleetOrgId);
-    await this.assertMember(fleetOrgId, input.driverId);
-    return this.accounts.earningsFor(input.driverId, input.period, input.anchor);
+    const joinedAt = await this.assertMember(fleetOrgId, input.driverId);
+    return this.accounts.earningsFor(input.driverId, input.period, input.anchor, { notBefore: joinedAt });
   }
 
-  private async assertMember(fleetOrgId: string, driverId: string): Promise<void> {
-    if (!(await this.repo.drivers(fleetOrgId)).some((d) => d.personId === driverId)) throw new DriverError('driver_not_in_fleet');
+  /** The driver accepted this fleet (a pending invite is not membership); returns when he joined. */
+  private async assertMember(fleetOrgId: string, driverId: string): Promise<Date> {
+    const link = (await this.repo.drivers(fleetOrgId)).find((d) => d.personId === driverId);
+    if (!link?.acceptedAt) throw new DriverError('driver_not_in_fleet');
+    return link.acceptedAt;
   }
 
   async assignDriver(actor: Actor, input: AssignDriverInput): Promise<FleetVehicle> {
@@ -182,16 +200,70 @@ export class FleetService implements FleetPort {
     });
   }
 
-  /** Links a driver by phone (the Person is found or created pseudonymously; the number stays in the vault). */
+  /**
+   * Invites a driver by phone (the Person is found or created pseudonymously; the number stays in the
+   * vault). The link is pending until the driver accepts (`respondInvite`): typing a number must not
+   * reveal whose it is, nor his money (review 2026-10-04 #2).
+   */
   async addDriver(actor: Actor, input: AddFleetDriverInput): Promise<FleetDriver> {
     const fleetOrgId = await this.fleetOf(actor, input.fleetOrgId);
     const personId = await this.identity.ensurePersonByPhone(input.phone, actor.personId, 'fleet_invite');
     await this.uow.run(async (tx) => {
-      await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now() }, tx);
-      await this.events.emit(tx, { actorId: actor.personId, type: 'fleet.driver_added', occurredAt: this.clock.now(), payload: { fleetOrgId, personId } }, { name: 'org', id: fleetOrgId });
+      const link = await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now() }, tx);
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'fleet.driver_added', occurredAt: this.clock.now(), payload: { fleetOrgId, personId, pending: link.acceptedAt === null } },
+        { name: 'org', id: fleetOrgId },
+      );
     });
     const row = (await this.driverRows(actor, fleetOrgId)).rows.find((d) => d.driverId === personId);
     if (!row) throw new DriverError('internal');
     return row;
   }
+
+  // ───────────────────────── driver side ─────────────────────────
+
+  async myInvites(actor: Actor): Promise<FleetInvite[]> {
+    const links = await this.repo.linksOf(actor.personId);
+    const owners = [...new Set(links.map((l) => l.addedById))];
+    const names = owners.length > 0 ? await this.identity.firstNamesFor(owners, actor.personId, 'fleet_invite') : {};
+    return links.map((l) => ({ fleetOrgId: l.fleetOrgId, invitedAt: l.createdAt, invitedByName: names[l.addedById] ?? null, accepted: l.acceptedAt !== null }));
+  }
+
+  /** The driver accepts a fleet's invite, or declines it / leaves the fleet (his vehicle there is freed). */
+  async respondInvite(actor: Actor, input: RespondFleetInviteInput): Promise<FleetInvite[]> {
+    const now = this.clock.now();
+    await this.uow.run(async (tx) => {
+      const link = await this.repo.answerLink({ fleetOrgId: input.fleetOrgId, personId: actor.personId, accept: input.accept, at: now }, tx);
+      if (!link) throw new DriverError('fleet_not_found');
+      if (!input.accept) {
+        for (const v of await this.repo.vehicles(input.fleetOrgId, tx)) if (v.activeDriverId === actor.personId) await this.repo.setActiveDriver(v.id, null, tx);
+      }
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: input.accept ? 'fleet.driver_accepted' : 'fleet.driver_left', occurredAt: now, payload: { fleetOrgId: input.fleetOrgId, personId: actor.personId } },
+        { name: 'org', id: input.fleetOrgId },
+      );
+    });
+    return this.myInvites(actor);
+  }
+}
+
+/** An invite the driver has not accepted: nothing about him but the id. */
+function pendingRow(driverId: string): FleetDriver {
+  return {
+    driverId,
+    name: null,
+    phoneMasked: null,
+    state: 'offline',
+    vehicleId: null,
+    tier: 'bronze',
+    todayEarningsIqd: 0,
+    weekEarningsIqd: 0,
+    owedIqd: 0,
+    cashHeldIqd: 0,
+    capIqd: 0,
+    documents: null,
+    pending: true,
+  };
 }
