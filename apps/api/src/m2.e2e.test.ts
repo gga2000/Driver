@@ -86,7 +86,8 @@ describe('M2 end to end: food order → dispatch → courier → ledger', () => 
       deliveryFeeIqd: 1000,
       serviceFeeIqd: 500,
       paymentMethod: 'cash',
-      dropoff: { zoneKey: 'street_30', pin: HOME },
+      // Across town (centre → nakra, mid band): the server quotes the worked example's 1,000 delivery.
+      dropoff: { zoneKey: 'nakra', pin: HOME },
     });
     expect(placed).toMatchObject({ state: 'placed', totalIqd: 16500 });
 
@@ -96,7 +97,7 @@ describe('M2 end to end: food order → dispatch → courier → ledger', () => 
     expect(trip).toMatchObject({ vertical: 'food', state: 'created' });
     expect(trip!.stops.map((s) => [s.type, s.zoneKey])).toEqual([
       ['pickup', 'centre'],
-      ['dropoff', 'street_30'],
+      ['dropoff', 'nakra'],
     ]);
     const req = await dispatch.getRequest(trip!.id);
     expect(req).toMatchObject({ policy: 'auto_assign', status: 'scheduled', cashIqd: 16500 });

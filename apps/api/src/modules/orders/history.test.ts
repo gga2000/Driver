@@ -40,7 +40,7 @@ describe('cursor', () => {
 describe('OrdersService.search / liveStats (in-memory repository)', () => {
   async function seeded() {
     const h = ordersHarness('2026-10-03T09:00:00Z');
-    h.merchants.add('rest_2');
+    h.merchants.add('rest_2', { location: { zoneKey: 'centre' } });
     const ids: string[] = [];
     for (let i = 0; i < 5; i += 1) {
       const o = await h.orders.place(`c${i}`, h.foodInput({ ...(i === 3 ? { merchantOrgId: 'rest_2', note: 'بدون بصل' } : {}) }));

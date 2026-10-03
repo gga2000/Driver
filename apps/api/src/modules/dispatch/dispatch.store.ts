@@ -1,4 +1,5 @@
-import type { DispatchPolicyKind, DispatchStatus, LatLng, VehicleClass, Vertical } from '@driver/contracts';
+import { randomUUID } from 'node:crypto';
+import { DriverError, type DispatchPolicyKind, type DispatchStatus, type LatLng, type VehicleClass, type Vertical } from '@driver/contracts';
 import type { Redis } from 'ioredis';
 
 /**
@@ -77,7 +78,17 @@ export interface DispatchStore {
   driverJobs(driverId: string): Promise<string[]>;
   addDriverJob(driverId: string, tripId: string): Promise<void>;
   removeDriverJob(driverId: string, tripId: string): Promise<void>;
+  /**
+   * M2 review follow-up: runs `fn` while holding the driver's lock, so two accepts by the same driver
+   * (different trips, two devices or two pods) cannot both pass the one-job / batching check before
+   * either records its job. Redis: SET dispatch:driver-lock:{id} token NX PX, released by token.
+   * In memory: a per-driver mutex. Not re-entrant — never call it from inside itself.
+   */
+  withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T>;
 }
+
+/** How long a driver lock may be held (a crashed holder frees it after this) and how long to wait for one. */
+export const DRIVER_LOCK = { ttlMs: 10_000, waitMs: 5_000, retryMs: 20 } as const;
 
 export const DISPATCH_STORE = Symbol('DISPATCH_STORE');
 
@@ -87,6 +98,12 @@ const activeKey = (cityId: string) => `dispatch:active:${cityId}`;
 const policyKey = (cityId: string) => `dispatch:policy:${cityId}`;
 const jobsKey = (driverId: string) => `dispatch:jobs:${driverId}`;
 export const lockKey = (tripId: string) => `dispatch:lock:${tripId}`;
+export const driverLockKey = (driverId: string) => `dispatch:driver-lock:${driverId}`;
+
+/** Deletes the lock only if we still own it (a lock that expired and was re-taken is not ours). */
+const RELEASE_IF_OWNER = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // ───────────────────────── Redis ─────────────────────────
 
@@ -146,6 +163,23 @@ export class RedisDispatchStore implements DispatchStore {
   async removeDriverJob(driverId: string, tripId: string): Promise<void> {
     await this.redis.srem(jobsKey(driverId), tripId);
   }
+
+  async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {
+    const key = driverLockKey(driverId);
+    const token = randomUUID();
+    const deadline = Date.now() + DRIVER_LOCK.waitMs;
+    while ((await this.redis.set(key, token, 'PX', DRIVER_LOCK.ttlMs, 'NX')) !== 'OK') {
+      // Another accept for this driver is in flight; after it he holds a job, so this one would
+      // fail the one-job check anyway. Wait briefly, then give up with that answer.
+      if (Date.now() >= deadline) throw new DriverError('offer_conflicts_current_job');
+      await sleep(DRIVER_LOCK.retryMs);
+    }
+    try {
+      return await fn();
+    } finally {
+      await this.redis.eval(RELEASE_IF_OWNER, 1, key, token);
+    }
+  }
 }
 
 // ───────────────────────── In-memory ─────────────────────────
@@ -156,6 +190,8 @@ export class InMemoryDispatchStore implements DispatchStore {
   private readonly locks = new Map<string, { owner: string; until: number }>();
   private readonly policies = new Map<string, PolicyOverride>();
   private readonly jobs = new Map<string, Set<string>>();
+  /** Tail of each driver's lock queue: the next holder waits for it. */
+  private readonly driverLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
@@ -213,5 +249,20 @@ export class InMemoryDispatchStore implements DispatchStore {
 
   async removeDriverJob(driverId: string, tripId: string): Promise<void> {
     this.jobs.get(driverId)?.delete(tripId);
+  }
+
+  async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.driverLocks.get(driverId) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => (release = resolve));
+    const tail = prev.then(() => mine);
+    this.driverLocks.set(driverId, tail);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.driverLocks.get(driverId) === tail) this.driverLocks.delete(driverId);
+    }
   }
 }

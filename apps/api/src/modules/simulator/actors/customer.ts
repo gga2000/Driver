@@ -24,6 +24,7 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
     const quote = ctx.s.pricing.quote(
       PriceRequest.parse({ cityId: CITY, vertical: 'food', stops: [{ zoneId: r.def.zoneId, type: 'pickup' }, { zoneId: p.dropoffZone, type: 'dropoff' }], at: new Date(ctx.t) }),
     );
+    // The cart's expectation of the fees; the server quotes them itself and refuses a mismatch.
     const serviceFee = quote.components.find((x) => x.key === 'service_fee')?.amount ?? 0;
     const delivery = quote.components.filter((x) => x.key !== 'service_fee').reduce((s, x) => s + x.amount, 0);
     const order = await ctx.call('customer.place', () =>
@@ -56,7 +57,17 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
     PriceRequest.parse({ cityId: CITY, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: p.dropoffZone, type: 'dropoff' }], at: new Date(ctx.t) }),
   );
   const order = await ctx.call('customer.place', () =>
-    ctx.s.orders.place(run.customerId, { cityId: CITY, type: 'ride', fareIqd: quote.total, quoteId: quote.id, paymentMethod: p.payment, dropoff: { zoneKey: p.dropoffZone, pin: p.dropoffPin } }),
+    ctx.s.orders.place(run.customerId, {
+      cityId: CITY,
+      type: 'ride',
+      rideVertical: vertical,
+      // The fare the app showed; the server re-quotes the same zones and refuses a mismatch.
+      fareIqd: quote.total,
+      quoteId: quote.id,
+      paymentMethod: p.payment,
+      pickup: { zoneKey: pickupZone, pin: c.home },
+      dropoff: { zoneKey: p.dropoffZone, pin: p.dropoffPin },
+    }),
   );
   if (!order) {
     run.placeError = 'refused';

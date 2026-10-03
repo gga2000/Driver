@@ -32,7 +32,7 @@ const code = async (p: Promise<unknown>) => {
 /**
  * Milestone 2 review regressions on the app's own wiring (AppModule, in-memory, fake clock):
  * C2 client prices never reach the ledger, H a reused client idempotency key never swallows another
- * delivery's events, H a busy courier cannot take a second job through `trips.accept`.
+ * delivery's events, H a busy courier cannot take a second job around dispatch.
  */
 describe('M2 review regressions end to end', () => {
   const clock = new FakeClock('2026-10-03T09:00:00Z');
@@ -74,7 +74,7 @@ describe('M2 review regressions end to end', () => {
     const dispatch = app.get(DispatchService);
     const dq = app.get<InMemoryQueue<TimerJob>>(DISPATCH_QUEUE, { strict: false });
     const offers = app.get<DispatchRepository>(DISPATCH_REPOSITORY, { strict: false });
-    const o = await orders.place(customerId, { cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: itemId, qty: 1 }], deliveryFeeIqd: 1000, serviceFeeIqd: 500, paymentMethod: 'cash', dropoff: { zoneKey: 'street_30', pin: HOME } });
+    const o = await orders.place(customerId, { cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: itemId, qty: 1 }], deliveryFeeIqd: 1000, serviceFeeIqd: 500, paymentMethod: 'cash', dropoff: { zoneKey: 'nakra', pin: HOME } });
     await orders.merchantAccept('m', { orderId: o.id, prepMinutes: 1 });
     const trip = (await trips.activeForOrder(o.id))!;
     clock.set(Math.max(clock.now().getTime(), (await dispatch.getRequest(trip.id))!.nextTimerAt ?? 0));
@@ -90,16 +90,16 @@ describe('M2 review regressions end to end', () => {
     const customer = await person('07712340101');
     const rpc = app.get(OrdersRpc);
     const lowball = rpc.place({ personId: customer, sessionId: 's' }, {
-      cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: kebab, qty: 1, unitPriceIqd: 100, modifiers: [], pointsEligible: true }], participants: [], deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 0, tipIqd: 0, paymentMethod: 'cash',
+      cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: kebab, qty: 1, unitPriceIqd: 100, modifiers: [], pointsEligible: true }], participants: [], deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 0, tipIqd: 0, paymentMethod: 'cash', dropoff: { zoneKey: 'nakra', pin: HOME },
     });
     expect(await code(lowball)).toBe('price_changed');
     const fair = await rpc.place({ personId: customer, sessionId: 's' }, {
-      cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: kebab, qty: 1, modifiers: [], pointsEligible: true }], participants: [], deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 0, tipIqd: 0, paymentMethod: 'cash',
+      cityId: 'aziziyah', type: 'food', merchantOrgId: orgId, lines: [{ catalogItemId: kebab, qty: 1, modifiers: [], pointsEligible: true }], participants: [], deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 0, tipIqd: 0, paymentMethod: 'cash', dropoff: { zoneKey: 'nakra', pin: HOME },
     });
     expect(fair).toMatchObject({ itemsTotalIqd: 10000, totalIqd: 11500 });
   });
 
-  it('H: reusing client keys across deliveries still closes every order and settles the ledger; a busy courier cannot trips.accept a second job', async () => {
+  it('H: reusing client keys across deliveries still closes every order and settles the ledger; a busy courier cannot take a second job around dispatch', async () => {
     const trips = app.get(TripsService);
     const orders = app.get(OrdersService);
     const ledger = app.get(LedgerService);
@@ -117,12 +117,14 @@ describe('M2 review regressions end to end', () => {
       await trips.completeStop(trip.id, p!.id, courier, { idempotencyKey: 'same-key-pick' });
 
       if (n === 1) {
-        // While he carries this job, a second trip on offer cannot be taken through trips.accept.
+        // While he carries this job, a second trip on offer cannot be taken around dispatch: trips has
+        // no public accept any more, and internally it wants an open DispatchOffer (M2 follow-up) —
+        // which neither the busy courier nor a free one holds for a trip dispatch never offered.
         const second = await trips.createForOrders({ cityId: 'aziziyah', vertical: 'food', orders: [{ orderId: 'free-standing', minVehicleClass: null }], stops: [{ orderId: 'free-standing', type: 'pickup', zoneKey: 'centre', target: KITCHEN }, { orderId: 'free-standing', type: 'dropoff', zoneKey: 'zakur', target: HOME }] });
         await trips.offer(second.id);
-        expect(await code(app.get(TripsRpc).accept({ personId: courier, sessionId: 's' }, { tripId: second.id, vehicleClass: 'bike' }))).toBe('offer_conflicts_current_job');
-        // A free courier still can.
-        expect((await app.get(TripsRpc).accept({ personId: other, sessionId: 's' }, { tripId: second.id, vehicleClass: 'bike' })).courierId).toBe(other);
+        expect('accept' in app.get(TripsRpc)).toBe(false);
+        expect(await code(trips.accept(second.id, courier, { vehicleClass: 'bike' }))).toBe('offer_not_found');
+        expect(await code(trips.accept(second.id, other, { vehicleClass: 'bike' }))).toBe('offer_not_found');
       }
 
       await trips.arrive(trip.id, d!.id, courier, { pin: HOME, idempotencyKey: 'same-arrive' });

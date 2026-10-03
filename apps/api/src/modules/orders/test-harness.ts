@@ -6,12 +6,13 @@ import { InMemoryQueue } from '../../shared/queue.js';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
-import { InMemoryTripsRepository, RecordingTripEvents, TripsService, type TripTimerJob } from '../trips/index.js';
+import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { RecordingOrderEvents } from './events.adapter.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
 import type { ParticipantResolver } from './participants.js';
+import type { PromotionQuery, PromotionsPort, ResolvedPromotion } from './promotions.port.js';
 
 /** Stand-in for identity's peppered HMAC: deterministic, and the number cannot be read back from it. */
 export function fakePhoneHash(phone: string): string {
@@ -54,6 +55,15 @@ export class FakeCashRisk implements OrdersCashRiskPort {
   }
 }
 
+/** A promotions double: codes resolve to what a test registers; by default nothing does (like `NoPromotions`). */
+export class FakePromotions implements PromotionsPort {
+  readonly codes = new Map<string, ResolvedPromotion>();
+
+  async resolve(q: PromotionQuery): Promise<ResolvedPromotion | null> {
+    return this.codes.get(q.code) ?? null;
+  }
+}
+
 /**
  * Orders + trips on in-memory everything, one fake clock, two in-memory timer queues, and a fake
  * outbox that forwards trip events to `orders.onTripEvent` when `deliver()` (or `advance`) runs.
@@ -68,6 +78,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   const tripsRepo = new InMemoryTripsRepository();
   const trips = new TripsService(tripsRepo, tripEvents, uow, clock, tripsQueue);
   trips.onModuleInit();
+  // Dispatch is not in this harness: its open-offer check is stood in for (every offer passes).
+  trips.bindOfferCheck(new ScriptedOfferCheck());
 
   const repo = new InMemoryOrdersRepository();
   const events = new RecordingOrderEvents();
@@ -80,6 +92,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   const people = new Map<string, string>(); // phone → personId
   const resolver: ParticipantResolver = { resolvePhone: async (phone) => ({ personId: people.get(phone) ?? null, phoneHash: fakePhoneHash(phone) }) };
   const pricing = new PricingService(new ConfigService());
+  const promotions = new FakePromotions();
   // Menus (review C2: orders prices lines from the catalog, never from the client). Every harness
   // merchant serves HARNESS_MENU: rest_1 under the plain ids, others under `<org>/<id>`, which the
   // port below maps back so tests can say `catalogItemId: 'kebab'` for any merchant.
@@ -96,7 +109,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
       const found = await catalog.itemsOf(orgId, ids.flatMap((id) => [id, `${orgId}/${id}`]));
       return found.map((i) => ({ ...i, id: i.id.startsWith(`${orgId}/`) ? i.id.slice(orgId.length + 1) : i.id }));
     },
-  });
+  }, promotions);
   orders.onModuleInit();
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
@@ -122,6 +135,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
         { catalogItemId: 'kebab', qty: 2, unitPriceIqd: 5000 },
         { catalogItemId: 'tikka', qty: 1, unitPriceIqd: 5000 },
       ],
+      // centre (rest_1's kitchen) → zakur (mid): the server quotes 1,000 delivery + 500 service.
+      dropoff: { zoneKey: 'zakur', pin: HOME },
       deliveryFeeIqd: 1000,
       serviceFeeIqd: 500,
       ...patch,
@@ -164,5 +179,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

@@ -49,7 +49,7 @@ export function stop(p: Partial<Stop> & { id: string; seq: number }): Stop {
     skippedAt: null,
     skipReason: null,
     handoverProof: {},
-    childName: null,
+    childRef: null,
     childTapInAt: null,
     childTapOutAt: null,
     ...p,

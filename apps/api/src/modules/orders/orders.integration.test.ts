@@ -6,7 +6,7 @@ import { InMemoryQueue } from '../../shared/queue.js';
 import { CatalogService, PrismaCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
-import { RecordingTripEvents, TripsService, type TripTimerJob } from '../trips/index.js';
+import { RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { PrismaTripsRepository } from '../trips/trips.repository.js';
 import { RecordingOrderEvents } from './events.adapter.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
@@ -29,6 +29,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
   const tripsRepo = new PrismaTripsRepository(prisma);
   const tripEvents = new RecordingTripEvents();
   const trips = new TripsService(tripsRepo, tripEvents, uow, clock, new InMemoryQueue<TripTimerJob>('trips.timers', () => clock.now()));
+  trips.bindOfferCheck(new ScriptedOfferCheck()); // dispatch's open-offer check, stood in
   const merchants = new InMemoryMerchantDirectory();
   const events = new RecordingOrderEvents();
   const catalog = new CatalogService(new PrismaCatalogRepository(prisma));
@@ -53,7 +54,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     ids.customer = (await db.person.create({ data: {} })).id;
     ids.courier = (await db.person.create({ data: {} })).id;
     ids.org = (await db.org.create({ data: { type: 'restaurant', name: 'مطعم اختبار', cityId: 'aziziyah' } })).id;
-    merchants.add(ids.org);
+    merchants.add(ids.org, { location: { zoneKey: 'centre' } });
     // Review C2: the line is priced from this row, not from the client.
     ids.item = (await catalog.addItem({ orgId: ids.org, nameAr: 'كباب', priceIqd: 5000, modifierGroups: [{ nameAr: 'خبز', modifiers: [{ nameAr: 'صمون', priceIqd: 0 }] }] })).id;
   });
@@ -87,6 +88,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
       merchantOrgId: ids.org,
       participants: [{ ref: 'sis', role: 'diner', phone: '07709998877' }],
       lines: [{ catalogItemId: ids.item, qty: 2, participantRef: 'sis' }],
+      dropoff: { zoneKey: 'zakur' },
       deliveryFeeIqd: 1000,
       serviceFeeIqd: 500,
     });
@@ -94,7 +96,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect(o).toMatchObject({ state: 'placed', totalIqd: 11500, minVehicleClass: 'bike' });
     expect(o.lines[0]).toMatchObject({ catalogItemId: ids.item, unitPriceIqd: 5000 });
     await expect(
-      orders.place(ids.customer, { cityId: 'aziziyah', type: 'food', merchantOrgId: ids.org, lines: [{ catalogItemId: ids.item, qty: 2, unitPriceIqd: 1 }] }),
+      orders.place(ids.customer, { cityId: 'aziziyah', type: 'food', merchantOrgId: ids.org, dropoff: { zoneKey: 'zakur' }, lines: [{ catalogItemId: ids.item, qty: 2, unitPriceIqd: 1 }] }),
     ).rejects.toMatchObject({ code: 'price_changed' });
     expect(o.participants[0]!.phoneOnly).toBe(true);
     await orders.merchantAccept('m', { orderId: o.id, prepMinutes: 10 });

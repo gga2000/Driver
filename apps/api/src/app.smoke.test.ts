@@ -117,7 +117,7 @@ describe('API smoke', () => {
     const authed = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
     });
-    const order = await authed.orders.place.mutate({ cityId: 'aziziyah', type: 'ride', fareIqd: 3000 });
+    const order = await authed.orders.place.mutate({ cityId: 'aziziyah', type: 'ride', fareIqd: 3000, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
     expect(order).toMatchObject({ state: 'placed', totalIqd: 3000, ordererId: login.personId });
     expect((await authed.orders.mine.query()).map((o) => o.id)).toEqual([order.id]);
     expect((await authed.orders.cancellationPreview.query({ orderId: order.id })).free).toBe(true);
@@ -194,5 +194,25 @@ describe('API smoke', () => {
     const city = await client.config.city.query({ cityId: 'aziziyah' });
     expect(city?.name_ar).toBe('العزيزية');
     expect(await client.config.city.query({ cityId: 'nowhere' })).toBeNull();
+  });
+
+  // Keep last: it uses up this client IP's OTP allowance for the hour.
+  it('M2 follow-up: identity.requestOtp is rate-limited per client IP over the wire (rate_limited + retryAfterSec)', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    type Refusal = { data: { code: string; httpStatus: number; retryAfterSec?: number } };
+    let refused = null as Refusal | null;
+    let sent = 0;
+    for (let i = 0; i < 12 && !refused; i += 1) {
+      try {
+        await anon.identity.requestOtp.mutate({ phone: `0771250${String(i).padStart(4, '0')}`, purpose: 'login' });
+        sent += 1;
+      } catch (e) {
+        refused = e as Refusal;
+      }
+    }
+    // Earlier tests in this file already used part of 127.0.0.1's 10 per hour.
+    expect(sent).toBeLessThan(10);
+    expect(refused?.data).toMatchObject({ code: 'rate_limited', httpStatus: 429, retryAfterSec: expect.any(Number) });
+    expect(refused!.data.retryAfterSec!).toBeGreaterThan(3500);
   });
 });

@@ -31,7 +31,11 @@ export type GuardianLinkView = z.infer<typeof GuardianLinkView>;
 export const RequestOtpInput = z.object({
   phone: z.string().min(7).max(20),
   purpose: OtpPurpose.default('login'),
+  /** The requesting app's device: OTP requests are rate-limited per device (and per IP) — `rate_limited`. */
+  device: DeviceInfo.optional(),
 });
+/** Where a public request came from, as the transport saw it (client IP for per-IP rate limits). */
+export type RequestOrigin = { ip?: string | null | undefined };
 export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
   expiresAt: z.coerce.date(),
@@ -70,6 +74,16 @@ export const ChangePhoneStartInput = z.object({ newPhone: z.string().min(7).max(
 export const ChangePhoneStartOutput = z.object({ oldPhoneMasked: z.string(), newPhoneMasked: z.string(), expiresAt: z.coerce.date() });
 export const ChangePhoneConfirmInput = z.object({ oldCode: z.string().regex(/^\d{6}$/), newCode: z.string().regex(/^\d{6}$/) });
 
+/**
+ * خطوط children (M2 review follow-up): a guardian registers a child's name into the identity vault and
+ * gets an opaque `childRef` back; stops and events carry only that ref. Names are read back only
+ * through the identity module (driver run sheet, guardian view), every read logged.
+ */
+export const RegisterChildInput = z.object({ name: z.string().trim().min(1).max(80) });
+export const RegisterChildOutput = z.object({ childRef: z.string() });
+export const ChildView = z.object({ childRef: z.string(), name: z.string() });
+export type ChildView = z.infer<typeof ChildView>;
+
 export const DevLastOtpInput = z.object({ phone: z.string().min(7).max(20) });
 export const DevLastOtpOutput = z.object({ phoneMasked: z.string(), code: z.string().nullable() });
 
@@ -77,7 +91,7 @@ export type Actor = { personId: string; sessionId: string; deviceId?: string };
 
 /** What the identity module exposes to the transport. Implemented by apps/api, consumed by the router. */
 export interface IdentityPort {
-  requestOtp(input: z.infer<typeof RequestOtpInput>): Promise<z.infer<typeof RequestOtpOutput>>;
+  requestOtp(input: z.infer<typeof RequestOtpInput>, origin?: RequestOrigin): Promise<z.infer<typeof RequestOtpOutput>>;
   verifyOtp(input: z.infer<typeof VerifyOtpInput>): Promise<z.infer<typeof VerifyOtpOutput>>;
   refresh(refreshToken: string, device?: DeviceInfo): Promise<TokenPair>;
   logout(actor: Actor, refreshToken?: string): Promise<void>;
@@ -91,5 +105,8 @@ export interface IdentityPort {
   changePhoneStart(actor: Actor, input: z.infer<typeof ChangePhoneStartInput>): Promise<z.infer<typeof ChangePhoneStartOutput>>;
   changePhoneConfirm(actor: Actor, input: z.infer<typeof ChangePhoneConfirmInput>): Promise<MeView>;
   devLastOtp(phone: string): Promise<z.infer<typeof DevLastOtpOutput>>;
+  registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
+  /** The guardian's own children with their names (each read logged in the vault access log). */
+  myChildren(actor: Actor): Promise<ChildView[]>;
 }
 

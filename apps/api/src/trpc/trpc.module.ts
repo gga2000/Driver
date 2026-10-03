@@ -34,8 +34,11 @@ export class TrpcService {
     private readonly consoleReads: ConsoleReadService,
   ) {}
 
-  /** Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. */
-  async context(authorization?: string): Promise<AppContext> {
+  /**
+   * Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. `ip` is the
+   * client address as Express resolves it (`trust proxy` decides whether X-Forwarded-For counts).
+   */
+  async context(authorization?: string, ip?: string | null): Promise<AppContext> {
     let auth: SessionClaims | null = null;
     let authError: ErrorCode | null = null;
     const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
@@ -58,6 +61,7 @@ export class TrpcService {
       console: this.consoleReads,
       auth,
       authError,
+      client: { ip: ip ?? null },
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
       now: () => new Date(),
       version: API_VERSION,
@@ -69,7 +73,7 @@ export class TrpcService {
       TRPC_PATH,
       createExpressMiddleware({
         router: appRouter,
-        createContext: ({ req }) => this.context(req.headers.authorization),
+        createContext: ({ req }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null),
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
           if (error.code === 'INTERNAL_SERVER_ERROR') this.logger.error(`${path ?? '?'}: ${error.message}`, (error.cause as Error | undefined)?.stack ?? error.stack);

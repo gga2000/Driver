@@ -32,7 +32,7 @@ const REQUIRED_MODELS = [
   // identity
   'Person', 'Role', 'Org', 'OrgMember', 'Device', 'Session', 'OtpChallenge', 'GuardianLink',
   // vault
-  'PersonIdentity', 'VaultAccessLog',
+  'PersonIdentity', 'ChildIdentity', 'VaultAccessLog',
   // fleet & geography
   'Vehicle', 'City', 'Zone', 'Place', 'PlacePhoto', 'MeetingPoint',
   // catalog
@@ -139,7 +139,25 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('only vault tables live in the vault schema', () => {
     const inVault = models.filter((m) => /@@schema\("vault"\)/.test(m.body)).map((m) => m.name).sort();
-    expect(inVault).toEqual(['PersonIdentity', 'VaultAccessLog']);
+    expect(inVault).toEqual(['ChildIdentity', 'PersonIdentity', 'VaultAccessLog']);
+  });
+
+  it('M2 follow-up: stops hold no child name — only an opaque childRef into vault.child_identities', () => {
+    const stop = fields(model('Stop'));
+    for (const banned of ['childName', 'name', 'phone', 'phoneE164']) expect(stop, `stops.${banned} is PII`).not.toContain(banned);
+    expect(model('Stop')).not.toMatch(/@map\("child_name"\)/);
+    expect(stop).toContain('childRef');
+    const child = model('ChildIdentity');
+    expect(child).toMatch(/@@schema\("vault"\)/);
+    for (const col of ['id', 'guardianId', 'name']) expect(fields(child), `vault.child_identities.${col}`).toContain(col);
+    expect(fields(model('VaultAccessLog'))).toContain('childRef');
+  });
+
+  it('M2 follow-up: no public-schema model carries a person or child name column', () => {
+    for (const m of models.filter((x) => /@@schema\("public"\)/.test(x.body))) {
+      const f = fields(m.body);
+      for (const banned of ['childName', 'fullName', 'firstName', 'lastName', 'phoneE164']) expect(f, `${m.name}.${banned} belongs in the vault`).not.toContain(banned);
+    }
   });
 
   it('identity hygiene fields (edge-case §7) exist', () => {
@@ -221,7 +239,7 @@ describe('prisma schema — amendments (edge-case decisions 2026-10-03)', () => 
   it('Route: familyOnly attribute', () => expect(fields(model('Route'))).toContain('familyOnly'));
   it('Stop: per-child hand-over fields and geofence/handover proof', () => {
     const s = fields(model('Stop'));
-    for (const c of ['state', 'meetingPointId', 'arrivedAt', 'completedAt', 'geofenceEnteredAt', 'arrivedOutsideGeofence', 'handoverProof', 'childTapInAt', 'childTapOutAt', 'childName']) {
+    for (const c of ['state', 'meetingPointId', 'arrivedAt', 'completedAt', 'geofenceEnteredAt', 'arrivedOutsideGeofence', 'handoverProof', 'childTapInAt', 'childTapOutAt', 'childRef']) {
       expect(s, `stops.${c}`).toContain(c);
     }
   });

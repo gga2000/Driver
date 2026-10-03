@@ -34,6 +34,8 @@ export interface AppContext {
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
   authError: ErrorCode | null;
+  /** The caller as the transport saw it (client IP behind the configured proxy); absent in tests. */
+  client?: { ip: string | null };
   env: { nodeEnv: string };
   now(): Date;
   version: string;

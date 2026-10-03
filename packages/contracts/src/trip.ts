@@ -88,7 +88,8 @@ export const Stop = z.object({
   skippedAt: z.coerce.date().nullable(),
   skipReason: z.string().nullable(),
   handoverProof: z.record(z.string(), z.unknown()),
-  childName: z.string().nullable(),
+  /** خطوط: the child's opaque vault ref (M2 review follow-up); the name only via `trips.runSheet` / identity. */
+  childRef: z.string().nullable(),
   childTapInAt: z.coerce.date().nullable(),
   childTapOutAt: z.coerce.date().nullable(),
 });
@@ -148,11 +149,9 @@ const DeviceStamp = {
   idempotencyKey: z.string().min(8).max(128).optional(),
 };
 
-export const AcceptTripInput = z.object({ tripId: z.string().min(1), vehicleClass: VehicleClass, vehicleId: z.string().optional(), ...DeviceStamp });
-export type AcceptTripInput = z.infer<typeof AcceptTripInput>;
-
-export const DeclineTripInput = z.object({ tripId: z.string().min(1), reason: z.string().max(200).optional() });
-export type DeclineTripInput = z.infer<typeof DeclineTripInput>;
+// M2 review follow-up: there is no public trips.accept / trips.decline. A driver answers an offer
+// through `dispatch.respond` (offer id + accept), the single path that checks his open offer, cap,
+// current job and the first-accept lock; dispatch then drives the trip internally.
 
 export const ReportPositionInput = z.object({
   /** Omitted: applies to every active trip of the driver. */
@@ -192,12 +191,31 @@ export type CancelTripInput = z.infer<typeof CancelTripInput>;
 export const ActiveTripsInput = z.object({ cityId: CityId });
 
 /** What the API supplies to the trips router (implemented by `modules/trips`). */
+/**
+ * The driver's run sheet (M2 review follow-up): his trip's stops with each child's name, read from the
+ * identity vault through identity's port for this driver only, every read logged in VaultAccessLog.
+ */
+export const RunSheet = z.object({
+  tripId: z.string(),
+  stops: z.array(
+    z.object({
+      stopId: z.string(),
+      seq: z.number().int(),
+      type: z.string(),
+      zoneKey: z.string(),
+      state: z.string(),
+      childRef: z.string().nullable(),
+      childName: z.string().nullable(),
+    }),
+  ),
+});
+export type RunSheet = z.infer<typeof RunSheet>;
+
 export interface TripsPort {
   get(actor: Actor, input: { tripId: string }): Promise<Trip>;
   mine(actor: Actor): Promise<Trip[]>;
   board(actor: Actor, input: { cityId: string }): Promise<Trip[]>;
-  accept(actor: Actor, input: AcceptTripInput): Promise<Trip>;
-  decline(actor: Actor, input: DeclineTripInput): Promise<Trip>;
+  runSheet(actor: Actor, input: { tripId: string }): Promise<RunSheet>;
   reportPosition(actor: Actor, input: ReportPositionInput): Promise<ReportPositionOutput>;
   arrive(actor: Actor, input: ArriveStopInput): Promise<Trip>;
   completeStop(actor: Actor, input: CompleteStopInput): Promise<Trip>;

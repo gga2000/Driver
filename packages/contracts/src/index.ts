@@ -39,4 +39,8 @@ export {
   ChangePhoneStartOutput,
   ChangePhoneConfirmInput,
   DevLastOtpOutput,
+  RegisterChildInput,
+  RegisterChildOutput,
+  ChildView,
 } from './identity-io.js';
+export type { RequestOrigin } from './identity-io.js';

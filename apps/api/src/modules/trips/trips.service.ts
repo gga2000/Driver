@@ -17,6 +17,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
+import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
 import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
@@ -99,8 +100,24 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
   ) {}
 
+  /** Dispatch's open-offer check (M2 review follow-up); fail closed until dispatch binds it. */
+  private offerCheck: TripOfferCheck = new DenyAllOfferCheck();
+
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
+  }
+
+  /**
+   * Dispatch binds its `DispatchOffer` check here at start-up (dispatch imports trips, so trips cannot
+   * inject it). Accept and decline are internal: the only public path is `dispatch.respond`.
+   */
+  bindOfferCheck(check: TripOfferCheck): void {
+    this.offerCheck = check;
+  }
+
+  private async assertOpenOffer(tripId: string, driverId: string, intent: 'accept' | 'decline'): Promise<void> {
+    const verdict = await this.offerCheck.check(tripId, driverId, intent);
+    if (verdict !== 'ok') throw new DriverError(verdict);
   }
 
   // ───────────────────────── creation and order links ─────────────────────────
@@ -184,10 +201,13 @@ export class TripsService implements OnModuleInit {
   }
 
   /**
-   * First valid accept wins (dispatch adds a Redis SETNX in Step 5; the conditional state update here
-   * is the database-level guard). Replaying the same driver's accept is a no-op. The vehicle must
-   * meet the largest order cap on the trip (edge-case review A.16). A driver already on a trip is
-   * refused unless dispatch made the assignment (`assignedByDispatch`, after its batching rules).
+   * Internal — called by dispatch's port only (`TripsServiceTripOffers.assign`, from `dispatch.respond`).
+   * The driver must hold an open offer for this trip in dispatch's records, and must not be over cap
+   * (M2 review follow-up: `offer_not_found` / `offer_not_yours` / `over_cap`). First valid accept wins
+   * (dispatch's SET NX lock; the conditional state update here is the database-level guard).
+   * Replaying the same driver's accept is a no-op. The vehicle must meet the largest order cap on the
+   * trip (edge-case review A.16). A driver already on a trip is refused unless dispatch made the
+   * assignment (`assignedByDispatch`, after its batching rules).
    */
   async accept(
     tripId: string,
@@ -198,6 +218,7 @@ export class TripsService implements OnModuleInit {
     return this.uow.run(async (tx) => {
       const trip = await this.load(tripId, tx);
       if (trip.courierId === driverId && (PROGRESS_STATES.includes(trip.state) || trip.state === 'completed')) return this.view(tripId, tx);
+      await this.assertOpenOffer(tripId, driverId, 'accept');
       if (trip.state !== 'offered') throw new DriverError('trip_state_conflict');
       // Review H: one driver, one job. Only dispatch may hand a busy driver a second trip, after its
       // own batching check (`fitsCurrentJobs` / dispatcher override); a direct accept never can.
@@ -224,10 +245,12 @@ export class TripsService implements OnModuleInit {
   }
 
   /**
-   * A driver declined. With other offers still open (`othersPending`, from dispatch) the trip
+   * Internal — dispatch's port only. A driver declined an offer he holds (checked against dispatch's
+   * records like `accept`). With other offers still open (`othersPending`, from dispatch) the trip
    * stays `offered` and only the event is recorded; otherwise it moves to `declined` until re-offered.
    */
   async decline(tripId: string, driverId: string, opts: { reason?: string | undefined; othersPending?: boolean } = {}): Promise<Trip> {
+    await this.assertOpenOffer(tripId, driverId, 'decline');
     return this.offerOutcome(tripId, driverId, 'declined', opts.othersPending ?? false, { reason: opts.reason ?? null });
   }
 
@@ -326,7 +349,8 @@ export class TripsService implements OnModuleInit {
 
   /**
    * Hand-over at a stop. Only an arrived stop completes ("no stop completed before arrived"); khat
-   * stops with a named child need the per-child tap (edge-case §5). Cash collected rides on the
+   * stops with a child need the per-child tap (edge-case §5); the event carries the child's opaque
+   * vault ref, never the name. Cash collected rides on the
    * event for the orders module (merchant cash account, edge-case §3). Replays are no-ops.
    */
   async completeStop(tripId: string, stopId: string, driverId: string, input: { handover?: HandoverProof | undefined } & DeviceStamp = {}): Promise<Trip> {
@@ -350,7 +374,7 @@ export class TripsService implements OnModuleInit {
         return this.view(tripId, tx);
       }
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
-      const child = childHandover({ vertical: trip.vertical, childName: stop.childName, type: stop.type, childTap: handover.childTap });
+      const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
       const now = this.clock.now();
       await this.repo.updateStop(
@@ -376,7 +400,7 @@ export class TripsService implements OnModuleInit {
       );
       if (child.tap) {
         // Guardian "arrived" push fires only on the tap-out at school (edge-case §5).
-        await this.emit(tx, child.tap === 'in' ? 'khat.child_tapped_in' : 'khat.child_tapped_out', driverId, tripId, { stopId, childName: stop.childName, notifyGuardian: child.tap === 'out' }, stamp);
+        await this.emit(tx, child.tap === 'in' ? 'khat.child_tapped_in' : 'khat.child_tapped_out', driverId, tripId, { stopId, childRef: stop.childRef, notifyGuardian: child.tap === 'out' }, stamp);
       }
       let current = trip;
       if (trip.unreachableStartedAt) {
@@ -791,7 +815,7 @@ function toStopView(s: StopRecord): Stop {
     skippedAt: s.skippedAt,
     skipReason: s.skipReason,
     handoverProof: s.handoverProof,
-    childName: s.childName,
+    childRef: s.childRef,
     childTapInAt: s.childTapInAt,
     childTapOutAt: s.childTapOutAt,
   };

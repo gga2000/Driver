@@ -75,7 +75,8 @@ export function orderPoints(input: { type: OrderType; platformRevenueIqd: number
 
 /**
  * Splits `basePoints` over participants pro rata to the value of their eligible lines; untagged
- * lines and rounding remainders go to the orderer, who also earns the organiser bonus (all of it
+ * lines and rounding remainders go to the orderer, who also earns the organiser bonus on group
+ * orders only (all of it
  * within the per-order cap: base + bonus never exceed `pointsCapPerOrder`). Rides give
  * the base to the rider participant when there is one (ride-for-someone-else, domain §3).
  * Allocations to the same earner are merged.
@@ -90,7 +91,10 @@ export function allocatePoints(input: {
   const { ordererId } = input;
   // Review M: the per-order cap includes the organiser bonus, so the shared base shrinks to make room.
   const capped = Math.max(0, Math.min(input.basePoints, ORDERS_RULES.pointsCapPerOrder));
-  const bonus = Math.floor((capped * ORDERS_RULES.organizerBonusPct) / 100);
+  // M2 follow-up: the bonus is for organising a GROUP order — the same rule the ledger posts by
+  // (`postPoints`: some earner other than the orderer has tagged items). Solo orders, lines tagged to
+  // the orderer himself, and rides/errands/parcels (the ledger gives them no recipients) earn none.
+  const bonus = isGroupOrder(input) ? Math.floor((capped * ORDERS_RULES.organizerBonusPct) / 100) : 0;
   const basePoints = Math.min(capped, ORDERS_RULES.pointsCapPerOrder - bonus);
   const out: PointsAllocation[] = [];
   const add = (a: Omit<PointsAllocation, 'pending'>) => {
@@ -129,4 +133,15 @@ export function allocatePoints(input: {
     toOrderer(bonus, true);
   }
   return out;
+}
+
+/** Item orders whose tagged lines (any value > 0) belong to an earner other than the orderer — the ledger's `othersTagged`. */
+function isGroupOrder(input: { type: OrderType; ordererId: string; lines: readonly PointsLine[]; participants: readonly PointsParticipant[] }): boolean {
+  if (input.type !== 'food' && input.type !== 'grocery_catalog') return false;
+  return input.lines.some((l) => {
+    if (!l.participantId || l.valueIqd <= 0) return false;
+    const p = input.participants.find((x) => x.id === l.participantId);
+    if (!p || (!p.personId && !p.phoneHash)) return false;
+    return p.personId !== input.ordererId;
+  });
 }

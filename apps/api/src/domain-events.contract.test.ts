@@ -29,7 +29,7 @@ const asDelivered = (e: Emitted) => wire({ actorId: e.actorId, occurredAt: e.occ
 async function cashFoodOrderAndCancellations() {
   const h = ordersHarness();
   // a delivered, cash-collected, closed order
-  const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'street_30' } }));
+  const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'nakra' } }));
   await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
   const t = await h.tripFor(o.id);
   await h.pickup(t.id);
@@ -44,7 +44,7 @@ async function cashFoodOrderAndCancellations() {
   const f = await h.orders.place('c1', h.foodInput());
   await h.orders.cancel('c1', { orderId: f.id });
   // a cash ride, completed by the driver at the door, then closed
-  const r = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000 });
+  const r = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
   const rt = await h.tripFor(r.id, { vertical: 'taxi', vehicleClass: 'car', driverId: 'd3' });
   await h.pickup(rt.id, 'd3');
   await h.dropoff(rt.id, { driverId: 'd3', cashCollectedIqd: 3000 });
@@ -100,8 +100,8 @@ describe('domain event contracts: producers ↔ consumers', () => {
       await subscribers.onOrderAccepted({ type: e.type, orderId: e.orderId, aggregateId: e.orderId!, payload: wire(e.payload) });
     }
     expect(trips.created.map((c) => [c.vertical, c.pickup.zoneKey, c.dropoff.zoneKey])).toEqual([
-      ['food', 'centre', 'street_30'],
-      ['food', 'centre', 'centre'], // no drop-off on file: anchored at the pickup's zone
+      ['food', 'centre', 'nakra'],
+      ['food', 'centre', 'zakur'],
     ]);
     expect(await d.service.getRequest(`trip-${trips.created[0]!.orderId}`)).toMatchObject({ policy: 'auto_assign', cashIqd: 16500, minVehicleClass: 'bike' });
     for (const e of emitted.filter((x) => x.type.startsWith('trip.') || x.type === 'stop.completed')) {

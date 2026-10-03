@@ -57,7 +57,7 @@ export interface StopRecord {
   skippedAt: Date | null;
   skipReason: string | null;
   handoverProof: Record<string, unknown>;
-  childName: string | null;
+  childRef: string | null;
   childTapInAt: Date | null;
   childTapOutAt: Date | null;
 }
@@ -101,7 +101,7 @@ export interface NewStop {
   target?: LatLng | null;
   windowStart?: Date | null;
   windowEnd?: Date | null;
-  childName?: string | null;
+  childRef?: string | null;
 }
 
 export type TripPatch = Partial<Omit<TripRecord, 'id' | 'cityId' | 'vertical' | 'createdAt' | 'updatedAt'>>;
@@ -199,7 +199,7 @@ interface StopRow {
   skippedAt: Date | null;
   skipReason: string | null;
   handoverProof: unknown;
-  childName: string | null;
+  childRef: string | null;
   childTapInAt: Date | null;
   childTapOutAt: Date | null;
 }
@@ -319,7 +319,7 @@ export class PrismaTripsRepository implements TripsRepository {
           meetingPointId: s.meetingPointId ?? null,
           windowStart: s.windowStart ?? null,
           windowEnd: s.windowEnd ?? null,
-          childName: s.childName ?? null,
+          childRef: s.childRef ?? null,
         },
       });
       if (s.target) {
@@ -504,7 +504,7 @@ export class InMemoryTripsRepository implements TripsRepository {
         skippedAt: null,
         skipReason: null,
         handoverProof: {},
-        childName: s.childName ?? null,
+        childRef: s.childRef ?? null,
         childTapInAt: null,
         childTapOutAt: null,
       };

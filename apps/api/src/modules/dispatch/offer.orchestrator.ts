@@ -512,14 +512,33 @@ export class OfferOrchestrator {
     });
   }
 
+  /**
+   * The single public path for a driver's answer to an offer (`dispatch.respond`); trips' accept and
+   * decline are internal and reached only from here. An accept runs under the driver's lock (M2
+   * review follow-up), so two accepts of different trips by the same driver are serialised: the
+   * second sees the first one's job and must pass the one-job / batching rules against it.
+   */
   async respond(driverId: string, offerId: string, accept: boolean): Promise<{ outcome: 'assigned' | 'declined'; tripId: string; compensationIqd: number }> {
+    if (!accept) {
+      const { offer, r } = await this.openOfferOf(driverId, offerId);
+      return this.decline(r, offer);
+    }
+    return this.store.withDriverLock(driverId, () => this.acceptOffer(driverId, offerId));
+  }
+
+  /** The driver's offer and its request, refused unless the offer is still open and unexpired. */
+  private async openOfferOf(driverId: string, offerId: string): Promise<{ offer: OfferRecord; r: DispatchRequest }> {
     const { offer, r } = await this.loadOffer(driverId, offerId);
-    const now = this.now();
-    if (!OPEN_STATES.includes(offer.state) || now >= offer.expiresAt.getTime()) {
+    if (!OPEN_STATES.includes(offer.state) || this.now() >= offer.expiresAt.getTime()) {
       if (r.assignedDriverId && r.assignedDriverId !== driverId) throw new DriverError('offer_taken');
       throw new DriverError('offer_expired');
     }
-    if (!accept) return this.decline(r, offer);
+    return { offer, r };
+  }
+
+  /** Runs under the driver's lock: everything below reads his jobs as they are now. */
+  private async acceptOffer(driverId: string, offerId: string): Promise<{ outcome: 'assigned'; tripId: string; compensationIqd: number }> {
+    const { offer, r } = await this.openOfferOf(driverId, offerId);
     if (await this.caps.isOverCap(driverId)) throw new DriverError('over_cap');
     if (!(await this.fitsCurrentJobs(r, offer, driverId))) {
       // Two offers reached him while he was free and he took the other one first: this one is
@@ -633,9 +652,11 @@ export class OfferOrchestrator {
   // ───────────────────────── trips → dispatch ─────────────────────────
 
   /**
-   * Trips says a driver accepted: either the echo of an assignment dispatch made (a no-op) or a
-   * driver who accepted from the Partner app straight through `trips.accept`. The latter claims the
+   * Trips says a driver accepted. Normally the echo of an assignment `respond` made (a no-op). Trips
+   * no longer exposes accept publicly and only lets a driver with an open offer accept, so the claim
+   * branch below is a safety net for an internal accept that bypassed `respond`: it claims the
    * first-accept lock and assigns the request exactly as `respond` would, without calling trips again.
+   * (Not under the driver lock: it runs from the outbox drain, possibly inside `respond`'s own lock.)
    */
   async onTripAccepted(tripId: string, driverId: string): Promise<void> {
     const r = await this.store.getRequest(tripId);

@@ -87,11 +87,11 @@ describe('stop machine', () => {
     expect(canStopTransition('pending', 'completed')).toBe(false);
   });
 
-  it('khat stops need the per-child tap by name (edge-case §5)', () => {
-    expect(childHandover({ vertical: 'khat', childName: 'زينب', type: 'dropoff' })).toEqual({ ok: false });
-    expect(childHandover({ vertical: 'khat', childName: 'زينب', type: 'dropoff', childTap: 'in' })).toEqual({ ok: false });
-    expect(childHandover({ vertical: 'khat', childName: 'زينب', type: 'dropoff', childTap: 'out' })).toEqual({ ok: true, tap: 'out' });
-    expect(childHandover({ vertical: 'food', childName: null, type: 'dropoff' })).toEqual({ ok: true, tap: null });
+  it('khat stops need the per-child tap (edge-case §5)', () => {
+    expect(childHandover({ vertical: 'khat', childRef: 'chref_1', type: 'dropoff' })).toEqual({ ok: false });
+    expect(childHandover({ vertical: 'khat', childRef: 'chref_1', type: 'dropoff', childTap: 'in' })).toEqual({ ok: false });
+    expect(childHandover({ vertical: 'khat', childRef: 'chref_1', type: 'dropoff', childTap: 'out' })).toEqual({ ok: true, tap: 'out' });
+    expect(childHandover({ vertical: 'food', childRef: null, type: 'dropoff' })).toEqual({ ok: true, tap: null });
   });
 });
 

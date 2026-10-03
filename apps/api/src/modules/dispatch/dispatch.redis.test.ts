@@ -5,7 +5,7 @@ import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
 import { InMemoryDispatchRepository } from './dispatch.repository.js';
-import { RedisDispatchStore, lockKey } from './dispatch.store.js';
+import { RedisDispatchStore, driverLockKey, lockKey } from './dispatch.store.js';
 import { RecordingEventEmitter } from './events.adapter.js';
 import { RedisGeoIndex, geoKey } from './geo-index.js';
 import { OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
@@ -44,6 +44,22 @@ describe.skipIf(!redisUrl)('dispatch on Redis (integration)', () => {
     await a.unlock(key);
     expect(await b.tryLock(key, 'd2', 5000)).toBe(true);
     await b.unlock(key);
+  });
+
+  it('per-driver lock (M2 follow-up): two pods serialise the same driver, and only the owner releases it', async () => {
+    const a = new RedisDispatchStore(connect());
+    const b = new RedisDispatchStore(connect());
+    const order: string[] = [];
+    const hold = (tag: string, ms: number) => async () => {
+      order.push(`${tag}:in`);
+      await new Promise((r) => setTimeout(r, ms));
+      order.push(`${tag}:out`);
+      return tag;
+    };
+    const driver = `${run}-driver`;
+    expect(await Promise.all([a.withDriverLock(driver, hold('a', 60)), b.withDriverLock(driver, hold('b', 10))])).toEqual(['a', 'b']);
+    expect(order).toEqual(['a:in', 'a:out', 'b:in', 'b:out']);
+    expect(await connect().exists(driverLockKey(driver))).toBe(0);
   });
 
   it('runtime policy override persists in Redis for every instance', async () => {

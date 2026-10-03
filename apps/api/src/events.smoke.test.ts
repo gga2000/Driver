@@ -4,6 +4,8 @@ import { createApp } from './bootstrap.js';
 import { EventsService } from './modules/events/index.js';
 import { OrdersService } from './modules/orders/index.js';
 import { TripsService } from './modules/trips/index.js';
+import { DispatchService } from './modules/dispatch/index.js';
+import { DISPATCH_REPOSITORY, type DispatchRepository } from './modules/dispatch/dispatch.repository.js';
 
 /** The events module as the app wires it (no DATABASE_URL / REDIS_URL: in-memory, sync drain). */
 describe('events wiring smoke', () => {
@@ -33,7 +35,7 @@ describe('events wiring smoke', () => {
     const events = app.get(EventsService);
     const trips = app.get(TripsService);
     const orders = app.get(OrdersService);
-    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000 });
+    const order = await orders.place('smoke-rider', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } });
     const trip = await trips.createForOrders({
       cityId: 'aziziyah',
       vertical: 'taxi',
@@ -43,9 +45,13 @@ describe('events wiring smoke', () => {
         { orderId: order.id, type: 'dropoff', zoneKey: 'zakur' },
       ],
     });
-    await trips.offer(trip.id);
-    await trips.accept(trip.id, 'smoke-driver', { vehicleClass: 'car' });
-    // delivered to orders through the outbox before accept() returned: the ride is matched
+    // The driver answers dispatch's offer (dispatch.respond is the only accept path).
+    const dispatch = app.get(DispatchService);
+    await dispatch.presence.online('smoke-driver', { cityId: 'aziziyah', at: { lat: 32.9055, lng: 45.0605 }, vehicle: 'car', tier: 'bronze' });
+    await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre' });
+    const offer = (await app.get<DispatchRepository>(DISPATCH_REPOSITORY, { strict: false }).listByTrip(trip.id)).find((o) => o.driverId === 'smoke-driver')!;
+    await dispatch.respond({ personId: 'smoke-driver', sessionId: 's' }, { offerId: offer.id, accept: true });
+    // delivered to orders through the outbox before respond() returned: the ride is matched
     expect((await orders.get(order.id)).state).toBe('matched');
     expect((await events.forTrip(trip.id)).map((e) => e.type)).toContain('trip.accepted');
 

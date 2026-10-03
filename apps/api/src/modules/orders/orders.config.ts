@@ -37,6 +37,8 @@ export const ORDERS_RULES = {
   pointsCapPerOrder: 50,
   /** Domain §3/§10: organiser bonus +10 % of the order's points. */
   organizerBonusPct: 10,
+  /** M2 review follow-up: the customer's tip is capped per order; it goes 100 % to the courier/driver. */
+  maxTipIqd: 10_000,
   /** Domain §10: pending points for non-users expire after 90 days unclaimed. */
   pendingPointsTtlDays: 90,
 } as const;

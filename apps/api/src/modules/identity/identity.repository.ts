@@ -91,7 +91,16 @@ export interface VaultAccessLogRecord {
   accessorId: string;
   purpose: string;
   fieldsRead: string[];
+  /** Set when a child's identity was read (personId is then the guardian). */
+  childRef?: string | null;
   createdAt: Date;
+}
+
+/** vault.child_identities — a khat child's name, keyed by the opaque childRef stops and events carry. */
+export interface ChildIdentityRecord {
+  childRef: string;
+  guardianId: string | null;
+  name: string;
 }
 
 export interface IdentityRepository {
@@ -107,8 +116,11 @@ export interface IdentityRepository {
   // vault
   readIdentity(personId: string, tx?: Tx): Promise<IdentityRecord | null>;
   updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name'>>, tx?: Tx): Promise<IdentityRecord>;
-  logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
+  logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
   vaultAccessLogs(personId: string, tx?: Tx): Promise<VaultAccessLogRecord[]>;
+  createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
+  readChildIdentities(childRefs: readonly string[], tx?: Tx): Promise<ChildIdentityRecord[]>;
+  childIdentitiesOf(guardianId: string, tx?: Tx): Promise<ChildIdentityRecord[]>;
 
   // roles
   rolesOf(personId: string, tx?: Tx): Promise<RoleRecord[]>;
@@ -209,10 +221,26 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name };
   }
 
-  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {
+  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
     const { personId, accessorId, purpose, fieldsRead } = entry;
-    const data = { personId, accessorId, purpose, fieldsRead };
+    const data = { personId, accessorId, purpose, fieldsRead, childRef: entry.childRef ?? null };
     return this.db(tx).vaultAccessLog.create({ data });
+  }
+
+  async createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx) {
+    const row = await this.db(tx).childIdentity.create({ data: { guardianId: input.guardianId, name: input.name } });
+    return { childRef: row.id, guardianId: row.guardianId, name: row.name };
+  }
+
+  async readChildIdentities(childRefs: readonly string[], tx?: Tx) {
+    if (childRefs.length === 0) return [];
+    const rows = await this.db(tx).childIdentity.findMany({ where: { id: { in: [...childRefs] } } });
+    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name }));
+  }
+
+  async childIdentitiesOf(guardianId: string, tx?: Tx) {
+    const rows = await this.db(tx).childIdentity.findMany({ where: { guardianId }, orderBy: { createdAt: 'asc' } });
+    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name }));
   }
 
   async vaultAccessLogs(personId: string, tx?: Tx) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, DriverError, type OrderMoneyPayload } from '@driver/contracts';
+import { postOrderClosed } from '../ledger/postings.js';
 import { ordersHarness } from './test-harness.js';
 
 const code = async (p: Promise<unknown>) => {
@@ -113,9 +114,85 @@ describe('OrdersService — server-side line pricing (review C2)', () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1 }, { freeText: 'كباب مجاني', qty: 5, unitPriceIqd: 0 }, { freeText: 'خبز', qty: 1, unitPriceIqd: 99999 }] }));
     expect(o.itemsTotalIqd).toBe(5000);
-    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
     expect(errand.itemsTotalIqd).toBe(7000);
-    expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', lines: [{ catalogItemId: 'kebab', qty: 1 }] }))).toBe('catalog_item_unavailable');
+    expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ catalogItemId: 'kebab', qty: 1 }] }))).toBe('catalog_item_unavailable');
+  });
+});
+
+describe('OrdersService — server-locked fees, promo-only discounts, capped tips (M2 review follow-up)', () => {
+  it('fees come from the server quote: omitted fees are filled in, wrong ones are refused with price_changed', async () => {
+    const h = ordersHarness();
+    // centre → zakur (mid): 1,000 delivery + 500 service, whatever the client sends or omits.
+    const omitted = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    expect(omitted).toMatchObject({ itemsTotalIqd: 15000, deliveryFeeIqd: 1000, serviceFeeIqd: 500, totalIqd: 16500 });
+    expect(await code(h.orders.place('c1', h.foodInput({ deliveryFeeIqd: 0 })))).toBe('price_changed');
+    expect(await code(h.orders.place('c1', h.foodInput({ serviceFeeIqd: 0 })))).toBe('price_changed');
+    expect(await code(h.orders.place('c1', h.foodInput({ deliveryFeeIqd: 5000 })))).toBe('price_changed');
+    // The drop-off zone moves the fee: centre → centre is the near band.
+    const near = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'street_30' }, deliveryFeeIqd: undefined }));
+    expect(near).toMatchObject({ deliveryFeeIqd: 500, totalIqd: 16000 });
+    // A street hand-over is a −250 option the server applies.
+    const street = await h.orders.place('c1', h.foodInput({ options: { streetHandover: true }, deliveryFeeIqd: undefined }));
+    expect(street.deliveryFeeIqd).toBe(750);
+    // No drop-off place, or a merchant without a place on file: nothing to price from.
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: undefined })))).toBe('quote_location_required');
+    h.merchants.add('rest_nowhere');
+    expect(await code(h.orders.place('c1', h.foodInput({ merchantOrgId: 'rest_nowhere' })))).toBe('quote_location_required');
+  });
+
+  it('night delivery: the server adds the +250 night component itself', async () => {
+    const h = ordersHarness('2026-10-03T20:30:00Z'); // 23:30 Baghdad
+    const o = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: undefined }));
+    expect(o).toMatchObject({ deliveryFeeIqd: 1250, totalIqd: 16750 });
+  });
+
+  it('rides: the fare is the server quote for the zones and vertical; a cheaper client fare is refused', async () => {
+    const h = ordersHarness();
+    const ride = { cityId: 'aziziyah', type: 'ride' as const, pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'street_30' } };
+    expect(await h.orders.place('c1', ride)).toMatchObject({ totalIqd: 3000, deliveryFeeIqd: 0, serviceFeeIqd: 0 });
+    expect(await code(h.orders.place('c1', { ...ride, fareIqd: 1000 }))).toBe('price_changed');
+    expect((await h.orders.place('c1', { ...ride, rideVertical: 'tuktuk', fareIqd: 2000 })).totalIqd).toBe(2000);
+    expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000 }))).toBe('quote_location_required');
+  });
+
+  it('discounts only from a promotion the server resolves; NoPromotions means discount 0', async () => {
+    const h = ordersHarness();
+    expect(await code(h.orders.place('c1', h.foodInput({ discountIqd: 5000 })))).toBe('promotion_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ promoCode: 'FREE' })))).toBe('promotion_invalid');
+    expect((await h.orders.place('c1', h.foodInput({ discountIqd: 0 }))).discountIqd).toBe(0);
+    // A resolved promotion sets the discount; the ledger funds it from the promotion's budget line.
+    h.promotions.codes.set('FREE', { promotionId: 'promo_launch', discountIqd: 1000 });
+    expect(await code(h.orders.place('c1', h.foodInput({ promoCode: 'FREE', discountIqd: 3000 })))).toBe('price_changed');
+    const o = await h.orders.place('c1', h.foodInput({ promoCode: 'FREE' }));
+    expect(o).toMatchObject({ discountIqd: 1000, totalIqd: 15500 });
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    await h.dropoff(t.id, { cashCollectedIqd: o.totalIqd });
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { platformPromo: { promotionId: 'promo_launch', amountIqd: 1000 } } });
+  });
+
+  it('tips are the customer choice, capped at 10,000, and posted 100 % to the courier', async () => {
+    const h = ordersHarness();
+    expect(await code(h.orders.place('c1', h.foodInput({ tipIqd: 10_500 })))).toBe('tip_above_cap');
+    const o = await h.orders.place('c1', h.foodInput({ tipIqd: 2000 }));
+    expect(o).toMatchObject({ tipIqd: 2000, totalIqd: 18500 });
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    await h.dropoff(t.id, { cashCollectedIqd: o.totalIqd });
+    const fact = h.events.last('order.cash_collected')!.payload['order'] as OrderMoneyPayload;
+    const tips = postOrderClosed(fact, AZIZIYAH_MONEY_RULES).money.lines.filter((l) => l.type === 'tip');
+    expect(tips).toEqual([expect.objectContaining({ amount: 2000, toAccount: 'driver:d1' })]);
+  });
+
+  it('the 25,000 new-customer cash cap applies to the server-computed total, not to client fees', async () => {
+    const h = ordersHarness();
+    // 25,000 of food; the client "forgets" the fees, the server adds 1,500 → 26,500 is over the cap.
+    const order = h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 5 }], deliveryFeeIqd: undefined, serviceFeeIqd: undefined });
+    expect(await code(h.orders.place('new1', order))).toBe('new_customer_cash_cap');
+    expect(h.cashRisk.asked).toEqual([{ customerId: 'new1', totalIqd: 26500 }]);
   });
 });
 
@@ -185,7 +262,7 @@ describe('OrdersService — merchant acceptance', () => {
 
   it('merchants with the auto-accept flag skip acceptance', async () => {
     const h = ordersHarness();
-    h.merchants.add('rest_auto', { autoAccept: true, defaultPrepMin: 25 });
+    h.merchants.add('rest_auto', { autoAccept: true, defaultPrepMin: 25, location: { zoneKey: 'centre' } });
     const o = await h.orders.place('c1', h.foodInput({ merchantOrgId: 'rest_auto' }));
     expect(o.state).toBe('merchant_accepted');
     expect(o.promisedReadyAt).toEqual(new Date(h.clock.now().getTime() + 25 * MIN));

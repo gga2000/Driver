@@ -1,15 +1,14 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import {
-  AcceptTripInput,
   ActiveTripsInput,
   ArriveStopInput,
   CancelTripInput,
   CompleteStopInput,
-  DeclineTripInput,
   FailTripInput,
   ReportPositionInput,
   ReportPositionOutput,
+  RunSheet,
   SkipStopInput,
   StartUnreachableInput,
   Trip,
@@ -31,8 +30,9 @@ export const tripsRouter = router({
   /** The trip's actor event log (quarantined late replays included and marked). */
   events: protectedProcedure(CONSOLE_READ_ROLES).input(TripIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.tripEvents(input.tripId)),
   board: protectedProcedure(OPS_ROLES).input(ActiveTripsInput).output(z.array(Trip)).query(({ ctx, input }) => ctx.trips.board(ctx.actor, input)),
-  accept: protectedProcedure(DRIVING_ROLES).input(AcceptTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.accept(ctx.actor, input)),
-  decline: protectedProcedure(DRIVING_ROLES).input(DeclineTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.decline(ctx.actor, input)),
+  /** The trip's driver only: stops with the children's names, read from the identity vault (logged). */
+  runSheet: protectedProcedure(DRIVING_ROLES).input(TripIdInput).output(RunSheet).query(({ ctx, input }) => ctx.trips.runSheet(ctx.actor, input)),
+  // No accept / decline here (M2 review follow-up): drivers answer offers through `dispatch.respond`.
   reportPosition: protectedProcedure(DRIVING_ROLES)
     .input(ReportPositionInput)
     .output(ReportPositionOutput)

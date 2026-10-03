@@ -73,13 +73,31 @@ export const PlaceOrderInput = z.object({
   quoteId: z.string().optional(),
   lines: z.array(OrderLineInput).default([]),
   participants: z.array(ParticipantInput).max(20).default([]),
-  deliveryFeeIqd: Iqd.min(0).default(0),
-  serviceFeeIqd: Iqd.min(0).default(0),
-  discountIqd: Iqd.min(0).default(0),
+  /**
+   * Fees are the server's (M2 review follow-up): the API quotes the order with `PricingService` for
+   * its vertical, zones and options and locks that quote at placement. A value sent here is only the
+   * cart's expectation: it must equal the server's or the order is refused with `price_changed`.
+   */
+  deliveryFeeIqd: Iqd.min(0).optional(),
+  serviceFeeIqd: Iqd.min(0).optional(),
+  /**
+   * Discounts come only from a server-validated promotion (`promoCode`). Without one that resolves the
+   * discount is 0; a value sent here must equal the promotion's (`price_changed`), and a discount with no
+   * promotion behind it is refused (`promotion_invalid`).
+   */
+  discountIqd: Iqd.min(0).optional(),
+  promoCode: z.string().min(1).max(40).optional(),
+  /** The customer's tip: 100 % to the courier/driver, capped per order (config, default 10,000 → `tip_above_cap`). */
   tipIqd: Iqd.min(0).default(0),
-  /** Rides: the locked quote total. Ignored for item orders (computed from lines). */
+  /** Rides: the fare the customer was shown; must equal the server's quote (`price_changed`). */
   fareIqd: Iqd.min(0).optional(),
+  /** Rides: which city ride vertical is quoted (car taxi by default). */
+  rideVertical: z.enum(['taxi', 'tuktuk']).optional(),
+  /** Quote options the customer chose: door pickup (rides/errands/parcels), street hand-over (deliveries, −250). */
+  options: z.object({ doorPickup: z.boolean().optional(), streetHandover: z.boolean().optional() }).optional(),
   paymentMethod: PaymentMethod.default('cash'),
+  /** Where the trip starts for rides, errands and parcels (merchant orders start at the merchant's place). */
+  pickup: DeliveryPoint.optional(),
   /** Where the courier delivers (the customer's saved place: zone key + pin). Dispatch builds the courier trip from it. */
   dropoff: DeliveryPoint.optional(),
   /** Scheduled orders are offered to the merchant at T − prep − 10 min (edge-case review A.12). */

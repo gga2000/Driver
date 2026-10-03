@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   FREEZABLE_ROLES,
@@ -16,6 +16,7 @@ import {
   type LinkGuardianInput,
   type MeView,
   type OtpPurpose,
+  type RequestOrigin,
   type RequestOtpInput,
   type RequestOtpOutput,
   type RevokeGuardianLinkInput,
@@ -35,11 +36,14 @@ import { GuardianService, guardianView } from './guardian.service.js';
 import { IDENTITY_REPOSITORY, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
+import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
 import { SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
 
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
+/** The OTP request guard (per-IP / per-device limits); bound by the module, Redis-backed when configured. */
+export const OTP_REQUEST_GUARD = Symbol('OTP_REQUEST_GUARD');
 
 type RequestOtp = z.infer<typeof RequestOtpInput>;
 type VerifyOtp = z.infer<typeof VerifyOtpInput>;
@@ -77,6 +81,7 @@ export class IdentityService implements IdentityPort {
   private readonly otp: OtpService;
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
+  private readonly otpGuard: OtpRequestGuard;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -88,7 +93,9 @@ export class IdentityService implements IdentityPort {
     private readonly uow: UnitOfWork,
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
+    @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpRequestGuard,
   ) {
+    this.otpGuard = otpGuard ?? new OtpRequestGuard(new InMemoryRateLimiter(clock));
     this.otp = new OtpService(repo, sms, clock, pepper);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
@@ -103,7 +110,13 @@ export class IdentityService implements IdentityPort {
 
   // ───────────────────────── OTP + login ─────────────────────────
 
-  async requestOtp(input: RequestOtp): Promise<z.infer<typeof RequestOtpOutput>> {
+  /**
+   * Sends a code. M2 review follow-up: every request counts against its client IP (10/hour) and its
+   * device (5/hour) before anything else happens — `rate_limited` with `retryAfterSec` beyond that.
+   * Internal callers pass no origin and are not counted.
+   */
+  async requestOtp(input: RequestOtp, origin: RequestOrigin = {}): Promise<z.infer<typeof RequestOtpOutput>> {
+    await this.otpGuard.check({ ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
     const purpose: OtpPurpose = input.purpose ?? 'login';
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
@@ -360,6 +373,60 @@ export class IdentityService implements IdentityPort {
   async setName(actor: Actor, name: string): Promise<void> {
     await this.uow.run(async (tx) => {
       await this.repo.updateIdentity(actor.personId, { name }, tx);
+    });
+  }
+
+  // ───────────────────────── خطوط children (vault) ─────────────────────────
+
+  /**
+   * M2 review follow-up: a khat child's name goes into the vault, keyed by an opaque `childRef` that is
+   * all stops and events ever carry. The registering person is the child's guardian.
+   */
+  async registerChild(actor: Actor | { personId: string }, input: { name: string }): Promise<{ childRef: string }> {
+    const name = input.name.trim();
+    if (!name || name.length > 80) throw new DriverError('invalid_input');
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const child = await this.repo.createChildIdentity({ guardianId: actor.personId, name, now }, tx);
+      await this.events.emit(tx, { actorId: actor.personId, type: 'child.registered', occurredAt: now, payload: { childRef: child.childRef, guardianId: actor.personId } }, { name: 'person', id: actor.personId });
+      return { childRef: child.childRef };
+    });
+  }
+
+  /**
+   * The driver's run sheet (trips' narrow port): names for the children on his stops. Trips decides he
+   * is the trip's driver; every name read here is logged (accessor = driver, purpose khat_run_sheet).
+   */
+  async childNamesForRunSheet(driverId: string, childRefs: readonly string[]): Promise<Record<string, string>> {
+    return this.readChildNames(driverId, [...new Set(childRefs)], 'khat_run_sheet');
+  }
+
+  /** The guardian's own children (guardian view); every name read is logged. */
+  async myChildren(actor: Actor | { personId: string }): Promise<Array<{ childRef: string; name: string }>> {
+    return this.uow.run(async (tx) => {
+      const children = await this.repo.childIdentitiesOf(actor.personId, tx);
+      const now = this.clock.now();
+      for (const c of children) {
+        await this.repo.logVaultAccess({ personId: actor.personId, accessorId: actor.personId, purpose: 'guardian_view', fieldsRead: ['child_name'], childRef: c.childRef, now }, tx);
+      }
+      return children.map((c) => ({ childRef: c.childRef, name: c.name }));
+    });
+  }
+
+  private async readChildNames(accessorId: string, childRefs: string[], purpose: string): Promise<Record<string, string>> {
+    if (childRefs.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const found = await this.repo.readChildIdentities(childRefs, tx);
+      const now = this.clock.now();
+      const out: Record<string, string> = {};
+      for (const ref of childRefs) {
+        const c = found.find((x) => x.childRef === ref);
+        if (!c) continue;
+        // The subject is the child's guardian (a child has no Person); a guardian-less legacy row is logged against the reader.
+        await this.repo.logVaultAccess({ personId: c.guardianId ?? accessorId, accessorId, purpose, fieldsRead: ['child_name'], childRef: c.childRef, now }, tx);
+        out[c.childRef] = c.name;
+      }
+      return out;
     });
   }
 

@@ -14,6 +14,9 @@ import {
   LogoutInput,
   MeView,
   RefreshInput,
+  ChildView,
+  RegisterChildInput,
+  RegisterChildOutput,
   RequestOtpInput,
   RequestOtpOutput,
   RevokeGuardianLinkInput,
@@ -27,7 +30,8 @@ const Ok = z.object({ ok: z.literal(true) });
 
 /** Identity procedures (plan Step 2). Every mutation goes through `ctx.identity`, the API's port. */
 export const identityRouter = router({
-  requestOtp: publicProcedure.input(RequestOtpInput).output(RequestOtpOutput).mutation(({ ctx, input }) => ctx.identity.requestOtp(input)),
+  /** Rate-limited per client IP and per device (M2 review follow-up): `rate_limited` with `retryAfterSec`. */
+  requestOtp: publicProcedure.input(RequestOtpInput).output(RequestOtpOutput).mutation(({ ctx, input }) => ctx.identity.requestOtp(input, { ip: ctx.client?.ip ?? null })),
   verifyOtp: publicProcedure.input(VerifyOtpInput).output(VerifyOtpOutput).mutation(({ ctx, input }) => ctx.identity.verifyOtp(input)),
   refresh: publicProcedure.input(RefreshInput).output(TokenPair).mutation(({ ctx, input }) => ctx.identity.refresh(input.refreshToken, input.device)),
   logout: protectedProcedure()
@@ -53,6 +57,10 @@ export const identityRouter = router({
     start: protectedProcedure().input(ChangePhoneStartInput).output(ChangePhoneStartOutput).mutation(({ ctx, input }) => ctx.identity.changePhoneStart(ctx.actor, input)),
     confirm: protectedProcedure().input(ChangePhoneConfirmInput).output(MeView).mutation(({ ctx, input }) => ctx.identity.changePhoneConfirm(ctx.actor, input)),
   }),
+  /** خطوط: a guardian registers a child (name into the vault, opaque childRef back). */
+  registerChild: protectedProcedure().input(RegisterChildInput).output(RegisterChildOutput).mutation(({ ctx, input }) => ctx.identity.registerChild(ctx.actor, input)),
+  /** The guardian's own children, names read from the vault (logged). */
+  myChildren: protectedProcedure().output(z.array(ChildView)).query(({ ctx }) => ctx.identity.myChildren(ctx.actor)),
   /** Dev-only: the last OTP the fake provider sent to a phone. Refused when NODE_ENV=production. */
   devLastOtp: publicProcedure
     .input(DevLastOtpInput)

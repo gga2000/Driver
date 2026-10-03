@@ -1,6 +1,6 @@
 # Architecture notes
 
-Companion to the [platform core spec](specs/2026-10-02-platform-core-design.md). Short on purpose: these are the three rules every contributor must know before touching `apps/api`.
+Companion to the [platform core spec](specs/2026-10-02-platform-core-design.md). Short on purpose: these are the rules every contributor must know before touching `apps/api`.
 
 ## 1. Module boundaries
 
@@ -49,3 +49,14 @@ Cities are data. To add one:
 No code in `pricing`, `dispatch` or `ledger` should need to change. If it does, the thing you are adding belongs in config, not in the module.
 
 Metered pricing (distance and time) is always computed. To turn it on for a city, flip the component rule's `visibility` from `shadow` to `shown`; the `shadowTotal` field on every quote tells you in advance what customers would have paid.
+
+## 4. What the server never takes from the client
+
+Rules from the Milestone 2 review follow-ups; each has a regression test.
+
+- **Fees are quoted, not sent.** `orders.place` quotes the order with `PricingService` (its vertical, the merchant's or the given pickup zone, the drop-off zone, door / street options, night and peak by time) and locks the result on the order. `deliveryFeeIqd`, `serviceFeeIqd` and a ride's `fareIqd` in `PlaceOrderInput` are only the cart's expectation: a mismatch is refused with `price_changed`. No zones, no price: `quote_location_required`. The new-customer cash cap (25,000) is checked against this server total.
+- **Discounts only from a promotion.** `discountIqd` comes from `PromotionsPort.resolve(promoCode, …)` (`orders/promotions.port.ts`). The only binding today is `NoPromotions`, so every discount is 0 and a promo code or a non-zero discount is refused with `promotion_invalid` until the promotions module binds a real implementation to `ORDERS_PROMOTIONS`. A resolved promotion is stored on the order (`promotion_id`) and funded from its budget line in the ledger (`platformPromo`). Rides, errands and parcels take no promotion yet.
+- **Tips** are the customer's choice, capped per order (`ORDERS_RULES.maxTipIqd`, default 10,000 → `tip_above_cap`), and posted 100 % to the courier or driver.
+- **Accepting a job goes through dispatch.** The only public path is `dispatch.respond` (offer id + accept/decline). `trips.accept` / `trips.decline` are not on the router; `TripsService` accepts or declines only for a driver holding an open `DispatchOffer` (`DispatchOfferCheck`, bound into trips by the dispatch module; `offer_not_found` / `offer_not_yours`), and never for an over-cap driver (`over_cap`). Accepts run under a per-driver lock (`DispatchStore.withDriverLock`: Redis `SET NX PX` with a token, an in-memory mutex without Redis), so two accepts by one driver cannot both pass the one-job check.
+- **Children's names live in the vault.** خطوط stops and `khat.child_tapped_*` events carry an opaque `childRef` (`vault.child_identities.id`). Names are read only through identity — the driver's run sheet (`trips.runSheet`, trip's own driver only) and the guardian's own view (`identity.myChildren`) — and every read is a `VaultAccessLog` row with `child_ref`.
+- **OTP requests are rate-limited** per client IP (default 10/hour, `OTP_RATE_LIMIT_PER_IP_HOUR`) and per device fingerprint (default 5/hour, `OTP_RATE_LIMIT_PER_DEVICE_HOUR`), shared through Redis when `REDIS_URL` is set: `rate_limited` with `retryAfterSec`. The IP is Express's `req.ip`; behind a load balancer set `TRUST_PROXY` (hop count) so it is the client's, not the balancer's.

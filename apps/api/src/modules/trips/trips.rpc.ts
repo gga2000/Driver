@@ -1,16 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
-  type AcceptTripInput,
   type Actor,
   type ArriveStopInput,
   type CancelTripInput,
   type CompleteStopInput,
-  type DeclineTripInput,
   type FailTripInput,
   type ReportPositionInput,
   type ReportPositionOutput,
   type RoleKind,
+  type RunSheet,
   type SkipStopInput,
   type StartUnreachableInput,
   type Trip,
@@ -25,17 +24,29 @@ export interface RoleChecker {
 
 export const TRIPS_ROLE_CHECKER = Symbol('TRIPS_ROLE_CHECKER');
 
+/**
+ * Identity's narrow port for children's names (M2 review follow-up): names live only in the vault;
+ * identity reads them for this driver and logs every read. Bound to `IdentityService`.
+ */
+export interface ChildNamesPort {
+  childNamesForRunSheet(driverId: string, childRefs: readonly string[]): Promise<Record<string, string>>;
+}
+
+export const TRIPS_CHILD_NAMES = Symbol('TRIPS_CHILD_NAMES');
+
 const OPS: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 /**
  * `TripsPort` for the tRPC router: maps the authenticated actor onto `TripsService` and decides
- * who is acting — the trip's courier, or a dispatcher (fail from 3:00, platform cancel).
+ * who is acting — the trip's courier, or a dispatcher (fail from 3:00, platform cancel). Accepting
+ * or declining is not here: drivers answer offers through `dispatch.respond` only.
  */
 @Injectable()
 export class TripsRpc implements TripsPort {
   constructor(
     private readonly trips: TripsService,
     @Inject(TRIPS_ROLE_CHECKER) private readonly roles: RoleChecker,
+    @Inject(TRIPS_CHILD_NAMES) private readonly childNames: ChildNamesPort,
   ) {}
 
   async get(actor: Actor, input: { tripId: string }): Promise<Trip> {
@@ -52,12 +63,16 @@ export class TripsRpc implements TripsPort {
     return this.trips.active(input.cityId);
   }
 
-  accept(actor: Actor, input: AcceptTripInput): Promise<Trip> {
-    return this.trips.accept(input.tripId, actor.personId, input);
-  }
-
-  decline(actor: Actor, input: DeclineTripInput): Promise<Trip> {
-    return this.trips.decline(input.tripId, actor.personId, { reason: input.reason });
+  /** Only the trip's own driver gets the children's names, and only through identity (each read logged). */
+  async runSheet(actor: Actor, input: { tripId: string }): Promise<RunSheet> {
+    const trip = await this.trips.get(input.tripId);
+    if (!trip.courierId || trip.courierId !== actor.personId) throw new DriverError('forbidden');
+    const refs = [...new Set(trip.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)))];
+    const names = refs.length > 0 ? await this.childNames.childNamesForRunSheet(actor.personId, refs) : {};
+    return {
+      tripId: trip.id,
+      stops: trip.stops.map((s) => ({ stopId: s.id, seq: s.seq, type: s.type, zoneKey: s.zoneKey, state: s.state, childRef: s.childRef, childName: s.childRef ? (names[s.childRef] ?? null) : null })),
+    };
   }
 
   reportPosition(actor: Actor, input: ReportPositionInput): Promise<ReportPositionOutput> {

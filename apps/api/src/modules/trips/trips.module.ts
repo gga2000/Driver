@@ -7,7 +7,7 @@ import { IdentityModule, IdentityService } from '../identity/index.js';
 import { EventsServiceAdapter, TRIP_EVENTS } from './events.adapter.js';
 import { TRIP_ORDER_LOOKUP } from './trip-order.lookup.js';
 import { InMemoryTripsRepository, PrismaTripsRepository, TRIPS_REPOSITORY, type TripsRepository } from './trips.repository.js';
-import { TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
+import { TRIPS_CHILD_NAMES, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
 import { TRIPS_QUEUE, TripsService, type TripTimerJob } from './trips.service.js';
 
 /** BullMQ when REDIS_URL is set; otherwise an in-process queue the module polls once a second. */
@@ -31,6 +31,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: TRIP_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     { provide: TRIPS_QUEUE, useFactory: (f: BullMqQueueFactory, clock: Clock) => timersQueue<TripTimerJob>('trips.timers', f, clock), inject: [BullMqQueueFactory, CLOCK] },
     { provide: TRIPS_ROLE_CHECKER, useExisting: IdentityService },
+    // M2 review follow-up: children's names come only from the identity vault, read (and logged) there.
+    { provide: TRIPS_CHILD_NAMES, useExisting: IdentityService },
     TripsService,
     TripsRpc,
   ],

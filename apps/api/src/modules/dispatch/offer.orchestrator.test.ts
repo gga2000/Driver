@@ -397,6 +397,30 @@ describe('auto_assign (food, grocery)', () => {
     expect(h.trips.assigns.map((a) => a.tripId)).toEqual(['t1']);
   });
 
+  it('M2 follow-up: two simultaneous accepts of different rides by one driver — the per-driver lock lets only one through', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    await taxi(h, 't2');
+    const [o1, o2] = [await h.openOffer('t1', 'a1'), await h.openOffer('t2', 'a1')];
+    const results = await Promise.allSettled([h.service.respond(h.actor('a1'), { offerId: o1!.id, accept: true }), h.service.respond(h.actor('a1'), { offerId: o2!.id, accept: true })]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.map((r) => (r.status === 'rejected' ? code(r.reason) : 'ok')).sort()).toEqual(['offer_conflicts_current_job', 'ok']);
+    expect(h.trips.assigns).toHaveLength(1);
+    expect(await h.store.driverJobs('a1')).toHaveLength(1);
+  });
+
+  it('M2 follow-up: two simultaneous food accepts by one bike courier cannot both skip the batching rules', async () => {
+    const h = dispatchHarness();
+    await h.online('k1', 0, { vehicle: 'tuktuk' });
+    await food(h, 'near');
+    await food(h, 'far', { pickup: north(3) }); // would fail the 4-min detour rule against "near"
+    const [o1, o2] = [await h.openOffer('near', 'k1'), await h.openOffer('far', 'k1')];
+    const results = await Promise.allSettled([h.service.respond(h.actor('k1'), { offerId: o1!.id, accept: true }), h.service.respond(h.actor('k1'), { offerId: o2!.id, accept: true })]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(h.trips.assigns).toHaveLength(1);
+  });
+
   it('does not batch across far zones or past the bike limit; a tuktuk takes a third', async () => {
     const h = dispatchHarness();
     await h.online('k1', 0.1, { vehicle: 'bike' });

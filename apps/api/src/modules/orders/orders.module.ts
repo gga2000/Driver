@@ -16,6 +16,7 @@ import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, ty
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
 import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, OrdersService, type OrderTimerJob } from './orders.service.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
+import { NoPromotions, ORDERS_PROMOTIONS } from './promotions.port.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -38,7 +39,10 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDER_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     { provide: ORDERS_QUEUE, useFactory: (f: BullMqQueueFactory, clock: Clock) => timersQueue<OrderTimerJob>('orders.timers', f, clock), inject: [BullMqQueueFactory, CLOCK] },
     { provide: ORDERS_TRIPS, useExisting: TripsService },
+    // M2 review follow-up: fees come from this quote engine at placement, never from the client.
     { provide: ORDERS_PRICING, useExisting: PricingService },
+    // Discounts only from a server-resolved promotion; until the promotions module ships nothing resolves.
+    { provide: ORDERS_PROMOTIONS, useClass: NoPromotions },
     // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
     { provide: ORDERS_CASH_RISK, useExisting: CapsService },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.

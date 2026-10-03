@@ -161,7 +161,7 @@ describe('orders × trips — end to end', () => {
       cityId: 'aziziyah',
       merchantOrgId: 'rest_1',
       promisedReadyAt: expect.any(String),
-      dropoff: null, // this harness's food input has no drop-off point; dispatch then anchors it like on acceptance
+      dropoff: { zoneKey: 'zakur', pin: HOME },
       paymentMethod: 'cash',
       totalIqd: o.totalIqd,
     });
@@ -172,8 +172,8 @@ describe('orders × trips — end to end', () => {
 
   it('a night delivery fee (+250) tells the ledger the total may end in 250 (G-88; simulator regression)', async () => {
     // Found by the Aziziyah simulator: the ledger rounded a 16,750 night order up to 17,000 and the
-    // customer, who paid the 16,750 he was shown, was left owing 250.
-    const h = ordersHarness();
+    // customer, who paid the 16,750 he was shown, was left owing 250. The server quotes the +250 at night.
+    const h = ordersHarness('2026-10-03T20:30:00Z'); // 23:30 Baghdad
     const night = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: 1250 }));
     expect(night.totalIqd % 500).toBe(250);
     await h.orders.merchantAccept('m1', { orderId: night.id, prepMinutes: 15 });
@@ -182,6 +182,7 @@ describe('orders × trips — end to end', () => {
     await h.dropoff(t.id, { cashCollectedIqd: night.totalIqd });
     expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { has250Component: true, cashCollectedIqd: night.totalIqd } });
 
+    h.clock.set(Date.parse('2026-10-04T09:00:00Z')); // next day, 12:00 Baghdad
     const day = await h.orders.place('c2', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: day.id, prepMinutes: 15 });
     const t2 = await h.tripFor(day.id, { driverId: 'd2' });
@@ -202,7 +203,14 @@ describe('orders × trips — rides', () => {
   async function ride() {
     const h = ordersHarness();
     h.people.set('07705554433', 'p_mum');
-    const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', fareIqd: 3000, participants: [{ ref: 'mum', role: 'rider', phone: '07705554433' }] });
+    const o = await h.orders.place('c1', {
+      cityId: 'aziziyah',
+      type: 'ride',
+      fareIqd: 3000,
+      pickup: { zoneKey: 'centre', pin: KITCHEN },
+      dropoff: { zoneKey: 'street_30', pin: HOME },
+      participants: [{ ref: 'mum', role: 'rider', phone: '07705554433' }],
+    });
     expect(o).toMatchObject({ state: 'placed', totalIqd: 3000, minVehicleClass: null });
     return { h, o };
   }

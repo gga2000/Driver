@@ -17,3 +17,7 @@ export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './e
 export type { PauseWindow } from './pause.js';
 export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
 export type { CatalogPort, CatalogItemView } from './catalog.port.js';
+export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';
+export type { PromotionsPort, PromotionQuery, ResolvedPromotion } from './promotions.port.js';
+export { serverFees, verticalOf } from './fees.js';
+export type { ServerFees } from './fees.js';

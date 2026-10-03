@@ -77,7 +77,6 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
                 <li key={s.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-2 px-2 py-1">
                   <span>
                     {s.seq + 1}. {stopTypeLabel(s.type)} · {zoneName(s.zoneKey)}
-                    {s.childName ? ` · ${s.childName}` : ''}
                   </span>
                   <span className="text-xs text-muted">{stopStateLabel(s.state)}</span>
                 </li>

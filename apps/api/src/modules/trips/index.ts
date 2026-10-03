@@ -1,8 +1,8 @@
 export { TripsModule } from './trips.module.js';
 export { TripsService, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
 export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob } from './trips.service.js';
-export { TripsRpc, TRIPS_ROLE_CHECKER } from './trips.rpc.js';
-export type { RoleChecker } from './trips.rpc.js';
+export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES } from './trips.rpc.js';
+export type { RoleChecker, ChildNamesPort } from './trips.rpc.js';
 export { TRIP_TRANSITIONS, canTransition, deriveTripState, TripTransitionError } from './trip.machine.js';
 export { GEOFENCE_RADIUS_M, haversineMeters, withinGeofence, offsetNorth } from './geofence.js';
 export { UNREACHABLE_ESCALATE_AFTER_MS, UNREACHABLE_FAIL_AFTER_MS } from './unreachable.js';
@@ -12,3 +12,5 @@ export { InMemoryTripOrderLookup, TRIP_ORDER_LOOKUP } from './trip-order.lookup.
 export type { TripOrderLookup } from './trip-order.lookup.js';
 export { TRIP_EVENTS, RecordingTripEvents, EventsServiceAdapter as TripEventsAdapter } from './events.adapter.js';
 export type { TripEventEmitter, TripDomainEvent } from './events.adapter.js';
+export { DenyAllOfferCheck, ScriptedOfferCheck } from './offer-check.port.js';
+export type { TripOfferCheck, OfferCheckVerdict } from './offer-check.port.js';

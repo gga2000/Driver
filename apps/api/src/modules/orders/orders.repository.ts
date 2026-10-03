@@ -24,6 +24,8 @@ export interface OrderRecord {
   deliveryFeeIqd: number;
   serviceFeeIqd: number;
   discountIqd: number;
+  /** The server-resolved promotion behind `discountIqd` (`orders.promotion_id`); null = no discount. */
+  promotionId: string | null;
   tipIqd: number;
   totalIqd: number;
   receiptTotalIqd: number | null;
@@ -159,6 +161,7 @@ function orderFromRow(r: any): OrderRecord {
     deliveryFeeIqd: r.deliveryFeeIqd,
     serviceFeeIqd: r.serviceFeeIqd,
     discountIqd: r.discountIqd,
+    promotionId: r.promotionId ?? null,
     tipIqd: r.tipIqd,
     totalIqd: r.totalIqd,
     receiptTotalIqd: r.receiptTotalIqd,

@@ -4,6 +4,7 @@ import { UnitOfWork, type TransactionRunner } from '../../shared/db/unit-of-work
 import { RecordingEventEmitter } from './events.adapter.js';
 import { IdentityService } from './identity.service.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
+import { InMemoryRateLimiter, OtpRequestGuard, type OtpRateLimits } from './rate-limit.js';
 import { SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 
@@ -30,7 +31,7 @@ export function fakeRunner() {
 }
 
 /** Builds an IdentityService on in-memory everything. Shared by the unit tests. */
-export function harness(start = '2026-10-02T09:00:00Z') {
+export function harness(start = '2026-10-02T09:00:00Z', opts: { otpRateLimits?: OtpRateLimits } = {}) {
   const clock = new FakeClock(start);
   const repo = new InMemoryIdentityRepository();
   const sms = new FakeSmsProvider(false);
@@ -38,7 +39,8 @@ export function harness(start = '2026-10-02T09:00:00Z') {
   const { runner, log } = fakeRunner();
   const uow = new UnitOfWork(runner);
   const sessions = new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: 'unit-test-secret' }], activeKid: 'k1' });
-  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions);
+  const otpGuard = new OtpRequestGuard(new InMemoryRateLimiter(clock), opts.otpRateLimits);
+  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions, otpGuard);
 
   /** Full login: request → read fake SMS → verify. */
   async function login(phone: string, device?: { fingerprint: string; platform: 'android' | 'ios' | 'web' }, sharedFamilyPhone?: boolean) {

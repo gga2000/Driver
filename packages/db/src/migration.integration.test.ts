@@ -53,7 +53,7 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY 1`,
       [`vault_${suffix}`],
     );
-    expect(r.rows.map((x) => x.table_name)).toEqual(['person_identities', 'vault_access_logs']);
+    expect(r.rows.map((x) => x.table_name)).toEqual(['child_identities', 'person_identities', 'vault_access_logs']);
   });
 
   it('creates GIST indexes on geography columns', async () => {
@@ -118,5 +118,15 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
     expect(cols).not.toContain('phone');
     expect(cols).not.toContain('name');
     expect(cols).not.toContain('phone_e164');
+  });
+
+  it('M2 follow-up: stops carry child_ref, never child_name; the name sits in vault.child_identities', async () => {
+    const cols = async (schema: string, table: string) =>
+      (await client.query(`SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`, [schema, table])).rows.map((x) => x.column_name as string);
+    const stops = await cols(`public_${suffix}`, 'stops');
+    expect(stops).toContain('child_ref');
+    expect(stops).not.toContain('child_name');
+    expect(await cols(`vault_${suffix}`, 'child_identities')).toEqual(expect.arrayContaining(['id', 'guardian_id', 'name']));
+    expect(await cols(`vault_${suffix}`, 'vault_access_logs')).toContain('child_ref');
   });
 });

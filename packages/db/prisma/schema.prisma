@@ -123,6 +123,8 @@ model Person {
   identity          PersonIdentity?
   vaultAccessLogs   VaultAccessLog[] @relation("VaultSubject")
   vaultAccesses     VaultAccessLog[] @relation("VaultAccessor")
+  /// Children this person enrolled as guardian (names in the vault; M2 review follow-up).
+  guardedChildren   ChildIdentity[]  @relation("ChildGuardian")
   tripOrderChanges  TripOrder[]
 
   @@index([trustTier])
@@ -310,6 +312,24 @@ model PersonIdentity {
   @@schema("vault")
 }
 
+/// A child carried on خطوط (khat) runs. The id is the opaque `childRef` that stops and events carry;
+/// the name lives only here and is read through identity's port for the driver's run sheet and the
+/// guardian's own view, every read logged in VaultAccessLog (domain §13, M2 review follow-up).
+model ChildIdentity {
+  id         String   @id @default(cuid())
+  /// The guardian who enrolled the child; null only for names moved here from stops.child_name.
+  guardianId String?  @map("guardian_id")
+  name       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  guardian Person? @relation("ChildGuardian", fields: [guardianId], references: [id])
+
+  @@index([guardianId])
+  @@map("child_identities")
+  @@schema("vault")
+}
+
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
 model VaultAccessLog {
   id         String   @id @default(cuid())
@@ -318,6 +338,8 @@ model VaultAccessLog {
   purpose    String
   /// Which columns were read, e.g. ["phone_e164","name"].
   fieldsRead String[] @default([]) @map("fields_read")
+  /// Set when the read was a child's identity (vault.child_identities.id); personId is then the guardian.
+  childRef   String?  @map("child_ref")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -809,6 +831,8 @@ model Order {
   deliveryFeeIqd     Int           @default(0) @map("delivery_fee_iqd")
   serviceFeeIqd      Int           @default(0) @map("service_fee_iqd")
   discountIqd        Int           @default(0) @map("discount_iqd")
+  /// M2 review follow-up: the server-resolved promotion behind discountIqd (null = no discount).
+  promotionId        String?       @map("promotion_id")
   tipIqd             Int           @default(0) @map("tip_iqd")
   totalIqd           Int           @default(0) @map("total_iqd")
   /// Errands: customer ceiling and actual receipt total.
@@ -1095,7 +1119,8 @@ model Stop {
   /// Edge-case §5 (خطوط): per-child tap-in/tap-out by name; guardian "arrived" push on tap-out at school.
   childTapInAt           DateTime?                              @map("child_tap_in_at")
   childTapOutAt          DateTime?                              @map("child_tap_out_at")
-  childName              String?                                @map("child_name")
+  /// Opaque ref into vault.child_identities; the child's name never sits in the public schema.
+  childRef               String?                                @map("child_ref")
   createdAt              DateTime                               @default(now()) @map("created_at")
   updatedAt              DateTime                               @updatedAt @map("updated_at")
 

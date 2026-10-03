@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { OrderState } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, OrderState } from '@driver/contracts';
+import { orderPointRecipients, postPoints } from '../ledger/postings.js';
 import {
   COURIER_ORDER_TRANSITIONS,
   MERCHANT_ORDER_TRANSITIONS,
@@ -147,6 +148,56 @@ describe('points (domain §3, edge-case §2)', () => {
     });
     expect(alloc.reduce((s, a) => s + a.points, 0)).toBe(50);
     expect(alloc.find((a) => a.organizerBonus)?.points).toBe(5);
+  });
+
+  it('M2 follow-up: a solo order earns no organiser bonus, like the ledger (group orders only, shared cap 50)', () => {
+    const solo = allocatePoints({ type: 'food', ordererId: 'p_org', basePoints: 30, lines: [{ participantId: null, valueIqd: 10_000, pointsEligible: true }], participants: [] });
+    expect(solo).toEqual([{ personId: 'p_org', phoneHash: null, participantId: null, points: 30, organizerBonus: false, pending: false }]);
+    // Tagging a line to the orderer himself is still a solo order.
+    const self = allocatePoints({
+      type: 'food',
+      ordererId: 'p_org',
+      basePoints: 50,
+      lines: [{ participantId: 'par_me', valueIqd: 10_000, pointsEligible: true }],
+      participants: [{ id: 'par_me', role: 'diner', personId: 'p_org', phoneHash: 'h_me' }],
+    });
+    expect(self.some((a) => a.organizerBonus)).toBe(false);
+    expect(self.reduce((s, a) => s + a.points, 0)).toBe(50);
+    // Rides never carry the bonus on the ledger either.
+    const ride = allocatePoints({ type: 'ride', ordererId: 'p_org', basePoints: 20, lines: [], participants: [{ id: 'par_r', role: 'rider', personId: 'p_r', phoneHash: null }] });
+    expect(ride.some((a) => a.organizerBonus)).toBe(false);
+    expect(ride.reduce((s, a) => s + a.points, 0)).toBe(20);
+  });
+
+  it('M2 follow-up: orders and the ledger agree on the organiser bonus for solo and group orders', () => {
+    const cases = [
+      { participants: [] as Array<{ personId?: string; phoneHash?: string; itemsIqd: number }>, tagged: [] as Array<{ id: string; personId: string | null; phoneHash: string | null; valueIqd: number }> },
+      { participants: [{ personId: 'p_a', itemsIqd: 10_000 }], tagged: [{ id: 'par_a', personId: 'p_a', phoneHash: null, valueIqd: 10_000 }] },
+      { participants: [{ phoneHash: 'h_b', itemsIqd: 5_000 }], tagged: [{ id: 'par_b', personId: null, phoneHash: 'h_b', valueIqd: 5_000 }] },
+    ];
+    for (const c of cases) {
+      const base = 50;
+      const ledger = postPoints({
+        groupId: 'g',
+        occurredAt: new Date(0),
+        refs: {},
+        points: base,
+        ordererId: 'p_org',
+        recipients: orderPointRecipients({ customerId: 'p_org', itemsSubtotalIqd: 20_000, participants: c.participants }),
+        rules: AZIZIYAH_MONEY_RULES,
+      });
+      const ledgerBonus = ledger?.lines.filter((l) => l.type === 'organizer_bonus').reduce((s, l) => s + l.amount, 0) ?? 0;
+      const orders = allocatePoints({
+        type: 'food',
+        ordererId: 'p_org',
+        basePoints: base,
+        lines: [...c.tagged.map((t) => ({ participantId: t.id, valueIqd: t.valueIqd, pointsEligible: true })), { participantId: null, valueIqd: 20_000 - c.tagged.reduce((s, t) => s + t.valueIqd, 0), pointsEligible: true }],
+        participants: c.tagged.map((t) => ({ id: t.id, role: 'diner', personId: t.personId, phoneHash: t.phoneHash })),
+      });
+      const ordersBonus = orders.filter((a) => a.organizerBonus).reduce((s, a) => s + a.points, 0);
+      expect(ordersBonus, JSON.stringify(c.participants)).toBe(ledgerBonus);
+      expect(orders.reduce((s, a) => s + a.points, 0)).toBeLessThanOrEqual(50);
+    }
   });
 
   it('rides: the rider earns, not the person who booked (ride for someone else)', () => {

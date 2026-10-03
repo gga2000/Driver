@@ -11,6 +11,7 @@ import type {
   RosterPage,
   SessionRecord,
   VaultAccessLogRecord,
+  ChildIdentityRecord,
 } from './identity.repository.js';
 
 /**
@@ -26,6 +27,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly people = new Map<string, PersonRecord>();
   readonly identities = new Map<string, IdentityRecord>(); // by personId
   readonly accessLogs: VaultAccessLogRecord[] = [];
+  /** Twin of the vault table of khat children (name by childRef). */
+  readonly children: ChildIdentityRecord[] = [];
   readonly roles: RoleRecord[] = [];
   readonly devices: DeviceRecord[] = [];
   readonly sessions: SessionRecord[] = [];
@@ -116,8 +119,16 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return idn;
   }
 
-  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {
-    const row: VaultAccessLogRecord = { id: this.id('val'), personId: entry.personId, accessorId: entry.accessorId, purpose: entry.purpose, fieldsRead: [...entry.fieldsRead], createdAt: entry.now };
+  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
+    const row: VaultAccessLogRecord = {
+      id: this.id('val'),
+      personId: entry.personId,
+      accessorId: entry.accessorId,
+      purpose: entry.purpose,
+      fieldsRead: [...entry.fieldsRead],
+      childRef: entry.childRef ?? null,
+      createdAt: entry.now,
+    };
     this.accessLogs.push(row);
     this.added(tx, this.accessLogs, row);
     return row;
@@ -125,6 +136,21 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async vaultAccessLogs(personId: string) {
     return this.accessLogs.filter((l) => l.personId === personId);
+  }
+
+  async createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx) {
+    const row: ChildIdentityRecord = { childRef: this.id('chref'), guardianId: input.guardianId, name: input.name };
+    this.children.push(row);
+    this.added(tx, this.children, row);
+    return { ...row };
+  }
+
+  async readChildIdentities(childRefs: readonly string[]) {
+    return this.children.filter((c) => childRefs.includes(c.childRef)).map((c) => ({ ...c }));
+  }
+
+  async childIdentitiesOf(guardianId: string) {
+    return this.children.filter((c) => c.guardianId === guardianId).map((c) => ({ ...c }));
   }
 
   async rolesOf(personId: string) {

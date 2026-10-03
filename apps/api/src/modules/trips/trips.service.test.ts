@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
 import { offsetNorth } from './geofence.js';
+import { TripsRpc } from './trips.rpc.js';
 import { PINS, tripsHarness } from './test-harness.js';
 
 const code = async (p: Promise<unknown>) => {
@@ -173,15 +174,15 @@ describe('TripsService — stops, geofence and arrival', () => {
     }
   });
 
-  it('khat: a named child cannot be handed over without the tap; tap-out at school notifies the guardian', async () => {
+  it('khat: a child on a stop cannot be handed over without the tap; tap-out at school notifies the guardian', async () => {
     const h = tripsHarness();
     const t = await h.trips.createForOrders({
       cityId: 'aziziyah',
       vertical: 'khat',
       orders: [{ orderId: 'sub_1' }],
       stops: [
-        { orderId: 'sub_1', type: 'pickup', zoneKey: 'zakur', target: PINS.home, childName: 'زينب' },
-        { orderId: 'sub_1', type: 'dropoff', zoneKey: 'centre', target: PINS.school, childName: 'زينب' },
+        { orderId: 'sub_1', type: 'pickup', zoneKey: 'zakur', target: PINS.home, childRef: 'chref_zainab' },
+        { orderId: 'sub_1', type: 'dropoff', zoneKey: 'centre', target: PINS.school, childRef: 'chref_zainab' },
       ],
     });
     await h.trips.offer(t.id);
@@ -193,8 +194,45 @@ describe('TripsService — stops, geofence and arrival', () => {
     await h.trips.arrive(t.id, school!.id, 'k1', { pin: PINS.school });
     const done = await h.trips.completeStop(t.id, school!.id, 'k1', { handover: { childTap: 'out' } });
     expect(done.stops[1]!.childTapOutAt).toEqual(h.clock.now());
-    expect(h.events.last('khat.child_tapped_out')!.payload).toMatchObject({ childName: 'زينب', notifyGuardian: true });
-    expect(h.events.last('khat.child_tapped_in')!.payload).toMatchObject({ notifyGuardian: false });
+    expect(h.events.last('khat.child_tapped_out')!.payload).toMatchObject({ childRef: 'chref_zainab', notifyGuardian: true });
+    expect(h.events.last('khat.child_tapped_in')!.payload).toMatchObject({ childRef: 'chref_zainab', notifyGuardian: false });
+  });
+
+  it('M2 follow-up: stops and khat events carry only the opaque childRef; the run sheet resolves names through identity', async () => {
+    const h = tripsHarness();
+    const t = await h.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'khat',
+      orders: [{ orderId: 'sub_1' }],
+      stops: [
+        { orderId: 'sub_1', type: 'pickup', zoneKey: 'zakur', target: PINS.home, childRef: 'chref_zainab' },
+        { orderId: 'sub_1', type: 'dropoff', zoneKey: 'centre', target: PINS.school, childRef: 'chref_zainab' },
+      ],
+    });
+    await h.trips.offer(t.id);
+    await h.trips.accept(t.id, 'k1', { vehicleClass: 'car' });
+    const [home] = t.stops;
+    await h.trips.arrive(t.id, home!.id, 'k1', { pin: PINS.home });
+    await h.trips.completeStop(t.id, home!.id, 'k1', { handover: { childTap: 'in' } });
+    // Nothing trips stores or emits holds a name.
+    const view = await h.trips.get(t.id);
+    expect(view.stops.map((s) => s.childRef)).toEqual(['chref_zainab', 'chref_zainab']);
+    expect(view.stops[0]).not.toHaveProperty('childName');
+    expect(h.events.last('khat.child_tapped_in')!.payload).not.toHaveProperty('childName');
+    expect([...h.repo.stops.values()].every((s) => !('childName' in s))).toBe(true);
+
+    // The run sheet: names come from identity's port, asked as the trip's driver; nobody else gets one.
+    const asked: Array<{ driverId: string; refs: readonly string[] }> = [];
+    const names = { childNamesForRunSheet: async (driverId: string, refs: readonly string[]) => (asked.push({ driverId, refs }), { chref_zainab: 'زينب' }) };
+    const rpc = new TripsRpc(h.trips, { hasRole: async () => false }, names);
+    const sheet = await rpc.runSheet({ personId: 'k1', sessionId: 's' }, { tripId: t.id });
+    expect(sheet.stops.map((s) => [s.type, s.childRef, s.childName])).toEqual([
+      ['pickup', 'chref_zainab', 'زينب'],
+      ['dropoff', 'chref_zainab', 'زينب'],
+    ]);
+    expect(asked).toEqual([{ driverId: 'k1', refs: ['chref_zainab'] }]);
+    expect(await code(rpc.runSheet({ personId: 'k2', sessionId: 's' }, { tripId: t.id }))).toBe('forbidden');
+    expect(asked).toHaveLength(1);
   });
 });
 

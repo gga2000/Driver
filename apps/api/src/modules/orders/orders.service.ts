@@ -1,4 +1,4 @@
-import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
   PlaceOrderInput,
@@ -22,6 +22,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
+import { assertExpected, serverFees, type QuotePort } from './fees.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
 import { ORDERS_CATALOG, priceLines, type CatalogPort } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
@@ -39,6 +40,7 @@ import {
   type OrdersRepository,
 } from './orders.repository.js';
 import { activePauseWindow } from './pause.js';
+import { NoPromotions, ORDERS_PROMOTIONS, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
 
 /** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
@@ -61,7 +63,8 @@ export interface OrdersCashRiskPort {
 
 export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
 
-export interface OrdersPricingPort {
+/** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
+export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
 }
 
@@ -113,7 +116,12 @@ export class OrdersService implements OnModuleInit {
     @Inject(PARTICIPANT_RESOLVER) private readonly participants: ParticipantResolver,
     @Inject(ORDERS_CASH_RISK) private readonly cashRisk: OrdersCashRiskPort,
     @Inject(ORDERS_CATALOG) private readonly catalog: CatalogPort,
-  ) {}
+    @Optional() @Inject(ORDERS_PROMOTIONS) promotions?: PromotionsPort,
+  ) {
+    this.promotions = promotions ?? new NoPromotions();
+  }
+
+  private readonly promotions: PromotionsPort;
 
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
@@ -149,12 +157,33 @@ export class OrdersService implements OnModuleInit {
     });
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
+    // M2 review follow-up: fees come from a server quote for the order's vertical, zones and options,
+    // locked here; what the client sent is only its expectation and must match (`price_changed`).
+    const fees = serverFees(this.pricing, {
+      cityId: input.cityId,
+      type: input.type,
+      rideVertical: input.rideVertical,
+      pickup: merchantType ? (profile?.location ?? null) : (input.pickup ?? null),
+      dropoff: input.dropoff ?? null,
+      options: input.options,
+      at: input.scheduledFor ?? now,
+    });
+    if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
+    assertExpected(input.deliveryFeeIqd, fees.deliveryFeeIqd);
+    assertExpected(input.serviceFeeIqd, fees.serviceFeeIqd);
+    // Tip: the customer's choice, capped per order; it goes 100 % to the courier/driver (ledger `tip`).
+    if (input.tipIqd > ORDERS_RULES.maxTipIqd) throw new DriverError('tip_above_cap');
+    // Discount: only what a server-validated promotion grants (today none does: `NoPromotions`).
+    const promo = await this.promotionFor(ordererId, input, { itemsTotalIqd: itemsTotal, deliveryFeeIqd: fees.deliveryFeeIqd, serviceFeeIqd: fees.serviceFeeIqd, at: now });
+    const discount = promo?.discountIqd ?? 0;
+    assertExpected(input.discountIqd, discount);
     const total =
       input.type === 'ride'
-        ? Math.max(0, (input.fareIqd ?? 0) + input.tipIqd - input.discountIqd)
-        : Math.max(0, itemsTotal + input.deliveryFeeIqd + input.serviceFeeIqd + input.tipIqd - input.discountIqd);
+        ? Math.max(0, fees.fareIqd + input.tipIqd - discount)
+        : Math.max(0, itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + input.tipIqd - discount);
     const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
-    // Decisions §4: a new account's first three cash orders are capped and get the arriving call.
+    // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
+    // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
 
@@ -169,9 +198,10 @@ export class OrdersService implements OnModuleInit {
           quoteId: input.quoteId ?? null,
           paymentMethod: input.paymentMethod,
           itemsTotalIqd: itemsTotal,
-          deliveryFeeIqd: input.type === 'ride' ? 0 : input.deliveryFeeIqd,
-          serviceFeeIqd: input.type === 'ride' ? 0 : input.serviceFeeIqd,
-          discountIqd: input.discountIqd,
+          deliveryFeeIqd: fees.deliveryFeeIqd,
+          serviceFeeIqd: fees.serviceFeeIqd,
+          discountIqd: discount,
+          promotionId: promo?.promotionId ?? null,
           tipIqd: input.tipIqd,
           totalIqd: total,
           note: input.note ?? null,
@@ -208,6 +238,27 @@ export class OrdersService implements OnModuleInit {
       }
       return this.view(order.id, tx);
     });
+  }
+
+  /**
+   * A discount needs a promotion the server resolves (M2 review follow-up). No code → no discount; a
+   * code nothing resolves, or a discount sent with no code, is refused. Rides, errands and parcels take
+   * no promotion yet (their ledger money facts have no promo line).
+   */
+  private async promotionFor(
+    customerId: string,
+    input: z.infer<typeof PlaceOrderInput>,
+    amounts: { itemsTotalIqd: number; deliveryFeeIqd: number; serviceFeeIqd: number; at: Date },
+  ): Promise<ResolvedPromotion | null> {
+    if (!input.promoCode) {
+      if ((input.discountIqd ?? 0) > 0) throw new DriverError('promotion_invalid');
+      return null;
+    }
+    if (!MERCHANT_ORDER_TYPES.includes(input.type)) throw new DriverError('promotion_invalid');
+    const promo = await this.promotions.resolve({ customerId, cityId: input.cityId, orderType: input.type, code: input.promoCode, ...amounts });
+    if (!promo) throw new DriverError('promotion_invalid');
+    const ceiling = amounts.itemsTotalIqd + amounts.deliveryFeeIqd + amounts.serviceFeeIqd;
+    return { promotionId: promo.promotionId, discountIqd: Math.max(0, Math.min(promo.discountIqd, ceiling)) };
   }
 
   /**
@@ -679,7 +730,7 @@ export class OrdersService implements OnModuleInit {
    * The order's money fact as the ledger settles it (contracts `OrderMoneyPayload` /
    * `ErrandMoneyPayload` / `RideMoneyPayload`), from this module's own rows plus the courier who
    * carried it. `cashCollectedIqd` is what the courier actually took (cash collection only).
-   * Known gap: `discountIqd` has no promotion behind it yet, so it is not posted.
+   * A discount is only ever a resolved promotion (`promotionId`), funded from its budget line.
    */
   private async moneyFact(order: OrderRecord, courier: Courier | null, cashCollectedIqd: number | undefined, tx: Tx): Promise<MoneyFact> {
     const now = this.clock.now();
@@ -707,6 +758,7 @@ export class OrdersService implements OnModuleInit {
           serviceFeeIqd: order.serviceFeeIqd,
           deliveryFeeIqd: order.deliveryFeeIqd,
           tipIqd: order.tipIqd,
+          ...(order.promotionId && order.discountIqd > 0 ? { platformPromo: { promotionId: order.promotionId, amountIqd: order.discountIqd } } : {}),
           participants: participantShares(agg),
         },
       };

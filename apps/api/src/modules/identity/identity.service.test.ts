@@ -3,6 +3,7 @@ import { SignJWT } from 'jose';
 import { DriverError } from '@driver/contracts';
 import { MIN_SECRET_LENGTH, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
+import { otpRateLimitsFromEnv } from './rate-limit.js';
 import { harness, PEPPER } from './test-harness.js';
 
 const PHONE = '07712345678';
@@ -134,6 +135,43 @@ describe('OTP login', () => {
     h.clock.advanceSeconds(180);
     await expectCode(h.service.verifyOtp({ phone: PHONE, code }), 'otp_expired');
     expect(h.sms.sentTo('+9647712345678')).toHaveLength(2);
+  });
+
+  it('M2 follow-up: requestOtp is rate-limited per IP (10/hour) with retryAfterSec', async () => {
+    const h = harness();
+    const phone = (i: number) => `0771200${String(i).padStart(4, '0')}`;
+    for (let i = 0; i < 10; i += 1) await h.service.requestOtp({ phone: phone(i), purpose: 'login' }, { ip: '203.0.113.7' });
+    const err = await h.service.requestOtp({ phone: phone(10), purpose: 'login' }, { ip: '203.0.113.7' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DriverError);
+    expect((err as DriverError).code).toBe('rate_limited');
+    expect((err as DriverError).envelope).toMatchObject({ retryHint: 'later', retryAfterSec: 3600 });
+    expect(h.sms.sentTo('+9647712000010')).toHaveLength(0);
+    // Another IP is not affected; the window ends after an hour.
+    await expect(h.service.requestOtp({ phone: phone(11), purpose: 'login' }, { ip: '198.51.100.1' })).resolves.toBeTruthy();
+    h.clock.advanceSeconds(20 * 60);
+    expect(((await h.service.requestOtp({ phone: phone(12), purpose: 'login' }, { ip: '203.0.113.7' }).catch((e: unknown) => e)) as DriverError).envelope.retryAfterSec).toBe(2400);
+    h.clock.advanceSeconds(40 * 60);
+    await expect(h.service.requestOtp({ phone: phone(13), purpose: 'login' }, { ip: '203.0.113.7' })).resolves.toBeTruthy();
+  });
+
+  it('M2 follow-up: requestOtp is rate-limited per device (5/hour), whatever the IP; limits are config', async () => {
+    const h = harness();
+    const phone = (i: number) => `0771300${String(i).padStart(4, '0')}`;
+    for (let i = 0; i < 5; i += 1) await h.service.requestOtp({ phone: phone(i), purpose: 'login', device: DEV_A }, { ip: `10.0.0.${i}` });
+    await expectCode(h.service.requestOtp({ phone: phone(5), purpose: 'login', device: DEV_A }, { ip: '10.0.0.99' }), 'rate_limited');
+    await expect(h.service.requestOtp({ phone: phone(6), purpose: 'login', device: DEV_B }, { ip: '10.0.0.99' })).resolves.toBeTruthy();
+
+    const strict = harness('2026-10-02T09:00:00Z', { otpRateLimits: { perIpPerHour: 2, perDevicePerHour: 1 } });
+    await strict.service.requestOtp({ phone: phone(20), purpose: 'login', device: DEV_A }, { ip: '10.1.1.1' });
+    await expectCode(strict.service.requestOtp({ phone: phone(21), purpose: 'login', device: DEV_A }, { ip: '10.1.1.2' }), 'rate_limited');
+    await strict.service.requestOtp({ phone: phone(22), purpose: 'login' }, { ip: '10.1.1.1' });
+    await expectCode(strict.service.requestOtp({ phone: phone(23), purpose: 'login' }, { ip: '10.1.1.1' }), 'rate_limited');
+  });
+
+  it('M2 follow-up: limits come from config (OTP_RATE_LIMIT_PER_IP_HOUR / _PER_DEVICE_HOUR, defaults 10 and 5)', () => {
+    expect(otpRateLimitsFromEnv({})).toEqual({ perIpPerHour: 10, perDevicePerHour: 5 });
+    expect(otpRateLimitsFromEnv({ OTP_RATE_LIMIT_PER_IP_HOUR: '30', OTP_RATE_LIMIT_PER_DEVICE_HOUR: '3' })).toEqual({ perIpPerHour: 30, perDevicePerHour: 3 });
+    expect(() => otpRateLimitsFromEnv({ OTP_RATE_LIMIT_PER_IP_HOUR: 'lots' })).toThrow();
   });
 
   it('a code cannot be used twice', async () => {
@@ -420,6 +458,44 @@ describe('profile and vault access', () => {
       [support.personId, 'support_ticket_42'],
     ]);
     expect(logs[0]!.fieldsRead).toEqual(['name', 'phone_e164']);
+  });
+
+  it('M2 follow-up: a khat child is registered into the vault; only an opaque childRef leaves it', async () => {
+    const h = harness();
+    const { actor: mum } = await h.login('07700000001');
+    const { childRef } = await h.service.registerChild(mum, { name: 'زينب' });
+    expect(childRef).toMatch(/^chref_/);
+    expect(childRef).not.toContain('زينب');
+    expect(h.repo.children).toEqual([{ childRef, guardianId: mum.personId, name: 'زينب' }]);
+    // The event says a child was registered, never who.
+    const ev = h.events.last('child.registered')!;
+    expect(ev.payload).toEqual({ childRef, guardianId: mum.personId });
+    expect(JSON.stringify(ev)).not.toContain('زينب');
+    await expectCode(h.service.registerChild(mum, { name: '   ' }), 'invalid_input');
+  });
+
+  it('M2 follow-up: run sheet and guardian view resolve names through identity, every read logged in VaultAccessLog', async () => {
+    const h = harness();
+    const { actor: mum } = await h.login('07700000001');
+    const { actor: driver } = await h.login('07700000002');
+    const { actor: stranger } = await h.login('07700000003');
+    const zainab = (await h.service.registerChild(mum, { name: 'زينب' })).childRef;
+    const ali = (await h.service.registerChild(mum, { name: 'علي' })).childRef;
+
+    expect(await h.service.childNamesForRunSheet(driver.personId, [zainab, ali, zainab, 'chref_unknown'])).toEqual({ [zainab]: 'زينب', [ali]: 'علي' });
+    expect(await h.service.myChildren(mum)).toEqual([
+      { childRef: zainab, name: 'زينب' },
+      { childRef: ali, name: 'علي' },
+    ]);
+    expect(await h.service.myChildren(stranger)).toEqual([]);
+
+    const logs = (await h.repo.vaultAccessLogs(mum.personId)).filter((l) => l.childRef);
+    expect(logs.map((l) => [l.childRef, l.accessorId, l.purpose, l.fieldsRead])).toEqual([
+      [zainab, driver.personId, 'khat_run_sheet', ['child_name']],
+      [ali, driver.personId, 'khat_run_sheet', ['child_name']],
+      [zainab, mum.personId, 'guardian_view', ['child_name']],
+      [ali, mum.personId, 'guardian_view', ['child_name']],
+    ]);
   });
 
   it('lost-SIM claim: support records it, nothing changes', async () => {

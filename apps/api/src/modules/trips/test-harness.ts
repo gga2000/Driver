@@ -5,6 +5,7 @@ import { UnitOfWork, type TransactionRunner } from '../../shared/db/unit-of-work
 import { InMemoryQueue } from '../../shared/queue.js';
 import { RecordingTripEvents } from './events.adapter.js';
 import { offsetNorth } from './geofence.js';
+import { ScriptedOfferCheck } from './offer-check.port.js';
 import { InMemoryTripsRepository, type NewStop } from './trips.repository.js';
 import { TripsService, type TripTimerJob } from './trips.service.js';
 
@@ -46,6 +47,10 @@ export function tripsHarness(start = '2026-10-03T09:00:00Z') {
   const queue = new InMemoryQueue<TripTimerJob>('trips.timers', () => clock.now());
   const trips = new TripsService(repo, events, uow, clock, queue);
   trips.onModuleInit();
+  // Stands in for dispatch's open-offer check (dispatch is not in this harness): everything passes
+  // unless a test scripts a verdict.
+  const offerCheck = new ScriptedOfferCheck();
+  trips.bindOfferCheck(offerCheck);
 
   /** Advances the clock and runs every timer now due. */
   async function advance(ms: number): Promise<number> {
@@ -71,5 +76,5 @@ export function tripsHarness(start = '2026-10-03T09:00:00Z') {
     return trips.accept(t.id, driverId, { vehicleClass: opts.vehicleClass ?? 'bike' });
   }
 
-  return { clock, repo, events, uow, log, queue, trips, advance, deliveryStops, foodTrip, acceptedTrip, near: offsetNorth };
+  return { clock, repo, events, uow, log, queue, trips, offerCheck, advance, deliveryStops, foodTrip, acceptedTrip, near: offsetNorth };
 }
