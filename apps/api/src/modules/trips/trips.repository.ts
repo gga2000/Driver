@@ -402,6 +402,13 @@ export class InMemoryTripsRepository implements TripsRepository {
   readonly links: TripOrderRecord[] = [];
   readonly trail: TrailPointRecord[] = [];
   private seq = 0;
+  // Indexes (the simulator runs thousands of trips and a trail point per driver per tick).
+  private readonly stopIds = new Map<string, string[]>();
+  private readonly linksByTrip = new Map<string, TripOrderRecord[]>();
+  private readonly linksByOrder = new Map<string, TripOrderRecord[]>();
+  private readonly lastByTrip = new Map<string, TrailPointRecord>();
+  private readonly lastByDriver = new Map<string, TrailPointRecord>();
+  private readonly tripsByCourier = new Map<string, Set<string>>();
 
   private id(prefix: string): string {
     this.seq += 1;
@@ -444,6 +451,10 @@ export class InMemoryTripsRepository implements TripsRepository {
     if (!t) throw new Error(`trip ${id} not found`);
     const next = { ...t, ...patch, updatedAt: now };
     this.trips.set(id, next);
+    if (next.courierId !== t.courierId) {
+      if (t.courierId) this.tripsByCourier.get(t.courierId)?.delete(id);
+      if (next.courierId) this.tripsByCourier.set(next.courierId, (this.tripsByCourier.get(next.courierId) ?? new Set()).add(id));
+    }
     return { ...next };
   }
 
@@ -454,13 +465,17 @@ export class InMemoryTripsRepository implements TripsRepository {
   }
 
   async findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[] }) {
-    return [...this.trips.values()]
+    // Creation order either way (ids are `trip_<seq>`).
+    const scope = filter.courierId
+      ? [...(this.tripsByCourier.get(filter.courierId) ?? [])].sort((a, b) => Number(a.slice(5)) - Number(b.slice(5))).map((id) => this.trips.get(id)!)
+      : [...this.trips.values()];
+    return scope
       .filter((t) => (!filter.cityId || t.cityId === filter.cityId) && (!filter.courierId || t.courierId === filter.courierId) && (!filter.states || filter.states.includes(t.state)))
       .map((t) => ({ ...t }));
   }
 
   async stopsOf(tripId: string) {
-    return [...this.stops.values()].filter((s) => s.tripId === tripId).sort((a, b) => a.seq - b.seq).map((s) => ({ ...s }));
+    return (this.stopIds.get(tripId) ?? []).map((id) => this.stops.get(id)!).sort((a, b) => a.seq - b.seq).map((s) => ({ ...s }));
   }
 
   async addStops(tripId: string, stops: readonly NewStop[]) {
@@ -494,6 +509,9 @@ export class InMemoryTripsRepository implements TripsRepository {
         childTapOutAt: null,
       };
       this.stops.set(stop.id, stop);
+      const ids = this.stopIds.get(tripId);
+      if (ids) ids.push(stop.id);
+      else this.stopIds.set(tripId, [stop.id]);
       seq += 1;
     }
     return this.stopsOf(tripId);
@@ -508,24 +526,29 @@ export class InMemoryTripsRepository implements TripsRepository {
   }
 
   async linksOf(tripId: string) {
-    return this.links.filter((l) => l.tripId === tripId).map((l) => ({ ...l }));
+    return (this.linksByTrip.get(tripId) ?? []).map((l) => ({ ...l }));
   }
 
   async linksForOrder(orderId: string) {
-    return this.links.filter((l) => l.orderId === orderId).map((l) => ({ ...l }));
+    return (this.linksByOrder.get(orderId) ?? []).map((l) => ({ ...l }));
   }
 
   async attach(input: { tripId: string; orderId: string; at: Date; reason: string | null; changedBy: string | null; minVehicleClass: VehicleClass | null }) {
-    if (this.links.some((l) => l.tripId === input.tripId && l.orderId === input.orderId && l.attachedAt.getTime() === input.at.getTime())) {
+    if ((this.linksByTrip.get(input.tripId) ?? []).some((l) => l.orderId === input.orderId && l.attachedAt.getTime() === input.at.getTime())) {
       throw new Error('unique violation: trip_orders(trip_id, order_id, attached_at)');
     }
     const link: TripOrderRecord = { id: this.id('to'), tripId: input.tripId, orderId: input.orderId, attachedAt: input.at, detachedAt: null, reason: input.reason, changedBy: input.changedBy, minVehicleClass: input.minVehicleClass };
     this.links.push(link);
+    for (const [m, k] of [[this.linksByTrip, link.tripId], [this.linksByOrder, link.orderId]] as const) {
+      const list = m.get(k);
+      if (list) list.push(link);
+      else m.set(k, [link]);
+    }
     return { ...link };
   }
 
   async detach(linkId: string, input: { at: Date; reason: string; changedBy: string | null }) {
-    const link = this.links.find((l) => l.id === linkId);
+    const link = [...this.linksByTrip.values()].flat().find((l) => l.id === linkId);
     if (!link) throw new Error(`trip_order ${linkId} not found`);
     link.detachedAt = input.at;
     link.reason = input.reason;
@@ -534,17 +557,21 @@ export class InMemoryTripsRepository implements TripsRepository {
   }
 
   async addTrailPoint(point: TrailPointRecord) {
-    this.trail.push({ ...point });
+    const p = { ...point };
+    this.trail.push(p);
+    // The latest by `at` (ties: the later write), as the scan picked it.
+    const later = (prev: TrailPointRecord | undefined) => !prev || p.at.getTime() >= prev.at.getTime();
+    if (p.tripId && later(this.lastByTrip.get(p.tripId))) this.lastByTrip.set(p.tripId, p);
+    if (later(this.lastByDriver.get(p.driverId))) this.lastByDriver.set(p.driverId, p);
   }
 
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }) {
-    const matches = this.trail.filter((p) => (filter.tripId ? p.tripId === filter.tripId : p.driverId === filter.driverId));
-    const last = matches.reduce<TrailPointRecord | null>((acc, p) => (!acc || p.at.getTime() >= acc.at.getTime() ? p : acc), null);
+    const last = filter.tripId ? this.lastByTrip.get(filter.tripId) : filter.driverId !== undefined ? this.lastByDriver.get(filter.driverId) : undefined;
     return last ? { ...last } : null;
   }
 
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
-    const latest = this.links.filter((l) => l.tripId === tripId && l.orderId === orderId).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime())[0];
+    const latest = (this.linksByTrip.get(tripId) ?? []).filter((l) => l.orderId === orderId).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime())[0];
     return latest?.detachedAt ?? null;
   }
 }

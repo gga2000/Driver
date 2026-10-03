@@ -12,3 +12,4 @@ coverage/
 packages/db/src/generated/
 .DS_Store
 .claude/
+simulation-report.json

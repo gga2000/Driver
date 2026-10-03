@@ -102,6 +102,7 @@ export const ERROR_TABLE = {
   offer_not_yours: { message_ar: 'هذا العرض مو إلك', message_en: 'This offer is not yours', retryHint: 'never', status: 'FORBIDDEN' },
   offer_expired: { message_ar: 'انتهى وقت العرض', message_en: 'Offer expired', retryHint: 'never', status: 'CONFLICT' },
   offer_taken: { message_ar: 'سايق ثاني سبقك على هذا الطلب', message_en: 'Another driver took this job', retryHint: 'never', status: 'CONFLICT' },
+  offer_conflicts_current_job: { message_ar: 'هذا الطلب ما يمشي ويا شغلتك الحالية', message_en: 'This job no longer fits the job you are on', retryHint: 'never', status: 'CONFLICT' },
   over_cap: { message_ar: 'وصلت حد النقد. سدّد حتى توصلك طلبات جديدة', message_en: 'Cash cap reached; settle to get new offers', retryHint: 'support', status: 'FORBIDDEN' },
   override_invalid: { message_ar: 'ما يصير نعيّن هذا السايق هسه', message_en: 'This driver cannot be assigned now', retryHint: 'never', status: 'CONFLICT' },
   override_reason_required: { message_ar: 'اكتب سبب التعيين الإجباري', message_en: 'A forced assign needs a reason', retryHint: 'never', status: 'BAD_REQUEST' },

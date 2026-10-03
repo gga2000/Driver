@@ -362,6 +362,41 @@ describe('auto_assign (food, grocery)', () => {
     expect(h.trips.assigns.at(-1)).toEqual({ tripId: 'o2', driverId: 'k1', compensationIqd: 0, batchWith: ['o1'] });
   });
 
+  it('two offers that reached a free courier at once: the second accept must still pass the batching rules (simulator regression)', async () => {
+    // Found by the Aziziyah simulator: both kitchens' offers went to the same idle courier in one
+    // pass; accepting both made a batch no rule ever checked (a hot item rode 36 min in the bag).
+    const h = dispatchHarness();
+    await h.online('k1', 0, { vehicle: 'tuktuk' });
+    await food(h, 'near');
+    await food(h, 'far', { pickup: north(3) }); // 3 km away: ≈ 10 min of detour, the limit is 4
+    expect([h.trips.offeredTo('near'), h.trips.offeredTo('far')]).toEqual([['k1'], ['k1']]);
+    await respond(h, 'near', 'k1');
+    const err = await respond(h, 'far', 'k1').catch((e: unknown) => e);
+    expect(code(err)).toBe('offer_conflicts_current_job');
+    expect((await h.offers('far')).map((o) => o.state)).toEqual(['declined']);
+    expect(h.trips.assigns.map((a) => a.tripId)).toEqual(['near']);
+    expect(await h.service.getRequest('far')).toMatchObject({ status: 'searching', pass: 2 });
+
+    // A second kitchen that does fit (same pickup, adjacent drop-off) is still taken as a batch.
+    const b = dispatchHarness();
+    await b.online('k1', 0, { vehicle: 'tuktuk' });
+    await food(b, 'o1');
+    await food(b, 'o2', { dropoffZoneId: 'street_30' });
+    await respond(b, 'o1', 'k1');
+    await respond(b, 'o2', 'k1');
+    expect(b.trips.assigns.at(-1)).toEqual({ tripId: 'o2', driverId: 'k1', compensationIqd: 0, batchWith: ['o1'] });
+  });
+
+  it('a driver who took one broadcast ride cannot take a second one that reached him while he was free', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    await taxi(h, 't2');
+    await respond(h, 't1', 'a1');
+    expect(code(await respond(h, 't2', 'a1').catch((e: unknown) => e))).toBe('offer_conflicts_current_job');
+    expect(h.trips.assigns.map((a) => a.tripId)).toEqual(['t1']);
+  });
+
   it('does not batch across far zones or past the bike limit; a tuktuk takes a third', async () => {
     const h = dispatchHarness();
     await h.online('k1', 0.1, { vehicle: 'bike' });

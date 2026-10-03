@@ -1,3 +1,15 @@
 export { SimulatorModule } from './simulator.module.js';
-export { SimulatorService, rng } from './simulator.service.js';
-export type { SimulationResult } from './simulator.service.js';
+export { SimulatorService, DEFAULT_LIVE_SPEED } from './simulator.service.js';
+export type { RunOptions, RunResult } from './simulator.service.js';
+export { Simulation, OBSERVER_SUBSCRIBER } from './engine.js';
+export type { Progress } from './engine.js';
+export { buildWorld, zoneAt, supplyMix, LAUNCH_SUPPLY, VEHICLE_SPEED_KMH } from './world.js';
+export type { World, SimDriver, SimRestaurant, SimCustomer } from './world.js';
+export { buildScenario, demandWeight, DEFAULT_DAY_START, DAY_MINUTES } from './scenario.js';
+export type { PlannedOrder } from './scenario.js';
+export { INVARIANTS, checkInvariants } from './invariants.js';
+export type { InvariantResult, SimSnapshot } from './invariants.js';
+export { FAULTS, injectFault } from './faults.js';
+export { buildReport, summaryTable, percentiles } from './report.js';
+export type { SimulationReport } from './report.js';
+export { createRand } from './prng.js';

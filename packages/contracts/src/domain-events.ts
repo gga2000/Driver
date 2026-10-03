@@ -55,6 +55,30 @@ export const OrderAcceptedPayload = z.object({
 });
 export type OrderAcceptedPayload = z.infer<typeof OrderAcceptedPayload>;
 
+/**
+ * `order.courier_unassigned`: the courier's trip ended before pickup without the order ending (the
+ * platform or a dispatcher took the job off an unreachable courier, the courier dropped it, the
+ * kitchen's courier was released). With `redispatch`, dispatch requests a new courier the way it
+ * did on `order.accepted`, so the payload repeats what dispatch needs for that.
+ */
+export const OrderCourierUnassignedPayload = z.object({
+  tripId: z.string().min(1),
+  by: z.string().min(1),
+  reason: z.string().nullable(),
+  redispatch: z.boolean(),
+  orderType: OrderType,
+  cityId: CityId,
+  merchantOrgId: z.string().min(1).nullable(),
+  /** When the kitchen promised the food (null for orders without a kitchen): the new courier is timed to it. */
+  promisedReadyAt: z.coerce.date().nullable(),
+  minVehicleClass: VehicleClass.nullable(),
+  pickup: DeliveryPoint.nullable(),
+  dropoff: DeliveryPoint.nullable(),
+  paymentMethod: PaymentMethod,
+  totalIqd: Iqd.nonnegative(),
+});
+export type OrderCourierUnassignedPayload = z.infer<typeof OrderCourierUnassignedPayload>;
+
 // ───────────────────────── orders → ledger ─────────────────────────
 
 const CashCollectedCommon = {
@@ -201,6 +225,7 @@ export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 export const DOMAIN_EVENT_PAYLOADS = {
   'order.accepted': OrderAcceptedPayload,
   'order.auto_accepted': OrderAcceptedPayload,
+  'order.courier_unassigned': OrderCourierUnassignedPayload,
   'order.cash_collected': OrderCashCollectedPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,

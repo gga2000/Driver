@@ -7,6 +7,7 @@ import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
 import { ordersHarness } from '../orders/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
+import type { SimulatorService } from '../simulator/index.js';
 import { ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
 
@@ -22,7 +23,14 @@ async function world() {
   const ev = createInMemoryEvents({ clock: d.clock, contradictions: false });
   const orgs = new OrgsService(ev.events, d.clock);
   const scoring = new ScoringService(ev.events);
-  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock);
+  // The simulator itself is exercised in modules/simulator; here only the delegation is checked.
+  const simCalls: string[] = [];
+  const simulator = {
+    status: () => (simCalls.push('status'), { available: true, running: false }),
+    start: async (input: { drivers: number }) => (simCalls.push(`start:${input.drivers}`), { available: true, running: true, drivers: input.drivers }),
+    stop: async () => (simCalls.push('stop'), { available: true, running: false }),
+  } as unknown as SimulatorService;
+  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator);
 
   // Three couriers and a khat driver; a customer who never drives.
   const people: Record<string, string> = {};
@@ -37,7 +45,7 @@ async function world() {
     if (kind) await id.service.grantRole(SYSTEM, { personId, kind });
     people[name] = personId;
   }
-  return { d, id, l, o, ev, orgs, reads, people };
+  return { d, id, l, o, ev, orgs, reads, people, simCalls };
 }
 
 type W = Awaited<ReturnType<typeof world>>;
@@ -156,10 +164,11 @@ describe('ConsoleReadService', () => {
     expect(m!.balanceIqd).toBeGreaterThan(0);
   });
 
-  it('simulator controls answer {available:false} until the simulator is rebuilt', async () => {
+  it('simulator controls delegate to the live simulator (status, start, stop)', async () => {
     const w = await world();
-    expect(await w.reads.simulatorStatus()).toEqual({ available: false });
-    expect(await w.reads.simulatorStart({ cityId: 'aziziyah', drivers: 5, ordersPerHour: 10 })).toEqual({ available: false });
-    expect(await w.reads.simulatorStop()).toEqual({ available: false });
+    expect(await w.reads.simulatorStatus()).toEqual({ available: true, running: false });
+    expect(await w.reads.simulatorStart({ cityId: 'aziziyah', drivers: 5, ordersPerHour: 10 })).toEqual({ available: true, running: true, drivers: 5 });
+    expect(await w.reads.simulatorStop()).toEqual({ available: true, running: false });
+    expect(w.simCalls).toEqual(['status', 'start:5', 'stop']);
   });
 });

@@ -53,11 +53,24 @@ A new test that needs Postgres or Redis goes in a file named `*.integration.test
 
 ### Simulator gate
 
-Until Step 7 lands, `pnpm sim` is the Milestone 1 simulator. It accepts `--ci` but ignores it, writes no
-report, and exits 1 only on `ledger_not_balanced`. The job still fails on any non-zero exit, so the gate
-is live. The `simulation-report` upload looks for `simulation-report.json` and
-`apps/api/simulation-report.json`. It shows a "no files found" warning until the Step 7 simulator writes
-the report. After that, the report must show `violations: 0`.
+`pnpm sim --orders 2000 --seed 1 --ci` is the Step 7 Aziziyah simulator. It boots the real API
+(`AppModule`) **in memory** on a fake clock — it drops `DATABASE_URL` and `REDIS_URL` itself, so the CI
+services are not touched — and runs one simulated day (10:00–24:00 Baghdad, lunch and dinner peaks)
+through the real services: 60 drivers (10 bikes, 25 tuktuks, 25 cars; `--drivers` scales the mix), 10
+restaurants (`--restaurants`), customers on the 34 seed zones; 70 % food (auto-assign), 25 % city rides
+(broadcast), 5 % cancelled at a random stage; couriers who go offline and replay their taps, kitchens
+that reject or partially accept, a dispatcher who works the red cards. About a minute on a laptop.
+
+It prints an Arabic + English summary and writes `apps/api/simulation-report.json` (`--report <path>`
+elsewhere): counts by terminal state, p50/p95 time-to-accept and time-to-deliver, the revenue split,
+every named invariant with how many things it checked, and `violations[]` with first examples. Any
+violation exits 1 and prints `violation: <name>`. The same `--seed` reproduces the run exactly.
+`pnpm sim --orders 30 --inject-fault ledger_money_balanced` shows the gate failing on purpose (any
+invariant name works).
+
+The Console's System page (`system.simulator.start/status/stop`, admin and dispatcher) runs the same
+actors live against the running API at 60× (or `speed`), with real presence, so the map shows the
+drivers moving.
 
 ## Reading a failure
 
@@ -85,9 +98,9 @@ table` mean the migrations do not reproduce `schema.prisma`. Either a schema cha
 - **API smoke.** The step prints the `health.ping` JSON and then `api.log`. `"db":"unavailable"` or
   `"redis":"unavailable"` means the built API could not reach that service. The cause is a boot or
   configuration error, and the reason is in `api.log`, which is also in the `ci-logs` artifact.
-- **Simulate.** The log names the violation, for example `violation: ledger_not_balanced`. Download the
-  `simulation-report` artifact (Step 7+) or `ci-logs` → `simulation.log` and reproduce it locally with
-  the same `--seed`.
+- **Simulate.** The log names the violation, for example `violation: ledger_money_balanced`, with its
+  first examples. Download the `simulation-report` artifact (its `violations[]`) or `ci-logs` →
+  `simulation.log` and reproduce it locally with the same `--seed`.
 
 ## Running the same thing locally
 

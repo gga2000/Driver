@@ -689,6 +689,7 @@ export class OrdersService implements OnModuleInit {
       ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
+      has250Component: has250Component(order),
     };
     if (order.type === 'food' || order.type === 'grocery_catalog') {
       const agg = (await this.repo.find(order.id, tx))!;
@@ -820,7 +821,26 @@ export class OrdersService implements OnModuleInit {
           // The ride goes back to dispatch.
           return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true }, 'order.rematch_needed');
         }
-        if (by !== 'customer') await this.emit(tx, 'order.courier_unassigned', SYSTEM, o, { tripId: e.tripId, by, reason: p['reason'] ?? null, redispatch: true });
+        if (by !== 'customer') {
+          // Dispatch requests a new courier from this (it used to go nowhere and the order waited forever).
+          const profile = o.merchantOrgId ? await this.merchants.profile(o.merchantOrgId) : null;
+          const unassigned: DomainEventInput<'order.courier_unassigned'> = {
+            tripId: e.tripId,
+            by,
+            reason: typeof p['reason'] === 'string' ? p['reason'] : null,
+            redispatch: true,
+            orderType: o.type,
+            cityId: o.cityId,
+            merchantOrgId: o.merchantOrgId,
+            promisedReadyAt: o.promisedReadyAt,
+            minVehicleClass: o.minVehicleClass,
+            pickup: profile?.location ?? null,
+            dropoff: o.dropoff,
+            paymentMethod: o.paymentMethod,
+            totalIqd: o.totalIqd,
+          };
+          await this.emit(tx, 'order.courier_unassigned', SYSTEM, o, unassigned);
+        }
         return undefined;
       });
     }
@@ -971,6 +991,17 @@ function beneficiariesOf(fee: CancellationFee, order: OrderRecord, trip: Trip | 
     if ((s.to === 'courier' || s.to === 'driver') && trip?.courierId) return { kind: 'driver' as const, id: trip.courierId, amountIqd: s.amountIqd };
     throw new Error(`cancellation split to ${s.to} has no party on order ${order.id}`);
   });
+}
+
+/**
+ * G-88: the customer total is a multiple of 500, or of 250 when a 250 component is on the receipt
+ * (night delivery +250, street hand-over −250, a 250-step ride fare). The ledger rounds with this;
+ * without it a 23,750 night order was rounded to 24,000 and the customer, who paid the 23,750 he
+ * was shown, was left owing 250.
+ */
+export function has250Component(order: Pick<OrderRecord, 'type' | 'totalIqd' | 'tipIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd'>): boolean {
+  const fees = order.type === 'ride' ? [order.totalIqd - order.tipIqd] : [order.deliveryFeeIqd, order.serviceFeeIqd];
+  return fees.some((f) => f % 500 !== 0);
 }
 
 function dateOrNull(v: unknown): Date | null {

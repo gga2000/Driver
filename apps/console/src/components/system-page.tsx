@@ -185,6 +185,25 @@ function SimulatorCard() {
             <Row k={t('console.simulator_drivers')} v={<span className="tabular-nums">{s.drivers}</span>} />
             {s.startedAt && <Row k={t('console.simulator_started')} v={formatDayClock(s.startedAt)} />}
           </dl>
+          {s.progress && (
+            <p className="mt-2 text-sm tabular-nums">
+              {t('console.simulator_progress', { time: formatClock(s.progress.simTime), placed: s.progress.placed, delivered: s.progress.delivered, online: s.progress.driversOnline })}
+            </p>
+          )}
+          {s.lastReport && (
+            <dl className="mt-2">
+              <Row
+                k={t('console.simulator_last_report')}
+                v={
+                  <Chip tone={s.lastReport.ok ? 'done' : 'bad'}>
+                    {s.lastReport.ok
+                      ? t('console.simulator_report_ok', { delivered: s.lastReport.delivered, orders: s.lastReport.orders })
+                      : t('console.simulator_report_failed', { count: s.lastReport.violations.length, names: s.lastReport.violations.map((v) => v.invariant).join('، ') })}
+                  </Chip>
+                }
+              />
+            </dl>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className={primaryBtn} disabled={s.running || start.isPending} onClick={() => start.mutate({ cityId: CITY_ID })}>
               {t('console.simulator_start')}

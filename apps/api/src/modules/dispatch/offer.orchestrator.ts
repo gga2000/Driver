@@ -521,6 +521,12 @@ export class OfferOrchestrator {
     }
     if (!accept) return this.decline(r, offer);
     if (await this.caps.isOverCap(driverId)) throw new DriverError('over_cap');
+    if (!(await this.fitsCurrentJobs(r, offer, driverId))) {
+      // Two offers reached him while he was free and he took the other one first: this one is
+      // declined for him (the request moves on) instead of becoming an unchecked batch or a second ride.
+      await this.decline(r, offer);
+      throw new DriverError('offer_conflicts_current_job');
+    }
 
     // First accept wins: SET dispatch:lock:{tripId} driverId NX.
     const won = await this.store.tryLock(lockKey(r.tripId), driverId, LOCK_TTL_MS);
@@ -572,6 +578,31 @@ export class OfferOrchestrator {
       if (offer.policy === 'pre_assigned' && offer.pass === 2) await this.emit('substitute.assigned', fresh, { driverId, routeId: fresh.routeId }, driverId);
       return { outcome: 'assigned' as const, tripId: fresh.tripId, compensationIqd: offer.compensationIqd };
     });
+  }
+
+  /**
+   * Offers are checked against the courier's jobs when they are sent, but two can be open at once
+   * for a courier who was free (two kitchens, two waves). By the time he accepts the second he may
+   * hold the first: a broadcast (ride) needs him idle, an auto-assign job must still pass the batching
+   * rules against what he now carries. Dispatcher overrides and route offers are not second-guessed.
+   */
+  private async fitsCurrentJobs(r: DispatchRequest, offer: OfferRecord, driverId: string): Promise<boolean> {
+    if (offer.policy !== 'smart_broadcast' && offer.policy !== 'auto_assign') return true;
+    const jobs = (await this.store.driverJobs(driverId)).filter((id) => id !== r.tripId);
+    if (jobs.length === 0) return true;
+    if (offer.policy === 'smart_broadcast') return false;
+    const cfg = this.baseConfig(r.cityId, r.vertical);
+    const p = await this.presence.get(driverId);
+    if (jobs.length >= batchLimit(p?.vehicle ?? 'bike', cfg.maxBatch)) return false;
+    const current = await this.batchOrders(jobs);
+    if (!current) return false;
+    const verdict = canBatch(
+      current,
+      { tripId: r.tripId, pickup: r.pickup, dropoffZoneId: r.dropoffZoneId ?? r.zoneId, readyAt: new Date(r.readyAt ?? this.now()), hot: r.hot },
+      { maxBatch: batchLimit(p?.vehicle ?? 'bike', cfg.maxBatch), maxDetourMin: cfg.batchMaxDetourMin, maxHotWaitMin: cfg.batchMaxHotWaitMin },
+      { now: this.clock.now(), courierAt: p ?? r.pickup, isAdjacent: (a, b) => this.zones.adjacent(r.cityId, a, b) },
+    );
+    return verdict.ok;
   }
 
   private async decline(r: DispatchRequest, offer: OfferRecord, opts: { notifyTrips: boolean } = { notifyTrips: true }) {

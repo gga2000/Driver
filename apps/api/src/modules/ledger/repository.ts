@@ -24,6 +24,25 @@ export interface LedgerRepository {
 export class InMemoryLedgerRepository implements LedgerRepository {
   private readonly events: LedgerEvent[] = [];
   private seq = 0;
+  // Indexes (the simulator posts tens of thousands of rows): same answers as a scan, oldest first.
+  private readonly byKey = new Map<string, LedgerEvent>();
+  private readonly byAccountIdx = new Map<string, LedgerEvent[]>();
+  private readonly byTripIdx = new Map<string, LedgerEvent[]>();
+  private readonly byGroupIdx = new Map<string, LedgerEvent[]>();
+
+  private index(e: LedgerEvent): void {
+    const add = (m: Map<string, LedgerEvent[]>, k: string | undefined) => {
+      if (k === undefined) return;
+      const list = m.get(k);
+      if (list) list.push(e);
+      else m.set(k, [e]);
+    };
+    if (e.idempotencyKey && !this.byKey.has(e.idempotencyKey)) this.byKey.set(e.idempotencyKey, e);
+    add(this.byAccountIdx, e.fromAccount);
+    if (e.toAccount !== e.fromAccount) add(this.byAccountIdx, e.toAccount);
+    add(this.byTripIdx, e.tripId);
+    add(this.byGroupIdx, e.postingGroupId);
+  }
 
   async append(event: NewLedgerEvent): Promise<LedgerEvent> {
     const [stored] = await this.appendMany([event]);
@@ -35,7 +54,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     const staged: LedgerEvent[] = [];
     for (const event of events) {
       if (event.idempotencyKey) {
-        const existing = this.events.find((e) => e.idempotencyKey === event.idempotencyKey) ?? staged.find((e) => e.idempotencyKey === event.idempotencyKey);
+        const existing = this.byKey.get(event.idempotencyKey) ?? staged.find((e) => e.idempotencyKey === event.idempotencyKey);
         if (existing) {
           out.push(existing);
           continue;
@@ -52,20 +71,22 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       out.push(stored);
     }
     this.events.push(...staged);
+    for (const e of staged) this.index(e);
     return out;
   }
 
   async byAccount(accountId: string): Promise<LedgerEvent[]> {
-    return this.events.filter((e) => e.fromAccount === accountId || e.toAccount === accountId);
+    return [...(this.byAccountIdx.get(accountId) ?? [])];
   }
 
   async byTrip(tripId: string): Promise<LedgerEvent[]> {
-    return this.events.filter((e) => e.tripId === tripId);
+    return [...(this.byTripIdx.get(tripId) ?? [])];
   }
 
   async byPostingGroups(groupIds: readonly string[]): Promise<LedgerEvent[]> {
-    const ids = new Set(groupIds);
-    return this.events.filter((e) => e.postingGroupId !== undefined && ids.has(e.postingGroupId));
+    // Recording order across groups (ids are `le_<seq>`), as a scan would return them.
+    const seqOf = (e: LedgerEvent) => Number(e.id.slice(3));
+    return [...new Set(groupIds)].flatMap((id) => this.byGroupIdx.get(id) ?? []).sort((a, b) => seqOf(a) - seqOf(b));
   }
 
   async all(): Promise<LedgerEvent[]> {
@@ -73,6 +94,6 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   }
 
   async findByIdempotencyKey(key: string): Promise<LedgerEvent | undefined> {
-    return this.events.find((e) => e.idempotencyKey === key);
+    return this.byKey.get(key);
   }
 }

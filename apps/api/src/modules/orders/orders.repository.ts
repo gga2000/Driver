@@ -312,6 +312,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   readonly lines: OrderLineRecord[] = [];
   readonly participants: ParticipantRecord[] = [];
   private seq = 0;
+  // Per-order indexes (the simulator reads every live order every tick).
+  private readonly linesByOrder = new Map<string, OrderLineRecord[]>();
+  private readonly participantsByOrder = new Map<string, ParticipantRecord[]>();
 
   private id(prefix: string): string {
     this.seq += 1;
@@ -344,11 +347,14 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       const { ref, ...rest } = p;
       const rec: ParticipantRecord = { ...rest, id: this.id('par'), orderId: record.id };
       this.participants.push(rec);
+      this.participantsByOrder.set(record.id, [...(this.participantsByOrder.get(record.id) ?? []), rec]);
       byRef.set(ref, rec.id);
     }
     for (const l of lines) {
       const { participantRef, ...rest } = l;
-      this.lines.push({ ...rest, id: this.id('line'), orderId: record.id, participantId: participantRef ? (byRef.get(participantRef) ?? null) : null, substitution: null });
+      const line: OrderLineRecord = { ...rest, id: this.id('line'), orderId: record.id, participantId: participantRef ? (byRef.get(participantRef) ?? null) : null, substitution: null };
+      this.lines.push(line);
+      this.linesByOrder.set(record.id, [...(this.linesByOrder.get(record.id) ?? []), line]);
     }
     return (await this.find(record.id))!;
   }
@@ -358,8 +364,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (!order) return null;
     return {
       order: { ...order },
-      lines: this.lines.filter((l) => l.orderId === id).map((l) => ({ ...l })),
-      participants: this.participants.filter((p) => p.orderId === id).map((p) => ({ ...p })),
+      lines: (this.linesByOrder.get(id) ?? []).map((l) => ({ ...l })),
+      participants: (this.participantsByOrder.get(id) ?? []).map((p) => ({ ...p })),
     };
   }
 

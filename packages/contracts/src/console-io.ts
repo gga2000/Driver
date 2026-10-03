@@ -203,13 +203,45 @@ export const OutboxView = z.object({
 });
 export type OutboxView = z.infer<typeof OutboxView>;
 
-/** Kept stable while the simulator is rebuilt: `available: false` until it is wired. */
+/** Live simulator progress (sim time and counts) while a Console-started run is going. */
+export const SimulatorProgress = z.object({
+  simTime: z.coerce.date(),
+  planned: z.number().int().nonnegative(),
+  placed: z.number().int().nonnegative(),
+  live: z.number().int().nonnegative(),
+  terminal: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  driversOnline: z.number().int().nonnegative(),
+  activeTrips: z.number().int().nonnegative(),
+});
+export type SimulatorProgress = z.infer<typeof SimulatorProgress>;
+
+/** Summary of the latest finished (or stopped) run; the full report is `simulation-report.json`. */
+export const SimulatorReportSummary = z.object({
+  ok: z.boolean(),
+  mode: z.enum(['in_process', 'live']),
+  endedAt: z.coerce.date(),
+  orders: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  deliveredShare: z.number().min(0).max(1),
+  invariants: z.number().int().nonnegative(),
+  violations: z.array(z.object({ invariant: z.string(), count: z.number().int().positive() })),
+});
+export type SimulatorReportSummary = z.infer<typeof SimulatorReportSummary>;
+
+/**
+ * `available: false` only from an API without the simulator. `speed`, `progress` (while running) and
+ * `lastReport` are optional additions (plan Step 7 live mode); older clients ignore them.
+ */
 export const SimulatorStatus = z.object({
   available: z.boolean(),
   running: z.boolean().default(false),
   startedAt: z.coerce.date().nullable().default(null),
   drivers: z.number().int().nonnegative().default(0),
   ordersPerHour: z.number().int().nonnegative().default(0),
+  speed: z.number().positive().optional(),
+  progress: SimulatorProgress.optional(),
+  lastReport: SimulatorReportSummary.optional(),
 });
 export type SimulatorStatus = z.infer<typeof SimulatorStatus>;
 
@@ -218,6 +250,8 @@ export const SimulatorStartInput = z.object({
   drivers: z.number().int().min(1).max(500).default(20),
   ordersPerHour: z.number().int().min(1).max(5000).default(60),
   seed: z.number().int().optional(),
+  /** Simulated seconds per real second (default 60×). */
+  speed: z.number().min(1).max(3600).optional(),
 });
 export type SimulatorStartInput = z.input<typeof SimulatorStartInput>;
 

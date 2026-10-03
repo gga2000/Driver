@@ -11,6 +11,8 @@ interface Delivery {
   lastError: string | null;
 }
 
+const aggKey = (name: string, id: string) => `${name}\u0000${id}`;
+
 interface Staged {
   events: StoredEvent[];
   outbox: OutboxRecord[];
@@ -32,6 +34,20 @@ export class InMemoryEventsRepository implements EventsRepository {
   private readonly deliveries = new Map<string, Delivery>();
   private readonly staged = new Map<object, Staged>();
   private readonly locked = new Set<string>();
+  // Indexes over the committed rows (the simulator writes hundreds of thousands): same answers as a
+  // full scan, in recording order.
+  private readonly byIdempotencyKey = new Map<string, StoredEvent>();
+  private readonly byActor = new Map<string, StoredEvent[]>();
+  private readonly byTrip = new Map<string, StoredEvent[]>();
+  private readonly byOrder = new Map<string, StoredEvent[]>();
+  private readonly byAggregate = new Map<string, StoredEvent[]>();
+  /** Recording position of every committed event (for `before`). */
+  private readonly position = new Map<string, number>();
+  private readonly rowsById = new Map<string, OutboxRecord>();
+  /** Pending rows in insertion order (oldest first), what `claimDue` scans. */
+  private readonly pendingRows = new Map<string, OutboxRecord>();
+  private readonly stats: OutboxStats = { pending: 0, published: 0, failed: 0 };
+  private readonly deliveriesByRow = new Map<string, Map<string, Delivery>>();
 
   // ───────────────────────── staging ─────────────────────────
 
@@ -52,10 +68,10 @@ export class InMemoryEventsRepository implements EventsRepository {
     if (!s) return;
     for (const e of s.events) {
       // ON CONFLICT DO NOTHING against a concurrent transaction that committed the same key first.
-      if (e.idempotencyKey && this.events.some((x) => x.idempotencyKey === e.idempotencyKey)) continue;
-      this.events.push(e);
+      if (e.idempotencyKey && this.byIdempotencyKey.has(e.idempotencyKey)) continue;
+      this.pushEvent(e);
       const row = s.outbox.find((r) => r.eventId === e.id);
-      if (row) this.rows.push(row);
+      if (row) this.pushRow(row);
     }
     for (const d of s.delivered) this.applyDelivered(d.outboxId, d.subscriber, d.at);
   }
@@ -65,10 +81,36 @@ export class InMemoryEventsRepository implements EventsRepository {
     return s ? [...this.events, ...s.events] : this.events;
   }
 
+  private pushEvent(e: StoredEvent): void {
+    this.position.set(e.id, this.events.length);
+    this.events.push(e);
+    if (e.idempotencyKey && !this.byIdempotencyKey.has(e.idempotencyKey)) this.byIdempotencyKey.set(e.idempotencyKey, e);
+    const add = (m: Map<string, StoredEvent[]>, k: string | undefined) => {
+      if (k === undefined) return;
+      const list = m.get(k);
+      if (list) list.push(e);
+      else m.set(k, [e]);
+    };
+    add(this.byActor, e.actorId);
+    add(this.byTrip, e.tripId);
+    add(this.byOrder, e.orderId);
+    add(this.byAggregate, aggKey(e.aggregate, e.aggregateId));
+  }
+
+  private pushRow(row: OutboxRecord): void {
+    this.rows.push(row);
+    this.rowsById.set(row.id, row);
+    this.stats[row.status] += 1;
+    if (row.status === 'pending') this.pendingRows.set(row.id, row);
+  }
+
   // ───────────────────────── events ─────────────────────────
 
   async findByIdempotencyKey(key: string, tx?: Tx): Promise<StoredEvent | null> {
-    return this.visibleEvents(tx).find((e) => e.idempotencyKey === key) ?? null;
+    const committed = this.byIdempotencyKey.get(key);
+    if (committed) return committed;
+    const s = tx ? this.staged.get(tx as object) : undefined;
+    return s?.events.find((e) => e.idempotencyKey === key) ?? null;
   }
 
   async insert(event: StoredEvent, tx?: Tx): Promise<{ event: StoredEvent; inserted: boolean }> {
@@ -94,16 +136,33 @@ export class InMemoryEventsRepository implements EventsRepository {
       s.events.push(event);
       s.outbox.push(row);
     } else {
-      this.events.push(event);
-      this.rows.push(row);
+      this.pushEvent(event);
+      this.pushRow(row);
     }
     return { event, inserted: true };
   }
 
   async find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]> {
-    const all = this.visibleEvents(tx);
-    const stop = filter.before ? all.findIndex((e) => e.id === filter.before!.id) : -1;
-    const scope = stop >= 0 ? all.slice(0, stop) : all;
+    // Narrow by an index when the filter has a key (the rest of the filter still applies below);
+    // this transaction's staged events come last, after every committed one, as in a full scan.
+    const indexed = filter.tripId
+      ? this.byTrip.get(filter.tripId)
+      : filter.orderId
+        ? this.byOrder.get(filter.orderId)
+        : filter.actorId
+          ? this.byActor.get(filter.actorId)
+          : filter.aggregate
+            ? this.byAggregate.get(aggKey(filter.aggregate.name, filter.aggregate.id))
+            : null;
+    const staged = tx ? this.staged.get(tx as object) : undefined;
+    const keyed = Boolean(filter.tripId || filter.orderId || filter.actorId || filter.aggregate);
+    const all = keyed ? [...(indexed ?? []), ...(staged?.events ?? [])] : this.visibleEvents(tx);
+    let scope = all;
+    if (filter.before) {
+      const pos = (e: StoredEvent): number => this.position.get(e.id) ?? this.events.length + (staged?.events.indexOf(e) ?? 0);
+      const stop = this.position.get(filter.before.id) ?? (staged && staged.events.some((e) => e.id === filter.before!.id) ? this.events.length + staged.events.findIndex((e) => e.id === filter.before!.id) : -1);
+      if (stop >= 0) scope = all.filter((e) => pos(e) < stop);
+    }
     return scope.filter(
       (e) =>
         (!filter.actorId || e.actorId === filter.actorId) &&
@@ -116,9 +175,7 @@ export class InMemoryEventsRepository implements EventsRepository {
   // ───────────────────────── outbox ─────────────────────────
 
   async outboxStats(): Promise<OutboxStats> {
-    const stats: OutboxStats = { pending: 0, published: 0, failed: 0 };
-    for (const r of this.rows) stats[r.status] += 1;
-    return stats;
+    return { ...this.stats };
   }
 
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
@@ -130,9 +187,11 @@ export class InMemoryEventsRepository implements EventsRepository {
   async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {
     // Selection and locking happen synchronously, before the first await: two drains started
     // together can never pick the same row.
-    const claimed = this.rows
-      .filter((r) => r.status === 'pending' && r.nextAttemptAt.getTime() <= now.getTime() && !this.locked.has(r.id))
-      .slice(0, limit);
+    const claimed: OutboxRecord[] = [];
+    for (const r of this.pendingRows.values()) {
+      if (claimed.length >= limit) break;
+      if (r.nextAttemptAt.getTime() <= now.getTime() && !this.locked.has(r.id)) claimed.push(r);
+    }
     for (const r of claimed) this.locked.add(r.id);
     try {
       return await fn(
@@ -145,9 +204,15 @@ export class InMemoryEventsRepository implements EventsRepository {
   }
 
   async updateOutbox(id: string, patch: OutboxPatch): Promise<void> {
-    const row = this.rows.find((r) => r.id === id);
+    const row = this.rowsById.get(id);
     if (!row) throw new Error(`outbox row ${id} not found`);
-    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.status !== undefined && patch.status !== row.status) {
+      this.stats[row.status] -= 1;
+      this.stats[patch.status] += 1;
+      if (patch.status === 'pending') this.pendingRows.set(row.id, row);
+      else this.pendingRows.delete(row.id);
+      row.status = patch.status;
+    }
     if (patch.attempts !== undefined) row.attempts = patch.attempts;
     if (patch.lastError !== undefined) row.lastError = patch.lastError ?? undefined;
     if (patch.nextAttemptAt !== undefined) row.nextAttemptAt = patch.nextAttemptAt;
@@ -158,7 +223,7 @@ export class InMemoryEventsRepository implements EventsRepository {
 
   async deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>> {
     const names = new Set<string>();
-    for (const d of this.deliveries.values()) if (d.outboxId === outboxId && d.deliveredAt) names.add(d.subscriber);
+    for (const d of this.deliveriesByRow.get(outboxId)?.values() ?? []) if (d.deliveredAt) names.add(d.subscriber);
     const s = tx ? this.staged.get(tx as object) : undefined;
     for (const d of s?.delivered ?? []) if (d.outboxId === outboxId) names.add(d.subscriber);
     return names;
@@ -194,6 +259,9 @@ export class InMemoryEventsRepository implements EventsRepository {
     if (!d) {
       d = { outboxId, subscriber, deliveredAt: null, attempts: 0, lastError: null };
       this.deliveries.set(key, d);
+      const forRow = this.deliveriesByRow.get(outboxId) ?? new Map<string, Delivery>();
+      forRow.set(subscriber, d);
+      this.deliveriesByRow.set(outboxId, forRow);
     }
     return d;
   }

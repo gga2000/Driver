@@ -288,7 +288,10 @@ export class TripsService implements OnModuleInit {
       const trip = await this.loadForCourier(tripId, driverId, tx);
       const stop = await this.stop(tripId, stopId, tx);
       if (stop.state !== 'pending') {
-        if (stop.state === 'skipped') throw new DriverError('stop_state_conflict');
+        if (stop.state === 'skipped') {
+          if (await this.lateReplay(tx, trip, stop, 'stop.arrived', driverId, input, { stopId, stopType: stop.type, pin: input.pin ?? null, serverReceivedAt: this.clock.now().toISOString() })) return this.view(tripId, tx);
+          throw new DriverError('stop_state_conflict');
+        }
         return this.view(tripId, tx);
       }
       if (!PROGRESS_STATES.includes(trip.state)) throw new DriverError('trip_state_conflict');
@@ -319,8 +322,22 @@ export class TripsService implements OnModuleInit {
       const trip = await this.loadForCourier(tripId, driverId, tx);
       const stop = await this.stop(tripId, stopId, tx);
       if (stop.state === 'completed') return this.view(tripId, tx);
-      if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
       const handover = input.handover ?? {};
+      if (
+        stop.state === 'skipped' &&
+        (await this.lateReplay(tx, trip, stop, 'stop.completed', driverId, input, {
+          stopId,
+          stopType: stop.type,
+          vertical: trip.vertical,
+          cashCollectedIqd: handover.cashCollectedIqd ?? null,
+          photo: Boolean(handover.photoUrl),
+          pinOk: handover.pinOk ?? null,
+          serverReceivedAt: this.clock.now().toISOString(),
+        }))
+      ) {
+        return this.view(tripId, tx);
+      }
+      if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
       const child = childHandover({ vertical: trip.vertical, childName: stop.childName, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
       const now = this.clock.now();
@@ -547,6 +564,19 @@ export class TripsService implements OnModuleInit {
   }
 
   // ───────────────────────── internals ─────────────────────────
+
+  /**
+   * Edge-case §10: a tap the device queued offline and replays after its order was detached from
+   * this trip (the job was reassigned or cancelled meanwhile) is kept as evidence, not refused: the
+   * events module stores it quarantined as `late_replay` (support sees it; no settlement subscriber
+   * ever does) and nothing here changes. Anything else hitting a skipped stop stays a conflict.
+   */
+  private async lateReplay(tx: Tx, trip: TripRecord, stop: StopRecord, type: 'stop.arrived' | 'stop.completed', driverId: string, input: DeviceStamp, payload: Record<string, unknown>): Promise<boolean> {
+    if (input.deviceUptimeMs === undefined || !stop.orderId) return false;
+    if ((await this.repo.detachedAt(trip.id, stop.orderId)) === null) return false;
+    await this.emit(tx, type, driverId, trip.id, payload, { orderId: stop.orderId, ...input });
+    return true;
+  }
 
   private async load(tripId: string, tx?: Tx): Promise<TripRecord> {
     const trip = await this.repo.findTrip(tripId, tx);

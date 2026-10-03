@@ -25,12 +25,11 @@ import { CapsService, LedgerService, MerchantCashService } from '../ledger/index
 import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
+import { SimulatorService } from '../simulator/index.js';
 import { cashHeld, hourBefore, pinState } from './driver-state.js';
 
 /** Failed outbox rows shown on the system page. */
 export const RECENT_FAILED_OUTBOX = 20;
-
-const SIMULATOR_UNAVAILABLE: z.input<typeof SimulatorStatus> = { available: false };
 
 /**
  * The Console's read side (`ctx.console`). Every view is composed from the owning modules' public
@@ -51,6 +50,7 @@ export class ConsoleReadService implements ConsolePort {
     private readonly orgs: OrgsService,
     private readonly scoring: ScoringService,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly simulator: SimulatorService,
   ) {}
 
   // ───────────────────────── map ─────────────────────────
@@ -177,17 +177,18 @@ export class ConsoleReadService implements ConsolePort {
     return { ...stats, recentFailed };
   }
 
-  /** The simulator is being rebuilt (plan Step 7); the contract stays so the Console can call it. */
+  /** Live simulator (plan Step 7): progress while running, and the latest run's report summary. */
   async simulatorStatus(): Promise<z.input<typeof SimulatorStatus>> {
-    return SIMULATOR_UNAVAILABLE;
+    return this.simulator.status();
   }
 
-  async simulatorStart(_input: z.infer<typeof SimulatorStartInput>): Promise<z.input<typeof SimulatorStatus>> {
-    return SIMULATOR_UNAVAILABLE;
+  /** Starts the simulator against this running API at `speed`× (default 60×): real presence, moving drivers. */
+  async simulatorStart(input: z.infer<typeof SimulatorStartInput>): Promise<z.input<typeof SimulatorStatus>> {
+    return this.simulator.start(input);
   }
 
   async simulatorStop(): Promise<z.input<typeof SimulatorStatus>> {
-    return SIMULATOR_UNAVAILABLE;
+    return this.simulator.stop();
   }
 
   // ───────────────────────── merchants ─────────────────────────

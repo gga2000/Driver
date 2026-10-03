@@ -153,10 +153,41 @@ describe('orders × trips — end to end', () => {
     await h.trips.cancel(t.id, 'driver', 'd1', 'بنزين');
     await h.deliver();
     expect((await h.orders.get(o.id)).state).toBe('merchant_accepted');
-    expect(h.events.last('order.courier_unassigned')!.payload).toMatchObject({ by: 'driver', redispatch: true });
+    // Simulator regression: the event now carries what dispatch needs to find the next courier.
+    expect(h.events.last('order.courier_unassigned')!.payload).toMatchObject({
+      by: 'driver',
+      redispatch: true,
+      orderType: 'food',
+      cityId: 'aziziyah',
+      merchantOrgId: 'rest_1',
+      promisedReadyAt: expect.any(String),
+      dropoff: null, // this harness's food input has no drop-off point; dispatch then anchors it like on acceptance
+      paymentMethod: 'cash',
+      totalIqd: o.totalIqd,
+    });
     // and a fresh courier can take it
     const t2 = await h.tripFor(o.id, { driverId: 'd2' });
     expect(t2.courierId).toBe('d2');
+  });
+
+  it('a night delivery fee (+250) tells the ledger the total may end in 250 (G-88; simulator regression)', async () => {
+    // Found by the Aziziyah simulator: the ledger rounded a 16,750 night order up to 17,000 and the
+    // customer, who paid the 16,750 he was shown, was left owing 250.
+    const h = ordersHarness();
+    const night = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: 1250 }));
+    expect(night.totalIqd % 500).toBe(250);
+    await h.orders.merchantAccept('m1', { orderId: night.id, prepMinutes: 15 });
+    const t = await h.tripFor(night.id);
+    await h.pickup(t.id);
+    await h.dropoff(t.id, { cashCollectedIqd: night.totalIqd });
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { has250Component: true, cashCollectedIqd: night.totalIqd } });
+
+    const day = await h.orders.place('c2', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: day.id, prepMinutes: 15 });
+    const t2 = await h.tripFor(day.id, { driverId: 'd2' });
+    await h.pickup(t2.id, 'd2');
+    await h.dropoff(t2.id, { cashCollectedIqd: day.totalIqd, driverId: 'd2' });
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { has250Component: false } });
   });
 
   it('order cap reaches the trip: a bike cannot accept a car-sized order', async () => {

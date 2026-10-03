@@ -81,6 +81,9 @@ export class PrismaDispatchRepository implements DispatchRepository {
 export class InMemoryDispatchRepository implements DispatchRepository {
   private readonly rows = new Map<string, OfferRecord>();
 
+  /** Offer ids per trip, in creation order (the board reads every live trip's offers each poll). */
+  private readonly byTrip = new Map<string, string[]>();
+
   private seq = 0;
 
   async createOffers(offers: NewOffer[]): Promise<OfferRecord[]> {
@@ -88,6 +91,9 @@ export class InMemoryDispatchRepository implements DispatchRepository {
       this.seq += 1;
       const row: OfferRecord = { ...o, id: `do_${this.seq}`, state: 'sent', seenAt: null, respondedAt: null };
       this.rows.set(row.id, row);
+      const ids = this.byTrip.get(row.tripId);
+      if (ids) ids.push(row.id);
+      else this.byTrip.set(row.tripId, [row.id]);
       return { ...row };
     });
   }
@@ -105,7 +111,7 @@ export class InMemoryDispatchRepository implements DispatchRepository {
   }
 
   async listByTrip(tripId: string): Promise<OfferRecord[]> {
-    return [...this.rows.values()].filter((r) => r.tripId === tripId).map((r) => ({ ...r }));
+    return (this.byTrip.get(tripId) ?? []).map((id) => ({ ...this.rows.get(id)! }));
   }
 
   async acceptedSince(since: Date): Promise<OfferRecord[]> {

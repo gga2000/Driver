@@ -1,104 +1,272 @@
-import { Injectable } from '@nestjs/common';
-import { AZIZIYAH_ZONES, type PriceRequest } from '@driver/contracts';
-import { DispatchService, type DriverCandidate } from '../dispatch/index.js';
-import { Accounts, LedgerService } from '../ledger/index.js';
+import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import type { SimulatorStartInput, SimulatorStatus } from '@driver/contracts';
+import type { z } from 'zod';
+import { CLOCK, FakeClock, type Clock } from '../../shared/clock.js';
+import { InMemoryQueue } from '../../shared/queue.js';
+import { DISPATCH_QUEUE, DispatchService } from '../dispatch/index.js';
+import { EventsService } from '../events/index.js';
+import { IdentityService } from '../identity/index.js';
+import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
+import { ORDERS_QUEUE, OrdersService } from '../orders/index.js';
+import { OrgsService } from '../orgs/index.js';
 import { PricingService } from '../pricing/index.js';
-import { TripsService } from '../trips/index.js';
+import { TRIPS_QUEUE, TripsService } from '../trips/index.js';
+import type { DrainableQueue, SimServices } from './context.js';
+import { Simulation, type Progress } from './engine.js';
+import { injectFault } from './faults.js';
+import type { SimSnapshot } from './invariants.js';
+import { buildReport, type SimulationReport } from './report.js';
+import { DAY_MINUTES, DEFAULT_DAY_START, buildScenario } from './scenario.js';
+import { buildWorld, supplyMix } from './world.js';
 
-export interface SimulationResult {
-  trips: number;
-  completed: number;
-  noDrivers: number;
-  totalFaresIqd: number;
-  ledgerBalanced: boolean;
+export interface RunOptions {
+  orders: number;
+  drivers?: number;
+  restaurants?: number;
+  customers?: number;
+  seed: number;
+  tickSec?: number;
+  /** Deliberate rule breaks applied to the snapshot before the checks (tests, `--inject-fault`). */
+  faults?: string[];
+  onProgress?: (p: Progress) => void;
 }
 
-/** Small deterministic PRNG so simulator runs are reproducible from a seed. */
-export function rng(seed: number): () => number {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return () => (s = (s * 16807) % 2147483647) / 2147483647;
+export interface RunResult {
+  report: SimulationReport;
+  snapshot: SimSnapshot;
+}
+
+/** Live mode: simulated seconds per real second unless the Console asks otherwise. */
+export const DEFAULT_LIVE_SPEED = 60;
+const LIVE_TICK_MS = 1000;
+
+interface LiveRun {
+  sim: Simulation;
+  input: z.infer<typeof SimulatorStartInput> & { speed?: number | undefined };
+  speed: number;
+  startedAt: Date;
+  timer: NodeJS.Timeout;
+  busy: boolean;
+  lastReal: number;
+  wallStart: number;
 }
 
 /**
- * Runs fake customers through quote → dispatch → complete → ledger using only the public
- * interfaces of the other modules. Later milestones add real geography and a clock.
+ * The Aziziyah simulator (plan Step 7).
+ *
+ * `run` — in-process: the app booted on a `FakeClock` with in-memory repositories and queues; the
+ * clock advances in ticks, the app's timer queues drain on it, every actor acts through the real
+ * services, and the end-of-run snapshot is checked against the named invariants (`pnpm sim`).
+ *
+ * `start` / `status` / `stop` — live: the same actors against the running API on its own clock at
+ * `speed`× (drivers really online, heartbeating and moving, so the Console map shows them gliding);
+ * stopping computes the report on what happened so far.
  */
 @Injectable()
-export class SimulatorService {
+export class SimulatorService implements OnModuleDestroy {
+  private readonly logger = new Logger(SimulatorService.name);
+  private live: LiveRun | null = null;
+  private lastReport: SimulationReport | null = null;
+
   constructor(
-    private readonly pricing: PricingService,
-    private readonly dispatch: DispatchService,
+    private readonly identity: IdentityService,
+    private readonly orgs: OrgsService,
+    private readonly orders: OrdersService,
     private readonly trips: TripsService,
+    private readonly dispatch: DispatchService,
+    private readonly pricing: PricingService,
     private readonly ledger: LedgerService,
+    private readonly caps: CapsService,
+    private readonly merchantCash: MerchantCashService,
+    private readonly events: EventsService,
+    @Inject(CLOCK) private readonly clock: Clock,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
-  async run(opts: { cityId: string; trips: number; drivers: number; seed?: number; commissionPct?: number }): Promise<SimulationResult> {
-    const rand = rng(opts.seed ?? 1);
-    const zones = AZIZIYAH_ZONES.map((z) => z.id);
-    const commission = opts.commissionPct ?? 20;
-    const drivers: DriverCandidate[] = Array.from({ length: opts.drivers }, (_, i) => ({
-      driverId: `sim-d${i + 1}`,
-      distanceKm: Math.round(rand() * 50) / 10,
-      activeTrips: 0,
-      tier: 'bronze',
-    }));
+  services(): SimServices {
+    return {
+      identity: this.identity,
+      orgs: this.orgs,
+      orders: this.orders,
+      trips: this.trips,
+      dispatch: this.dispatch,
+      pricing: this.pricing,
+      ledger: this.ledger,
+      caps: this.caps,
+      merchantCash: this.merchantCash,
+      events: this.events,
+    };
+  }
 
-    let completed = 0;
-    let noDrivers = 0;
-    let totalFares = 0;
-
-    for (let i = 0; i < opts.trips; i++) {
-      const from = zones[Math.floor(rand() * zones.length)]!;
-      const to = zones[Math.floor(rand() * zones.length)]!;
-      const req: PriceRequest = {
-        cityId: opts.cityId,
-        vertical: 'taxi',
-        stops: [{ zoneId: from, type: 'pickup' }, { zoneId: to, type: 'dropoff' }],
-        options: { frontSeat: false, doorPickup: rand() < 0.3, streetHandover: false, waitMinutes: 0, promoIqd: 0 },
-        at: new Date('2026-10-02T09:00:00Z'),
-        distanceKm: Math.round(rand() * 80) / 10,
-        durationMin: Math.round(rand() * 25),
-      };
-      const quote = this.pricing.quote(req);
-      const customerId = `sim-c${i + 1}`;
-      const orderId = `sim-o${i + 1}`;
-      const trip = await this.trips.createForOrders(
-        {
-          cityId: opts.cityId,
-          vertical: 'taxi',
-          orders: [{ orderId }],
-          stops: [
-            { orderId, type: 'pickup', zoneKey: from },
-            { orderId, type: 'dropoff', zoneKey: to },
-          ],
-        },
-        customerId,
-      );
-
-      const plan = this.dispatch.plan({ tripId: trip.id, cityId: opts.cityId, vertical: 'taxi', zoneId: from }, drivers);
-      if (plan.kind !== 'broadcast') {
-        noDrivers += 1;
-        await this.trips.cancel(trip.id, 'platform', 'system', 'no_drivers');
-        continue;
-      }
-      const driverId = plan.waves[0]!.driverIds[0]!;
-      await this.trips.offer(trip.id, { driverIds: plan.waves[0]!.driverIds });
-      await this.trips.accept(trip.id, driverId, { vehicleClass: 'car' });
-      for (const stop of trip.stops) {
-        await this.trips.arrive(trip.id, stop.id, driverId);
-        await this.trips.completeStop(trip.id, stop.id, driverId);
-      }
-      const fare = quote.total;
-      const fee = Math.round((fare * commission) / 100);
-      await this.ledger.record({ type: 'cash_collected', amount: fare, fromAccount: Accounts.customer(customerId), toAccount: Accounts.cash(driverId), tripId: trip.id, occurredAt: new Date() });
-      await this.ledger.record({ type: 'driver_settlement', amount: fare, fromAccount: Accounts.cash(driverId), toAccount: Accounts.driver(driverId), tripId: trip.id, occurredAt: new Date() });
-      await this.ledger.record({ type: 'commission_accrued', amount: fee, fromAccount: Accounts.driver(driverId), toAccount: Accounts.platform, tripId: trip.id, occurredAt: new Date() });
-      completed += 1;
-      totalFares += fare;
+  /** The app's timer queues, which an in-process run drains on its fake clock. */
+  private timerQueues(): DrainableQueue[] {
+    const out: DrainableQueue[] = [];
+    for (const token of [ORDERS_QUEUE, TRIPS_QUEUE, DISPATCH_QUEUE]) {
+      const q = this.moduleRef.get<unknown>(token, { strict: false });
+      if (!(q instanceof InMemoryQueue)) throw new Error('the in-process simulator needs the in-memory app: run it without REDIS_URL');
+      out.push(q);
     }
+    return out;
+  }
 
-    const inv = await this.ledger.checkInvariant();
-    return { trips: opts.trips, completed, noDrivers, totalFaresIqd: totalFares, ledgerBalanced: inv.ok };
+  // ───────────────────────── in-process ─────────────────────────
+
+  async run(opts: RunOptions): Promise<RunResult> {
+    const clock = this.clock;
+    if (!(clock instanceof FakeClock)) throw new Error('the in-process simulator needs the app booted on a FakeClock');
+    const wallStart = Date.now();
+    const world = buildWorld({ seed: opts.seed, drivers: opts.drivers ?? 60, restaurants: opts.restaurants ?? 10, customers: opts.customers ?? Math.max(100, Math.ceil(opts.orders / 4)), dayMinutes: DAY_MINUTES });
+    const plan = buildScenario(world, { orders: opts.orders });
+    clock.set(DEFAULT_DAY_START);
+    const sim = new Simulation(this.services(), {
+      world,
+      plan,
+      dayStart: new Date(DEFAULT_DAY_START),
+      queues: this.timerQueues(),
+      advanceClock: (ms) => clock.advance(ms),
+      appNow: () => clock.now(),
+    });
+    try {
+      await sim.setup();
+      await sim.runDay({ tickSec: opts.tickSec ?? 5, ...(opts.onProgress ? { onProgress: opts.onProgress } : {}) });
+      const snapshot = await sim.snapshot();
+      for (const f of opts.faults ?? []) injectFault(snapshot, f);
+      const report = buildReport(
+        snapshot,
+        {
+          seed: opts.seed,
+          orders: opts.orders,
+          drivers: world.drivers.length,
+          restaurants: world.restaurants.length,
+          customers: world.customers.length,
+          tickSec: opts.tickSec ?? 5,
+          speed: 1,
+          mode: 'in_process',
+          startedAt: new Date(DEFAULT_DAY_START),
+          endedAt: clock.now(),
+          wallMs: Date.now() - wallStart,
+          supply: supplyMix(world.drivers.length),
+          refusals: Object.fromEntries([...sim.refusals.entries()].sort(([a], [b]) => a.localeCompare(b))),
+          placeRefused: [...sim.orders.values()].filter((r) => r.placeError).length,
+        },
+        plan.length,
+      );
+      this.lastReport = report;
+      return { report, snapshot };
+    } finally {
+      sim.dispose();
+    }
+  }
+
+  // ───────────────────────── live (Console) ─────────────────────────
+
+  async start(input: z.infer<typeof SimulatorStartInput> & { speed?: number | undefined }): Promise<z.input<typeof SimulatorStatus>> {
+    if (this.live) return this.status();
+    const speed = input.speed ?? DEFAULT_LIVE_SPEED;
+    const seed = input.seed ?? 1;
+    const world = buildWorld({ seed, drivers: input.drivers, restaurants: 10, customers: 200, dayMinutes: DAY_MINUTES });
+    const plan = buildScenario(world, { orders: Math.max(1, Math.round((input.ordersPerHour * DAY_MINUTES) / 60)) });
+    const now = this.clock.now();
+    const sim = new Simulation(this.services(), { world, plan, dayStart: now, speed, appNow: () => this.clock.now() });
+    await sim.setup();
+    const run: LiveRun = { sim, input, speed, startedAt: now, busy: false, lastReal: Date.now(), wallStart: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
+    run.timer = setInterval(() => void this.liveTick(run), LIVE_TICK_MS);
+    run.timer.unref();
+    this.live = run;
+    this.logger.log(`simulator started: ${world.drivers.length} drivers, ${plan.length} orders over a ${DAY_MINUTES / 60}-hour day at ${speed}×`);
+    return this.status();
+  }
+
+  /** One live step: real time since the last step × speed, never two at once. */
+  async liveTick(run: LiveRun): Promise<void> {
+    if (run.busy || this.live !== run) return;
+    run.busy = true;
+    try {
+      const now = Date.now();
+      const dtSec = ((now - run.lastReal) / 1000) * run.speed;
+      run.lastReal = now;
+      await run.sim.tick(dtSec);
+      const p = run.sim.progress();
+      if (p.simTime.getTime() >= run.sim.dayEnd && p.live === 0) await this.stop();
+    } catch (err) {
+      this.logger.error(`simulator tick failed: ${(err as Error).message}`);
+    } finally {
+      run.busy = false;
+    }
+  }
+
+  async stop(): Promise<z.input<typeof SimulatorStatus>> {
+    const run = this.live;
+    if (!run) return this.status();
+    clearInterval(run.timer);
+    this.live = null;
+    try {
+      for (const d of run.sim.drivers) if (d.online) await run.sim.call('driver.offline', () => this.dispatch.presence.offline(d.personId));
+      const snapshot = await run.sim.snapshot();
+      this.lastReport = buildReport(
+        snapshot,
+        {
+          seed: run.input.seed ?? 1,
+          orders: run.sim.progress().planned,
+          drivers: run.sim.drivers.length,
+          restaurants: run.sim.restaurants.length,
+          customers: run.sim.world.customers.length,
+          tickSec: (LIVE_TICK_MS / 1000) * run.speed,
+          speed: run.speed,
+          mode: 'live',
+          startedAt: run.startedAt,
+          endedAt: this.clock.now(),
+          wallMs: Date.now() - run.wallStart,
+          supply: supplyMix(run.sim.drivers.length),
+          refusals: Object.fromEntries(run.sim.refusals),
+          placeRefused: [...run.sim.orders.values()].filter((r) => r.placeError).length,
+        },
+        run.sim.progress().planned,
+      );
+    } finally {
+      run.sim.dispose();
+    }
+    return this.status();
+  }
+
+  status(): z.input<typeof SimulatorStatus> {
+    const run = this.live;
+    const r = this.lastReport;
+    return {
+      available: true,
+      running: run !== null,
+      startedAt: run?.startedAt ?? null,
+      drivers: run?.sim.drivers.length ?? 0,
+      ordersPerHour: run?.input.ordersPerHour ?? 0,
+      ...(run ? { speed: run.speed, progress: run.sim.progress() } : {}),
+      ...(r
+        ? {
+            lastReport: {
+              ok: r.ok,
+              mode: r.run.mode,
+              endedAt: r.run.endedAt,
+              orders: r.orders.placed,
+              delivered: r.orders.delivered,
+              deliveredShare: r.orders.deliveredShare,
+              invariants: r.invariants.length,
+              violations: r.violations.map((v) => ({ invariant: v.invariant, count: v.count })),
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** The full report of the last run (in-process or live). */
+  report(): SimulationReport | null {
+    return this.lastReport;
+  }
+
+  onModuleDestroy(): void {
+    if (this.live) {
+      clearInterval(this.live.timer);
+      this.live.sim.dispose();
+      this.live = null;
+    }
   }
 }

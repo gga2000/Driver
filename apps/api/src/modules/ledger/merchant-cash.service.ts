@@ -281,6 +281,20 @@ export class MerchantCashService {
   }
 
   /**
+   * Courier or driver → company: cash handed in at an agent, by ZainCash or to the ops round
+   * (adopted "daytime agent collection"), under a settlement reference. Lowers what he owes, so his
+   * cap frees up; returns his `cash:` balance after.
+   */
+  async recordDriverSettlement(input: { driverId: string; amountIqd: number; channel: SettlementChannel; reference: string }): Promise<number> {
+    if (input.amountIqd <= 0) throw new DriverError('settlement_nothing_due');
+    const at = this.clock.now();
+    return this.run(async (tx) => {
+      await this.ledger.recordAll(postSettlement({ kind: 'driver_settlement', ...input, occurredAt: at }), tx);
+      return (await this.ledger.balance(Accounts.cash(input.driverId))).amount;
+    });
+  }
+
+  /**
    * Courier return route (decisions §3): the merchants in a courier-settled mode he owes cash to
    * tonight and how much each; Partner orders the stops geographically.
    */

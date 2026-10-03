@@ -271,6 +271,29 @@ describe('TripsService — order links (attach/detach history)', () => {
     expect(h.events.ofType('trip.order_detached')).toHaveLength(1);
   });
 
+  it('an offline tap replayed after the order was detached is recorded as evidence, not refused (simulator regression, edge-case §10)', async () => {
+    // Found by the Aziziyah simulator: a courier offline at the kitchen had his job reassigned; his
+    // queued "وصلت" came back as stop_state_conflict and the evidence was lost instead of quarantined.
+    const h = tripsHarness();
+    const t = await h.foodTrip('ord_a');
+    await h.trips.offer(t.id);
+    await h.trips.accept(t.id, 'd1', { vehicleClass: 'bike' });
+    const [pickup] = (await h.trips.get(t.id)).stops;
+    const tappedAt = h.clock.now();
+    h.clock.advance(5 * 60_000);
+    await h.trips.cancel(t.id, 'platform', 'disp', 'courier_offline');
+    h.clock.advance(3 * 60_000);
+    const stamp = { occurredAt: tappedAt, deviceUptimeMs: 3_600_000, idempotencyKey: 'd1.7' };
+    const view = await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen, ...stamp });
+    expect(view.stops[0]).toMatchObject({ state: 'skipped', arrivedAt: null });
+    const replay = h.events.ofType('stop.arrived').at(-1)!;
+    expect(replay).toMatchObject({ orderId: 'ord_a', deviceUptimeMs: 3_600_000, occurredAt: tappedAt, idempotencyKey: 'stop.arrived:d1.7' });
+    await h.trips.completeStop(t.id, pickup!.id, 'd1', { ...stamp, idempotencyKey: 'd1.8' });
+    expect(h.events.ofType('stop.completed')).toHaveLength(1);
+    // Without device evidence (a live tap, not a replay) a skipped stop is still a conflict.
+    expect(await code(h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen }))).toBe('stop_state_conflict');
+  });
+
   it('an order cannot ride two live trips at once', async () => {
     const h = tripsHarness();
     await h.foodTrip('ord_a');

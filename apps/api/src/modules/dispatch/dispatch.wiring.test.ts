@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { encodeDomainEvent, type DomainEventInput } from '@driver/contracts';
+import { DispatchSubscribers } from './events.subscribers.js';
 import { dispatchHarness, north } from './test-harness.js';
 
 type H = ReturnType<typeof dispatchHarness>;
@@ -93,5 +95,41 @@ describe('dispatch ↔ trips / ledger ports', () => {
     expect(h.trips.outcomes).toEqual([]);
     await h.orchestrator.onTripDeclined('f1', 'k1'); // replay
     expect(h.trips.offeredTo('f1')).toEqual(['k1', 'k2']);
+  });
+
+  it('order.courier_unassigned with redispatch builds a new courier trip and requests again (simulator regression)', async () => {
+    // Found by the Aziziyah simulator: when the platform took a job off a courier who went dark,
+    // orders announced `redispatch: true` and nobody listened — the food sat "ready" forever.
+    const h = dispatchHarness();
+    await h.online('k1', 0.3, { vehicle: 'bike' });
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    const payload: DomainEventInput<'order.courier_unassigned'> = {
+      tripId: 'trip-old',
+      by: 'platform',
+      reason: 'courier_offline',
+      redispatch: true,
+      orderType: 'food',
+      cityId: 'aziziyah',
+      merchantOrgId: 'rest_1',
+      promisedReadyAt: h.clock.now(),
+      minVehicleClass: 'bike',
+      pickup: { zoneKey: 'centre', pin: north(0) },
+      dropoff: { zoneKey: 'street_30' },
+      paymentMethod: 'cash',
+      totalIqd: 16_500,
+    };
+    const event = { orderId: 'ord_1', aggregateId: 'ord_1', payload: encodeDomainEvent('order.courier_unassigned', payload) };
+    await subs.onCourierUnassigned(event);
+    expect(h.trips.created).toEqual([expect.objectContaining({ orderId: 'ord_1', vertical: 'food', pickup: { zoneKey: 'centre', pin: north(0) }, dropoff: { zoneKey: 'street_30' } })]);
+    expect(await h.service.getRequest('trip-ord_1')).toMatchObject({ policy: 'auto_assign', cashIqd: 16_500, dropoffZoneId: 'street_30' });
+    expect(h.trips.offeredTo('trip-ord_1')).toEqual(['k1']); // ready already: the first courier is offered at once
+    await subs.onCourierUnassigned(event); // redelivery: same live trip, same live request
+    expect(h.trips.offeredTo('trip-ord_1')).toEqual(['k1']);
+
+    const ride = { ...event, orderId: 'ord_2', payload: encodeDomainEvent('order.courier_unassigned', { ...payload, orderType: 'ride' }) };
+    const no = { ...event, orderId: 'ord_3', payload: encodeDomainEvent('order.courier_unassigned', { ...payload, redispatch: false }) };
+    await subs.onCourierUnassigned(ride);
+    await subs.onCourierUnassigned(no);
+    expect(h.trips.created).toHaveLength(2);
   });
 });

@@ -186,7 +186,7 @@ describe('API smoke', () => {
     expect(await authed.trips.events.query({ tripId: 'nope' })).toEqual([]);
     expect((await authed.system.outbox.query()).recentFailed).toEqual([]);
     expect(await authed.merchants.list.query({ cityId: 'aziziyah' })).toEqual([]);
-    expect(await authed.system.simulator.status.query()).toMatchObject({ available: false });
+    expect(await authed.system.simulator.status.query()).toMatchObject({ available: true, running: false, drivers: 0 });
   });
 
   it('returns the city config and null for unknown cities', async () => {
