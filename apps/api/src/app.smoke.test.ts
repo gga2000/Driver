@@ -47,6 +47,66 @@ describe('API smoke', () => {
     expect(quote.shadowComponents.map((c) => c.key)).toEqual(['distance', 'time']);
   });
 
+  it('identity: requestOtp → devLastOtp → verifyOtp → me, over the wire', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const phone = '07712340001';
+    const req = await anon.identity.requestOtp.mutate({ phone, purpose: 'login' });
+    expect(req.phoneMasked).toBe('+96477*****01');
+    expect(req.resendAfterSec).toBe(30);
+    const { code } = await anon.identity.devLastOtp.query({ phone });
+    expect(code).toMatch(/^\d{6}$/);
+    const login = await anon.identity.verifyOtp.mutate({ phone, code: code!, device: { fingerprint: 'smoke-device-001', platform: 'web' } });
+    expect(login.isNew).toBe(true);
+
+    const authed = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
+    });
+    const me = await authed.identity.me.query();
+    expect(me.personId).toBe(login.personId);
+    expect(me.phoneMasked).toBe('+96477*****01');
+    expect(me.roles.map((r) => r.kind)).toEqual(['customer']);
+    expect(me.reverificationRequired).toBe(false);
+
+    // Same phone in another format from "another browser": same person, not a new one.
+    const second = await anon.identity.requestOtp.mutate({ phone: '+964 771 234 0001', purpose: 'login' });
+    expect(second.phoneMasked).toBe('+96477*****01');
+    const secondCode = (await anon.identity.devLastOtp.query({ phone: '9647712340001' })).code!;
+    const secondLogin = await anon.identity.verifyOtp.mutate({ phone: '+964 771 234 0001', code: secondCode });
+    expect(secondLogin.isNew).toBe(false);
+    expect(secondLogin.personId).toBe(login.personId);
+
+    const rotated = await anon.identity.refresh.mutate({ refreshToken: login.tokens.refreshToken });
+    expect(rotated.refreshToken).not.toBe(login.tokens.refreshToken);
+    await authed.identity.logout.mutate({ refreshToken: rotated.refreshToken });
+    const afterLogout = await authed.identity.me.query().catch((e: unknown) => e);
+    expect((afterLogout as { data?: { code?: string } }).data?.code).toBe('session_expired');
+  });
+
+  it('protected procedure without a token → UNAUTHORIZED with an Arabic message and retry hint', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const err = (await anon.identity.me.query().catch((e: unknown) => e)) as { message: string; data: { code: string; httpStatus: number; message_ar: string; retryHint: string } };
+    expect(err.data.httpStatus).toBe(401);
+    expect(err.data.code).toBe('unauthorized');
+    expect(err.data.message_ar).toMatch(/[؀-ۿ]/);
+    expect(err.data.retryHint).toBe('never');
+    expect(err.message).toBe(err.data.message_ar);
+    expect(JSON.stringify(err.data)).not.toContain('stack');
+  });
+
+  it('admin-only procedure → FORBIDDEN for a plain customer', async () => {
+    const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const phone = '07712340002';
+    await anon.identity.requestOtp.mutate({ phone, purpose: 'login' });
+    const { code } = await anon.identity.devLastOtp.query({ phone });
+    const login = await anon.identity.verifyOtp.mutate({ phone, code: code! });
+    const authed = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${login.tokens.accessToken}` } })],
+    });
+    const err = (await authed.identity.grantRole.mutate({ personId: login.personId, kind: 'admin' }).catch((e: unknown) => e)) as { data: { code: string; httpStatus: number } };
+    expect(err.data.httpStatus).toBe(403);
+    expect(err.data.code).toBe('forbidden');
+  });
+
   it('returns the city config and null for unknown cities', async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const city = await client.config.city.query({ cityId: 'aziziyah' });

@@ -1,0 +1,95 @@
+import { z } from 'zod';
+import { DeviceInfo, OtpPurpose, RoleGrant, RoleKind, TokenPair } from './auth.js';
+
+export const MeView = z.object({
+  personId: z.string(),
+  name: z.string().nullable(),
+  /** Masked phone (`+96477*****12`); the full number never leaves the vault through `me`. */
+  phoneMasked: z.string(),
+  locale: z.string(),
+  trustTier: z.string(),
+  sharedFamilyPhone: z.boolean(),
+  roles: z.array(RoleGrant),
+  /** Edge-case §7: true when guardian/driver roles and wallet withdrawal are frozen until OTP re-verification. */
+  reverificationRequired: z.boolean(),
+  canWithdraw: z.boolean(),
+  lastVerifiedAt: z.coerce.date().nullable(),
+});
+export type MeView = z.infer<typeof MeView>;
+
+export const GuardianLinkView = z.object({
+  id: z.string(),
+  guardianId: z.string(),
+  wardPersonId: z.string().nullable(),
+  wardParticipantId: z.string().nullable(),
+  state: z.enum(['pending', 'active', 'revoked']),
+  /** Arabic label for the Console / apps: "بانتظار الموافقة" while pending. */
+  state_ar: z.string(),
+});
+export type GuardianLinkView = z.infer<typeof GuardianLinkView>;
+
+export const RequestOtpInput = z.object({
+  phone: z.string().min(7).max(20),
+  purpose: OtpPurpose.default('login'),
+});
+export const RequestOtpOutput = z.object({
+  phoneMasked: z.string(),
+  expiresAt: z.coerce.date(),
+  resendAfterSec: z.number().int(),
+});
+
+export const VerifyOtpInput = z.object({
+  phone: z.string().min(7).max(20),
+  code: z.string().regex(/^\d{6}$/),
+  device: DeviceInfo.optional(),
+  /** Edge-case §7: declared at onboarding; such a person can never hold guardian or driver roles. */
+  sharedFamilyPhone: z.boolean().optional(),
+});
+export const VerifyOtpOutput = z.object({
+  personId: z.string(),
+  isNew: z.boolean(),
+  tokens: TokenPair,
+});
+
+/** `device` lets a client report its fingerprint on refresh; an unknown one triggers re-verification (edge-case §7). */
+export const RefreshInput = z.object({ refreshToken: z.string().min(16), device: DeviceInfo.optional() });
+export const LogoutInput = z.object({ refreshToken: z.string().min(16).optional() });
+
+export const GrantRoleInput = z.object({ personId: z.string(), kind: RoleKind, orgId: z.string().optional() });
+export const RevokeRoleInput = GrantRoleInput;
+
+export const LinkGuardianInput = z.object({
+  wardPhone: z.string().min(7).max(20).optional(),
+  wardParticipantId: z.string().optional(),
+}).refine((v) => Boolean(v.wardPhone) !== Boolean(v.wardParticipantId), { message: 'exactly one of wardPhone or wardParticipantId' });
+
+export const ConsentGuardianLinkInput = z.object({ linkId: z.string(), code: z.string().regex(/^\d{6}$/) });
+export const RevokeGuardianLinkInput = z.object({ linkId: z.string() });
+
+export const ChangePhoneStartInput = z.object({ newPhone: z.string().min(7).max(20) });
+export const ChangePhoneStartOutput = z.object({ oldPhoneMasked: z.string(), newPhoneMasked: z.string(), expiresAt: z.coerce.date() });
+export const ChangePhoneConfirmInput = z.object({ oldCode: z.string().regex(/^\d{6}$/), newCode: z.string().regex(/^\d{6}$/) });
+
+export const DevLastOtpInput = z.object({ phone: z.string().min(7).max(20) });
+export const DevLastOtpOutput = z.object({ phoneMasked: z.string(), code: z.string().nullable() });
+
+export type Actor = { personId: string; sessionId: string; deviceId?: string };
+
+/** What the identity module exposes to the transport. Implemented by apps/api, consumed by the router. */
+export interface IdentityPort {
+  requestOtp(input: z.infer<typeof RequestOtpInput>): Promise<z.infer<typeof RequestOtpOutput>>;
+  verifyOtp(input: z.infer<typeof VerifyOtpInput>): Promise<z.infer<typeof VerifyOtpOutput>>;
+  refresh(refreshToken: string, device?: DeviceInfo): Promise<TokenPair>;
+  logout(actor: Actor, refreshToken?: string): Promise<void>;
+  me(actor: Actor): Promise<MeView>;
+  hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
+  grantRole(actor: Actor, input: z.infer<typeof GrantRoleInput>): Promise<RoleGrant>;
+  revokeRole(actor: Actor, input: z.infer<typeof RevokeRoleInput>): Promise<void>;
+  linkGuardian(actor: Actor, input: z.infer<typeof LinkGuardianInput>): Promise<GuardianLinkView>;
+  consentGuardianLink(actor: Actor, input: z.infer<typeof ConsentGuardianLinkInput>): Promise<GuardianLinkView>;
+  revokeGuardianLink(actor: Actor, input: z.infer<typeof RevokeGuardianLinkInput>): Promise<GuardianLinkView>;
+  changePhoneStart(actor: Actor, input: z.infer<typeof ChangePhoneStartInput>): Promise<z.infer<typeof ChangePhoneStartOutput>>;
+  changePhoneConfirm(actor: Actor, input: z.infer<typeof ChangePhoneConfirmInput>): Promise<MeView>;
+  devLastOtp(phone: string): Promise<z.infer<typeof DevLastOtpOutput>>;
+}
+

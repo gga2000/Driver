@@ -14,6 +14,20 @@ export interface TransactionRunner {
 }
 
 /**
+ * Runner used when no DATABASE_URL is configured: there is nothing to begin or commit, so `fn`
+ * simply runs with a marker Tx. In-memory repositories ignore the Tx; Prisma ones are never
+ * bound in this mode.
+ */
+export class NoDatabaseRunner implements TransactionRunner {
+  private seq = 0;
+
+  $transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    this.seq += 1;
+    return fn({ noDatabase: true, txId: this.seq } as unknown as Tx);
+  }
+}
+
+/**
  * Unit of work (plan §0.1). `run(fn)` opens one Prisma interactive transaction and gives
  * `fn` the transactional client. A nested `run` inside `fn` reuses the outer `tx`
  * (tracked with AsyncLocalStorage), so a service calling another service's mutating
@@ -30,7 +44,12 @@ export class UnitOfWork {
 
   constructor(runner: PrismaService | TransactionRunner) {
     // PrismaService opens the client lazily; resolve it only when a transaction starts.
-    this.runner = runner instanceof PrismaService ? () => runner.prisma : runner;
+    if (runner instanceof PrismaService) {
+      const fallback = new NoDatabaseRunner();
+      this.runner = () => (runner.configured ? runner.prisma : fallback);
+    } else {
+      this.runner = runner;
+    }
   }
 
   /** The transaction the caller is already inside, if any. */

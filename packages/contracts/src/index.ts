@@ -11,6 +11,25 @@ export * from './ledger.js';
 export * from './event.js';
 export * from './city-config.js';
 export * from './aziziyah-zones.js';
+export * from './auth.js';
+export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
-export type { AppRouter, AppContext } from './router.js';
+export type { AppRouter, AppContext, IdentityPort, Actor } from './router.js';
+export {
+  MeView,
+  GuardianLinkView,
+  RequestOtpInput,
+  RequestOtpOutput,
+  VerifyOtpInput,
+  VerifyOtpOutput,
+  GrantRoleInput,
+  RevokeRoleInput,
+  LinkGuardianInput,
+  ConsentGuardianLinkInput,
+  RevokeGuardianLinkInput,
+  ChangePhoneStartInput,
+  ChangePhoneStartOutput,
+  ChangePhoneConfirmInput,
+  DevLastOtpOutput,
+} from './identity-io.js';

@@ -1,0 +1,122 @@
+import { z } from 'zod';
+import { t, type MessageKey } from '@driver/i18n';
+
+/**
+ * What the client should do about an error (spec §12: every error carries a stable code,
+ * an Iraqi-Arabic message and a retry hint).
+ *  - never: fix the input or give up;
+ *  - now: safe to retry immediately (transient);
+ *  - later: wait (rate limit, resend cool-down) — `retryAfterSec` says how long when known;
+ *  - reverify: complete an OTP re-verification first;
+ *  - support: only support can resolve it.
+ */
+export const RetryHint = z.enum(['never', 'now', 'later', 'reverify', 'support']);
+export type RetryHint = z.infer<typeof RetryHint>;
+
+/** The wire shape of every API error's `data`. */
+export const ErrorEnvelope = z.object({
+  code: z.string(),
+  message_ar: z.string(),
+  message_en: z.string(),
+  retryHint: RetryHint,
+  retryAfterSec: z.number().int().nonnegative().optional(),
+});
+export type ErrorEnvelope = z.infer<typeof ErrorEnvelope>;
+
+interface ErrorDef {
+  /** `error.*` key in packages/i18n when one exists; the table falls back to inline text otherwise. */
+  i18n?: MessageKey;
+  message_ar: string;
+  message_en: string;
+  retryHint: RetryHint;
+  /** tRPC / HTTP class the transport maps the code to. */
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+}
+
+/** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
+export const ERROR_TABLE = {
+  // transport / generic
+  unauthorized: { i18n: 'error.session_expired', message_ar: 'سجّل دخول حتى تكمّل', message_en: 'Sign in to continue', retryHint: 'never', status: 'UNAUTHORIZED' },
+  forbidden: { message_ar: 'ما عندك صلاحية لهذا الإجراء', message_en: 'You are not allowed to do this', retryHint: 'never', status: 'FORBIDDEN' },
+  not_found: { message_ar: 'ما لگينا المطلوب', message_en: 'Not found', retryHint: 'never', status: 'NOT_FOUND' },
+  invalid_input: { message_ar: 'المدخلات مو صحيحة. راجعها وجرب', message_en: 'Invalid input', retryHint: 'never', status: 'BAD_REQUEST' },
+  internal: { i18n: 'error.server', message_ar: 'مشكلة من عدنا مو منك', message_en: 'Problem on our side', retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },
+  dev_only: { message_ar: 'هذا الإجراء للتطوير فقط', message_en: 'Development only', retryHint: 'never', status: 'FORBIDDEN' },
+
+  // identity
+  phone_invalid: { i18n: 'error.phone_invalid', message_ar: 'الرقم مو صحيح', message_en: 'Invalid phone number', retryHint: 'never', status: 'BAD_REQUEST' },
+  otp_invalid: { i18n: 'error.otp_invalid', message_ar: 'الرمز غلط', message_en: 'Wrong code', retryHint: 'now', status: 'BAD_REQUEST' },
+  otp_expired: { i18n: 'error.otp_expired', message_ar: 'انتهى الرمز. اطلب رمز جديد', message_en: 'Code expired', retryHint: 'never', status: 'BAD_REQUEST' },
+  otp_locked: { i18n: 'error.too_many_attempts', message_ar: 'محاولات كثيرة', message_en: 'Too many attempts', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
+  otp_resend_too_soon: { message_ar: 'انتظر شوية قبل ما تطلب رمز جديد', message_en: 'Wait before requesting a new code', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
+  otp_not_found: { message_ar: 'ما أكو رمز مطلوب لهذا الرقم. اطلب رمز أول', message_en: 'No code requested for this number', retryHint: 'never', status: 'BAD_REQUEST' },
+  session_expired: { i18n: 'error.session_expired', message_ar: 'انتهت جلستك', message_en: 'Session expired', retryHint: 'never', status: 'UNAUTHORIZED' },
+  token_invalid: { message_ar: 'جلستك مو صالحة. سجّل دخول مرة ثانية', message_en: 'Invalid token', retryHint: 'never', status: 'UNAUTHORIZED' },
+  refresh_reused: { message_ar: 'انقطعت جلستك للأمان. سجّل دخول مرة ثانية', message_en: 'Refresh token reused; session revoked', retryHint: 'never', status: 'UNAUTHORIZED' },
+  reverification_required: { message_ar: 'لازم تأكد رقمك مرة ثانية بالرمز حتى تكمّل', message_en: 'Re-verify your number by OTP to continue', retryHint: 'reverify', status: 'FORBIDDEN' },
+  role_frozen: { message_ar: 'هذي الصلاحية موقوفة لحد ما تأكد رقمك', message_en: 'Role frozen until re-verified', retryHint: 'reverify', status: 'FORBIDDEN' },
+  shared_phone_role_forbidden: { message_ar: 'الرقم العائلي المشترك ما يگدر يكون ولي أمر أو سايق', message_en: 'A shared family phone cannot hold guardian or driver roles', retryHint: 'never', status: 'FORBIDDEN' },
+  person_not_found: { message_ar: 'ما لگينا الحساب', message_en: 'Person not found', retryHint: 'never', status: 'NOT_FOUND' },
+  account_suspended: { i18n: 'error.account_suspended', message_ar: 'حسابك متوقف مؤقتاً', message_en: 'Account suspended', retryHint: 'support', status: 'FORBIDDEN' },
+  guardian_link_not_found: { message_ar: 'ما لگينا رابط ولي الأمر', message_en: 'Guardian link not found', retryHint: 'never', status: 'NOT_FOUND' },
+  guardian_link_not_pending: { message_ar: 'هذا الرابط مو بانتظار الموافقة', message_en: 'Guardian link is not pending', retryHint: 'never', status: 'CONFLICT' },
+  guardian_self_link: { message_ar: 'ما تگدر تكون ولي أمر نفسك', message_en: 'Cannot be your own guardian', retryHint: 'never', status: 'BAD_REQUEST' },
+  phone_change_same_number: { message_ar: 'هذا نفس رقمك الحالي', message_en: 'Same as the current number', retryHint: 'never', status: 'BAD_REQUEST' },
+  phone_change_taken: { message_ar: 'هذا الرقم مسجّل بحساب ثاني. تواصل ويا الدعم', message_en: 'That number belongs to another account', retryHint: 'support', status: 'CONFLICT' },
+  phone_change_not_started: { message_ar: 'ابدي تغيير الرقم أول', message_en: 'Start the phone change first', retryHint: 'never', status: 'BAD_REQUEST' },
+  lost_sim_manual: { message_ar: 'سجّلنا طلبك. الدعم يكمّله يدوياً بعد مطابقة الهوية', message_en: 'Claim recorded; support completes it manually after ID match', retryHint: 'support', status: 'CONFLICT' },
+  sms_not_configured: { message_ar: 'خدمة الرسائل مو مهيأة', message_en: 'SMS gateway not configured', retryHint: 'support', status: 'INTERNAL_SERVER_ERROR' },
+
+  // orgs / households
+  org_not_found: { message_ar: 'ما لگينا الجهة', message_en: 'Org not found', retryHint: 'never', status: 'NOT_FOUND' },
+  not_household_member: { message_ar: 'مو عضو بهذا البيت', message_en: 'Not a member of this household', retryHint: 'never', status: 'FORBIDDEN' },
+  no_payer: { message_ar: 'ما أكو دافع بهذا البيت بعد', message_en: 'Household has no payer yet', retryHint: 'never', status: 'CONFLICT' },
+} as const satisfies Record<string, ErrorDef>;
+
+export type ErrorCode = keyof typeof ERROR_TABLE;
+export const ErrorCode = z.enum(Object.keys(ERROR_TABLE) as [ErrorCode, ...ErrorCode[]]);
+
+/** Builds the wire envelope for a code. Arabic comes from packages/i18n when the key exists. */
+export function errorEnvelope(code: ErrorCode, extra?: { retryAfterSec?: number; params?: Record<string, string | number> }): ErrorEnvelope {
+  const def: ErrorDef = ERROR_TABLE[code];
+  const params = { minutes: 3, ...extra?.params };
+  const message_ar = def.i18n ? t(def.i18n, params, 'ar-IQ') : def.message_ar;
+  const message_en = def.i18n ? t(def.i18n, params, 'en') : def.message_en;
+  return {
+    code,
+    message_ar,
+    message_en,
+    retryHint: def.retryHint,
+    ...(extra?.retryAfterSec !== undefined ? { retryAfterSec: extra.retryAfterSec } : {}),
+  };
+}
+
+export function errorStatus(code: ErrorCode): ErrorDef['status'] {
+  return ERROR_TABLE[code].status;
+}
+
+/**
+ * The one error class services throw. The transport layer turns it into a TRPCError whose
+ * `data` carries the envelope, so clients always get `{code, message_ar, retryHint}`.
+ */
+export class DriverError extends Error {
+  readonly envelope: ErrorEnvelope;
+
+  constructor(
+    readonly code: ErrorCode,
+    extra?: { retryAfterSec?: number; params?: Record<string, string | number>; cause?: unknown },
+  ) {
+    const envelope = errorEnvelope(code, extra);
+    super(envelope.message_en, extra?.cause ? { cause: extra.cause } : undefined);
+    this.name = 'DriverError';
+    this.envelope = envelope;
+  }
+
+  get status(): ErrorDef['status'] {
+    return errorStatus(this.code);
+  }
+}
+
+export function isDriverError(err: unknown): err is DriverError {
+  return err instanceof DriverError || (typeof err === 'object' && err !== null && (err as { name?: string }).name === 'DriverError');
+}

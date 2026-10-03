@@ -6,7 +6,7 @@
  * (modifier groups included), and a dispatcher person whose phone lives only in the vault.
  * Re-running updates in place; nothing is duplicated.
  */
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { createPrisma, type PrismaClient, type Tx } from '../src/index.js';
 import {
   AZIZIYAH_ZONES,
@@ -25,9 +25,10 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-/** Peppered phone hash; the real pepper arrives with the identity module (Step 2). */
+/** Same peppered HMAC as apps/api modules/identity/phone.ts, so the seeded dispatcher can log in. */
 function phoneHash(phoneE164: string): string {
-  return createHash('sha256').update(`${process.env['PHONE_PEPPER'] ?? 'dev-pepper'}:${phoneE164}`).digest('hex');
+  const pepper = process.env['PHONE_HASH_PEPPER'] ?? process.env['JWT_SECRET'] ?? 'dev-only-pepper';
+  return createHmac('sha256', pepper).update(phoneE164).digest('hex');
 }
 
 const now = () => new Date();

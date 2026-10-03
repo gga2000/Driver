@@ -2,7 +2,7 @@
   "name": "@driver/api",
   "version": "0.1.0",
   "private": true,
-  "description": "Driver API \u2014 NestJS modular monolith exposing tRPC",
+  "description": "Driver API — NestJS modular monolith exposing tRPC",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -23,6 +23,7 @@
     "bullmq": "6.3.11",
     "express": "4.22.3",
     "ioredis": "6.0.0",
+    "jose": "6.2.12",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "3.25.76"

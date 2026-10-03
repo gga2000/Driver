@@ -47,6 +47,9 @@ importers:
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
@@ -367,6 +370,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@driver/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@trpc/server':
         specifier: 11.19.0
         version: 11.19.0(typescript@5.9.3)
@@ -4999,6 +5005,9 @@ packages:
 
   join-component@1.1.0:
     resolution: {integrity: sha512-bF7vcQxbODoGK1imE2P9GS9aw4zD0Sd+Hni68IMZLj7zRnquH7dXUmMw9hDI5S/Jzt7q+IyTXN0rSg2GI0IKhQ==}
+
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -12654,6 +12663,8 @@ snapshots:
   jiti@2.7.0: {}
 
   join-component@1.1.0: {}
+
+  jose@6.2.12: {}
 
   js-tokens@4.0.0: {}
 
