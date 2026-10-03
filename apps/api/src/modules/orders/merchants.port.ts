@@ -19,6 +19,10 @@ export interface MerchantProfile {
   commissionTier: CommissionTier;
   /** Where couriers pick up (zone key + pin); null until the merchant's place is on file. */
   location: DeliveryPoint | null;
+  /** Busy mode until this time (+10 min on every prep time); null/absent = off. */
+  busyUntil?: Date | null;
+  /** Closed by hand from the Merchant app: `orders.place` refuses like a pause window. */
+  closed?: boolean;
 }
 
 export interface MerchantDirectory {
@@ -50,6 +54,8 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
       defaultPrepMin: s.defaultPrepMin ?? ORDERS_RULES.defaultPrepMin,
       commissionTier: s.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
       location: s.location ?? null,
+      busyUntil: s.busyUntil ?? null,
+      closed: Boolean(s.closed),
     };
   }
 

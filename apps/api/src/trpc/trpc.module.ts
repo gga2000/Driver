@@ -15,6 +15,7 @@ import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { TrackingModule, TrackingService } from '../modules/tracking/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
+import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -43,6 +44,7 @@ export class TrpcService {
     private readonly places: PlacesRpc,
     private readonly wallet: CustomerWalletService,
     private readonly households: HouseholdsRpc,
+    private readonly merchant: MerchantService,
   ) {}
 
   /**
@@ -76,6 +78,7 @@ export class TrpcService {
       places: this.places,
       wallet: this.wallet,
       households: this.households,
+      merchant: this.merchant,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -100,5 +103,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, MerchantModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

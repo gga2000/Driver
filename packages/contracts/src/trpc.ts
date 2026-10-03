@@ -15,6 +15,7 @@ import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { DependencyStatus } from './router-io.js';
+import type { MerchantPort } from './merchant-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -46,6 +47,8 @@ export interface AppContext {
   wallet: WalletPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
   households: HouseholdsPort;
+  /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
+  merchant: MerchantPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

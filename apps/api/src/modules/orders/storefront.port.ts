@@ -1,6 +1,7 @@
 import type { DeliveryPoint } from '@driver/contracts';
 import type { StorefrontMerchants } from '../catalog/index.js';
 import type { MerchantDirectory } from './merchants.port.js';
+import { busyExtraMinutes } from './busy.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
 
 /**
@@ -14,9 +15,14 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
 
   constructor(private readonly directory: Pick<MerchantDirectory, 'profile'>) {}
 
-  async profile(orgId: string, cityId: string): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }> }> {
+  async profile(
+    orgId: string,
+    cityId: string,
+    at: Date = new Date(),
+  ): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }>; busy?: boolean; closed?: boolean }> {
     const p = await this.directory.profile(orgId);
     if (!p) return { location: null, pauseWindows: [...(CITY_PAUSE_WINDOWS[cityId] ?? [])] };
-    return { location: p.location, pauseWindows: p.pauseWindows };
+    // Busy mode and an early close from the Merchant app show on the customer's card too.
+    return { location: p.location, pauseWindows: p.pauseWindows, busy: busyExtraMinutes(p, at) > 0, closed: Boolean(p.closed) };
   }
 }

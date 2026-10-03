@@ -44,9 +44,15 @@ export interface MerchantSettings {
   commissionTier: CommissionTier | null;
   /** Pickup point couriers are sent to (zone key + pin); null until the merchant's place is on file. */
   location: DeliveryPoint | null;
+  /** Busy mode (Driver Merchant): prep times +10 min until this time; null = off. */
+  busyUntil?: Date | null;
+  /** Closed by hand from the Merchant app (early-close reason); null = open. */
+  closed?: { reason: string; note: string | null; at: Date } | null;
+  /** The store's receipt printer as its tablet last reported it (printer-offline marker). */
+  printer?: { state: 'connected' | 'disconnected'; name: string | null; at: Date } | null;
 }
 
-const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
+const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null, busyUntil: null, closed: null, printer: null };
 
 /** A restaurant or grocer as the Console's merchant picker lists it. */
 export interface MerchantOrg {
