@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
+import type { Tx } from '@driver/db';
+import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { MerchantCashService } from './merchant-cash.service.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
 
 const t0 = new Date('2026-10-03T12:00:00Z');
@@ -119,5 +122,61 @@ describe('merchant cash account (decisions §3)', () => {
     expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k2', amountIqd: 12750 }]);
     expect(await h.merchantCash.returnRoute('k1')).toEqual([]);
     expect((await h.caps.status('k1')).owedIqd).toBe(15500);
+  });
+});
+
+describe("a merchant's cash movements are serialised across API instances (review 2026-10-04 #22)", () => {
+  it('settlement requests, hand-overs and payouts take the advisory lock on the merchant inside their transaction', async () => {
+    const h = ledgerHarness();
+    const locks: unknown[] = [];
+    const tx = { $queryRaw: async (_s: TemplateStringsArray, ...values: unknown[]) => (locks.push(values[0]), [{ ok: 1 }]) } as unknown as Tx;
+    const svc = new MerchantCashService(h.ledger, h.settings, h.bus, h.incidents, h.clock, h.rules, new UnitOfWork({ $transaction: (fn) => fn(tx) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', occurredAt: minutes(1) }));
+    await svc.requestSettlement('m1', 'owner');
+    await svc.confirmHandover({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true });
+    await svc.recordPayout({ merchantId: 'm1', amountIqd: 12750, channel: 'zaincash', reference: 'M-PAY-L' });
+    expect(locks).toEqual(['ledger.merchant_cash:m1', 'ledger.merchant_cash:m1', 'ledger.merchant_cash:m1']);
+  });
+});
+
+describe('payouts never exceed what the merchant is owed (backend review 2026-10-04 #21)', () => {
+  it('refuses more than the balance; partial payouts are fine and the last one settles it', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k2', occurredAt: minutes(1) }));
+    h.clock.set(minutes(2));
+    await expect(h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 30000, channel: 'zaincash', reference: 'M-PAY-X' })).rejects.toMatchObject({ code: 'payout_exceeds_balance' });
+    expect((await h.merchantCash.balance('m1')).balanceIqd).toBe(25500);
+    expect(await h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 10000, channel: 'zaincash', reference: 'M-PAY-1' })).toBe(15500);
+    expect(await h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 15500, channel: 'bank', reference: 'M-PAY-2' })).toBe(0);
+    expect((await h.merchantCash.balance('m1')).lastSettledAt).toEqual(minutes(2));
+    await expect(h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 500, channel: 'bank', reference: 'M-PAY-3' })).rejects.toMatchObject({ code: 'payout_exceeds_balance' });
+    await expect(h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 0, channel: 'bank', reference: 'M-PAY-4' })).rejects.toMatchObject({ code: 'settlement_nothing_due' });
+  });
+
+  it('two payouts at once (finance + a ZainCash match) cannot together pay more than the balance', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k2', occurredAt: minutes(1) }));
+    const results = await Promise.allSettled([
+      h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 20000, channel: 'zaincash', reference: 'M-PAY-A' }),
+      h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 20000, channel: 'bank', reference: 'M-PAY-B' }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ code: 'payout_exceeds_balance' });
+    expect((await h.merchantCash.balance('m1')).balanceIqd).toBe(5500);
+  });
+
+  it('two courier hand-overs of the same cash at once post once', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    const base = { courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true };
+    const results = await Promise.allSettled([h.merchantCash.confirmHandover({ ...base, handoverId: 'hA' }), h.merchantCash.confirmHandover({ ...base, handoverId: 'hB' })]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await h.merchantCash.balance('m1')).balanceIqd).toBe(0);
+    // He collected 16,500 and handed 12,750 over once.
+    expect((await h.caps.status('k1')).cashIqd).toBe(-3750);
+    expect(h.incidents.opened().map((i) => i.kind)).toEqual(['merchant_handover_discrepancy']);
   });
 });

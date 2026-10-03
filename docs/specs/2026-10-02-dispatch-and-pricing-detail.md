@@ -11,7 +11,7 @@ MapLibre GL (apps and console) on self-hosted vector tiles (OpenStreetMap Iraq e
 ## 3. Dispatch timing
 Smart broadcast (city rides, city parcels): wave 1 top 3 within 1.5 km / 15 s; wave 2 next 5 within 3 km / 15 s; wave 3 all city / 30 s. Ranking: distance 40%, tier/score 30%, load 20%, vehicle fit 10%. No acceptance after 60 s: customer sees a live search counter, dispatcher red card, re-broadcast with +500 pickup compensation (platform-funded at launch); after 3 min customer may cancel free or schedule.
 Auto-assign (food, grocery): assign on merchant acceptance, timed for courier arrival ~2 min before `ready`; 20 s accept window; 3 passes then dispatcher. Batching: max 2 per bike, 3 per tuktuk; same or adjacent dropoff zone; second pickup adds ≤ 4 min; hot items never wait > 10 min from `ready`; customer sees the honest batched ETA. Pre-positioning suggestions for peak from last week's data, dispatcher confirms.
-Scheduled/intercity: ≥ 3 seats (incl. walk-ups) by T−30 min or `cancelled_low_fill` with riders moved; drivers see live seats sold from the evening before.
+Scheduled/intercity: ≥ 3 seats (incl. walk-ups) by T−30 min or `cancelled_low_fill` with riders moved; drivers see live seats sold from the evening before. *Amended 2026-10-04 (product decision):* below the minimum at T−30 the car keeps selling; the low-fill cancel never fires before the announced time − 10 min, and a car announced less than 30 min ahead is judged only at its hard latest departure. Reaching 3 seats at any point from T−30 opens boarding.
 Khat substitute auction: 2 waves of 3 vetted subs with matching stops, 5 min each, then dispatcher; parents notified with sub photo 30 min before pickup.
 
 ## 4. Cancellation, waiting and fees

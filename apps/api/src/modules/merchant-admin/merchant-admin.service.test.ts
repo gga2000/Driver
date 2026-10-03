@@ -371,12 +371,32 @@ describe('merchantAdmin.insights', () => {
     expect(i.rejection.trend).toHaveLength(5);
     expect(i.rejection.trend.at(-1)).toMatchObject({ offered: 3, rejected: 1, rate: 0.333 });
     expect(i.rejection.trend[0]).toMatchObject({ offered: 0, rate: null });
-    expect(i.bestSellers).toEqual([{ itemId: kebab.id, nameAr: 'كباب', qty: 2, orders: 2, salesIqd: 10000 }]);
+    // Staff see what sells, not what it brought in (review 2026-10-04 #10: money is owner-only).
+    expect(i.bestSellers).toEqual([{ itemId: kebab.id, nameAr: 'كباب', qty: 2, orders: 2, salesIqd: null }]);
     expect(i.peakGrid[6]![13]).toBe(2); // Saturday 13:00 Baghdad
     expect(i.orders).toBe(3);
     expect(i.itemRatings).toEqual([{ itemId: kebab.id, nameAr: 'كباب', avg: 4, count: 2, reviews: [{ score: 3, note: 'بارد شوية', at }] }]);
     expect(i.peakHours[13]).toBe(2);
     expect(i.peakHours[20]).toBe(1);
+    // The owner reads the same insights with the per-item sales.
+    const mine = await h.svc.insights(h.owner, { merchantOrgId: h.orgId, days: 30 });
+    expect(mine.bestSellers).toEqual([{ itemId: kebab.id, nameAr: 'كباب', qty: 2, orders: 2, salesIqd: 10000 }]);
+    expect({ ...mine, bestSellers: [] }).toEqual({ ...i, bestSellers: [] });
+  });
+
+  it('staff get best sellers ranked by quantity with no money on them; prep honesty and ratings stay (review #10)', async () => {
+    const h = await setup('2026-10-03T13:00:00Z');
+    const grill = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'مشويات', priceIqd: 12000 });
+    const tea = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'چاي', priceIqd: 500 });
+    const at = new Date('2026-10-03T10:00:00Z');
+    const line = (id: string, itemId: string, qty: number, unitPriceIqd: number) => ({ id, catalogItemId: itemId, freeText: null, qty, unitPriceIqd, modifiers: [], participantId: null, note: null, pointsEligible: true, availability: 'available' });
+    h.orders.push(order({ id: 's1', placedAt: at, acceptedAt: at, promisedReadyAt: new Date(at.getTime() + 15 * MIN), readyAt: new Date(at.getTime() + 15 * MIN), lines: [line('l1', grill.id, 1, 12000), line('l2', tea.id, 4, 500)] as Order['lines'], rating: { delivery: 5, food: 4, tags: [], note: 'طيب', ratedAt: at } }));
+    const staff = await h.svc.insights(h.staff, { merchantOrgId: h.orgId, days: 7 });
+    expect(staff.bestSellers.map((b) => [b.nameAr, b.qty, b.salesIqd])).toEqual([['چاي', 4, null], ['مشويات', 1, null]]);
+    expect(staff.prepHonesty).toMatchObject({ samples: 1, onTimeShare: 1 });
+    expect(staff.itemRatings.map((r) => [r.nameAr, r.avg])).toEqual([['مشويات', 4]]);
+    const owner = await h.svc.insights(h.owner, { merchantOrgId: h.orgId, days: 7 });
+    expect(owner.bestSellers.map((b) => [b.nameAr, b.salesIqd])).toEqual([['مشويات', 12000], ['چاي', 2000]]);
   });
 });
 

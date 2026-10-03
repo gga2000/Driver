@@ -320,4 +320,7 @@ describe('prisma schema — hot-query indexes (review 2026-10-04)', () => {
   it('fleet links carry the driver consent column', () => {
     expect(fields(model('FleetDriver'))).toContain('acceptedAt');
   });
+  it("orders by merchant and placed time: the Merchant app's money and insights read one date range", () => {
+    expect(model('Order')).toMatch(/@@index\(\[merchantOrgId, placedAt\]\)/);
+  });
 });

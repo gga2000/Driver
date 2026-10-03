@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TERMINAL_ORDER_STATES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
@@ -7,7 +6,7 @@ import { LedgerModule } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { InMemoryTopUpsRepository, PrismaTopUpsRepository, TOPUPS_REPOSITORY, type TopUpsRepository } from './topups.repository.js';
-import { TOPUP_COURIER_CHECK, TOPUP_PEOPLE, TopUpService, type TopUpCourierCheck, type TopUpPeople } from './topups.service.js';
+import { TOPUP_COURIER_CHECK, TOPUP_PEOPLE, TopUpService, courierCarriesOrderOf, type TopUpCourierCheck, type TopUpPeople } from './topups.service.js';
 
 /**
  * Wallet top-up with cash (`wallet.requestTopUp/topUpStatus`, `ops.topUpLookup/confirmTopUp`,
@@ -24,13 +23,7 @@ import { TOPUP_COURIER_CHECK, TOPUP_PEOPLE, TopUpService, type TopUpCourierCheck
     },
     {
       provide: TOPUP_COURIER_CHECK,
-      useFactory: (orders: OrdersService, trips: TripsService): TopUpCourierCheck => ({
-        async carriesOrderOf(courierId, customerId) {
-          const live = (await orders.listForPerson(customerId)).filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state));
-          for (const o of live) if ((await trips.activeForOrder(o.id))?.courierId === courierId) return true;
-          return false;
-        },
-      }),
+      useFactory: (orders: OrdersService, trips: TripsService): TopUpCourierCheck => ({ carriesOrderOf: courierCarriesOrderOf(orders, trips) }),
       inject: [OrdersService, TripsService],
     },
     {

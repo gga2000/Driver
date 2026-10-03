@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { LatLng, VehicleClass } from '@driver/contracts';
+import type { LatLng, VehicleClass, Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { CITY_RADIUS_KM, GEO_INDEX, PRESENCE_TTL_SEC, type DriverPresence, type GeoIndex, type NearbyDriver } from './geo-index.js';
 import { ZoneDirectory } from './zones.js';
@@ -13,6 +13,8 @@ export interface GoOnlineInput {
   edgeOptIn?: boolean;
   /** Overrides zone resolution from the position (e.g. the app already knows). */
   zoneId?: string;
+  /** What he may be offered (roles × registered vehicle, `servedVerticals`); absent = vehicle fit only. */
+  verticals?: readonly Vertical[];
 }
 
 /**
@@ -45,6 +47,7 @@ export class PresenceService {
       zoneId,
       zoneSince: prev && prev.zoneId === zoneId ? prev.zoneSince : now,
       lastSeenAt: now,
+      ...(input.verticals ? { verticals: [...input.verticals] } : {}),
     };
     await this.geo.put(p, PRESENCE_TTL_SEC);
     return p;

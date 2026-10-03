@@ -17,6 +17,7 @@ import {
   type Trip,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
 
@@ -92,12 +93,23 @@ export class PartnerService implements PartnerPort {
       if (present) await this.deps.presence.offline(id);
       throw new DriverError(gateErrorCode(gate.reasons));
     }
-    const [cap, registered] = await Promise.all([this.deps.money.cap(id), this.deps.vehicles.vehicleOf(id)]);
+    const [cap, registered, roles] = await Promise.all([this.deps.money.cap(id), this.deps.vehicles.vehicleOf(id), this.deps.roles.activeRoles(id)]);
+    // Backend review 2026-10-04 #20: the vehicle is the registered one (fleet / driver-account
+    // registry), never what the app declares; nothing registered is a bike. What he may be offered
+    // follows his roles on that vehicle, and dispatch filters candidates by it.
+    const vehicle = registered ?? 'bike';
+    if (input.vehicleClass && input.vehicleClass !== vehicle) throw new DriverError('vehicle_not_registered');
+    const verticals = servedVerticals(roles, vehicle);
+    if (verticals.length === 0) {
+      if (present) await this.deps.presence.offline(id);
+      throw new DriverError('vehicle_not_registered');
+    }
     await this.deps.presence.online(id, {
       cityId: input.cityId,
       at: input.at,
-      vehicle: input.vehicleClass ?? registered ?? 'bike',
+      vehicle,
       tier: cap.tier,
+      verticals,
     });
     return this.status(actor);
   }

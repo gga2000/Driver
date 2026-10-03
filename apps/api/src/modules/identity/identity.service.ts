@@ -425,13 +425,17 @@ export class IdentityService implements IdentityPort {
 
   /**
    * Household cards (domain §12): name and masked phone of each member for another member to see.
-   * Every read is logged against the member read (purpose household_view).
+   * Every read is logged against the member read (purpose household_view). Deleted people are left
+   * out — no vault read, nothing shown — like `firstNamesFor` / `courierCard` (review 2026-10-04 #23);
+   * callers render a missing card as a nameless row.
    */
   async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
       const out: Record<string, { name: string | null; phoneMasked: string }> = {};
       for (const personId of new Set(personIds)) {
+        const person = await this.repo.findPersonById(personId, tx);
+        if (!person || person.deletedAt) continue;
         const identity = await this.repo.readIdentity(personId, tx);
         if (!identity) continue;
         if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name', 'phone_e164'], now }, tx);

@@ -1,4 +1,4 @@
-import type { LatLng, VehicleClass } from '@driver/contracts';
+import type { LatLng, VehicleClass, Vertical } from '@driver/contracts';
 import type { Redis } from 'ioredis';
 import { haversineKm } from './geo.js';
 
@@ -23,6 +23,11 @@ export interface DriverPresence {
   /** Epoch ms the driver entered `zoneId`; the anti-camping clock (review J112). */
   zoneSince: number;
   lastSeenAt: number;
+  /**
+   * What he may be offered (roles × registered vehicle, set server-side by `partner.goOnline`; backend
+   * review 2026-10-04 #20). Absent = an internal caller that predates the rule (vehicle fit only).
+   */
+  verticals?: Vertical[];
 }
 
 export interface NearbyDriver {
@@ -63,6 +68,8 @@ function toHash(p: DriverPresence): Record<string, string> {
     zoneId: p.zoneId ?? '',
     zoneSince: String(p.zoneSince),
     lastSeenAt: String(p.lastSeenAt),
+    // Always written, so a re-registration without verticals clears an older list ('*' = not set).
+    verticals: p.verticals ? p.verticals.join(',') : '*',
   };
 }
 
@@ -80,6 +87,7 @@ function fromHash(h: Record<string, string>): DriverPresence | null {
     zoneId: h['zoneId'] ? h['zoneId'] : null,
     zoneSince: Number(h['zoneSince']),
     lastSeenAt: Number(h['lastSeenAt']),
+    ...(h['verticals'] !== undefined && h['verticals'] !== '*' ? { verticals: h['verticals'] ? (h['verticals'].split(',') as Vertical[]) : [] } : {}),
   };
 }
 

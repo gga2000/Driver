@@ -37,9 +37,19 @@ export interface CatalogItemView {
   modifierGroups: CatalogModifierGroupView[];
 }
 
+/** The customer storefront facts `orders.place` enforces: opening hours and the restaurant minimum. */
+export interface CatalogStorefrontView {
+  /** Local weekly opening windows; empty = always open. */
+  hours: PauseWindow[];
+  /** On the items at menu prices, before any deal (a deal's own minimum is separate). */
+  minOrderIqd: number;
+}
+
 export interface CatalogPort {
   /** `merchantOrgId`'s own items among `itemIds`; unknown or foreign ids are absent from the result. */
   itemsOf(merchantOrgId: string, itemIds: readonly string[]): Promise<CatalogItemView[]>;
+  /** The merchant's storefront; null (or no binding) = no hours on file and no minimum. */
+  storefront?(merchantOrgId: string): Promise<CatalogStorefrontView | null>;
 }
 
 export const ORDERS_CATALOG = Symbol('ORDERS_CATALOG');

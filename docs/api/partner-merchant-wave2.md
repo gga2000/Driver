@@ -143,7 +143,9 @@ Additive fields (Merchant app wave 2): statement lines carry `commissionPct`, `d
 (platform promos today: they don't lower the merchant's net); disputes carry `respondBy` (opened + 48 h, then
 the default outcome stands), `evidence.photos` and `response.photoUrls` (signed); insights carry
 `rejection.trend[]` (7-day buckets), `peakGrid[7][24]` (weekday × hour), `bestSellers[]` (by sales) and
-`orders`, and a rated order's food score goes to its main dish (largest line) only; staff rows carry
+`orders`, and a rated order's food score goes to its main dish (largest line) only (review 2026-10-04 #10:
+for `merchant_staff`, `bestSellers[].salesIqd` is null and the list is ranked by quantity; prep honesty,
+rejections, ratings and peaks are unchanged); staff rows carry
 `pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup). `merchant.paid_by_courier` events carry `confirmedBy`.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
@@ -176,6 +178,13 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   the reasons. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
   Nothing pushes a driver offline the moment `driver.checkin_locked` fires or a document expires: it
   happens at his next heartbeat (≤ 30 s while the app is open).
+- **Registered vehicle and roles** (review 2026-10-04 #20): `partner.goOnline` puts him online on his
+  registered vehicle (`vehicles.active_driver_id`: the courier-card registry, else the fleet registry;
+  nothing registered = a bike). A `vehicleClass` different from it is refused (`vehicle_not_registered`).
+  Presence carries what he may be offered — his roles on that vehicle: `courier` → food, grocery, errand,
+  parcel; `shopper` → grocery, errand; `driver` → taxi (car/SUV) or tuktuk rides (tuktuk); `khat_driver` →
+  khat; `intercity_driver` → intercity — and dispatch skips candidates whose list lacks the job's
+  vertical. A driving role with nothing to serve on his vehicle is refused the same way.
 - Shift-guarantee top-ups are shown when the ledger has them (`driver_incentive`, memo `guarantee…`);
   no job posts them yet. Courier-waiting charges to merchants are not ledger lines yet.
 - The khat run is read from the driver's khat trips; spawning a day's trips from a khat `Route` /

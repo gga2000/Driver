@@ -9,6 +9,7 @@ import { registerChatNotifications } from './chat.notify.js';
 import { InMemoryChatRepository } from './chat.repository.js';
 import { CHAT_RULES, ChatService } from './chat.service.js';
 import { MASKED_PHONE } from './mask.js';
+import { InMemoryWindowCounter, type WindowCounter } from '../../shared/window-counter.js';
 
 const MIN = 60_000;
 const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` });
@@ -32,7 +33,7 @@ const ROLES: Record<string, Array<{ kind: RoleKind; orgId?: string }>> = {
 const NAMES: Record<string, string> = { c1: 'علي', d1: 'حيدر', d2: 'كرار' };
 const PHONES: Record<string, string> = { c1: '+9647701110009', d1: '+9647701110001', 'm-owner': '+9647701234567' };
 
-function setup(opts: { bridge?: CallBridgePort } = {}) {
+function setup(opts: { bridge?: CallBridgePort; counter?: WindowCounter } = {}) {
   const h = ordersHarness();
   const ev = createInMemoryEvents({ clock: h.clock, uow: h.uow });
   const transport = new RecordingTransport();
@@ -54,19 +55,23 @@ function setup(opts: { bridge?: CallBridgePort } = {}) {
   };
   const blobs = new DevBlobStore(h.clock, { secret: 'test' });
   const repo = new InMemoryChatRepository();
-  const chat = new ChatService(
-    repo,
-    h.orders,
-    h.trips,
-    identity,
-    { storeName: async (orgId) => (orgId === 'rest_1' ? 'مطعم التجربة' : null) },
-    blobs,
-    opts.bridge ?? new DevCallBridge(identity, () => 'test'),
-    ev.events,
-    h.uow,
-    h.clock,
-  );
-  return { h, ev, chat, transport, vaultReads, blobs, repo };
+  /** One API instance; `counter` is what the instances share (Redis in production). */
+  const instance = (counter?: WindowCounter) =>
+    new ChatService(
+      repo,
+      h.orders,
+      h.trips,
+      identity,
+      { storeName: async (orgId) => (orgId === 'rest_1' ? 'مطعم التجربة' : null) },
+      blobs,
+      opts.bridge ?? new DevCallBridge(identity, () => 'test'),
+      ev.events,
+      h.uow,
+      h.clock,
+      ...(counter ? [counter] : []),
+    );
+  const chat = instance(opts.counter);
+  return { h, ev, chat, transport, vaultReads, blobs, repo, instance };
 }
 
 type H = ReturnType<typeof setup>['h'];
@@ -265,6 +270,19 @@ describe('ChatService — messages', () => {
     expect((err as DriverError).envelope.retryAfterSec).toBeGreaterThan(0);
     h.clock.advance(61_000);
     await expect(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'هسة' })).resolves.toMatchObject({ kind: 'text' });
+  });
+
+  it('the send and call limits hold across API instances (shared counter; review 2026-10-04 #22)', async () => {
+    const { h, instance } = setup();
+    const shared = new InMemoryWindowCounter(h.clock);
+    const [a, b] = [instance(shared), instance(shared)];
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    for (let i = 0; i < CHAT_RULES.sendsPerMinute; i++) await (i % 2 ? a : b).send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: `رسالة ${i}` });
+    expect(await code(a.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'زيادة' }))).toBe('rate_limited');
+    expect(await code(b.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'زيادة' }))).toBe('rate_limited');
+    for (let i = 0; i < CHAT_RULES.callsPer10Min; i++) await (i % 2 ? a : b).requestCall(as('c1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(await code(a.requestCall(as('c1'), { orderId: o.id, kind: 'customer_courier' }))).toBe('rate_limited');
   });
 
   it('emits chat.message_sent in the outbox and pushes "رسالة جديدة من الدليفري" to the other party', async () => {

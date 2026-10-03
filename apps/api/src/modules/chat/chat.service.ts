@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   CHAT_CLOSE_AFTER_MIN,
   CHAT_THREAD_PARTIES,
@@ -35,8 +35,9 @@ import { EventsService } from '../events/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { CALL_BRIDGE, type CallBridgePort } from './call-bridge.js';
 import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord } from './chat.repository.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { maskIraqiPhones } from './mask.js';
-import { SlidingWindowLimiter } from './rate-limit.js';
+import { SharedSlidingWindowLimiter } from './rate-limit.js';
 
 // ───────────────────────── ports ─────────────────────────
 
@@ -99,8 +100,8 @@ const NAME_CACHE_MAX = 2000;
 @Injectable()
 export class ChatService implements ChatPort {
   private readonly logger = new Logger(ChatService.name);
-  private readonly sendLimiter: SlidingWindowLimiter;
-  private readonly callLimiter: SlidingWindowLimiter;
+  private readonly sendLimiter: SharedSlidingWindowLimiter;
+  private readonly callLimiter: SharedSlidingWindowLimiter;
   /** First names per order and reader, so a 3-second poll logs one vault read, not one per poll. */
   private readonly names = new Map<string, Record<string, string | null>>();
 
@@ -115,9 +116,12 @@ export class ChatService implements ChatPort {
     private readonly events: EventsService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    // Shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); in process otherwise.
+    @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
   ) {
-    this.sendLimiter = new SlidingWindowLimiter(clock, CHAT_RULES.sendsPerMinute, 60_000);
-    this.callLimiter = new SlidingWindowLimiter(clock, CHAT_RULES.callsPer10Min, 10 * 60_000);
+    const shared = counter ?? new InMemoryWindowCounter(clock);
+    this.sendLimiter = new SharedSlidingWindowLimiter(shared, 'send', CHAT_RULES.sendsPerMinute, 60_000);
+    this.callLimiter = new SharedSlidingWindowLimiter(shared, 'call', CHAT_RULES.callsPer10Min, 10 * 60_000);
   }
 
   // ───────────────────────── reads ─────────────────────────
@@ -185,7 +189,7 @@ export class ChatService implements ChatPort {
     const role = await this.roleIn(actor.personId, ctx, input.kind);
     const now = this.clock.now();
     this.assertOpen(this.status(ctx, input.kind, now));
-    this.sendLimiter.hit(actor.personId);
+    await this.sendLimiter.hit(actor.personId);
 
     let body: string | null = null;
     let masked = false;
@@ -286,7 +290,7 @@ export class ChatService implements ChatPort {
     try {
       if (role === 'support') throw new DriverError('chat_not_party');
       this.assertOpen(this.status(ctx, input.kind, now));
-      this.callLimiter.hit(actor.personId);
+      await this.callLimiter.hit(actor.personId);
       const calleeId = await this.calleeOf(ctx, counterpart);
       if (!calleeId) throw new DriverError('call_unavailable');
       const session = await this.bridge.open({ callId, orderId: ctx.order.id, callerId: actor.personId, calleeId }, now);

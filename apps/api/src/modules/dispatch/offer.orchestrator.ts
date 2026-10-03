@@ -206,7 +206,8 @@ export class OfferOrchestrator {
       if (r.policy === 'scheduled') {
         // Low fill is about seats, not drivers: suggest-only does not apply.
         if (r.departureAt === null || r.departureId === null) throw new DriverError('invalid_input');
-        const checkAt = r.departureAt - 30 * 60_000;
+        // The owner (routes) says when low fill may cancel it (decision 2026-10-04); T−30 otherwise.
+        const checkAt = (await this.departures.lowFillCheckAt?.(r.departureId))?.getTime() ?? r.departureAt - 30 * 60_000;
         r.status = 'scheduled';
         r.nextTimerAt = checkAt;
         await this.store.saveRequest(r);
@@ -501,7 +502,20 @@ export class OfferOrchestrator {
       return;
     }
     if (seats < cfg.minSeatsByTMinus30) {
-      await this.departures.cancelLowFill(r.departureId);
+      if ((await this.departures.cancelLowFill(r.departureId)) === false) {
+        // Refused by routes: too early (check again at its low-fill time) or no longer applicable.
+        const next = (await this.departures.lowFillCheckAt?.(r.departureId))?.getTime() ?? null;
+        if (next !== null && next > this.now()) {
+          r.nextTimerAt = next;
+          await this.store.saveRequest(r);
+          await this.schedule('low_fill_check', r, next, 1);
+          return;
+        }
+        r.status = 'assigned';
+        await this.store.retireRequest(r);
+        await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats, lowFillRefused: true });
+        return;
+      }
       r.status = 'cancelled';
       await this.store.retireRequest(r);
       await this.emit('dispatch.low_fill_cancelled', r, { departureId: r.departureId, seats, minSeats: cfg.minSeatsByTMinus30 });
@@ -749,7 +763,8 @@ export class OfferOrchestrator {
     const warnings: string[] = [];
     if (!p) warnings.push('offline');
     if (await this.caps.isOverCap(input.driverId)) warnings.push('over_cap');
-    if (p && vehicleFit(r.vertical, p.vehicle) === 0) warnings.push('vehicle_fit');
+    // Review #20: his roles on his registered vehicle do not cover this vertical — the same warning.
+    if (p && (vehicleFit(r.vertical, p.vehicle) === 0 || (p.verticals && !p.verticals.includes(r.vertical)))) warnings.push('vehicle_fit');
     if (p && this.edgeBlocked(r, p)) warnings.push('edge_zone');
     if (warnings.length > 0 && !input.force) throw new DriverError('override_invalid');
     if (input.force && !input.reason?.trim()) throw new DriverError('override_reason_required');
@@ -946,6 +961,8 @@ export class OfferOrchestrator {
       if (f.onlyVetted && !p.vetted) continue;
       const fit = vehicleFit(r.vertical, p.vehicle);
       if (fit === 0) continue;
+      // Review 2026-10-04 #20: only what his roles allow on his registered vehicle (set at goOnline).
+      if (p.verticals && !p.verticals.includes(r.vertical)) continue;
       if (this.edgeBlocked(r, p)) continue;
       if (!vehicleFits(p.vehicle, r.minVehicleClass ?? null)) continue;
       const jobs = await this.store.driverJobs(p.driverId);

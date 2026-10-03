@@ -27,7 +27,7 @@ import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, type QuotePort, type ServerFees } from './fees.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
-import { ORDERS_CATALOG, priceLines, type CatalogPort } from './catalog.port.js';
+import { ORDERS_CATALOG, priceLines, type CatalogPort, type CatalogStorefrontView } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
@@ -256,12 +256,21 @@ export class OrdersService implements OnModuleInit {
     if ((merchantType || input.type === 'errand') && lines.length === 0) throw new DriverError('order_empty');
 
     let profile: MerchantProfile | null = null;
+    let storefront: CatalogStorefrontView | null = null;
     if (merchantType) {
       profile = await this.merchants.profile(input.merchantOrgId!);
       if (!profile) throw new DriverError('org_not_found');
-      if (!opts.quote && !input.scheduledFor && activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
-      // Closed by hand from the Merchant app (early close): refused like a pause window.
-      if (!opts.quote && !input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
+      storefront = (await this.catalog.storefront?.(input.merchantOrgId!)) ?? null;
+      if (!opts.quote) {
+        // Backend review 2026-10-04 (apps #10): the server is open exactly when the card says so —
+        // opening hours (a scheduled order is checked at its time: opening time itself is fine), then
+        // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
+        const at = input.scheduledFor ?? now;
+        if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
+        if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
+        // Closed by hand from the Merchant app (early close): refused like a pause window.
+        if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
+      }
     }
 
     // Review C2: every line is priced here from the merchant's menu, never from the client.
@@ -273,6 +282,9 @@ export class OrdersService implements OnModuleInit {
     });
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
+    // Apps review #11: the restaurant minimum, on the menu-priced items before any deal (a deal's own
+    // minimum is checked by the deal engine, separately). The checkout summary shows it instead.
+    if (!opts.quote && storefront && storefront.minOrderIqd > 0 && itemsTotal < storefront.minOrderIqd) throw new DriverError('order_below_minimum');
     // M2 review follow-up: fees come from a server quote for the order's vertical, zones and options,
     // locked here; what the client sent is only its expectation and must match (`price_changed`).
     const fees = serverFees(this.pricing, {
@@ -660,10 +672,13 @@ export class OrdersService implements OnModuleInit {
    * Wave 2 (merchant money, insights, disputes): a merchant's orders placed in [from, to), any
    * state, oldest first. Authorisation is the caller's (merchantAdmin checks the org scope).
    */
+  /**
+   * One merchant's orders placed in `[from, to)`, oldest first: one bounded read (index
+   * `(merchant_org_id, placed_at)`) with lines and participants, no whole-history scan and no
+   * per-order re-read (review 2026-10-04 #11). Callers always pass a range (a day, a week, 30 days).
+   */
   async merchantOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
-    const rows = (await this.repo.findMany({ merchantOrgId })).filter((o) => o.placedAt >= range.from && o.placedAt < range.to);
-    rows.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id));
-    return Promise.all(rows.map((o) => this.view(o.id)));
+    return (await this.repo.merchantOrdersBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
   }
 
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */

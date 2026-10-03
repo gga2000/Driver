@@ -49,6 +49,16 @@ function contract(
       expect(got).toMatchObject({ ...p, lat: expect.closeTo(p.lat, 5), lng: expect.closeTo(p.lng, 5) });
     });
 
+    it('round-trips what he may be offered, and a re-registration without it clears it (review #20)', async () => {
+      const { index } = await make();
+      await index.put(presence(`${prefix}v`, 1, { verticals: ['food', 'grocery', 'errand', 'parcel', 'tuktuk'] }));
+      expect((await index.get(`${prefix}v`))?.verticals).toEqual(['food', 'grocery', 'errand', 'parcel', 'tuktuk']);
+      await index.put(presence(`${prefix}v`, 1, { verticals: [] }));
+      expect((await index.get(`${prefix}v`))?.verticals).toEqual([]);
+      await index.put(presence(`${prefix}v`, 1));
+      expect((await index.get(`${prefix}v`))?.verticals).toBeUndefined();
+    });
+
     it('drops a driver whose hash expired (missed heartbeats) from searches', async () => {
       const { index, expire } = await make();
       await index.put(presence(`${prefix}gone`, 0.2));

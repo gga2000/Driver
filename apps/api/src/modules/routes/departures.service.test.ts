@@ -616,10 +616,15 @@ describe('low fill at T−30 (domain §2; this module owns the rule)', () => {
     await h.book('r5', later.id, ['back_left']);
     await h.tickAt(89);
     expect((await h.departures.departure(thin.id)).state).toBe('scheduled');
-    const t = await h.tickAt(1);
-    expect(t).toMatchObject({ lowFill: 1, boarding: 1 });
-    expect((await h.departures.departure(thin.id)).state).toBe('cancelled_low_fill');
+    // T−30: the full car boards; the thin one is not cancelled yet (never before T−10, decision 2026-10-04).
+    expect(await h.tickAt(1)).toMatchObject({ lowFill: 0, boarding: 1 });
     expect((await h.departures.departure(full.id)).state).toBe('boarding');
+    expect((await h.departures.departure(thin.id)).state).toBe('scheduled');
+    await h.tickAt(19); // T−11
+    expect((await h.departures.departure(thin.id)).state).toBe('scheduled');
+    const t = await h.tickAt(1); // T−10
+    expect(t).toMatchObject({ lowFill: 1, boarding: 0 });
+    expect((await h.departures.departure(thin.id)).state).toBe('cancelled_low_fill');
     expect((await h.departures.booking(a.id)).state).toBe('moved');
     // earliest compatible car first: r1 takes the free middle seat of the full run, r2 goes to the later one
     expect(
@@ -640,8 +645,44 @@ describe('low fill at T−30 (domain §2; this module owns the rule)', () => {
       feeIqd: 0,
     });
     // the later run's own T−30 check reads the moved riders
-    await h.tickAt(40);
+    await h.tickAt(20);
     expect((await h.departures.departure(later.id)).state).toBe('boarding');
+  });
+
+  it('a thin car that fills up between T−30 and T−10 boards instead of being cancelled', async () => {
+    const h = routesHarness();
+    const dep = await h.announce();
+    await h.book('r1', dep.id, ['front']);
+    await h.book('r2', dep.id, ['back_left']);
+    await h.tickAt(90); // T−30
+    expect((await h.departures.departure(dep.id)).state).toBe('scheduled');
+    await h.book('r3', dep.id, ['back_right']);
+    expect(await h.tickAt(5)).toMatchObject({ boarding: 1, lowFill: 0 });
+    expect((await h.departures.departure(dep.id)).state).toBe('boarding');
+  });
+
+  it('a car announced less than 30 min ahead is judged for low fill only at its hard latest departure (decision 2026-10-04)', async () => {
+    const h = routesHarness();
+    // Announced on arrival at the garage: leaves in 20 min, at the latest in 40.
+    const dep = await h.announce({ departAt: h.at(20), latestDepartureAt: h.at(40) });
+    await h.book('r1', dep.id, ['front']);
+    expect(await h.tickAt(0)).toMatchObject({ lowFill: 0 });
+    expect((await h.departures.departure(dep.id)).state).toBe('scheduled');
+    await h.tickAt(15); // T−5: inside the usual T−10 cut, still not judged
+    await h.tickAt(10); // past the announced time
+    await h.tickAt(14); // a minute before the latest departure
+    expect((await h.departures.departure(dep.id)).state).toBe('scheduled');
+    expect(h.events.ofType('departure.low_fill')).toHaveLength(0);
+    expect(await h.tickAt(1)).toMatchObject({ lowFill: 1 });
+    expect((await h.departures.departure(dep.id)).state).toBe('cancelled_low_fill');
+  });
+
+  it('a short-notice car that reaches the minimum boards at once', async () => {
+    const h = routesHarness();
+    const dep = await h.announce({ departAt: h.at(10), latestDepartureAt: h.at(30) });
+    for (const [r, s] of [['r1', 'front'], ['r2', 'back_left'], ['r3', 'back_right']] as const) await h.book(r, dep.id, [s]);
+    expect(await h.tickAt(0)).toMatchObject({ boarding: 1, lowFill: 0 });
+    expect((await h.departures.departure(dep.id)).state).toBe('boarding');
   });
 
   it("dispatch's port reads the real fill and its cancel re-applies the rule (refused at or above the minimum)", async () => {
@@ -661,7 +702,12 @@ describe('low fill at T−30 (domain §2; this module owns the rule)', () => {
     expect((await h.departures.departure(dep.id)).state).toBe('scheduled');
     const thin = await h.announce({ driverId: 'd2', garageId: BAB2.id });
     await h.book('r9', thin.id, ['front']);
-    await port.cancelLowFill(thin.id);
+    // Never before T−10 (decision 2026-10-04): the port says when, and refuses earlier.
+    expect(await port.lowFillCheckAt(thin.id)).toEqual(new Date(thin.departAt.getTime() - 10 * 60_000));
+    expect(await port.cancelLowFill(thin.id)).toBe(false);
+    expect((await h.departures.departure(thin.id)).state).toBe('scheduled');
+    h.clock.set(new Date(thin.departAt.getTime() - 10 * 60_000));
+    expect(await port.cancelLowFill(thin.id)).toBe(true);
     expect((await h.departures.departure(thin.id)).state).toBe('cancelled_low_fill');
   });
 });

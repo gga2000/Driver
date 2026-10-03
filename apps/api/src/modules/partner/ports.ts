@@ -56,7 +56,8 @@ export interface PartnerLedgerLine {
 export interface PartnerDeps {
   presence: {
     get(driverId: string): Promise<PartnerPresence | null>;
-    online(driverId: string, input: { cityId: string; at: LatLng; vehicle: VehicleClass; tier: PartnerPresence['tier'] }): Promise<PartnerPresence>;
+    /** `verticals`: what his roles allow on his registered vehicle (dispatch filters offers by it). */
+    online(driverId: string, input: { cityId: string; at: LatLng; vehicle: VehicleClass; tier: PartnerPresence['tier']; verticals?: readonly Vertical[] }): Promise<PartnerPresence>;
     offline(driverId: string): Promise<void>;
     /** Online drivers' zones in the city (demand hint). */
     zones(cityId: string): Promise<Array<string | null>>;

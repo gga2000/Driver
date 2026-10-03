@@ -414,7 +414,8 @@ export const MerchantInsights = z.object({
   /** Orders placed per local weekday (0 = Sunday) × hour: the peak-hours heatmap. */
   peakGrid: z.array(z.array(z.number().int()).length(24)).default([]),
   /** Best-selling items of accepted orders, by sales (quantity alongside). */
-  bestSellers: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), qty: z.number().int(), orders: z.number().int(), salesIqd: Iqd })).default([]),
+  /** `salesIqd` is the owner's (money views are owner-only): null for staff, who get the list by quantity. */
+  bestSellers: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), qty: z.number().int(), orders: z.number().int(), salesIqd: Iqd.nullable() })).default([]),
   /** Orders placed in the window (any outcome). */
   orders: z.number().int().default(0),
 });

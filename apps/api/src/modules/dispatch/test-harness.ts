@@ -1,4 +1,4 @@
-import { AZIZIYAH_CENTRE, type LatLng, type VehicleClass } from '@driver/contracts';
+import { AZIZIYAH_CENTRE, type LatLng, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
@@ -54,13 +54,14 @@ export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new Con
   async function online(
     driverId: string,
     km: number,
-    opts: { vehicle?: VehicleClass; tier?: DriverPresence['tier']; vetted?: boolean; edgeOptIn?: boolean; zoneId?: string; at?: LatLng } = {},
+    opts: { vehicle?: VehicleClass; tier?: DriverPresence['tier']; vetted?: boolean; edgeOptIn?: boolean; zoneId?: string; at?: LatLng; verticals?: readonly Vertical[] } = {},
   ) {
     return presence.online(driverId, {
       cityId: 'aziziyah',
       at: opts.at ?? north(km),
       vehicle: opts.vehicle ?? 'car',
       tier: opts.tier ?? 'bronze',
+      ...(opts.verticals !== undefined ? { verticals: opts.verticals } : {}),
       ...(opts.vetted !== undefined ? { vetted: opts.vetted } : {}),
       ...(opts.edgeOptIn !== undefined ? { edgeOptIn: opts.edgeOptIn } : {}),
       ...(opts.zoneId !== undefined ? { zoneId: opts.zoneId } : {}),

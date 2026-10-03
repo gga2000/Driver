@@ -149,6 +149,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
       const found = await catalog.itemsOf(orgId, ids.flatMap((id) => [id, `${orgId}/${id}`]));
       return found.map((i) => ({ ...i, id: i.id.startsWith(`${orgId}/`) ? i.id.slice(orgId.length + 1) : i.id }));
     },
+    // Opening hours and minimum: none until a test saves a storefront (`catalog.saveStorefront`).
+    storefront: (orgId) => catalog.storefront(orgId),
   }, promotions);
   orders.onModuleInit();
 

@@ -25,8 +25,8 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | fixed |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
 | 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | fixed |
-| 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | documented |
-| 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
+| 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | fixed (pass 2) |
+| 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | fixed (pass 2) |
 | 12 | Low | menu import applied twice concurrently duplicates items | fixed |
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
 | 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
@@ -35,10 +35,14 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 17 | Medium | daily check-in: parallel selfies bypass the two-strikes lock-out | fixed |
 | 18 | Medium | online gate: uploading any photo lifts an expired document | fixed |
 | 19 | Low | merchant can contest a dispute after its 48 h window | fixed |
-| 20 | Medium | self-declared vehicle class + no role check per vertical in dispatch | documented |
-| 21 | Low | `recordPayout` can pay a merchant more than its balance | documented |
-| 22 | Low | in-process locks (`KeyedLock`) are per instance | documented |
-| 23 | Low | `memberCards` returns names of deleted people | documented |
+| 20 | Medium | self-declared vehicle class + no role check per vertical in dispatch | fixed (pass 2) |
+| 21 | Low | `recordPayout` can pay a merchant more than its balance | fixed (pass 2) |
+| 22 | Low | in-process locks (`KeyedLock`) are per instance | fixed (pass 2; check-ins unchanged, see below) |
+| 23 | Low | `memberCards` returns names of deleted people | fixed (pass 2) |
+| 24 | Medium | `orders.place` takes orders while the restaurant is closed by its opening hours (apps review #10) | fixed (pass 2) |
+| 25 | Low | restaurant minimum order only enforced in the customer cart (apps review #11) | fixed (pass 2) |
+| 26 | Medium | الرجعة car announced < 30 min ahead cancelled for low fill at once (apps review #12) | fixed (pass 2, product decision) |
+| 27 | — | courier top-up limited to the courier carrying the customer's live order; cash on his cap | verified (pass 2, test added) |
 
 ## Details
 
@@ -67,6 +71,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** 5 wrong codes for one courier in a local day lock his code until local midnight
   (`handover_code_locked`, new error code) and emit `ops.handover_code_locked` (ops alert). Counter is per
   process (documented in the method); a shared Redis counter is the follow-up if we run many instances.
+  *Pass 2: the counter is shared (`WINDOW_COUNTER`, Redis with `REDIS_URL`) — see #22.*
 - **Test:** `ops.service.test.ts` › "locks a courier's hand-over code for the local day after 5 wrong codes, even for the right one".
 
 ### 3 · High · merchant staff read the owner's cash account (authorization)
@@ -237,13 +242,21 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** answers after `respondBy` are refused with `dispute_response_closed` (new error code).
 - **Test:** `merchant-admin.service.test.ts` › "disputes show evidence and the default outcome; the owner answers once (re-answer replaces)" (extended).
 
-## Documented, not fixed in this pass
+## Documented in pass 1, fixed in pass 2
+
+Pass 2 (same day, backend agent): each fix below had a failing test first. Status in the table above.
 
 ### 10 · Low · staff see per-item sales in insights
 `merchantAdmin.insights` is open to staff by design (API doc, and an existing test asserts staff read
 `bestSellers[].salesIqd`). Under "roles gate money views" that figure arguably belongs to the owner. Changing
 it changes the contract the Merchant app renders (`InsightsView` prints `salesIqd`), so it is a product call:
 either null `salesIqd` for staff (contract `nullable`) or keep quantities only.
+- **Fix (pass 2):** `MerchantInsights.bestSellers[].salesIqd` is `nullable` (contract); for `merchant_staff`
+  it is null and the list is ranked by quantity (`staffInsights` in `merchant-admin/insights.ts`), so the
+  order does not leak the money either. Prep honesty, rejections, item ratings, peaks and `orders` are the
+  same for staff and owner. `InsightsView` hides the amount line when it is null (one guarded line).
+- **Tests:** `merchant-admin.service.test.ts` › "prep honesty, rejection rate…" (staff now read `salesIqd: null`,
+  the owner 10,000, everything else identical) and "staff get best sellers ranked by quantity with no money on them…".
 
 ### 11 · Medium (perf) · `OrdersService.merchantOrders` reads the merchant's whole history
 `apps/api/src/modules/orders/orders.service.ts` `merchantOrders(merchantOrgId, range)` calls
@@ -252,6 +265,17 @@ builds a full view per order (`this.view(id)`, N+1). It backs `money.today`, `mo
 `money.disputes`, `insights` and the deal projection. Fix: push the range into the repository
 (`placedAt: {gte, lt}`) and add `@@index([merchantOrgId, placedAt])` on `orders`. Left alone because the
 orders module is being changed concurrently (deals at checkout).
+- **Fix (pass 2):** `OrdersRepository.merchantOrdersBetween(merchantOrgId, from, to)` — one Prisma
+  `findMany` on `merchantOrgId` + `placedAt ∈ [from, to)` with lines and participants included, ordered
+  `(placedAt, id)`; `merchantOrders` maps it with `toOrderView` (no whole-history read, no N+1).
+  `@@index([merchantOrgId, placedAt])`, migration `20261004130000_orders_merchant_placed_index`. Every
+  caller already passes a bounded range (day, week + 1 day, 30 days, the deal-projection basis), and the
+  compose functions stay in TypeScript over that slice: results are identical by construction (aggregating
+  in SQL would duplicate the deal / commission rules the views apply per order, so it was not done).
+- **Tests:** `orders/merchant-orders.test.ts` › "returns exactly what reading every order one by one
+  returns (snapshot)" (snapshot written with the old implementation, unchanged after) and "never loads the
+  merchant's whole history…" (no merchant-wide `findMany`, no per-order `find`); `orders.integration.test.ts`
+  › "a merchant's orders by placed-at range…" on Postgres; `packages/db` schema test pins the index.
 
 ### 20 · Medium · vehicle class is self-declared and dispatch has no role ↔ vertical check
 `partner.goOnline({vehicleClass})` puts whatever class the client sends into the presence index, and
@@ -260,21 +284,102 @@ documents required) going online as `car` is offered taxi passenger rides. The P
 registered class, so this is an API-level hole, not a UI one. Fix belongs in dispatch candidate selection
 (role per vertical: `driver` for taxi, `khat_driver` for khat, …) and/or capping the declared class at the
 registered vehicle; both are business rules to agree first.
+- **Fix (pass 2), both:** `partner.goOnline` uses the registered vehicle (`vehicles.active_driver_id` via the
+  courier-card registry, else `FleetService.activeVehicleOf`; nothing registered = bike). A declared
+  `vehicleClass` that differs is `vehicle_not_registered` (new code). Presence carries `verticals` =
+  `servedVerticals(roles, vehicle)` (`dispatch/vehicles.ts`): `courier` → food/grocery/errand/parcel,
+  `shopper` → grocery/errand, `driver` → taxi (car/SUV) or tuktuk (tuktuk), `khat_driver` → khat,
+  `intercity_driver` → intercity, each filtered by `VEHICLE_FIT`; no verticals → refused the same way.
+  `OfferOrchestrator.candidates` skips a driver whose list lacks the job's vertical (manual desk offers get
+  the `vehicle_fit` warning). Presence written without `verticals` (internal callers: demo scripts) keeps
+  vehicle fit only. Redis hash field `verticals` (`*` = unset). Simulator: drivers register as
+  bike → courier, tuktuk/car → driver + courier, and go online with their `servedVerticals`.
+- **Tests:** `partner.service.test.ts` › "goOnline uses the registered vehicle and the roles…" (4);
+  `dispatch/role-fit.test.ts` (mapping, courier-in-a-car never offered taxi, taxi driver never offered food,
+  tuktuk driver only tuktuk rides, presence keeps it); `geo-index.test.ts` round-trip on memory and Redis.
 
 ### 21 · Low · payouts are not bounded by the merchant balance
 `MerchantCashService.recordPayout` posts any amount; with #9 fixed a double request no longer queues two
 payouts, but nothing stops finance (or a future ZainCash matcher) from paying twice. The adopted
 "negative-balance payouts" rule should decide whether this refuses or needs an explicit override flag.
+- **Fix (pass 2):** `recordPayout` refuses more than the balance (`payout_exceeds_balance`, new code) and a
+  non-positive amount (`settlement_nothing_due`); partial payouts are fine; a retry of a reference already
+  posted returns the balance. Payouts, courier hand-overs (`confirmHandover`) and "اطلب فلوسك" run under one
+  per-merchant lock (in process + `pg_advisory_xact_lock(hashtext('ledger.merchant_cash:<id>'))` in the
+  transaction), so two at once cannot overpay; a hand-over mismatch's incident is opened after the lock's
+  transaction (refusing never rolls it back). The balance after a payout/hand-over is computed from the
+  balance read under the lock (ledger reads are not transaction-scoped). No override flag was added.
+- **Tests:** `merchant-cash.test.ts` › "payouts never exceed what the merchant is owed" (3: refuse/partial/
+  settle, two payouts at once, two hand-overs of the same cash at once) and "…take the advisory lock…".
 
 ### 22 · Low · per-instance locks
 `KeyedLock` (cash receipts, settlement requests, check-ins) serialises within one API process. Cash
 receipts also take a Postgres advisory lock; settlement requests and check-ins rely on idempotent
 references / submission-order evaluation across instances, which keeps them correct but not perfectly
 serialised. If the API is scaled out, move these to `pg_advisory_xact_lock` or the Redis lock dispatch uses.
+- **Fix (pass 2):** `shared/db/advisory-lock.ts` — `advisoryXactLock(tx, key)` (no-op on the in-memory marker
+  Tx) and `DistributedKeyedLock` (in-process `KeyedLock`, then the advisory lock first inside the UoW
+  transaction). Used by settlement requests / hand-overs / payouts (above). Cash receipts per courier
+  already took `ops.cash:<id>` (unchanged). Counters that must be shared are on `shared/window-counter.ts`
+  (`WINDOW_COUNTER` in `InfraModule`: Redis sorted set with `REDIS_URL`, in-process otherwise): the
+  hand-over code attempt counter (`ops:handover_fail:<courier>:<date>`) and the chat send / call limits
+  (`chat:send|call:<person>`). A refused hit is not counted. Check-ins keep their in-process lock: their
+  correctness across instances comes from submission-order evaluation (#17).
+- **Tests:** `shared/db/advisory-lock.test.ts` (SQL + key, serialisation), `advisory-lock.integration.test.ts`
+  (two "instances" on Postgres), `window-counter.redis.test.ts` (two pods share a window; racing hits never
+  pass the last slot), `ops.service.test.ts` › "the 5-wrong-codes lock counts attempts on every API instance",
+  `chat.service.test.ts` › "the send and call limits hold across API instances".
 
 ### 23 · Low · names of deleted people
 `IdentityService.memberCards` (fleet, ops cash round, merchant staff) does not skip `deletedAt` people the way
 `firstNamesFor` / `courierCard` do. Whether the vault row is wiped on deletion decides the impact.
+- **Fix (pass 2):** `memberCards` reads the person row first and leaves deleted people out (no vault read,
+  no log row), like `firstNamesFor`; every caller (households, fleet, ops cash round, merchant staff, top-up
+  lookup) already renders a missing card as a nameless row.
+- **Test:** `identity/profile.test.ts` › "member cards leave out deleted people…".
+
+## Pass 2 — open S1–S3 API items from the apps review
+
+### 24 · Medium · orders while closed by opening hours (apps review #10)
+- **Fix:** `orders.place` reads the storefront through the catalog port (`CatalogPort.storefront`, bound to
+  `CatalogService`) and refuses outside its opening hours with `merchant_closed` ("المطعم مسكّر هسه. اطلب من
+  يفتح أو احجز طلبك لوقت الفتح"). A scheduled order is checked at its scheduled time (opening time itself is
+  fine) and may not land in a pause window either; an early close refuses non-scheduled orders as before;
+  busy mode never refuses. No hours on file = open. `orders.quote` stays lenient (the app shows the state).
+- **Tests:** `orders/place-guards.test.ts` (5).
+
+### 25 · Low · restaurant minimum order (apps review #11)
+- **Fix:** `order_below_minimum` when the menu-priced items (before any deal; free-text requests count 0) are
+  under the storefront's `minOrderIqd`, scheduled orders included. A deal's own `minOrderIqd` is untouched
+  (deal engine); a basket can meet the restaurant minimum and still miss the deal.
+- **Tests:** `orders/place-guards.test.ts` (3).
+
+### 26 · Medium · short-notice الرجعة cars (apps review #12; product decision 2026-10-04)
+- **Rule:** the low-fill cancel never fires before the announced departure − 10 min
+  (`IntercityRules.lowFillNotBeforeMin`, default 10); a car announced less than 30 min ahead (the boarding
+  window) is judged only at its hard latest departure. Below the minimum from T−30 the car stays
+  `scheduled` and keeps selling; reaching 3 seats at any tick from T−30 opens boarding.
+- **Fix:** `DeparturesService.lowFillAt(dep)`, used by `tick` and by `cancelLowFill` (refused, logged, before
+  that time); dispatch's `DeparturesPort` gained `lowFillCheckAt` (routes binds it) and `cancelLowFill` may
+  answer false — a `scheduled` dispatch request now checks at the routes time and re-checks after a refusal.
+- **Tests:** `departures.service.test.ts` low-fill block (existing test moved to T−10; thin car filling
+  between T−30 and T−10 boards; short-notice car judged only at its latest departure; short-notice car with 3
+  seats boards at once; the port refuses before T−10); `offer.orchestrator.test.ts` › "checks when the owner
+  (routes) says…".
+- **Client follow-up:** the Partner announce form can drop its generic warning for short-notice cars.
+
+### 27 · verified · courier top-up (deals-and-topup §2)
+`partner.topUpLookup/confirmTopUp` were already limited to the courier carrying one of the customer's live
+orders, and the cash is posted from `cash:<courier>` (counts on his cap). The module's check is now an
+exported pure function (`courierCarriesOrderOf`) and `topups/courier-path.test.ts` runs it on the real orders
++ trips services: another customer's courier and a courier whose order is closed are refused; the carrier's
+`owedIqd` rises and `capRemainingIqd` falls by the amount.
+
+### Pass 2 verification
+`pnpm turbo run typecheck lint test`, `pnpm sim --orders 2000 --seed 1 --ci` (18/18 invariants) — green.
+Integration on a fresh Postgres 16 + PostGIS (port 55450; migrations applied in order with `pg`, then
+`pnpm db:seed`) and Redis: `apps/api` 14 files / 48+ tests and `packages/db` integration green; both
+services stopped afterwards. Migration `20261004130000_orders_merchant_placed_index` applied there.
 
 ## Verification
 

@@ -843,12 +843,15 @@ export class DeparturesService {
       }
       if (dep.state !== 'scheduled' || dep.lowFillCheckedAt) continue;
       if (now.getTime() < dep.departAt.getTime() - this.rules.boardingWindowMin * MIN_MS) continue;
-      dep.lowFillCheckedAt = now;
       const f = this.fill(dep, bookings, now);
       if (f.filled < this.rules.minSeatsAtTMinus30) {
+        // Below the minimum: it waits (still scheduled, still selling) until its low-fill time.
+        if (now.getTime() < this.lowFillAt(dep).getTime()) continue;
+        dep.lowFillCheckedAt = now;
         await this.lowFillCancel(tx, dep, bookings, f);
         out.lowFill += 1;
       } else {
+        dep.lowFillCheckedAt = now;
         dep.state = 'boarding';
         dep.boardingAt = now;
         await this.repo.saveDeparture(dep, tx);
@@ -871,11 +874,33 @@ export class DeparturesService {
     return out;
   }
 
-  /** Dispatch's port: cancels only when the same T−30 rule holds (one owner: this module). */
+  /**
+   * When a departure below the minimum fill may be cancelled for low fill (product decision
+   * 2026-10-04): never before the announced time minus `lowFillNotBeforeMin` (10); a car announced
+   * less than the boarding window (30 min) ahead is judged only at its hard latest departure, so a
+   * driver announcing on arrival at the garage keeps his car while walk-ups come.
+   */
+  lowFillAt(dep: Pick<DepartureRecord, 'announcedAt' | 'departAt' | 'latestDepartureAt'>): Date {
+    const shortNotice = dep.announcedAt.getTime() > dep.departAt.getTime() - this.rules.boardingWindowMin * MIN_MS;
+    if (shortNotice) return dep.latestDepartureAt;
+    return new Date(dep.departAt.getTime() - (this.rules.lowFillNotBeforeMin ?? 10) * MIN_MS);
+  }
+
+  /** Dispatch's port: the low-fill time of a departure (null when unknown). */
+  async lowFillCheckAt(departureId: string): Promise<Date | null> {
+    const dep = await this.repo.getDeparture(departureId);
+    return dep ? this.lowFillAt(dep) : null;
+  }
+
+  /** Dispatch's port: cancels only when the same rule holds — below the minimum, at or after its low-fill time (one owner: this module). */
   cancelLowFill(departureId: string): Promise<boolean> {
     return this.writer.run(async (tx) => {
       const dep = await this.repo.getDeparture(departureId, tx);
       if (!dep || !OPEN_DEPARTURE.includes(dep.state)) return false;
+      if (this.now().getTime() < this.lowFillAt(dep).getTime()) {
+        this.logger.warn(`cancelLowFill(${departureId}) refused: before its low-fill time ${this.lowFillAt(dep).toISOString()}`);
+        return false;
+      }
       const bookings = await this.freshBookings(tx, dep);
       const f = this.fill(dep, bookings);
       if (f.filled >= this.rules.minSeatsAtTMinus30) {

@@ -63,6 +63,20 @@ describe('identity.updateProfile', () => {
     expect((await h.repo.vaultAccessLogs(a.actor.personId)).some((l) => l.purpose === 'household_view')).toBe(false);
   });
 
+  it('member cards leave out deleted people: no name, no phone, no vault read (review 2026-10-04 #23)', async () => {
+    const h = harness();
+    const owner = await h.login('07712345678');
+    const gone = await h.login('07712345679');
+    const here = await h.login('07712345677');
+    await h.service.updateProfile(gone.actor, { name: 'حيدر كاظم' });
+    await h.service.updateProfile(here.actor, { name: 'عباس' });
+    h.repo.people.get(gone.actor.personId)!.deletedAt = new Date('2026-10-02T10:00:00Z');
+    const cards = await h.service.memberCards([gone.actor.personId, here.actor.personId], owner.actor.personId, 'fleet_view');
+    expect(cards).toEqual({ [here.actor.personId]: { name: 'عباس', phoneMasked: '+96477*****77' } });
+    expect(JSON.stringify(cards)).not.toContain('حيدر');
+    expect((await h.repo.vaultAccessLogs(gone.actor.personId)).some((l) => l.purpose === 'fleet_view')).toBe(false);
+  });
+
   it('first names for a work context: first token only, null without a name, each read logged with the purpose', async () => {
     const h = harness();
     const driver = await h.login('07712345670');

@@ -2,8 +2,10 @@ import { createHash, randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  TERMINAL_ORDER_STATES,
   TOPUP_RULES,
   type Actor,
+  type OrderState,
   ConfirmTopUpInput,
   TopUpLookupInput,
   type RequestTopUpInput,
@@ -24,6 +26,22 @@ import { TOPUPS_REPOSITORY, type TopUpRecord, type TopUpsRepository } from './to
 /** Does this courier carry an order of this customer right now (his "next order")? Bound over orders + trips. */
 export interface TopUpCourierCheck {
   carriesOrderOf(courierId: string, customerId: string): Promise<boolean>;
+}
+
+/**
+ * The production `TopUpCourierCheck` (topups module binding): a live (not terminal) order the
+ * customer placed whose active trip is the courier's. Pure over the two narrow reads, so a test
+ * runs it on the real orders and trips services.
+ */
+export function courierCarriesOrderOf(
+  orders: { listForPerson(personId: string): Promise<Array<{ id: string; ordererId: string; state: OrderState }>> },
+  trips: { activeForOrder(orderId: string): Promise<{ courierId: string | null } | null> },
+): TopUpCourierCheck['carriesOrderOf'] {
+  return async (courierId, customerId) => {
+    const live = (await orders.listForPerson(customerId)).filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state));
+    for (const o of live) if ((await trips.activeForOrder(o.id))?.courierId === courierId) return true;
+    return false;
+  };
 }
 
 /** Names on the agent's screen: the customer's first name and masked phone (vault read, logged). */

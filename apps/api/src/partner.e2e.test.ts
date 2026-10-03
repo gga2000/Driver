@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
 import { transformer, type AppRouter } from '@driver/contracts';
+import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { createApp } from './bootstrap.js';
 import { CatalogService, seedStorefronts } from './modules/catalog/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
@@ -73,7 +74,8 @@ describe('partner API (e2e)', () => {
     expect(await courier.client.partner.currentOffer.query()).toBeNull();
 
     // A cash order from a seeded restaurant, accepted by the kitchen and handed to him by the dispatcher.
-    const [khalid] = await seedStorefronts(app.get(OrgsService), app.get(CatalogService), undefined, 'e2e-owner');
+    // No opening hours on file (= open), so the test runs at any hour: orders.place refuses a closed kitchen.
+    const [khalid] = await seedStorefronts(app.get(OrgsService), app.get(CatalogService), AZIZIYAH_RESTAURANTS.slice(0, 1).map((r) => ({ ...r, hours: [] })), 'e2e-owner');
     await app.get(OrgsService).settled();
     const orders = app.get(OrdersService);
     const placed = await orders.place(customer.personId, {

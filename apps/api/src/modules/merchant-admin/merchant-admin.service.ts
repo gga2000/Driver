@@ -35,7 +35,7 @@ import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
-import { composeInsights, defaultOutcome, disputeKindOf } from './insights.js';
+import { composeInsights, defaultOutcome, disputeKindOf, staffInsights } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
 
@@ -489,11 +489,14 @@ export class MerchantAdminService implements MerchantAdminPort {
   // ───────────────────────── insights ─────────────────────────
 
   async insights(actor: Actor, input: { merchantOrgId: string; days: number }): Promise<MerchantInsights> {
-    await this.roleAt(actor, input.merchantOrgId);
+    const role = await this.roleAt(actor, input.merchantOrgId);
     const to = this.clock.now();
     const from = new Date(to.getTime() - input.days * DAY_MS);
     const [orders, menu] = await Promise.all([this.orders.merchantOrders(input.merchantOrgId, { from, to: new Date(to.getTime() + 1) }), this.catalog.adminMenu(input.merchantOrgId)]);
-    return composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])) });
+    const insights = composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])) });
+    // Review 2026-10-04 #10: money views are owner-only. Staff keep prep honesty, rejections, ratings,
+    // peaks and what sells — ranked by quantity, without what each item brought in.
+    return role === 'merchant_owner' ? insights : staffInsights(insights);
   }
 
   // ───────────────────────── staff ─────────────────────────

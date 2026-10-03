@@ -8,6 +8,7 @@ import { OrgsService } from '../orgs/index.js';
 import { DevBlobStore, PlacesService, type BlobStore } from '../places/index.js';
 import { InMemoryOpsRepository } from './ops.repository.js';
 import { OpsService } from './ops.service.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 
@@ -31,7 +32,7 @@ async function setup() {
   const places = new PlacesService();
   const ops = new OpsService(repo, accounts, lh.merchantCash, lh.caps, lh.ledger, orgs, id.service, ev.events, blobs, ev.uow, clock, places);
   const staff = (await id.login('07700000001')).actor;
-  return { id, clock, lh, ev, blobs, codes, orgs, repo, ops, staff, places };
+  return { id, clock, lh, ev, blobs, codes, accounts, orgs, repo, ops, staff, places };
 }
 
 describe('ops.recordCashReceipt', () => {
@@ -128,6 +129,19 @@ describe('ops.recordCashReceipt code guessing (review 2026-10-04 #8)', () => {
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k2', amountIqd: 1000, code: h.codes.code('k2', h.clock.now()).code })).resolves.toMatchObject({ amountIqd: 1000 });
     h.clock.advance(24 * 3600_000);
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: h.codes.code('k1', h.clock.now()).code })).resolves.toMatchObject({ amountIqd: 1000 });
+  });
+
+  it('the 5-wrong-codes lock counts attempts on every API instance (shared counter; review 2026-10-04 #22)', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const shared = new InMemoryWindowCounter(h.clock);
+    const instance = () => new OpsService(h.repo, h.accounts, h.lh.merchantCash, h.lh.caps, h.lh.ledger, h.orgs, h.id.service, h.ev.events, h.blobs, h.ev.uow, h.clock, h.places, shared);
+    const [a, b] = [instance(), instance()];
+    const good = h.codes.code('k1', h.clock.now()).code;
+    const wrong = (n: number) => String((Number(good) + n) % 10_000).padStart(4, '0');
+    for (let n = 1; n <= 5; n++) await expect((n % 2 ? a : b).recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: wrong(n) })).rejects.toMatchObject({ code: 'handover_code_invalid' });
+    await expect(a.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: good })).rejects.toMatchObject({ code: 'handover_code_locked' });
+    await expect(b.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: good })).rejects.toMatchObject({ code: 'handover_code_locked' });
   });
 });
 

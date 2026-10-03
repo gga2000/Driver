@@ -1,5 +1,25 @@
 import { DriverError } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
+import type { WindowCounter } from '../../shared/window-counter.js';
+
+/**
+ * The chat limits on the shared window counter (Redis behind several API instances; review
+ * 2026-10-04 #22): a refused hit is not counted, so waiting out the window always works.
+ */
+export class SharedSlidingWindowLimiter {
+  constructor(
+    private readonly counter: WindowCounter,
+    private readonly name: string,
+    private readonly limit: number,
+    private readonly windowMs: number,
+  ) {}
+
+  /** Records one hit for `key`, or throws `rate_limited` (with `retryAfterSec`) when over the limit. */
+  async hit(key: string): Promise<void> {
+    const r = await this.counter.hit(`chat:${this.name}:${key}`, this.windowMs, this.limit);
+    if (!r.allowed) throw new DriverError('rate_limited', { retryAfterSec: r.retryAfterSec });
+  }
+}
 
 /**
  * Sliding-window limiter per key, in process memory. Chat sends and call requests are cheap to

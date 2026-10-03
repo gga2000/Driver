@@ -19,7 +19,13 @@ export class RoutesDeparturesPort {
     return this.departures.seatsFilled(departureId);
   }
 
-  async cancelLowFill(departureId: string): Promise<void> {
-    await this.departures.cancelLowFill(departureId);
+  /** True when it cancelled; false when the rule does not hold (yet): filled, not open, or before its low-fill time. */
+  cancelLowFill(departureId: string): Promise<boolean> {
+    return this.departures.cancelLowFill(departureId);
+  }
+
+  /** When the low-fill rule may cancel it: T−10, or the latest departure for a car announced < 30 min ahead. */
+  lowFillCheckAt(departureId: string): Promise<Date | null> {
+    return this.departures.lowFillCheckAt(departureId);
   }
 }

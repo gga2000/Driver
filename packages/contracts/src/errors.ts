@@ -50,6 +50,8 @@ export const ERROR_TABLE = {
   // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
   online_checkin_required: { message_ar: 'سوّي التسجيل اليومي بالسيلفي قبل ما تشتغل', message_en: 'Do the daily selfie check-in before going online', retryHint: 'never', status: 'FORBIDDEN' },
   online_document_expired: { message_ar: 'عندك مستمسك منتهي. جدّده حتى تشتغل', message_en: 'A document has expired; renew it to go online', retryHint: 'never', status: 'FORBIDDEN' },
+  // partner.goOnline: the vehicle is the registered one, and it has to fit his roles (backend review 2026-10-04 #20)
+  vehicle_not_registered: { message_ar: 'هذي المركبة مو مسجّلة باسمك أو ما تناسب شغلك. سجّل مركبتك ويا العمليات أو صاحب الأسطول', message_en: 'Go online with your registered vehicle, one that fits your roles', retryHint: 'support', status: 'FORBIDDEN' },
   khat_not_child_stop: { message_ar: 'هذي المحطة ما بيها طفل لهذا الإجراء', message_en: 'This stop has no child for this tap', retryHint: 'never', status: 'BAD_REQUEST' },
   khat_child_not_on_trip: { message_ar: 'هذا الطفل مو على هذا الخط اليوم', message_en: 'The child is not on this run', retryHint: 'never', status: 'NOT_FOUND' },
   khat_child_not_tapped_in: { message_ar: 'هذا الطفل ما انسجل صعوده بالبيت. سجّل صعوده أول', message_en: 'The child was never tapped in on this run', retryHint: 'never', status: 'CONFLICT' },
@@ -135,6 +137,9 @@ export const ERROR_TABLE = {
   topup_courier_not_assigned: { message_ar: 'تگدر تشحن بس لزبون عندك طلبه هسة', message_en: 'Couriers can only top up a customer whose order they carry', retryHint: 'never', status: 'FORBIDDEN' },
   tip_above_cap: { message_ar: 'الإكرامية أكثر من الحد المسموح', message_en: 'Tip is above the per-order cap', retryHint: 'never', status: 'BAD_REQUEST' },
   merchant_paused: { message_ar: 'مغلق مؤقتاً', message_en: 'Merchant is temporarily closed', retryHint: 'later', status: 'CONFLICT' },
+  // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
+  merchant_closed: { message_ar: 'المطعم مسكّر هسه. اطلب من يفتح أو احجز طلبك لوقت الفتح', message_en: 'The restaurant is closed now; order when it opens or schedule for opening time', retryHint: 'later', status: 'CONFLICT' },
+  order_below_minimum: { message_ar: 'طلبك أقل من أقل طلب للمطعم. ضيف شي للسلة وكمّل', message_en: 'The order is below the restaurant minimum', retryHint: 'never', status: 'BAD_REQUEST' },
   participant_unknown: { message_ar: 'السطر مربوط بشخص مو موجود بالطلب', message_en: 'Line tagged to an unknown participant', retryHint: 'never', status: 'BAD_REQUEST' },
   order_cancel_after_pickup: { message_ar: 'ما ينلغي بعد الاستلام. افتح شكوى', message_en: 'Cannot cancel after pickup; open a dispute', retryHint: 'never', status: 'CONFLICT' },
   partial_accept_not_pending: { message_ar: 'ما أكو تعديل بانتظار موافقتك', message_en: 'No partial acceptance is awaiting approval', retryHint: 'never', status: 'CONFLICT' },
@@ -172,6 +177,7 @@ export const ERROR_TABLE = {
   override_invalid: { message_ar: 'ما يصير نعيّن هذا السايق هسه', message_en: 'This driver cannot be assigned now', retryHint: 'never', status: 'CONFLICT' },
   override_reason_required: { message_ar: 'اكتب سبب التعيين الإجباري', message_en: 'A forced assign needs a reason', retryHint: 'never', status: 'BAD_REQUEST' },
   // ledger (M2 Step 6)
+  payout_exceeds_balance: { message_ar: 'المبلغ أكثر من المستحق للمحل هسه. ادفع المستحق أو أقل منه', message_en: 'Payout is more than the merchant is owed', retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { message_ar: 'ما عندك فلوس مستحقة هسة', message_en: 'Nothing is due to this merchant now', retryHint: 'never', status: 'CONFLICT' },
   adjustment_incident_required: { message_ar: 'التصحيح يحتاج سبب وبلاغ مربوط', message_en: 'An adjustment needs a reason and a linked incident', retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { message_ar: 'التصحيح فوق 25,000 يحتاج موافقة شخص ثاني من المالية', message_en: 'Adjustments above the threshold need a second finance approver', retryHint: 'never', status: 'FORBIDDEN' },

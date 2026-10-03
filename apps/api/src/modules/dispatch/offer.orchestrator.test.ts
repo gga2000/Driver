@@ -565,6 +565,33 @@ describe('scheduled: low fill at T−30 (spec §3)', () => {
     expect((await h.service.board('aziziyah')).cards).toEqual([]);
   });
 
+  it('checks when the owner (routes) says low fill may cancel (T−10, decision 2026-10-04), and re-checks after a refusal', async () => {
+    const h = dispatchHarness();
+    const departAt = new Date(h.clock.now().getTime() + 2 * 3600_000);
+    let refuse = true;
+    const checks = [10, 5]; // routes' answer: first T−10, then (after its refusal) T−5
+    Object.assign(h.departures, {
+      lowFillCheckAt: async () => new Date(departAt.getTime() - (checks.shift() ?? 5) * 60_000),
+      cancelLowFill: async (id: string) => {
+        if (refuse) return false;
+        h.departures.cancelled.push(id);
+        return true;
+      },
+    });
+    await depart(h, 2);
+    h.clock.advanceMinutes(90); // T−30: nothing happens any more
+    await h.queue.drain();
+    expect(h.events.ofType('dispatch.low_fill_cancelled')).toHaveLength(0);
+    h.clock.advanceMinutes(20); // T−10: routes refuses (say the driver's car is still selling), next look at T−5
+    await h.queue.drain();
+    expect(h.departures.cancelled).toEqual([]);
+    refuse = false;
+    h.clock.advanceMinutes(5);
+    await h.queue.drain();
+    expect(h.departures.cancelled).toEqual(['dep1']);
+    expect(h.events.last('dispatch.low_fill_cancelled')?.payload).toMatchObject({ seats: 2 });
+  });
+
   it('3 seats at T−30 → the departure is confirmed', async () => {
     const h = dispatchHarness();
     await depart(h, 3);

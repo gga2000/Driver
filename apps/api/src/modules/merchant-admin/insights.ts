@@ -109,6 +109,20 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
   };
 }
 
+/**
+ * The staff cut of insights (backend review 2026-10-04 #10): every owner-only figure stripped —
+ * per-item sales money is null and best sellers are ranked by quantity, so the order does not leak
+ * it either. Prep honesty, rejections, ratings, peaks and order counts are the kitchen's to see.
+ */
+export function staffInsights(i: MerchantInsights): MerchantInsights {
+  return {
+    ...i,
+    bestSellers: i.bestSellers
+      .map((b) => ({ ...b, salesIqd: null }))
+      .sort((a, b) => b.qty - a.qty || b.orders - a.orders || a.itemId.localeCompare(b.itemId)),
+  };
+}
+
 /** Domain §9 dispute table, as it lands on the merchant. */
 export function defaultOutcome(kind: string, order: Order): MerchantDispute['defaultOutcome'] {
   switch (kind) {

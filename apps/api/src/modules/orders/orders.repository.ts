@@ -130,6 +130,11 @@ export interface OrdersRepository {
   updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null>;
   updateLine(id: string, patch: { substitution: LineUnavailability | null }, tx?: Tx): Promise<OrderLineRecord>;
   findMany(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderRecord[]>;
+  /**
+   * One merchant's orders placed in `[from, to)`, with their lines and participants, oldest first
+   * (placedAt, id) — one bounded read on `(merchant_org_id, placed_at)` (review 2026-10-04 #11).
+   */
+  merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
@@ -307,6 +312,15 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, placedAt: { gte: from, lt: to } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
   async forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]> {
     const rows = await this.db(tx).order.findMany({
       where: { OR: [{ ordererId: personId }, { participants: { some: { personId } } }] },
@@ -424,6 +438,19 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return [...this.orders.values()]
       .filter((o) => (!filter.cityId || o.cityId === filter.cityId) && (!filter.merchantOrgId || o.merchantOrgId === filter.merchantOrgId) && (!filter.states || filter.states.includes(o.state)))
       .map((o) => ({ ...o }));
+  }
+
+  async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
+    const out: OrderAggregate[] = [];
+    for (const o of this.orders.values()) {
+      if (o.merchantOrgId !== merchantOrgId || o.placedAt < from || o.placedAt >= to) continue;
+      out.push({
+        order: { ...o },
+        lines: (this.linesByOrder.get(o.id) ?? []).map((l) => ({ ...l })),
+        participants: (this.participantsByOrder.get(o.id) ?? []).map((p) => ({ ...p })),
+      });
+    }
+    return out.sort((a, b) => a.order.placedAt.getTime() - b.order.placedAt.getTime() || a.order.id.localeCompare(b.order.id));
   }
 
   async forPerson(personId: string): Promise<OrderRecord[]> {

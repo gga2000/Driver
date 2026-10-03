@@ -980,6 +980,8 @@ model Order {
   @@index([cityId, state])
   @@index([ordererId, placedAt])
   @@index([merchantOrgId, state])
+  /// Review 2026-10-04 #11: merchant money / insights / deal projection read one placed-at range.
+  @@index([merchantOrgId, placedAt])
   @@map("orders")
   @@schema("public")
 }

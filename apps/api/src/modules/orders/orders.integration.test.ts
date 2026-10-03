@@ -127,4 +127,11 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect((await orders.get(o.id)).state).toBe('delivered');
     expect(await trips.detachedAt(t.id, o.id)).toBeNull();
   });
+
+  it("a merchant's orders by placed-at range: one bounded read, the same view as get (review 2026-10-04 #11)", async () => {
+    const placedAt = (await orders.get(ids.order)).placedAt;
+    const range = { from: new Date(placedAt.getTime() - 3_600_000), to: new Date(placedAt.getTime() + 1) };
+    expect(await orders.merchantOrders(ids.org, range)).toEqual([await orders.get(ids.order)]);
+    expect(await orders.merchantOrders(ids.org, { from: range.from, to: placedAt })).toEqual([]);
+  });
 });

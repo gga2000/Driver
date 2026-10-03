@@ -38,6 +38,8 @@ export interface FleetRepository {
   vehicles(fleetOrgId: string, tx?: Tx): Promise<VehicleRecord[]>;
   vehicle(id: string, tx?: Tx): Promise<VehicleRecord | null>;
   vehicleByPlate(plate: string, tx?: Tx): Promise<VehicleRecord | null>;
+  /** The active vehicle `driverId` is the active driver of (latest first); null when none. */
+  activeVehicleOf?(driverId: string, tx?: Tx): Promise<VehicleRecord | null>;
   createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord>;
   /** Sets the vehicle's active driver (null unassigns); the driver leaves any other vehicle of the fleet. */
   setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord>;
@@ -73,6 +75,11 @@ export class InMemoryFleetRepository implements FleetRepository {
 
   async vehicleByPlate(plate: string): Promise<VehicleRecord | null> {
     const v = [...this.vehicleRows.values()].find((x) => x.plate === plate);
+    return v ? { ...v } : null;
+  }
+
+  async activeVehicleOf(driverId: string): Promise<VehicleRecord | null> {
+    const v = [...this.vehicleRows.values()].reverse().find((x) => x.activeDriverId === driverId && x.active);
     return v ? { ...v } : null;
   }
 
@@ -149,6 +156,11 @@ export class PrismaFleetRepository implements FleetRepository {
 
   async vehicleByPlate(plate: string, tx?: Tx): Promise<VehicleRecord | null> {
     const r = await this.db(tx).vehicle.findUnique({ where: { plate } });
+    return r ? vehicleFromRow(r) : null;
+  }
+
+  async activeVehicleOf(driverId: string, tx?: Tx): Promise<VehicleRecord | null> {
+    const r = await this.db(tx).vehicle.findFirst({ where: { activeDriverId: driverId, active: true }, orderBy: { updatedAt: 'desc' } });
     return r ? vehicleFromRow(r) : null;
   }
 

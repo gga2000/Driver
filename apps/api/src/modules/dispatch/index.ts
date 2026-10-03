@@ -21,3 +21,5 @@ export type { TimerJob as DispatchTimerJob } from './offer.orchestrator.js';
 export { DispatchSubscribers, DISPATCH_AUTO_ASSIGN_SUBSCRIBER, DISPATCH_TRIP_SUBSCRIBER, DISPATCH_REDISPATCH_SUBSCRIBER } from './events.subscribers.js';
 export { DispatchOfferCheck } from './offer-check.js';
 export { DRIVER_LOCK } from './dispatch.store.js';
+/** Roles × vehicle → what a driver may be offered (partner.goOnline sets it in presence; review #20). */
+export { ROLE_VERTICALS, servedVerticals, vehicleFit } from './vehicles.js';

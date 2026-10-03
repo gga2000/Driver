@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
 import { DispatchModule, DispatchService } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
+import { FleetModule, FleetService } from '../fleet/index.js';
 import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
@@ -28,7 +29,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
  * presence, through dispatch.
  */
 @Module({
-  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule],
+  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule],
   providers: [
     {
       provide: PARTNER_DEPS,
@@ -43,6 +44,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         roles: RoleReader,
         vehicles: CourierVehicleDirectory,
         account: DriverAccountService,
+        fleet: FleetService,
       ): PartnerDeps => ({
         presence: {
           get: (id) => dispatch.presence.get(id),
@@ -76,7 +78,9 @@ function takeFor(vertical: Vertical): TakeRule | null {
           take: takeFor,
         },
         roles: { activeRoles: (id): Promise<RoleKind[]> => roles.activeRoles(id) },
-        vehicles: { vehicleOf: async (id) => (await vehicles.forCourier(id, null))?.vehicleClass ?? null },
+        // The registered vehicle (review #20): the vehicle registry the courier card reads (`vehicles`
+        // with a database, the in-process registry otherwise), else the fleet's own registry.
+        vehicles: { vehicleOf: async (id) => (await vehicles.forCourier(id, null))?.vehicleClass ?? (await fleet.activeVehicleOf(id))?.vehicleClass ?? null },
         gate: {
           onlineGate: async (id) => {
             const g = await account.onlineGateFor(id);
@@ -84,7 +88,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService],
     },
     PartnerService,
   ],

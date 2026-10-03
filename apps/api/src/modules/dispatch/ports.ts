@@ -63,7 +63,10 @@ export const CAPS = Symbol('CAPS');
 export interface DeparturesPort {
   /** Seats filled including walk-ups; null when the departure is unknown. */
   seatsFilled(departureId: string): Promise<number | null>;
-  cancelLowFill(departureId: string): Promise<void>;
+  /** False (when the owner says so) = the rule does not hold yet; nothing was cancelled. */
+  cancelLowFill(departureId: string): Promise<void | boolean>;
+  /** When the low-fill rule may cancel the departure (decision 2026-10-04: T−10, or the latest departure when announced < 30 min ahead). */
+  lowFillCheckAt?(departureId: string): Promise<Date | null>;
 }
 export const DEPARTURES = Symbol('DEPARTURES');
 

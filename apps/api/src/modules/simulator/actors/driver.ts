@@ -2,7 +2,8 @@ import type { BoardCard, LatLng, Trip } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
 import type { ActionKind, DriverAction, DriverRun, DriverTrip, ReplayRecord, SimContext } from '../context.js';
 import { CITY } from '../context.js';
-import { VEHICLE_SPEED_KMH } from '../world.js';
+import { servedVerticals } from '../../dispatch/index.js';
+import { VEHICLE_SPEED_KMH, simDriverRoles } from '../world.js';
 
 /**
  * Courier / driver behaviour (plan Step 7): online with a heartbeat every tick (5 s sim time),
@@ -80,7 +81,8 @@ async function goOnline(ctx: SimContext, d: DriverRun): Promise<void> {
   d.offlineSinceT = null;
   d.offlineUntilT = null;
   await ctx.call('driver.online', () =>
-    ctx.s.dispatch.presence.online(d.personId, { cityId: CITY, at: d.pos, vehicle: d.def.vehicle, tier: d.def.tier, edgeOptIn: d.def.edgeOptIn }),
+    // What partner.goOnline would set: his roles on his registered vehicle (review 2026-10-04 #20).
+    ctx.s.dispatch.presence.online(d.personId, { cityId: CITY, at: d.pos, vehicle: d.def.vehicle, tier: d.def.tier, edgeOptIn: d.def.edgeOptIn, verticals: servedVerticals(simDriverRoles(d.def.vehicle), d.def.vehicle) }),
   );
 }
 

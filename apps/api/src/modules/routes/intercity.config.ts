@@ -215,6 +215,11 @@ export interface IntercityRules {
   boardingWindowMin: number;
   /** Fewer than this many seats (walk-ups after the selfie included) at T−30 → cancelled_low_fill. */
   minSeatsAtTMinus30: number;
+  /**
+   * Product decision 2026-10-04: the low-fill cancel never fires before the announced time minus
+   * this; a car announced less than `boardingWindowMin` ahead is judged only at its latest departure.
+   */
+  lowFillNotBeforeMin?: number;
   /** Latest departure may be at most this long after the announced time. */
   maxLatestDepartureMin: number;
   /** Announcements at most this far ahead. */
@@ -270,6 +275,7 @@ export const INTERCITY_RULES: IntercityRules = {
   holdMin: 10,
   boardingWindowMin: 30,
   minSeatsAtTMinus30: 3,
+  lowFillNotBeforeMin: 10,
   maxLatestDepartureMin: 120,
   maxAnnounceAheadHours: 48,
   cashGraceMin: 3,

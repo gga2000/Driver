@@ -19,6 +19,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey } from '../../shared/local-time.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -67,12 +68,15 @@ export class OpsService implements OpsPort {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() private readonly places?: PlacesService,
-  ) {}
+    @Optional() @Inject(WINDOW_COUNTER) codeFailures?: WindowCounter,
+  ) {
+    this.codeFailures = codeFailures ?? new InMemoryWindowCounter(clock);
+  }
 
   private readonly zones = new ZoneResolver();
   private readonly cashLock = new KeyedLock();
-  /** Wrong hand-over codes per `courierId:localDate` (this process). */
-  private readonly codeFailures = new Map<string, number>();
+  /** Wrong hand-over codes per `courierId:localDate`, shared by every API instance (review #22). */
+  private readonly codeFailures: WindowCounter;
 
   /** Couriers holding customers' cash right now, most owed first, with names from the vault (logged). */
   async cashHolders(actor: Actor, _input: { cityId?: string | undefined }): Promise<OpsCashHolder[]> {
@@ -177,21 +181,23 @@ export class OpsService implements OpsPort {
   /**
    * The courier's 4-digit daily code is his confirmation of the hand-over; 10,000 values are quick to
    * walk, so after `HANDOVER_CODE_MAX_FAILURES` wrong codes for one courier in a local day the code is
-   * locked until local midnight (and ops is alerted). Counted per process; behind several instances
-   * the effective limit is that many times this (still far below 10,000).
+   * locked until local midnight (and ops is alerted). Counted on the shared window counter (Redis
+   * with REDIS_URL), so the limit holds behind several API instances.
    */
   private async checkHandoverCode(actor: Actor, courierId: string, code: string): Promise<void> {
     const now = this.clock.now();
     const key = `${courierId}:${localDateKey(now)}`;
-    const failures = this.codeFailures.get(key) ?? 0;
+    // The counter is shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); the
+    // key carries the local date, so the day window only bounds how long Redis keeps it.
+    const counterKey = `ops:handover_fail:${key}`;
+    const failures = await this.codeFailures.count(counterKey, DAY_MS);
     if (failures >= HANDOVER_CODE_MAX_FAILURES) throw new DriverError('handover_code_locked');
     if (this.accounts.verifyHandoverCode(courierId, code)) return;
-    if (this.codeFailures.size > 10_000) this.codeFailures.clear();
-    this.codeFailures.set(key, failures + 1);
-    if (failures + 1 >= HANDOVER_CODE_MAX_FAILURES) {
+    const after = (await this.codeFailures.hit(counterKey, DAY_MS, Number.MAX_SAFE_INTEGER)).count;
+    if (after >= HANDOVER_CODE_MAX_FAILURES) {
       await this.events.emit(
         undefined,
-        { actorId: actor.personId, type: 'ops.handover_code_locked', occurredAt: now, payload: { courierId, localDate: localDateKey(now), failures: failures + 1 }, idempotencyKey: `ops.handover_code_locked:${key}` },
+        { actorId: actor.personId, type: 'ops.handover_code_locked', occurredAt: now, payload: { courierId, localDate: localDateKey(now), failures: after }, idempotencyKey: `ops.handover_code_locked:${key}` },
         { name: 'person', id: courierId },
       );
     }

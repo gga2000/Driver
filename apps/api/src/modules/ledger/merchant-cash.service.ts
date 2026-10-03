@@ -3,7 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DriverError, type LedgerEvent, type MerchantBalanceView, type MoneyRules, type SettlementMode, type SettlementPlan, type SettlementRequestReason } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { KeyedLock } from '../../shared/keyed-lock.js';
+import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { Accounts, idOf } from './accounts.js';
 import type { LedgerEventBus } from './events.adapter.js';
 import type { LedgerIncidentPort } from './incidents.js';
@@ -95,8 +95,12 @@ export interface HandoverInput {
  */
 @Injectable()
 export class MerchantCashService {
-  /** One settlement request at a time per merchant (this process). */
-  private readonly requestLock = new KeyedLock();
+  /**
+   * One movement of a merchant's cash at a time — settlement requests, courier hand-overs, company
+   * payouts — in process and across API instances (advisory lock in the transaction; review #22), so
+   * every "how much is owed" check sees the movement before it.
+   */
+  private readonly merchantLock: DistributedKeyedLock;
 
   constructor(
     private readonly ledger: LedgerService,
@@ -106,10 +110,17 @@ export class MerchantCashService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(MONEY_RULES) private readonly rules: MoneyRules,
     @Optional() @Inject(UnitOfWork) private readonly uow?: UnitOfWork,
-  ) {}
+  ) {
+    this.merchantLock = new DistributedKeyedLock(uow, 'ledger.merchant_cash');
+  }
 
   private run<T>(fn: (tx: Tx | undefined) => Promise<T>): Promise<T> {
     return this.uow ? this.uow.run((tx) => fn(tx)) : fn(undefined);
+  }
+
+  /** Inside the lock's transaction when there is one, else a unit of work of its own. */
+  private inTx<T>(held: Tx | undefined, fn: (tx: Tx | undefined) => Promise<T>): Promise<T> {
+    return held ? fn(held) : this.run(fn);
   }
 
   async settings(merchantId: string): Promise<MerchantSettings> {
@@ -189,10 +200,10 @@ export class MerchantCashService {
    * double tap or two phones never send two couriers or two payouts for the same money.
    */
   requestSettlement(merchantId: string, requestedBy: string, reason: SettlementRequestReason = 'merchant_request'): Promise<SettlementPlan> {
-    return this.requestLock.run(merchantId, () => this.requestSettlementNow(merchantId, requestedBy, reason));
+    return this.merchantLock.run(merchantId, (tx) => this.requestSettlementNow(merchantId, requestedBy, reason, tx));
   }
 
-  private async requestSettlementNow(merchantId: string, requestedBy: string, reason: SettlementRequestReason): Promise<SettlementPlan> {
+  private async requestSettlementNow(merchantId: string, requestedBy: string, reason: SettlementRequestReason, held: Tx | undefined): Promise<SettlementPlan> {
     const view = await this.balance(merchantId);
     if (view.balanceIqd <= 0) throw new DriverError('settlement_nothing_due');
     const now = this.clock.now();
@@ -200,7 +211,7 @@ export class MerchantCashService {
     if (open) return this.plan(view, reason, view.lastRequestedAt!);
     const at = now;
     const plan = this.plan(view, reason, at);
-    await this.run(async (tx) => {
+    await this.inTx(held, async (tx) => {
       const s = await this.settings(merchantId);
       await this.settingsRepo.upsert({ ...s, lastRequestedAt: at }, tx);
       await this.bus.emit(
@@ -255,22 +266,33 @@ export class MerchantCashService {
    * Any mismatch opens an incident and posts nothing.
    */
   async confirmHandover(input: HandoverInput): Promise<{ postedIqd: number; merchantBalanceIqd: number }> {
-    const s = await this.settings(input.merchantId);
-    const pinOk = s.pinHash ? Boolean(input.pin) && hashPin(input.merchantId, input.pin!) === s.pinHash : Boolean(input.tabletTap) || Boolean(input.pin);
-    const owed = (await this.holders(input.merchantId)).find((h) => h.courierId === input.courierId)?.amountIqd ?? 0;
-    const problem = !pinOk ? 'pin' : input.amountIqd !== input.merchantConfirmedIqd ? 'amount_disagreement' : input.amountIqd > owed ? 'more_than_owed' : input.amountIqd <= 0 ? 'zero' : null;
-    if (problem) {
-      await this.incidents.open({
-        kind: 'merchant_handover_discrepancy',
-        summary: `hand-over ${input.handoverId}: ${problem}`,
-        evidence: { ...input, pin: undefined, owedIqd: owed, problem },
-      });
-      throw new DriverError('handover_mismatch');
-    }
+    // The "how much does he still owe" check and the posting run under the merchant's lock, so two
+    // hand-overs of the same cash at once post once (backend review #21/#22). The incident for a
+    // mismatch is opened after the lock's transaction, so refusing never rolls it back.
+    const out = await this.merchantLock.run(input.merchantId, async (held) => {
+      const s = await this.settings(input.merchantId);
+      const pinOk = s.pinHash ? Boolean(input.pin) && hashPin(input.merchantId, input.pin!) === s.pinHash : Boolean(input.tabletTap) || Boolean(input.pin);
+      const owed = (await this.holders(input.merchantId)).find((h) => h.courierId === input.courierId)?.amountIqd ?? 0;
+      const problem = !pinOk ? 'pin' : input.amountIqd !== input.merchantConfirmedIqd ? 'amount_disagreement' : input.amountIqd > owed ? 'more_than_owed' : input.amountIqd <= 0 ? 'zero' : null;
+      if (problem) return { ok: false as const, problem, owed };
+      return { ok: true as const, posted: await this.postHandover(input, s, held) };
+    });
+    if (out.ok) return out.posted;
+    await this.incidents.open({
+      kind: 'merchant_handover_discrepancy',
+      summary: `hand-over ${input.handoverId}: ${out.problem}`,
+      evidence: { ...input, pin: undefined, owedIqd: out.owed, problem: out.problem },
+    });
+    throw new DriverError('handover_mismatch');
+  }
+
+  private postHandover(input: HandoverInput, s: MerchantSettings, held: Tx | undefined): Promise<{ postedIqd: number; merchantBalanceIqd: number }> {
     const at = this.clock.now();
-    return this.run(async (tx) => {
-      await this.ledger.recordAll(postMerchantPaidByCourier({ ...input, occurredAt: at }), tx);
-      const balance = (await this.ledger.balance(Accounts.merchantCash(input.merchantId))).amount;
+    return this.inTx(held, async (tx) => {
+      // Ledger reads are not transaction-scoped: take the balance before posting (under the lock).
+      const before = (await this.ledger.balance(Accounts.merchantCash(input.merchantId))).amount;
+      const posted = await this.ledger.recordAll(postMerchantPaidByCourier({ ...input, occurredAt: at }), tx);
+      const balance = posted.recorded.length > 0 ? before - input.amountIqd : before;
       if (balance <= 0) await this.settingsRepo.upsert({ ...s, lastSettledAt: at }, tx);
       await this.bus.emit(
         tx,
@@ -294,15 +316,28 @@ export class MerchantCashService {
     });
   }
 
-  /** Company → merchant payout (ZainCash, ops round, bank) under a settlement reference. */
+  /**
+   * Company → merchant payout (ZainCash, ops round, bank) under a settlement reference. Never more
+   * than the merchant is owed right now (`payout_exceeds_balance`, backend review 2026-10-04 #21);
+   * partial payouts are fine. Checked and posted under the merchant's lock, so two payouts at once
+   * cannot together overpay. A retry of a reference already posted returns the balance.
+   */
   async recordPayout(input: { merchantId: string; amountIqd: number; channel: SettlementChannel; reference: string }): Promise<number> {
+    if (input.amountIqd <= 0) throw new DriverError('settlement_nothing_due');
     const at = this.clock.now();
-    return this.run(async (tx) => {
-      await this.ledger.recordAll(postSettlement({ kind: 'merchant_payout', ...input, occurredAt: at }), tx);
-      const balance = (await this.ledger.balance(Accounts.merchantCash(input.merchantId))).amount;
-      if (balance <= 0) await this.settingsRepo.upsert({ ...(await this.settings(input.merchantId)), lastSettledAt: at }, tx);
-      return balance;
-    });
+    const group = postSettlement({ kind: 'merchant_payout', ...input, occurredAt: at });
+    return this.merchantLock.run(input.merchantId, (held) =>
+      this.inTx(held, async (tx) => {
+        const account = Accounts.merchantCash(input.merchantId);
+        if ((await this.ledger.eventsForGroups([group.id])).length > 0) return (await this.ledger.balance(account)).amount;
+        const before = (await this.ledger.balance(account)).amount;
+        if (input.amountIqd > before) throw new DriverError('payout_exceeds_balance');
+        await this.ledger.recordAll(group, tx);
+        const balance = before - input.amountIqd;
+        if (balance <= 0) await this.settingsRepo.upsert({ ...(await this.settings(input.merchantId)), lastSettledAt: at }, tx);
+        return balance;
+      }),
+    );
   }
 
   /**

@@ -20,7 +20,7 @@ import {
 import type { QuarantinedEvent, SimSnapshot } from './invariants.js';
 import { createRand } from './prng.js';
 import { DAY_MINUTES, type PlannedOrder } from './scenario.js';
-import type { World } from './world.js';
+import { simDriverRoles, type World } from './world.js';
 
 /** Who the simulator acts as when it grants roles (identity's `grantedBy`). */
 const SIM_ACTOR = { personId: 'system:simulator' };
@@ -144,8 +144,7 @@ export class Simulation implements SimContext {
     }
     await this.s.orgs.settled();
     for (const def of this.world.drivers) {
-      const roles: RoleKind[] = def.vehicle === 'bike' ? ['courier'] : def.vehicle === 'car' ? ['driver'] : ['driver', 'courier'];
-      const personId = await this.person(def.phone, roles);
+      const personId = await this.person(def.phone, simDriverRoles(def.vehicle));
       const d: DriverRun = {
         def,
         personId,

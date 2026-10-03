@@ -223,9 +223,11 @@ function BestSellersPanel({ data }: { data: MerchantInsights }) {
                 </Text>
               </View>
               <Meter value={b.qty / top} color={i === 0 ? theme.colors.accent : theme.colors.warning} height={6} />
-              <Text variant="caption" color="textMuted" tabular>
-                {iqd(b.salesIqd, { locale })}
-              </Text>
+              {b.salesIqd !== null ? (
+                <Text variant="caption" color="textMuted" tabular>
+                  {iqd(b.salesIqd, { locale })}
+                </Text>
+              ) : null}
             </View>
           </PanelRow>
         ))

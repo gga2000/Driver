@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip } from '@driver/contracts';
+import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
 import type { PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
@@ -95,13 +95,26 @@ const EXPIRED: PartnerOnlineGate = {
   ],
 };
 
-function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; offerTrip?: Trip | null; cap?: Partial<PartnerCapStatus>; gate?: PartnerOnlineGate; now?: Date } = {}) {
+function harness(
+  opts: {
+    roles?: RoleKind[];
+    online?: boolean;
+    trips?: Trip[];
+    offerTrip?: Trip | null;
+    cap?: Partial<PartnerCapStatus>;
+    gate?: PartnerOnlineGate;
+    now?: Date;
+    registered?: VehicleClass | null;
+    onOnline?: (input: { vehicle: VehicleClass; verticals?: readonly Vertical[] | undefined }) => void;
+  } = {},
+) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
   const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
     presence: {
       get: async () => presence,
       online: async (_id, input) => {
+        opts.onOnline?.(input);
         presence = { cityId: input.cityId, lat: input.at.lat, lng: input.at.lng, vehicle: input.vehicle, tier: input.tier, zoneId: 'street_30' };
         return presence;
       },
@@ -137,7 +150,7 @@ function harness(opts: { roles?: RoleKind[]; online?: boolean; trips?: Trip[]; o
       take: () => null,
     },
     roles: { activeRoles: async () => opts.roles ?? ['customer', 'courier'] },
-    vehicles: { vehicleOf: async () => 'bike' },
+    vehicles: { vehicleOf: async () => (opts.registered === undefined ? 'bike' : opts.registered) },
     gate: { onlineGate: async () => opts.gate ?? OPEN },
   };
   return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
@@ -269,5 +282,43 @@ describe('PartnerService', () => {
 
   it('activeJob is null when he has no trip', async () => {
     expect(await harness().activeJob(actor)).toBeNull();
+  });
+});
+
+describe('goOnline uses the registered vehicle and the roles (backend review 2026-10-04 #20)', () => {
+  const at = { lat: 32.9095, lng: 45.0635 };
+  type Sent = { vehicle: VehicleClass; verticals?: readonly Vertical[] | undefined };
+
+  it('a courier cannot claim a car he has not registered; without a claim he is online on his own vehicle', async () => {
+    const sent: Sent[] = [];
+    const svc = harness({ roles: ['customer', 'courier'], registered: 'bike', onOnline: (i) => sent.push(i) });
+    const err = await svc.goOnline(actor, { cityId: 'aziziyah', at, vehicleClass: 'car' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'vehicle_not_registered' });
+    expect((err as { envelope: { message_ar: string } }).envelope.message_ar.length).toBeGreaterThan(10);
+    expect(sent).toHaveLength(0);
+    const on = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+    expect(on.vehicleClass).toBe('bike');
+    expect(sent[0]).toEqual(expect.objectContaining({ vehicle: 'bike', verticals: ['food', 'grocery', 'errand', 'parcel'] }));
+  });
+
+  it('a courier with nothing registered rides a bike (he cannot claim more)', async () => {
+    const sent: Sent[] = [];
+    const svc = harness({ roles: ['courier'], registered: null, onOnline: (i) => sent.push(i) });
+    await expect(svc.goOnline(actor, { cityId: 'aziziyah', at, vehicleClass: 'tuktuk' })).rejects.toMatchObject({ code: 'vehicle_not_registered' });
+    await svc.goOnline(actor, { cityId: 'aziziyah', at, vehicleClass: 'bike' });
+    expect(sent[0]).toEqual(expect.objectContaining({ vehicle: 'bike' }));
+  });
+
+  it('a driver serves the rides of his registered vehicle: tuktuk → tuktuk rides, car → taxi', async () => {
+    const got: Array<readonly Vertical[] | undefined> = [];
+    await harness({ roles: ['driver'], registered: 'tuktuk', onOnline: (i) => got.push(i.verticals) }).goOnline(actor, { cityId: 'aziziyah', at, vehicleClass: 'tuktuk' });
+    await harness({ roles: ['driver'], registered: 'car', onOnline: (i) => got.push(i.verticals) }).goOnline(actor, { cityId: 'aziziyah', at });
+    expect(got).toEqual([['tuktuk'], ['taxi']]);
+  });
+
+  it('a driver without a registered car or tuktuk has nothing to serve and stays offline', async () => {
+    const svc = harness({ roles: ['driver'], registered: null });
+    await expect(svc.goOnline(actor, { cityId: 'aziziyah', at })).rejects.toMatchObject({ code: 'vehicle_not_registered' });
+    expect((await svc.status(actor)).online).toBe(false);
   });
 });

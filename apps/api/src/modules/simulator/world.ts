@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, type AziziyahZoneSeed, type CommissionTier, type LatLng } from '@driver/contracts';
+import { AZIZIYAH_ZONES, type AziziyahZoneSeed, type CommissionTier, type LatLng, type RoleKind } from '@driver/contracts';
 import { haversineMeters } from '../trips/index.js';
 import { createRand, type Rand } from './prng.js';
 
@@ -12,6 +12,15 @@ import { createRand, type Rand } from './prng.js';
  */
 
 export type SimVehicle = 'bike' | 'tuktuk' | 'car';
+
+/**
+ * The roles a simulated driver is registered with: bikes are couriers, tuktuks drive tuktuk rides and
+ * deliver, cars drive taxi rides and deliver (launch playbook: car owners take food runs too). Dispatch
+ * offers each one only what these roles allow on his vehicle (review 2026-10-04 #20).
+ */
+export function simDriverRoles(vehicle: SimVehicle): RoleKind[] {
+  return vehicle === 'bike' ? ['courier'] : ['driver', 'courier'];
+}
 
 /** Moving speed by vehicle (km/h): bike 25, tuktuk 30, car 35 (plan Step 7). */
 export const VEHICLE_SPEED_KMH: Readonly<Record<SimVehicle, number>> = { bike: 25, tuktuk: 30, car: 35 };

@@ -1,4 +1,4 @@
-import type { VehicleClass, Vertical } from '@driver/contracts';
+import { Vertical as VerticalEnum, type RoleKind, type VehicleClass, type Vertical } from '@driver/contracts';
 
 interface Fit {
   preferred: readonly VehicleClass[];
@@ -23,6 +23,29 @@ export function vehicleFit(vertical: Vertical, vehicle: VehicleClass): number {
   if (fit.preferred.includes(vehicle)) return 1;
   if (fit.acceptable.includes(vehicle)) return 0.5;
   return 0;
+}
+
+/**
+ * Which verticals a driving role may be offered (backend review 2026-10-04 #20): couriers deliver,
+ * shoppers shop, drivers drive rides (taxi or tuktuk, by the vehicle), and the خطوط and الرجعة
+ * drivers are roles of their own. Anything else (customer, merchant, ops…) drives nothing.
+ */
+export const ROLE_VERTICALS: Partial<Record<RoleKind, readonly Vertical[]>> = {
+  courier: ['food', 'grocery', 'errand', 'parcel'],
+  shopper: ['grocery', 'errand'],
+  driver: ['taxi', 'tuktuk'],
+  intercity_driver: ['intercity'],
+  khat_driver: ['khat'],
+};
+
+/**
+ * What a person with `roles` on `vehicle` may be offered: his roles' verticals that the vehicle can
+ * serve (`VEHICLE_FIT`), in the `Vertical` enum order. Computed server-side when he goes online
+ * (registered vehicle, live roles) and carried in presence, where dispatch filters candidates by it.
+ */
+export function servedVerticals(roles: readonly RoleKind[], vehicle: VehicleClass): Vertical[] {
+  const allowed = new Set<Vertical>(roles.flatMap((r) => ROLE_VERTICALS[r] ?? []));
+  return VerticalEnum.options.filter((v) => allowed.has(v) && vehicleFit(v, vehicle) > 0);
 }
 
 /** Spec §3 batching: max 2 orders per bike, 3 per tuktuk; other vehicles fall back to the city config's `maxBatch`. */

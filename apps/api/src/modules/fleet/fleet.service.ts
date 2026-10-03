@@ -84,6 +84,16 @@ export class FleetService implements FleetPort {
     return owned[0]!;
   }
 
+  /**
+   * The vehicle a driver is the active driver of in the registry (any fleet), for `partner.goOnline`
+   * (backend review 2026-10-04 #20: the vehicle comes from the registry, not the app). No actor
+   * check: a narrow internal read of his own class and plate.
+   */
+  async activeVehicleOf(driverId: string): Promise<FleetVehicle | null> {
+    const v = (await this.repo.activeVehicleOf?.(driverId)) ?? null;
+    return v ? vehicleView(v) : null;
+  }
+
   async vehicles(actor: Actor, input: FleetScopeInput): Promise<FleetVehicle[]> {
     return (await this.repo.vehicles(await this.fleetOf(actor, input.fleetOrgId))).map(vehicleView);
   }
