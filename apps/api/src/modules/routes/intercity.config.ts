@@ -70,7 +70,7 @@ export const GARAGES: GarageConfig[] = [
   {
     id: 'mp_garage_bab1',
     cityId: 'aziziyah',
-    nameAr: 'كراج البوابة ١',
+    nameAr: 'كراج البوابة 1',
     nameEn: 'Gate 1 garage',
     lat: 32.9032,
     lng: 45.0578,
@@ -80,7 +80,7 @@ export const GARAGES: GarageConfig[] = [
   {
     id: 'mp_garage_bab2',
     cityId: 'aziziyah',
-    nameAr: 'كراج البوابة ٢',
+    nameAr: 'كراج البوابة 2',
     nameEn: 'Gate 2 garage',
     lat: 32.9088,
     lng: 45.0648,

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Icon, Skeleton, Text, useTheme, usePulse, type IconName } from '@driver/ui';
+import { EmptyState, Icon, Skeleton, Text, useTheme, usePulse, type IconName } from '@driver/ui';
 import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
@@ -65,7 +65,24 @@ export default function Home() {
         }}
       >
         <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', padding: theme.space[5], paddingBottom: theme.space[4], gap: theme.space[4] }}>
-          {!s ? (
+          {/* A failed refresh while we still show the last status: offers can't reach him, say so. */}
+          {s && status.isError ? (
+            <View testID="home-connection-lost" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.warningTint }}>
+              <Icon name="clock" size={18} color="warningText" />
+              <Text variant="label" color="warningText" style={{ flex: 1 }}>
+                {t('partner.connection_lost')}
+              </Text>
+            </View>
+          ) : null}
+          {!s && status.isError ? (
+            <EmptyState
+              icon="phone"
+              title={t('partner.status_failed')}
+              body={t('error.network')}
+              action={{ label: t('action.retry'), onPress: () => void status.refetch() }}
+              style={{ paddingVertical: theme.space[4] }}
+            />
+          ) : !s ? (
             <View style={{ gap: theme.space[3] }}>
               <Skeleton width="60%" height={24} />
               <Skeleton width="100%" height={72} radius={36} />

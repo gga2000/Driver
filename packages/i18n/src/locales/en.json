@@ -1990,6 +1990,8 @@
   "partner.in_zone": "in {zone}",
   "partner.zone_centre_short": "the centre",
   "partner.cash_held": "Cash in hand",
+  "partner.connection_lost": "No connection. Offers stop until it’s back",
+  "partner.status_failed": "We couldn’t load your status",
   "partner.cash_of_cap": "{held} of {cap} IQD cap",
   "partner.vehicle_bike": "Bike",
   "partner.vehicle_tuktuk": "Tuktuk",

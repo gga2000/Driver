@@ -62,7 +62,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     });
 
     const board = await rider.board({ garageId: BAB1.id, travellingAs: 'nisa' });
-    expect(board.garage?.nameAr).toBe('كراج البوابة ١');
+    expect(board.garage?.nameAr).toBe('كراج البوابة 1');
     expect(board.departures.map((d) => d.id)).toEqual([dep.id]);
     expect(board.departures[0]!.seats.map((s) => [s.id, s.state, s.premiumIqd])).toEqual([
       ['front', 'free', 2_000],
@@ -95,7 +95,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
       car: null,
       idReminder: true,
       prepayRail: 'wallet',
-      myStop: { kind: 'garage', nameAr: 'كراج البوابة ١' },
+      myStop: { kind: 'garage', nameAr: 'كراج البوابة 1' },
     });
     expect(await codeOf(other.boardingPass({ bookingId: held.id }))).toBe('NOT_FOUND');
 
