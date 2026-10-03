@@ -9,6 +9,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useCancellationPreview, useCancelOrder, useOpenDispute } from './queries';
+import { color } from '@driver/design-tokens';
 
 /** A modal card from the bottom over a dimmed screen (cancel, report, street hand-over, unreachable). */
 export function BottomPanel({ children, onClose, testID, dim = true }: { children: ReactNode; onClose?: () => void; testID?: string; dim?: boolean }) {
@@ -17,7 +18,7 @@ export function BottomPanel({ children, onClose, testID, dim = true }: { childre
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {dim ? (
-        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(150)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(31, 26, 20, 0.42)' }]}>
+        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(150)} style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.scrim }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel={onClose ? 'close' : undefined} disabled={!onClose} />
         </Animated.View>
       ) : null}
@@ -37,7 +38,7 @@ export function BottomPanel({ children, onClose, testID, dim = true }: { childre
           backgroundColor: theme.colors.surfaceRaised,
           borderTopLeftRadius: theme.radius['2xl'],
           borderTopRightRadius: theme.radius['2xl'],
-          shadowColor: '#000',
+          shadowColor: color.neutral[1000],
           shadowOpacity: 0.16,
           shadowRadius: 18,
           shadowOffset: { width: 0, height: -4 },

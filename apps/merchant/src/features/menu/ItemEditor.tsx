@@ -443,7 +443,7 @@ export function ItemEditor() {
 function SectionOption({ label, selected, onPress, glyph, testID }: { label: string; selected: boolean; onPress: () => void; glyph?: boolean; testID?: string }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <Pressable hitSlop={2}
       testID={testID}
       accessibilityRole="radio"
       accessibilityState={{ selected }}

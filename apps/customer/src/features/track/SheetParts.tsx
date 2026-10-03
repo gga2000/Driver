@@ -20,6 +20,7 @@ import {
 import { useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import type { Phase } from './timeline';
+import { color } from '@driver/design-tokens';
 
 // ───────────────────────── collapsed header ─────────────────────────
 
@@ -93,7 +94,7 @@ export function DegradedBanner({ icon, tone, title, body, testID }: { icon: Icon
         backgroundColor: bg,
         borderWidth: 1,
         borderColor: withAlpha(tone === 'warning' ? theme.colors.warning : theme.colors.info, 0.35),
-        shadowColor: '#000',
+        shadowColor: color.neutral[1000],
         shadowOpacity: 0.08,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },

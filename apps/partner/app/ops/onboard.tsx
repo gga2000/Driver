@@ -2,7 +2,7 @@ import { router, Stack } from 'expo-router';
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { ActivityIndicator, Image, Pressable, View } from 'react-native';
 import type { MerchantOnboardingView } from '@driver/contracts';
-import { Button, Card, Chip, Icon, StatusPill, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, Icon, StatusPill, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { ChoiceCard } from '@/components/ChoiceCard';
 import { Screen } from '@/components/Screen';
 import { DriverMap } from '@/features/map/DriverMap';
@@ -28,6 +28,7 @@ import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { displayPhone, formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
+import { color } from '@driver/design-tokens';
 
 /**
  * تسجيل محل — the merchant onboarding visit: shop name and type, the owner's name and number,
@@ -258,12 +259,12 @@ function MenuStep({ d, setD }: { d: OnboardDraft; setD: Dispatch<SetStateAction<
           <View key={p.uri} style={{ width: '31.6%', aspectRatio: 3 / 4, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
             <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             {p.uploadId ? null : (
-              <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: 'rgba(31,26,20,0.35)', alignItems: 'center', justifyContent: 'center' }}>
-                <ActivityIndicator color="#fff" />
+              <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: theme.colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color={color.neutral[0]} />
               </View>
             )}
-            <View style={{ position: 'absolute', bottom: 6, start: 6, backgroundColor: 'rgba(31,26,20,0.72)', borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
-              <Text variant="caption" weight={700} tabular style={{ color: '#fff', lineHeight: 18 }}>
+            <View style={{ position: 'absolute', bottom: 6, start: 6, backgroundColor: withAlpha(color.neutral[900], 0.72), borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
+              <Text variant="caption" weight={700} tabular style={{ color: color.neutral[0], lineHeight: 18 }}>
                 {i + 1}
               </Text>
             </View>

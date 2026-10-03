@@ -166,7 +166,7 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           {value.photos.map((p) => (
             <View key={p.id} style={{ width: 96, height: 96, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
               <Image source={{ uri: photoUri(p.url) }} style={{ width: 96, height: 96 }} resizeMode="cover" accessibilityIgnoresInvertColors />
-              <Pressable
+              <Pressable hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t('place.photo_remove')}
                 onPress={() => onChange({ ...value, photos: value.photos.filter((x) => x.id !== p.id) })}

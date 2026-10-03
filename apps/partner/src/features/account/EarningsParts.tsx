@@ -22,8 +22,9 @@ import {
   weekdayName,
   type ChartBucket,
 } from './logic';
+import { color } from '@driver/design-tokens';
 
-const CREAM = '#FBF6EE';
+const CREAM = color.neutral[50];
 /** "12%" in a left-to-right isolate so the sign stays after the digits inside Arabic. */
 const pct = (n: number) => `\u2066${n}%\u2069`;
 
@@ -75,7 +76,7 @@ export function PeriodNav({ label, onPrev, onNext, canNext, dark = false }: { la
         borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: withAlpha(dark ? CREAM : '#1F1A14', pressed ? 0.16 : 0.08),
+        backgroundColor: withAlpha(dark ? CREAM : color.neutral[900], pressed ? 0.16 : 0.08),
         opacity: enabled ? 1 : 0.3,
       })}
     >
@@ -264,7 +265,7 @@ function Bar({ share, grow, active, dim, onPress, label }: { share: number; grow
             borderTopRightRadius: 5,
             borderBottomLeftRadius: 2,
             borderBottomRightRadius: 2,
-            backgroundColor: share <= 0 ? withAlpha(CREAM, 0.12) : active ? '#F2B96A' : theme.colors.accent,
+            backgroundColor: share <= 0 ? withAlpha(CREAM, 0.12) : active ? color.primary[300] : theme.colors.accent,
             opacity: dim ? 0.35 : 1,
           },
           style,
@@ -283,14 +284,14 @@ export function BreakdownCard({ totals }: { totals: EarningsView['totals'] }) {
     { v: totals.grossIqd, c: theme.colors.accent },
     { v: totals.tipsIqd, c: theme.colors.success },
     { v: totals.bonusesIqd, c: theme.colors.info },
-    { v: totals.guaranteeTopUpsIqd, c: '#9A5200' },
+    { v: totals.guaranteeTopUpsIqd, c: color.primary[700] },
   ].filter((p) => p.v > 0);
   const sum = parts.reduce((s, p) => s + p.v, 0);
   const dot: Record<string, string> = {
     'partner.earn_gross': theme.colors.accent,
     'partner.earn_tips': theme.colors.success,
     'partner.earn_bonuses': theme.colors.info,
-    'partner.earn_guarantee': '#9A5200',
+    'partner.earn_guarantee': color.primary[700],
   };
   return (
     <Card testID="earnings-breakdown" elevation={1} padding={5}>

@@ -5,6 +5,7 @@ import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { capShare, driversKey, inZone, todayKey, VEHICLE_ICON, VEHICLE_KEY, waitingKey } from './logic';
+import { color } from '@driver/design-tokens';
 
 /** Floating pill over the map: "12,500 · 6 طلبات" — taps through to الأرباح. */
 export function TodayPill({ earningsIqd, jobs }: { earningsIqd: number; jobs: number }) {
@@ -25,7 +26,7 @@ export function TodayPill({ earningsIqd, jobs }: { earningsIqd: number; jobs: nu
         paddingStart: theme.space[2],
         paddingEnd: theme.space[4],
         height: 44,
-        shadowColor: '#000',
+        shadowColor: color.neutral[1000],
         shadowOpacity: 0.2,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 4 },
