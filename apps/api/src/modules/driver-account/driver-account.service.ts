@@ -394,7 +394,7 @@ export class DriverAccountService implements DriverAccountPort {
       verifiedAt: passed[0]?.submittedAt ?? null,
       failuresToday: failures,
       lockedOut: !verified && failures >= MAX_CHECKIN_FAILURES,
-      badge_ar: verified ? 'متحقق اليوم ✓' : null,
+      badge_ar: verified ? 'متحقق اليوم' : null,
     };
   }
 

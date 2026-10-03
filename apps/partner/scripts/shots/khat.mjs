@@ -14,7 +14,7 @@ export default async function run(s) {
   // مريم gets in at الشكري.
   const tap = p.page.locator('[data-testid^="khat-tap-"]').first();
   await tap.click();
-  await p.page.getByText('صعد ✓').first().waitFor({ timeout: 10_000 }).catch(() => undefined);
+  await p.page.getByText('صعد', { exact: true }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
   await p.shot('tapped-in', { settle: 1200 });
 
   // فاطمة is absent today: the reason sheet.

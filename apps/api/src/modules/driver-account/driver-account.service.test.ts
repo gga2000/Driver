@@ -193,7 +193,7 @@ describe('driverAccount daily check-in', () => {
     const ch = await h.service.checkInChallenge(d);
     expect(ch.gesture_ar.length).toBeGreaterThan(2);
     const res = await h.service.submitCheckIn(d, { challengeId: ch.challengeId, uploadId: await h.upload(d.personId) });
-    expect(res).toMatchObject({ result: 'passed', verifiedToday: true, badge_ar: 'متحقق اليوم ✓', lockedOut: false });
+    expect(res).toMatchObject({ result: 'passed', verifiedToday: true, badge_ar: 'متحقق اليوم', lockedOut: false });
     expect((await h.service.onlineGate(d)).canGoOnline).toBe(true);
     expect((await h.id.repo.vaultRefs(d.personId, 'selfieRefs')).length).toBe(1);
     expect((await h.ev.events.forActor(d.personId)).map((e) => e.type)).toContain('driver.checkin_selfie');

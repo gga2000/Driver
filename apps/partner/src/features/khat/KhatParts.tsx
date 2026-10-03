@@ -160,7 +160,7 @@ function ChildRow({
             <StatusPill label={t('partner.kh_absent_badge')} tone="neutral" size="sm" icon="x" style={{ alignSelf: 'flex-start' }} />
           ) : settledLine ? (
             <Text variant="caption" weight={600} color="successText" tabular>
-              {`✓ ${settledLine}`}
+              {settledLine}
             </Text>
           ) : absentOk && !asking ? (
             <Pressable testID={`khat-absent-${stop.stopId}`} accessibilityRole="button" onPress={onAskAbsence} hitSlop={8}>
