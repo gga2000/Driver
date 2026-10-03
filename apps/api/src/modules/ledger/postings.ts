@@ -156,6 +156,16 @@ function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd
   return total;
 }
 
+/**
+ * G-88, same rule as orders' `has250Component` (review L): a fee that is not a multiple of 500 (night
+ * +250, street hand-over −250, a 250-step fare) puts a 250 component on the receipt, so the total
+ * rounds to 250. Derived here too, so a payload that omits the flag can never leave a customer who
+ * paid the total he was shown owing 250.
+ */
+function hasQuarterStep(...fees: number[]): boolean {
+  return fees.some((f) => f % 500 !== 0);
+}
+
 /** Points value redeemed against the service fee first, then delivery (decisions §2). */
 export function redemption(pointsRedeemed: number, serviceFeeIqd: number, deliveryFeeIqd: number, rules: MoneyRules) {
   const value = pointsRedeemed * rules.points.pointValueIqd;
@@ -216,7 +226,7 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
 
   const charged = o.itemsSubtotalIqd + serviceFee + o.smallOrderFeeIqd + o.deliveryFeeIqd + o.tipIqd - promo - red.valueIqd;
   const collector = o.courierId ? Accounts.cash(o.courierId) : merchant;
-  const total = settleCustomer(b, payer, o, charged, collector, rules);
+  const total = settleCustomer(b, payer, { ...o, has250Component: o.has250Component || hasQuarterStep(o.deliveryFeeIqd, serviceFee, o.smallOrderFeeIqd) }, charged, collector, rules);
 
   return {
     money: b.build(),
@@ -249,7 +259,7 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
   const charged = e.actualCostIqd + e.errandFeeIqd + serviceFee + e.tipIqd - red.valueIqd;
-  const total = settleCustomer(b, payer, e, charged, Accounts.cash(e.shopperId), rules);
+  const total = settleCustomer(b, payer, { ...e, has250Component: e.has250Component || hasQuarterStep(e.errandFeeIqd, serviceFee) }, charged, Accounts.cash(e.shopperId), rules);
   return {
     money: b.build(),
     redeem: red.points > 0 ? redeemGroup(`order:${e.orderId}:redeem`, e.customerId, red.points, e.occurredAt, refs) : null,
@@ -279,7 +289,7 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, { ...r, has250Component: r.has250Component || hasQuarterStep(r.fareIqd) }, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 
@@ -441,7 +451,8 @@ export function pointsForRideTake(takeIqd: number, rules: MoneyRules): number {
 /**
  * Earned points split across tagged participants by their share of the items; phone-only
  * participants get pending points keyed by phone hash; the orderer of a group order earns the
- * organiser bonus (+10 % of the order's points). Points come out of the points pool, never money.
+ * organiser bonus (+10 % of the order's points). The per-order cap includes the bonus. Points come
+ * out of the points pool, never money.
  */
 export function postPoints(input: {
   groupId: string;
@@ -452,18 +463,24 @@ export function postPoints(input: {
   recipients: readonly PointsRecipient[];
   rules: MoneyRules;
 }): PostingGroup | null {
-  const { points, rules } = input;
-  if (points <= 0) return null;
+  const { rules } = input;
+  if (input.points <= 0) return null;
   const b = new GroupBuilder(input.groupId, 'points', input.occurredAt, input.refs);
   const recipients = input.recipients.length > 0 ? input.recipients : [{ personId: input.ordererId, weight: 1 }];
+  const othersTagged = recipients.some((r) => r.personId !== input.ordererId);
+  // Review M: the per-order cap (decisions §2, default 50) covers EVERYTHING earned on the order,
+  // organiser bonus included — the shared points shrink so shares + bonus never exceed it.
+  const cap = rules.points.maxPerOrder;
+  const capped = Math.min(input.points, cap);
+  const bonus = othersTagged ? Math.floor(capped * rules.points.organizerBonusRate) : 0;
+  const points = Math.min(capped, cap - bonus);
   const shares = allocate(points, recipients.map((r) => r.weight));
   recipients.forEach((r, i) => {
     const n = shares[i] ?? 0;
     if (r.personId) b.add('points_earned', n, Accounts.pointsPool, Accounts.points(r.personId));
     else if (r.phoneHash) b.add('points_pending', n, Accounts.pointsPool, Accounts.pointsPending(r.phoneHash));
   });
-  const othersTagged = recipients.some((r) => r.personId !== input.ordererId);
-  if (othersTagged) b.add('organizer_bonus', Math.floor(points * rules.points.organizerBonusRate), Accounts.pointsPool, Accounts.points(input.ordererId));
+  if (othersTagged) b.add('organizer_bonus', bonus, Accounts.pointsPool, Accounts.points(input.ordererId));
   const g = b.build();
   return g.lines.length > 0 ? g : null;
 }

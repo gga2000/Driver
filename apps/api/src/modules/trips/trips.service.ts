@@ -186,13 +186,25 @@ export class TripsService implements OnModuleInit {
   /**
    * First valid accept wins (dispatch adds a Redis SETNX in Step 5; the conditional state update here
    * is the database-level guard). Replaying the same driver's accept is a no-op. The vehicle must
-   * meet the largest order cap on the trip (edge-case review A.16).
+   * meet the largest order cap on the trip (edge-case review A.16). A driver already on a trip is
+   * refused unless dispatch made the assignment (`assignedByDispatch`, after its batching rules).
    */
-  async accept(tripId: string, driverId: string, input: { vehicleClass: VehicleClass; vehicleId?: string | undefined } & DeviceStamp): Promise<Trip> {
+  async accept(
+    tripId: string,
+    driverId: string,
+    input: { vehicleClass: VehicleClass; vehicleId?: string | undefined } & DeviceStamp,
+    opts: { assignedByDispatch?: boolean } = {},
+  ): Promise<Trip> {
     return this.uow.run(async (tx) => {
       const trip = await this.load(tripId, tx);
       if (trip.courierId === driverId && (PROGRESS_STATES.includes(trip.state) || trip.state === 'completed')) return this.view(tripId, tx);
       if (trip.state !== 'offered') throw new DriverError('trip_state_conflict');
+      // Review H: one driver, one job. Only dispatch may hand a busy driver a second trip, after its
+      // own batching check (`fitsCurrentJobs` / dispatcher override); a direct accept never can.
+      if (!opts.assignedByDispatch) {
+        const holding = (await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx)).filter((t) => t.id !== tripId);
+        if (holding.length > 0) throw new DriverError('offer_conflicts_current_job');
+      }
       const links = (await this.repo.linksOf(tripId, tx)).filter((l) => l.detachedAt === null);
       if (!vehicleFits(input.vehicleClass, largestVehicleClass(links.map((l) => l.minVehicleClass)))) throw new DriverError('vehicle_too_small');
       const now = this.clock.now();
@@ -693,7 +705,7 @@ export class TripsService implements OnModuleInit {
         payload: isDomainEventType(type) ? encodeDomainEvent(type, payload as never) : payload,
         ...(opts.orderId ? { orderId: opts.orderId } : {}),
         ...(opts.location ? { location: opts.location } : {}),
-        ...(opts.idempotencyKey ? { idempotencyKey: `${type}:${opts.idempotencyKey}` } : {}),
+        ...(opts.idempotencyKey ? { idempotencyKey: scopedIdempotencyKey(type, actorId, tripId, payload, opts.idempotencyKey) } : {}),
         ...(opts.deviceUptimeMs !== undefined ? { deviceUptimeMs: opts.deviceUptimeMs } : {}),
       },
       { name: 'trip', id: tripId },
@@ -705,6 +717,18 @@ export class TripsService implements OnModuleInit {
     const [stops, links] = await Promise.all([this.repo.stopsOf(tripId, tx), this.repo.linksOf(tripId, tx)]);
     return toTripView(trip, stops, links);
   }
+}
+
+/**
+ * A client idempotency key only dedupes a replay of the SAME action (review H): it is scoped by event
+ * type, actor and aggregate (trip, and the stop for stop events). Reusing a key on another trip or
+ * stop (an app bug, or a key generator restarting) can therefore never swallow a different action's
+ * events — before, a reused key completed the trip while its `stop.completed` never reached orders
+ * or the ledger.
+ */
+export function scopedIdempotencyKey(type: string, actorId: string, tripId: string, payload: Record<string, unknown>, clientKey: string): string {
+  const stop = typeof payload['stopId'] === 'string' ? `/stop:${payload['stopId']}` : '';
+  return `${type}:${actorId}:trip:${tripId}${stop}:${clientKey}`;
 }
 
 function canMove(from: TripState, to: TripState): boolean {

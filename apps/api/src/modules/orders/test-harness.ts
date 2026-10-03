@@ -3,6 +3,7 @@ import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, TripsService, type TripTimerJob } from '../trips/index.js';
@@ -16,6 +17,25 @@ import type { ParticipantResolver } from './participants.js';
 export function fakePhoneHash(phone: string): string {
   return createHash('sha256').update(`test-pepper:${phone}`).digest('hex');
 }
+
+/** rest_1's menu in the orders harness: fixed ids so tests can name them. */
+export const HARNESS_MENU = [
+  { id: 'kebab', nameAr: 'كباب', priceIqd: 5000 },
+  { id: 'tikka', nameAr: 'تكة', priceIqd: 5000 },
+  { id: 'tray', nameAr: 'صينية', priceIqd: 10000 },
+  { id: 'tray_5k', nameAr: 'صينية صغيرة', priceIqd: 5000 },
+  { id: 'tray_9k', nameAr: 'صينية وسط', priceIqd: 9000 },
+  { id: 'x', nameAr: 'صنف', priceIqd: 1000 },
+  {
+    id: 'falafel',
+    nameAr: 'فلافل',
+    priceIqd: 1500,
+    modifierGroups: [{ nameAr: 'إضافات', required: false, maxSelect: 2, modifiers: [{ nameAr: 'بيض', priceIqd: 500 }, { nameAr: 'جبن', priceIqd: 500 }] }],
+  },
+  { id: 'gus', nameAr: 'كص', priceIqd: 4000, branchOverrides: { kut: { priceIqd: 4500 }, closed_branch: { available: false } } },
+  { id: 'soldout', nameAr: 'خلصان', priceIqd: 3000, stock: 0 },
+  { id: 'breakfast', nameAr: 'فطور', priceIqd: 3000, availability: [{ dow: 6, start: '06:00', end: '11:00' }] },
+];
 
 export const KITCHEN: LatLng = { lat: 32.9105, lng: 45.0665 };
 export const HOME: LatLng = { lat: 32.9185, lng: 45.0712 };
@@ -60,7 +80,23 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   const people = new Map<string, string>(); // phone → personId
   const resolver: ParticipantResolver = { resolvePhone: async (phone) => ({ personId: people.get(phone) ?? null, phoneHash: fakePhoneHash(phone) }) };
   const pricing = new PricingService(new ConfigService());
-  const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk);
+  // Menus (review C2: orders prices lines from the catalog, never from the client). Every harness
+  // merchant serves HARNESS_MENU: rest_1 under the plain ids, others under `<org>/<id>`, which the
+  // port below maps back so tests can say `catalogItemId: 'kebab'` for any merchant.
+  const catalog = new CatalogService(new InMemoryCatalogRepository());
+  const menus = new Map<string, Promise<unknown>>();
+  const scoped = (orgId: string, id: string) => (orgId === 'rest_1' ? id : `${orgId}/${id}`);
+  const ensureMenu = (orgId: string) => {
+    if (!menus.has(orgId)) menus.set(orgId, Promise.all(HARNESS_MENU.map((m) => catalog.addItem({ ...m, id: scoped(orgId, m.id), orgId }))));
+    return menus.get(orgId)!;
+  };
+  const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
+    itemsOf: async (orgId, ids) => {
+      if (await merchants.profile(orgId)) await ensureMenu(orgId);
+      const found = await catalog.itemsOf(orgId, ids.flatMap((id) => [id, `${orgId}/${id}`]));
+      return found.map((i) => ({ ...i, id: i.id.startsWith(`${orgId}/`) ? i.id.slice(orgId.length + 1) : i.id }));
+    },
+  });
   orders.onModuleInit();
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
@@ -128,5 +164,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

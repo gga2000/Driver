@@ -148,6 +148,28 @@ describe('rounding (G-88)', () => {
   });
 });
 
+describe('review L: postings agree with the order total rule (has250Component)', () => {
+  it('a 16,250 night order (+250 delivery) collected in full nets the customer to zero even without the flag', () => {
+    const p = postOrderClosed(
+      { orderId: 'o1', orderType: 'food', occurredAt: at, customerId: 'c', payment: 'cash', cashCollectedIqd: 16250, merchantId: 'm', courierId: 'k', itemsSubtotalIqd: 15000, commissionTier: 'base', serviceFeeIqd: 0, deliveryFeeIqd: 1250 },
+      rules,
+    );
+    validateGroup(p.money);
+    expect(p.totalIqd).toBe(16250);
+    expect(nets(p.money)['customer:c'] ?? 0).toBe(0);
+    expect(nets(p.money)['rounding']).toBeUndefined();
+  });
+
+  it('a street hand-over (−250) and a 250-step ride fare round to 250 too', () => {
+    const street = postOrderClosed(workedExample({ deliveryFeeIqd: 750, cashCollectedIqd: 16250 }), rules);
+    expect(street.totalIqd).toBe(16250);
+    expect(nets(street.money)['customer:c1'] ?? 0).toBe(0);
+    const ride = postRideCompleted({ tripId: 't', occurredAt: at, customerId: 'c', payment: 'cash', driverId: 'd', takeClass: 'tuktuk', fareIqd: 2750, cashCollectedIqd: 2750 }, rules);
+    expect(ride.totalIqd).toBe(2750);
+    expect(nets(ride.money)['customer:c'] ?? 0).toBe(0);
+  });
+});
+
 describe('rides, seats, subscriptions — money §3 take', () => {
   it('tuktuk 10 % with a 100 floor; car 12 %; parcel 15 % as a parcel_fee line', () => {
     expect(takeOf(3000, rules.take.tuktuk)).toBe(300);
@@ -253,6 +275,16 @@ describe('points on platform revenue (decisions §2)', () => {
     validateGroup(g);
     expect(g.kind).toBe('points');
     expect(nets(g)).toEqual({ points_pool: -(18 + 9 + 2), 'points:p2': 18, 'points_pending:h3': 9, 'points:c1': 2 });
+  });
+
+  it('review M: the per-order cap of 50 covers the organiser bonus too', () => {
+    const g = postPoints({ groupId: 'g', occurredAt: at, refs: {}, points: pointsForRevenue(100000, rules), ordererId: 'o', recipients: [{ personId: 'friend', weight: 1 }], rules })!;
+    validateGroup(g);
+    expect(g.lines.reduce((a, l) => a + l.amount, 0)).toBe(50);
+    expect(nets(g)).toEqual({ points_pool: -50, 'points:friend': 45, 'points:o': 5 });
+    // Under the cap nothing changes: 27 shared + 2 bonus.
+    const small = postPoints({ groupId: 'h', occurredAt: at, refs: {}, points: 27, ordererId: 'o', recipients: [{ personId: 'friend', weight: 1 }], rules })!;
+    expect(nets(small)).toEqual({ points_pool: -29, 'points:friend': 27, 'points:o': 2 });
   });
 
   it('a solo order sends every point to the orderer with no organiser bonus', () => {

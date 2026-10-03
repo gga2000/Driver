@@ -3,6 +3,7 @@ import { FakeClock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { CatalogService, PrismaCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
 import { RecordingTripEvents, TripsService, type TripTimerJob } from '../trips/index.js';
@@ -30,6 +31,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
   const trips = new TripsService(tripsRepo, tripEvents, uow, clock, new InMemoryQueue<TripTimerJob>('trips.timers', () => clock.now()));
   const merchants = new InMemoryMerchantDirectory();
   const events = new RecordingOrderEvents();
+  const catalog = new CatalogService(new PrismaCatalogRepository(prisma));
   const orders = new OrdersService(
     new PrismaOrdersRepository(prisma),
     events,
@@ -41,9 +43,10 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     merchants,
     { resolvePhone: async (phone) => ({ personId: null, phoneHash: fakePhoneHash(phone) }) },
     { newCustomerCash: async () => ({ allowed: true, requiresArrivingCall: false, priorCashOrders: 3 }) },
+    catalog,
   );
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
-  const ids = { customer: '', courier: '', org: '', order: '', trip: '' };
+  const ids = { customer: '', courier: '', org: '', order: '', trip: '', item: '' };
 
   beforeAll(async () => {
     const db = prisma.prisma;
@@ -51,6 +54,8 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     ids.courier = (await db.person.create({ data: {} })).id;
     ids.org = (await db.org.create({ data: { type: 'restaurant', name: 'مطعم اختبار', cityId: 'aziziyah' } })).id;
     merchants.add(ids.org);
+    // Review C2: the line is priced from this row, not from the client.
+    ids.item = (await catalog.addItem({ orgId: ids.org, nameAr: 'كباب', priceIqd: 5000, modifierGroups: [{ nameAr: 'خبز', modifiers: [{ nameAr: 'صمون', priceIqd: 0 }] }] })).id;
   });
 
   afterAll(async () => {
@@ -66,6 +71,10 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
       await db.participant.deleteMany({ where: { orderId: ids.order } });
       await db.order.deleteMany({ where: { id: ids.order } });
     }
+    await db.modifier.deleteMany({ where: { group: { item: { orgId: ids.org } } } });
+    await db.modifierGroup.deleteMany({ where: { item: { orgId: ids.org } } });
+    await db.catalogItem.deleteMany({ where: { orgId: ids.org } });
+    await db.catalog.deleteMany({ where: { orgId: ids.org } });
     await db.org.deleteMany({ where: { id: ids.org } });
     await db.person.deleteMany({ where: { id: { in: [ids.customer, ids.courier] } } });
     await prisma.onModuleDestroy();
@@ -77,12 +86,16 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
       type: 'food',
       merchantOrgId: ids.org,
       participants: [{ ref: 'sis', role: 'diner', phone: '07709998877' }],
-      lines: [{ freeText: 'كباب', qty: 2, unitPriceIqd: 5000, participantRef: 'sis' }],
+      lines: [{ catalogItemId: ids.item, qty: 2, participantRef: 'sis' }],
       deliveryFeeIqd: 1000,
       serviceFeeIqd: 500,
     });
     ids.order = o.id;
     expect(o).toMatchObject({ state: 'placed', totalIqd: 11500, minVehicleClass: 'bike' });
+    expect(o.lines[0]).toMatchObject({ catalogItemId: ids.item, unitPriceIqd: 5000 });
+    await expect(
+      orders.place(ids.customer, { cityId: 'aziziyah', type: 'food', merchantOrgId: ids.org, lines: [{ catalogItemId: ids.item, qty: 2, unitPriceIqd: 1 }] }),
+    ).rejects.toMatchObject({ code: 'price_changed' });
     expect(o.participants[0]!.phoneOnly).toBe(true);
     await orders.merchantAccept('m', { orderId: o.id, prepMinutes: 10 });
 

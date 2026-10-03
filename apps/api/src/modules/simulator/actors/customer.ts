@@ -31,7 +31,8 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
         cityId: CITY,
         type: 'food',
         merchantOrgId: r.orgId,
-        lines: p.lines.map((l) => ({ catalogItemId: l.itemId, qty: l.qty, unitPriceIqd: l.unitPriceIqd })),
+        // Item ids only: the app prices every line from the restaurant's catalog (review C2).
+        lines: p.lines.map((l) => ({ catalogItemId: r.catalogIds.get(l.itemId) ?? l.itemId, qty: l.qty })),
         deliveryFeeIqd: delivery,
         serviceFeeIqd: serviceFee,
         paymentMethod: p.payment,

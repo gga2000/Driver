@@ -138,6 +138,12 @@ export interface IdentityRepository {
   latestOtp(phoneHash: string, purpose: OtpPurpose, tx?: Tx): Promise<OtpRecord | null>;
   createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date }, tx?: Tx): Promise<OtpRecord>;
   updateOtp(id: string, patch: Partial<Pick<OtpRecord, 'attempts' | 'verifiedAt' | 'lockedAt'>>, tx?: Tx): Promise<OtpRecord>;
+  /**
+   * Counts one wrong code (atomic increment) and stamps `lockedAt` once `attempts` reaches
+   * `maxAttempts`. Deliberately takes NO `tx`: it commits on its own connection, immediately, so the
+   * caller's transaction rolling back (it is about to throw `otp_invalid`) can never undo it.
+   */
+  recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }): Promise<OtpRecord>;
 
   // guardian links
   createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx): Promise<GuardianLinkRecord>;
@@ -319,6 +325,16 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async updateOtp(id: string, patch: Partial<Pick<OtpRecord, 'attempts' | 'verifiedAt' | 'lockedAt'>>, tx?: Tx) {
     const row = await this.db(tx).otpChallenge.update({ where: { id }, data: patch });
+    return { ...row, purpose: fromDbPurpose(row.purpose) };
+  }
+
+  async recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }) {
+    // Outside any transaction on purpose (see the port): the base client auto-commits.
+    const db = this.prisma.prisma;
+    let row = await db.otpChallenge.update({ where: { id }, data: { attempts: { increment: 1 } } });
+    if (row.attempts >= input.maxAttempts && !row.lockedAt) {
+      row = await db.otpChallenge.update({ where: { id }, data: { lockedAt: input.now } });
+    }
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 

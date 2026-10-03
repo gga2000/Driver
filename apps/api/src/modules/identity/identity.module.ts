@@ -7,7 +7,7 @@ import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository 
 import { IdentityService, PHONE_PEPPER } from './identity.service.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { ROLE_READER } from './role-reader.js';
-import { SessionService, sessionConfigFromEnv } from './session.service.js';
+import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { GatewaySmsProvider, smsProviderFromEnv } from './sms/gateway.provider.js';
 import { SMS_PROVIDER } from './sms/provider.js';
@@ -15,7 +15,8 @@ import { SMS_PROVIDER } from './sms/provider.js';
 /**
  * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; SMS provider
  * from SMS_PROVIDER; JWT keys from JWT_SECRET/JWT_KID; phone pepper from PHONE_HASH_PEPPER
- * (falls back to JWT_SECRET so a dev box needs one secret).
+ * (falls back to JWT_SECRET so a dev box needs one secret). With NODE_ENV=production both secrets
+ * are mandatory (≥ 32 chars, no placeholders) and a missing one stops the boot.
  */
 @Module({
   imports: [EventsModule],
@@ -31,7 +32,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
       useFactory: () =>
         smsProviderFromEnv() === 'gateway' ? new GatewaySmsProvider({ url: process.env['SMS_GATEWAY_URL'], apiKey: process.env['SMS_GATEWAY_KEY'] }) : new FakeSmsProvider(),
     },
-    { provide: PHONE_PEPPER, useFactory: () => process.env['PHONE_HASH_PEPPER'] ?? process.env['JWT_SECRET'] ?? 'dev-only-pepper' },
+    { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     {
       provide: SessionService,
       useFactory: (repo: IdentityRepository, clock: Clock) => new SessionService(repo, clock, sessionConfigFromEnv()),

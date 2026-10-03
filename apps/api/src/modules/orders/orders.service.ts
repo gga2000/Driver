@@ -23,6 +23,7 @@ import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
+import { ORDERS_CATALOG, priceLines, type CatalogPort } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
@@ -111,6 +112,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
     @Inject(PARTICIPANT_RESOLVER) private readonly participants: ParticipantResolver,
     @Inject(ORDERS_CASH_RISK) private readonly cashRisk: OrdersCashRiskPort,
+    @Inject(ORDERS_CATALOG) private readonly catalog: CatalogPort,
   ) {}
 
   onModuleInit(): void {
@@ -138,16 +140,13 @@ export class OrdersService implements OnModuleInit {
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(lines, participants);
 
-    const newLines: NewLine[] = lines.map((l) => ({
-      catalogItemId: l.catalogItemId ?? null,
-      freeText: l.freeText ?? null,
-      qty: l.qty,
-      unitPriceIqd: l.unitPriceIqd,
-      modifiers: l.modifiers,
-      participantRef: l.participantRef ?? null,
-      note: l.note ?? null,
-      pointsEligible: l.pointsEligible,
-    }));
+    // Review C2: every line is priced here from the merchant's menu, never from the client.
+    const newLines: NewLine[] = await priceLines(lines, this.catalog, {
+      merchantOrgId: merchantType ? input.merchantOrgId! : null,
+      merchantOrder: merchantType,
+      branchKey: input.branchKey ?? null,
+      now: input.scheduledFor ?? now,
+    });
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
     const total =

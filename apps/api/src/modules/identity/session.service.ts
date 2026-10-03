@@ -12,10 +12,44 @@ export interface SessionConfig {
   activeKid: string;
 }
 
+/** Minimum length of JWT_SECRET and PHONE_HASH_PEPPER in production. */
+export const MIN_SECRET_LENGTH = 32;
+const DEV_JWT_SECRET = 'dev-only-insecure-secret-change-me-32chars';
+const DEV_PHONE_PEPPER = 'dev-only-pepper';
+/** Values shipped in code or `.env.example`: never acceptable in production. */
+const KNOWN_PLACEHOLDERS = new Set([DEV_JWT_SECRET, DEV_PHONE_PEPPER, 'change-me-in-production-please-32-chars-min', 'change-me-too-and-never-again']);
+
+function isProduction(env: NodeJS.ProcessEnv): boolean {
+  return env['NODE_ENV'] === 'production';
+}
+
+/** In production a secret must be set, at least 32 characters, and not a published placeholder. */
+function requireProductionSecret(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name];
+  if (!value) throw new Error(`${name} is required when NODE_ENV=production; refusing to boot`);
+  if (value.length < MIN_SECRET_LENGTH) throw new Error(`${name} must be at least ${MIN_SECRET_LENGTH} characters when NODE_ENV=production; refusing to boot`);
+  if (KNOWN_PLACEHOLDERS.has(value)) throw new Error(`${name} is a published placeholder value; refusing to boot`);
+  return value;
+}
+
+/**
+ * JWT keys from JWT_SECRET/JWT_KID. Outside production a missing secret falls back to a dev-only
+ * value so a laptop boots with no `.env`; with NODE_ENV=production the API refuses to boot instead
+ * (review H: a fallback secret is a public secret, and anyone holding it can mint tokens).
+ */
 export function sessionConfigFromEnv(env: NodeJS.ProcessEnv = process.env): SessionConfig {
-  const secret = env['JWT_SECRET'] ?? 'dev-only-insecure-secret-change-me-32chars';
+  const secret = isProduction(env) ? requireProductionSecret(env, 'JWT_SECRET') : (env['JWT_SECRET'] || DEV_JWT_SECRET);
   const kid = env['JWT_KID'] ?? 'k1';
   return { keys: [{ kid, secret }], activeKid: kid };
+}
+
+/**
+ * Pepper for phone hashes. Production requires its own PHONE_HASH_PEPPER (no fallback to
+ * JWT_SECRET: rotating the JWT key must never orphan every person). Dev falls back as before.
+ */
+export function phonePepperFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  if (isProduction(env)) return requireProductionSecret(env, 'PHONE_HASH_PEPPER');
+  return env['PHONE_HASH_PEPPER'] || env['JWT_SECRET'] || DEV_PHONE_PEPPER;
 }
 
 const ISSUER = 'driver-api';
@@ -80,7 +114,10 @@ export class SessionService {
     if (s && !s.revokedAt) await this.repo.updateSession(s.id, { revokedAt: this.clock.now() }, tx);
   }
 
-  /** Verifies signature, issuer and expiry (against the injected clock) and that the session is still live. */
+  /**
+   * Verifies signature (HS256 only), issuer and expiry (against the injected clock), then that the
+   * session named by `sid` exists, belongs to `sub` (and `did`), and is neither revoked nor expired.
+   */
   async verifyAccessToken(token: string): Promise<SessionClaims> {
     const now = this.clock.now();
     let payload: unknown;
@@ -88,6 +125,7 @@ export class SessionService {
       const res = await jwtVerify(
         token,
         (header) => {
+          if (header.alg !== 'HS256') throw new DriverError('token_invalid');
           const key = header.kid ? this.keys.get(header.kid) : undefined;
           if (!key) throw new DriverError('token_invalid');
           return key;
@@ -102,9 +140,15 @@ export class SessionService {
     }
     const parsed = SessionClaims.safeParse(payload);
     if (!parsed.success) throw new DriverError('token_invalid');
-    const session = await this.repo.findSessionById(parsed.data.sid);
-    if (!session || session.revokedAt) throw new DriverError('session_expired');
-    return parsed.data;
+    const claims = parsed.data;
+    const session = await this.repo.findSessionById(claims.sid);
+    // The session must belong to the subject: a live sid of person A never authenticates a token
+    // that claims to be person B (review H), nor a device the session is not bound to.
+    if (!session) throw new DriverError('session_expired');
+    if (session.personId !== claims.sub) throw new DriverError('token_invalid');
+    if (claims.did !== undefined && claims.did !== session.deviceId) throw new DriverError('token_invalid');
+    if (session.revokedAt || session.expiresAt.getTime() <= now.getTime()) throw new DriverError('session_expired');
+    return claims;
   }
 
   private async tokensFor(session: SessionRecord, refreshToken: string, now: Date): Promise<TokenPair> {

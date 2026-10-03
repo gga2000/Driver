@@ -15,3 +15,5 @@ export type { ParticipantResolver } from './participants.js';
 export { ORDER_EVENTS, RecordingOrderEvents } from './events.adapter.js';
 export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './events.adapter.js';
 export type { PauseWindow } from './pause.js';
+export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
+export type { CatalogPort, CatalogItemView } from './catalog.port.js';

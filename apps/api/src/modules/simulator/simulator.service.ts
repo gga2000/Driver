@@ -10,6 +10,7 @@ import { IdentityService } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
 import { ORDERS_QUEUE, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
+import { CatalogService } from '../catalog/index.js';
 import { PricingService } from '../pricing/index.js';
 import { TRIPS_QUEUE, TripsService } from '../trips/index.js';
 import type { DrainableQueue, SimServices } from './context.js';
@@ -72,6 +73,7 @@ export class SimulatorService implements OnModuleDestroy {
   constructor(
     private readonly identity: IdentityService,
     private readonly orgs: OrgsService,
+    private readonly catalog: CatalogService,
     private readonly orders: OrdersService,
     private readonly trips: TripsService,
     private readonly dispatch: DispatchService,
@@ -88,6 +90,7 @@ export class SimulatorService implements OnModuleDestroy {
     return {
       identity: this.identity,
       orgs: this.orgs,
+      catalog: this.catalog,
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,

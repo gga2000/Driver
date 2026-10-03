@@ -45,7 +45,10 @@ export class OtpService {
     return { expiresAt, resendAfterSec: OTP_RESEND_SEC };
   }
 
-  /** Consumes the latest challenge on success; counts attempts and locks on the 5th miss. */
+  /**
+   * Consumes the latest challenge on success (inside `tx`); a miss is counted and, on the 5th, the
+   * challenge locked — both committed independently of `tx`, which the thrown error rolls back.
+   */
   async verify(phoneHash: string, purpose: OtpPurpose, code: string, tx?: Tx): Promise<OtpRecord> {
     const now = this.clock.now();
     const latest = await this.repo.latestOtp(phoneHash, purpose, tx);
@@ -57,10 +60,10 @@ export class OtpService {
     const expected = Buffer.from(latest.codeHash, 'hex');
     const given = Buffer.from(this.hash(code, phoneHash), 'hex');
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
-      const attempts = latest.attempts + 1;
-      const lock = attempts >= OTP_MAX_ATTEMPTS;
-      await this.repo.updateOtp(latest.id, { attempts, ...(lock ? { lockedAt: now } : {}) }, tx);
-      if (lock) throw new DriverError('otp_locked', { retryAfterSec: LOCK_MINUTES * 60, params: { minutes: LOCK_MINUTES } });
+      // The miss is recorded OUTSIDE `tx`: the caller's transaction is about to roll back (we throw),
+      // and a rolled-back counter would make the 5-try lockout unreachable (review C1).
+      const counted = await this.repo.recordOtpFailure(latest.id, { now, maxAttempts: OTP_MAX_ATTEMPTS });
+      if (counted.lockedAt) throw new DriverError('otp_locked', { retryAfterSec: secondsUntil(now, counted.lockedAt, LOCK_MINUTES * 60), params: { minutes: LOCK_MINUTES } });
       throw new DriverError('otp_invalid');
     }
     return this.repo.updateOtp(latest.id, { verifiedAt: now, attempts: latest.attempts + 1 }, tx);

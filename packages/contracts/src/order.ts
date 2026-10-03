@@ -45,8 +45,14 @@ export const OrderLineInput = z
     catalogItemId: z.string().optional(),
     freeText: z.string().max(300).optional(),
     qty: z.number().int().min(1).max(99),
-    unitPriceIqd: Iqd.min(0),
-    modifiers: z.array(z.object({ groupId: z.string(), modifierId: z.string(), nameAr: z.string(), priceIqd: Iqd })).default([]),
+    /**
+     * Catalog lines are priced by the server from the merchant's menu (review C2); a price sent here
+     * is only the cart's expectation and must equal the menu price or the order is refused with
+     * `price_changed`. Errand/parcel free-text lines carry the customer's estimate here.
+     */
+    unitPriceIqd: Iqd.min(0).optional(),
+    /** Chosen modifiers by id; name and price are filled in from the menu (a sent price must match). */
+    modifiers: z.array(z.object({ groupId: z.string(), modifierId: z.string(), nameAr: z.string().optional(), priceIqd: Iqd.optional() })).default([]),
     /** Tags the line to a participant by its client `ref` (domain §3). */
     participantRef: z.string().optional(),
     note: z.string().max(300).optional(),
@@ -61,6 +67,8 @@ export const PlaceOrderInput = z.object({
   cityId: CityId,
   type: PlaceableOrderType,
   merchantOrgId: z.string().optional(),
+  /** The merchant branch whose menu overrides (price/availability) apply; the main menu when absent. */
+  branchKey: z.string().max(64).optional(),
   householdOrgId: z.string().optional(),
   quoteId: z.string().optional(),
   lines: z.array(OrderLineInput).default([]),

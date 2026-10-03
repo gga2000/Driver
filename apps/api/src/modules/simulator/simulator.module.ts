@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CatalogModule } from '../catalog/index.js';
 import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
@@ -11,7 +12,7 @@ import { SimulatorService } from './simulator.service.js';
 
 /** The Aziziyah simulator: drives the other modules' public services only. */
 @Module({
-  imports: [IdentityModule, OrgsModule, OrdersModule, TripsModule, DispatchModule, PricingModule, LedgerModule, EventsModule],
+  imports: [IdentityModule, OrgsModule, CatalogModule, OrdersModule, TripsModule, DispatchModule, PricingModule, LedgerModule, EventsModule],
   providers: [SimulatorService],
   exports: [SimulatorService],
 })

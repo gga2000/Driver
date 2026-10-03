@@ -45,6 +45,25 @@ describe('TripsService — offer loop', () => {
     expect([a, b].sort()).toEqual(['ok', 'trip_state_conflict']);
   });
 
+  it('review H: a driver on a job cannot accept a second trip directly; only dispatch may batch', async () => {
+    const h = tripsHarness();
+    const first = await h.acceptedTrip('ord_1', 'd1');
+    const second = await h.foodTrip('ord_2');
+    await h.trips.offer(second.id);
+    expect(await code(h.trips.accept(second.id, 'd1', { vehicleClass: 'bike' }))).toBe('offer_conflicts_current_job');
+    expect((await h.trips.get(second.id)).state).toBe('offered');
+    // Replaying the accept of the trip he holds stays a no-op.
+    expect((await h.trips.accept(first.id, 'd1', { vehicleClass: 'bike' })).courierId).toBe('d1');
+    // Dispatch, having applied its batching rules, may still hand him the second one.
+    expect((await h.trips.accept(second.id, 'd1', { vehicleClass: 'bike' }, { assignedByDispatch: true })).courierId).toBe('d1');
+    // Once his jobs are done he is free again.
+    const third = await h.foodTrip('ord_3');
+    await h.trips.offer(third.id);
+    await h.trips.cancel(first.id, 'platform', 'ops', 'test');
+    await h.trips.cancel(second.id, 'platform', 'ops', 'test');
+    expect((await h.trips.accept(third.id, 'd1', { vehicleClass: 'bike' })).courierId).toBe('d1');
+  });
+
   it('order caps per vehicle class: a bike cannot take a car-sized order (edge-case A.16)', async () => {
     const h = tripsHarness();
     const t = await h.foodTrip('ord_big', { minVehicleClass: 'car' });
@@ -129,7 +148,29 @@ describe('TripsService — stops, geofence and arrival', () => {
     expect(b.stops[0]!.state).toBe('completed');
     expect(h.events.ofType('stop.arrived')).toHaveLength(1);
     expect(h.events.ofType('stop.completed')).toHaveLength(1);
-    expect(h.events.last('stop.arrived')!.idempotencyKey).toBe('stop.arrived:arr-0001');
+    expect(h.events.last('stop.arrived')!.idempotencyKey).toBe(`stop.arrived:d1:trip:${t.id}/stop:${stop}:arr-0001`);
+  });
+
+  it('review H: a client key reused on another trip or stop never swallows that other action', async () => {
+    const h = tripsHarness();
+    const done: string[] = [];
+    for (const order of ['ord_1', 'ord_2']) {
+      const t = await h.acceptedTrip(order, 'd1');
+      const [pickup, dropoff] = t.stops;
+      // A buggy (or restarted) key generator hands out the same keys for every job.
+      await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen, idempotencyKey: 'k-arrive' });
+      await h.trips.completeStop(t.id, pickup!.id, 'd1', { idempotencyKey: 'k-complete' });
+      await h.trips.arrive(t.id, dropoff!.id, 'd1', { pin: PINS.home, idempotencyKey: 'k-arrive' });
+      await h.trips.completeStop(t.id, dropoff!.id, 'd1', { idempotencyKey: 'k-complete' });
+      // The real replay of the same tap is still a no-op.
+      await h.trips.completeStop(t.id, dropoff!.id, 'd1', { idempotencyKey: 'k-complete' });
+      expect((await h.trips.get(t.id)).state).toBe('completed');
+      done.push(t.id);
+    }
+    for (const tripId of done) {
+      expect(h.events.ofType('stop.arrived').filter((e) => e.tripId === tripId)).toHaveLength(2);
+      expect(h.events.ofType('stop.completed').filter((e) => e.tripId === tripId)).toHaveLength(2);
+    }
   });
 
   it('khat: a named child cannot be handed over without the tap; tap-out at school notifies the guardian', async () => {
@@ -287,7 +328,7 @@ describe('TripsService — order links (attach/detach history)', () => {
     const view = await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen, ...stamp });
     expect(view.stops[0]).toMatchObject({ state: 'skipped', arrivedAt: null });
     const replay = h.events.ofType('stop.arrived').at(-1)!;
-    expect(replay).toMatchObject({ orderId: 'ord_a', deviceUptimeMs: 3_600_000, occurredAt: tappedAt, idempotencyKey: 'stop.arrived:d1.7' });
+    expect(replay).toMatchObject({ orderId: 'ord_a', deviceUptimeMs: 3_600_000, occurredAt: tappedAt, idempotencyKey: `stop.arrived:d1:trip:${t.id}/stop:${pickup!.id}:d1.7` });
     await h.trips.completeStop(t.id, pickup!.id, 'd1', { ...stamp, idempotencyKey: 'd1.8' });
     expect(h.events.ofType('stop.completed')).toHaveLength(1);
     // Without device evidence (a live tap, not a replay) a skipped stop is still a conflict.

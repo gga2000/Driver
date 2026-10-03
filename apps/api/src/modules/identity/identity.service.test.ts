@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { SignJWT } from 'jose';
 import { DriverError } from '@driver/contracts';
+import { MIN_SECRET_LENGTH, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { harness, PEPPER } from './test-harness.js';
 
@@ -68,6 +70,60 @@ describe('OTP login', () => {
     await expect(h.service.requestOtp({ phone: PHONE, purpose: 'login' })).resolves.toBeTruthy();
   });
 
+  it('review C1: a miss is counted even though its transaction rolls back (login)', async () => {
+    const h = harness();
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    const real = h.sms.lastCodeFor('+9647712345678')!;
+    const wrong = real === '000000' ? '111111' : '000000';
+    // The harness UnitOfWork undoes every in-tx write of the in-memory repo on rollback, like Postgres.
+    const before = h.log.length;
+    await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_invalid');
+    expect(h.log.slice(before)).toEqual([expect.stringMatching(/^rollback/)]);
+    expect(h.repo.otps.at(-1)!.attempts).toBe(1);
+    for (let i = 0; i < 3; i += 1) await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_invalid');
+    await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_locked');
+    expect(h.repo.otps.at(-1)!.lockedAt).not.toBeNull();
+    await expectCode(h.service.verifyOtp({ phone: PHONE, code: real }), 'otp_locked');
+    expect(h.repo.people.size).toBe(0);
+  });
+
+  it('review C1: the in-memory repo really rolls back in-tx writes (person creation undone)', async () => {
+    const h = harness();
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    const code = h.sms.lastCodeFor('+9647712345678')!;
+    await expect(
+      h.uow.run(async (tx) => {
+        await h.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: '+9647712345678', phoneHash: 'x', name: null, now: h.clock.now() }, tx);
+        await h.repo.updateOtp(h.repo.otps.at(-1)!.id, { attempts: 3 }, tx);
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(h.repo.people.size).toBe(0);
+    expect(h.repo.otps.at(-1)!.attempts).toBe(0);
+    await expect(h.service.verifyOtp({ phone: PHONE, code })).resolves.toMatchObject({ isNew: true });
+  });
+
+  it('review C1: phone-change and guardian-consent misses also lock after 5', async () => {
+    const h = harness();
+    const { actor } = await h.login('07700000001');
+    await h.service.changePhoneStart(actor, { newPhone: '07700000002' });
+    const oldCode = h.sms.lastCodeFor('+9647700000001')!;
+    const newCode = h.sms.lastCodeFor('+9647700000002')!;
+    const badNew = newCode === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 4; i += 1) await expectCode(h.service.changePhoneConfirm(actor, { oldCode, newCode: badNew }), 'otp_invalid');
+    await expectCode(h.service.changePhoneConfirm(actor, { oldCode, newCode: badNew }), 'otp_locked');
+    await expectCode(h.service.changePhoneConfirm(actor, { oldCode, newCode }), 'otp_locked');
+    expect(h.repo.identities.get(actor.personId)?.phoneE164).toBe('+9647700000001');
+
+    const link = await h.service.linkGuardian(actor, { wardPhone: '07700000003' });
+    const wardCode = h.sms.lastCodeFor('+9647700000003')!;
+    const badWard = wardCode === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 4; i += 1) await expectCode(h.service.consentGuardianLink(actor, { linkId: link.id, code: badWard }), 'otp_invalid');
+    await expectCode(h.service.consentGuardianLink(actor, { linkId: link.id, code: badWard }), 'otp_locked');
+    await expectCode(h.service.consentGuardianLink(actor, { linkId: link.id, code: wardCode }), 'otp_locked');
+    expect(await h.service.hasRole(actor.personId, 'guardian')).toBe(false);
+  });
+
   it('codes expire after 3 minutes and resend is refused inside 30 seconds', async () => {
     const h = harness();
     await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
@@ -129,6 +185,46 @@ describe('sessions', () => {
     await h.service.logout(actor, tokens.refreshToken);
     await expectCode(h.service.verifyAccessToken(tokens.accessToken), 'session_expired');
     await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused');
+  });
+
+  it('review H: a live session id of person A never authenticates a token claiming person B', async () => {
+    const h = harness();
+    const { actor: attacker } = await h.login('07700000011');
+    const { actor: victim } = await h.login('07700000012');
+    const now = Math.floor(h.clock.now().getTime() / 1000);
+    // Signed with the real key (worst case: the secret leaked) but sid is the attacker's own session.
+    const forge = (claims: Record<string, unknown>, sub: string, alg = 'HS256') =>
+      new SignJWT(claims).setProtectedHeader({ alg, kid: 'k1' }).setSubject(sub).setIssuer('driver-api').setIssuedAt(now).setExpirationTime(now + 900).sign(new TextEncoder().encode('unit-test-secret'));
+    await expectCode(h.service.verifyAccessToken(await forge({ sid: attacker.sessionId }, victim.personId)), 'token_invalid');
+    // A device id the session is not bound to is refused too.
+    await expectCode(h.service.verifyAccessToken(await forge({ sid: attacker.sessionId, did: 'dev_other' }, attacker.personId)), 'token_invalid');
+    // Only HS256 is accepted.
+    await expectCode(h.service.verifyAccessToken(await forge({ sid: attacker.sessionId }, attacker.personId, 'HS512')), 'token_invalid');
+    // The honest token still works.
+    await expect(h.service.verifyAccessToken(await forge({ sid: attacker.sessionId }, attacker.personId))).resolves.toMatchObject({ sub: attacker.personId });
+  });
+
+  it('review H: a token whose session has expired is refused even inside the access-token life', async () => {
+    const h = harness();
+    const { tokens, actor } = await h.login(PHONE);
+    const session = h.repo.sessions.find((x) => x.id === actor.sessionId)!;
+    session.expiresAt = new Date(h.clock.now().getTime() - 1);
+    await expectCode(h.service.verifyAccessToken(tokens.accessToken), 'session_expired');
+  });
+
+  it('review H: production refuses to boot without strong JWT_SECRET and PHONE_HASH_PEPPER', () => {
+    const strong = 'x'.repeat(MIN_SECRET_LENGTH);
+    const prod = { NODE_ENV: 'production' } as NodeJS.ProcessEnv;
+    expect(() => sessionConfigFromEnv(prod)).toThrow(/JWT_SECRET is required/);
+    expect(() => sessionConfigFromEnv({ ...prod, JWT_SECRET: 'short' })).toThrow(/at least 32/);
+    expect(() => sessionConfigFromEnv({ ...prod, JWT_SECRET: 'dev-only-insecure-secret-change-me-32chars' })).toThrow(/placeholder/);
+    expect(sessionConfigFromEnv({ ...prod, JWT_SECRET: strong }).keys[0]!.secret).toBe(strong);
+    expect(() => phonePepperFromEnv({ ...prod, JWT_SECRET: strong })).toThrow(/PHONE_HASH_PEPPER is required/);
+    expect(() => phonePepperFromEnv({ ...prod, PHONE_HASH_PEPPER: 'short' })).toThrow(/at least 32/);
+    expect(phonePepperFromEnv({ ...prod, PHONE_HASH_PEPPER: strong })).toBe(strong);
+    // Development still boots with no env at all.
+    expect(sessionConfigFromEnv({}).keys[0]!.secret.length).toBeGreaterThanOrEqual(MIN_SECRET_LENGTH);
+    expect(phonePepperFromEnv({})).toBeTruthy();
   });
 
   it('tampered tokens are rejected', async () => {
@@ -294,8 +390,8 @@ describe('phone change (edge-case §7)', () => {
     const newCode = h.sms.lastCodeFor('+9647700000002')!;
     await expectCode(h.service.changePhoneConfirm(actor, { oldCode, newCode: newCode === '000000' ? '111111' : '000000' }), 'otp_invalid');
     expect(h.repo.identities.get(actor.personId)?.phoneE164).toBe('+9647700000001');
-    // The old code was consumed by the first (half-successful) attempt: both codes are required together.
-    await expectCode(h.service.changePhoneConfirm(actor, { oldCode, newCode }), 'otp_not_found');
+    // The failed confirm rolled back as a whole, so the old code was not consumed by it.
+    expect(h.repo.otps.filter((o) => o.purpose === 'phone_change').every((o) => o.verifiedAt === null)).toBe(true);
     h.clock.advanceSeconds(31);
     await h.service.changePhoneStart(actor, { newPhone: '07700000002' });
     const me = await h.service.changePhoneConfirm(actor, { oldCode: h.sms.lastCodeFor('+9647700000001')!, newCode: h.sms.lastCodeFor('+9647700000002')! });

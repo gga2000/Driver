@@ -4,10 +4,12 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { CapsService, LedgerModule } from '../ledger/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
+import { ORDERS_CATALOG } from './catalog.port.js';
 import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
@@ -26,7 +28,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -39,6 +41,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_PRICING, useExisting: PricingService },
     // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
     { provide: ORDERS_CASH_RISK, useExisting: CapsService },
+    // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
+    { provide: ORDERS_CATALOG, useExisting: CatalogService },
     { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService) => new OrgsMerchantDirectory(orgs), inject: [OrgsService] },
     {
       provide: PARTICIPANT_RESOLVER,

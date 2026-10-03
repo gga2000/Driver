@@ -132,7 +132,9 @@ export class Simulation implements SimContext {
       const ownerId = await this.person(`0790${String(this.world.seed % 1000).padStart(3, '0')}${String(this.restaurants.length + 1).padStart(4, '0')}`, []);
       const org = this.s.orgs.create({ type: 'restaurant', name: def.name_ar, cityId: CITY, ownerId });
       this.s.orgs.setMerchantSettings(org.id, { commissionTier: def.commissionTier, autoAccept: def.autoAccept, defaultPrepMin: def.defaultPrepMin, location: { zoneKey: def.zoneId, pin: def.pin } });
-      this.restaurants.push({ def, orgId: org.id, ownerId, nextHeartbeatT: this.t });
+      const catalogIds = new Map<string, string>();
+      for (const item of def.menu) catalogIds.set(item.id, (await this.s.catalog.addItem({ orgId: org.id, nameAr: item.name_ar, priceIqd: item.priceIqd })).id);
+      this.restaurants.push({ def, orgId: org.id, catalogIds, ownerId, nextHeartbeatT: this.t });
     }
     await this.s.orgs.settled();
     for (const def of this.world.drivers) {

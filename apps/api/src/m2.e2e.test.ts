@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { LatLng } from '@driver/contracts';
 import { AppModule } from './app.module.js';
+import { CatalogService } from './modules/catalog/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
 import { DISPATCH_REPOSITORY, type DispatchRepository } from './modules/dispatch/dispatch.repository.js';
 import { DISPATCH_QUEUE, type TimerJob } from './modules/dispatch/offer.orchestrator.js';
@@ -67,6 +68,10 @@ describe('M2 end to end: food order → dispatch → courier → ledger', () => 
     const rest = orgs.create({ type: 'restaurant', name: 'مطعم التجربة', cityId: 'aziziyah', ownerId: 'owner-1' });
     orgs.setMerchantSettings(rest.id, { commissionTier: 'featured', location: { zoneKey: 'centre', pin: KITCHEN } });
     await orgs.settled(); // orgs emits without awaiting; let its outbox drain finish before the order flow
+    // Its menu: orders prices lines from here (review C2), the client sends item ids only.
+    const catalog = app.get(CatalogService);
+    const kebab = await catalog.addItem({ orgId: rest.id, nameAr: 'كباب', priceIqd: 5000 });
+    const tikka = await catalog.addItem({ orgId: rest.id, nameAr: 'تكة', priceIqd: 5000 });
     await dispatch.presence.online(courierId, { cityId: 'aziziyah', at: COURIER_AT, vehicle: 'bike', tier: 'bronze' });
 
     // 1. The customer places a 15,000 cash order (+1,000 delivery, +500 service) to his door.
@@ -75,8 +80,8 @@ describe('M2 end to end: food order → dispatch → courier → ledger', () => 
       type: 'food',
       merchantOrgId: rest.id,
       lines: [
-        { catalogItemId: 'kebab', qty: 2, unitPriceIqd: 5000 },
-        { catalogItemId: 'tikka', qty: 1, unitPriceIqd: 5000 },
+        { catalogItemId: kebab.id, qty: 2 },
+        { catalogItemId: tikka.id, qty: 1 },
       ],
       deliveryFeeIqd: 1000,
       serviceFeeIqd: 500,

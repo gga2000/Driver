@@ -2,6 +2,7 @@ import { isDriverError, type LatLng, type OrderState, type Trip } from '@driver/
 import type { DispatchService } from '../dispatch/index.js';
 import type { EventsService } from '../events/index.js';
 import type { IdentityService } from '../identity/index.js';
+import type { CatalogService } from '../catalog/index.js';
 import type { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
 import type { OrdersService } from '../orders/index.js';
 import type { OrgsService } from '../orgs/index.js';
@@ -19,6 +20,8 @@ import type { SimDriver, SimRestaurant, World } from './world.js';
 export interface SimServices {
   identity: IdentityService;
   orgs: OrgsService;
+  /** Menus: each restaurant's items are registered here and orders prices lines from it (review C2). */
+  catalog: CatalogService;
   orders: OrdersService;
   trips: TripsService;
   dispatch: DispatchService;
@@ -75,6 +78,8 @@ export interface OrderRun {
 export interface RestaurantRun {
   def: SimRestaurant;
   orgId: string;
+  /** World menu item id → the catalog item id the app priced it under. */
+  catalogIds: Map<string, string>;
   ownerId: string;
   nextHeartbeatT: number;
 }

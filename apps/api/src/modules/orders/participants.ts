@@ -75,7 +75,8 @@ export function orderPoints(input: { type: OrderType; platformRevenueIqd: number
 
 /**
  * Splits `basePoints` over participants pro rata to the value of their eligible lines; untagged
- * lines and rounding remainders go to the orderer, who also earns the organiser bonus. Rides give
+ * lines and rounding remainders go to the orderer, who also earns the organiser bonus (all of it
+ * within the per-order cap: base + bonus never exceed `pointsCapPerOrder`). Rides give
  * the base to the rider participant when there is one (ride-for-someone-else, domain §3).
  * Allocations to the same earner are merged.
  */
@@ -86,7 +87,11 @@ export function allocatePoints(input: {
   lines: readonly PointsLine[];
   participants: readonly PointsParticipant[];
 }): PointsAllocation[] {
-  const { basePoints, ordererId } = input;
+  const { ordererId } = input;
+  // Review M: the per-order cap includes the organiser bonus, so the shared base shrinks to make room.
+  const capped = Math.max(0, Math.min(input.basePoints, ORDERS_RULES.pointsCapPerOrder));
+  const bonus = Math.floor((capped * ORDERS_RULES.organizerBonusPct) / 100);
+  const basePoints = Math.min(capped, ORDERS_RULES.pointsCapPerOrder - bonus);
   const out: PointsAllocation[] = [];
   const add = (a: Omit<PointsAllocation, 'pending'>) => {
     if (a.points <= 0) return;
@@ -121,7 +126,7 @@ export function allocatePoints(input: {
       }
       toOrderer(basePoints - given);
     }
-    toOrderer(Math.floor((basePoints * ORDERS_RULES.organizerBonusPct) / 100), true);
+    toOrderer(bonus, true);
   }
   return out;
 }

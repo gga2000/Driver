@@ -40,7 +40,8 @@ export class TripsServiceTripOffers implements TripOffersPort {
   }
 
   async assign(tripId: string, driverId: string, opts: { vehicleClass?: VehicleClass } = {}): Promise<void> {
-    await this.trips.accept(tripId, driverId, { vehicleClass: opts.vehicleClass ?? 'car' });
+    // Dispatch already applied its one-job / batching rules (offer.orchestrator `fitsCurrentJobs`).
+    await this.trips.accept(tripId, driverId, { vehicleClass: opts.vehicleClass ?? 'car' }, { assignedByDispatch: true });
   }
 
   async decline(tripId: string, driverId: string, opts: { othersPending: boolean }): Promise<void> {

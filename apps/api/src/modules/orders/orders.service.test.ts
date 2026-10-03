@@ -60,16 +60,69 @@ describe('OrdersService — placing', () => {
     const h = ordersHarness();
     const big = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'tray', qty: 7, unitPriceIqd: 10000 }] }));
     expect(big.minVehicleClass).toBe('car');
-    const catering = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'tray', qty: 40, unitPriceIqd: 5000 }] }));
+    const catering = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'tray_5k', qty: 40, unitPriceIqd: 5000 }] }));
     expect(catering).toMatchObject({ minVehicleClass: 'car', cateringRequest: true });
     expect(h.events.ofType('order.catering_request')).toHaveLength(1);
+  });
+});
+
+describe('OrdersService — server-side line pricing (review C2)', () => {
+  it('prices catalog lines from the menu: a client price is never what gets charged', async () => {
+    const h = ordersHarness();
+    // No price sent: the menu's 5,000 + 5,000 apply.
+    const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 2 }, { catalogItemId: 'tikka', qty: 1 }] }));
+    expect(o).toMatchObject({ itemsTotalIqd: 15000, totalIqd: 16500 });
+    expect(o.lines.map((l) => l.unitPriceIqd)).toEqual([5000, 5000]);
+    // A lower (or higher) client price is refused, never trusted.
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 2, unitPriceIqd: 1 }] })))).toBe('price_changed');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 2, unitPriceIqd: 9000 }] })))).toBe('price_changed');
+    expect(h.repo.orders.size).toBe(1);
+  });
+
+  it('adds modifier deltas from the menu and validates the picks', async () => {
+    const h = ordersHarness();
+    const g = 'falafel_mg_1';
+    const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'falafel', qty: 2, modifiers: [{ groupId: g, modifierId: `${g}_m_1`, nameAr: 'x', priceIqd: 500 }] }] }));
+    expect(o.itemsTotalIqd).toBe(2 * (1500 + 500));
+    expect(o.lines[0]!.modifiers).toEqual([{ groupId: g, modifierId: `${g}_m_1`, nameAr: 'بيض', priceIqd: 500 }]);
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'falafel', qty: 1, modifiers: [{ groupId: g, modifierId: `${g}_m_1`, nameAr: 'x', priceIqd: 0 }] }] })))).toBe('price_changed');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'falafel', qty: 1, modifiers: [{ groupId: g, modifierId: 'nope' }] }] })))).toBe('modifier_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'falafel', qty: 1, modifiers: [{ groupId: g, modifierId: `${g}_m_1` }, { groupId: g, modifierId: `${g}_m_1` }] }] })))).toBe('modifier_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1, modifiers: [{ groupId: g, modifierId: `${g}_m_1` }] }] })))).toBe('modifier_invalid');
+  });
+
+  it('applies branch overrides and refuses unknown, foreign, unavailable, sold-out and out-of-hours items', async () => {
+    const h = ordersHarness();
+    h.merchants.add('rest_2', { location: { zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } } });
+    await h.catalog.addItem({ id: 'other_menu', orgId: 'rest_2', nameAr: 'صنف', priceIqd: 100 });
+    expect((await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'gus', qty: 1 }] }))).itemsTotalIqd).toBe(4000);
+    expect((await h.orders.place('c1', h.foodInput({ branchKey: 'kut', lines: [{ catalogItemId: 'gus', qty: 1 }] }))).itemsTotalIqd).toBe(4500);
+    expect(await code(h.orders.place('c1', h.foodInput({ branchKey: 'closed_branch', lines: [{ catalogItemId: 'gus', qty: 1 }] })))).toBe('catalog_item_unavailable');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'ghost', qty: 1 }] })))).toBe('catalog_item_unavailable');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'other_menu', qty: 1 }] })))).toBe('catalog_item_unavailable');
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'soldout', qty: 1 }] })))).toBe('catalog_item_unavailable');
+    await h.catalog.setAvailable('tikka', false);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('catalog_item_unavailable');
+    // Breakfast is Saturday 06:00–11:00 Baghdad; the harness clock is Saturday 12:00.
+    expect(await code(h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'breakfast', qty: 1 }] })))).toBe('catalog_item_unavailable');
+    h.clock.set(Date.parse('2026-10-03T06:00:00Z')); // 09:00 local
+    expect((await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'breakfast', qty: 1 }] }))).itemsTotalIqd).toBe(3000);
+  });
+
+  it('free-text lines on a merchant order are priced 0; errands keep their estimate; catalog ids need a merchant', async () => {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1 }, { freeText: 'كباب مجاني', qty: 5, unitPriceIqd: 0 }, { freeText: 'خبز', qty: 1, unitPriceIqd: 99999 }] }));
+    expect(o.itemsTotalIqd).toBe(5000);
+    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    expect(errand.itemsTotalIqd).toBe(7000);
+    expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', lines: [{ catalogItemId: 'kebab', qty: 1 }] }))).toBe('catalog_item_unavailable');
   });
 });
 
 describe('OrdersService — new-customer cash cap (decisions §4)', () => {
   it('the first three cash orders of a new account are capped at 25,000 and flagged for the arriving call', async () => {
     const h = ordersHarness();
-    const big = h.foodInput({ lines: [{ catalogItemId: 'tray', qty: 3, unitPriceIqd: 9000 }] }); // 27,000 + 1,500 fees
+    const big = h.foodInput({ lines: [{ catalogItemId: 'tray_9k', qty: 3, unitPriceIqd: 9000 }] }); // 27,000 + 1,500 fees
     expect(await code(h.orders.place('new1', big))).toBe('new_customer_cash_cap');
     expect(h.cashRisk.asked).toEqual([{ customerId: 'new1', totalIqd: 28500 }]);
     // wallet orders are not cash exposure

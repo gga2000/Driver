@@ -1,32 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { CATALOG_REPOSITORY, type CatalogItemRecord, type CatalogRepository, type NewCatalogItem } from './catalog.repository.js';
 
-export interface CatalogItem {
-  id: string;
-  orgId: string;
-  name_ar: string;
-  name_en?: string;
-  priceIqd: number;
-  available: boolean;
-  prepTimeMin: number;
-}
-
+/**
+ * Merchant menus: items with their price, availability (flag, stock, weekly windows, per-branch
+ * overrides) and modifier groups. The orders module prices every line from here (review C2): a
+ * client-sent price is never trusted.
+ */
 @Injectable()
 export class CatalogService {
-  private readonly items = new Map<string, CatalogItem>();
   private readonly busy = new Set<string>();
-  private seq = 0;
 
-  add(input: Omit<CatalogItem, 'id'>): CatalogItem {
-    if (!Number.isInteger(input.priceIqd) || input.priceIqd < 0) throw new Error('priceIqd must be a non-negative integer');
-    this.seq += 1;
-    const item: CatalogItem = { ...input, id: `ci_${this.seq}` };
-    this.items.set(item.id, item);
-    return item;
+  constructor(@Inject(CATALOG_REPOSITORY) private readonly repo: CatalogRepository) {}
+
+  addItem(input: NewCatalogItem): Promise<CatalogItemRecord> {
+    return this.repo.createItem(input);
   }
 
-  setAvailable(id: string, available: boolean): void {
-    const item = this.items.get(id);
-    if (item) this.items.set(id, { ...item, available });
+  setAvailable(id: string, available: boolean): Promise<void> {
+    return this.repo.setAvailable(id, available);
+  }
+
+  menu(orgId: string): Promise<CatalogItemRecord[]> {
+    return this.repo.menu(orgId);
+  }
+
+  /** The orders module's pricing read (`CatalogPort`): only `orgId`'s own items, unknown ids omitted. */
+  itemsOf(orgId: string, itemIds: readonly string[]): Promise<CatalogItemRecord[]> {
+    return this.repo.itemsByIds(orgId, itemIds);
   }
 
   setBusy(orgId: string, busy: boolean): void {
@@ -38,13 +38,10 @@ export class CatalogService {
     return this.busy.has(orgId);
   }
 
-  menu(orgId: string): CatalogItem[] {
-    return [...this.items.values()].filter((i) => i.orgId === orgId);
-  }
-
   /** Busy mode adds a buffer to every prep time estimate. */
-  prepTime(orgId: string, itemIds: string[], busyBufferMin = 10): number {
-    const max = Math.max(0, ...itemIds.map((id) => this.items.get(id)?.prepTimeMin ?? 0));
+  async prepTime(orgId: string, itemIds: string[], busyBufferMin = 10): Promise<number> {
+    const items = await this.repo.itemsByIds(orgId, itemIds);
+    const max = Math.max(0, ...items.map((i) => i.prepTimeMin));
     return max + (this.isBusy(orgId) ? busyBufferMin : 0);
   }
 }

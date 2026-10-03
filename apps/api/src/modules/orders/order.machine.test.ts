@@ -137,6 +137,18 @@ describe('points (domain §3, edge-case §2)', () => {
     expect(alloc.filter((a) => !a.organizerBonus).reduce((s, a) => s + a.points, 0)).toBe(30);
   });
 
+  it('review M: the per-order cap of 50 includes the organiser bonus', () => {
+    const alloc = allocatePoints({
+      type: 'food',
+      ordererId: 'p_org',
+      basePoints: 50,
+      lines: [{ participantId: 'par_a', valueIqd: 10_000, pointsEligible: true }],
+      participants: [{ id: 'par_a', role: 'diner', personId: 'p_a', phoneHash: 'h_a' }],
+    });
+    expect(alloc.reduce((s, a) => s + a.points, 0)).toBe(50);
+    expect(alloc.find((a) => a.organizerBonus)?.points).toBe(5);
+  });
+
   it('rides: the rider earns, not the person who booked (ride for someone else)', () => {
     const alloc = allocatePoints({ type: 'ride', ordererId: 'p_org', basePoints: 4, lines: [], participants: [{ id: 'par_r', role: 'rider', personId: null, phoneHash: 'h_r' }] });
     expect(alloc[0]).toMatchObject({ phoneHash: 'h_r', points: 4, pending: true });
