@@ -61,29 +61,37 @@ export class SimulatorService {
         durationMin: Math.round(rand() * 25),
       };
       const quote = this.pricing.quote(req);
-      const trip = this.trips.create({
-        cityId: opts.cityId,
-        vertical: 'taxi',
-        customerId: `sim-c${i + 1}`,
-        stops: [],
-        quote,
-      });
-      this.trips.transition(trip.id, 'quoted', trip.customerId);
-      this.trips.transition(trip.id, 'requested', trip.customerId);
+      const customerId = `sim-c${i + 1}`;
+      const orderId = `sim-o${i + 1}`;
+      const trip = await this.trips.createForOrders(
+        {
+          cityId: opts.cityId,
+          vertical: 'taxi',
+          orders: [{ orderId }],
+          stops: [
+            { orderId, type: 'pickup', zoneKey: from },
+            { orderId, type: 'dropoff', zoneKey: to },
+          ],
+        },
+        customerId,
+      );
 
       const plan = this.dispatch.plan({ tripId: trip.id, cityId: opts.cityId, vertical: 'taxi', zoneId: from }, drivers);
       if (plan.kind !== 'broadcast') {
         noDrivers += 1;
-        this.trips.transition(trip.id, 'cancelled', 'system');
+        await this.trips.cancel(trip.id, 'platform', 'system', 'no_drivers');
         continue;
       }
       const driverId = plan.waves[0]!.driverIds[0]!;
-      for (const s of ['assigned', 'en_route', 'arrived', 'in_progress', 'completed'] as const) {
-        this.trips.transition(trip.id, s, driverId, s === 'assigned' ? { courierId: driverId } : {});
+      await this.trips.offer(trip.id, { driverIds: plan.waves[0]!.driverIds });
+      await this.trips.accept(trip.id, driverId, { vehicleClass: 'car' });
+      for (const stop of trip.stops) {
+        await this.trips.arrive(trip.id, stop.id, driverId);
+        await this.trips.completeStop(trip.id, stop.id, driverId);
       }
       const fare = quote.total;
       const fee = Math.round((fare * commission) / 100);
-      await this.ledger.record({ type: 'cash_collected', amount: fare, fromAccount: Accounts.customer(trip.customerId), toAccount: Accounts.cash(driverId), tripId: trip.id, occurredAt: new Date() });
+      await this.ledger.record({ type: 'cash_collected', amount: fare, fromAccount: Accounts.customer(customerId), toAccount: Accounts.cash(driverId), tripId: trip.id, occurredAt: new Date() });
       await this.ledger.record({ type: 'driver_settlement', amount: fare, fromAccount: Accounts.cash(driverId), toAccount: Accounts.driver(driverId), tripId: trip.id, occurredAt: new Date() });
       await this.ledger.record({ type: 'commission_accrued', amount: fee, fromAccount: Accounts.driver(driverId), toAccount: Accounts.platform, tripId: trip.id, occurredAt: new Date() });
       completed += 1;

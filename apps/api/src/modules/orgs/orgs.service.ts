@@ -19,7 +19,30 @@ export interface Org {
   name: string;
   cityId: string;
   members: OrgMember[];
+  /** Restaurants and grocers: order-taking settings (mirrors orgs.auto_accept / pause_windows / last_heartbeat). */
+  merchant?: MerchantSettings;
 }
+
+/** Local-time weekly window, e.g. Friday prayer `{dow: 5, start: '11:45', end: '13:15'}`. */
+export interface MerchantPauseWindow {
+  dow: number;
+  start: string;
+  end: string;
+  reason?: string;
+}
+
+export interface MerchantSettings {
+  /** Earned by behaviour (domain §2): skips the 90-s acceptance. */
+  autoAccept: boolean;
+  /** Null = the city's seeded defaults (Friday prayer). */
+  pauseWindows: MerchantPauseWindow[] | null;
+  /** Last merchant-app heartbeat (edge-case review A.2). */
+  lastHeartbeatAt: Date | null;
+  defaultPrepMin: number | null;
+  commissionPct: number | null;
+}
+
+const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionPct: null };
 
 export interface PayerApprovalRequest {
   id: string;
@@ -151,6 +174,23 @@ export class OrgsService {
 
   inCity(cityId: string, type?: OrgType): Org[] {
     return [...this.orgs.values()].filter((o) => o.cityId === cityId && (type === undefined || o.type === type));
+  }
+
+  /** Order-taking settings of a restaurant or grocer (defaults when never set). */
+  merchantSettings(orgId: string): MerchantSettings {
+    return { ...DEFAULT_MERCHANT_SETTINGS, ...this.get(orgId).merchant };
+  }
+
+  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): MerchantSettings {
+    const org = this.get(orgId);
+    org.merchant = { ...DEFAULT_MERCHANT_SETTINGS, ...org.merchant, ...patch };
+    return { ...org.merchant };
+  }
+
+  /** Merchant-app presence ping (edge-case review A.2). */
+  heartbeat(orgId: string, at: Date = this.clock.now()): void {
+    const org = this.get(orgId);
+    org.merchant = { ...DEFAULT_MERCHANT_SETTINGS, ...org.merchant, lastHeartbeatAt: at };
   }
 
   householdsOf(personId: string): Org[] {

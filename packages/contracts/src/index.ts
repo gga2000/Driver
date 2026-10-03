@@ -7,6 +7,8 @@ export * from './common.js';
 export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
+export * from './order.js';
+export * from './participant.js';
 export * from './ledger.js';
 export * from './event.js';
 export * from './city-config.js';

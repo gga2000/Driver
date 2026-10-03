@@ -268,4 +268,9 @@ describe('prisma schema — amendments (edge-case decisions 2026-10-03)', () => 
     for (const c of ['attachedAt', 'detachedAt', 'reason']) expect(fields(model('TripOrder'))).toContain(c);
     expect(model('PromoRedemption')).toMatch(/@@unique\(\[promotionId, orderId\]\)/);
   });
+  it('Step 4: offer timing, promised ready, vehicle caps and stop target pins', () => {
+    for (const c of ['merchantOfferedAt', 'promisedReadyAt', 'minVehicleClass']) expect(fields(model('Order'))).toContain(c);
+    expect(fields(model('TripOrder'))).toContain('minVehicleClass');
+    expect(model('Stop')).toMatch(/targetPin\s+Unsupported\("geography\(Point, 4326\)"\)\?/);
+  });
 });

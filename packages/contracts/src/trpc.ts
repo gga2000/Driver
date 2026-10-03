@@ -4,7 +4,9 @@ import type { Actor, IdentityPort } from './identity-io.js';
 export type { Actor, IdentityPort } from './identity-io.js';
 import type { CityPricingConfig } from './city-config.js';
 import { DriverError, errorEnvelope, isDriverError, type ErrorCode } from './errors.js';
+import type { OrdersPort } from './order.js';
 import type { PriceRequest, Quote } from './pricing.js';
+import type { TripsPort } from './trip.js';
 import type { DependencyStatus } from './router-io.js';
 import { transformer } from './transformer.js';
 
@@ -19,6 +21,8 @@ export interface AppContext {
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
+  orders: OrdersPort;
+  trips: TripsPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

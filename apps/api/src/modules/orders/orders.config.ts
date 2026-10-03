@@ -1,0 +1,54 @@
+import type { VehicleClass } from '@driver/contracts';
+import type { PauseWindow } from './pause.js';
+
+/**
+ * Orders timing and money rules (domain §2–3, dispatch & pricing §4, edge-case decisions + review A).
+ * Numbers that will move into per-city config in a later step live here, in one place.
+ */
+export const ORDERS_RULES = {
+  /** Domain §2: merchant must accept within 90 s or the order auto-rejects with a dispatch alert. */
+  merchantAcceptSec: 90,
+  /** Domain §2: `closed` auto 2 h after delivery without complaint (or on rating). */
+  autoCloseMs: 2 * 60 * 60_000,
+  /** Review A.4: the customer has 60 s to approve a partial acceptance. */
+  partialApprovalSec: 60,
+  /** Review A.12: scheduled orders are offered to the merchant at T − prep − 10 min. */
+  scheduledLeadMin: 10,
+  defaultPrepMin: 20,
+  /** Review A.2: merchant app silent for this long counts as "no presence". */
+  heartbeatStaleMs: 2 * 60_000,
+  /** Review A.2: no `ready` by promised + 10 min and no presence → dispatcher card with call. */
+  readyOverdueMin: 10,
+  /** Review A.2: … and the courier is released at promised + 15 min, 500 charged to the merchant. */
+  courierReleaseMin: 15,
+  courierReleaseCompensationIqd: 500,
+  /** Spec §4: merchant rejects after accepting → 500 customer credit funded by the merchant. */
+  merchantLateRejectCreditIqd: 500,
+  /** Money §1 worked example: 2,250 on 15,000. Per-merchant tier overrides it. */
+  defaultCommissionPct: 15,
+  /** Money §3: car in city 12 %. Ride orders do not carry their vertical yet, so cars set the rate. */
+  rideTakePct: 12,
+  /** Edge-case §2: 1 point per 100 IQD of platform revenue (rides 1 per 200), capped per order. */
+  pointsPerIqd: 100,
+  ridePointsPerIqd: 200,
+  pointsCapPerOrder: 50,
+  /** Domain §3/§10: organiser bonus +10 % of the order's points. */
+  organizerBonusPct: 10,
+  /** Domain §10: pending points for non-users expire after 90 days unclaimed. */
+  pendingPointsTtlDays: 90,
+} as const;
+
+/** Review A.16: per-vehicle-class order caps; above the car cap the order is a catering request. */
+export const ORDER_CAPS: ReadonlyArray<{ vehicleClass: VehicleClass; maxItemsIqd: number; maxItemCount: number }> = [
+  { vehicleClass: 'bike', maxItemsIqd: 25_000, maxItemCount: 6 },
+  { vehicleClass: 'tuktuk', maxItemsIqd: 60_000, maxItemCount: Number.POSITIVE_INFINITY },
+  { vehicleClass: 'car', maxItemsIqd: 100_000, maxItemCount: Number.POSITIVE_INFINITY },
+];
+export const CATERING_ABOVE_IQD = 100_000;
+
+/** Review A.1: per-merchant pause windows seeded by city — Friday prayer by default. */
+export const CITY_PAUSE_WINDOWS: Readonly<Record<string, readonly PauseWindow[]>> = {
+  aziziyah: [{ dow: 5, start: '11:45', end: '13:15', reason: 'صلاة الجمعة' }],
+};
+
+export const DEFAULT_TIMEZONE = 'Asia/Baghdad';

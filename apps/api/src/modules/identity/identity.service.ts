@@ -291,6 +291,17 @@ export class IdentityService implements IdentityPort {
     return p?.id ?? null;
   }
 
+  /**
+   * Order participants (domain §3): the peppered phone hash plus the Person behind it, if any. The
+   * number itself never leaves identity; a participant without a person earns `points_pending`
+   * keyed by this hash, claimed on verification.
+   */
+  async phoneRef(rawPhone: string): Promise<{ personId: string | null; phoneHash: string }> {
+    const { hash } = this.phone(rawPhone);
+    const p = await this.repo.findPersonByPhoneHash(hash);
+    return { personId: p?.id ?? null, phoneHash: hash };
+  }
+
   async setName(actor: Actor, name: string): Promise<void> {
     await this.uow.run(async (tx) => {
       await this.repo.updateIdentity(actor.personId, { name }, tx);

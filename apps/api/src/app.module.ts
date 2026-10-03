@@ -6,6 +6,7 @@ import { EventsModule } from './modules/events/index.js';
 import { IdentityModule } from './modules/identity/index.js';
 import { LedgerModule } from './modules/ledger/index.js';
 import { NotifyModule } from './modules/notify/index.js';
+import { OrdersModule } from './modules/orders/index.js';
 import { OrgsModule } from './modules/orgs/index.js';
 import { PlacesModule } from './modules/places/index.js';
 import { PricingModule } from './modules/pricing/index.js';
@@ -26,6 +27,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     PlacesModule,
     CatalogModule,
     TripsModule,
+    OrdersModule,
     DispatchModule,
     PricingModule,
     LedgerModule,
