@@ -2,8 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Console theme. Every colour the UI uses is a variable here, so the brand swap later is this one
+ * block. Neutrals come from @driver/design-tokens `color.neutral` (warm greys); the accent is the
+ * placeholder amber. Tailwind exposes these as `bg-surface`, `text-muted`, `border-line`, `text-accent`…
+ */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+
+  --color-bg: #1a1917; /* neutral.900 */
+  --color-surface: #2c2a26; /* neutral.800 */
+  --color-surface-2: #44413b; /* neutral.700 */
+  --color-line: #5e5a52; /* neutral.600 */
+  --color-text: #f8f7f4; /* neutral.50 */
+  --color-muted: #a39e94; /* neutral.400 */
+  --color-faint: #7c776e; /* neutral.500 — shadow ("مخفي") rows */
+
+  --color-accent: #f2a33a; /* placeholder brand amber */
+  --color-accent-strong: #ffb81f; /* primary.400 */
+  --color-on-accent: #1a1917;
+
+  --color-success: #1f9d55; /* success.500 */
+  --color-danger: #d03b3b; /* danger.500 */
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
 }
 
 html {
@@ -11,6 +34,21 @@ html {
 }
 
 body {
-  @apply bg-neutral-50 text-neutral-900 antialiased;
+  background: var(--color-bg);
+  color: var(--color-text);
+  @apply antialiased;
   font-feature-settings: 'tnum' 1;
+}
+
+/* One visible focus style for every control (keyboard users on a dispatch desk). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Native selects pick up the dark theme and keep the Arabic text on the start side. */
+select,
+input[type='number'],
+input[type='datetime-local'] {
+  color-scheme: dark;
 }
