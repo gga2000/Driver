@@ -1,15 +1,20 @@
 import type { BoardCard, Vertical } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
 import type { DriverRun, SimContext } from '../context.js';
+import { createRand, type Rand } from '../prng.js';
 import { zoneSeed } from '../world.js';
 
 /**
- * The ops desk (Console dispatcher) in the simulation: a card that needs the dispatcher gets a
- * manual offer to the nearest free driver who fits; a courier offline for 4 minutes before pickup
- * loses the job (the platform cancels his trip and dispatch finds another courier).
+ * The ops desk (Console dispatcher) in the simulation, the same actor in the in-process run and
+ * in live mode: a card that needs the dispatcher is picked up after a human reaction time (20–60 s
+ * sim time from when the desk first sees it red) and gets a manual offer (`dispatch.override`) to
+ * the nearest free driver who fits; when nobody fits, the desk looks again after another reaction
+ * time. A courier offline for 4 minutes before pickup loses the job (the platform cancels his trip
+ * and dispatch finds another courier).
  */
 export const DISPATCHER_BEHAVIOUR = {
-  overrideEverySec: 30,
+  /** Sim seconds from the desk seeing a red card (or finding nobody for it) to acting on it. */
+  reactionSec: [20, 60] as const,
   reassignOfflineAfterMin: 4,
 };
 
@@ -20,19 +25,50 @@ const FITS: Partial<Record<Vertical, ReadonlyArray<DriverRun['def']['vehicle']>>
   tuktuk: ['tuktuk'],
 };
 
+/** One manual offer the desk sent (sim ms). */
+export interface DeskOverride {
+  tripId: string;
+  driverId: string;
+  /** When the desk first saw the card red. */
+  redSinceT: number;
+  at: number;
+}
+
 export interface DispatcherState {
-  lastOverride: Map<string, number>;
+  rand: Rand;
+  /** Red card (trip id) → when the desk first saw it red and when it will act on it next. */
+  red: Map<string, { sinceT: number; actAt: number }>;
+  overrides: DeskOverride[];
+  /** Offer ids of the desk's manual offers (the driver's phone shows them as the desk calling). */
+  offerIds: Set<string>;
+}
+
+export function newDispatcherState(seed: number): DispatcherState {
+  return { rand: createRand(seed).fork('dispatcher'), red: new Map(), overrides: [], offerIds: new Set() };
+}
+
+function reaction(state: DispatcherState): number {
+  return state.rand.int(...DISPATCHER_BEHAVIOUR.reactionSec) * 1000;
 }
 
 export async function dispatcherStep(ctx: SimContext, cards: readonly BoardCard[], state: DispatcherState): Promise<void> {
   const actor = { personId: ctx.dispatcherId, sessionId: 'sim-dispatcher' };
   // Drivers holding an open offer (or just given one by the desk) are not free.
   const offered = new Set(cards.flatMap((c) => c.offers.filter((o) => o.state === 'sent' || o.state === 'seen').map((o) => o.driverId)));
-  for (const card of cards) {
-    if (card.status !== 'needs_dispatcher' || card.assignedDriverId) continue;
-    const last = state.lastOverride.get(card.tripId) ?? -Infinity;
-    if (ctx.t - last < DISPATCHER_BEHAVIOUR.overrideEverySec * 1000) continue;
-    state.lastOverride.set(card.tripId, ctx.t);
+  const red = cards.filter((c) => c.status === 'needs_dispatcher' && !c.assignedDriverId);
+  // A card that left the red queue (taken, cancelled, back to searching) starts afresh if it returns.
+  const redIds = new Set(red.map((c) => c.tripId));
+  for (const id of state.red.keys()) if (!redIds.has(id)) state.red.delete(id);
+
+  for (const card of red) {
+    const seen = state.red.get(card.tripId);
+    if (!seen) {
+      state.red.set(card.tripId, { sinceT: ctx.t, actAt: ctx.t + reaction(state) });
+      continue;
+    }
+    if (ctx.t < seen.actAt) continue;
+    // Whatever happens now, the next look at this card is another reaction time away.
+    seen.actAt = ctx.t + reaction(state);
     const req = await ctx.s.dispatch.getRequest(card.tripId);
     if (!req) continue;
     const declined = new Set(card.offers.filter((o) => o.state === 'declined').map((o) => o.driverId));
@@ -48,6 +84,8 @@ export async function dispatcherStep(ctx: SimContext, cards: readonly BoardCard[
       const res = await ctx.call('dispatcher.override', () => ctx.s.dispatch.override(actor, { tripId: card.tripId, driverId: d.personId }));
       if (res) {
         offered.add(d.personId);
+        state.offerIds.add(res.offerId);
+        state.overrides.push({ tripId: card.tripId, driverId: d.personId, redSinceT: seen.sinceT, at: ctx.t });
         break;
       }
     }

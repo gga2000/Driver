@@ -116,7 +116,10 @@ export async function driverOffers(ctx: SimContext, d: DriverRun, offers: Readon
       await ctx.call('driver.offer_seen', () => ctx.s.dispatch.offerSeen(actorOf(d), { offerId: p.offerId, foregroundMs: 4000 }));
       continue;
     }
-    const res = await ctx.call('driver.respond', () => ctx.s.dispatch.respond(actorOf(d), { offerId: p.offerId, accept: p.decision === 'accept' }));
+    // The desk picked him because he was free; if he has taken another job since, he tells it no
+    // (a manual offer skips dispatch's batching rules, so accepting would be an unplanned batch).
+    const accept = p.decision === 'accept' && !(ctx.deskOffers.has(p.offerId) && d.trips.size > 0);
+    const res = await ctx.call('driver.respond', () => ctx.s.dispatch.respond(actorOf(d), { offerId: p.offerId, accept }));
     if (res?.outcome === 'assigned') await takeTrip(ctx, d, res.tripId);
   }
 }
@@ -169,7 +172,7 @@ function openStops(d: DriverRun): Target[] {
   return out;
 }
 
-function nextTarget(d: DriverRun): Target | null {
+function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
   const open = openStops(d);
   if (open.length === 0) return null;
   // Work an arrived stop first; then the pickups in the order the jobs were taken (the route the
@@ -177,6 +180,14 @@ function nextTarget(d: DriverRun): Target | null {
   const arrived = open.find((o) => o.trip.local.get(o.stop.id) === 'arrived' || o.stop.state === 'arrived');
   if (arrived) return arrived;
   const pickups = open.filter((o) => o.stop.type !== 'dropoff');
+  // Standing at a kitchen where another of his bags is already ready: he takes it now rather than
+  // driving off and coming back for it.
+  const readyHere = (o: Target) => {
+    const readyT = o.stop.orderId ? ctx.ordersById.get(o.stop.orderId)?.readyT : null;
+    return readyT !== null && readyT !== undefined && ctx.t >= readyT && haversineMeters(d.pos, o.at) <= DRIVER_BEHAVIOUR.arriveWithinM;
+  };
+  const here = pickups.find(readyHere);
+  if (here) return here;
   if (pickups.length > 0) return pickups.reduce((first, o) => (o.trip.acceptedT < first.trip.acceptedT || (o.trip.acceptedT === first.trip.acceptedT && o.stop.seq < first.stop.seq) ? o : first));
   return open.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
 }
@@ -196,7 +207,7 @@ function moveToward(d: DriverRun, to: LatLng, dtSec: number): number {
 export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): Promise<void> {
   if (d.trips.size === 0) return;
   if (d.online) for (const tripId of [...d.trips.keys()]) await refreshTrip(ctx, d, tripId);
-  const target = nextTarget(d);
+  const target = nextTarget(ctx, d);
   if (!target) return;
   if (target.stop.type === 'dropoff') recordDepartures(ctx, d);
   const left = moveToward(d, target.at, dtSec);

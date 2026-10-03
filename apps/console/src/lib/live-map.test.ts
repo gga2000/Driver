@@ -1,4 +1,4 @@
-import { MARKER_COLORS } from '@driver/map';
+import { AZIZIYAH_BOUNDS, buildMapStyle, LAYER, MARKER_COLORS, SOURCE } from '@driver/map';
 import { describe, expect, it } from 'vitest';
 import { card, pin, stop, trip } from './fixtures';
 import { buildLiveGeoJSON, capUsePct, countPins, driverPosition, featureId, markerStateForPin, markerStateForTrip, nextStop } from './live-map';
@@ -87,5 +87,103 @@ describe('live map GeoJSON', () => {
     expect(featureId('abc')).toBe(featureId('abc'));
     expect(featureId('abc')).not.toBe(featureId('abd'));
     expect(featureId('x'.repeat(200))).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/** Every `['get', name]` a style expression reads. */
+function readProps(expr: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(expr)) {
+    if (expr[0] === 'get' && typeof expr[1] === 'string') out.add(expr[1]);
+    for (const x of expr) readProps(x, out);
+  } else if (expr && typeof expr === 'object') {
+    for (const x of Object.values(expr)) readProps(x, out);
+  }
+  return out;
+}
+
+describe('live GeoJSON against the @driver/map style', () => {
+  const style = buildMapStyle();
+  const layersOn = (source: string) => style.layers.filter((l) => 'source' in l && l.source === source);
+  const [[west, south], [east, north]] = AZIZIYAH_BOUNDS;
+  const inAziziyah = ([lng, lat]: number[]) => lng! > west && lng! < east && lat! > south && lat! < north;
+
+  // A courier half-way through pickup → drop-off, a free driver, one over cap, and an offered (red) ride.
+  const t1 = trip({
+    id: 't1',
+    courierId: 'd1',
+    state: 'in_transit',
+    stops: [stop({ id: 's1', seq: 0, target: A, state: 'completed' }), stop({ id: 's2', seq: 1, type: 'dropoff', target: B })],
+  });
+  const t2 = trip({ id: 't2', vertical: 'taxi', state: 'offered', stops: [stop({ id: 's3', seq: 0, target: B }), stop({ id: 's4', seq: 1, type: 'dropoff', target: A })] });
+  const live = buildLiveGeoJSON(
+    [t1, t2],
+    [card({ tripId: 't2', red: true })],
+    [
+      pin({ driverId: 'd1', lat: 32.921, lng: 45.071, state: 'on_job', tripId: 't1' }),
+      pin({ driverId: 'd2', lat: 32.93, lng: 45.05, state: 'free' }),
+      pin({ driverId: 'd3', lat: 32.9, lng: 45.065, state: 'over_cap' }),
+      pin({ driverId: 'd4', lat: 32.91, lng: 45.08, state: 'offered', tripId: 't2' }),
+    ],
+  );
+
+  it('fills the style’s runtime geojson sources (the setData targets)', () => {
+    for (const id of [SOURCE.trips, SOURCE.stops, SOURCE.drivers]) expect(style.sources[id]?.type).toBe('geojson');
+    expect(layersOn(SOURCE.drivers).map((l) => l.id)).toEqual([LAYER.driverHalo, LAYER.drivers]);
+    expect(layersOn(SOURCE.trips).map((l) => l.id)).toEqual([LAYER.tripLines]);
+    expect(layersOn(SOURCE.stops).map((l) => l.id)).toEqual([LAYER.tripStops]);
+  });
+
+  it('writes every coordinate as [lng, lat] inside Aziziyah', () => {
+    const d1 = live.drivers.features.find((f) => f.properties.driverId === 'd1')!;
+    expect(d1.geometry.coordinates).toEqual([45.071, 32.921]);
+    for (const f of live.drivers.features) expect(inAziziyah(f.geometry.coordinates)).toBe(true);
+    for (const f of live.stops.features) expect(inAziziyah(f.geometry.coordinates)).toBe(true);
+    for (const f of live.trips.features) for (const c of f.geometry.coordinates) expect(inAziziyah(c)).toBe(true);
+    expect(live.trips.features.find((f) => f.properties.tripId === 't1')!.geometry.coordinates).toEqual([
+      [A.lng, A.lat],
+      [B.lng, B.lat],
+    ]);
+  });
+
+  it('sets every property the live layers read, with numeric ids for feature-state', () => {
+    const bySource: Array<[string, Array<{ id?: string | number; properties: object }>]> = [
+      [SOURCE.drivers, live.drivers.features],
+      [SOURCE.trips, live.trips.features],
+      [SOURCE.stops, live.stops.features],
+    ];
+    for (const [source, features] of bySource) {
+      expect(features.length).toBeGreaterThan(0);
+      const needed = new Set<string>();
+      for (const layer of layersOn(source)) {
+        const l = layer as { paint?: unknown; layout?: unknown; filter?: unknown };
+        readProps([l.paint, l.layout, l.filter], needed);
+      }
+      expect(needed.size).toBeGreaterThan(0);
+      for (const f of features) {
+        expect(typeof f.id).toBe('number');
+        for (const prop of needed) expect(f.properties).toHaveProperty(prop);
+      }
+    }
+  });
+
+  it('colours drivers by presence state and red trips with the over-cap red', () => {
+    const colour = (id: string) => live.drivers.features.find((f) => f.properties.driverId === id)!.properties.color;
+    expect(colour('d1')).toBe(MARKER_COLORS.on_job);
+    expect(colour('d2')).toBe(MARKER_COLORS.free);
+    expect(colour('d3')).toBe(MARKER_COLORS.over_cap);
+    expect(colour('d4')).toBe(MARKER_COLORS.offered);
+    const line = (id: string) => live.trips.features.find((f) => f.properties.tripId === id)!.properties;
+    expect(line('t1')).toMatchObject({ color: MARKER_COLORS.on_job, red: false, state: 'in_transit' });
+    expect(line('t2')).toMatchObject({ color: MARKER_COLORS.over_cap, red: true, vertical: 'taxi' });
+  });
+
+  it('draws trips as dashed lines above the zones, drivers above the trips', () => {
+    const ids = style.layers.map((l) => l.id);
+    const tripLayer = style.layers.find((l) => l.id === LAYER.tripLines)!;
+    expect(tripLayer.type).toBe('line');
+    expect((tripLayer as { paint?: Record<string, unknown> }).paint?.['line-dasharray']).toEqual([2, 1.5]);
+    expect(ids.indexOf(LAYER.tripLines)).toBeGreaterThan(ids.indexOf(LAYER.zoneFill));
+    expect(ids.indexOf(LAYER.drivers)).toBeGreaterThan(ids.indexOf(LAYER.tripStops));
+    expect(ids.indexOf(LAYER.drivers)).toBeGreaterThan(ids.indexOf(LAYER.tripLines));
   });
 });

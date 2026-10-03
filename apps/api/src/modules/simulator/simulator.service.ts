@@ -13,6 +13,7 @@ import { OrgsService } from '../orgs/index.js';
 import { CatalogService } from '../catalog/index.js';
 import { PricingService } from '../pricing/index.js';
 import { TRIPS_QUEUE, TripsService } from '../trips/index.js';
+import type { DeskOverride } from './actors/dispatcher.js';
 import type { DrainableQueue, SimServices } from './context.js';
 import { Simulation, type Progress } from './engine.js';
 import { injectFault } from './faults.js';
@@ -42,10 +43,14 @@ export interface RunResult {
 export const DEFAULT_LIVE_SPEED = 60;
 const LIVE_TICK_MS = 1000;
 
+/** Live start options: the Console contract, plus a tick interval tests may shorten (not exposed over tRPC). */
+export type LiveStartInput = z.infer<typeof SimulatorStartInput> & { speed?: number | undefined; tickMs?: number | undefined };
+
 interface LiveRun {
   sim: Simulation;
-  input: z.infer<typeof SimulatorStartInput> & { speed?: number | undefined };
+  input: LiveStartInput;
   speed: number;
+  tickMs: number;
   startedAt: Date;
   timer: NodeJS.Timeout;
   busy: boolean;
@@ -164,7 +169,7 @@ export class SimulatorService implements OnModuleDestroy {
 
   // ───────────────────────── live (Console) ─────────────────────────
 
-  async start(input: z.infer<typeof SimulatorStartInput> & { speed?: number | undefined }): Promise<z.input<typeof SimulatorStatus>> {
+  async start(input: LiveStartInput): Promise<z.input<typeof SimulatorStatus>> {
     if (this.live) return this.status();
     const speed = input.speed ?? DEFAULT_LIVE_SPEED;
     const seed = input.seed ?? 1;
@@ -173,8 +178,9 @@ export class SimulatorService implements OnModuleDestroy {
     const now = this.clock.now();
     const sim = new Simulation(this.services(), { world, plan, dayStart: now, speed, appNow: () => this.clock.now() });
     await sim.setup();
-    const run: LiveRun = { sim, input, speed, startedAt: now, busy: false, lastReal: Date.now(), wallStart: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
-    run.timer = setInterval(() => void this.liveTick(run), LIVE_TICK_MS);
+    const tickMs = input.tickMs ?? LIVE_TICK_MS;
+    const run: LiveRun = { sim, input, speed, tickMs, startedAt: now, busy: false, lastReal: Date.now(), wallStart: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
+    run.timer = setInterval(() => void this.liveTick(run), tickMs);
     run.timer.unref();
     this.live = run;
     this.logger.log(`simulator started: ${world.drivers.length} drivers, ${plan.length} orders over a ${DAY_MINUTES / 60}-hour day at ${speed}×`);
@@ -215,7 +221,7 @@ export class SimulatorService implements OnModuleDestroy {
           drivers: run.sim.drivers.length,
           restaurants: run.sim.restaurants.length,
           customers: run.sim.world.customers.length,
-          tickSec: (LIVE_TICK_MS / 1000) * run.speed,
+          tickSec: (run.tickMs / 1000) * run.speed,
           speed: run.speed,
           mode: 'live',
           startedAt: run.startedAt,
@@ -258,6 +264,11 @@ export class SimulatorService implements OnModuleDestroy {
           }
         : {}),
     };
+  }
+
+  /** The manual offers the simulated ops desk has sent in the current live run (empty when stopped). */
+  liveDeskOverrides(): readonly DeskOverride[] {
+    return this.live?.sim.dispatcher.overrides ?? [];
   }
 
   /** The full report of the last run (in-process or live). */

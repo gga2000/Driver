@@ -198,6 +198,8 @@ export interface SimContext {
   readonly driversById: Map<string, DriverRun>;
   readonly restaurants: RestaurantRun[];
   readonly dispatcherId: string;
+  /** Offer ids the ops desk sent by hand (`dispatch.override`). */
+  readonly deskOffers: ReadonlySet<string>;
   readonly replays: ReplayRecord[];
   readonly hotWaits: HotWaitRecord[];
   readonly handovers: HandoverRecord[];

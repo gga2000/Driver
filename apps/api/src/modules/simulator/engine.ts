@@ -1,6 +1,6 @@
 import { TERMINAL_ORDER_STATES, type BoardCard, type Order, type RoleKind, type Trip } from '@driver/contracts';
 import { customerStep, placeOrder } from './actors/customer.js';
-import { dispatcherStep, type DispatcherState } from './actors/dispatcher.js';
+import { dispatcherStep, newDispatcherState, type DispatcherState } from './actors/dispatcher.js';
 import { driverOffers, driverSettle, driverShift, driverWork } from './actors/driver.js';
 import { merchantHeartbeats, merchantStep } from './actors/merchant.js';
 import {
@@ -71,6 +71,8 @@ export class Simulation implements SimContext {
   readonly errors: Array<{ where: string; message: string }> = [];
   readonly speed: number;
   dispatcherId = '';
+  /** The ops desk: red cards it is watching and the manual offers it sent. */
+  readonly dispatcher: DispatcherState;
   t: number;
 
   private readonly world_: World;
@@ -78,7 +80,6 @@ export class Simulation implements SimContext {
   private readonly dayStart: number;
   private readonly customers = new Map<number, string>();
   private readonly live: OrderRun[] = [];
-  private readonly dispatcher: DispatcherState = { lastOverride: new Map() };
   private nextPlan = 0;
   private lastDispatcherT = -Infinity;
   private lastRetryDrainT = -Infinity;
@@ -94,10 +95,15 @@ export class Simulation implements SimContext {
     this.dayStart = opts.dayStart.getTime();
     this.speed = opts.speed ?? 1;
     this.t = opts.advanceClock ? opts.appNow().getTime() : this.dayStart;
+    this.dispatcher = newDispatcherState(opts.world.seed);
   }
 
   get world(): World {
     return this.world_;
+  }
+
+  get deskOffers(): ReadonlySet<string> {
+    return this.dispatcher.offerIds;
   }
 
   get dayEnd(): number {
@@ -231,7 +237,7 @@ export class Simulation implements SimContext {
     }
     for (let i = this.live.length - 1; i >= 0; i -= 1) if (this.live[i]!.terminal) this.live.splice(i, 1);
 
-    // The board: drivers see their offers; the dispatcher works the red cards.
+    // The board: drivers see their offers; the desk looks at it every 15 s and works the red cards.
     this.cards = (await this.call('dispatch.board', () => this.s.dispatch.board(CITY)))?.cards ?? [];
     const byDriver = new Map<string, Array<{ card: BoardCard; offerId: string }>>();
     for (const card of this.cards)

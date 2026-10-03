@@ -1,6 +1,8 @@
 export { SimulatorModule } from './simulator.module.js';
 export { SimulatorService, DEFAULT_LIVE_SPEED } from './simulator.service.js';
-export type { RunOptions, RunResult } from './simulator.service.js';
+export type { LiveStartInput, RunOptions, RunResult } from './simulator.service.js';
+export { DISPATCHER_BEHAVIOUR } from './actors/dispatcher.js';
+export type { DeskOverride } from './actors/dispatcher.js';
 export { Simulation, OBSERVER_SUBSCRIBER } from './engine.js';
 export type { Progress } from './engine.js';
 export { buildWorld, zoneAt, supplyMix, LAUNCH_SUPPLY, VEHICLE_SPEED_KMH } from './world.js';

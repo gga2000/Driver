@@ -46,7 +46,8 @@ function toSelection(f: MapGeoJSONFeature): MapSelection | null {
 
 /**
  * The MapLibre canvas (client only; loaded with `ssr: false`). Static layers come from the
- * @driver/map style; the three live sources are replaced on every poll with `setData`.
+ * @driver/map style; the three live sources are replaced on every poll with `setData` once the
+ * style is in (`style.load`), independently of the basemap tiles.
  */
 export default function LiveMapCanvas({ live, selected, onSelect, fitKey, focus }: LiveMapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -113,7 +114,13 @@ export default function LiveMapCanvas({ live, selected, onSelect, fitKey, focus 
       const [top] = map.queryRenderedFeatures(e.point, { layers: CLICKABLE });
       onSelectRef.current(top ? toSelection(top) : null);
     });
-    map.on('load', () => setReady(true));
+    // Live data may flow as soon as the style (and so the inline trips / stops / drivers sources) is
+    // parsed. Not on `load`: that waits for every basemap raster tile, and while OSM tiles are slow,
+    // throttled or unreachable it never fires, so no driver or trip would ever be drawn.
+    const markReady = () => setReady(true);
+    if (map.isStyleLoaded()) markReady();
+    else map.once('style.load', markReady);
+    map.once('load', markReady);
     // Tile errors (offline, OSM throttling) must not take the console down; the zones still draw.
     map.on('error', () => undefined);
 
