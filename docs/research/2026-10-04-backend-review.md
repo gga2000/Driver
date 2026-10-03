@@ -29,6 +29,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 11 | Medium (perf) | OrdersService.merchantOrders loads every order of the merchant | documented |
 | 12 | Low | menu import applied twice concurrently duplicates items | documented |
 | 13 | Medium | partner.currentOffer shows the customer's exact door to every offered driver | fixed |
+| 14 | Low (tooling) | `turbo run typecheck` races `@driver/db` build against its typecheck | fixed |
 
 ## Details
 
@@ -160,3 +161,11 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** `dropoff.pin` is always null on an offer; `pickup.pin` only for a merchant pickup. Distances
   (`distanceToPickupKm`, `tripKm`) are still computed server-side; `activeJob` keeps the pins.
 - **Test:** `partner.service.test.ts` › "an offer names zones, never the customer's exact door (review 2026-10-04 #13)".
+
+### 14 · Low · `pnpm turbo run typecheck lint` flakes on `@driver/db`
+
+- **Where:** `turbo.json`.
+- **What:** `@driver/db#typecheck` ran in parallel with `@driver/db#build` (pulled in by every dependant's
+  `^build`), whose `prisma generate` rewrites `src/generated/**` mid-`tsc` → `TS6053 File … not found`.
+  Reproduced on two consecutive runs after a schema change.
+- **Fix:** `"@driver/db#typecheck": { "dependsOn": ["build"] }`. Verified with `--force`.
