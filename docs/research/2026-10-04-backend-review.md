@@ -33,6 +33,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 15 | Medium (perf) | `events` has no index for `forAggregate` (Merchant cash screen) | fixed |
 | 16 | Low | offer pay rounds differently from the ledger posting (batch bonus, ride take) | fixed |
 | 17 | Medium | daily check-in: parallel selfies bypass the two-strikes lock-out | fixed |
+| 18 | Medium | online gate: uploading any photo lifts an expired document | fixed |
 
 ## Details
 
@@ -200,3 +201,16 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Fix:** submissions per person are serialised (`KeyedLock`), and the status counts a pass only if it came
   before the second failure (submission order), which also covers several API instances.
 - **Test:** `driver-account.service.test.ts` › "parallel submissions cannot beat the two-strikes lock-out (review 2026-10-04 #17)".
+
+### 18 · Medium · expired-document gate lifted by any upload (scoring §2)
+
+- **Where:** `driver-account.service.ts` `uploadDocument`, `documentsFor`, `onlineGateFor`.
+- **What:** a new upload superseded the previous document of its kind at once, and the gate only looked at
+  the latest per kind. A driver with an expired licence uploaded any photo (status `pending`, client-chosen
+  `expiresAt`) and the gate opened — before anyone reviewed it.
+- **Fix:** an upload supersedes only earlier pending/rejected documents; an approved one stays current until
+  its renewal is approved (approval supersedes the older ones). The gate and `blocksOnline` look at every
+  current document, so the expired approved licence keeps blocking until the renewal is approved. The
+  document list still shows the latest per kind (the pending renewal).
+- **Test:** `driver-account.service.test.ts` › "uploads to pending …, derives expiring / expired and blocks
+  going online" (extended: the pending renewal keeps the gate closed; approval opens it).

@@ -185,6 +185,12 @@ describe('driverAccount.documents', () => {
     // A new submission supersedes the old one.
     const renewed = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId), expiresAt: new Date(h.clock.now().getTime() + 365 * DAY) });
     expect((await h.service.documents(d, {})).documents.map((x) => x.id)).toEqual([renewed.id]);
+    // Review 2026-10-04 #18: uploading any photo must not reopen the gate; the renewal has to be approved.
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toContain('document_expired');
+    expect((await h.service.documents(d, {})).blocksOnline).toBe(true);
+    await h.service.reviewDocument(ops, { documentId: renewed.id, decision: 'approve' });
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).not.toContain('document_expired');
+    expect((await h.service.documents(d, {})).blocksOnline).toBe(false);
   });
 
   it('refuses an upload that is not his or not stored, and a rejection without a reason never reaches the service', async () => {

@@ -240,7 +240,8 @@ export class DriverAccountService implements DriverAccountPort {
 
   async documentsFor(driverId: string): Promise<DocumentsView> {
     const now = this.clock.now();
-    const docs = latestPerKind(await this.repo.currentDocuments([driverId]));
+    const current = await this.repo.currentDocuments([driverId]);
+    const docs = latestPerKind(current);
     const roles = await this.identity.activeRoles(driverId);
     const required: DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo'];
     if (roles.some((r) => CAR_ROLES.includes(r))) required.push('licence', 'vehicle_registration');
@@ -249,7 +250,9 @@ export class DriverAccountService implements DriverAccountPort {
       driverId,
       documents: views,
       missing: required.filter((k) => !docs.some((d) => d.kind === k)),
-      blocksOnline: views.some((v) => v.status === 'expired'),
+      // An approved document stays current until its renewal is approved, so a pending upload never
+      // lifts an expiry (review 2026-10-04 #18).
+      blocksOnline: expiredDocuments(current, now).length > 0,
     };
   }
 
@@ -266,7 +269,9 @@ export class DriverAccountService implements DriverAccountPort {
     await this.assertUpload(actor.personId, input.uploadId);
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
-      const previous = (await this.repo.currentDocuments([actor.personId], tx)).filter((d) => d.kind === input.kind);
+      // A new upload replaces earlier pending/rejected ones; an approved document stays in force until
+      // the renewal is approved (else any photo would lift an expiry — review 2026-10-04 #18).
+      const previous = (await this.repo.currentDocuments([actor.personId], tx)).filter((d) => d.kind === input.kind && d.status !== 'approved');
       for (const p of previous) await this.repo.updateDocument(p.id, { supersededAt: now }, tx);
       const doc = await this.repo.createDocument(
         { personId: actor.personId, kind: input.kind, status: 'pending', expiresAt: input.expiresAt ?? null, submittedAt: now, reviewedAt: null, reviewedById: null, rejectReason: null, supersededAt: null },
@@ -290,6 +295,11 @@ export class DriverAccountService implements DriverAccountPort {
       // Separation of duties: a reviewer who also drives never decides on his own papers.
       if (doc.personId === actor.personId) throw new DriverError('forbidden');
       const approve = input.decision === 'approve';
+      if (approve) {
+        // The approved renewal takes over: older documents of the kind leave the current set.
+        const older = (await this.repo.currentDocuments([doc.personId], tx)).filter((d) => d.kind === doc.kind && d.id !== doc.id && d.submittedAt.getTime() <= doc.submittedAt.getTime());
+        for (const o of older) await this.repo.updateDocument(o.id, { supersededAt: now }, tx);
+      }
       const updated = await this.repo.updateDocument(
         doc.id,
         {
@@ -428,11 +438,11 @@ export class DriverAccountService implements DriverAccountPort {
 
   /** What the Partner shell (and `partner` presence) checks before going online. */
   async onlineGateFor(personId: string): Promise<OnlineGate> {
-    const [checkIn, docs] = await Promise.all([this.checkInStatusFor(personId), this.documentsFor(personId)]);
+    const [checkIn, current] = await Promise.all([this.checkInStatusFor(personId), this.repo.currentDocuments([personId])]);
     const reasons: OnlineGate['reasons'] = [];
     if (checkIn.lockedOut) reasons.push({ code: 'checkin_locked', message_ar: 'فشل التحقق مرتين اليوم. فريق العمليات راح يتواصل وياك' });
     else if (checkIn.required && !checkIn.verifiedToday) reasons.push({ code: 'checkin_required', message_ar: 'سوّي التحقق اليومي بالسيلفي قبل ما تشتغل' });
-    for (const d of docs.documents) if (d.status === 'expired') reasons.push({ code: 'document_expired', message_ar: `${d.kind_ar} منتهية. جدّدها حتى تشتغل` });
+    for (const d of expiredDocuments(current, this.clock.now())) reasons.push({ code: 'document_expired', message_ar: `${DOCUMENT_KIND_AR[d.kind]} منتهية. جدّدها حتى تشتغل` });
     return { canGoOnline: reasons.length === 0, reasons, checkIn };
   }
 
@@ -444,6 +454,13 @@ export class DriverAccountService implements DriverAccountPort {
   verifyHandoverCode(driverId: string, code: string): boolean {
     return this.codes.verify(driverId, code, this.clock.now());
   }
+}
+
+/** Current documents past their expiry, one per kind (an expired approved one blocks until its renewal is approved). */
+function expiredDocuments(current: readonly DocumentRecord[], now: Date): DocumentRecord[] {
+  const byKind = new Map<string, DocumentRecord>();
+  for (const d of current) if (documentStatus(d, now) === 'expired' && !byKind.has(d.kind)) byKind.set(d.kind, d);
+  return [...byKind.values()].sort((a, b) => a.kind.localeCompare(b.kind));
 }
 
 function latestPerKind(docs: readonly DocumentRecord[]): DocumentRecord[] {
