@@ -1005,7 +1005,8 @@ DECLARE
   range_start TIMESTAMP := date_trunc('month', month_start)::timestamp;
   range_end TIMESTAMP := (date_trunc('month', month_start) + interval '1 month')::timestamp;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = part_name) THEN
+  -- Look in this schema only: a same-named partition elsewhere must not suppress this one.
+  IF to_regclass('"public".' || quote_ident(part_name)) IS NULL THEN
     EXECUTE format(
       'CREATE TABLE "public".%I PARTITION OF "public"."trail_points" FOR VALUES FROM (%L) TO (%L)',
       part_name, range_start, range_end
