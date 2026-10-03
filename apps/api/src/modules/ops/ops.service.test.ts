@@ -144,9 +144,9 @@ describe('ops.merchantOnboarding and tasks', () => {
       menuPhotoUploadIds: menu,
     });
     expect(v).toMatchObject({ state: 'draft', menuPhotos: 2 });
-    const org = h.orgs.get(v.merchantOrgId);
+    const org = await h.orgs.get(v.merchantOrgId);
     expect(org).toMatchObject({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah' });
-    expect(h.orgs.merchantSettings(v.merchantOrgId).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
     const ownerId = h.repo.onboardings[0]!.contactPersonId;
     expect((await h.id.repo.readIdentity(ownerId))?.name).toBe('أبو حسن');
     expect(JSON.stringify(h.repo.onboardings[0])).not.toContain('07800000123');
@@ -206,9 +206,9 @@ describe('ops.cashHolders', () => {
 describe('ops.landmarks', () => {
   it('lists landmark places by zone, fewest photos first, counting proposed ones', async () => {
     const h = await setup();
-    const mosque = h.places.save({ cityId: 'aziziyah', pin: { lat: 32.905, lng: 45.06 }, name: 'الجامع الكبير', photos: [], confidence: 1, sharedWith: [], landmark: true });
-    h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9055, lng: 45.0605 }, name: 'بيت أبو علي', photos: [], confidence: 0.5, sharedWith: [], landmark: false });
-    const park = h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9165, lng: 45.0585 }, name: 'حديقة الشاشة', photos: [], confidence: 1, sharedWith: [], landmark: true });
+    const mosque = await h.places.save({ cityId: 'aziziyah', pin: { lat: 32.905, lng: 45.06 }, name: 'الجامع الكبير', photos: [], confidence: 1, sharedWith: [], landmark: true });
+    await h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9055, lng: 45.0605 }, name: 'بيت أبو علي', photos: [], confidence: 0.5, sharedWith: [], landmark: false });
+    const park = await h.places.save({ cityId: 'aziziyah', pin: { lat: 32.9165, lng: 45.0585 }, name: 'حديقة الشاشة', photos: [], confidence: 1, sharedWith: [], landmark: true });
     await h.ops.addLandmarkPhoto(h.staff, { target: { kind: 'landmark', id: mosque.id }, uploadId: await upload(h.blobs, h.staff.personId), localNames: [] });
     const all = await h.ops.landmarks(h.staff, { cityId: 'aziziyah' });
     expect(all.map((l) => [l.name, l.zoneKey, l.photos])).toEqual([

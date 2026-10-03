@@ -23,8 +23,8 @@ export async function seedStorefronts(
 ): Promise<SeededStorefront[]> {
   const out: SeededStorefront[] = [];
   for (const r of restaurants) {
-    const org = orgs.create({ type: 'restaurant', name: r.nameAr, cityId: r.cityId, ownerId });
-    orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'base' });
+    const org = await orgs.create({ type: 'restaurant', name: r.nameAr, cityId: r.cityId, ownerId });
+    await orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'base' });
     await catalog.saveStorefront({
       orgId: org.id,
       cityId: r.cityId,

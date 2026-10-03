@@ -34,13 +34,9 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
     {
       provide: TRACKING_MERCHANTS,
       useFactory: (orgs: OrgsService, catalog: CatalogService): TrackingMerchantsPort => ({
-        merchant: (orgId) => {
-          try {
-            const org = orgs.get(orgId);
-            return { name: org.name, pin: orgs.merchantSettings(orgId).location?.pin ?? null };
-          } catch {
-            return null;
-          }
+        merchant: async (orgId) => {
+          const org = await orgs.find(orgId);
+          return org ? { name: org.name, pin: org.merchant?.location?.pin ?? null } : null;
         },
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
       }),

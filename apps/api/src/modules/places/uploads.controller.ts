@@ -22,9 +22,10 @@ function readBody(req: Request, max: number): Promise<Buffer | null> {
 const q = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
- * The dev storage's HTTP side: `PUT /uploads/:id?exp&sig` (the signed ticket from
- * `places.photoUpload`) and `GET /files/:id?exp&sig` (signed, expiring read). Object storage
- * replaces both in production; the tRPC surface stays the same.
+ * The API side of photo storage: `PUT /uploads/:id?exp&sig` (the signed ticket from
+ * `places.photoUpload`, dev storage only — with object storage the ticket points at the bucket) and
+ * `GET /files/:id?exp&sig` (signed, expiring read: the bytes from the dev storage, or a 302 to a
+ * presigned GET on the bucket). The tRPC surface is the same either way.
  */
 @Controller()
 export class UploadsController {
@@ -47,7 +48,15 @@ export class UploadsController {
 
   @Get('files/:id')
   async get(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const file = await this.store.read({ id: String(req.params['id']), exp: q(req.query['exp']), sig: q(req.query['sig']) });
+    const signed = { id: String(req.params['id']), exp: q(req.query['exp']), sig: q(req.query['sig']) };
+    // Object storage: the API checks its own signature, then hands over a 5-minute presigned GET.
+    const location = await this.store.readLocation(signed);
+    if (location) {
+      res.setHeader('cache-control', 'private, max-age=240');
+      res.redirect(302, location);
+      return;
+    }
+    const file = await this.store.read(signed);
     if (!file) {
       res.status(404).end();
       return;

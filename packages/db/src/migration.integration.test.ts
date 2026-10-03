@@ -65,6 +65,7 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
     expect(names).toContain('zones_polygon_idx');
     expect(names).toContain('places_pin_idx');
     expect(names).toContain('meeting_points_pin_idx');
+    expect(names).toContain('orgs_location_pin_idx');
   });
 
   it('partitions trail_points monthly with a default partition', async () => {

@@ -35,36 +35,36 @@ export class HouseholdsRpc implements HouseholdsPort {
   ) {}
 
   async mine(actor: Actor): Promise<HouseholdView | null> {
-    const home = this.orgs.householdsOf(actor.personId)[0];
+    const home = (await this.orgs.householdsOf(actor.personId))[0];
     return home ? this.view(home, actor.personId) : null;
   }
 
   async create(actor: Actor, input: z.infer<typeof CreateHouseholdInput>): Promise<HouseholdView> {
-    if (this.orgs.householdsOf(actor.personId).length > 0) throw new DriverError('household_exists');
-    const home = this.orgs.createHousehold({ name: input.name.trim(), cityId: input.cityId, payerId: actor.personId });
+    if ((await this.orgs.householdsOf(actor.personId)).length > 0) throw new DriverError('household_exists');
+    const home = await this.orgs.createHousehold({ name: input.name.trim(), cityId: input.cityId, payerId: actor.personId });
     return this.view(home, actor.personId);
   }
 
   async inviteMember(actor: Actor, input: z.infer<typeof InviteMemberInput>): Promise<HouseholdView> {
-    const home = this.asPayer(actor, input.householdId);
+    const home = await this.asPayer(actor, input.householdId);
     const personId = await this.people.ensurePersonByPhone(input.phone, actor.personId, 'household_invite');
     if (personId === actor.personId) throw new DriverError('invalid_input');
-    this.orgs.addMember(home.id, personId, { role: input.role, spendingLimitIqd: input.spendingLimitIqd, actorId: actor.personId });
-    return this.view(home, actor.personId);
+    const after = await this.orgs.addMember(home.id, personId, { role: input.role, spendingLimitIqd: input.spendingLimitIqd, actorId: actor.personId });
+    return this.view(after, actor.personId);
   }
 
   async setLimit(actor: Actor, input: SetLimitInput): Promise<HouseholdView> {
-    const home = this.asPayer(actor, input.householdId);
-    const m = this.orgs.member(home.id, input.personId);
+    const home = await this.asPayer(actor, input.householdId);
+    const m = await this.orgs.member(home.id, input.personId);
     if (m.role === 'payer') throw new DriverError('invalid_input');
-    this.orgs.setSpendingLimit(home.id, input.personId, input.spendingLimitIqd, actor.personId);
-    return this.view(home, actor.personId);
+    await this.orgs.setSpendingLimit(home.id, input.personId, input.spendingLimitIqd, actor.personId);
+    return this.view(await this.orgs.get(home.id), actor.personId);
   }
 
   async approvals(actor: Actor, input: HouseholdIdInput): Promise<PayerApprovalView[]> {
-    const home = this.asMember(actor, input.householdId);
+    const home = await this.asMember(actor, input.householdId);
     const payer = this.isPayer(home, actor.personId);
-    const list = this.orgs.approvalsOf(home.id).filter((a) => payer || a.requestedBy === actor.personId);
+    const list = (await this.orgs.approvalsOf(home.id)).filter((a) => payer || a.requestedBy === actor.personId);
     return this.approvalViews(home, list, actor.personId);
   }
 
@@ -79,38 +79,38 @@ export class HouseholdsRpc implements HouseholdsPort {
   // ───────────────────────── internals ─────────────────────────
 
   private async resolve(actor: Actor, requestId: string, decision: 'approved' | 'declined'): Promise<PayerApprovalView> {
-    const req = this.approvalVisibleTo(actor, requestId);
-    const home = this.asPayer(actor, req.orgId);
-    const done = this.orgs.resolvePayerApproval(req.id, actor.personId, decision);
+    const req = await this.approvalVisibleTo(actor, requestId);
+    const home = await this.asPayer(actor, req.orgId);
+    const done = await this.orgs.resolvePayerApproval(req.id, actor.personId, decision);
     return (await this.approvalViews(home, [done], actor.personId))[0]!;
   }
 
   /** Unknown and other households' requests look the same: not found. */
-  private approvalVisibleTo(actor: Actor, requestId: string): PayerApprovalRequest {
+  private async approvalVisibleTo(actor: Actor, requestId: string): Promise<PayerApprovalRequest> {
     let req: PayerApprovalRequest;
     try {
-      req = this.orgs.approval(requestId);
+      req = await this.orgs.approval(requestId);
     } catch {
       throw new DriverError('not_found');
     }
-    if (!this.orgs.get(req.orgId).members.some((m) => m.personId === actor.personId)) throw new DriverError('not_found');
+    if (!(await this.orgs.get(req.orgId)).members.some((m) => m.personId === actor.personId)) throw new DriverError('not_found');
     return req;
   }
 
-  private household(orgId: string): Org {
-    const org = this.orgs.get(orgId);
+  private async household(orgId: string): Promise<Org> {
+    const org = await this.orgs.get(orgId);
     if (org.type !== 'household') throw new DriverError('org_not_found');
     return org;
   }
 
-  private asMember(actor: Actor, orgId: string): Org {
-    const home = this.household(orgId);
-    this.orgs.member(home.id, actor.personId); // throws not_household_member
+  private async asMember(actor: Actor, orgId: string): Promise<Org> {
+    const home = await this.household(orgId);
+    if (!home.members.some((m) => m.personId === actor.personId)) throw new DriverError('not_household_member');
     return home;
   }
 
-  private asPayer(actor: Actor, orgId: string): Org {
-    const home = this.asMember(actor, orgId);
+  private async asPayer(actor: Actor, orgId: string): Promise<Org> {
+    const home = await this.asMember(actor, orgId);
     if (!this.isPayer(home, actor.personId)) throw new DriverError('household_payer_only');
     return home;
   }
@@ -159,7 +159,7 @@ export class HouseholdsRpc implements HouseholdsPort {
       }))
       .sort((a, b) => rank[a.role] - rank[b.role] || Number(b.isMe) - Number(a.isMe));
     const payer = me.role === 'payer';
-    const pending = this.orgs.pendingApprovals(home.id).filter((a) => payer || a.requestedBy === viewerId);
+    const pending = (await this.orgs.pendingApprovals(home.id)).filter((a) => payer || a.requestedBy === viewerId);
     return {
       id: home.id,
       name: home.name,

@@ -1,13 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { LatLng, Place } from '@driver/contracts';
-import { distanceKm, pointInRing, type ZonePolygon } from './zones.js';
+import { InMemoryPlacesRepository, PLACES_REPOSITORY, type PlacesRepository } from './places.repository.js';
+import { pointInRing, type ZonePolygon } from './zones.js';
 
-/** Learned/landmark places (courier reinforcement, nearby search). Customers' saved places: `SavedPlacesService`. */
+/**
+ * Learned/landmark places (courier reinforcement, nearby search), behind `PlacesRepository` (Prisma
+ * `places` with DATABASE_URL, in memory otherwise). Customers' saved places: `SavedPlacesService`.
+ */
 @Injectable()
 export class PlacesService {
-  private readonly places = new Map<string, Place>();
   private readonly zonesByCity = new Map<string, ZonePolygon[]>();
-  private seq = 0;
+  private readonly repo: PlacesRepository;
+
+  constructor(@Optional() @Inject(PLACES_REPOSITORY) repo?: PlacesRepository) {
+    this.repo = repo ?? new InMemoryPlacesRepository();
+  }
 
   registerZones(cityId: string, zones: ZonePolygon[]): void {
     this.zonesByCity.set(cityId, zones);
@@ -19,36 +26,27 @@ export class PlacesService {
     return fallback;
   }
 
-  save(input: Omit<Place, 'id'>): Place {
-    this.seq += 1;
-    const place: Place = { ...input, id: `pl_${this.seq}` };
-    this.places.set(place.id, place);
-    return place;
+  save(input: Omit<Place, 'id'>): Promise<Place> {
+    return this.repo.save(input);
   }
 
-  get(id: string): Place | undefined {
-    return this.places.get(id);
+  async get(id: string): Promise<Place | undefined> {
+    return (await this.repo.get(id)) ?? undefined;
   }
 
   /** Learned places gain confidence when a courier completes a stop there without correction. */
-  reinforce(id: string, delta = 0.1): Place | undefined {
-    const p = this.places.get(id);
+  async reinforce(id: string, delta = 0.1): Promise<Place | undefined> {
+    const p = await this.repo.get(id);
     if (!p) return undefined;
-    const next = { ...p, confidence: Math.min(1, Math.max(0, p.confidence + delta)) };
-    this.places.set(id, next);
-    return next;
+    return (await this.repo.setConfidence(id, Math.min(1, Math.max(0, p.confidence + delta)))) ?? undefined;
   }
 
   /** The city's landmark places (shared city knowledge), by name. */
-  landmarks(cityId: string): Place[] {
-    return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  async landmarks(cityId: string): Promise<Place[]> {
+    return (await this.repo.landmarks(cityId)).sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
   }
 
-  nearby(cityId: string, pin: LatLng, radiusKm: number): Array<Place & { distanceKm: number }> {
-    return [...this.places.values()]
-      .filter((p) => p.cityId === cityId)
-      .map((p) => ({ ...p, distanceKm: distanceKm(pin, p.pin) }))
-      .filter((p) => p.distanceKm <= radiusKm)
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+  nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>> {
+    return this.repo.nearby(cityId, pin, radiusKm);
   }
 }

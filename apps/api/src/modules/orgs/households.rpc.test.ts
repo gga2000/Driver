@@ -72,8 +72,8 @@ describe('households (domain §12)', () => {
     const { rpc, orgs, ali, minar, stranger, id } = await setup();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
     await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
-    expect(orgs.withinLimit(home.id, minar.personId, 32_000)).toBe(false);
-    const req = orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: minar.personId, amountIqd: 32_000 });
+    expect(await orgs.withinLimit(home.id, minar.personId, 32_000)).toBe(false);
+    const req = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: minar.personId, amountIqd: 32_000 });
 
     const payerView = await rpc.mine(ali);
     expect(payerView?.pendingApprovals).toEqual([
@@ -92,7 +92,7 @@ describe('households (domain §12)', () => {
     expect((await rpc.mine(ali))?.pendingApprovals).toEqual([]);
     expect((await rpc.approvals(ali, { householdId: home.id })).map((a) => a.state)).toEqual(['approved']);
 
-    const second = orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_2', requestedBy: minar.personId, amountIqd: 40_000 });
+    const second = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_2', requestedBy: minar.personId, amountIqd: 40_000 });
     expect((await rpc.decline(ali, { requestId: second.id })).state).toBe('declined');
     // Reading member names for the payer is logged against each member read.
     const logs = await id.repo.vaultAccessLogs(minar.personId);

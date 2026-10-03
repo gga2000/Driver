@@ -49,8 +49,8 @@ function taskView(t: TaskRecord): OpsTask {
 /**
  * Ops mode for field staff (partner spec). Cash receipts post `driver_settlement` through the
  * ledger's public API (MerchantCashService.recordDriverSettlement, channel `ops_round`) in the same
- * unit of work as the receipt row and its event; onboarding creates the merchant org (in-memory
- * orgs today) as a draft with the owner as a vault person; photos are signed-PUT uploads.
+ * unit of work as the receipt row and its event; onboarding creates the merchant org (a
+ * persisted `orgs` row) as a draft with the owner as a vault person; photos are signed-PUT uploads.
  */
 @Injectable()
 export class OpsService implements OpsPort {
@@ -102,7 +102,7 @@ export class OpsService implements OpsPort {
 
   /** Landmark places in the city (optionally one zone) with how many photos they have or have pending. */
   async landmarks(_actor: Actor, input: z.output<typeof LandmarksInput>): Promise<OpsLandmark[]> {
-    const list = this.places?.landmarks(input.cityId) ?? [];
+    const list = (await this.places?.landmarks(input.cityId)) ?? [];
     const proposed = await this.repo.proposedPhotoCounts(list.map((p) => p.id));
     return list
       .map((p) => ({ placeId: p.id, name: p.name, zoneKey: this.zones.resolve(input.cityId, p.pin), pin: p.pin, photos: p.photos.length + (proposed.get(p.id) ?? 0) }))
@@ -207,9 +207,8 @@ export class OpsService implements OpsPort {
     for (const id of [...input.menuPhotoUploadIds, ...(input.shopPhotoUploadId ? [input.shopPhotoUploadId] : [])]) await this.assertUpload(actor.personId, id);
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
-    // TODO(orgs-prisma): orgs are in memory; the draft org lives until restart, the onboarding row stays.
-    const org = this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    this.orgs.setMerchantSettings(org.id, { location: input.location });
+    const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
+    await this.orgs.setMerchantSettings(org.id, { location: input.location });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {

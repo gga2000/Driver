@@ -21,13 +21,13 @@ const code = async (p: Promise<unknown>) => {
  * MerchantService over the orders harness (orders + trips in memory, fake clock) and a real
  * in-memory OrgsService. `org_1` is Khalid's (staff `s1`, owner `o1`), `org_2` a second store.
  */
-function setup() {
+async function setup() {
   const h = ordersHarness();
   const orgs = new OrgsService(undefined, h.clock);
-  const khalid = orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'o1' });
-  const other = orgs.create({ type: 'restaurant', name: 'مشويات الحاج كريم', cityId: 'aziziyah', ownerId: 'o2' });
-  const home = orgs.createHousehold({ name: 'بيت', cityId: 'aziziyah', payerId: 's1' });
-  orgs.setMerchantSettings(khalid.id, { location: { zoneKey: 'centre', pin: KITCHEN } });
+  const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'o1' });
+  const other = await orgs.create({ type: 'restaurant', name: 'مشويات الحاج كريم', cityId: 'aziziyah', ownerId: 'o2' });
+  const home = await orgs.createHousehold({ name: 'بيت', cityId: 'aziziyah', payerId: 's1' });
+  await orgs.setMerchantSettings(khalid.id, { location: { zoneKey: 'centre', pin: KITCHEN } });
   h.merchants.add(khalid.id, { location: { zoneKey: 'centre', pin: KITCHEN } });
 
   const grants: Array<{ personId: string; kind: RoleKind; orgId: string | null; frozen: boolean }> = [
@@ -64,7 +64,7 @@ function setup() {
 
 describe('MerchantService — stores and scope', () => {
   it('lists the restaurants a person works at, owner wins over staff; nothing for a customer', async () => {
-    const { svc, staff, owner, khalid, other } = setup();
+    const { svc, staff, owner, khalid, other } = await setup();
     expect(await svc.myStores(staff)).toEqual([{ orgId: khalid.id, name: 'مطعم خالد', type: 'restaurant', cityId: 'aziziyah', role: 'staff' }]);
     // By Arabic name: مشويات الحاج كريم before مطعم خالد.
     expect((await svc.myStores(owner)).map((s) => [s.orgId, s.role])).toEqual([
@@ -77,7 +77,7 @@ describe('MerchantService — stores and scope', () => {
   });
 
   it('refuses another store’s board and switches', async () => {
-    const { svc, staff, other } = setup();
+    const { svc, staff, other } = await setup();
     expect(await code(svc.board(staff, { merchantOrgId: other.id }))).toBe('forbidden');
     expect(await code(svc.setBusy(staff, { merchantOrgId: other.id, on: true }))).toBe('forbidden');
     expect(await code(svc.storeStatus({ personId: 'nobody', sessionId: 'z' }, { merchantOrgId: other.id }))).toBe('forbidden');
@@ -86,7 +86,7 @@ describe('MerchantService — stores and scope', () => {
 
 describe('MerchantService — board', () => {
   it('shows a new group order with people, notes, deadline; then preparing with courier state', async () => {
-    const { h, svc, staff, khalid, nameReads } = setup();
+    const { h, svc, staff, khalid, nameReads } = await setup();
     const placed = await h.orders.place(
       'c1',
       h.foodInput({
@@ -138,7 +138,7 @@ describe('MerchantService — board', () => {
 
 describe('MerchantService — store status, busy mode, early close, printer', () => {
   it('busy mode: on for an hour, recorded, then reads as off by itself', async () => {
-    const { h, svc, staff, khalid, recorded } = setup();
+    const { h, svc, staff, khalid, recorded } = await setup();
     const on = await svc.setBusy(staff, { merchantOrgId: khalid.id, on: true });
     expect(on.busy).toEqual({ on: true, until: new Date(h.clock.now().getTime() + 60 * MIN), extraPrepMinutes: 10 });
     h.clock.advance(61 * MIN);
@@ -149,7 +149,7 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
   });
 
   it('early close with a reason, then open again', async () => {
-    const { svc, staff, khalid, recorded } = setup();
+    const { svc, staff, khalid, recorded } = await setup();
     const closed = await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'power_cut', note: ' المولدة عاطلة ' });
     expect(closed).toMatchObject({ open: false, closed: { reason: 'power_cut', note: 'المولدة عاطلة' } });
     const opened = await svc.setOpen(staff, { merchantOrgId: khalid.id, open: true });
@@ -158,7 +158,7 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
   });
 
   it('printer marker: records only changes and keeps the printer name', async () => {
-    const { svc, staff, khalid, recorded } = setup();
+    const { svc, staff, khalid, recorded } = await setup();
     expect((await svc.storeStatus(staff, { merchantOrgId: khalid.id })).printer.state).toBe('not_set_up');
     await svc.setPrinterStatus(staff, { merchantOrgId: khalid.id, state: 'connected', name: 'XP-80' });
     await svc.setPrinterStatus(staff, { merchantOrgId: khalid.id, state: 'connected' });
@@ -168,7 +168,7 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
   });
 
   it('shows a Friday-prayer pause window as closed until it ends', async () => {
-    const { h, svc, staff, khalid } = setup();
+    const { h, svc, staff, khalid } = await setup();
     h.clock.set('2026-10-09T09:00:00Z'); // Friday 12:00 Baghdad
     expect(await svc.storeStatus(staff, { merchantOrgId: khalid.id })).toMatchObject({ open: false, pause: { reason: 'صلاة الجمعة', until: '13:15' } });
   });
@@ -176,7 +176,7 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
 
 describe('busy mode and early close reach orders and the customer card', () => {
   it('busy: +10 min on the picked prep time, the auto-accept default and the promised ready time', async () => {
-    const { h } = setup();
+    const { h } = await setup();
     h.merchants.add('rest_1', { location: { zoneKey: 'centre', pin: KITCHEN }, busyUntil: new Date(h.clock.now().getTime() + 60 * MIN) });
     const o = await h.orders.place('c1', h.foodInput());
     const accepted = await h.orders.merchantAccept('s1', { orderId: o.id, prepMinutes: 15 });
@@ -189,7 +189,7 @@ describe('busy mode and early close reach orders and the customer card', () => {
   });
 
   it('busy mode that has expired adds nothing', async () => {
-    const { h } = setup();
+    const { h } = await setup();
     h.merchants.add('rest_1', { location: { zoneKey: 'centre', pin: KITCHEN }, busyUntil: new Date(h.clock.now().getTime() - MIN) });
     const o = await h.orders.place('c1', h.foodInput());
     const accepted = await h.orders.merchantAccept('s1', { orderId: o.id, prepMinutes: 15 });
@@ -197,13 +197,13 @@ describe('busy mode and early close reach orders and the customer card', () => {
   });
 
   it('closed by hand: orders.place refuses (merchant_paused)', async () => {
-    const { h } = setup();
+    const { h } = await setup();
     h.merchants.add('rest_1', { location: { zoneKey: 'centre', pin: KITCHEN }, closed: true });
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_paused');
   });
 
   it('the orgs-backed directory and the storefront read busy and closed from the store settings', async () => {
-    const { h, svc, staff, orgs, khalid } = setup();
+    const { h, svc, staff, orgs, khalid } = await setup();
     await svc.setBusy(staff, { merchantOrgId: khalid.id, on: true });
     await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'sold_out' });
     const directory = new OrgsMerchantDirectory(orgs);

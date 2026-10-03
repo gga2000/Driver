@@ -64,8 +64,8 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     {
       provide: WALLET_HOUSEHOLDS,
       useFactory: (orgs: OrgsService): WalletHouseholds => ({
-        householdOf: (personId) => {
-          const home = orgs.householdsOf(personId)[0];
+        householdOf: async (personId) => {
+          const home = (await orgs.householdsOf(personId))[0];
           const me = home?.members.find((m) => m.personId === personId);
           return home && me ? { id: home.id, name: home.name, role: me.role } : null;
         },

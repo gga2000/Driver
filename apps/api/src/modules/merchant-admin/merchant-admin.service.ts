@@ -317,12 +317,8 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.promotions.list(input.merchantOrgId);
   }
 
-  private cityOf(merchantOrgId: string): string {
-    try {
-      return this.orgs.get(merchantOrgId).cityId;
-    } catch {
-      return this.config.cityIds()[0] ?? 'aziziyah';
-    }
+  private async cityOf(merchantOrgId: string): Promise<string> {
+    return (await this.orgs.find(merchantOrgId))?.cityId ?? this.config.cityIds()[0] ?? 'aziziyah';
   }
 
   private dealRules(cityId: string): { requirePlatformApproval: boolean; maxPercent: number; maxDays: number } {
@@ -332,7 +328,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   /** Owner check, validation (city rules, own items) and the server-side projection of a draft. */
   private async draftDeal(actor: Actor, input: { merchantOrgId: string } & DealProposal) {
     await this.owner(actor, input.merchantOrgId);
-    const cityId = this.cityOf(input.merchantOrgId);
+    const cityId = await this.cityOf(input.merchantOrgId);
     const rules = this.dealRules(cityId);
     this.promotions.validate(input, rules);
     if (input.itemIds.length > 0) {
