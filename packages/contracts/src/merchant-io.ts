@@ -15,15 +15,15 @@ import { VehicleClass } from './trip.js';
 export const MERCHANT_BUSY_RULES = { extraPrepMinutes: 10, durationMinutes: 60 } as const;
 
 /** What a person is at a store: the owner (money, staff) or staff (orders, menu). */
-export const MerchantStaffRole = z.enum(['owner', 'staff']);
-export type MerchantStaffRole = z.infer<typeof MerchantStaffRole>;
+export const MerchantStoreRole = z.enum(['owner', 'staff']);
+export type MerchantStoreRole = z.infer<typeof MerchantStoreRole>;
 
 export const MerchantStore = z.object({
   orgId: z.string(),
   name: z.string(),
   type: z.enum(['restaurant', 'grocer']),
   cityId: z.string(),
-  role: MerchantStaffRole,
+  role: MerchantStoreRole,
 });
 export type MerchantStore = z.infer<typeof MerchantStore>;
 
