@@ -1,0 +1,13 @@
+{
+  // `pnpm typecheck` config. Pins React 18 types: react-navigation's hoisted .d.ts files otherwise
+  // resolve the workspace's @types/react 19 (the console's). Kept out of tsconfig.json because
+  // Metro applies tsconfig `paths` to runtime imports too.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"]
+    }
+  }
+}
