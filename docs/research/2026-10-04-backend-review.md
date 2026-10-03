@@ -22,7 +22,7 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 | 4 | Medium | khat tap-out without tap-in fires the guardian's "arrived" push | fixed |
 | 5 | Medium | online gate: heartbeat grace never ends | fixed |
 | 6 | Medium | merchantAdmin.staffInvite: phone → full name oracle | in progress |
-| 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | in progress |
+| 7 | Medium | driverAccount.reviewDocument: reviewer approves own document | fixed |
 | 8 | Medium | handover code brute-force (4 digits, no attempt limit) | fixed |
 | 9 | Medium | double "اطلب فلوسك" opens two requests / two assignments | in progress |
 | 10 | Low | merchantAdmin.insights: staff see sales money (bestSellers.salesIqd) | in progress |
@@ -92,3 +92,12 @@ safety/state rule bypassable or a narrower leak; **Low** = hygiene with a real b
 - **Tests:** `partner.service.test.ts` › "heartbeating never skips the daily check-in past the night grace
   (review 2026-10-04 #5)" and the reworded "…keeps an online driver on for the night (until 04:00 local)";
   `logic.test.ts` gate table now pins the hour.
+
+### 7 · Medium · document self-approval (authorization)
+
+- **Where:** `apps/api/src/modules/driver-account/driver-account.service.ts` `reviewDocument`.
+- **What:** reviewers are `field_ops` / `support` / `admin`; field ops commonly also hold a driving role. Nothing
+  stopped a reviewer approving (and setting the expiry of) his own licence or ID — the document check that
+  gates going online (scoring §2) was self-service for staff.
+- **Fix:** reviewing a document of your own person is `forbidden`.
+- **Test:** `driver-account.service.test.ts` › "a field-ops person who also drives cannot approve his own document".

@@ -281,6 +281,8 @@ export class DriverAccountService implements DriverAccountPort {
     return this.uow.run(async (tx) => {
       const doc = await this.repo.document(input.documentId, tx);
       if (!doc) throw new DriverError('document_not_found');
+      // Separation of duties: a reviewer who also drives never decides on his own papers.
+      if (doc.personId === actor.personId) throw new DriverError('forbidden');
       const approve = input.decision === 'approve';
       const updated = await this.repo.updateDocument(
         doc.id,

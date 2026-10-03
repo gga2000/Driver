@@ -48,6 +48,18 @@ function setup(start = '2026-10-03T09:00:00Z') {
   return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
+describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
+  it('a field-ops person who also drives cannot approve his own document', async () => {
+    const h = setup();
+    const both = await h.person('07700000011', ['driver', 'field_ops']);
+    const doc = await h.service.uploadDocument(both, { kind: 'licence', uploadId: await h.upload(both.personId) });
+    await expect(h.service.reviewDocument(both, { documentId: doc.id, decision: 'approve', expiresAt: new Date(h.clock.now().getTime() + 400 * DAY) })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(h.repo.documents.get(doc.id)?.status).toBe('pending');
+    const other = await h.person('07700000012', ['field_ops']);
+    await expect(h.service.reviewDocument(other, { documentId: doc.id, decision: 'approve' })).resolves.toMatchObject({ status: 'approved' });
+  });
+});
+
 describe('driverAccount.earnings', () => {
   it('names every pay component per job, totals them and shows cash and the cap bar', async () => {
     const h = setup('2026-10-03T13:00:00Z');
