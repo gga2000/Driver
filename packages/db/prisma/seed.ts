@@ -2,7 +2,8 @@
  * `pnpm db:seed` — idempotent seed for a local Driver database (plan Step 1).
  *
  * Writes: 3 cities, the 34 Aziziyah zones with draft hexagon polygons (tier + extId), 4 garages and
- * 6 street-pickup meeting points, taxonomy roots, a demo restaurant org with a 10-item catalog
+ * 6 street-pickup meeting points (plus the الرجعة drafts: a Kut garage and 3 on-the-way points),
+ * taxonomy roots, a demo restaurant org with a 10-item catalog
  * (modifier groups included), and a dispatcher person whose phone lives only in the vault.
  * Re-running updates in place; nothing is duplicated.
  */
@@ -13,6 +14,7 @@ import {
   CITIES,
   DEMO_RESTAURANT,
   DISPATCHER,
+  INTERCITY_DRAFT_POINTS,
   MEETING_POINTS,
   TAXONOMY,
   hexagonWkt,
@@ -65,7 +67,7 @@ async function seedZones(tx: Tx): Promise<Map<string, string>> {
 }
 
 async function seedMeetingPoints(tx: Tx, zoneIds: Map<string, string>): Promise<void> {
-  for (const m of MEETING_POINTS) {
+  for (const m of [...MEETING_POINTS, ...INTERCITY_DRAFT_POINTS]) {
     const zoneId = m.zoneKey ? (zoneIds.get(m.zoneKey) ?? null) : null;
     await tx.$executeRaw`
       INSERT INTO "public"."meeting_points" ("id", "city_id", "zone_id", "name_ar", "name_en", "pin", "reachable_by", "garage", "geofence_m", "updated_at")

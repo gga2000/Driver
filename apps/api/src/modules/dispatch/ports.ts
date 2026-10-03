@@ -3,7 +3,7 @@ import type { DeliveryPoint, VehicleClass, Vertical } from '@driver/contracts';
 /**
  * Narrow ports dispatch consumes from other modules. Dispatch owns the offer lifecycle; the owning
  * modules implement these and are bound in `dispatch.module.ts` (trips: `TripsServiceTripOffers`;
- * ledger: its `CAPS_PORT`; departures: `InMemoryDepartures` until intercity ships).
+ * ledger: its `CAPS_PORT`; departures: the routes module's `RoutesDeparturesPort`).
  */
 
 /** What dispatch needs to build the courier trip of a merchant order (auto-assign). */

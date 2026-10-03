@@ -294,3 +294,21 @@ describe('prisma schema — amendments (edge-case decisions 2026-10-03)', () => 
     expect(model('Stop')).toMatch(/targetPin\s+Unsupported\("geography\(Point, 4326\)"\)\?/);
   });
 });
+
+describe('prisma schema — الرجعة (routes module, additive)', () => {
+  it('Departure carries corridor, origin garage, direction, seat layout, family-only and run state', () => {
+    for (const c of ['corridorId', 'garageId', 'direction', 'fromCityId', 'toCityId', 'seatLayout', 'vehicleSnapshot', 'familyOnly', 'seatPriceIqd', 'frontPremiumIqd', 'selfieAt', 'runState', 'lowFillCheckedAt']) {
+      expect(fields(model('Departure')), `departures.${c}`).toContain(c);
+    }
+  });
+  it('SeatBooking: one row per rider and sale (a re-sold position gets a new booking)', () => {
+    for (const c of ['departureId', 'riderId', 'seatIds', 'travellingAs', 'state', 'origin', 'prepaid', 'trusted', 'pin', 'pickup', 'heldUntil', 'atGarageAt', 'checkedInAt', 'lateMinutes', 'movedToBookingId']) {
+      expect(fields(model('SeatBooking')), `seat_bookings.${c}`).toContain(c);
+    }
+  });
+  it('DemandPost and the request board (RideRequest + RideRequestOffer)', () => {
+    for (const c of ['corridorId', 'direction', 'garageId', 'windowStart', 'windowEnd', 'seats', 'state', 'bookingId', 'escalatedAt']) expect(fields(model('DemandPost'))).toContain(c);
+    for (const c of ['fromPlace', 'toPlace', 'when', 'privateCar', 'state', 'origin', 'priceCapIqd', 'pickedOfferId', 'depositIqd', 'driverArrivedAt']) expect(fields(model('RideRequest'))).toContain(c);
+    for (const c of ['requestId', 'driverId', 'priceIqd', 'state']) expect(fields(model('RideRequestOffer'))).toContain(c);
+  });
+});

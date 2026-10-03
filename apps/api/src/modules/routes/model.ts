@@ -1,0 +1,191 @@
+import type {
+  BookingOrigin,
+  BookingState,
+  DemandPostState,
+  IntercityDepartureState,
+  IntercityDirection,
+  IntercitySeatId,
+  IntercitySeatLayout,
+  IntercityVehicleKind,
+  PickupStatus,
+  RequestState,
+  SeatPayment,
+  TravellingAs,
+} from '@driver/contracts';
+
+/** The records the routes module stores (in memory, or Prisma: departures + seat_bookings + demand_posts + ride_requests). */
+
+export interface Fix {
+  lat: number;
+  lng: number;
+  at: Date;
+}
+
+export interface WalkUp {
+  seatId: IntercitySeatId;
+  travellingAs: TravellingAs | null;
+  markedAt: Date;
+}
+
+export interface DepartureRecord {
+  id: string;
+  driverId: string;
+  corridorId: string;
+  direction: IntercityDirection;
+  garageId: string;
+  fromCityId: string;
+  toCityId: string;
+  /** Announced time: "leaves at X or when full"; the late-meter reference (decisions §8). */
+  departAt: Date;
+  /** Hard latest departure (review C-31). */
+  latestDepartureAt: Date;
+  announcedAt: Date;
+  state: IntercityDepartureState;
+  layout: IntercitySeatLayout;
+  vehicle: {
+    kind: IntercityVehicleKind;
+    plate: string;
+    model: string | null;
+    color: string | null;
+  };
+  familyOnly: boolean;
+  seatPriceIqd: number;
+  frontPremiumIqd: number;
+  walkUps: WalkUp[];
+  selfieAt: Date | null;
+  selfieRef: string | null;
+  /** First fix inside the 150 m garage geofence (the meter's "driver checked in"). */
+  driverCheckIn: Fix | null;
+  /** First fix outside the geofence after checking in, before departing: the meter freezes there. */
+  driverLeftGeofenceAt: Date | null;
+  /** Bounded trail (checkpoint waiver) and the last fix (riders' live car). */
+  trail: Fix[];
+  lastPosition: Fix | null;
+  boardingAt: Date | null;
+  departedAt: Date | null;
+  arrivedAt: Date | null;
+  closedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelReason: string | null;
+  lowFillCheckedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface PickupRecord {
+  kind: 'garage' | 'meeting_point' | 'door';
+  meetingPointId: string | null;
+  lat: number;
+  lng: number;
+  note: string | null;
+  feeIqd: number;
+  status: PickupStatus;
+  detourMin: number | null;
+}
+
+export interface BookingRecord {
+  id: string;
+  departureId: string;
+  riderId: string;
+  seatIds: IntercitySeatId[];
+  selection: 'seats' | 'row' | 'car';
+  travellingAs: TravellingAs;
+  state: BookingState;
+  origin: BookingOrigin;
+  /** Per seat; a moved rider never pays more than the original seat. */
+  seatPriceIqd: number;
+  frontPremiumIqd: number;
+  pickupFeeIqd: number;
+  payment: SeatPayment | null;
+  prepaid: boolean;
+  trusted: boolean;
+  pin: string;
+  pickup: PickupRecord;
+  largeBags: boolean;
+  heldUntil: Date | null;
+  bookedAt: Date | null;
+  atGarageAt: Date | null;
+  checkedInAt: Date | null;
+  noShowAt: Date | null;
+  completedAt: Date | null;
+  cancelledAt: Date | null;
+  lateMinutes: number | null;
+  demandPostId: string | null;
+  movedFromBookingId: string | null;
+  movedToBookingId: string | null;
+  createdAt: Date;
+}
+
+export interface DemandPostRecord {
+  id: string;
+  riderId: string;
+  corridorId: string;
+  direction: IntercityDirection;
+  garageId: string | null;
+  pickup:
+    | { kind: 'garage'; garageId?: string | undefined }
+    | { kind: 'meeting_point'; meetingPointId: string }
+    | { kind: 'door'; lat: number; lng: number; note?: string | undefined };
+  windowStart: Date;
+  windowEnd: Date;
+  seats: number;
+  travellingAs: TravellingAs;
+  state: DemandPostState;
+  bookingId: string | null;
+  escalatedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface RequestPlaceRecord {
+  label: string;
+  lat?: number | undefined;
+  lng?: number | undefined;
+  garageId?: string | undefined;
+}
+
+export interface RequestOfferRecord {
+  id: string;
+  driverId: string;
+  priceIqd: number;
+  at: Date;
+  state: 'open' | 'picked' | 'withdrawn' | 'lost';
+}
+
+export interface RequestRecord {
+  id: string;
+  riderId: string;
+  from: RequestPlaceRecord;
+  to: RequestPlaceRecord;
+  cityId: string | null;
+  when: Date;
+  seats: number;
+  privateCar: boolean;
+  travellingAs: TravellingAs;
+  note: string | null;
+  state: RequestState;
+  origin: 'rider' | 'stranded';
+  priceCapIqd: number | null;
+  offers: RequestOfferRecord[];
+  pickedOfferId: string | null;
+  depositIqd: number | null;
+  driverArrivedAt: Date | null;
+  driverArrivedPin: { lat: number; lng: number } | null;
+  closedAt: Date | null;
+  createdAt: Date;
+}
+
+/** Booking states that occupy their seats. */
+export const OCCUPYING: readonly BookingState[] = ['held', 'booked', 'checked_in', 'completed'];
+/** Booking states that still hold the rider's money or reservation. */
+export const LIVE: readonly BookingState[] = ['held', 'booked', 'checked_in'];
+/** Departure states a rider can still book into. */
+export const OPEN_DEPARTURE: readonly IntercityDepartureState[] = ['scheduled', 'boarding'];
+
+export function bookingTotal(
+  b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd'>,
+): number {
+  return (
+    b.seatIds.length * b.seatPriceIqd +
+    (b.seatIds.includes('front') ? b.frontPremiumIqd : 0) +
+    b.pickupFeeIqd
+  );
+}
