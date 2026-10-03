@@ -134,6 +134,8 @@ const people = {
   owner: await signIn('07701234567', { name: 'خالد', orgRoles: [{ kind: 'merchant_owner', orgId: khalid.orgId }] }),
   staff: await signIn('07709990000', { name: 'مصطفى', orgRoles: [{ kind: 'merchant_staff', orgId: khalid.orgId }] }),
   courier: await signIn('07701110001', { name: 'حيدر كاظم', roles: ['courier'], vehicle: { vehicleClass: 'bike', plate: 'واسط 45678', label: null } }),
+  intercity: await signIn('07701110003', { name: 'جاسم محمد', roles: ['intercity_driver'] }),
+  tuktuk: await signIn('07701110002', { name: 'عباس فاضل', roles: ['driver'], vehicle: { vehicleClass: 'tuktuk', plate: 'واسط 31207', label: null } }),
 };
 
 // ───────────────────────── optional screenshots ─────────────────────────
@@ -323,10 +325,169 @@ async function foodFlow() {
   return orderId;
 }
 
+// ───────────────────────── flow 2: الرجعة seat ─────────────────────────
+
+const jpegBytes = () => Buffer.from('ffd8ffe000104a46494600010100000100010000ffd9', 'hex');
+
+async function rajaaFlow() {
+  currentFlow = 'rajaa';
+  const { customer, intercity } = people;
+  const GARAGE = 'mp_garage_nahdha';
+  const CORRIDOR = 'aziziyah_baghdad';
+  const garagePin = { lat: 33.3344, lng: 44.4165 };
+
+  step('driver announces a car from كراج النهضة (routes.driver.announce)');
+  const network = await intercity.api.routes.network.query();
+  check(JSON.stringify(network).includes(GARAGE), 'network lists كراج النهضة');
+  const departAt = new Date(Math.ceil((Date.now() + 25 * 60_000) / 300_000) * 300_000);
+  const dep = await intercity.api.routes.driver.announce.mutate({
+    garageId: GARAGE,
+    corridorId: CORRIDOR,
+    departAt,
+    latestDepartureAt: new Date(departAt.getTime() + 40 * 60_000),
+    vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', model: 'كامري', color: 'بيضاء' },
+  });
+  check(dep.id && dep.direction === 'to_aziziyah', `departure ${dep.id} announced, direction ${dep.direction}`);
+  await capture('r1-announced', { customer: '/rajaa', partner: `/intercity/departure/${dep.id}` });
+
+  step('customer finds it on the الرجعة board and books the front seat (cash)');
+  const board = await customer.api.routes.board.query({ corridorId: CORRIDOR, direction: 'to_aziziyah', travellingAs: 'rijal' });
+  check(JSON.stringify(board).includes(dep.id), 'customer board shows the departure');
+  const hold = await customer.api.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['front'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+  check(hold.state === 'held', `seat held (${hold.id}) for 10 minutes`, hold.state);
+  const booked = await customer.api.routes.bookSeat.mutate({ bookingId: hold.id, payment: 'cash' });
+  check(booked.state === 'booked', 'seat booked, cash reservation', booked.state);
+  const pass = await customer.api.routes.boardingPass.query({ bookingId: hold.id });
+  check(/^\d{4}$/.test(pass.pin), `boarding pass PIN ${pass.pin}`);
+  await capture('r2-booked', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+
+  step('driver sees the rider');
+  const dv = await intercity.api.routes.driver.departure.query({ departureId: dep.id });
+  const b = dv.bookings.find((x) => x.bookingId === hold.id);
+  check(b && b.state === 'booked', 'driver departure: the booking is on his car', b);
+  const names = await intercity.api.routes.driver.riders.query({ departureId: dep.id });
+  check(names.some((n) => n.bookingId === hold.id && n.firstName === 'علي'), 'driver manifest: rider first name علي', names);
+
+  step('driver at the garage: position, selfie, PIN check-in, depart');
+  const atGarage = await intercity.api.routes.driver.position.mutate({ departureId: dep.id, lat: garagePin.lat + 0.0003, lng: garagePin.lng });
+  check(atGarage.driverCheckedInAt, 'garage geofence checks the driver in');
+  const jpeg = jpegBytes();
+  const ticket = await intercity.api.places.photoUpload.mutate({ contentType: 'image/jpeg', sizeBytes: jpeg.length });
+  await fetch(/^https?:/.test(ticket.uploadUrl) ? ticket.uploadUrl : `${BASE}${ticket.uploadUrl}`, { method: 'PUT', headers: ticket.headers, body: jpeg });
+  const selfie = await intercity.api.routes.driver.selfie.mutate({ departureId: dep.id, selfieRef: ticket.uploadId });
+  check(selfie.selfieAt, 'run selfie stored (uploaded photo)');
+  const wrong = await intercity.api.routes.driver.checkIn.mutate({ departureId: dep.id, pin: pass.pin === '0000' ? '1111' : '0000' }).then(
+    () => null,
+    (e) => e,
+  );
+  check(wrong?.data?.code === 'pin_invalid', 'a wrong PIN is refused', wrong?.data?.code ?? wrong?.message);
+  const ci = await intercity.api.routes.driver.checkIn.mutate({ departureId: dep.id, pin: pass.pin });
+  check(ci.bookings.find((x) => x.bookingId === hold.id)?.state === 'checked_in', 'PIN check-in: rider on board');
+  const mine = await customer.api.routes.myBookings.query();
+  check(mine.find((x) => x.id === hold.id)?.state === 'checked_in', 'customer bookings: checked in', mine.find((x) => x.id === hold.id)?.state);
+  await capture('r3-checked-in', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+  // Before the departure time a car leaves only when full: three men walk up at the garage.
+  const early = await intercity.api.routes.driver.departure.query({ departureId: dep.id });
+  check(early.departBlockers.some((x) => x.reason === 'too_early_not_full'), 'before its time a half-empty car may not leave (too_early_not_full)');
+  for (const seatId of ['back_left', 'back_middle', 'back_right']) await intercity.api.routes.driver.markWalkUp.mutate({ departureId: dep.id, seatId, travellingAs: 'rijal' });
+  const departed = await intercity.api.routes.driver.depart.mutate({ departureId: dep.id });
+  check(departed.state === 'departed', 'departed', departed.state);
+  const mineAfter = (await customer.api.routes.myBookings.query()).find((x) => x.id === hold.id);
+  console.log(`  · customer booking after departure: ${JSON.stringify({ state: mineAfter?.state, departure: mineAfter?.departure?.state })}`);
+  check(mineAfter && JSON.stringify(mineAfter).includes('departed'), 'customer booking: the car shows as departed', mineAfter?.state);
+  await capture('r4-departed', { customer: `/rajaa/pass/${hold.id}`, partner: `/intercity/departure/${dep.id}` });
+}
+
+// ───────────────────────── flow 3: tuktuk ride ─────────────────────────
+
+async function rideFlow() {
+  currentFlow = 'ride';
+  const { customer, tuktuk } = people;
+  const PICKUP = { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } };
+  const DROPOFF = { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } };
+
+  step('tuktuk driver: check-in, online in الهاشمي');
+  check(await dailyCheckIn(tuktuk), 'daily selfie check-in passes');
+  const st = await tuktuk.api.partner.goOnline.mutate({ cityId: CITY, at: { lat: 32.8975, lng: 45.0655 }, vehicleClass: 'tuktuk' });
+  check(st.online && st.vehicleClass === 'tuktuk', 'online on a tuktuk');
+  const cashBefore = st.cash.heldIqd;
+
+  step('customer asks for a tuktuk (pricing.quote → orders.place type ride)');
+  const quote = await customer.api.pricing.quote.query({
+    cityId: CITY,
+    vertical: 'tuktuk',
+    stops: [
+      { zoneId: PICKUP.zoneKey, type: 'pickup', pin: PICKUP.pin },
+      { zoneId: DROPOFF.zoneKey, type: 'dropoff', pin: DROPOFF.pin },
+    ],
+    options: { doorPickup: false, streetHandover: false },
+    at: new Date(),
+  });
+  const ride = await customer.api.orders.place.mutate({ cityId: CITY, type: 'ride', rideVertical: 'tuktuk', fareIqd: quote.total, quoteId: quote.id, paymentMethod: 'cash', pickup: PICKUP, dropoff: DROPOFF });
+  check(ride.state === 'placed' && ride.totalIqd === quote.total, `ride placed (${ride.id}), fare ${ride.totalIqd}`);
+  await capture('t1-requested', { customer: `/order/${ride.id}`, partner: '/' });
+
+  step('the driver gets the offer');
+  const offer = await until(() => tuktuk.api.partner.currentOffer.query(), { timeoutMs: 8000 });
+  check(offer && offer.vertical === 'tuktuk', 'partner.currentOffer: tuktuk ride offer', offer?.vertical);
+  if (!offer) return;
+  check(offer.collectIqd === ride.totalIqd, `offer: collect ${offer.collectIqd} cash`, offer.collectIqd);
+  await capture('t2-offer', { customer: `/order/${ride.id}`, partner: '/offer' });
+  const resp = await tuktuk.api.dispatch.respond.mutate({ offerId: offer.offerId, accept: true });
+  check(resp.outcome === 'assigned', 'accepted');
+  let t = await customer.api.orders.track.query({ orderId: ride.id });
+  check(t.order.state === 'matched' && t.courier?.firstName === 'عباس', 'customer: matched, driver عباس on his way', { state: t.order.state, courier: t.courier?.firstName });
+
+  step('pickup → drop-off → complete');
+  let job = await tuktuk.api.partner.activeJob.query();
+  const pickup = job.stops.find((s) => s.type === 'pickup');
+  const drop = job.stops.find((s) => s.type === 'dropoff');
+  await tuktuk.api.trips.reportPosition.mutate({ pin: PICKUP.pin, at: new Date(), speedKmh: 0 });
+  await tuktuk.api.trips.arrive.mutate({ tripId: job.tripId, stopId: pickup.stopId, pin: PICKUP.pin, occurredAt: new Date() });
+  t = await customer.api.orders.track.query({ orderId: ride.id });
+  check(t.trip?.state === 'arrived_pickup', 'customer: driver at the pickup', t.trip?.state);
+  await capture('t3-arrived', { customer: `/order/${ride.id}`, partner: '/job' });
+  await tuktuk.api.trips.completeStop.mutate({ tripId: job.tripId, stopId: pickup.stopId, handover: {}, occurredAt: new Date() });
+  await tuktuk.api.trips.reportPosition.mutate({ pin: DROPOFF.pin, at: new Date(), speedKmh: 0 });
+  await tuktuk.api.trips.arrive.mutate({ tripId: job.tripId, stopId: drop.stopId, pin: DROPOFF.pin, occurredAt: new Date() });
+  job = await tuktuk.api.partner.activeJob.query();
+  console.log(`  · drop-off collect ${job?.stops.find((s) => s.stopId === drop.stopId)?.collectIqd}`);
+  await tuktuk.api.trips.completeStop.mutate({ tripId: job.tripId, stopId: drop.stopId, handover: { cashCollectedIqd: ride.totalIqd }, occurredAt: new Date() });
+  t = await customer.api.orders.track.query({ orderId: ride.id });
+  check(t.order.state === 'completed', 'customer: ride completed', t.order.state);
+  const status = await until(
+    async () => {
+      const s = await tuktuk.api.partner.status.query();
+      return s.cash.heldIqd > cashBefore ? s : null;
+    },
+    { timeoutMs: 5000 },
+  );
+  check(status, `partner: cash held rises after the ride (${cashBefore} → ${status?.cash.heldIqd})`);
+  await capture('t4-completed', { customer: `/order/${ride.id}`, partner: '/' });
+
+  step('customer rates the driver');
+  const rated = await customer.api.orders.rate.mutate({ orderId: ride.id, delivery: 5 });
+  check(rated.rating?.delivery === 5, 'orders.rate stored on the ride', rated.rating);
+  await tuktuk.api.partner.goOffline.mutate({});
+}
+
 // ───────────────────────── run ─────────────────────────
 
 try {
-  if (FLOWS.has('food')) await foodFlow();
+  for (const [name, fn] of [
+    ['food', foodFlow],
+    ['rajaa', rajaaFlow],
+    ['ride', rideFlow],
+  ]) {
+    if (!FLOWS.has(name)) continue;
+    try {
+      await fn();
+    } catch (err) {
+      failures += 1;
+      console.error(`\n[${currentFlow}] crashed:`, err?.stack ?? err);
+      results.push({ flow: currentFlow, ok: false, what: `crash: ${err?.message ?? err}` });
+    }
+  }
 } catch (err) {
   failures += 1;
   console.error(`\n[${currentFlow}] crashed:`, err?.stack ?? err);
