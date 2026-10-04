@@ -36,8 +36,8 @@ everything feel like one premium product; then the signature moments make it unm
 2. **Missed orders never vanish silently** — M-01: missed-order strip and counter, record kept.
 3. **Offline everywhere** — C-17, P-09, M-08, K-06, S-07: network detection, one shared offline
    banner, queued driver actions, skeleton timeouts, Arabic network errors, no false "live" dot.
-4. **SOS** — P-02: real 3-second-hold SOS on every active trip (job, الرجعة, private ride, خطوط) or
-   hide it until ops can answer (decision below).
+4. **SOS** — P-02: deferred by Ali (decision 3 below): the button stays as a reminder; build the real
+   3-second-hold SOS before launch.
 5. **Dead affordances** — C-01 search, C-02 "شوف الكل", C-03 "قريباً" tiles with "خبرني".
 6. **One cash truth** — P-05, P-06, M-07, C-11, C-04: one "لازم تسلّم" number, honest cap colours,
    amounts on hand-over sheets, explained negative balances, cash amount on the customer's arrival
@@ -78,18 +78,15 @@ everything feel like one premium product; then the signature moments make it unm
 - **Aziziyah landmarks as the address system** (customer d-4) and a welcome that is a map of home (d-6).
 - **"Why was I paid this"** receipt (partner S-7), merchant and Console moments (merchant-and-console §8).
 
-## Decisions for Ali
-1. **Rounding (C-07)** — today the deal total rounds *up* ("تقريب +200"), which reads as a hidden fee.
-   Options: round down in the customer's favour (≤ 249 per order); keep it but label it
-   "تقريب للكاش" for cash only; or round to 250 and put the remainder in the wallet like change.
-   Recommended: the wallet option.
-2. **One-tap accept (M-12)** — restaurants accept with their usual time in one tap and can add "+5 د"
-   once afterwards (the customer is told). Changes the promised-time rule.
-3. **SOS (P-02)** — build the real SOS now (needs a dispatcher on shift to answer every alert, plus
-   an emergency-contact flow), or hide the button until ops is ready. Recommended: build it; launch
-   week already has dispatchers on every shift.
-4. **Guest browsing (C-18)** — let people browse restaurants and menus before giving a phone number,
-   asking for it only at checkout. Recommended: yes.
+## Decisions (Ali, 2026-10-04)
+1. **Rounding (C-07): yes to the wallet option.** Totals round to 250; the remainder goes to the
+   customer's wallet like change, shown as "الباقي رصيد" (no "تقريب +" line that raises the total).
+2. **One-tap accept (M-12): yes.** "اقبل · 15 د" accepts with the store's usual prep time (busy adds
+   10); one "+5 د" allowed afterwards, and the customer is told "المطعم زاد 5 دقايق".
+3. **SOS (P-02): keep the button as it is for now, as a reminder.** Not built in Phase 1; stays an
+   open item that must be built before launch (needs a dispatcher answering every alert).
+4. **Guest browsing (C-18): yes.** Home, restaurants and menus are public; the phone number is asked at
+   "كمّل الطلب" / "احجز", with "ما وصلك؟ دزلي على واتساب" after 30 s on the OTP screen.
 
 ## Process notes
 Demo scripts the auditors had to patch (fix before the next round): customer `demo-api.mjs`
