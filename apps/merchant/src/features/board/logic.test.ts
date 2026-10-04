@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardOrder } from '@driver/contracts';
-import { cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, partialValid, rejectReasonValue, splitColumns, unacknowledged } from './logic';
+import { canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, oneTapPrep, partialValid, rejectReasonValue, splitColumns, unacknowledged } from './logic';
 
 const T0 = Date.parse('2026-10-03T17:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000);
@@ -87,5 +87,22 @@ describe('board logic', () => {
     expect(partialValid(new Set(), ['l1', 'l2'])).toBe(false);
     expect(partialValid(new Set(['l1', 'l2']), ['l1', 'l2'])).toBe(false);
     expect(partialValid(new Set(['zz']), ['l1', 'l2'])).toBe(false);
+  });
+
+  it('one tap accepts with the usual prep time; busy adds 10 to what the customer sees (M-12)', () => {
+    expect(oneTapPrep(15, false)).toEqual({ prepMinutes: 15, shown: 15 });
+    // The server adds the busy minutes itself: we send the usual time and show the committed one.
+    expect(oneTapPrep(15, true)).toEqual({ prepMinutes: 15, shown: 25 });
+    expect(oneTapPrep(2, false)).toEqual({ prepMinutes: 5, shown: 5 });
+    expect(oneTapPrep(17.6, false)).toEqual({ prepMinutes: 18, shown: 18 });
+  });
+
+  it('"+5 د" once, only on an accepted order still being prepared', () => {
+    expect(canExtendPrep(card('a', { column: 'preparing', promisedReadyAt: at(10) }))).toBe(true);
+    expect(canExtendPrep(card('a', { column: 'preparing', promisedReadyAt: at(10), prepExtended: false }))).toBe(true);
+    expect(canExtendPrep(card('a', { column: 'preparing', promisedReadyAt: at(10), prepExtended: true }))).toBe(false);
+    expect(canExtendPrep(card('a', { column: 'new' }))).toBe(false);
+    expect(canExtendPrep(card('a', { column: 'ready', promisedReadyAt: at(10) }))).toBe(false);
+    expect(canExtendPrep(card('a', { column: 'preparing', promisedReadyAt: null }))).toBe(false);
   });
 });

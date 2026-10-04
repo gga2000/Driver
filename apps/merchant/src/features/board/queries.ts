@@ -64,6 +64,8 @@ export function useOrderActions() {
     accept: useMutation({ ...api.orders.merchant.accept.mutationOptions(), onSettled: refresh }),
     reject: useMutation({ ...api.orders.merchant.reject.mutationOptions(), onSettled: refresh }),
     ready: useMutation({ ...api.orders.merchant.ready.mutationOptions(), onSettled: refresh }),
+    /** "+5 د" once per order (M-12): moves the promised time; the customer is told. */
+    extend: useMutation({ ...api.orders.merchant.extendPrep.mutationOptions(), onSettled: refresh }),
   };
 }
 

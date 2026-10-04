@@ -15,6 +15,7 @@ import {
   type MerchantOrgInput,
   type MerchantPort,
   type MerchantStore,
+  type MissedSummary,
   type Order,
   type RoleKind,
   type SetBusyInput,
@@ -30,7 +31,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
 import type { MerchantSettings, Org } from '../orgs/index.js';
-import { courierView, sortBoard, toBoardOrder } from './board.js';
+import { courierView, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
 /**
@@ -39,6 +40,8 @@ import { busyUntilFor, toStoreStatus } from './status.js';
  */
 export interface MerchantOrdersPort {
   listActive(filter: { merchantOrgId: string }): Promise<Order[]>;
+  /** The store's orders placed in `[from, to)` — today's misses for the board (M-01). Optional for fakes. */
+  merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
 }
 export interface MerchantTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -130,7 +133,19 @@ export class MerchantService implements MerchantPort {
       const card = toBoardOrder({ order, itemNames: names, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
       if (card) cards.push(card);
     }
-    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards) };
+    const missed = await this.missedToday(org, now);
+    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}) };
+  }
+
+  /** Orders that left today without the kitchen's answer (M-01): they never vanish silently. */
+  private async missedToday(org: Org, now: Date): Promise<MissedSummary | null> {
+    if (!this.orders.merchantOrders) return null;
+    const local = localClock(now, DEFAULT_TIMEZONE);
+    const from = new Date(Math.floor((now.getTime() - local.minutes * 60_000) / 60_000) * 60_000);
+    const today = await this.orders.merchantOrders(org.id, { from, to: new Date(now.getTime() + 1) });
+    const s = await this.stores.merchantSettings(org.id);
+    const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
+    return missedSummary(today, (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null);
   }
 
   async storeStatus(actor: Actor, input: MerchantOrgInput): Promise<StoreStatusView> {

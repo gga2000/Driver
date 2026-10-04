@@ -116,8 +116,38 @@ export const BoardOrder = z.object({
   /** Past the promised ready time (preparing) — the card turns warning. */
   late: z.boolean(),
   catering: z.boolean(),
+  /** The kitchen already used its one "+5 د" on this order (MERCHANT_PREP_EXTENSION). */
+  prepExtended: z.boolean().optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
+
+/**
+ * Why an order left the board without the kitchen answering it (M-01): nobody accepted within the
+ * 90 s (`merchant_timeout`, auto-rejected), or the customer let a partial accept lapse
+ * (`partial_timeout`). Both cancel the order for the customer, who sees it on the live screen.
+ */
+export const MissedReason = z.enum(['merchant_timeout', 'partial_timeout']);
+export type MissedReason = z.infer<typeof MissedReason>;
+
+export const MissedOrder = z.object({
+  orderId: z.string(),
+  number: z.string(),
+  reason: MissedReason,
+  placedAt: z.coerce.date(),
+  missedAt: z.coerce.date(),
+  itemCount: z.number().int(),
+  totalIqd: Iqd,
+  /** False when the miss fell inside a declared pause window (prayer, holiday): it does not count against the store. */
+  scored: z.boolean(),
+});
+export type MissedOrder = z.infer<typeof MissedOrder>;
+
+/** Today's misses (Baghdad day), newest first; the board keeps them visible until the kitchen taps "تمام". */
+export const MissedSummary = z.object({
+  today: z.number().int(),
+  orders: z.array(MissedOrder),
+});
+export type MissedSummary = z.infer<typeof MissedSummary>;
 
 export const MerchantBoard = z.object({
   merchantOrgId: z.string(),
@@ -125,6 +155,8 @@ export const MerchantBoard = z.object({
   now: z.coerce.date(),
   acceptWindowSec: z.number().int(),
   orders: z.array(BoardOrder),
+  /** Orders missed today (M-01): they never vanish silently. */
+  missed: MissedSummary.optional(),
 });
 export type MerchantBoard = z.infer<typeof MerchantBoard>;
 

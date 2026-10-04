@@ -110,6 +110,17 @@ export function secondsLeft(expiresAt: Date, now: number): number {
 /** Offers count as seen after 3 s in the foreground (edge-case §6). */
 export const OFFER_SEEN_AFTER_MS = 3_000;
 
+/** Signature S-1: in the last 5 seconds a `warning` haptic every second, on top of the looping sound. */
+export const OFFER_WARN_FROM_S = 5;
+export function offerWarnTick(secondsLeftNow: number): boolean {
+  return secondsLeftNow > 0 && secondsLeftNow <= OFFER_WARN_FROM_S;
+}
+
+/** Keep the screen on while he can get an offer or is on a job (P-01). */
+export function keepScreenOn(s: { online: boolean; activeTripId: string | null } | undefined): boolean {
+  return Boolean(s && (s.online || s.activeTripId));
+}
+
 /**
  * The one button on the job screen: what it says and what it does for the current stop.
  * pending → "وصلت للمطعم/للزبون" (trips.arrive); arrived → "استلمت/سلّمت" (trips.completeStop).

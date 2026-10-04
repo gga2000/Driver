@@ -7,6 +7,9 @@ import {
   type BoardLine,
   type BoardOrder,
   type LatLng,
+  type MissedOrder,
+  type MissedReason,
+  type MissedSummary,
   type Order,
   type OrderState,
   type Trip,
@@ -160,7 +163,37 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     courier,
     late: column === 'preparing' && o.promisedReadyAt !== null && now.getTime() > o.promisedReadyAt.getTime(),
     catering: o.cateringRequest,
+    prepExtended: o.prepExtendedAt != null,
   };
+}
+
+/** How many misses the board lists (the count covers the whole day). */
+export const MISSED_LIST_MAX = 10;
+
+/** Why an order left without the kitchen's answer, or null when it didn't (M-01). */
+export function missedReason(o: Pick<Order, 'state' | 'cancellationReason'>): MissedReason | null {
+  if (o.state === 'merchant_rejected' && o.cancellationReason === 'merchant_timeout') return 'merchant_timeout';
+  if (o.state === 'platform_cancelled' && o.cancellationReason === 'partial_timeout') return 'partial_timeout';
+  return null;
+}
+
+/**
+ * Today's missed orders for the board's "طلبات فاتتك" strip (M-01), newest first. `today` counts the
+ * kitchen's own misses (nobody accepted in 90 s); a partial accept the customer let lapse is listed so
+ * the kitchen knows what happened, but it is not the kitchen's miss. `inPause` says whether a miss fell
+ * in a declared pause window (those don't count against the store, review A.1).
+ */
+export function missedSummary(orders: readonly Order[], inPause: (at: Date) => boolean): MissedSummary {
+  const missed: MissedOrder[] = [];
+  for (const o of orders) {
+    const reason = missedReason(o);
+    if (!reason) continue;
+    const missedAt = o.cancelledAt ?? o.placedAt;
+    const itemCount = o.lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);
+    missed.push({ orderId: o.id, number: ticketNumber(o.id), reason, placedAt: o.placedAt, missedAt, itemCount, totalIqd: o.totalIqd, scored: reason === 'merchant_timeout' && !inPause(missedAt) });
+  }
+  missed.sort((a, b) => b.missedAt.getTime() - a.missedAt.getTime() || b.orderId.localeCompare(a.orderId));
+  return { today: missed.filter((m) => m.reason === 'merchant_timeout').length, orders: missed.slice(0, MISSED_LIST_MAX) };
 }
 
 /**

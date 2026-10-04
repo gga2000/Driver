@@ -134,6 +134,26 @@ describe('MerchantService — board', () => {
     await h.pickup(trip.id);
     expect((await svc.board(staff, { merchantOrgId: khalid.id })).orders).toEqual([]);
   });
+
+  it('an order nobody accepted in 90 s leaves the columns but stays on the board as a miss (M-01)', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).missed).toEqual({ today: 0, orders: [] });
+    await h.advance(90_000);
+    const board = await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(board.orders).toEqual([]);
+    expect(board.missed?.today).toBe(1);
+    expect(board.missed?.orders[0]).toMatchObject({ orderId: placed.id, reason: 'merchant_timeout', scored: true, missedAt: h.clock.now() });
+  });
+
+  it('the "+5 د" shows on the card once used', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    await h.orders.merchantAccept('s1', { orderId: placed.id, prepMinutes: 15 });
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).orders[0]).toMatchObject({ prepExtended: false, prepMinutes: 15 });
+    await h.orders.merchantExtendPrep('s1', { orderId: placed.id });
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).orders[0]).toMatchObject({ prepExtended: true, prepMinutes: 20 });
+  });
 });
 
 describe('MerchantService — store status, busy mode, early close, printer', () => {

@@ -24,6 +24,7 @@ export const NOTIFY_SUBSCRIBER = 'notify:deliveries';
 export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
   'order.auto_accepted',
+  'order.prep_extended',
   'order.offered_to_merchant',
   'order.delivered',
   'order.completed',
@@ -63,6 +64,13 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!order || order.type === 'ride') return [];
       const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? '') : '';
       return [{ ...base, template: 'order_accepted', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'order.prep_extended': {
+      // M-12: the kitchen's one "+5 د" — "المطعم زاد 5 دقايق" to the customer.
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type === 'ride') return [];
+      const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? '') : '';
+      return [{ ...base, template: 'order_prep_extended', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.offered_to_merchant': {
       const order = e.orderId ? await L.order(e.orderId) : null;

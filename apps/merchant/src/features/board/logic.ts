@@ -42,6 +42,20 @@ export function committedPrep(picked: number, busyOn: boolean): number {
   return picked + (busyOn ? MERCHANT_BUSY_RULES.extraPrepMinutes : 0);
 }
 
+/**
+ * One-tap accept (M-12, approved by Ali): "اقبل · 15 د" accepts with the store's usual prep time. The
+ * server adds the busy minutes itself, so we send the usual time and show what the customer will see.
+ */
+export function oneTapPrep(usualMinutes: number, busyOn: boolean): { prepMinutes: number; shown: number } {
+  const prepMinutes = clampPrep(usualMinutes);
+  return { prepMinutes, shown: committedPrep(prepMinutes, busyOn) };
+}
+
+/** "+5 د": once per order, on an accepted order still being prepared (the server enforces it too). */
+export function canExtendPrep(o: Pick<BoardOrder, 'column' | 'promisedReadyAt' | 'prepExtended'>): boolean {
+  return o.column === 'preparing' && o.promisedReadyAt !== null && o.prepExtended !== true;
+}
+
 export type CardTiming =
   | { kind: 'since'; minutes: number }
   | { kind: 'ready_in'; minutes: number }

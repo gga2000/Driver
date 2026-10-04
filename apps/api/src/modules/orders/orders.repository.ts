@@ -36,6 +36,8 @@ export interface OrderRecord {
   scheduledFor: Date | null;
   merchantOfferedAt: Date | null;
   promisedReadyAt: Date | null;
+  /** When the kitchen used its one "+5 د" (`orders.prep_extended_at`); absent/null = not used. */
+  prepExtendedAt?: Date | null;
   minVehicleClass: VehicleClass | null;
   /** Customer's delivery point (`orders.dropoff`, JSON); dispatch builds the courier trip's drop-off stop from it. */
   dropoff: DeliveryPoint | null;
@@ -108,6 +110,7 @@ export type NewOrder = Omit<
   | 'rating'
   | 'merchantOfferedAt'
   | 'promisedReadyAt'
+  | 'prepExtendedAt'
   | 'refundState'
   | 'receiptTotalIqd'
 >;
@@ -186,6 +189,7 @@ function orderFromRow(r: any): OrderRecord {
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
+    prepExtendedAt: r.prepExtendedAt ?? null,
     minVehicleClass: r.minVehicleClass,
     dropoff: (r.dropoff as DeliveryPoint | null) ?? null,
     placedAt: r.placedAt,
@@ -382,6 +386,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       ratedAt: null,
       merchantOfferedAt: null,
       promisedReadyAt: null,
+      prepExtendedAt: null,
       refundState: 'none',
       receiptTotalIqd: null,
     };

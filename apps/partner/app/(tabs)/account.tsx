@@ -1,13 +1,14 @@
 import { router, type Href } from 'expo-router';
 import { View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
-import { Avatar, Button, Card, ListRow, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
+import { Avatar, Button, Card, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
 import { unregisterPush } from '@/features/notify/Push';
 import { useMe, useStatus } from '@/features/work/queries';
+import { playTestSound } from '@/lib/alert';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { session } from '@/lib/session';
@@ -33,6 +34,7 @@ export default function Account() {
   const me = useMe().data;
   const s = useStatus().data;
   const client = useApiClient();
+  const toast = useToast();
   const modes = s?.modes ?? [];
   const tier = s?.tier ?? 'bronze';
   const invites = splitInvites(useFleetInvites(s?.canDrive ?? false).data ?? []);
@@ -48,6 +50,11 @@ export default function Account() {
     { key: 'fleet', icon: 'car', title: t('partner.hub_fleet'), subtitle: t('partner.hub_fleet_sub'), href: '/fleet', mode: 'fleet' },
     { key: 'ops', icon: 'map-pin', title: t('partner.hub_ops'), subtitle: t('partner.hub_ops_sub'), href: '/ops', mode: 'ops' },
   ].filter((r) => !r.mode || modes.includes(r.mode as PartnerMode)) as HubRow[];
+
+  const testSound = async () => {
+    const ok = await playTestSound();
+    if (!ok) toast.show({ message: t('partner.test_sound_blocked'), tone: 'warning' });
+  };
 
   const signOut = async () => {
     const refreshToken = session.getSnapshot().session?.refreshToken;
@@ -84,6 +91,24 @@ export default function Account() {
 
       <Section title={t('partner.hub_work')} rows={work} />
       {more.length > 0 ? <Section title={t('partner.hub_more')} rows={more} /> : null}
+
+      {/* "جرّب صوت الطلب" (S-01): the real offer doorbell, so he knows it rings before the first offer. */}
+      <View style={{ gap: theme.space[2] }}>
+        <Text variant="label" color="textMuted" style={{ paddingHorizontal: theme.space[1] }}>
+          {t('partner.hub_alerts')}
+        </Text>
+        <Card elevation={0} padding={0}>
+          <ListRow
+            testID="test-sound"
+            leading="bell"
+            title={t('partner.test_sound')}
+            subtitle={t('partner.test_sound_sub')}
+            onPress={() => void testSound()}
+            chevron={false}
+            trailing={<Button testID="test-sound-play" label={t('partner.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void testSound()} />}
+          />
+        </Card>
+      </View>
 
       <Button testID="sign-out" label={t('partner.sign_out')} variant="ghost" fullWidth onPress={() => void signOut()} />
     </Screen>

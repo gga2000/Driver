@@ -8,10 +8,10 @@ import type { PartnerOffer } from '@driver/contracts';
 import { Button, CountdownRing, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
-import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { MetaChip, PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
-import { playOfferChime } from '@/lib/alert';
+import { startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -57,16 +57,21 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const startedAt = offer.expiresAt.getTime() - durationMs;
   const [left, setLeft] = useState(() => secondsLeft(offer.expiresAt, Date.now()));
 
-  // Alert: heavy haptic + chime on arrival, again with 5 s left.
+  // Alert (P-01): heavy haptic, then the doorbell and the vibration loop until he answers or the
+  // offer goes (silent mode included on the phone); the last 5 s add a warning haptic every second.
   useEffect(() => {
     theme.haptic('heavy');
-    playOfferChime();
+    startOfferAlert();
     const id = setInterval(() => setLeft(secondsLeft(offer.expiresAt, Date.now())), 250);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      stopOfferAlert();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.offerId]);
   useEffect(() => {
-    if (left === 5) playOfferChime();
+    if (offerWarnTick(left) && !answered.current) theme.haptic('warning');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 
   // Seen = 3 s with the app in the foreground (edge-case §6). Counted only while active.
@@ -94,6 +99,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const answer = async (accept: boolean) => {
     if (answered.current) return;
     answered.current = true;
+    stopOfferAlert();
     try {
       await respond.mutateAsync({ offerId: offer.offerId, accept });
       qc.setQueryData(api.partner.currentOffer.queryKey(), null);
@@ -120,6 +126,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const onExpire = () => {
     if (answered.current) return;
     answered.current = true;
+    stopOfferAlert();
     toast.show({ message: t('partner.offer_missed'), tone: 'warning', icon: 'clock' });
     qc.setQueryData(api.partner.currentOffer.queryKey(), null);
     void refresh();

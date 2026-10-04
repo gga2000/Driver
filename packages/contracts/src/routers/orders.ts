@@ -5,6 +5,7 @@ import {
   CancellationFee,
   ListActiveOrdersInput,
   MerchantAcceptInput,
+  MerchantExtendPrepInput,
   MerchantHeartbeatInput,
   MerchantRejectInput,
   OpenDisputeInput,
@@ -61,5 +62,7 @@ export const ordersRouter = router({
     preparing: protectedProcedure(MERCHANT_ROLES).input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.markPreparing(ctx.actor, input)),
     ready: protectedProcedure(MERCHANT_ROLES).input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.markReady(ctx.actor, input)),
     heartbeat: protectedProcedure(MERCHANT_ROLES).input(MerchantHeartbeatInput).output(Ok).mutation(({ ctx, input }) => ctx.orders.merchantHeartbeat(ctx.actor, input)),
+    /** "+5 د" once per accepted order: moves the promised ready time and tells the customer. */
+    extendPrep: protectedProcedure(MERCHANT_ROLES).input(MerchantExtendPrepInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantExtendPrep(ctx.actor, input)),
   }),
 });

@@ -1,8 +1,8 @@
 import { Pressable, Switch, View } from 'react-native';
-import { Text, useTheme } from '@driver/ui';
+import { Button, Text, useTheme, useToast } from '@driver/ui';
 import { EntryTile } from '@/components/EntryTile';
 import { Page } from '@/components/Page';
-import { playNewOrder, unlock } from '@/lib/alert-sound';
+import { testChime } from '@/lib/alert-sound';
 import { useT } from '@/lib/i18n';
 import { prefs, usePrefs, type AppLocale } from '@/lib/prefs';
 import { color } from '@driver/design-tokens';
@@ -26,6 +26,11 @@ export default function Settings() {
   const theme = useTheme();
   const t = useT();
   const p = usePrefs();
+  const toast = useToast();
+  const test = async () => {
+    const ok = await testChime();
+    if (!ok) toast.show({ message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });
+  };
   const langs: readonly { value: AppLocale; label: string }[] = [
     { value: 'ar-IQ', label: t('merchant.settings.lang_ar') },
     { value: 'en', label: t('merchant.settings.lang_en') },
@@ -36,11 +41,16 @@ export default function Settings() {
         icon="volume"
         title={t('merchant.settings.sound')}
         hint={t('merchant.settings.sound_hint')}
-        onPress={() => {
-          unlock();
-          playNewOrder();
-        }}
         trailing={<Toggle testID="setting-sound" value={p.soundOn} onChange={(v) => void prefs.setSound(v)} />}
+      />
+      {/* "جرّب الصوت": the real new-order chime at full volume (S-01). */}
+      <EntryTile
+        icon="bell"
+        testID="test-sound"
+        title={t('merchant.settings.test_sound')}
+        hint={t('merchant.settings.test_sound_hint')}
+        onPress={() => void test()}
+        trailing={<Button testID="test-sound-play" label={t('merchant.settings.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void test()} />}
       />
       <EntryTile icon="printer" title={t('merchant.settings.auto_print')} trailing={<Toggle testID="setting-autoprint" value={p.autoPrint} onChange={(v) => void prefs.setAutoPrint(v)} />} />
       <View style={{ gap: theme.space[2] }}>

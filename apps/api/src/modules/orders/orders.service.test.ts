@@ -461,3 +461,57 @@ describe('OrdersService — merchant heartbeat and courier release (review A.2)'
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(0);
   });
 });
+
+describe('OrdersService — "+5 د" after accepting (M-12, Ali 2026-10-04)', () => {
+  async function accepted(prepMinutes = 10) {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes });
+    const t = await h.tripFor(o.id);
+    return { h, o, t, promised: (await h.orders.get(o.id)).promisedReadyAt! };
+  }
+
+  it('moves the promised ready time by 5 minutes once and tells the customer', async () => {
+    const { h, o, promised } = await accepted();
+    await h.advance(3 * MIN);
+    const after = await h.orders.merchantExtendPrep('m1', { orderId: o.id });
+    expect(after.promisedReadyAt).toEqual(new Date(promised.getTime() + 5 * MIN));
+    expect(after.prepExtendedAt).toEqual(h.clock.now());
+    expect(h.events.last('order.prep_extended')!.payload).toEqual({
+      merchantOrgId: 'rest_1',
+      minutes: 5,
+      from: promised.toISOString(),
+      promisedReadyAt: new Date(promised.getTime() + 5 * MIN).toISOString(),
+    });
+  });
+
+  it('works while preparing too, and only once: the second is prep_already_extended', async () => {
+    const { h, o } = await accepted();
+    await h.orders.markPreparing('m1', { orderId: o.id });
+    expect(await code(h.orders.merchantExtendPrep('m1', { orderId: o.id }))).toBe('ok');
+    expect(await code(h.orders.merchantExtendPrep('m1', { orderId: o.id }))).toBe('prep_already_extended');
+    expect(h.events.ofType('order.prep_extended')).toHaveLength(1);
+  });
+
+  it('only on an accepted order still in the kitchen', async () => {
+    const h = ordersHarness();
+    const placed = await h.orders.place('c1', h.foodInput());
+    expect(await code(h.orders.merchantExtendPrep('m1', { orderId: placed.id }))).toBe('order_state_conflict');
+    const { h: h2, o } = await accepted();
+    await h2.orders.markReady('m1', { orderId: o.id });
+    expect(await code(h2.orders.merchantExtendPrep('m1', { orderId: o.id }))).toBe('order_state_conflict');
+  });
+
+  it('the overdue check and the courier release move with the new promise', async () => {
+    const { h, o, t } = await accepted(10);
+    await h.orders.merchantExtendPrep('m1', { orderId: o.id });
+    // Old promise + 10 min (20 min in): nothing — that check is stale now.
+    await h.advance(20 * MIN);
+    expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(0);
+    // New promise + 10 min (25 min in): the dispatcher card; + 15 (30 min in): the courier is released.
+    await h.advance(5 * MIN);
+    expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(1);
+    await h.advance(5 * MIN);
+    expect(h.events.last('order.courier_released')!.payload).toMatchObject({ tripId: t.id, chargedTo: 'merchant' });
+  });
+});

@@ -12,6 +12,9 @@
 //   export const name = 'core';                       // group; files are written as <name>-<shot>.png
 //   export default async function run(s) { const p = await s.signIn('07701110001'); await p.shot('home'); }
 //
+// s.signIn(phone, { prePrompt: true }) / s.openPage({ prePrompt: true }) keep the notification pre-prompt
+// (skipped by default so it can't swallow the first tap). p.goto(path) and p.reload() wait for "load".
+//
 // SHOTS=core,earnings (comma list of module names, default all) runs only those modules.
 // DIST_DIR and DEMO_API override the export folder and the demo API origin.
 // Exits non-zero on console errors or a missing screen.
@@ -54,9 +57,15 @@ async function demoPost(path) {
   return JSON.parse(body);
 }
 
-/** A fresh browser context (own localStorage = own session) with screenshot helpers. */
-async function openPage(group) {
+/**
+ * A fresh browser context (own localStorage = own session) with screenshot helpers. The "لا يفوتك طلب"
+ * notification pre-prompt is marked as answered before the app loads (it would otherwise open on home
+ * and swallow the first tap); `{ prePrompt: true }` keeps it, to shoot the prompt itself. The app's
+ * behaviour is unchanged: this only pre-sets the same device record a real "بعدين" tap writes.
+ */
+async function openPage(group, { prePrompt = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  if (!prePrompt) await context.addInitScript(() => localStorage.setItem('driver.partner.push-preprompt', String(Date.now())));
   const page = await context.newPage();
   page.on('console', (m) => {
     if (m.type() === 'error' && !IGNORED.test(m.text())) errors.push(`[${group}] ${m.text()}`);
@@ -77,8 +86,14 @@ async function openPage(group) {
     async wait(id, timeout = 15_000) {
       await p.byTestId(id).waitFor({ timeout });
     },
+    // Not "networkidle": once signed in the live (SSE) stream keeps the network busy for good.
     async goto(path) {
-      await page.goto(`${origin}${path}`, { waitUntil: 'networkidle' });
+      await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+      await page.waitForTimeout(400);
+    },
+    async reload() {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(400);
     },
     async shot(name, { full = false, settle = 700 } = {}) {
       await p.settle(settle);
@@ -109,8 +124,8 @@ async function openPage(group) {
 }
 
 /** Signs a persona in through the real flow (welcome → phone → OTP dev code) and lands on home or the gate. */
-async function signIn(group, phone) {
-  const p = await openPage(group);
+async function signIn(group, phone, opts = {}) {
+  const p = await openPage(group, opts);
   await p.goto('/');
   await p.wait('welcome-start', 30_000);
   await p.byTestId('welcome-start').click();
@@ -146,8 +161,8 @@ try {
       apiBase,
       outDir,
       demoPost,
-      openPage: () => openPage(mod.name),
-      signIn: (phone) => signIn(mod.name, phone),
+      openPage: (opts) => openPage(mod.name, opts),
+      signIn: (phone, opts) => signIn(mod.name, phone, opts),
     });
   }
 } catch (err) {

@@ -164,6 +164,7 @@ export const ERROR_TABLE = {
   order_cancel_after_pickup: { message_ar: 'ما ينلغي بعد الاستلام. افتح شكوى', message_en: 'Cannot cancel after pickup; open a dispute', retryHint: 'never', status: 'CONFLICT' },
   partial_accept_not_pending: { message_ar: 'ما أكو تعديل بانتظار موافقتك', message_en: 'No partial acceptance is awaiting approval', retryHint: 'never', status: 'CONFLICT' },
   partial_accept_invalid: { message_ar: 'الأسطر المختارة مو صحيحة', message_en: 'Invalid unavailable lines', retryHint: 'never', status: 'BAD_REQUEST' },
+  prep_already_extended: { message_ar: 'زدت 5 دقايق على هذا الطلب قبل. إذا تحتاج وقت أكثر، كلّم الدعم', message_en: 'Prep time was already extended once on this order', retryHint: 'support', status: 'CONFLICT' },
   dispute_window_closed: { message_ar: 'انتهى وقت الشكوى. تواصل ويا الدعم', message_en: 'Dispute window closed; contact support', retryHint: 'support', status: 'CONFLICT' },
 
   // chat, masked calls, share-trip (notifications & support §2, scoring & safety §5)

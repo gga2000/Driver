@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import type { BoardGroup, BoardOrder } from '@driver/contracts';
-import { Button, CountdownRing, StatusPill, Text, useTheme } from '@driver/ui';
+import { Button, CountdownRing, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { clock12, secondsLeft } from '@/lib/time';
-import { cardTiming, courierLine } from './logic';
+import type { AlarmStage } from './ladder';
+import { LADDER } from './ladder';
+import { canExtendPrep, cardTiming, courierLine } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
@@ -15,15 +17,26 @@ export interface OrderCardProps {
   now: number;
   /** Server clock for the accept ring. */
   clock: () => number;
-  /** Still ringing (not accepted/rejected/silenced): pulses. */
+  /** Still ringing (not accepted/rejected/snoozed): pulses. */
   ringing?: boolean;
+  /** Its own alarm stage: in the last 30 s the border and ring turn danger and the card breathes. */
+  stage?: AlarmStage | null;
   /** Cap on item lines shown (the detail sheet shows all). */
   maxLines?: number;
+  /** One-tap accept (M-12): the store's usual prep time, busy minutes included, shown on the button. */
+  oneTapMinutes?: number;
+  /** One tap: accept with the usual time. Without it the button opens the time sheet (`onAccept`). */
+  onAcceptNow?: () => void;
+  /** Opens the time sheet (other prep times, partial accept). */
   onAccept: () => void;
   onReject: () => void;
   onReady: () => void;
   onOpen: () => void;
+  /** "+5 د" once after accepting (M-12). */
+  onExtend?: () => void;
   busyReady?: boolean;
+  busyAccept?: boolean;
+  busyExtend?: boolean;
 }
 
 /** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
@@ -125,7 +138,7 @@ export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLin
   );
 }
 
-function usePulseBorder(active: boolean) {
+function usePulseBorder(active: boolean, fast: boolean) {
   const p = useSharedValue(0);
   useEffect(() => {
     if (!active) {
@@ -133,10 +146,26 @@ function usePulseBorder(active: boolean) {
       p.value = 0;
       return;
     }
-    p.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }), -1, true);
+    p.value = withRepeat(withTiming(1, { duration: fast ? 450 : 900, easing: Easing.inOut(Easing.quad) }), -1, true);
+    return () => cancelAnimation(p);
+  }, [active, fast, p]);
+  return useAnimatedStyle(() => ({ opacity: 0.35 + p.value * 0.65 }));
+}
+
+/** Last 30 s: the card swells 1.00 → 1.02 in 180 ms (ease-out) with each 2-s chime; off with reduce motion. */
+function useBreath(active: boolean) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    if (!active) {
+      cancelAnimation(p);
+      p.value = 0;
+      return;
+    }
+    const swell = withSequence(withTiming(1, { duration: 180, easing: Easing.out(Easing.quad) }), withTiming(0, { duration: 180, easing: Easing.in(Easing.quad) }), withTiming(0, { duration: 1640 }));
+    p.value = withRepeat(swell, -1, false);
     return () => cancelAnimation(p);
   }, [active, p]);
-  return useAnimatedStyle(() => ({ opacity: 0.35 + p.value * 0.65 }));
+  return useAnimatedStyle(() => ({ transform: [{ scale: 1 + p.value * 0.02 }] }));
 }
 
 export function PaymentPill({ order }: { order: BoardOrder }) {
@@ -149,11 +178,13 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
   );
 }
 
-export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, onAccept, onReject, onReady, onOpen, busyReady }: OrderCardProps) {
+export function OrderCard({ order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend }: OrderCardProps) {
   const theme = useTheme();
   const t = useT();
   const isNew = order.column === 'new';
-  const pulse = usePulseBorder(ringing && !theme.reduceMotion);
+  const hot = isNew && (stage === 'urgent' || stage === 'final');
+  const pulse = usePulseBorder(ringing && !theme.reduceMotion, hot);
+  const breath = useBreath(ringing && hot && !theme.reduceMotion);
   const timing = cardTiming(order, now);
   const courier = courierLine(order.courier, now);
   const partialLeft = order.partial ? secondsLeft(order.partial.deadline, now) : 0;
@@ -168,7 +199,7 @@ export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, on
     ) : null;
 
   return (
-    <View testID={`order-${order.number}`} style={{ position: 'relative' }}>
+    <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
       {isNew ? (
         <Animated.View
           pointerEvents="none"
@@ -181,7 +212,7 @@ export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, on
               end: -3,
               borderRadius: theme.radius.xl + 3,
               borderWidth: 3,
-              borderColor: theme.colors.accent,
+              borderColor: hot ? theme.colors.danger : theme.colors.accent,
             },
             pulse,
           ]}
@@ -195,7 +226,7 @@ export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, on
           backgroundColor: theme.colors.surface,
           borderRadius: theme.radius.xl,
           borderWidth: 1,
-          borderColor: order.late ? theme.colors.danger : theme.colors.border,
+          borderColor: order.late || hot ? theme.colors.danger : theme.colors.border,
           padding: theme.space[4],
           gap: theme.space[3],
           shadowColor: isNew ? theme.colors.accent : theme.colors.shadow,
@@ -223,7 +254,7 @@ export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, on
             </Text>
           </View>
           {isNew && order.acceptBy && !order.partial ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
           )}
@@ -255,17 +286,43 @@ export function OrderCard({ order, now, clock, ringing = false, maxLines = 8, on
         ) : null}
 
         {isNew && !order.partial ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
             <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size="lg" onPress={onReject} style={{ flex: 1 }} />
-            <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size="lg" haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
+            {onAcceptNow && oneTapMinutes !== undefined ? (
+              <>
+                <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="lg" haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+                <Pressable
+                  testID={`accept-more-${order.number}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('merchant.accept.more')}
+                  onPress={() => {
+                    theme.haptic('light');
+                    onAccept();
+                  }}
+                  style={({ pressed }) => ({ width: 56, height: 56, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
+                >
+                  <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
+                </Pressable>
+              </>
+            ) : (
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size="lg" haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
+            )}
           </View>
         ) : order.column === 'preparing' ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
+            {onExtend && canExtendPrep(order) ? (
+              <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
+            ) : null}
             <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
             <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} style={{ flex: 2 }} />
           </View>
         ) : null}
+        {order.column === 'preparing' && order.prepExtended ? (
+          <Text variant="caption" color="textMuted" testID={`extended-${order.number}`}>
+            {t('merchant.extend.used')}
+          </Text>
+        ) : null}
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
