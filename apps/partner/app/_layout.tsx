@@ -11,6 +11,7 @@ import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/fe
 import { useJobPositions } from '@/features/work/useJobPositions';
 import { keepScreenOn } from '@/features/work/logic';
 import { useKeepAwakeWhile } from '@/lib/keep-awake';
+import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
@@ -131,6 +132,8 @@ function OfferWatcher() {
   useJobPositions(Boolean(status.data?.activeTripId));
   // Online or on a job: the screen stays on (P-01) — a phone in a mount must not lock between offers.
   useKeepAwakeWhile(keepScreenOn(status.data));
+  // Job taps saved offline are replayed in order as soon as the network is back (P-09).
+  useJobQueueRunner(true);
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);

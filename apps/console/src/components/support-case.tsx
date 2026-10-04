@@ -12,6 +12,7 @@ import { queryRetry } from '@/lib/live';
 import { eventTimeline } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { EventTimeline } from './event-timeline';
 import { AccountName, OrderRef, PersonName } from './named';
 import { Card, Chip, dangerBtn, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Row, useSecondsSince } from './ui';
@@ -184,7 +185,7 @@ function Composer({ ticketId, canned, suggestion, draft, setDraft }: { ticketId:
           {reply.isPending ? t('status.loading') : internal ? t('console.sup_add_note') : t('console.sup_send')}
         </button>
       </div>
-      {reply.error && <p className="mt-1 text-sm text-bad">{reply.error.message}</p>}
+      {reply.error && <p className="mt-1 text-sm text-bad">{errorText(reply.error)}</p>}
     </div>
   );
 }
@@ -293,7 +294,7 @@ function RefundCard({ data }: { data: TicketCase }) {
       <button type="button" className={`${primaryBtn} mt-3 w-full`} disabled={!valid || refund.isPending} onClick={() => refund.mutate({ ticketId: data.ticket.id, amountIqd: n, method, faultParty: method === 'points' ? 'platform' : fault, idempotencyKey: key })}>
         {refund.isPending ? t('status.loading') : t('console.sup_refund_send', { amount: valid ? formatIqd(n) : '—' })}
       </button>
-      {refund.error && <p className="mt-2 text-sm text-bad">{refund.error.message}</p>}
+      {refund.error && <p className="mt-2 text-sm text-bad">{errorText(refund.error)}</p>}
       {data.ticket.refundedIqd > 0 && <p className="mt-2 text-xs text-ok">{t('console.sup_refunded_total', { amount: formatIqd(data.ticket.refundedIqd) })}</p>}
     </Card>
   );

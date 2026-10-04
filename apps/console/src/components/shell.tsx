@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
 import type { ReactNode } from 'react';
 import { NAV } from '@/lib/nav';
+import { NetworkBanner } from './ui';
 import { clearSession, getSession, useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 
@@ -54,6 +55,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main id="main" className="min-w-0 flex-1 p-4 md:p-8">
+        <NetworkBanner />
         {children}
       </main>
     </div>

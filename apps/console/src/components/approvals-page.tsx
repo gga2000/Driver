@@ -9,6 +9,7 @@ import { formatDayClock } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { Card, Chip, dangerBtn, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError } from './ui';
 
 const KINDS: readonly ApprovalKind[] = ['driver_document', 'merchant_deal', 'landmark_photo', 'merchant_onboarding', 'fleet_vehicle'];
@@ -232,7 +233,7 @@ function ApprovalDetail({ item, now, onDecided }: { item: ApprovalItem; now: Dat
           </button>
         </div>
         <div role="status" className="min-h-[1.25rem] text-sm">
-          {decide.error && <p className="text-bad">{decide.error.message}</p>}
+          {decide.error && <p className="text-bad">{errorText(decide.error)}</p>}
         </div>
       </fieldset>
 

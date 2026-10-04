@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem, RestaurantCard } from '@driver/contracts';
-import { Card, Chip, EmptyState, Icon, IconButton, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
 import { CartBar } from '@/features/food/CartBar';
@@ -13,7 +13,8 @@ import { DishCard } from '@/features/food/DishCard';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { useMenu } from '@/features/food/queries';
-import { useT } from '@/lib/i18n';
+import { HeaderBack } from '@/features/food/HeaderBack';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const HERO_H = 210;
@@ -36,6 +37,10 @@ export default function RestaurantScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const menu = useMenu(id);
+  const locale = useLocale();
+  const net = useNetwork();
+  // Skeletons don't wait forever (C-17): after 8 s with no menu they turn into a retry.
+  const [slow, restartSlow] = useLoadTimeout(menu.isPending);
   const cart = useCart();
   const [open, setOpen] = useState<MenuItem | null>(null);
   const [active, setActive] = useState(0);
@@ -97,11 +102,20 @@ export default function RestaurantScreen() {
     }
   };
 
-  if (menu.isError && !menu.data) {
+  if ((menu.isError || slow) && !menu.data) {
+    const kind = retryKindFor({ net, error: menu.error, slow });
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <Stack.Screen options={{ headerShown: true, title: '' }} />
-        <EmptyState icon="bag" title={t('restaurant.load_failed')} action={{ label: t('action.retry'), onPress: () => void menu.refetch() }} />
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }} testID="restaurant-error">
+        <Stack.Screen options={{ headerShown: true, title: '', headerLeft: () => <HeaderBack /> }} />
+        <RetryState
+          kind={kind}
+          locale={locale}
+          {...(kind === 'slow' ? { title: t('food.menu_slow') } : kind === 'server' ? { title: t('restaurant.load_failed') } : {})}
+          onRetry={() => {
+            restartSlow();
+            void menu.refetch();
+          }}
+        />
       </SafeAreaView>
     );
   }

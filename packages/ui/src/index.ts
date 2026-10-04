@@ -34,6 +34,25 @@ export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
+export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
+export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
+export { StaleNote, type StaleNoteProps } from './components/StaleNote';
+
+// Network awareness (offline strip, skeleton timeouts, React Query wiring)
+export {
+  bindOnlineManager,
+  configureNetwork,
+  getNetwork,
+  networkFetch,
+  retryKindFor,
+  useConnectionBanner,
+  useLoadTimeout,
+  useNetwork,
+  useNow,
+  type ConnectionBannerState,
+  type NetworkStatus,
+} from './network/network';
+export { agoText, type AgoT } from './network/ago';
 
 // Logic and formatting (pure, shared with server-rendered receipts and tests)
 export * from './logic/seats';

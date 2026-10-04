@@ -6,8 +6,9 @@ import { formatDayClock, formatIqd } from '@/lib/format';
 import { channelLabel, settleModeLabel } from '@/lib/labels';
 import { queryRetry } from '@/lib/live';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { OrgName, PersonName } from './named';
-import { Card, Chip, primaryBtn, QueryError, Row } from './ui';
+import { Card, Chip, Mono, primaryBtn, QueryError, Row } from './ui';
 
 /**
  * A merchant's live balance (ledger.merchantBalance) with the "اطلب فلوسك" button
@@ -83,7 +84,7 @@ export function MerchantBalanceCard({ merchantId }: { merchantId: string }) {
                 </span>
               </p>
             )}
-            {request.error && <p className="text-bad">{request.error.message}</p>}
+            {request.error && <p className="text-bad">{errorText(request.error)}</p>}
           </div>
         </>
       )}

@@ -1,8 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { transformer, type AppRouter } from '@driver/contracts';
+import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
@@ -33,6 +34,11 @@ export const API_URL: string = process.env.EXPO_PUBLIC_API_URL || 'http://localh
 // Hermes (native) has no ReadableStream; tRPC's SSE consumer needs the small part the ponyfill gives.
 installReadableStreamPolyfill();
 
+// Offline awareness (the shared strip, skeleton timeouts): every request feeds the network monitor, its
+// probe checks this API while it can't be reached, and React Query pauses while the device is offline.
+configureNetwork({ apiUrl: API_URL });
+bindOnlineManager(onlineManager);
+
 /** Browsers keep their EventSource; React Native gets the XHR one (it has none). */
 const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource;
 
@@ -41,12 +47,13 @@ const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: networkFetch })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
     url,
     transformer,
+    fetch: networkFetch,
     async headers() {
       const token = await store.getAccessToken();
       return token ? { authorization: `Bearer ${token}` } : {};
@@ -83,6 +90,9 @@ export function makeQueryClient() {
         // Don't hammer a refused request; the auth link already retried a 401 once.
         retry: (count, err) => count < 2 && !(err instanceof TRPCClientError && (err.data as { httpStatus?: number } | undefined)?.httpStatus === 401),
       },
+      // A tap offline fails at once with a clear message instead of spinning until the network is back
+      // (React Query's default pauses it). Work that must survive offline is queued explicitly.
+      mutations: { networkMode: 'always' },
     },
   });
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
@@ -84,8 +85,13 @@ const subscribeOnline = (cb: () => void) => {
   };
 };
 
+/**
+ * Can the board act? False within seconds of losing the network (M-08): the device's word and every
+ * request feed the shared network monitor; the 30-s heartbeat stays as the backstop.
+ */
 export function useOnline(): boolean {
-  return useSyncExternalStore(subscribeOnline, () => online, () => online);
+  const beat = useSyncExternalStore(subscribeOnline, () => online, () => online);
+  return useNetwork().online && beat;
 }
 
 /**

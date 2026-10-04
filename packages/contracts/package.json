@@ -22,6 +22,10 @@
     "./live-client": {
       "types": "./dist/live-client.d.ts",
       "default": "./dist/live-client.js"
+    },
+    "./net-client": {
+      "types": "./dist/net-client.d.ts",
+      "default": "./dist/net-client.js"
     }
   },
   "scripts": {

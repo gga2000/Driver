@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import type { LaunchService } from '@driver/contracts';
-import { SearchField, Text, useTheme } from '@driver/ui';
+import { SearchField, StaleNote, Text, useLoadTimeout, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
@@ -12,7 +12,7 @@ import { RajaaCard } from '@/features/home/RajaaCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { startRide, WhereToBar } from '@/features/ride/WhereToBar';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { useProfile } from '@/lib/profile';
 
 /**
@@ -32,11 +32,17 @@ export default function Home() {
   const restaurants = useRestaurants();
   const [refreshing, setRefreshing] = useState(false);
 
+  const locale = useLocale();
   const list = restaurants.data;
+  // Offline with nothing cached the query just waits: after 8 s the skeleton becomes the retry card.
+  const [slow, restartSlow] = useLoadTimeout(restaurants.isPending);
   const rail = {
-    loading: restaurants.isPending,
-    error: restaurants.isError,
-    onRetry: () => void restaurants.refetch(),
+    loading: restaurants.isPending && !slow,
+    error: restaurants.isError || slow,
+    onRetry: () => {
+      restartSlow();
+      void restaurants.refetch();
+    },
   };
 
   const onService = (id: ServiceId) => {
@@ -72,6 +78,8 @@ export default function Home() {
       <RajaaCard />
 
       <View onLayout={(e) => (railsY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[6] }}>
+        {/* Offline: what's below is the last copy we had, and says so. */}
+        <StaleNote updatedAt={restaurants.dataUpdatedAt} locale={locale} testID="home-stale" style={{ marginBottom: -theme.space[3] }} />
         {/* Only kitchens this person really ordered from: no rail at all for a new account or a guest. */}
         {list?.some((r) => r.favourite) ? (
           <RestaurantRail testID="rail-favourites" title={t('home.rail_favourites')} restaurants={list.filter((r) => r.favourite)} seeAll="all" {...rail} />

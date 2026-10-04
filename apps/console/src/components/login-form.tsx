@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
 import { useRouter } from 'next/navigation';
 import { useId, useState, type FormEvent } from 'react';
+import { errorText } from '@/lib/network';
 import { setSession } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 
@@ -140,7 +141,7 @@ export function LoginForm() {
       )}
       {error && (
         <p className="mt-4 text-sm text-bad" role="alert">
-          {error.message || t('error.generic')}
+          {errorText(error)}
         </p>
       )}
     </section>

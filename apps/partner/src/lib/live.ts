@@ -2,6 +2,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import type { LiveEvent, LiveKey } from '@driver/contracts';
+import { getNetwork } from '@driver/ui';
 import {
   createLiveConnection,
   isLiveAuthError,
@@ -148,8 +149,16 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
     const appState = AppState.addEventListener('change', (s) => {
       if (s === 'active') conn.reconnectNow();
     });
+    const net = getNetwork();
+    let reachable = net.getSnapshot().state === 'online';
+    const offNet = net.subscribe(() => {
+      const now = net.getSnapshot().state === 'online';
+      if (now && !reachable) conn.reconnectNow();
+      reachable = now;
+    });
     return () => {
       appState.remove();
+      offNet();
       conn.stop();
       if (timer) clearTimeout(timer);
       setMode(names, null);

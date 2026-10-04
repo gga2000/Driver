@@ -111,6 +111,9 @@ export const ICONS = {
   ],
   'location-arrow': [{ d: 'M20 4 4 11l7 2 2 7z' }],
   mic: [{ rect: [9, 3, 6, 11, 3] }, { d: 'M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21' }],
+  wifi: [{ d: 'M2.5 9a14 14 0 0 1 19 0' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 13 0' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
+  'wifi-off': [{ d: 'M3 3l18 18' }, { d: 'M2.5 9a14 14 0 0 1 4.6-3' }, { d: 'M11 5.5a14 14 0 0 1 10.5 3.5' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 4-2.3' }, { d: 'M15.5 10.8a9.5 9.5 0 0 1 3 1.7' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
+  refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;
