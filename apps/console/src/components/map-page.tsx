@@ -10,9 +10,11 @@ import { formatClock, formatIqd, shortId } from '@/lib/format';
 import { capTierLabel, pinStateLabel, tierLabel, tripStateLabel, vehicleLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { buildLiveGeoJSON, capUsePct, driverPosition } from '@/lib/live-map';
 import { LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins } from '@/lib/live';
+import { orderLabel } from '@/lib/names';
 import { PIN_STATE_TONE } from '@/lib/roster';
 import { useSignedIn } from '@/lib/session';
 import type { MapSelection } from './live-map-canvas';
+import { CopyId, PersonName } from './named';
 import { TripDetails } from './trip-details';
 import { Card, Chip, Drawer, ghostBtn, LiveBadge, Mono, PageHeader, QueryError, Row } from './ui';
 
@@ -145,7 +147,7 @@ export function MapPage() {
                       className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-surface-2 aria-pressed:bg-surface-2"
                     >
                       <span className="min-w-0 truncate">
-                        <Mono>{shortId(p.driverId)}</Mono> · {vehicleLabel(p.vehicleClass)}
+                        <PersonName id={p.driverId} vehicle vehicleClass={p.vehicleClass} copy={false} />
                       </span>
                       <Chip tone={PIN_STATE_TONE[p.state]}>{pinStateLabel(p.state)}</Chip>
                     </button>
@@ -170,7 +172,16 @@ export function MapPage() {
                         className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-surface-2 aria-pressed:bg-surface-2"
                       >
                         <span className="min-w-0 truncate">
-                          {verticalLabel(trip.vertical)} · <Mono>{shortId(trip.courierId ?? trip.id)}</Mono>
+                          {verticalLabel(trip.vertical)} ·{' '}
+                          {trip.courierId ? (
+                            <PersonName id={trip.courierId} copy={false} />
+                          ) : trip.orders[0] ? (
+                            <span className="tabular-nums" title={trip.id}>
+                              {orderLabel(trip.orders[0].orderId)}
+                            </span>
+                          ) : (
+                            <Mono>{shortId(trip.id)}</Mono>
+                          )}
                         </span>
                         <Chip tone={trip.courierId ? 'live' : 'ready'}>{tripStateLabel(trip.state)}</Chip>
                       </button>
@@ -220,7 +231,16 @@ function SelectionBody({
       <div className="space-y-4">
         {selected.kind === 'driver' && (
           <dl>
-            <Row k={t('console.id')} v={<Mono title={selected.id}>{shortId(selected.id)}</Mono>} />
+            <Row k={t('console.name')} v={<PersonName id={selected.id} vehicle vehicleClass={pin?.vehicleClass} copy={false} strong />} />
+            <Row
+              k={t('console.id')}
+              v={
+                <span className="inline-flex items-center gap-1">
+                  <Mono title={selected.id}>{shortId(selected.id)}</Mono>
+                  <CopyId id={selected.id} />
+                </span>
+              }
+            />
             {pin ? (
               <>
                 <Row k={t('console.col_state')} v={<Chip tone={PIN_STATE_TONE[pin.state]}>{pinStateLabel(pin.state)}</Chip>} />

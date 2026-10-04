@@ -3,15 +3,17 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { SupportList, TicketChannel, TicketKind } from '@driver/contracts';
+import { parseOrderTicket, type SupportList, type TicketChannel, type TicketKind } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { slaClock } from '@/lib/control-room';
-import { formatDayClock, formatIqd, shortId } from '@/lib/format';
+import { formatDayClock, formatIqd } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Stat, useSecondsSince } from './ui';
+import { orderLabel } from '@/lib/names';
+import { OrderRef, OrgName, PersonName } from './named';
+import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Stat, useSecondsSince } from './ui';
 
 type StatusFilter = 'active' | 'escalated' | 'resolved' | 'all';
 const FILTERS: readonly StatusFilter[] = ['active', 'escalated', 'resolved', 'all'];
@@ -106,16 +108,8 @@ export function SupportQueue({ data, status, onStatus, updatedAt }: { data: Supp
                         ))}
                       </p>
                     </td>
-                    <td className="px-3 py-2">{r.customerName ?? (r.customerId ? <Mono>{shortId(r.customerId)}</Mono> : '—')}</td>
-                    <td className="px-3 py-2">
-                      {r.orderId ? (
-                        <Link href={`/orders/${encodeURIComponent(r.orderId)}`} className="text-accent underline">
-                          <Mono>{shortId(r.orderId)}</Mono>
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
+                    <td className="px-3 py-2">{r.customerName ?? (r.customerId ? <PersonName id={r.customerId} /> : '—')}</td>
+                    <td className="px-3 py-2">{r.orderId ? <OrderRef id={r.orderId} strong /> : '—'}</td>
                     <td className="px-3 py-2">
                       <Chip tone={sla.tone}>{sla.text}</Chip>
                       <p className="mt-0.5 text-xs text-faint">{formatDayClock(r.openedAt)}</p>
@@ -145,6 +139,12 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [subject, setSubject] = useState('');
   const [orderId, setOrderId] = useState('');
   const [note, setNote] = useState('');
+  // K-02: "#1284" as the customer says it → the order(s) with that number since yesterday.
+  const ticket = parseOrderTicket(orderId);
+  const matches = useQuery(trpc.orders.search.queryOptions({ cityId: CITY_ID, text: orderId.trim(), limit: 10 }, { enabled: open && ticket !== null, retry: queryRetry }));
+  const [picked, setPicked] = useState<string | null>(null);
+  const found = ticket ? (matches.data?.rows ?? []) : [];
+  const chosenOrder = ticket ? (found.find((r) => r.id === picked)?.id ?? (found.length === 1 ? found[0]!.id : null)) : orderId.trim() || null;
   const create = useMutation(trpc.support.open.mutationOptions({ onSuccess: (tk) => router.push(`/support/${encodeURIComponent(tk.id)}`) }));
   useEffect(() => {
     const d = ref.current;
@@ -152,6 +152,7 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
     if (open && !d.open) {
       setSubject('');
       setOrderId('');
+      setPicked(null);
       setNote('');
       create.reset();
       d.showModal();
@@ -161,8 +162,8 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
   }, [open]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (subject.trim().length < 3) return;
-    create.mutate({ cityId: CITY_ID, kind, channel, subject: subject.trim(), ...(note.trim() ? { note: note.trim() } : {}), ...(orderId.trim() ? { orderId: orderId.trim() } : {}) });
+    if (subject.trim().length < 3 || (ticket && !chosenOrder)) return;
+    create.mutate({ cityId: CITY_ID, kind, channel, subject: subject.trim(), ...(note.trim() ? { note: note.trim() } : {}), ...(chosenOrder ? { orderId: chosenOrder } : {}) });
   };
   return (
     <dialog ref={ref} onClose={onClose} aria-labelledby="new-ticket" className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-0 text-text shadow-card">
@@ -194,7 +195,24 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
           <label htmlFor={ids.order} className="mb-1.5 block text-sm text-muted">
             {t('console.sup_order_id')}
           </label>
-          <input id={ids.order} dir="ltr" className={inputCls} value={orderId} onChange={(e) => setOrderId(e.target.value)} autoComplete="off" />
+          <input id={ids.order} dir="ltr" className={inputCls} value={orderId} onChange={(e) => setOrderId(e.target.value)} autoComplete="off" placeholder="#1284" />
+          {ticket && matches.isSuccess && found.length === 0 && <p className="mt-1.5 text-xs text-bad">{t('console.sup_order_none')}</p>}
+          {found.length > 0 && (
+            <fieldset className="mt-2">
+              <legend className="mb-1 text-xs text-muted">{t('console.sup_order_pick')}</legend>
+              <div className="flex flex-col gap-1">
+                {found.map((r) => (
+                  <button key={r.id} type="button" aria-pressed={chosenOrder === r.id} onClick={() => setPicked(r.id)} className={`${ghostBtn} justify-between`} title={r.id}>
+                    <span className="font-semibold tabular-nums">{orderLabel(r.id)}</span>
+                    <span className="flex min-w-0 items-center gap-2 text-xs text-muted">
+                      {r.merchantOrgId && <OrgName id={r.merchantOrgId} copy={false} />}
+                      <span className="tabular-nums">{formatDayClock(r.placedAt)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
         </div>
         <div>
           <label htmlFor={ids.note} className="mb-1.5 block text-sm text-muted">
@@ -209,7 +227,7 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
           <button type="button" className={ghostBtn} onClick={() => ref.current?.close()}>
             {t('console.cancel')}
           </button>
-          <button type="submit" className={primaryBtn} disabled={create.isPending || subject.trim().length < 3}>
+          <button type="submit" className={primaryBtn} disabled={create.isPending || subject.trim().length < 3 || (ticket !== null && !chosenOrder)}>
             {create.isPending ? t('status.loading') : t('console.sup_open_ticket')}
           </button>
         </div>

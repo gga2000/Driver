@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardCard, BoardPolicy, RightNow as ServerRightNow, Vertical } from '@driver/contracts';
+import type { BoardCard, BoardPolicy, RightNow as ServerRightNow, VehicleClass, Vertical } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
@@ -21,10 +21,12 @@ import {
   type PolicyMode,
 } from '@/lib/board';
 import { formatCountdown, shortId } from '@/lib/format';
+import { orderLabel, personText, useNames } from '@/lib/names';
 import { offerStateLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { CopyId, OrderRef, PersonName } from './named';
 import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, useSecondsSince } from './ui';
 
 const COLUMN_KEY = {
@@ -68,6 +70,9 @@ export function DispatchPage() {
     for (const p of positions.data?.drivers ?? []) if (p.state === 'free') ids.add(p.driverId);
     return [...ids].sort();
   }, [board.data, trips.data, positions.data]);
+  // K-02: a card is named by its orders ("#1284"), from the live trips.
+  const vehicles = useMemo(() => new Map((positions.data?.drivers ?? []).map((p) => [p.driverId, p.vehicleClass])), [positions.data]);
+  const ordersByTrip = useMemo(() => new Map((trips.data ?? []).map((tr) => [tr.id, tr.orders.filter((l) => l.detachedAt === null).map((l) => l.orderId)])), [trips.data]);
 
   useAlertSound(sound, now.needsDispatcher);
 
@@ -123,7 +128,7 @@ export function DispatchPage() {
                 <ul className="space-y-2">
                   {grouped[col].map((card) => (
                     <li key={card.tripId}>
-                      <BoardCardView card={card} tick={tick} onAssign={(driverId) => setOverride({ card, ...(driverId ? { driverId } : {}) })} />
+                      <BoardCardView card={card} orderIds={ordersByTrip.get(card.tripId) ?? []} vehicles={vehicles} tick={tick} onAssign={(driverId) => setOverride({ card, ...(driverId ? { driverId } : {}) })} />
                     </li>
                   ))}
                 </ul>
@@ -133,7 +138,7 @@ export function DispatchPage() {
         </div>
       )}
 
-      <OverrideDialog target={override} knownDrivers={knownDrivers} onClose={() => setOverride(null)} />
+      <OverrideDialog target={override} orderIds={override ? (ordersByTrip.get(override.card.tripId) ?? []) : []} knownDrivers={knownDrivers} onClose={() => setOverride(null)} />
     </div>
   );
 }
@@ -237,7 +242,19 @@ function PolicySwitches({ policies }: { policies: BoardPolicy[] }) {
 
 // ───────────────────────── card ─────────────────────────
 
-function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number; onAssign: (driverId?: string) => void }) {
+function BoardCardView({
+  card,
+  orderIds,
+  vehicles,
+  tick,
+  onAssign,
+}: {
+  card: BoardCard;
+  orderIds: readonly string[];
+  vehicles: ReadonlyMap<string, VehicleClass>;
+  tick: number;
+  onAssign: (driverId?: string) => void;
+}) {
   const red = isRedCard(card);
   const countdown = card.countdownSec === null ? null : Math.max(0, card.countdownSec - tick);
   const openOffers = card.offers.filter((o) => o.state === 'sent' || o.state === 'seen');
@@ -247,8 +264,14 @@ function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number
       className={`rounded-lg border p-3 text-sm ${red ? 'border-danger-500 bg-danger-500/15' : 'border-line bg-surface-2'}`}
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold">
-          {verticalLabel(card.vertical)} · {zoneName(card.zoneId)}
+        <span className="flex flex-wrap items-center gap-x-1.5 font-semibold">
+          {orderIds.map((id) => (
+            <OrderRef key={id} id={id} strong />
+          ))}
+          <span>
+            {orderIds.length > 0 && '· '}
+            {verticalLabel(card.vertical)} · {zoneName(card.zoneId)}
+          </span>
         </span>
         <span className="flex flex-wrap gap-1">
           {card.compensationLabel_ar && <Chip tone="ready">{card.compensationLabel_ar}</Chip>}
@@ -266,19 +289,24 @@ function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number
         {card.wave > 0 && <span>{t('console.card_wave', { n: card.wave })}</span>}
         {card.pass > 0 && <span>{t('console.card_pass', { n: card.pass })}</span>}
       </p>
-      <p className="mt-1 text-xs">
-        <Link href={`/map`} className="text-faint hover:text-accent">
-          <Mono title={card.tripId}>{shortId(card.tripId)}</Mono>
-        </Link>
-        {card.customerMayCancelFree && <span className="ms-2 text-faint">· {t('console.card_free_cancel')}</span>}
-      </p>
+      {(orderIds.length === 0 || card.customerMayCancelFree) && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
+          {orderIds.length === 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Link href={`/map`} className="text-faint hover:text-accent">
+                <Mono title={card.tripId}>{shortId(card.tripId)}</Mono>
+              </Link>
+              <CopyId id={card.tripId} />
+            </span>
+          )}
+          {card.customerMayCancelFree && <span className="text-faint">{t('console.card_free_cancel')}</span>}
+        </p>
+      )}
 
       {card.assignedDriverId && (
         <p className="mt-2 text-xs">
           <span className="text-muted">{t('console.drawer_driver')}: </span>
-          <Link href={`/drivers/${encodeURIComponent(card.assignedDriverId)}/ledger`} className="text-accent underline">
-            <Mono>{shortId(card.assignedDriverId)}</Mono>
-          </Link>
+          <PersonName id={card.assignedDriverId} vehicle vehicleClass={vehicles.get(card.assignedDriverId)} href={`/drivers/${encodeURIComponent(card.assignedDriverId)}/ledger`} />
         </p>
       )}
 
@@ -288,7 +316,7 @@ function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number
           <ul className="mt-1 space-y-0.5 text-xs">
             {openOffers.map((o) => (
               <li key={o.offerId} className="flex justify-between gap-2">
-                <Mono>{shortId(o.driverId)}</Mono>
+                <PersonName id={o.driverId} copy={false} />
                 <span className="text-muted">
                   {offerStateLabel(o.state)} · {t('console.offer_expires', { seconds: Math.max(0, o.expiresInSec - tick) })}
                 </span>
@@ -304,7 +332,7 @@ function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number
           <div className="mt-1 flex flex-wrap gap-1">
             {card.suggestion.slice(0, 5).map((d) => (
               <button key={d} type="button" onClick={() => onAssign(d)} className="rounded-pill border border-line bg-surface px-2 py-0.5 text-xs hover:border-accent">
-                <Mono>{shortId(d)}</Mono>
+                <PersonName id={d} copy={false} />
               </button>
             ))}
           </div>
@@ -327,13 +355,14 @@ function BoardCardView({ card, tick, onAssign }: { card: BoardCard; tick: number
 
 // ───────────────────────── override dialog ─────────────────────────
 
-function OverrideDialog({ target, knownDrivers, onClose }: { target: { card: BoardCard; driverId?: string } | null; knownDrivers: string[]; onClose: () => void }) {
+function OverrideDialog({ target, orderIds, knownDrivers, onClose }: { target: { card: BoardCard; driverId?: string } | null; orderIds: readonly string[]; knownDrivers: string[]; onClose: () => void }) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const ref = useRef<HTMLDialogElement>(null);
   const ids = { driver: useId(), reason: useId(), list: useId(), force: useId() };
   const [driverId, setDriverId] = useState('');
   const [reason, setReason] = useState('');
+  const names = useNames({ people: knownDrivers });
   const [force, setForce] = useState(false);
   const override = useMutation(
     trpc.dispatch.override.mutationOptions({ onSuccess: () => void qc.invalidateQueries({ queryKey: trpc.dispatch.board.queryKey() }) }),
@@ -378,7 +407,7 @@ function OverrideDialog({ target, knownDrivers, onClose }: { target: { card: Boa
               {t('console.override_title')}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              {verticalLabel(target.card.vertical)} · {zoneName(target.card.zoneId)} · {t('console.override_trip', { trip: shortId(target.card.tripId) })}
+              {verticalLabel(target.card.vertical)} · {zoneName(target.card.zoneId)} · {orderIds.length > 0 ? orderIds.map(orderLabel).join(' ') : t('console.override_trip', { trip: shortId(target.card.tripId) })}
             </p>
           </div>
 
@@ -388,7 +417,7 @@ function OverrideDialog({ target, knownDrivers, onClose }: { target: { card: Boa
               <div className="flex flex-wrap gap-1">
                 {target.card.suggestion.map((d) => (
                   <button key={d} type="button" aria-pressed={driverId === d} onClick={() => setDriverId(d)} className={ghostBtn}>
-                    <Mono>{shortId(d)}</Mono>
+                    <PersonName id={d} vehicle copy={false} />
                   </button>
                 ))}
               </div>
@@ -402,7 +431,7 @@ function OverrideDialog({ target, knownDrivers, onClose }: { target: { card: Boa
             <input id={ids.driver} dir="ltr" required list={ids.list} className={inputCls} value={driverId} onChange={(e) => setDriverId(e.target.value)} autoComplete="off" />
             <datalist id={ids.list}>
               {knownDrivers.map((d) => (
-                <option key={d} value={d} />
+                <option key={d} value={d} label={personText(d, names.person(d), { vehicle: true }) ?? d} />
               ))}
             </datalist>
           </div>

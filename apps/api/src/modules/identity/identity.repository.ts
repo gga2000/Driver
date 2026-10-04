@@ -115,6 +115,8 @@ export interface ChildIdentityRecord {
 export interface IdentityRepository {
   // people
   findPersonById(id: string, tx?: Tx): Promise<PersonRecord | null>;
+  /** Batched `findPersonById` (one query); unknown ids are left out. */
+  findPeopleByIds(ids: readonly string[], tx?: Tx): Promise<PersonRecord[]>;
   findPersonByPhoneHash(phoneHash: string, tx?: Tx): Promise<PersonRecord | null>;
   createPersonWithIdentity(
     input: { locale: string; sharedFamilyPhone: boolean; phoneE164: string; phoneHash: string; name: string | null; now: Date },
@@ -124,8 +126,12 @@ export interface IdentityRepository {
 
   // vault
   readIdentity(personId: string, tx?: Tx): Promise<IdentityRecord | null>;
+  /** Batched `readIdentity` (one query); people without a vault row are left out. */
+  readIdentities(personIds: readonly string[], tx?: Tx): Promise<IdentityRecord[]>;
   updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx): Promise<IdentityRecord>;
   logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
+  /** One VaultAccessLog row per entry, written in one statement; returns how many were written. */
+  logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx): Promise<number>;
   vaultAccessLogs(personId: string, tx?: Tx): Promise<VaultAccessLogRecord[]>;
   createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
   readChildIdentities(childRefs: readonly string[], tx?: Tx): Promise<ChildIdentityRecord[]>;
@@ -205,6 +211,11 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return this.db(tx).person.findUnique({ where: { id } });
   }
 
+  async findPeopleByIds(ids: readonly string[], tx?: Tx) {
+    if (ids.length === 0) return [];
+    return this.db(tx).person.findMany({ where: { id: { in: [...ids] } } });
+  }
+
   async findPersonByPhoneHash(phoneHash: string, tx?: Tx) {
     const identity = await this.db(tx).personIdentity.findUnique({ where: { phoneHash }, include: { person: true } });
     return identity?.person ?? null;
@@ -233,6 +244,12 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return row ? identityRecord(row) : null;
   }
 
+  async readIdentities(personIds: readonly string[], tx?: Tx) {
+    if (personIds.length === 0) return [];
+    const rows = await this.db(tx).personIdentity.findMany({ where: { personId: { in: [...personIds] } } });
+    return rows.map(identityRecord);
+  }
+
   async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx) {
     const { emergencyContact, ...rest } = patch;
     const data = {
@@ -247,6 +264,12 @@ export class PrismaIdentityRepository implements IdentityRepository {
     const { personId, accessorId, purpose, fieldsRead } = entry;
     const data = { personId, accessorId, purpose, fieldsRead, childRef: entry.childRef ?? null };
     return this.db(tx).vaultAccessLog.create({ data });
+  }
+
+  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx) {
+    if (entries.length === 0) return 0;
+    const data = entries.map(({ personId, accessorId, purpose, fieldsRead }) => ({ personId, accessorId, purpose, fieldsRead, childRef: null }));
+    return (await this.db(tx).vaultAccessLog.createMany({ data })).count;
   }
 
   async createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx) {

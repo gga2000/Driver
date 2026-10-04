@@ -111,7 +111,11 @@ export const OrderSearchInput = z.object({
   states: z.array(OrderState).max(OrderState.options.length).optional(),
   type: OrderType.optional(),
   merchantOrgId: z.string().min(1).optional(),
-  /** Matches order, orderer or merchant id, or the note (case-insensitive substring). */
+  /**
+   * Matches order, orderer or merchant id, or the note (case-insensitive substring). An order
+   * number — "1284", "#1284" or "١٢٨٤" (see `parseOrderTicket`) — instead finds every order with
+   * that ticket number; without `from` it looks back over today and yesterday (Baghdad).
+   */
   text: z.string().trim().max(100).optional(),
   /** Placed at or after (inclusive). */
   from: z.coerce.date().optional(),
@@ -273,10 +277,57 @@ export const MerchantRow = z.object({
 export type MerchantRow = z.infer<typeof MerchantRow>;
 export const MerchantList = z.array(MerchantRow);
 
+// ───────────────────────── names (console.names) ─────────────────────────
+
+/** Most ids of each kind one `console.names` call resolves (a page's worth). */
+export const CONSOLE_NAMES_MAX = 200;
+const NameRef = z.string().trim().min(1).max(100);
+
+/**
+ * K-01: the Console shows people, restaurants and dishes by name, not by id. One batched read per
+ * page: person ids (drivers, customers, merchant staff — whoever appears), merchant org ids and
+ * catalog items (by their org).
+ */
+export const ConsoleNamesInput = z.object({
+  personIds: z.array(NameRef).max(CONSOLE_NAMES_MAX).default([]),
+  orgIds: z.array(NameRef).max(CONSOLE_NAMES_MAX).default([]),
+  items: z.array(z.object({ orgId: NameRef, itemId: NameRef })).max(CONSOLE_NAMES_MAX).default([]),
+});
+export type ConsoleNamesInput = z.input<typeof ConsoleNamesInput>;
+
+/**
+ * A person as staff see them: first name and the family initial ("حيدر ك."), read through the
+ * identity vault with one access-log row per person read. A deleted account is marked and nothing
+ * is read; a person without a name in the vault has `displayName: null`. Drivers also carry the
+ * registry vehicle they are the active driver of (class and plate), when there is one.
+ */
+export const ConsolePersonName = z.object({
+  displayName: z.string().nullable(),
+  deleted: z.boolean(),
+  vehicleClass: VehicleClass.nullable(),
+  plate: z.string().nullable(),
+});
+export type ConsolePersonName = z.infer<typeof ConsolePersonName>;
+
+/** Unknown ids are left out; the Console then shows the raw id. */
+export const ConsoleNames = z.object({
+  people: z.record(z.string(), ConsolePersonName),
+  orgs: z.record(z.string(), z.object({ name: z.string(), type: z.string() })),
+  /** Keyed `${orgId}:${itemId}` (see `consoleItemKey`). */
+  items: z.record(z.string(), z.object({ name: z.string() })),
+});
+export type ConsoleNames = z.infer<typeof ConsoleNames>;
+
+export function consoleItemKey(orgId: string, itemId: string): string {
+  return `${orgId}:${itemId}`;
+}
+
 // ───────────────────────── the port ─────────────────────────
 
 /** What the API's `console` module exposes to the transport. Authorization happens in the routers. */
 export interface ConsolePort {
+  /** Batched display names (vault reads logged against `accessorId`, the staff member asking). */
+  names(input: z.infer<typeof ConsoleNamesInput>, accessorId: string): Promise<ConsoleNames>;
   driverPositions(cityId: string): Promise<DriverPositions>;
   driversList(input: z.infer<typeof DriversListInput>): Promise<DriversPage>;
   searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage>;

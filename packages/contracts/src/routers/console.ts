@@ -1,5 +1,7 @@
 import type { RoleKind } from '../auth.js';
 import {
+  ConsoleNames,
+  ConsoleNamesInput,
   DriversListInput,
   DriversPage,
   MerchantList,
@@ -17,12 +19,17 @@ export const CONSOLE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support',
 /** Who may start or stop the simulator. */
 export const SIMULATOR_ROLES: readonly RoleKind[] = ['admin', 'dispatcher'];
 
-/** `console.rightNow`: the dispatch board's right-now bar. */
+/** `console.rightNow`: the dispatch board's right-now bar; `console.names`: people, places and dishes by name. */
 export const consoleRouter = router({
   rightNow: protectedProcedure(CONSOLE_READ_ROLES)
     .input(RightNowInput)
     .output(RightNow)
     .query(({ ctx, input }) => ctx.console.rightNow(input.cityId)),
+  /** K-01: batched display names for a page; every vault read is logged against the staff member. */
+  names: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ConsoleNamesInput)
+    .output(ConsoleNames)
+    .query(({ ctx, input }) => ctx.console.names(input, ctx.actor.personId)),
 });
 
 /** `drivers.list`: everyone with a driving role, joined with presence and scorecard tier. */

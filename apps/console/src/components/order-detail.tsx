@@ -7,11 +7,13 @@ import { useMemo } from 'react';
 import { formatClock, formatDayClock, formatIqd, formatSigned, shortId } from '@/lib/format';
 import { orderStateLabel, orderTypeLabel, participantRoleLabel, paymentLabel, priceLabel, timelineStepLabel } from '@/lib/labels';
 import { queryRetry, useActiveTrips } from '@/lib/live';
+import { orderLabel } from '@/lib/names';
 import { eventTimeline, groupLinesByParticipant, lineTotal, ORDER_STATE_TONE, orderTimeline, priceCheck, priceRows } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { EventTimeline, TripEventLog } from './event-timeline';
 import { MerchantBalanceCard } from './merchant-balance-card';
+import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { Card, Chip, EmptyState, httpStatusOf, Mono, NeedLogin, QueryError, Row } from './ui';
 
 export function OrderDetail({ orderId }: { orderId: string }) {
@@ -60,8 +62,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <>
           <header className="mb-6 mt-3 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="font-display text-2xl font-bold md:text-3xl" title={o.id}>
-                {t('console.order_title', { id: shortId(o.id, 8, 4) })}
+              <h1 className="flex items-center gap-2 font-display text-2xl font-bold tabular-nums md:text-3xl">
+                <span title={o.id}>{t('console.order_title', { id: orderLabel(o.id) })}</span>
+                <CopyId id={o.id} />
               </h1>
               <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
                 <Chip tone={ORDER_STATE_TONE[o.state]}>{orderStateLabel(o.state)}</Chip>
@@ -110,7 +113,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   key={id}
                   title={
                     <span className="flex items-center gap-2">
-                      {t('console.trip_event_log')} <Mono title={id}>{shortId(id)}</Mono>
+                      {t('console.trip_event_log')} <CopyId id={id} />
                     </span>
                   }
                 >
@@ -120,15 +123,21 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
               <Card title={t('console.order_details')}>
                 <dl>
-                  <Row k={t('console.order_orderer')} v={<Mono title={o.ordererId}>{shortId(o.ordererId)}</Mono>} />
-                  {o.merchantOrgId && <Row k={t('console.col_merchant')} v={<Mono title={o.merchantOrgId}>{shortId(o.merchantOrgId)}</Mono>} />}
+                  <Row k={t('console.order_orderer')} v={<PersonName id={o.ordererId} />} />
+                  {o.merchantOrgId && <Row k={t('console.col_merchant')} v={<OrgName id={o.merchantOrgId} />} />}
+                  {trip?.courierId && (
+                    <Row k={t('console.drawer_driver')} v={<PersonName id={trip.courierId} vehicle href={`/drivers/${encodeURIComponent(trip.courierId)}/ledger`} />} />
+                  )}
                   {trip && (
                     <Row
                       k={t('console.drawer_trip')}
                       v={
-                        <Link href="/map" className="text-accent underline">
-                          <Mono title={trip.id}>{shortId(trip.id)}</Mono>
-                        </Link>
+                        <span className="inline-flex items-center gap-1">
+                          <Link href="/map" className="text-accent underline">
+                            <Mono title={trip.id}>{shortId(trip.id)}</Mono>
+                          </Link>
+                          <CopyId id={trip.id} />
+                        </span>
                       }
                     />
                   )}
@@ -171,7 +180,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                             {g.lines.map((l) => (
                               <li key={l.id} className={`flex justify-between gap-3 ${l.availability === 'removed' ? 'text-faint line-through' : ''}`}>
                                 <span className="min-w-0">
-                                  <span className="tabular-nums">{l.qty}×</span> {l.freeText ?? <Mono>{l.catalogItemId ?? l.id}</Mono>}
+                                  <span className="tabular-nums">{l.qty}×</span> {l.freeText ?? (l.catalogItemId ? <ItemName orgId={o.merchantOrgId} itemId={l.catalogItemId} /> : <Mono>{l.id}</Mono>)}
                                   {l.note && <span className="block text-xs text-muted">{l.note}</span>}
                                   {l.availability !== 'available' && (
                                     <span className="ms-2">

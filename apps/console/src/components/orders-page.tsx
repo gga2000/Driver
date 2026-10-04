@@ -2,16 +2,18 @@
 
 import Link from 'next/link';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { OrderType as OrderTypeEnum, type OrderSummary, type OrderType } from '@driver/contracts';
+import { OrderType as OrderTypeEnum, parseOrderTicket, type OrderSummary, type OrderType } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useDeferredValue, useId, useMemo, useState } from 'react';
-import { formatDayClock, formatIqd, fromLocalInputValue, shortId, toLocalInputValue } from '@/lib/format';
+import { formatDayClock, formatIqd, fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { orderStateLabel, orderTypeLabel, paymentLabel } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS } from '@/lib/live';
 import { ORDER_STATE_TONE, searchInput, STATE_FILTERS, type HistoryFilter, type StateFilter } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, QueryError } from './ui';
+import { useNames } from '@/lib/names';
+import { OrderRef, OrgName, PersonName } from './named';
+import { Chip, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, QueryError } from './ui';
 
 const FILTERS = Object.keys(STATE_FILTERS) as StateFilter[];
 const filterKey = (f: StateFilter) => `console.filter_${f}` as MessageKey;
@@ -45,6 +47,9 @@ export function OrdersPage() {
     }
     return out;
   }, [orders.data]);
+  // One batched name read for the page (K-01): customers and restaurants.
+  useNames({ people: shown.map((o) => o.ordererId), orgs: shown.map((o) => o.merchantOrgId) });
+  const ticket = parseOrderTicket(q);
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -127,6 +132,11 @@ export function OrdersPage() {
             </div>
           </div>
 
+          {ticket && (
+            <p role="status" className="mb-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-muted">
+              {t('console.orders_ticket_hint', { ticket: `\u2066#${ticket}\u2069` })}
+            </p>
+          )}
           {orders.error && <QueryError error={orders.error} onRetry={() => void orders.refetch()} />}
           {orders.isSuccess && shown.length === 0 && <EmptyState title={t('console.orders_empty')} />}
 
@@ -137,7 +147,7 @@ export function OrdersPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-surface text-xs text-muted">
                     <tr>
-                      {(['console.col_order', 'console.col_type', 'console.col_state', 'console.col_merchant', 'console.col_payment', 'console.col_placed'] as const).map((k) => (
+                      {(['console.col_order', 'console.col_type', 'console.col_state', 'console.col_merchant', 'console.col_customer', 'console.col_payment', 'console.col_placed'] as const).map((k) => (
                         <th key={k} scope="col" className="px-3 py-2 text-start font-medium">
                           {t(k)}
                         </th>
@@ -151,9 +161,7 @@ export function OrdersPage() {
                     {shown.map((o) => (
                       <tr key={o.id} className="border-t border-line hover:bg-surface">
                         <td className="px-3 py-2">
-                          <Link href={`/orders/${encodeURIComponent(o.id)}`} className="text-accent underline">
-                            <Mono title={o.id}>{shortId(o.id)}</Mono>
-                          </Link>
+                          <OrderRef id={o.id} strong />
                         </td>
                         <td className="px-3 py-2">{orderTypeLabel(o.type)}</td>
                         <td className="px-3 py-2">
@@ -162,7 +170,10 @@ export function OrdersPage() {
                             {o.late && <Chip tone="bad">{t('console.order_late')}</Chip>}
                           </span>
                         </td>
-                        <td className="px-3 py-2">{o.merchantOrgId ? <Mono>{shortId(o.merchantOrgId)}</Mono> : '—'}</td>
+                        <td className="px-3 py-2">{o.merchantOrgId ? <OrgName id={o.merchantOrgId} /> : '—'}</td>
+                        <td className="px-3 py-2">
+                          <PersonName id={o.ordererId} />
+                        </td>
                         <td className="px-3 py-2">{paymentLabel(o.paymentMethod)}</td>
                         <td className="px-3 py-2 text-muted">{formatDayClock(o.placedAt)}</td>
                         <td className="px-3 py-2 text-end tabular-nums">{formatIqd(o.totalIqd)}</td>
@@ -179,7 +190,7 @@ export function OrdersPage() {
                     <Link href={`/orders/${encodeURIComponent(o.id)}`} className="block rounded-xl border border-line bg-surface p-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">
-                          {orderTypeLabel(o.type)} · <Mono>{shortId(o.id)}</Mono>
+                          {orderTypeLabel(o.type)} · <OrderRef id={o.id} link={false} copy={false} />
                         </span>
                         <span className="flex gap-1">
                           {o.late && <Chip tone="bad">{t('console.order_late')}</Chip>}

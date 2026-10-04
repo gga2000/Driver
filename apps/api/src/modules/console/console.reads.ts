@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  consoleItemKey,
   RosterRole,
+  type ConsoleNames,
+  type ConsoleNamesInput,
   type ConsolePort,
   type DriverPin,
   type DriverPositions,
@@ -18,8 +21,10 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { CatalogService } from '../catalog/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { EventsService, type StoredEvent } from '../events/index.js';
+import { FleetService } from '../fleet/index.js';
 import { IdentityService, type RosterRow } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
 import { OrdersService } from '../orders/index.js';
@@ -30,6 +35,8 @@ import { cashHeld, hourBefore, pinState } from './driver-state.js';
 
 /** Failed outbox rows shown on the system page. */
 export const RECENT_FAILED_OUTBOX = 20;
+/** Vault-access purpose of the Console's display-name reads (K-01). */
+export const CONSOLE_NAMES_PURPOSE = 'console_names';
 
 /**
  * The Console's read side (`ctx.console`). Every view is composed from the owning modules' public
@@ -51,7 +58,41 @@ export class ConsoleReadService implements ConsolePort {
     private readonly scoring: ScoringService,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly simulator: SimulatorService,
+    private readonly fleet: FleetService,
+    private readonly catalog: CatalogService,
   ) {}
+
+  // ───────────────────────── names (K-01) ─────────────────────────
+
+  /**
+   * People, merchants and dishes by name for one Console page, in one call: display names through
+   * identity's batched, logged vault read (the staff member is the accessor, one log row per person
+   * read; deleted people are marked and not read), the registry vehicle (class and plate) each
+   * driver is the active driver of, merchant names from orgs and dish names from each merchant's
+   * catalog. Unknown ids are left out. `system…` actors are not people and are skipped.
+   */
+  async names(input: z.infer<typeof ConsoleNamesInput>, accessorId: string): Promise<ConsoleNames> {
+    const personIds = [...new Set(input.personIds)].filter((id) => !id.startsWith('system'));
+    const orgIds = [...new Set(input.orgIds)];
+    const itemsByOrg = new Map<string, Set<string>>();
+    for (const { orgId, itemId } of input.items) itemsByOrg.set(orgId, (itemsByOrg.get(orgId) ?? new Set()).add(itemId));
+
+    const [display, vehicles, orgs, items] = await Promise.all([
+      this.identity.displayNamesFor(personIds, accessorId, CONSOLE_NAMES_PURPOSE),
+      this.fleet.activeVehiclesOf(personIds),
+      Promise.all(orgIds.map((id) => this.orgs.find(id))),
+      Promise.all([...itemsByOrg].map(async ([orgId, ids]) => ({ orgId, rows: await this.catalog.itemsOf(orgId, [...ids]) }))),
+    ]);
+
+    const out: ConsoleNames = { people: {}, orgs: {}, items: {} };
+    for (const [id, d] of Object.entries(display)) {
+      const v = d.deleted ? undefined : vehicles.get(id);
+      out.people[id] = { displayName: d.displayName, deleted: d.deleted, vehicleClass: v?.vehicleClass ?? null, plate: v?.plate ?? null };
+    }
+    for (const org of orgs) if (org) out.orgs[org.id] = { name: org.name, type: org.type };
+    for (const { orgId, rows } of items) for (const item of rows) out.items[consoleItemKey(orgId, item.id)] = { name: item.nameAr };
+    return out;
+  }
 
   // ───────────────────────── map ─────────────────────────
 

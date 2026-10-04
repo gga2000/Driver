@@ -6,14 +6,15 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { RosterRole, type RosterRole as RosterRoleT } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useId, useMemo, useState, type FormEvent } from 'react';
-import { formatClock, shortId } from '@/lib/format';
-import { capRoleLabel, capTierLabel, pinStateLabel, vehicleLabel, zoneName } from '@/lib/labels';
+import { formatClock } from '@/lib/format';
+import { capRoleLabel, capTierLabel, pinStateLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, LIVE_POLL_MS, queryRetry, useMerchants } from '@/lib/live';
 import { flattenRoster, merchantOptionLabel, merchantsForPicker, PIN_STATE_TONE, PRESENCE_FILTERS, rosterInput, type PresenceFilter, type RosterFilter } from '@/lib/roster';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { MerchantBalanceCard } from './merchant-balance-card';
-import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, QueryError } from './ui';
+import { PersonName } from './named';
+import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, QueryError } from './ui';
 
 const presenceKey = (p: PresenceFilter) => `console.presence_${p}` as MessageKey;
 const PAGE = 50;
@@ -126,7 +127,7 @@ export function DriversPage() {
                       {rows.map((d) => (
                         <tr key={d.personId} className="border-b border-line/60 last:border-b-0">
                           <td className="py-2">
-                            <Mono title={d.personId}>{shortId(d.personId)}</Mono>
+                            <PersonName id={d.personId} vehicle vehicleClass={d.vehicleClass} strong />
                             {d.frozen && (
                               <span className="ms-2">
                                 <Chip tone="bad">{t('console.driver_frozen')}</Chip>
@@ -135,7 +136,6 @@ export function DriversPage() {
                           </td>
                           <td className="py-2">
                             {d.state ? <Chip tone={PIN_STATE_TONE[d.state]}>{pinStateLabel(d.state)}</Chip> : <Chip>{t('console.presence_offline')}</Chip>}
-                            {d.vehicleClass && <span className="ms-2 text-xs text-muted">{vehicleLabel(d.vehicleClass)}</span>}
                           </td>
                           <td className="hidden py-2 md:table-cell">{d.roles.map(capRoleLabel).join('، ')}</td>
                           <td className="hidden py-2 sm:table-cell">

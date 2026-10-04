@@ -90,4 +90,15 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     const logs = await prisma.prisma.vaultAccessLog.findMany({ where: { personId } });
     expect(logs.map((l) => l.purpose)).toContain('self_profile');
   });
+
+  it('K-01 console names: batched reads, one log row per person read, against the staff member', async () => {
+    await service.setName({ personId, sessionId: 'it' }, 'حيدر كاظم');
+    const staff = `it_staff_${Date.now().toString(36)}`;
+    const before = await prisma.prisma.vaultAccessLog.count({ where: { personId, purpose: 'console_names_it' } });
+    const out = await service.displayNamesFor([personId, personId, 'p_does_not_exist'], staff, 'console_names_it');
+    expect(out).toEqual({ [personId]: { displayName: 'حيدر ك.', deleted: false } });
+    const rows = await prisma.prisma.vaultAccessLog.findMany({ where: { personId, purpose: 'console_names_it' } });
+    expect(rows).toHaveLength(before + 1);
+    expect(rows.at(-1)).toMatchObject({ accessorId: staff, fieldsRead: ['name'] });
+  });
 });

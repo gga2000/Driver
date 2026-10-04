@@ -3,12 +3,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
 import { useMemo } from 'react';
-import { formatClock, shortId } from '@/lib/format';
+import { formatClock } from '@/lib/format';
 import { queryRetry } from '@/lib/live';
 import { eventTimeline, type LogEntry } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Chip, Mono, QueryError } from './ui';
+import { PersonName } from './named';
+import { Chip, QueryError } from './ui';
 
 /** The actor event log as a vertical timeline; quarantined late replays and skew flags are marked. */
 export function EventTimeline({ entries }: { entries: readonly LogEntry[] }) {
@@ -27,7 +28,7 @@ export function EventTimeline({ entries }: { entries: readonly LogEntry[] }) {
             </span>
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-faint">
-            <Mono title={e.actorId}>{shortId(e.actorId)}</Mono>
+            <PersonName id={e.actorId} />
             {e.quarantined && (
               <Chip tone="bad" title={e.quarantineReason ?? undefined}>
                 {t('console.event_quarantined')}

@@ -13,7 +13,8 @@ import { eventTimeline } from '@/lib/orders';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { EventTimeline } from './event-timeline';
-import { Card, Chip, dangerBtn, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Row, useSecondsSince } from './ui';
+import { AccountName, OrderRef, PersonName } from './named';
+import { Card, Chip, dangerBtn, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Row, useSecondsSince } from './ui';
 
 const POLL_MS = 10_000;
 const FAULTS: readonly Exclude<FaultParty, 'customer'>[] = ['platform', 'courier', 'merchant'];
@@ -89,8 +90,8 @@ export function SupportCase({ data, updatedAt, fetching }: { data: TicketCase; u
                   <li key={l.id} className={`flex items-baseline justify-between gap-3 border-b border-line/50 pb-1 ${l.memo?.startsWith('support:') ? 'text-accent' : ''}`}>
                     <span className="min-w-0">
                       {l.label_ar}
-                      <span className="block truncate text-[11px] text-faint" dir="ltr">
-                        {l.fromAccount.split(':')[0]} → {l.toAccount.split(':')[0]}
+                      <span className="block truncate text-xs text-faint">
+                        <AccountName account={l.fromAccount} /> ← <AccountName account={l.toAccount} />
                       </span>
                     </span>
                     <span className="shrink-0 tabular-nums">{formatIqd(l.amountIqd)}</span>
@@ -201,9 +202,7 @@ function OrderCard({ data }: { data: TicketCase }) {
     <Card
       title={t('console.sup_order')}
       actions={
-        <Link href={`/orders/${encodeURIComponent(o.id)}`} className="text-sm text-accent underline">
-          <Mono>{shortId(o.id)}</Mono>
-        </Link>
+        <OrderRef id={o.id} strong />
       }
     >
       <dl>
@@ -214,7 +213,7 @@ function OrderCard({ data }: { data: TicketCase }) {
         <Row k={t('console.sup_order_payment')} v={paymentLabel(o.paymentMethod)} />
         <Row k={t('console.sup_order_placed')} v={formatDayClock(o.placedAt)} />
         {o.deliveredAt && <Row k={t('console.sup_order_delivered')} v={formatDayClock(o.deliveredAt)} />}
-        <Row k={t('console.sup_order_courier')} v={o.courierId ? <Mono>{shortId(o.courierId)}</Mono> : '—'} />
+        <Row k={t('console.sup_order_courier')} v={o.courierId ? <PersonName id={o.courierId} vehicle href={`/drivers/${encodeURIComponent(o.courierId)}/ledger`} /> : '—'} />
       </dl>
       {o.lines.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm">

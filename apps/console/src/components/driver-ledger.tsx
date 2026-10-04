@@ -11,6 +11,7 @@ import { capUsage, newestFirst } from '@/lib/ledger';
 import { queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { AccountName, CopyId, OrderRef, PersonName } from './named';
 import { Card, EmptyState, ghostBtn, inputCls, Mono, NeedLogin, PageHeader, QueryError, Stat } from './ui';
 
 type Tab = 'cash' | 'earnings';
@@ -50,7 +51,11 @@ export function DriverLedger({ driverId }: { driverId: string }) {
           title={t('console.ledger_title')}
           subtitle={v ? t('console.ledger_role_tier', { role: capRoleLabel(v.role), tier: capTierLabel(v.tier) }) : undefined}
         >
-          <Mono title={driverId}>{shortId(driverId, 8, 4)}</Mono>
+          <span className="inline-flex items-center gap-2 text-lg">
+            <PersonName id={driverId} vehicle copy={false} strong />
+            <Mono title={driverId}>{shortId(driverId, 8, 4)}</Mono>
+            <CopyId id={driverId} />
+          </span>
         </PageHeader>
       </div>
 
@@ -181,13 +186,13 @@ function StatementView({ statement }: { statement: Statement }) {
                   </td>
                   <td className="py-2">
                     {l.orderId ? (
-                      <Link href={`/orders/${encodeURIComponent(l.orderId)}`} className="text-accent underline">
-                        <Mono title={l.orderId}>{shortId(l.orderId, 4, 3)}</Mono>
-                      </Link>
+                      <OrderRef id={l.orderId} />
                     ) : l.tripId ? (
                       <Mono title={l.tripId}>{shortId(l.tripId, 4, 3)}</Mono>
                     ) : (
-                      <span className="text-faint">{l.counterparty}</span>
+                      <span className="text-muted">
+                        <AccountName account={l.counterparty} />
+                      </span>
                     )}
                   </td>
                   <td className={`py-2 text-end tabular-nums ${l.amountIqd < 0 ? 'text-bad' : 'text-ok'}`}>{formatSigned(l.amountIqd)}</td>

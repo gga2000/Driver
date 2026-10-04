@@ -98,6 +98,11 @@ function fakePort(): ConsolePort {
       recentFailed: [{ id: 'ob_1', eventId: 'ev_1', type: 'order.placed', aggregate: 'order', aggregateId: 'ord_1', attempts: 10, lastError: 'boom', createdAt: AT }],
     })),
     merchants: vi.fn(async () => [merchant]),
+    names: vi.fn(async () => ({
+      people: { d1: { displayName: 'حيدر ك.', deleted: false, vehicleClass: 'bike' as const, plate: 'واسط 45671' } },
+      orgs: { org_1: { name: 'مطعم الكبة', type: 'restaurant' } },
+      items: {},
+    })),
     simulatorStatus: vi.fn(async () => ({ available: false })),
     simulatorStart: vi.fn(async () => ({ available: false })),
     simulatorStop: vi.fn(async () => ({ available: false })),
@@ -134,6 +139,7 @@ const READS: Array<[string, (c: Call) => Promise<unknown>]> = [
   ['system.outbox', (c) => c.system.outbox()],
   ['system.simulator.status', (c) => c.system.simulator.status()],
   ['merchants.list', (c) => c.merchants.list({ cityId: 'aziziyah' })],
+  ['console.names', (c) => c.console.names({ personIds: ['d1'] })],
 ];
 
 describe('console read procedures: role gating', () => {
@@ -185,6 +191,15 @@ describe('console read procedures: shapes', () => {
     const [e] = await call.orders.events({ orderId: 'ord_1' });
     expect(e).toMatchObject({ quarantined: true, quarantineReason: 'late_replay', aggregate: 'order' });
     expect((await call.trips.events({ tripId: 'trp_1' }))[0]?.id).toBe('ev_1');
+  });
+
+  it('console.names: the staff member asking is the vault accessor; defaults and the batch cap', async () => {
+    const { call, port } = caller(['support']);
+    const res = await call.console.names({ personIds: [' d1 '], orgIds: ['org_1'] });
+    expect(port.names).toHaveBeenCalledWith({ personIds: ['d1'], orgIds: ['org_1'], items: [] }, 'p_staff');
+    expect(res.people['d1']).toEqual({ displayName: 'حيدر ك.', deleted: false, vehicleClass: 'bike', plate: 'واسط 45671' });
+    const tooMany = Array.from({ length: 201 }, (_, i) => `p${i}`);
+    expect(await codeOf(call.console.names({ personIds: tooMany }))).toBe('BAD_REQUEST');
   });
 
   it('rightNow, outbox and merchants round-trip', async () => {

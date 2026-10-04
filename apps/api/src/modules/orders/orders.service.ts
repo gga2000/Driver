@@ -5,6 +5,8 @@ import {
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
   isDomainEventType,
+  orderTicketNumber,
+  parseOrderTicket,
   type CancellationBeneficiary,
   type CancellationFee,
   type DisputeKind,
@@ -21,6 +23,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
@@ -108,6 +111,9 @@ type PlaceInput = z.input<typeof PlaceOrderInput>;
  * Every mutation runs in one unit of work and emits its domain events through the adapter;
  * timers are delayed queue jobs that re-check state when they fire.
  */
+/** Orders one ticket-number search reads before it pages (two busy days of a city fit easily). */
+export const TICKET_SCAN_LIMIT = 5_000;
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -707,10 +713,30 @@ export class OrdersService implements OnModuleInit {
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
   async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined }): Promise<OrderSearchPage> {
     const { cursor, ...filter } = input;
+    const ticket = filter.text ? parseOrderTicket(filter.text) : null;
+    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor);
     const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
     const page = rows.slice(0, input.limit);
     const now = this.clock.now();
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: rows.length > input.limit ? encodeCursor(page.at(-1)!) : null };
+  }
+
+  /**
+   * K-02: "#1284" as the customer, the kitchen and the courier say it. The ticket is derived from the
+   * id (FNV, `orderTicketNumber`), so there is no column to index: this is a bounded computed lookup
+   * over the city's orders placed since the start of yesterday (Baghdad) — or in `[from, to)` when
+   * given — on the `(city_id, placed_at)` index, keeping every match (tickets can collide; the
+   * Console shows each with its time and restaurant). Other filters still apply. Pages by the same
+   * keyset cursor; a scan that hit its bound continues from where it stopped.
+   */
+  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined): Promise<OrderSearchPage> {
+    const now = this.clock.now();
+    const from = filter.from ?? new Date(startOfLocalDay(now).getTime() - 86_400_000);
+    const scanned = await this.repo.search({ ...filter, from, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
+    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket);
+    const page = hits.slice(0, filter.limit);
+    const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
+    return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };
   }
 
   /**

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DriversListInput, OrderSearchInput } from '@driver/contracts';
+import { ConsoleNamesInput, DriversListInput, OrderSearchInput } from '@driver/contracts';
+import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { createInMemoryEvents } from '../events/index.js';
+import { FleetService, InMemoryFleetRepository } from '../fleet/index.js';
 import { dispatchHarness, north } from '../dispatch/test-harness.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
@@ -8,7 +10,7 @@ import { ordersHarness } from '../orders/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
 import type { SimulatorService } from '../simulator/index.js';
-import { ConsoleReadService } from './console.reads.js';
+import { CONSOLE_NAMES_PURPOSE, ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
 
 const START = '2026-10-03T09:00:00Z';
@@ -30,7 +32,11 @@ async function world() {
     start: async (input: { drivers: number }) => (simCalls.push(`start:${input.drivers}`), { available: true, running: true, drivers: input.drivers }),
     stop: async () => (simCalls.push('stop'), { available: true, running: false }),
   } as unknown as SimulatorService;
-  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator);
+  // Names read the vehicle registry (fleet) and the menus (catalog); the rest of fleet is not used here.
+  const fleetRepo = new InMemoryFleetRepository();
+  const fleet = new FleetService(fleetRepo, id.service, undefined as never, d.service, undefined as never, ev.events, undefined as never, d.clock);
+  const catalog = new CatalogService(new InMemoryCatalogRepository());
+  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator, fleet, catalog);
 
   // Three couriers and a khat driver; a customer who never drives.
   const people: Record<string, string> = {};
@@ -45,7 +51,7 @@ async function world() {
     if (kind) await id.service.grantRole(SYSTEM, { personId, kind });
     people[name] = personId;
   }
-  return { d, id, l, o, ev, orgs, reads, people, simCalls };
+  return { d, id, l, o, ev, orgs, reads, people, simCalls, fleetRepo, catalog };
 }
 
 type W = Awaited<ReturnType<typeof world>>;
@@ -170,5 +176,70 @@ describe('ConsoleReadService', () => {
     expect(await w.reads.simulatorStart({ cityId: 'aziziyah', drivers: 5, ordersPerHour: 10 })).toEqual({ available: true, running: true, drivers: 5 });
     expect(await w.reads.simulatorStop()).toEqual({ available: true, running: false });
     expect(w.simCalls).toEqual(['status', 'start:5', 'stop']);
+  });
+});
+
+describe('ConsoleReadService.names (K-01)', () => {
+  async function named() {
+    const w = await world();
+    const staff = (await w.id.login('07712349999')).actor.personId;
+    await w.id.service.grantRole(SYSTEM, { personId: staff, kind: 'support' });
+    await w.id.service.updateProfile({ personId: w.people['busy']!, sessionId: 's' }, { name: 'حيدر كاظم جواد' });
+    await w.id.service.updateProfile({ personId: w.people['broke']!, sessionId: 's' }, { name: 'عبد الله حسن' });
+    await w.id.service.updateProfile({ personId: w.people['cust']!, sessionId: 's' }, { name: 'زينب' });
+    // "busy" drives a registered tuktuk; "khat" was deleted; "idle" never gave a name.
+    const tuk = await w.fleetRepo.createVehicle({ plate: 'واسط 45671', vehicleClass: 'tuktuk', ownerOrgId: 'org_fleet' });
+    await w.fleetRepo.setActiveDriver(tuk.id, w.people['busy']!);
+    w.id.repo.people.get(w.people['khat']!)!.deletedAt = new Date(START);
+    const kebab = await w.orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'p1' });
+    const liver = await w.catalog.addItem({ orgId: kebab.id, nameAr: 'صحن معلاك', priceIqd: 6_000 });
+    w.id.repo.accessLogs.length = 0;
+    return { w, staff, kebab, liver };
+  }
+  const names = (w: W, input: Parameters<typeof ConsoleNamesInput.parse>[0], accessor: string) => w.reads.names(ConsoleNamesInput.parse(input), accessor);
+
+  it('people by first name + initial, with the registry vehicle; deleted marked; unknown and system left out', async () => {
+    const { w, staff } = await named();
+    const res = await names(w, { personIds: [w.people['busy']!, w.people['broke']!, w.people['cust']!, w.people['idle']!, w.people['khat']!, 'p_nobody', 'system', 'system:sim'] }, staff);
+    expect(res.people).toEqual({
+      [w.people['busy']!]: { displayName: 'حيدر ك.', deleted: false, vehicleClass: 'tuktuk', plate: 'واسط 45671' },
+      [w.people['broke']!]: { displayName: 'عبد الله ح.', deleted: false, vehicleClass: null, plate: null },
+      [w.people['cust']!]: { displayName: 'زينب', deleted: false, vehicleClass: null, plate: null },
+      [w.people['idle']!]: { displayName: null, deleted: false, vehicleClass: null, plate: null },
+      [w.people['khat']!]: { displayName: null, deleted: true, vehicleClass: null, plate: null },
+    });
+  });
+
+  it('every vault read is logged against the staff member (purpose console_names); deleted people are not read; self is not logged', async () => {
+    const { w, staff } = await named();
+    await names(w, { personIds: [w.people['busy']!, w.people['cust']!, w.people['khat']!, staff] }, staff);
+    const logs = w.id.repo.accessLogs.map((l) => ({ personId: l.personId, accessorId: l.accessorId, purpose: l.purpose, fieldsRead: l.fieldsRead }));
+    expect(logs).toEqual([
+      { personId: w.people['busy']!, accessorId: staff, purpose: CONSOLE_NAMES_PURPOSE, fieldsRead: ['name'] },
+      { personId: w.people['cust']!, accessorId: staff, purpose: CONSOLE_NAMES_PURPOSE, fieldsRead: ['name'] },
+    ]);
+  });
+
+  it('batched: one read of people, one of the vault and one log write for the whole page', async () => {
+    const { w, staff } = await named();
+    const calls: string[] = [];
+    const repo = w.id.repo as unknown as Record<string, (...a: unknown[]) => unknown>;
+    for (const m of ['findPersonById', 'findPeopleByIds', 'readIdentity', 'readIdentities', 'logVaultAccess', 'logVaultAccessMany']) {
+      const orig = repo[m]!.bind(w.id.repo);
+      repo[m] = (...a: unknown[]) => (calls.push(m), orig(...a));
+    }
+    const ids = [w.people['busy']!, w.people['broke']!, w.people['cust']!, w.people['idle']!, w.people['busy']!];
+    await names(w, { personIds: ids }, staff);
+    expect(calls.filter((c) => c !== 'logVaultAccess')).toEqual(['findPeopleByIds', 'readIdentities', 'logVaultAccessMany']);
+    expect(w.id.repo.accessLogs).toHaveLength(4);
+  });
+
+  it('merchants and dishes by name; unknown ones are left out', async () => {
+    const { w, staff, kebab, liver } = await named();
+    const res = await names(w, { orgIds: [kebab.id, 'org_nope'], items: [{ orgId: kebab.id, itemId: liver.id }, { orgId: kebab.id, itemId: 'ci_nope' }] }, staff);
+    expect(res.orgs).toEqual({ [kebab.id]: { name: 'مطعم خالد', type: 'restaurant' } });
+    expect(res.items).toEqual({ [`${kebab.id}:${liver.id}`]: { name: 'صحن معلاك' } });
+    expect(res.people).toEqual({});
+    expect(w.id.repo.accessLogs).toHaveLength(0);
   });
 });

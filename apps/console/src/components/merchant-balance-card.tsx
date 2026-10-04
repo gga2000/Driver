@@ -2,11 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
-import { formatDayClock, formatIqd, shortId } from '@/lib/format';
+import { formatDayClock, formatIqd } from '@/lib/format';
 import { channelLabel, settleModeLabel } from '@/lib/labels';
 import { queryRetry } from '@/lib/live';
 import { useTRPC } from '@/lib/trpc';
-import { Card, Chip, Mono, primaryBtn, QueryError, Row } from './ui';
+import { OrgName, PersonName } from './named';
+import { Card, Chip, primaryBtn, QueryError, Row } from './ui';
 
 /**
  * A merchant's live balance (ledger.merchantBalance) with the "اطلب فلوسك" button
@@ -27,7 +28,7 @@ export function MerchantBalanceCard({ merchantId }: { merchantId: string }) {
     <Card
       title={
         <span className="flex items-center gap-2">
-          {t('console.merchant_balance')} <Mono title={merchantId}>{shortId(merchantId)}</Mono>
+          {t('console.merchant_balance')} · <OrgName id={merchantId} />
         </span>
       }
       tone={b?.overExposure ? 'bad' : 'default'}
@@ -58,7 +59,7 @@ export function MerchantBalanceCard({ merchantId }: { merchantId: string }) {
               <ul className="mt-1 space-y-0.5 text-sm">
                 {b.holders.map((h) => (
                   <li key={h.courierId} className="flex justify-between gap-2">
-                    <Mono>{shortId(h.courierId)}</Mono>
+                    <PersonName id={h.courierId} href={`/drivers/${encodeURIComponent(h.courierId)}/ledger`} />
                     <span className="tabular-nums">{formatIqd(h.amountIqd)}</span>
                   </li>
                 ))}

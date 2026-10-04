@@ -73,6 +73,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.people.get(id) ?? null;
   }
 
+  async findPeopleByIds(ids: readonly string[]) {
+    return [...new Set(ids)].map((id) => this.people.get(id)).filter((p): p is PersonRecord => p !== undefined);
+  }
+
   async findPersonByPhoneHash(phoneHash: string) {
     for (const idn of this.identities.values()) if (idn.phoneHash === phoneHash) return this.people.get(idn.personId) ?? null;
     return null;
@@ -110,6 +114,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.identities.get(personId) ?? null;
   }
 
+  async readIdentities(personIds: readonly string[]) {
+    return [...new Set(personIds)].map((id) => this.identities.get(id)).filter((i): i is IdentityRecord => i !== undefined);
+  }
+
   async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx) {
     const idn = this.identities.get(personId);
     if (!idn) throw new Error(`identity ${personId} not found`);
@@ -132,6 +140,11 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     this.accessLogs.push(row);
     this.added(tx, this.accessLogs, row);
     return row;
+  }
+
+  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx) {
+    for (const e of entries) await this.logVaultAccess(e, tx);
+    return entries.length;
   }
 
   async vaultAccessLogs(personId: string) {

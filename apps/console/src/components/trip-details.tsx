@@ -1,12 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import type { BoardCard, Trip } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { formatClock, formatCountdown, shortId } from '@/lib/format';
 import { offerStateLabel, stopStateLabel, stopTypeLabel, tripStateLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { markerStateForTrip, nextStop } from '@/lib/live-map';
 import { TripEventLog } from './event-timeline';
+import { CopyId, OrderRef, PersonName } from './named';
 import { Chip, Mono, Row, type ChipTone } from './ui';
 
 const TONE: Record<string, ChipTone> = { on_job: 'live', offered: 'ready', offline: 'neutral', free: 'done', over_cap: 'bad' };
@@ -19,16 +19,30 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
   return (
     <div className="space-y-4">
       <dl>
-        <Row k={t('console.drawer_trip')} v={<Mono title={trip?.id ?? card?.tripId}>{shortId(trip?.id ?? card!.tripId)}</Mono>} />
+        <Row
+          k={t('console.drawer_trip')}
+          v={
+            openOrders.length > 0 ? (
+              <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+                {openOrders.map((o) => (
+                  <OrderRef key={o.orderId} id={o.orderId} />
+                ))}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Mono title={trip?.id ?? card?.tripId}>{shortId(trip?.id ?? card!.tripId)}</Mono>
+                <CopyId id={trip?.id ?? card!.tripId} />
+              </span>
+            )
+          }
+        />
         <Row k={t('console.trip_vertical')} v={verticalLabel(trip?.vertical ?? card!.vertical)} />
         {trip && <Row k={t('console.trip_state')} v={<Chip tone={TONE[markerStateForTrip(trip.state)]}>{tripStateLabel(trip.state)}</Chip>} />}
         {trip?.courierId && (
           <Row
             k={t('console.drawer_driver')}
             v={
-              <Link className="text-accent underline" href={`/drivers/${encodeURIComponent(trip.courierId)}/ledger`}>
-                <Mono>{shortId(trip.courierId)}</Mono>
-              </Link>
+              <PersonName id={trip.courierId} vehicle href={`/drivers/${encodeURIComponent(trip.courierId)}/ledger`} />
             }
           />
         )}
@@ -58,7 +72,7 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
             <ul className="mt-2 space-y-1 text-xs">
               {card.offers.map((o) => (
                 <li key={o.offerId} className="flex justify-between gap-2">
-                  <Mono>{shortId(o.driverId)}</Mono>
+                  <PersonName id={o.driverId} copy={false} />
                   <span className="text-muted">{offerStateLabel(o.state)}</span>
                 </li>
               ))}
@@ -90,10 +104,8 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
           <h3 className="mb-1 text-sm font-semibold">{t('console.trip_orders')}</h3>
           <ul className="flex flex-wrap gap-2">
             {openOrders.map((o) => (
-              <li key={o.orderId}>
-                <Link href={`/orders/${encodeURIComponent(o.orderId)}`} className="rounded-md text-sm text-accent underline">
-                  <Mono>{shortId(o.orderId)}</Mono>
-                </Link>
+              <li key={o.orderId} className="text-sm">
+                <OrderRef id={o.orderId} />
               </li>
             ))}
           </ul>

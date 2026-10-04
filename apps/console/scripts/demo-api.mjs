@@ -36,7 +36,7 @@ const { DispatchService } = await load('modules/dispatch/index.js');
 const { LedgerService, LedgerFacade } = await load('modules/ledger/index.js');
 const { DriverAccountService } = await load('modules/driver-account/index.js');
 const { OpsService } = await load('modules/ops/index.js');
-const { FleetService } = await load('modules/fleet/index.js');
+const { FleetService, FLEET_REPOSITORY } = await load('modules/fleet/index.js');
 const { MerchantAdminService } = await load('modules/merchant-admin/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 const { SupportService, SUPPORT_REPOSITORY } = await load('modules/support/index.js');
@@ -261,6 +261,18 @@ await ledger.record({ type: 'merchant_payable', amount: 148_000, fromAccount: 'p
 await ledger.record({ type: 'merchant_payable', amount: 312_500, fromAccount: 'platform', toAccount: `merchant_cash:${kareem.orgId}`, occurredAt: new Date(), idempotencyKey: 'demo:payable:kareem' });
 await ledger.record({ type: 'merchant_paid_by_courier', amount: 26_000, fromAccount: `merchant_cash:${khalid.orgId}`, toAccount: `cash:${deskCouriers[0].id}`, occurredAt: new Date(), memo: 'handover-demo-1', idempotencyKey: 'demo:handover:1' });
 await get(LedgerFacade).runNightly({ requestedBy: ali });
+
+// Registry vehicles for the simulator's tuktuk and car drivers (checked by field ops), so the
+// Console names them "حيدر ك. · تكتك · واسط 41373" (K-01). Bikes carry no registry plate.
+const fleetRepo = get(FLEET_REPOSITORY);
+let plateN = 0;
+for (const d of await dispatch.liveDrivers('aziziyah', new Date())) {
+  if (d.presence.vehicle === 'bike') continue;
+  plateN += 1;
+  const v = await fleetRepo.createVehicle({ plate: `واسط ${41000 + plateN * 373}`, vehicleClass: d.presence.vehicle, ownerOrgId: fleetOrg.id });
+  await fleetRepo.reviewVehicle(v.id, { verified: true, by: haider, at: new Date(), note: null });
+  await fleetRepo.setActiveDriver(v.id, d.presence.driverId);
+}
 const keepOnline = async () => {
   for (const c of deskCouriers.filter((x) => x.zone !== 'khamas')) {
     const pin = ZONE_PINS[c.zone] ?? { lat: 32.909, lng: 45.0635 };

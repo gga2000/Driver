@@ -317,3 +317,16 @@ export function orderTicketNumber(orderId: string): string {
   }
   return String(1000 + (h % 9000));
 }
+
+const EASTERN_DIGITS = /[٠-٩۰-۹]/g;
+
+/**
+ * The order number a person typed or read out — "1284", "#1284", "# 1284", "١٢٨٤" — as the four
+ * Western digits `orderTicketNumber` produces; null for anything else (an order id, a name, 3 or 5
+ * digits). Console search uses it to tell "find order #1284" from an id or text search.
+ */
+export function parseOrderTicket(text: string): string | null {
+  const western = text.replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - (d >= '۰' ? 0x06f0 : 0x0660)) % 10));
+  const m = /^\s*#?\s*(\d{4})\s*$/.exec(western);
+  return m && m[1]! >= '1000' ? m[1]! : null;
+}

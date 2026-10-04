@@ -129,6 +129,22 @@ export class FleetService implements FleetPort {
     return v ? vehicleView(v) : null;
   }
 
+  /** Batched `activeVehicleOf` for staff screens (Console names, K-01): class and plate per driver. */
+  async activeVehiclesOf(driverIds: readonly string[]): Promise<Map<string, FleetVehicle>> {
+    const ids = [...new Set(driverIds)];
+    const out = new Map<string, FleetVehicle>();
+    if (ids.length === 0) return out;
+    if (this.repo.activeVehiclesOf) {
+      for (const [id, v] of await this.repo.activeVehiclesOf(ids)) out.set(id, vehicleView(v));
+      return out;
+    }
+    for (const id of ids) {
+      const v = await this.activeVehicleOf(id);
+      if (v) out.set(id, v);
+    }
+    return out;
+  }
+
   async vehicles(actor: Actor, input: FleetScopeInput): Promise<FleetVehicle[]> {
     return (await this.repo.vehicles(await this.fleetOf(actor, input.fleetOrgId))).map(vehicleView);
   }

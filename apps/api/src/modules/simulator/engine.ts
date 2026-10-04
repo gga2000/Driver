@@ -21,6 +21,7 @@ import type { QuarantinedEvent, SimSnapshot } from './invariants.js';
 import { createRand } from './prng.js';
 import { DAY_MINUTES, type PlannedOrder } from './scenario.js';
 import { simDriverRoles, type World } from './world.js';
+import { simCustomerName, simDriverName, simOwnerName } from './names.js';
 
 /** Who the simulator acts as when it grants roles (identity's `grantedBy`). */
 const SIM_ACTOR = { personId: 'system:simulator' };
@@ -124,18 +125,19 @@ export class Simulation implements SimContext {
 
   // ───────────────────────── setup ─────────────────────────
 
-  private async person(phone: string, roles: readonly RoleKind[]): Promise<string> {
+  private async person(phone: string, roles: readonly RoleKind[], name?: string): Promise<string> {
     await this.call('setup.otp', () => this.s.identity.requestOtp({ phone, purpose: 'login' }));
     const { code } = await this.s.identity.devLastOtp(phone);
     const { personId } = await this.s.identity.verifyOtp({ phone, code: code! });
     for (const kind of roles) await this.s.identity.grantRole(SIM_ACTOR, { personId, kind });
+    if (name) await this.call('setup.name', () => this.s.identity.nameIfMissing(personId, name));
     return personId;
   }
 
   async setup(): Promise<void> {
     this.dispatcherId = await this.person(`0790${String(this.world.seed % 1000).padStart(3, '0')}0000`, ['dispatcher']);
     for (const def of this.world.restaurants) {
-      const ownerId = await this.person(`0790${String(this.world.seed % 1000).padStart(3, '0')}${String(this.restaurants.length + 1).padStart(4, '0')}`, []);
+      const ownerId = await this.person(`0790${String(this.world.seed % 1000).padStart(3, '0')}${String(this.restaurants.length + 1).padStart(4, '0')}`, [], simOwnerName(this.restaurants.length));
       const org = await this.s.orgs.create({ type: 'restaurant', name: def.name_ar, cityId: CITY, ownerId });
       await this.s.orgs.setMerchantSettings(org.id, { commissionTier: def.commissionTier, autoAccept: def.autoAccept, defaultPrepMin: def.defaultPrepMin, location: { zoneKey: def.zoneId, pin: def.pin } });
       const catalogIds = new Map<string, string>();
@@ -143,8 +145,8 @@ export class Simulation implements SimContext {
       this.restaurants.push({ def, orgId: org.id, catalogIds, ownerId, nextHeartbeatT: this.t });
     }
     await this.s.orgs.settled();
-    for (const def of this.world.drivers) {
-      const personId = await this.person(def.phone, simDriverRoles(def.vehicle));
+    for (const [i, def] of this.world.drivers.entries()) {
+      const personId = await this.person(def.phone, simDriverRoles(def.vehicle), simDriverName(i));
       const d: DriverRun = {
         def,
         personId,
@@ -188,7 +190,7 @@ export class Simulation implements SimContext {
     const known = this.customers.get(index);
     if (known) return known;
     const c = this.world.customers[index]!;
-    const id = await this.person(c.phone, ['customer']);
+    const id = await this.person(c.phone, ['customer'], simCustomerName(index));
     this.customers.set(index, id);
     return id;
   }

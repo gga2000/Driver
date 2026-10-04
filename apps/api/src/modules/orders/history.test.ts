@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { orderTicketNumber } from '@driver/contracts';
 import { decodeCursor, encodeCursor, isLate } from './history.js';
 import { ordersHarness } from './test-harness.js';
 
@@ -84,5 +85,69 @@ describe('OrdersService.search / liveStats (in-memory repository)', () => {
     const page = await h.orders.search({ cityId: 'aziziyah', limit: 50 });
     expect(page.rows.filter((r) => r.late).map((r) => r.id)).toEqual([ids[0]]);
     expect(page.rows.find((r) => r.id === ids[1])).toMatchObject({ state: 'customer_cancelled', late: false });
+  });
+});
+
+describe('OrdersService.search by order number "#1284" (K-02)', () => {
+  /** Three ids that share a ticket number (FNV collisions are rare but real), found deterministically. */
+  function collidingIds(): [string, string, string] {
+    const seen = new Map<string, string[]>();
+    for (let i = 1; ; i += 1) {
+      const id = `ord_t${i}`;
+      const same = [...(seen.get(orderTicketNumber(id)) ?? []), id];
+      if (same.length === 3) return [same[0]!, same[1]!, same[2]!];
+      seen.set(orderTicketNumber(id), same);
+    }
+  }
+
+  async function seeded() {
+    const h = ordersHarness('2026-10-03T09:00:00Z');
+    const template = await h.orders.place('c1', h.foodInput());
+    const record = h.repo.orders.get(template.id)!;
+    const [a, b, oldId] = collidingIds();
+    const at = (iso: string) => new Date(iso);
+    // a: this morning; b: yesterday evening (Baghdad); old: same ticket as a, three days ago.
+    h.repo.orders.set(a, { ...record, id: a, placedAt: at('2026-10-03T08:30:00Z') });
+    h.repo.orders.set(b, { ...record, id: b, placedAt: at('2026-10-02T18:00:00Z'), state: 'closed' });
+    h.repo.orders.set(oldId, { ...record, id: oldId, placedAt: at('2026-09-30T12:00:00Z') });
+    return { h, a, b, ticket: orderTicketNumber(a), templateId: template.id, oldId };
+  }
+
+  const ids = (p: { rows: Array<{ id: string }> }) => p.rows.map((r) => r.id);
+
+  it('finds every order with that number since yesterday, newest first, however it is typed', async () => {
+    const { h, a, b, ticket } = await seeded();
+    const eastern = ticket.replace(/\d/g, (d) => String.fromCharCode(0x0660 + Number(d)));
+    for (const text of [ticket, `#${ticket}`, ` # ${ticket} `, eastern]) {
+      expect(ids(await h.orders.search({ cityId: 'aziziyah', limit: 50, text }))).toEqual([a, b]);
+    }
+  });
+
+  it('other filters still apply; an explicit window reaches older days', async () => {
+    const { h, a, b, ticket, oldId } = await seeded();
+    expect(ids(await h.orders.search({ cityId: 'aziziyah', limit: 50, text: ticket, states: ['closed'] }))).toEqual([b]);
+    expect(ids(await h.orders.search({ cityId: 'kut', limit: 50, text: ticket }))).toEqual([]);
+    const wide = await h.orders.search({ cityId: 'aziziyah', limit: 50, text: ticket, from: new Date('2026-09-25T00:00:00Z') });
+    expect(ids(wide)).toEqual([a, b, oldId]);
+  });
+
+  it('pages through collisions with the keyset cursor', async () => {
+    const { h, a, b, ticket } = await seeded();
+    const p1 = await h.orders.search({ cityId: 'aziziyah', limit: 1, text: `#${ticket}` });
+    expect(ids(p1)).toEqual([a]);
+    const p2 = await h.orders.search({ cityId: 'aziziyah', limit: 1, text: `#${ticket}`, cursor: p1.nextCursor! });
+    expect(ids(p2)).toEqual([b]);
+    expect(p2.nextCursor).toBeNull();
+  });
+
+  it('ids and text still search as before', async () => {
+    const { h, a, templateId } = await seeded();
+    const byId = ids(await h.orders.search({ cityId: 'aziziyah', limit: 50, text: a }));
+    expect(byId).toContain(a);
+    expect(byId.every((id) => id.includes(a))).toBe(true);
+    expect(ids(await h.orders.search({ cityId: 'aziziyah', limit: 50, text: templateId }))).toEqual([templateId]);
+    // A number of the template itself finds it (placed today).
+    const own = await h.orders.search({ cityId: 'aziziyah', limit: 50, text: `#${orderTicketNumber(templateId)}` });
+    expect(ids(own)).toContain(templateId);
   });
 });

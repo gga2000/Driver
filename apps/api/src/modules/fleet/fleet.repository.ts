@@ -43,6 +43,8 @@ export interface FleetRepository {
   vehicleByPlate(plate: string, tx?: Tx): Promise<VehicleRecord | null>;
   /** The active vehicle `driverId` is the active driver of (latest first); null when none. */
   activeVehicleOf?(driverId: string, tx?: Tx): Promise<VehicleRecord | null>;
+  /** Batched `activeVehicleOf` (one query): each driver's latest active vehicle; drivers without one are left out. */
+  activeVehiclesOf?(driverIds: readonly string[], tx?: Tx): Promise<Map<string, VehicleRecord>>;
   createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord>;
   /** Sets the vehicle's active driver (null unassigns); the driver leaves any other vehicle of the fleet. */
   setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord>;
@@ -88,6 +90,15 @@ export class InMemoryFleetRepository implements FleetRepository {
   async activeVehicleOf(driverId: string): Promise<VehicleRecord | null> {
     const v = [...this.vehicleRows.values()].reverse().find((x) => x.activeDriverId === driverId && x.active);
     return v ? { ...v } : null;
+  }
+
+  async activeVehiclesOf(driverIds: readonly string[]): Promise<Map<string, VehicleRecord>> {
+    const out = new Map<string, VehicleRecord>();
+    for (const id of new Set(driverIds)) {
+      const v = await this.activeVehicleOf(id);
+      if (v) out.set(id, v);
+    }
+    return out;
   }
 
   async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }): Promise<VehicleRecord> {
@@ -182,6 +193,14 @@ export class PrismaFleetRepository implements FleetRepository {
   async activeVehicleOf(driverId: string, tx?: Tx): Promise<VehicleRecord | null> {
     const r = await this.db(tx).vehicle.findFirst({ where: { activeDriverId: driverId, active: true }, orderBy: { updatedAt: 'desc' } });
     return r ? vehicleFromRow(r) : null;
+  }
+
+  async activeVehiclesOf(driverIds: readonly string[], tx?: Tx): Promise<Map<string, VehicleRecord>> {
+    const out = new Map<string, VehicleRecord>();
+    if (driverIds.length === 0) return out;
+    const rows = await this.db(tx).vehicle.findMany({ where: { activeDriverId: { in: [...driverIds] }, active: true }, orderBy: { updatedAt: 'desc' } });
+    for (const r of rows) if (r.activeDriverId && !out.has(r.activeDriverId)) out.set(r.activeDriverId, vehicleFromRow(r));
+    return out;
   }
 
   async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord> {

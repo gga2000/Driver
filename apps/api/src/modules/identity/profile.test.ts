@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
+import { shortDisplayName } from './identity.service.js';
 import { harness } from './test-harness.js';
 
 /** Customer spec §10 + domain §13: the name and emergency contact live in the vault only. */
@@ -88,5 +89,16 @@ describe('identity.updateProfile', () => {
     expect(JSON.stringify(names)).not.toContain('حسين');
     const logs = await h.repo.vaultAccessLogs(zahraa.actor.personId);
     expect(logs.filter((l) => l.accessorId === driver.actor.personId && l.purpose === 'intercity_manifest')).toHaveLength(1);
+  });
+});
+
+describe('shortDisplayName (Console names, K-01)', () => {
+  it('first name and the next name\'s initial; compound first names; "ال" skipped; single names as is', () => {
+    expect(shortDisplayName('حيدر كاظم جواد')).toBe('حيدر ك.');
+    expect(shortDisplayName('  عبد الله   حسن ')).toBe('عبد الله ح.');
+    expect(shortDisplayName('أبو علي')).toBe('أبو علي');
+    expect(shortDisplayName('سيف الربيعي')).toBe('سيف ر.');
+    expect(shortDisplayName('زينب')).toBe('زينب');
+    expect(shortDisplayName('   ')).toBe('');
   });
 });

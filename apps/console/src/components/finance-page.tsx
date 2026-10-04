@@ -5,14 +5,15 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { FinanceDeskView, SettlementExportInput } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { downloadCsv } from '@/lib/control-room';
-import { formatClock, formatDayClock, formatIqd, formatMoney, shortId } from '@/lib/format';
+import { formatClock, formatDayClock, formatIqd, formatMoney } from '@/lib/format';
 import { capTierLabel, settleModeLabel } from '@/lib/labels';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { PersonName } from './named';
 import { RoundMap } from './round-map';
-import { Card, Chip, EmptyState, ghostBtn, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Stat } from './ui';
+import { Card, Chip, EmptyState, ghostBtn, LiveBadge, NeedLogin, PageHeader, QueryError, Stat } from './ui';
 
 const POLL_MS = 30_000;
 const EXPORTS: ReadonlyArray<NonNullable<SettlementExportInput['kind']>> = ['round', 'couriers', 'merchants', 'handovers'];
@@ -106,7 +107,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
                       {s.couriers.map((c) => (
                         <li key={c.driverId} className="flex justify-between gap-2">
                           <span className={c.overCap ? 'text-bad' : ''}>
-                            {c.name ?? shortId(c.driverId)}
+                            {c.name ?? <PersonName id={c.driverId} copy={false} />}
                             {c.overCap ? ` · ${t('console.fin_over_cap_short')}` : ''}
                           </span>
                           <span className="tabular-nums">{formatIqd(c.heldIqd)}</span>
@@ -128,7 +129,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
               {desk.handovers.map((h, i) => (
                 <li key={`${h.reference}-${i}`} className="flex items-baseline justify-between gap-3 border-b border-line/50 pb-1.5">
                   <span className="min-w-0">
-                    <span className="font-semibold">{h.courierName ?? shortId(h.courierId)}</span> ← {h.counterpart ?? '—'}
+                    <span className="font-semibold">{h.courierName ?? <PersonName id={h.courierId} copy={false} />}</span> ← {h.counterpart ?? '—'}
                     <span className="block text-xs text-faint">
                       {t(`console.fin_handover_${h.kind}` as MessageKey)} · {formatClock(h.at)}
                     </span>
@@ -160,7 +161,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
                   <tr key={c.driverId} className="border-t border-line/50">
                     <td className="py-1.5">
                       <Link href={`/drivers/${encodeURIComponent(c.driverId)}/ledger`} className="hover:text-accent">
-                        {c.name ?? <Mono>{shortId(c.driverId)}</Mono>}
+                        {c.name ?? <PersonName id={c.driverId} copy={false} />}
                       </Link>
                       <span className="ms-2 text-xs text-faint">{capTierLabel(c.tier)}</span>
                     </td>

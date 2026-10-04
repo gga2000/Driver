@@ -400,6 +400,38 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * Staff display names for the Console (K-01): "حيدر ك." — the first name and the family initial,
+   * never the full name or the phone. Batched: one read of the people, one of the vault rows and
+   * one write of the access log, a row per person read (the caller's `purpose`, the staff member as
+   * accessor). Deleted people come back marked `deleted` with nothing read or logged; unknown ids
+   * are left out; a person with no name in the vault maps to `displayName: null`.
+   */
+  async displayNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, { displayName: string | null; deleted: boolean }>> {
+    const ids = [...new Set(personIds)];
+    if (ids.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const out: Record<string, { displayName: string | null; deleted: boolean }> = {};
+      const live: string[] = [];
+      for (const person of await this.repo.findPeopleByIds(ids, tx)) {
+        if (person.deletedAt) out[person.id] = { displayName: null, deleted: true };
+        else live.push(person.id);
+      }
+      if (live.length === 0) return out;
+      const vault = new Map((await this.repo.readIdentities(live, tx)).map((i) => [i.personId, i]));
+      await this.repo.logVaultAccessMany(
+        live.filter((id) => id !== accessorId && vault.has(id)).map((personId) => ({ personId, accessorId, purpose, fieldsRead: ['name'], now })),
+        tx,
+      );
+      for (const id of live) {
+        const name = vault.get(id)?.name;
+        out[id] = { displayName: name ? shortDisplayName(name) : null, deleted: false };
+      }
+      return out;
+    });
+  }
+
+  /**
    * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
    * the public side records just that the profile changed, never the values.
    */
@@ -809,4 +841,24 @@ function roleGrant(r: RoleRecord): RoleGrant {
 /** "زينب علي حسين" → "زينب" (first whitespace-separated token). */
 export function firstNameOf(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name.trim();
+}
+
+/** First-name tokens that never stand alone: "عبد الله", "أبو علي". */
+const COMPOUND_FIRST = new Set(['عبد', 'ابو', 'أبو', 'ام', 'أم']);
+
+/**
+ * Staff display name (K-01): the first name and the initial of the next name — the father's name in
+ * Iraqi usage — with a dot: "حيدر كاظم جواد" → "حيدر ك."; compound first names stay whole
+ * ("عبد الله حسن" → "عبد الله ح."), and a leading "ال" is skipped for the initial
+ * ("سيف الربيعي" → "سيف ر."). A single name is shown as is.
+ */
+export function shortDisplayName(name: string): string {
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return '';
+  const firstLen = tokens.length > 1 && COMPOUND_FIRST.has(tokens[0]!) ? 2 : 1;
+  const first = tokens.slice(0, firstLen).join(' ');
+  const next = tokens[firstLen];
+  if (!next) return first;
+  const letters = [...(next.startsWith('ال') && next.length > 3 ? next.slice(2) : next)];
+  return `${first} ${letters[0]}.`;
 }
