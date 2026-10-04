@@ -25,7 +25,8 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
-import { assertExpected, serverFees, type QuotePort, type ServerFees } from './fees.js';
+import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
+import { ORDERS_CONTROLS, THROTTLED_ORDER_TYPES, type OrdersControlsPort } from './controls.port.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
 import { ORDERS_CATALOG, priceLines, type CatalogPort, type CatalogStorefrontView } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
@@ -122,6 +123,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(ORDERS_CASH_RISK) private readonly cashRisk: OrdersCashRiskPort,
     @Inject(ORDERS_CATALOG) private readonly catalog: CatalogPort,
     @Optional() @Inject(ORDERS_PROMOTIONS) promotions?: PromotionsPort,
+    @Optional() @Inject(ORDERS_CONTROLS) private readonly controls?: OrdersControlsPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
@@ -139,6 +141,15 @@ export class OrdersService implements OnModuleInit {
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
+    // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
+    await this.controls?.assertOrderAllowed({
+      cityId: input.cityId,
+      vertical: orderVertical(input.type, input.rideVertical),
+      zones: [merchantType ? profile?.location?.zoneKey : input.pickup?.zoneKey, input.dropoff?.zoneKey],
+      customerZone: THROTTLED_ORDER_TYPES.includes(input.type) ? (input.dropoff?.zoneKey ?? null) : null,
+      merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
+      scheduledFor: input.scheduledFor ?? null,
+    });
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -700,6 +711,40 @@ export class OrdersService implements OnModuleInit {
     const page = rows.slice(0, input.limit);
     const now = this.clock.now();
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: rows.length > input.limit ? encodeCursor(page.at(-1)!) : null };
+  }
+
+  /**
+   * Active delivery orders per customer (drop-off) zone: what the launch throttle counts and the
+   * console's zone gauges show. Rides are not throttled (dispatch handles them).
+   */
+  async activeByZone(cityId: string): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const o of await this.repo.findMany({ cityId, states: ACTIVE_ORDER_STATES })) {
+      const zone = o.dropoff?.zoneKey;
+      if (!zone || !THROTTLED_ORDER_TYPES.includes(o.type)) continue;
+      out.set(zone, (out.get(zone) ?? 0) + 1);
+    }
+    return out;
+  }
+
+  /** Placed → delivered minutes of delivery orders delivered in `[from, to)` (launch wall: median delivery). */
+  async deliveryDurations(cityId: string, from: Date, to: Date): Promise<number[]> {
+    // Bounded read on (city, placed_at): anything delivered in the window was placed at most a day before it.
+    const rows = await this.repo.search({ cityId, from: new Date(from.getTime() - 86_400_000), to, limit: 20_000 });
+    return rows
+      .filter((o) => THROTTLED_ORDER_TYPES.includes(o.type) && o.deliveredAt && o.deliveredAt.getTime() >= from.getTime() && o.deliveredAt.getTime() < to.getTime())
+      .map((o) => (o.deliveredAt!.getTime() - o.placedAt.getTime()) / 60_000);
+  }
+
+  /** Orders placed per local day in `[from, to)` (launch wall: orders/day), keyed `YYYY-MM-DD` (Baghdad). */
+  async placedPerDay(cityId: string, from: Date, to: Date, offsetMin = 180): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const o of await this.repo.search({ cityId, from, to, limit: 20_000 })) {
+      const t = o.placedAt.getTime();
+      const day = new Date(t + offsetMin * 60_000).toISOString().slice(0, 10);
+      out.set(day, (out.get(day) ?? 0) + 1);
+    }
+    return out;
   }
 
   /** Right-now bar: orders placed in the last hour, active orders and how many of them are late. */

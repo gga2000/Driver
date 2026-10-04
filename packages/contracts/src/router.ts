@@ -21,7 +21,9 @@ import { chatRouter } from './routers/chat.js';
 import { trackingRouter } from './routers/tracking.js';
 import { liveRouter } from './routers/live.js';
 import { notifyRouter } from './routers/notify.js';
-import { publicProcedure, router } from './trpc.js';
+import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter } from './routers/control-room.js';
+import { supportRouter } from './routers/support.js';
+import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
 export { protectedProcedure, publicProcedure, router, t, toTrpcError } from './trpc.js';
@@ -64,7 +66,8 @@ export const appRouter = router({
   console: consoleRouter,
   drivers: driversRouter,
   merchants: merchantsRouter,
-  system: systemRouter,
+  // Launch control room: `system.banner` (public) and its admin side join the system router.
+  system: t.mergeRouters(systemRouter, router(bannerProcedures)),
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,
@@ -74,6 +77,11 @@ export const appRouter = router({
   tracking: trackingRouter,
   live: liveRouter,
   notify: notifyRouter,
+  // Launch control room (kill switches live under `ops.controls`).
+  approvals: approvalsRouter,
+  support: supportRouter,
+  finance: financeRouter,
+  metrics: metricsRouter,
 });
 
 export type AppRouter = typeof appRouter;

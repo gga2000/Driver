@@ -154,4 +154,9 @@ export class DispatchService implements DispatchPort {
   acceptStats(since: Date): Promise<{ accepted: number; avgSec: number | null }> {
     return this.o.acceptStats(since);
   }
+
+  /** Offers sent since `since` by outcome (launch metrics wall). */
+  offerOutcomes(since: Date): Promise<{ accepted: number; declined: number; timedOut: number; open: number }> {
+    return this.o.offerOutcomes(since);
+  }
 }

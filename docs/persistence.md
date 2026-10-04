@@ -16,6 +16,8 @@ Stores that stayed **in memory even with `DATABASE_URL` set**:
 | places | `PlacesService` private map | learned places and the landmark layer (ops landmark picker) | **fixed**: `PlacesRepository` (`InMemoryPlacesRepository` / `PrismaPlacesRepository`) on `places` + `place_photos` |
 | places | `DevBlobStore` (upload records + bytes in maps; bytes on disk only with `UPLOADS_DIR`) | every photo upload record (gate photos, menu / shop photos, documents, evidence), so `upload_invalid` after a restart | **fixed**: `uploads` table (`PrismaUploadRecords`) + `ObjectStoragePort` (dev disk/memory or S3-compatible) |
 | ops | merchant onboarding drafts | the onboarding row was persisted, but the draft merchant org it points at was in memory | **fixed** with orgs (settlement mode was already in `merchant_settlements`) |
+| support | `SupportService.tickets` | open tickets, replies and refund history were dropped | **fixed**: `SupportRepository` on `support_tickets` + `support_ticket_entries` (migration `20261004230000_launch_control_room`) |
+| controls | kill switches, zone caps, banner, console audit (new) | n/a | `ops_kill_switches`, `ops_zone_capacities`, `system_banners`, `console_audit_log` |
 
 Already Prisma-backed with a database: catalog, dispatch offers, driver account, events/outbox, fleet,
 identity (+ vault), khat, ledger and merchant settlement settings, merchant-admin, ops (photos, cash
@@ -26,7 +28,6 @@ Still in memory with a database (known gaps, not part of this change):
 
 | Module | State | Effect of a restart |
 | --- | --- | --- |
-| support | `SupportService.tickets` | open tickets are dropped (incidents themselves are events) |
 | ledger | `AdjustmentService.pending` | unapproved adjustment requests are dropped; nothing was posted (documented safe failure) |
 | identity | `IdentityService.phoneChanges` | an in-flight number change must be restarted (OTP-length window) |
 | caches | `MerchantService.names`, `TrackingService.cards`, `LedgerIncidents.known`, `SessionService.keys`, `StaticCapProfiles` | caches / derived only; rebuilt on demand |

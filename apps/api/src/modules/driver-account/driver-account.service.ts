@@ -265,6 +265,16 @@ export class DriverAccountService implements DriverAccountPort {
     return out;
   }
 
+  /** Documents waiting for review, oldest first, with the stored record (Console approvals queue). */
+  async pendingDocuments(limit = 200): Promise<DocumentRecord[]> {
+    return this.repo.pendingDocuments(limit);
+  }
+
+  /** One document as stored (approvals queue side-by-side view); null when unknown. */
+  document(documentId: string): Promise<DocumentRecord | null> {
+    return this.repo.document(documentId);
+  }
+
   async uploadDocument(actor: Actor, input: UploadDocumentInput): Promise<DriverDocumentView> {
     await this.assertUpload(actor.personId, input.uploadId);
     const now = this.clock.now();

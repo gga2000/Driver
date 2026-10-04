@@ -33,6 +33,7 @@ export { CountdownRing, type CountdownRingProps } from './components/CountdownRi
 export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
+export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 
 // Logic and formatting (pure, shared with server-rendered receipts and tests)
 export * from './logic/seats';

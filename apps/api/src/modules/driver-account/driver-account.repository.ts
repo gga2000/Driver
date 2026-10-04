@@ -36,6 +36,8 @@ export interface DriverAccountRepository {
   document(id: string, tx?: Tx): Promise<DocumentRecord | null>;
   /** Current (not superseded) submissions of these people, oldest first. */
   currentDocuments(personIds: readonly string[], tx?: Tx): Promise<DocumentRecord[]>;
+  /** Current submissions waiting for review, oldest first (Console approvals queue). */
+  pendingDocuments(limit: number, tx?: Tx): Promise<DocumentRecord[]>;
   createCheckIn(input: Omit<CheckInRecord, 'id'>, tx?: Tx): Promise<CheckInRecord>;
   updateCheckIn(id: string, patch: Partial<Pick<CheckInRecord, 'result' | 'submittedAt' | 'livenessScore' | 'failureReason'>>, tx?: Tx): Promise<CheckInRecord>;
   checkIn(id: string, tx?: Tx): Promise<CheckInRecord | null>;
@@ -74,6 +76,14 @@ export class InMemoryDriverAccountRepository implements DriverAccountRepository 
 
   async currentDocuments(personIds: readonly string[]): Promise<DocumentRecord[]> {
     return [...this.documents.values()].filter((d) => personIds.includes(d.personId) && d.supersededAt === null).map((d) => ({ ...d }));
+  }
+
+  async pendingDocuments(limit: number): Promise<DocumentRecord[]> {
+    return [...this.documents.values()]
+      .filter((d) => d.status === 'pending' && d.supersededAt === null)
+      .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit)
+      .map((d) => ({ ...d }));
   }
 
   async createCheckIn(input: Omit<CheckInRecord, 'id'>): Promise<CheckInRecord> {
@@ -121,6 +131,10 @@ export class PrismaDriverAccountRepository implements DriverAccountRepository {
   async currentDocuments(personIds: readonly string[], tx?: Tx): Promise<DocumentRecord[]> {
     if (personIds.length === 0) return [];
     return (await this.db(tx).driverDocument.findMany({ where: { personId: { in: [...personIds] }, supersededAt: null }, orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }] })) as DocumentRecord[];
+  }
+
+  async pendingDocuments(limit: number, tx?: Tx): Promise<DocumentRecord[]> {
+    return (await this.db(tx).driverDocument.findMany({ where: { status: 'pending', supersededAt: null }, orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }], take: limit })) as DocumentRecord[];
   }
 
   async createCheckIn(input: Omit<CheckInRecord, 'id'>, tx?: Tx): Promise<CheckInRecord> {

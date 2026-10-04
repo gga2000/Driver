@@ -17,6 +17,10 @@ export interface LedgerRepository {
   byAccount(accountId: string): Promise<LedgerEvent[]>;
   byTrip(tripId: string): Promise<LedgerEvent[]>;
   byPostingGroups(groupIds: readonly string[]): Promise<LedgerEvent[]>;
+  /** Lines carrying this order id, oldest first (support case view). */
+  byOrder(orderId: string): Promise<LedgerEvent[]>;
+  /** Lines of these types that occurred in `[from, to)`, oldest first (finance desk: today's hand-overs). */
+  byTypesBetween(types: readonly LedgerEvent['type'][], from: Date, to: Date): Promise<LedgerEvent[]>;
   all(): Promise<LedgerEvent[]>;
   findByIdempotencyKey(key: string, tx?: Tx): Promise<LedgerEvent | undefined>;
 }
@@ -87,6 +91,15 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     // Recording order across groups (ids are `le_<seq>`), as a scan would return them.
     const seqOf = (e: LedgerEvent) => Number(e.id.slice(3));
     return [...new Set(groupIds)].flatMap((id) => this.byGroupIdx.get(id) ?? []).sort((a, b) => seqOf(a) - seqOf(b));
+  }
+
+  async byOrder(orderId: string): Promise<LedgerEvent[]> {
+    return this.events.filter((e) => e.orderId === orderId);
+  }
+
+  async byTypesBetween(types: readonly LedgerEvent['type'][], from: Date, to: Date): Promise<LedgerEvent[]> {
+    const set = new Set<string>(types);
+    return this.events.filter((e) => set.has(e.type) && e.occurredAt.getTime() >= from.getTime() && e.occurredAt.getTime() < to.getTime());
   }
 
   async all(): Promise<LedgerEvent[]> {

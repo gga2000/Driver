@@ -36,6 +36,8 @@ export interface PromotionsRepository {
   createDeal(input: Omit<DealRecord, 'id'>, tx?: Tx): Promise<DealRecord>;
   deal(id: string, tx?: Tx): Promise<DealRecord | null>;
   dealsOf(merchantOrgId: string, tx?: Tx): Promise<DealRecord[]>;
+  /** Merchant deals waiting for platform approval, oldest first (Console approvals queue). */
+  pendingDeals(limit: number, tx?: Tx): Promise<DealRecord[]>;
   updateDeal(id: string, patch: Partial<Pick<DealRecord, 'active' | 'proposalState' | 'approvedAt'>>, tx?: Tx): Promise<DealRecord>;
   /**
    * Adds `amountIqd` to the deal's spend counter only if it stays within the budget cap — one atomic
@@ -66,6 +68,14 @@ export class InMemoryPromotionsRepository implements PromotionsRepository {
 
   async dealsOf(merchantOrgId: string): Promise<DealRecord[]> {
     return [...this.rows.values()].filter((r) => r.merchantOrgId === merchantOrgId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id)).map((r) => structuredClone(r));
+  }
+
+  async pendingDeals(limit: number): Promise<DealRecord[]> {
+    return [...this.rows.values()]
+      .filter((d) => d.proposalState === 'pending_approval')
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit)
+      .map((d) => ({ ...d, itemIds: [...d.itemIds] }));
   }
 
   async updateDeal(id: string, patch: Partial<Pick<DealRecord, 'active' | 'proposalState' | 'approvedAt'>>): Promise<DealRecord> {
@@ -204,6 +214,11 @@ export class PrismaPromotionsRepository implements PromotionsRepository {
 
   async dealsOf(merchantOrgId: string, tx?: Tx): Promise<DealRecord[]> {
     const rows = await this.db(tx).promotion.findMany({ where: { merchantOrgId, funder: 'merchant' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    return rows.map(dealFromRow);
+  }
+
+  async pendingDeals(limit: number, tx?: Tx): Promise<DealRecord[]> {
+    const rows = await this.db(tx).promotion.findMany({ where: { funder: 'merchant', proposalState: 'pending_approval' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit });
     return rows.map(dealFromRow);
   }
 

@@ -4,6 +4,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { ConfigModule } from '../config/index.js';
+import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { CAPS_PORT as LEDGER_CAPS_PORT, LedgerModule } from '../ledger/index.js';
 import { RoutesDeparturesPort, RoutesModule } from '../routes/index.js';
@@ -16,7 +17,7 @@ import { DispatchSubscribers } from './events.subscribers.js';
 import { GEO_INDEX, InMemoryGeoIndex, RedisGeoIndex } from './geo-index.js';
 import { DISPATCH_QUEUE, DISPATCH_QUEUE_NAME, OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
 import { DispatchOfferCheck } from './offer-check.js';
-import { CAPS, DEPARTURES, TRIP_OFFERS, type CapsPort, type TripOffersPort } from './ports.js';
+import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
 import { TripsServiceTripOffers } from './trips.adapter.js';
@@ -62,7 +63,7 @@ export class DispatchRuntime implements OnModuleDestroy {
  * `dispatch:trip-events` for accept/decline from trips, completion, cancellation and pickup.
  */
 @Module({
-  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule, RoutesModule],
+  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule, RoutesModule, ControlsModule],
   providers: [
     ZoneDirectory,
     DriverRanker,
@@ -99,6 +100,8 @@ export class DispatchRuntime implements OnModuleDestroy {
     { provide: TRIP_OFFERS, useFactory: (trips: TripsService) => new TripsServiceTripOffers(trips), inject: [TripsService] },
     { provide: CAPS, useExisting: LEDGER_CAPS_PORT },
     { provide: DEPARTURES, useExisting: RoutesDeparturesPort },
+    // Launch kill switches with "hold dispatch" turn new jobs in their scope suggest-only.
+    { provide: DISPATCH_HOLDS, useExisting: ControlsService },
     PresenceService,
     OfferOrchestrator,
     DispatchRuntime,

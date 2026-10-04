@@ -83,6 +83,16 @@ export class PrismaLedgerRepository implements LedgerRepository {
     return rows.map(fromRow);
   }
 
+  async byOrder(orderId: string): Promise<LedgerEvent[]> {
+    const rows = await this.delegate.findMany({ where: { orderId }, orderBy: { occurredAt: 'asc' } });
+    return rows.map(fromRow);
+  }
+
+  async byTypesBetween(types: readonly LedgerEvent['type'][], from: Date, to: Date): Promise<LedgerEvent[]> {
+    const rows = await this.delegate.findMany({ where: { type: { in: [...types] }, occurredAt: { gte: from, lt: to } }, orderBy: { occurredAt: 'asc' } });
+    return rows.map(fromRow);
+  }
+
   async all(): Promise<LedgerEvent[]> {
     const rows = await this.delegate.findMany({ orderBy: { occurredAt: 'asc' } });
     return rows.map(fromRow);

@@ -27,6 +27,8 @@ import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
+import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
+import type { SupportPort } from './support-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -86,6 +88,12 @@ export interface AppContext {
   liveAuthError?: ErrorCode | null;
   /** Push tokens, notification preferences, the delivery log (`modules/notify`). */
   notify: NotifyPort;
+  /** Launch control room: kill switches, zone throttle, status banner, audit log (`modules/controls`). */
+  controls: ControlsPort;
+  /** Launch control room: approvals queue, nightly cash desk, metrics wall (`modules/control-room`). */
+  controlRoom: ControlRoomPort;
+  /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
+  support: SupportPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

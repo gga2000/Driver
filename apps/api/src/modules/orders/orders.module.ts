@@ -6,11 +6,13 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS } from '../catalog/index.js';
 import { CapsService, LedgerModule } from '../ledger/index.js';
+import { ControlsModule, ControlsService } from '../controls/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { PromotionsModule, PromotionsService } from '../promotions/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { ORDERS_CATALOG } from './catalog.port.js';
+import { ORDERS_CONTROLS } from './controls.port.js';
 import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
@@ -32,7 +34,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -58,6 +60,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       inject: [IdentityService],
     },
     { provide: ORDERS_ROLE_CHECKER, useExisting: IdentityService },
+    // Launch controls: kill switches and the zone throttle gate `place()` (playbook §3).
+    { provide: ORDERS_CONTROLS, useExisting: ControlsService },
     // M3 customer catalog read: cards are open exactly when place() takes orders, fees as place() charges.
     { provide: STOREFRONT_MERCHANTS, useFactory: (dir: MerchantDirectory, deals: PromotionsPort) => new OrdersStorefrontMerchants(dir, deals), inject: [MERCHANT_DIRECTORY, ORDERS_PROMOTIONS] },
     CatalogRpc,
@@ -77,9 +81,12 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     @Inject(ORDERS_QUEUE) private readonly queue: Queue<OrderTimerJob>,
     @Inject(ORDER_EVENTS) private readonly events: EventsServiceAdapter,
     private readonly orders: OrdersService,
+    private readonly controls: ControlsService,
   ) {}
 
   onModuleInit(): void {
+    // The throttle and the console's zone gauges count active orders here (orders owns them).
+    this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
     // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
     this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
     const q = this.queue;

@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
@@ -16,7 +17,7 @@ import { InMemoryRoutesRepository, ROUTES_REPOSITORY } from './routes.repository
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
 import { randomIds, ROUTES_IDS } from './support.js';
-import { CHECKPOINT_WAIVER, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader } from './tokens.js';
+import { CHECKPOINT_WAIVER, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader } from './tokens.js';
 import { LedgerWallet, ROUTES_WALLET } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
@@ -30,7 +31,7 @@ import { RoutesWriter } from './writer.js';
  * `DEPARTURES` port.
  */
 @Module({
-  imports: [EventsModule, LedgerModule, IdentityModule],
+  imports: [EventsModule, LedgerModule, IdentityModule, ControlsModule],
   providers: [
     {
       provide: ROUTES_REPOSITORY,
@@ -60,6 +61,8 @@ import { RoutesWriter } from './writer.js';
       }),
       inject: [IdentityService],
     },
+    // Launch kill switches: corridor / الرجعة switches refuse new holds and request posts.
+    { provide: ROUTES_CONTROLS, useExisting: ControlsService },
     RoutesWriter,
     RequestBoardService,
     DeparturesService,
@@ -70,4 +73,11 @@ import { RoutesWriter } from './writer.js';
   ],
   exports: [RoutesRpc, DeparturesService, RoutesDeparturesPort, RoutesScheduler],
 })
-export class RoutesModule {}
+export class RoutesModule implements OnModuleInit {
+  constructor(private readonly controls: ControlsService) {}
+
+  /** The console's corridor switches name and validate the corridors this module serves. */
+  onModuleInit(): void {
+    this.controls.registerCorridors(INTERCITY_NETWORK.corridors.map((c) => ({ id: c.id, name_ar: c.nameAr })));
+  }
+}

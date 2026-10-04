@@ -26,6 +26,9 @@ import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
+import { ControlsModule, ControlsService } from '../modules/controls/index.js';
+import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
+import { SupportModule, SupportService } from '../modules/support/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -66,6 +69,9 @@ export class TrpcService {
     private readonly shareLinks: ShareLinksService,
     private readonly live: LiveService,
     private readonly notify: NotifyService,
+    private readonly controls: ControlsService,
+    private readonly controlRoom: ControlRoomService,
+    private readonly support: SupportService,
   ) {}
 
   /**
@@ -125,6 +131,9 @@ export class TrpcService {
       liveAuth,
       liveAuthError,
       notify: this.notify,
+      controls: this.controls,
+      controlRoom: this.controlRoom,
+      support: this.support,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -149,5 +158,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

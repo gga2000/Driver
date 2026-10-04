@@ -12,6 +12,9 @@ export interface LandmarkPhotoRecord {
   state: 'proposed' | 'approved' | 'rejected';
   addedById: string;
   createdAt: Date;
+  reviewedById?: string | null;
+  reviewedAt?: Date | null;
+  rejectReason?: string | null;
 }
 
 export interface CashReceiptRecord {
@@ -40,6 +43,9 @@ export interface OnboardingRecord {
   state: 'draft' | 'submitted' | 'active' | 'rejected';
   createdById: string;
   createdAt: Date;
+  reviewedById?: string | null;
+  reviewedAt?: Date | null;
+  rejectReason?: string | null;
 }
 
 export interface TaskRecord {
@@ -76,6 +82,19 @@ export interface OpsRepository {
   openTasks(assigneeId: string, tx?: Tx): Promise<TaskRecord[]>;
   /** Photos still `proposed` per target id (landmark picker counts). */
   proposedPhotoCounts(targetIds: readonly string[], tx?: Tx): Promise<Map<string, number>>;
+  /** Console approvals queue: photos in `state`, oldest first. */
+  photosIn(state: LandmarkPhotoRecord['state'], limit: number, tx?: Tx): Promise<LandmarkPhotoRecord[]>;
+  /** Approved photos of one target (the "compare" pane). */
+  approvedPhotosOf(targetId: string, tx?: Tx): Promise<LandmarkPhotoRecord[]>;
+  photo(id: string, tx?: Tx): Promise<LandmarkPhotoRecord | null>;
+  /** Applies the decision only while the photo is still `proposed`; null when it was decided already. */
+  decidePhoto(id: string, patch: { state: 'approved' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<LandmarkPhotoRecord | null>;
+  onboardingsIn(states: readonly OnboardingRecord['state'][], limit: number, tx?: Tx): Promise<OnboardingRecord[]>;
+  onboarding(id: string, tx?: Tx): Promise<OnboardingRecord | null>;
+  /** Applies the decision only while the draft is `draft` / `submitted`; null when it was decided already. */
+  decideOnboarding(id: string, patch: { state: 'active' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<OnboardingRecord | null>;
+  /** Open tasks pointing at `refId` (an onboarding's follow-up). */
+  openTasksFor(refId: string, tx?: Tx): Promise<TaskRecord[]>;
 }
 
 export const OPS_REPOSITORY = Symbol('OPS_REPOSITORY');
@@ -149,6 +168,46 @@ export class InMemoryOpsRepository implements OpsRepository {
     const out = new Map<string, number>();
     for (const p of this.photos) if (p.state === 'proposed' && ids.has(p.targetId)) out.set(p.targetId, (out.get(p.targetId) ?? 0) + 1);
     return out;
+  }
+
+  async photosIn(state: LandmarkPhotoRecord['state'], limit: number): Promise<LandmarkPhotoRecord[]> {
+    return this.photos.filter((p) => p.state === state).slice(0, limit).map((p) => ({ ...p, localNames: [...p.localNames] }));
+  }
+
+  async approvedPhotosOf(targetId: string): Promise<LandmarkPhotoRecord[]> {
+    return this.photos.filter((p) => p.state === 'approved' && p.targetId === targetId).map((p) => ({ ...p, localNames: [...p.localNames] }));
+  }
+
+  async photo(id: string): Promise<LandmarkPhotoRecord | null> {
+    const p = this.photos.find((x) => x.id === id);
+    return p ? { ...p, localNames: [...p.localNames] } : null;
+  }
+
+  async decidePhoto(id: string, patch: { state: 'approved' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }): Promise<LandmarkPhotoRecord | null> {
+    const p = this.photos.find((x) => x.id === id);
+    if (!p || p.state !== 'proposed') return null;
+    Object.assign(p, patch);
+    return { ...p, localNames: [...p.localNames] };
+  }
+
+  async onboardingsIn(states: readonly OnboardingRecord['state'][], limit: number): Promise<OnboardingRecord[]> {
+    return this.onboardings.filter((o) => states.includes(o.state)).slice(0, limit).map((o) => ({ ...o, menuPhotoRefs: [...o.menuPhotoRefs] }));
+  }
+
+  async onboarding(id: string): Promise<OnboardingRecord | null> {
+    const o = this.onboardings.find((x) => x.id === id);
+    return o ? { ...o, menuPhotoRefs: [...o.menuPhotoRefs] } : null;
+  }
+
+  async decideOnboarding(id: string, patch: { state: 'active' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }): Promise<OnboardingRecord | null> {
+    const o = this.onboardings.find((x) => x.id === id);
+    if (!o || (o.state !== 'draft' && o.state !== 'submitted')) return null;
+    Object.assign(o, patch);
+    return { ...o, menuPhotoRefs: [...o.menuPhotoRefs] };
+  }
+
+  async openTasksFor(refId: string): Promise<TaskRecord[]> {
+    return this.tasks.filter((t) => t.state === 'open' && t.refId === refId).map((t) => ({ ...t }));
   }
 }
 
@@ -232,4 +291,80 @@ export class PrismaOpsRepository implements OpsRepository {
     const rows = await this.db(tx).landmarkPhoto.groupBy({ by: ['targetId'], where: { state: 'proposed', targetId: { in: [...targetIds] } }, _count: { _all: true } });
     return new Map(rows.map((r) => [r.targetId, r._count._all]));
   }
+
+  async photosIn(state: LandmarkPhotoRecord['state'], limit: number, tx?: Tx): Promise<LandmarkPhotoRecord[]> {
+    return (await this.db(tx).landmarkPhoto.findMany({ where: { state }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit })).map(photoFrom);
+  }
+
+  async approvedPhotosOf(targetId: string, tx?: Tx): Promise<LandmarkPhotoRecord[]> {
+    return (await this.db(tx).landmarkPhoto.findMany({ where: { state: 'approved', targetId }, orderBy: { createdAt: 'desc' }, take: 6 })).map(photoFrom);
+  }
+
+  async photo(id: string, tx?: Tx): Promise<LandmarkPhotoRecord | null> {
+    const r = await this.db(tx).landmarkPhoto.findUnique({ where: { id } });
+    return r ? photoFrom(r) : null;
+  }
+
+  async decidePhoto(id: string, patch: { state: 'approved' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<LandmarkPhotoRecord | null> {
+    const res = await this.db(tx).landmarkPhoto.updateMany({ where: { id, state: 'proposed' }, data: patch });
+    return res.count === 1 ? this.photo(id, tx) : null;
+  }
+
+  async onboardingsIn(states: readonly OnboardingRecord['state'][], limit: number, tx?: Tx): Promise<OnboardingRecord[]> {
+    return (await this.db(tx).merchantOnboarding.findMany({ where: { state: { in: [...states] } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit })).map(onboardingFrom);
+  }
+
+  async onboarding(id: string, tx?: Tx): Promise<OnboardingRecord | null> {
+    const r = await this.db(tx).merchantOnboarding.findUnique({ where: { id } });
+    return r ? onboardingFrom(r) : null;
+  }
+
+  async decideOnboarding(id: string, patch: { state: 'active' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<OnboardingRecord | null> {
+    const res = await this.db(tx).merchantOnboarding.updateMany({ where: { id, state: { in: ['draft', 'submitted'] } }, data: patch });
+    return res.count === 1 ? this.onboarding(id, tx) : null;
+  }
+
+  async openTasksFor(refId: string, tx?: Tx): Promise<TaskRecord[]> {
+    return (await this.db(tx).opsTask.findMany({ where: { state: 'open', refId } })).map(taskFromRow);
+  }
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- Prisma row ↔ record mapping */
+function photoFrom(r: any): LandmarkPhotoRecord {
+  return {
+    id: r.id,
+    targetKind: r.targetKind,
+    targetId: r.targetId,
+    uploadId: r.uploadId,
+    caption: r.caption,
+    localNames: r.localNames,
+    state: r.state,
+    addedById: r.addedById,
+    createdAt: r.createdAt,
+    reviewedById: r.reviewedById,
+    reviewedAt: r.reviewedAt,
+    rejectReason: r.rejectReason,
+  };
+}
+
+function onboardingFrom(r: any): OnboardingRecord {
+  return {
+    id: r.id,
+    orgId: r.orgId,
+    cityId: r.cityId,
+    name: r.name,
+    type: r.type === 'grocer' ? 'grocer' : 'restaurant',
+    contactPersonId: r.contactPersonId,
+    location: r.location,
+    menuPhotoRefs: r.menuPhotoRefs,
+    shopPhotoRef: r.shopPhotoRef,
+    notes: r.notes,
+    state: r.state,
+    createdById: r.createdById,
+    createdAt: r.createdAt,
+    reviewedById: r.reviewedById,
+    reviewedAt: r.reviewedAt,
+    rejectReason: r.rejectReason,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */

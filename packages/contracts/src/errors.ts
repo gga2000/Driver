@@ -77,6 +77,23 @@ export const ERROR_TABLE = {
   staff_invite_not_pending: { message_ar: 'هذا الموظف دخل للتطبيق، ما يحتاج دعوة', message_en: 'This person already signed in; no invite to resend', retryHint: 'never', status: 'CONFLICT' },
   store_hours_invalid: { message_ar: 'أوقات الدوام مو صحيحة. شوف الفترات المتداخلة أو الفاضية', message_en: 'Invalid opening hours (overlapping or empty shifts)', retryHint: 'never', status: 'BAD_REQUEST' },
 
+  // launch control room (kill switches, throttle, banner, approvals, support desk)
+  service_paused: { message_ar: 'الخدمة موقّفة مؤقتاً هنا. جرّب بعدين', message_en: 'This service is paused here for now', retryHint: 'later', status: 'CONFLICT' },
+  zone_at_capacity: { message_ar: 'الطلبات هواية هسة بمنطقتك، جرّب بعد ربع ساعة', message_en: 'Too many orders in your area right now; try again in a quarter of an hour', retryHint: 'later', status: 'CONFLICT' },
+  control_invalid: { message_ar: 'المفتاح مو صحيح: راجع المنطقة أو المطعم أو الخط', message_en: 'Unknown zone, restaurant, corridor or vertical for this switch', retryHint: 'never', status: 'BAD_REQUEST' },
+  banner_invalid: { message_ar: 'وقت الإعلان مو صحيح: لازم ينتهي خلال 24 ساعة', message_en: 'A banner must end within 24 hours and after it starts', retryHint: 'never', status: 'BAD_REQUEST' },
+  banner_not_found: { message_ar: 'ما لگينا الإعلان', message_en: 'Banner not found', retryHint: 'never', status: 'NOT_FOUND' },
+  approval_not_found: { message_ar: 'ما لگينا الطلب بالقائمة. يمكن أحد ثاني قرّر عليه', message_en: 'Approval item not found (maybe already decided)', retryHint: 'never', status: 'NOT_FOUND' },
+  approval_own_item: { message_ar: 'ما تگدر توافق أو ترفض شي يخصّك. خلي زميلك يقرّر', message_en: 'You cannot decide on your own item', retryHint: 'never', status: 'FORBIDDEN' },
+  approval_state_conflict: { message_ar: 'هذا الطلب انقرّر قبل. حدّث القائمة', message_en: 'This item was already decided', retryHint: 'never', status: 'CONFLICT' },
+  ticket_not_found: { message_ar: 'ما لگينا التذكرة', message_en: 'Ticket not found', retryHint: 'never', status: 'NOT_FOUND' },
+  ticket_closed: { message_ar: 'التذكرة مسكّرة. افتحها من جديد إذا تحتاج', message_en: 'The ticket is resolved', retryHint: 'never', status: 'CONFLICT' },
+  refund_over_agent_limit: { message_ar: 'هذا فوق حدّك اليومي للتعويض. صعّدها للمالية', message_en: 'Over your daily credit limit; escalate to finance', retryHint: 'support', status: 'FORBIDDEN' },
+  refund_needs_escalation: { message_ar: 'التعويض فوق 25,000 يحتاج موافقة علي أو نائبه. صعّد التذكرة', message_en: 'Refunds above 25,000 need the escalation owner', retryHint: 'support', status: 'FORBIDDEN' },
+  refund_customer_cap: { message_ar: 'هذا الزبون وصل حد التعويضات الشهري', message_en: 'Monthly credit cap for this customer reached', retryHint: 'support', status: 'CONFLICT' },
+  refund_exceeds_order: { message_ar: 'التعويض أكثر من مبلغ الطلب', message_en: 'Refund is more than the order total', retryHint: 'never', status: 'BAD_REQUEST' },
+  refund_no_customer: { message_ar: 'التذكرة ما بيها زبون نعوّضه', message_en: 'No customer on this ticket to credit', retryHint: 'never', status: 'BAD_REQUEST' },
+
   // identity
   phone_invalid: { i18n: 'error.phone_invalid', message_ar: 'الرقم مو صحيح', message_en: 'Invalid phone number', retryHint: 'never', status: 'BAD_REQUEST' },
   otp_invalid: { i18n: 'error.otp_invalid', message_ar: 'الرمز غلط', message_en: 'Wrong code', retryHint: 'now', status: 'BAD_REQUEST' },
@@ -219,10 +236,14 @@ export type ErrorCode = keyof typeof ERROR_TABLE;
 export const ErrorCode = z.enum(Object.keys(ERROR_TABLE) as [ErrorCode, ...ErrorCode[]]);
 
 /** Builds the wire envelope for a code. Arabic comes from packages/i18n when the key exists. */
-export function errorEnvelope(code: ErrorCode, extra?: { retryAfterSec?: number; params?: Record<string, string | number> }): ErrorEnvelope {
+export function errorEnvelope(
+  code: ErrorCode,
+  extra?: { retryAfterSec?: number; params?: Record<string, string | number>; messageAr?: string | undefined },
+): ErrorEnvelope {
   const def: ErrorDef = ERROR_TABLE[code];
   const params = { minutes: 3, ...extra?.params };
-  const message_ar = def.i18n ? t(def.i18n, params, 'ar-IQ') : def.message_ar;
+  // A message set by an operator (a kill switch's customer notice) replaces the table's Arabic text.
+  const message_ar = extra?.messageAr ? extra.messageAr : def.i18n ? t(def.i18n, params, 'ar-IQ') : def.message_ar;
   const message_en = def.i18n ? t(def.i18n, params, 'en') : def.message_en;
   return {
     code,
@@ -246,7 +267,7 @@ export class DriverError extends Error {
 
   constructor(
     readonly code: ErrorCode,
-    extra?: { retryAfterSec?: number; params?: Record<string, string | number>; cause?: unknown },
+    extra?: { retryAfterSec?: number; params?: Record<string, string | number>; cause?: unknown; messageAr?: string | undefined },
   ) {
     const envelope = errorEnvelope(code, extra);
     super(envelope.message_en, extra?.cause ? { cause: extra.cause } : undefined);

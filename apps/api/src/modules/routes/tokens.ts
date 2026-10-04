@@ -11,3 +11,13 @@ export const ROUTES_RIDER_NAMES = Symbol('ROUTES_RIDER_NAMES');
 export interface RiderNamesReader {
   firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
 }
+
+/**
+ * Launch kill switches (`modules/controls`): a switched-off corridor or the intercity vertical refuses
+ * new seat holds and request posts (`service_paused`). Optional: harnesses run without it.
+ */
+export const ROUTES_CONTROLS = Symbol('ROUTES_CONTROLS');
+
+export interface RoutesControlsPort {
+  assertCorridorOpen(input: { cityId: string; corridorId: string }): Promise<void>;
+}

@@ -12,6 +12,9 @@ export interface VehicleRecord {
   active: boolean;
   /** Passenger seats: the length of the vehicle's seat map. */
   seats: number;
+  /** Ops check of a fleet owner's new vehicle (Console approvals queue); absent = verified. */
+  reviewState?: 'pending' | 'verified' | 'rejected';
+  createdAt?: Date;
 }
 
 /** Default passenger seats by class (edge-case §9: saloon 4, SUV 6, van 7/11). */
@@ -50,6 +53,10 @@ export interface FleetRepository {
   linksOf(personId: string, tx?: Tx): Promise<FleetDriverRecord[]>;
   /** Accepts (acceptedAt = at) or ends (removedAt = at) a live link; null when there is none. */
   answerLink(input: { fleetOrgId: string; personId: string; accept: boolean; at: Date }, tx?: Tx): Promise<FleetDriverRecord | null>;
+  /** New fleet vehicles waiting for the ops check, oldest first. */
+  vehiclesInReview(limit: number, tx?: Tx): Promise<VehicleRecord[]>;
+  /** Records the ops decision while still pending (null otherwise); a rejected vehicle goes inactive, unassigned. */
+  reviewVehicle(id: string, input: { verified: boolean; by: string; at: Date; note: string | null }, tx?: Tx): Promise<VehicleRecord | null>;
 }
 
 export const FLEET_REPOSITORY = Symbol('FLEET_REPOSITORY');
@@ -86,7 +93,7 @@ export class InMemoryFleetRepository implements FleetRepository {
   async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }): Promise<VehicleRecord> {
     if (await this.vehicleByPlate(input.plate)) throw new Error('unique violation: vehicles.plate');
     const seats = input.seats ?? DEFAULT_SEATS[input.vehicleClass];
-    const v: VehicleRecord = { id: this.id('veh'), plate: input.plate, vehicleClass: input.vehicleClass, ownerOrgId: input.ownerOrgId, activeDriverId: null, active: true, seats };
+    const v: VehicleRecord = { id: this.id('veh'), plate: input.plate, vehicleClass: input.vehicleClass, ownerOrgId: input.ownerOrgId, activeDriverId: null, active: true, seats, reviewState: 'pending', createdAt: new Date() };
     this.vehicleRows.set(v.id, v);
     return { ...v };
   }
@@ -118,6 +125,18 @@ export class InMemoryFleetRepository implements FleetRepository {
     return this.driverRows.filter((d) => d.personId === personId && d.removedAt === null).map((d) => ({ ...d }));
   }
 
+  async vehiclesInReview(limit: number): Promise<VehicleRecord[]> {
+    return [...this.vehicleRows.values()].filter((v) => v.reviewState === 'pending').slice(0, limit).map((v) => ({ ...v }));
+  }
+
+  async reviewVehicle(id: string, input: { verified: boolean; by: string; at: Date; note: string | null }): Promise<VehicleRecord | null> {
+    const v = this.vehicleRows.get(id);
+    if (!v || v.reviewState !== 'pending') return null;
+    v.reviewState = input.verified ? 'verified' : 'rejected';
+    if (!input.verified) Object.assign(v, { active: false, activeDriverId: null });
+    return { ...v };
+  }
+
   async answerLink(input: { fleetOrgId: string; personId: string; accept: boolean; at: Date }): Promise<FleetDriverRecord | null> {
     const row = this.driverRows.find((d) => d.fleetOrgId === input.fleetOrgId && d.personId === input.personId && d.removedAt === null);
     if (!row) return null;
@@ -127,11 +146,12 @@ export class InMemoryFleetRepository implements FleetRepository {
   }
 }
 
-type VehicleRow = { id: string; plate: string; class: string; ownerOrgId: string | null; activeDriverId: string | null; active: boolean; seatMap?: unknown };
+type VehicleRow = { id: string; plate: string; class: string; ownerOrgId: string | null; activeDriverId: string | null; active: boolean; seatMap?: unknown; reviewState?: string; createdAt?: Date };
 
 function vehicleFromRow(r: VehicleRow): VehicleRecord {
   const seats = Array.isArray(r.seatMap) ? r.seatMap.length : DEFAULT_SEATS[r.class as VehicleClass] ?? 0;
-  return { id: r.id, plate: r.plate, vehicleClass: r.class as VehicleClass, ownerOrgId: r.ownerOrgId, activeDriverId: r.activeDriverId, active: r.active, seats };
+  const reviewState = r.reviewState === 'pending' || r.reviewState === 'rejected' ? r.reviewState : 'verified';
+  return { id: r.id, plate: r.plate, vehicleClass: r.class as VehicleClass, ownerOrgId: r.ownerOrgId, activeDriverId: r.activeDriverId, active: r.active, seats, reviewState, ...(r.createdAt ? { createdAt: r.createdAt } : {}) };
 }
 
 /**
@@ -166,7 +186,8 @@ export class PrismaFleetRepository implements FleetRepository {
 
   async createVehicle(input: { plate: string; vehicleClass: VehicleClass; ownerOrgId: string; seats?: number }, tx?: Tx): Promise<VehicleRecord> {
     const seatMap = seatMapFor(input.seats ?? DEFAULT_SEATS[input.vehicleClass]);
-    return vehicleFromRow(await this.db(tx).vehicle.create({ data: { plate: input.plate, class: input.vehicleClass, ownerOrgId: input.ownerOrgId, seatMap } }));
+    // A fleet owner's new vehicle waits for the ops check (Console approvals queue); it can work meanwhile.
+    return vehicleFromRow(await this.db(tx).vehicle.create({ data: { plate: input.plate, class: input.vehicleClass, ownerOrgId: input.ownerOrgId, seatMap, reviewState: 'pending' } }));
   }
 
   async setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord> {
@@ -194,6 +215,19 @@ export class PrismaFleetRepository implements FleetRepository {
 
   async linksOf(personId: string, tx?: Tx): Promise<FleetDriverRecord[]> {
     return this.db(tx).fleetDriver.findMany({ where: { personId, removedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  }
+
+  async vehiclesInReview(limit: number, tx?: Tx): Promise<VehicleRecord[]> {
+    return (await this.db(tx).vehicle.findMany({ where: { reviewState: 'pending' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit })).map(vehicleFromRow);
+  }
+
+  async reviewVehicle(id: string, input: { verified: boolean; by: string; at: Date; note: string | null }, tx?: Tx): Promise<VehicleRecord | null> {
+    const res = await this.db(tx).vehicle.updateMany({
+      where: { id, reviewState: 'pending' },
+      data: { reviewState: input.verified ? 'verified' : 'rejected', reviewedById: input.by, reviewedAt: input.at, reviewNote: input.note, ...(input.verified ? {} : { active: false, activeDriverId: null }) },
+    });
+    if (res.count !== 1) return null;
+    return this.vehicle(id, tx);
   }
 
   async answerLink(input: { fleetOrgId: string; personId: string; accept: boolean; at: Date }, tx?: Tx): Promise<FleetDriverRecord | null> {
