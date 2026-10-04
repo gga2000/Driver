@@ -22,6 +22,20 @@ const code = (sql: string) => sql.replace(/--[^\n]*/g, '');
 const SUPABASE_EXTENSIONS = ['postgis', 'pgcrypto', 'uuid-ossp', 'pg_trgm', 'btree_gist', 'citext', 'unaccent', 'pg_stat_statements'];
 
 describe('migrations run on Supabase', () => {
+  it('every table created after the hardening migration is locked down by a later driver_harden call', () => {
+    const hardenAt = migrations.findIndex((m) => m.name.endsWith('_supabase_hardening'));
+    expect(hardenAt).toBeGreaterThanOrEqual(0);
+    const harden = /driver_harden"?\s*\(/;
+    let lastCreate = -1;
+    let lastHarden = hardenAt;
+    migrations.forEach((m, i) => {
+      if (i <= hardenAt) return;
+      if (/\bCREATE\s+TABLE\b/i.test(code(m.sql))) lastCreate = i;
+      if (harden.test(code(m.sql))) lastHarden = i;
+    });
+    expect(lastHarden, `add SELECT * FROM "public"."driver_harden"(...) after ${migrations[lastCreate]?.name}`).toBeGreaterThanOrEqual(lastCreate);
+  });
+
   it('never create tables or anything else in the `vault` schema (Supabase owns it)', () => {
     for (const m of migrations) {
       if (m.name.endsWith('_identity_vault_rename')) continue;
