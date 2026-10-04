@@ -17,7 +17,7 @@ import {
   RespondPartialInput,
 } from '../order.js';
 import { CourierPosition, OrderTracking } from '../tracking.js';
-import { EventLog, OrderSearchInput, OrderSearchPage } from '../console-io.js';
+import { EventLog, OrderLedgerLine, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 
@@ -55,6 +55,11 @@ export const ordersRouter = router({
   search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
   /** The order's actor event log (quarantined late replays included and marked). */
   events: protectedProcedure(CONSOLE_READ_ROLES).input(OrderIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.orderEvents(input.orderId)),
+  /** The order's ledger lines (Console order page: the money in words). */
+  ledger: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(OrderIdInput)
+    .output(z.array(OrderLedgerLine))
+    .query(({ ctx, input }) => ctx.console.orderLedger(input.orderId)),
   listActive: protectedProcedure(BOARD_ROLES).input(ListActiveOrdersInput).output(z.array(Order)).query(({ ctx, input }) => ctx.orders.listActive(ctx.actor, input)),
   merchant: router({
     accept: protectedProcedure(MERCHANT_ROLES).input(MerchantAcceptInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantAccept(ctx.actor, input)),

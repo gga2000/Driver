@@ -151,6 +151,9 @@ export interface OrderSearchFilter {
   states?: readonly OrderState[] | undefined;
   type?: OrderType | undefined;
   merchantOrgId?: string | undefined;
+  paymentMethod?: PaymentMethod | undefined;
+  /** The customer's drop-off zone (`dropoff.zoneKey`). */
+  zoneKey?: string | undefined;
   /** Case-insensitive substring of the order, orderer or merchant id, or the note. */
   text?: string | undefined;
   from?: Date | undefined;
@@ -338,6 +341,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
     if (f.states && f.states.length > 0) and.push({ state: { in: [...f.states] } });
     if (f.type) and.push({ type: f.type });
     if (f.merchantOrgId) and.push({ merchantOrgId: f.merchantOrgId });
+    if (f.paymentMethod) and.push({ paymentMethod: f.paymentMethod });
+    if (f.zoneKey) and.push({ dropoff: { path: ['zoneKey'], equals: f.zoneKey } });
     if (f.from || f.to) and.push({ placedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } });
     if (f.text) {
       const contains = { contains: f.text, mode: 'insensitive' as const };
@@ -473,6 +478,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .filter((o) => !f.states || f.states.length === 0 || f.states.includes(o.state))
       .filter((o) => !f.type || o.type === f.type)
       .filter((o) => !f.merchantOrgId || o.merchantOrgId === f.merchantOrgId)
+      .filter((o) => !f.paymentMethod || o.paymentMethod === f.paymentMethod)
+      .filter((o) => !f.zoneKey || o.dropoff?.zoneKey === f.zoneKey)
       .filter((o) => (!f.from || o.placedAt >= f.from) && (!f.to || o.placedAt < f.to))
       .filter((o) => !text || [o.id, o.ordererId, o.merchantOrgId ?? '', o.note ?? ''].some((v) => v.toLowerCase().includes(text)))
       .filter((o) => !f.after || isAfterCursor(o, f.after))

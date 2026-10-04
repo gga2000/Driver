@@ -43,6 +43,8 @@ const summary: OrderSummary = {
   closedAt: null,
   cancelledAt: null,
   late: false,
+  lateMin: null,
+  zoneKey: 'centre',
 };
 
 const event: EventLogEntry = {
@@ -79,6 +81,7 @@ function fakePort(): ConsolePort {
     driversList: vi.fn(async () => ({ rows: [], nextCursor: null, total: 0 })),
     searchOrders: vi.fn(async () => ({ rows: [summary], nextCursor: 'c1' })),
     orderEvents: vi.fn(async () => [event]),
+    orderLedger: vi.fn(async () => [{ id: 'l1', at: AT, type: 'merchant_payable', label_ar: 'مستحق المطعم', amountIqd: 12_000, fromAccount: 'platform', toAccount: 'merchant_cash:org_1', memo: null }]),
     tripEvents: vi.fn(async () => [event]),
     rightNow: vi.fn(async (cityId: string) => ({
       cityId,
@@ -134,6 +137,7 @@ const READS: Array<[string, (c: Call) => Promise<unknown>]> = [
   ['drivers.list', (c) => c.drivers.list({ cityId: 'aziziyah' })],
   ['orders.search', (c) => c.orders.search({ cityId: 'aziziyah' })],
   ['orders.events', (c) => c.orders.events({ orderId: 'ord_1' })],
+  ['orders.ledger', (c) => c.orders.ledger({ orderId: 'ord_1' })],
   ['trips.events', (c) => c.trips.events({ tripId: 'trp_1' })],
   ['console.rightNow', (c) => c.console.rightNow({ cityId: 'aziziyah' })],
   ['system.outbox', (c) => c.system.outbox()],
@@ -174,7 +178,10 @@ describe('console read procedures: shapes', () => {
   it('drivers.list fills filter and limit defaults', async () => {
     const { call, port } = caller(['support']);
     await call.drivers.list({ cityId: 'aziziyah' });
-    expect(port.driversList).toHaveBeenCalledWith({ cityId: 'aziziyah', filter: { presence: 'all' }, limit: 50 });
+    expect(port.driversList).toHaveBeenCalledWith({ cityId: 'aziziyah', filter: { presence: 'all' }, limit: 50 }, 'p_staff');
+    await call.drivers.list({ cityId: 'aziziyah', filter: { name: '  حيدر ', tier: 'gold', docsExpiring: true } });
+    expect(port.driversList).toHaveBeenLastCalledWith({ cityId: 'aziziyah', filter: { presence: 'all', name: 'حيدر', tier: 'gold', docsExpiring: true }, limit: 50 }, 'p_staff');
+    expect(await codeOf(call.drivers.list({ cityId: 'aziziyah', filter: { tier: 'platinum' as never } }))).toBe('BAD_REQUEST');
     expect(await codeOf(call.drivers.list({ cityId: 'aziziyah', limit: 500 }))).toBe('BAD_REQUEST');
   });
 
@@ -184,6 +191,17 @@ describe('console read procedures: shapes', () => {
     expect(port.searchOrders).toHaveBeenCalledWith({ cityId: 'aziziyah', states: ['delivered'], from: new Date('2026-10-01T00:00:00Z'), text: 'kebab', limit: 50 });
     expect(res).toEqual({ rows: [summary], nextCursor: 'c1' });
     expect(await codeOf(call.orders.search({ cityId: 'aziziyah', states: ['teleported' as never] }))).toBe('BAD_REQUEST');
+    await call.orders.search({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: ' zakur ', late: true });
+    expect(port.searchOrders).toHaveBeenLastCalledWith({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: 'zakur', late: true, limit: 50 });
+    expect(await codeOf(call.orders.search({ cityId: 'aziziyah', paymentMethod: 'card' as never }))).toBe('BAD_REQUEST');
+  });
+
+  it('orders.ledger returns the order lines with dates', async () => {
+    const { call, port } = caller(['support']);
+    const [line] = await call.orders.ledger({ orderId: 'ord_1' });
+    expect(port.orderLedger).toHaveBeenCalledWith('ord_1');
+    expect(line).toMatchObject({ toAccount: 'merchant_cash:org_1', amountIqd: 12_000, memo: null });
+    expect(line?.at).toBeInstanceOf(Date);
   });
 
   it('event logs keep the quarantine marks', async () => {

@@ -775,10 +775,11 @@ export class OrdersService implements OnModuleInit {
   }
 
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
-  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined }): Promise<OrderSearchPage> {
-    const { cursor, ...filter } = input;
+  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined }): Promise<OrderSearchPage> {
+    const { cursor, late, ...filter } = input;
     const ticket = filter.text ? parseOrderTicket(filter.text) : null;
-    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor);
+    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late);
+    if (late) return this.searchLate(filter, cursor);
     const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
     const page = rows.slice(0, input.limit);
     const now = this.clock.now();
@@ -793,11 +794,27 @@ export class OrdersService implements OnModuleInit {
    * Console shows each with its time and restaurant). Other filters still apply. Pages by the same
    * keyset cursor; a scan that hit its bound continues from where it stopped.
    */
-  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined): Promise<OrderSearchPage> {
+  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined, late?: boolean): Promise<OrderSearchPage> {
     const now = this.clock.now();
     const from = filter.from ?? new Date(startOfLocalDay(now).getTime() - 86_400_000);
     const scanned = await this.repo.search({ ...filter, from, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
-    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket);
+    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket && (!late || isLate(o, now)));
+    const page = hits.slice(0, filter.limit);
+    const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
+    return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };
+  }
+
+  /**
+   * "متأخرة": active orders behind their promise. Lateness is computed (it moves with the clock), so
+   * this is a bounded scan of the active states on the `(city_id, placed_at)` index, newest first,
+   * keeping the late ones; it pages by the same keyset cursor and continues where a full scan stopped.
+   */
+  private async searchLate(filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined): Promise<OrderSearchPage> {
+    const now = this.clock.now();
+    const states = (filter.states && filter.states.length > 0 ? filter.states : ACTIVE_ORDER_STATES).filter((s) => ACTIVE_ORDER_STATES.includes(s));
+    if (states.length === 0) return { rows: [], nextCursor: null };
+    const scanned = await this.repo.search({ ...filter, states, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
+    const hits = scanned.filter((o) => isLate(o, now));
     const page = hits.slice(0, filter.limit);
     const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };

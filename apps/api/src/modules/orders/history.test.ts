@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { orderTicketNumber } from '@driver/contracts';
-import { decodeCursor, encodeCursor, isLate } from './history.js';
+import { decodeCursor, encodeCursor, isLate, lateMinutes } from './history.js';
 import { ordersHarness } from './test-harness.js';
 
 const T0 = new Date('2026-10-03T09:00:00Z');
@@ -25,6 +25,19 @@ describe('lateness rule', () => {
 
   it('never late once delivered, closed, cancelled or disputed', () => {
     for (const state of ['delivered', 'closed', 'customer_cancelled', 'disputed', 'failed'] as const) expect(isLate({ ...base, state }, min(500))).toBe(false);
+  });
+});
+
+describe('lateMinutes', () => {
+  const base = { state: 'preparing' as const, placedAt: T0, scheduledFor: null, promisedReadyAt: null, pickedUpAt: null };
+  it('null while on time; otherwise minutes past whichever promise is further behind', () => {
+    expect(lateMinutes({ ...base, promisedReadyAt: min(20) }, min(24))).toBeNull();
+    // Kitchen promise 09:20, now 09:32 and nobody picked it up: 12 min behind.
+    expect(lateMinutes({ ...base, promisedReadyAt: min(20) }, min(32))).toBe(12);
+    // Past the 60-min window by 7 and the promise by 50: the further one wins.
+    expect(lateMinutes({ ...base, promisedReadyAt: min(17) }, min(67))).toBe(50);
+    expect(lateMinutes({ ...base, pickedUpAt: min(30) }, min(67))).toBe(7);
+    expect(lateMinutes({ ...base, state: 'delivered' }, min(200))).toBeNull();
   });
 });
 
@@ -73,6 +86,33 @@ describe('OrdersService.search / liveStats (in-memory repository)', () => {
     expect(await q({ text: ids[2]!.toUpperCase() })).toEqual([ids[2]]);
     expect(await q({ from: new Date('2026-10-03T09:10:00Z'), to: new Date('2026-10-03T09:30:00Z') })).toEqual([ids[2], ids[1]]);
     expect(await q({ cityId: 'kut' })).toEqual([]);
+  });
+
+  it('filters by payment and drop-off zone; summaries carry the zone', async () => {
+    const { h, ids } = await seeded();
+    h.repo.orders.get(ids[2]!)!.paymentMethod = 'wallet';
+    h.repo.orders.get(ids[4]!)!.dropoff = { zoneKey: 'hashimi' };
+    const q = (extra: object) => h.orders.search({ cityId: 'aziziyah', limit: 50, ...extra }).then((p) => p.rows.map((r) => r.id));
+    expect(await q({ paymentMethod: 'wallet' })).toEqual([ids[2]]);
+    expect(await q({ zoneKey: 'hashimi' })).toEqual([ids[4]]);
+    expect(await q({ zoneKey: 'zakur', paymentMethod: 'cash' })).toEqual([ids[3], ids[1], ids[0]]);
+    const page = await h.orders.search({ cityId: 'aziziyah', limit: 1 });
+    expect(page.rows[0]).toMatchObject({ zoneKey: 'hashimi', lateMin: null });
+  });
+
+  it('late: only active orders behind their promise, with how far behind; pages by cursor', async () => {
+    const { h, ids } = await seeded();
+    expect((await h.orders.search({ cityId: 'aziziyah', limit: 50, late: true })).rows).toEqual([]);
+    h.clock.advance(25 * 60_000); // 10:15: the 09:00 and 09:10 orders are past 60 min (09:10 is cancelled)
+    const all = await h.orders.search({ cityId: 'aziziyah', limit: 50, late: true });
+    expect(all.rows.map((r) => [r.id, r.lateMin])).toEqual([[ids[0], 15]]);
+    h.clock.advance(20 * 60_000); // 10:35: 09:30 is 5 behind, 09:20 is 15 behind
+    const p1 = await h.orders.search({ cityId: 'aziziyah', limit: 2, late: true });
+    expect(p1.rows.map((r) => [r.id, r.lateMin])).toEqual([[ids[3], 5], [ids[2], 15]]);
+    const p2 = await h.orders.search({ cityId: 'aziziyah', limit: 2, late: true, cursor: p1.nextCursor! });
+    expect(p2.rows.map((r) => [r.id, r.lateMin])).toEqual([[ids[0], 35]]);
+    expect(p2.nextCursor).toBeNull();
+    expect(await h.orders.search({ cityId: 'aziziyah', limit: 50, late: true, states: ['customer_cancelled'] })).toEqual({ rows: [], nextCursor: null });
   });
 
   it('summaries carry the late flag; liveStats counts the last hour, active and late orders', async () => {

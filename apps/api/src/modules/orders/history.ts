@@ -27,6 +27,19 @@ export function isLate(o: LateFields, now: Date): boolean {
   return t > start + LATE_DELIVERY_MIN * 60_000;
 }
 
+/**
+ * How far behind a late order is, in whole minutes: past the kitchen's promise while nobody picked
+ * it up, or past the 60-min delivery window, whichever is further. Null when not late.
+ */
+export function lateMinutes(o: LateFields, now: Date): number | null {
+  if (!isLate(o, now)) return null;
+  const t = now.getTime();
+  const behind: number[] = [];
+  if (o.promisedReadyAt && !o.pickedUpAt) behind.push(t - o.promisedReadyAt.getTime());
+  behind.push(t - (Math.max(o.placedAt.getTime(), o.scheduledFor?.getTime() ?? 0) + LATE_DELIVERY_MIN * 60_000));
+  return Math.max(0, Math.floor(Math.max(...behind) / 60_000));
+}
+
 export function toSummary(o: OrderRecord, now: Date): OrderSummary {
   return {
     id: o.id,
@@ -45,6 +58,8 @@ export function toSummary(o: OrderRecord, now: Date): OrderSummary {
     closedAt: o.closedAt,
     cancelledAt: o.cancelledAt,
     late: isLate(o, now),
+    lateMin: lateMinutes(o, now),
+    zoneKey: o.dropoff?.zoneKey ?? null,
   };
 }
 

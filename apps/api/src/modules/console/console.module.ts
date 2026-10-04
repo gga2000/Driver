@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/index.js';
 import { DispatchModule } from '../dispatch/index.js';
+import { DriverAccountModule } from '../driver-account/index.js';
 import { EventsModule } from '../events/index.js';
 import { FleetModule } from '../fleet/index.js';
 import { IdentityModule } from '../identity/index.js';
@@ -13,7 +14,7 @@ import { ConsoleReadService } from './console.reads.js';
 
 /** The Console's read side: composes other modules' public services into `ctx.console`. Owns no tables. */
 @Module({
-  imports: [DispatchModule, IdentityModule, OrdersModule, LedgerModule, EventsModule, OrgsModule, ScoringModule, SimulatorModule, FleetModule, CatalogModule],
+  imports: [DispatchModule, IdentityModule, OrdersModule, LedgerModule, EventsModule, OrgsModule, ScoringModule, SimulatorModule, FleetModule, CatalogModule, DriverAccountModule],
   providers: [ConsoleReadService],
   exports: [ConsoleReadService],
 })

@@ -59,4 +59,25 @@ describe('IdentityService.roster (narrow port for the Console drivers list)', ()
     expect(await h.service.rosterEntry(ids[2]!, DRIVING)).toBeNull();
     expect(await h.service.rosterEntry('nobody', DRIVING)).toBeNull();
   });
+
+  it('matchDisplayNames: folded match on the display name only; logs a read for each match, none for misses', async () => {
+    const { h, ids } = await people();
+    await h.service.updateProfile({ personId: ids[0]!, sessionId: 's' }, { name: 'حيدر كاظم جواد' });
+    await h.service.updateProfile({ personId: ids[1]!, sessionId: 's' }, { name: 'حيدره علي' });
+    await h.service.updateProfile({ personId: ids[3]!, sessionId: 's' }, { name: 'سجاد الربيعي' });
+    const before = h.repo.accessLogs.length;
+    const match = (q: string) => h.service.matchDisplayNames([ids[0]!, ids[1]!, ids[3]!, ids[4]!], q, 'p_staff', 'console_driver_search');
+    expect((await match('حيدر')).sort()).toEqual([ids[0], ids[1]].sort());
+    expect(h.repo.accessLogs.slice(before).map((l) => [l.personId, l.accessorId, l.purpose])).toEqual(
+      expect.arrayContaining([[ids[0], 'p_staff', 'console_driver_search'], [ids[1], 'p_staff', 'console_driver_search']]),
+    );
+    expect(h.repo.accessLogs.length - before).toBe(2);
+    // "حيدرة" folds to "حيدره"; "حيدر ك" narrows to the one with that initial.
+    expect(await match('حيدرة')).toEqual([ids[1]]);
+    expect(await match('حيدر ك')).toEqual([ids[0]]);
+    // The family name is never matched (only "سجاد ر." is shown to staff).
+    expect(await match('الربيعي')).toEqual([]);
+    expect(await match('سجاد')).toEqual([ids[3]]);
+    expect(await match('  ')).toEqual([]);
+  });
 });

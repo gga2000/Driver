@@ -68,6 +68,15 @@ export const DriversListInput = z.object({
       presence: z.enum(['all', 'online', 'offline']).default('all'),
       /** Person id substring (case-insensitive). Names stay in the vault. */
       q: z.string().trim().max(100).optional(),
+      /**
+       * Display name ("حيدر", "حيدر ك"), spelling-folded (`searchScore`). The API reads the names
+       * from the vault and logs a read against the staff member for every person it returns.
+       */
+      name: z.string().trim().min(1).max(60).optional(),
+      /** Scorecard tier. */
+      tier: DriverTier.optional(),
+      /** Only drivers with an approved document that has expired or expires within 30 days. */
+      docsExpiring: z.boolean().optional(),
     })
     .default({}),
   cursor: z.string().max(200).optional(),
@@ -93,6 +102,12 @@ export const DriverRosterRow = z.object({
   tier: DriverTier,
   scoreIndex: z.number().int().min(0).max(100),
   observation: z.boolean(),
+  /** Today (Baghdad day): jobs and net earnings, from the driver's book. Null when not read. */
+  today: z.object({ jobs: z.number().int().nonnegative(), earningsIqd: Iqd }).nullable().default(null),
+  /** Cash in his hands and what counts against his cap, now. Null when not read. */
+  cash: z.object({ heldIqd: Iqd, owedIqd: Iqd, capIqd: Iqd, overCap: z.boolean() }).nullable().default(null),
+  /** The soonest-expiring approved document that has expired or expires within 30 days; null when none. */
+  docs: z.object({ state: z.enum(['expiring', 'expired']), expiresAt: z.coerce.date() }).nullable().default(null),
 });
 export type DriverRosterRow = z.infer<typeof DriverRosterRow>;
 
@@ -111,6 +126,11 @@ export const OrderSearchInput = z.object({
   states: z.array(OrderState).max(OrderState.options.length).optional(),
   type: OrderType.optional(),
   merchantOrgId: z.string().min(1).optional(),
+  paymentMethod: PaymentMethod.optional(),
+  /** The customer's drop-off zone (`dropoff.zoneKey`). */
+  zoneKey: z.string().trim().min(1).max(60).optional(),
+  /** Only active orders behind their promise (the lateness rule of the orders module). */
+  late: z.boolean().optional(),
   /**
    * Matches order, orderer or merchant id, or the note (case-insensitive substring). An order
    * number — "1284", "#1284" or "١٢٨٤" (see `parseOrderTicket`) — instead finds every order with
@@ -144,6 +164,10 @@ export const OrderSummary = z.object({
   cancelledAt: z.coerce.date().nullable(),
   /** Active and behind its promise (see the orders module's lateness rule). */
   late: z.boolean(),
+  /** How far behind, in whole minutes, while `late`; null otherwise. */
+  lateMin: z.number().int().nonnegative().nullable().default(null),
+  /** The customer's drop-off zone, when the order has one. */
+  zoneKey: z.string().nullable().default(null),
 });
 export type OrderSummary = z.infer<typeof OrderSummary>;
 
@@ -163,6 +187,21 @@ export const EventLogEntry = Event.extend({
 });
 export type EventLogEntry = z.infer<typeof EventLogEntry>;
 export const EventLog = z.array(EventLogEntry);
+
+// ───────────────────────── an order's ledger lines (orders.ledger) ─────────────────────────
+
+/** One posting of an order: who paid whom and why. The Console says it in words ("للمطعم"). */
+export const OrderLedgerLine = z.object({
+  id: z.string(),
+  at: z.coerce.date(),
+  type: z.string(),
+  label_ar: z.string(),
+  amountIqd: Iqd,
+  fromAccount: z.string(),
+  toAccount: z.string(),
+  memo: z.string().nullable(),
+});
+export type OrderLedgerLine = z.infer<typeof OrderLedgerLine>;
 
 // ───────────────────────── right-now bar (console.rightNow) ─────────────────────────
 
@@ -329,9 +368,12 @@ export interface ConsolePort {
   /** Batched display names (vault reads logged against `accessorId`, the staff member asking). */
   names(input: z.infer<typeof ConsoleNamesInput>, accessorId: string): Promise<ConsoleNames>;
   driverPositions(cityId: string): Promise<DriverPositions>;
-  driversList(input: z.infer<typeof DriversListInput>): Promise<DriversPage>;
+  /** `accessorId` (the staff member) is logged for the vault reads of a name search. */
+  driversList(input: z.infer<typeof DriversListInput>, accessorId?: string): Promise<DriversPage>;
   searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage>;
   orderEvents(orderId: string): Promise<EventLogEntry[]>;
+  /** Every ledger line carrying this order id, in time order (the money story on the order page). */
+  orderLedger(orderId: string): Promise<OrderLedgerLine[]>;
   tripEvents(tripId: string): Promise<EventLogEntry[]>;
   rightNow(cityId: string): Promise<RightNow>;
   outbox(): Promise<OutboxView>;

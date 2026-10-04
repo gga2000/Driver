@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   FREEZABLE_ROLES,
+  searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
   SHARED_PHONE_FORBIDDEN_ROLES,
   type Actor,
@@ -433,6 +434,30 @@ export class IdentityService implements IdentityPort {
         out[id] = { displayName: name ? shortDisplayName(name) : null, deleted: false };
       }
       return out;
+    });
+  }
+
+  /**
+   * Console drivers search by name: which of `personIds` have a staff display name ("حيدر ك.")
+   * matching `query`, spelling-folded (`searchScore`: every query word starts a word of the name).
+   * Only the display name is matched, so a search never reveals a family name. One read of the
+   * people and one of the vault rows; a log row (the staff member as accessor, `purpose`) for each
+   * person returned, since the search discloses those names. Deleted people never match.
+   */
+  async matchDisplayNames(personIds: readonly string[], query: string, accessorId: string, purpose: string): Promise<string[]> {
+    const ids = [...new Set(personIds)];
+    if (ids.length === 0 || !query.trim()) return [];
+    return this.uow.run(async (tx) => {
+      const live = (await this.repo.findPeopleByIds(ids, tx)).filter((p) => !p.deletedAt).map((p) => p.id);
+      if (live.length === 0) return [];
+      const vault = await this.repo.readIdentities(live, tx);
+      const hits = vault.filter((i) => i.name && searchScore(query, shortDisplayName(i.name)) > 0).map((i) => i.personId);
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        hits.filter((id) => id !== accessorId).map((personId) => ({ personId, accessorId, purpose, fieldsRead: ['name'], now })),
+        tx,
+      );
+      return ids.filter((id) => hits.includes(id));
     });
   }
 

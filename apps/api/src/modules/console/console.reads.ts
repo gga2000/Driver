@@ -1,6 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   consoleItemKey,
+  ledgerLineLabel,
   RosterRole,
   type ConsoleNames,
   type ConsoleNamesInput,
@@ -12,6 +13,7 @@ import {
   type DriversPage,
   type EventLogEntry,
   type MerchantRow,
+  type OrderLedgerLine,
   type OrderSearchInput,
   type OrderSearchPage,
   type OutboxView,
@@ -23,6 +25,7 @@ import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { CatalogService } from '../catalog/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
+import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService, type StoredEvent } from '../events/index.js';
 import { FleetService } from '../fleet/index.js';
 import { IdentityService, type RosterRow } from '../identity/index.js';
@@ -37,6 +40,13 @@ import { cashHeld, hourBefore, pinState } from './driver-state.js';
 export const RECENT_FAILED_OUTBOX = 20;
 /** Vault-access purpose of the Console's display-name reads (K-01). */
 export const CONSOLE_NAMES_PURPOSE = 'console_names';
+/** Vault-access purpose of the drivers list's name search. */
+export const CONSOLE_DRIVER_SEARCH_PURPOSE = 'console_driver_search';
+/**
+ * A name, tier or documents filter reads the whole roster (a town's drivers, a few hundred at most)
+ * and pages the matches in memory; this bounds that read.
+ */
+export const ROSTER_SCAN_LIMIT = 2_000;
 
 /**
  * The Console's read side (`ctx.console`). Every view is composed from the owning modules' public
@@ -60,6 +70,8 @@ export class ConsoleReadService implements ConsolePort {
     private readonly simulator: SimulatorService,
     private readonly fleet: FleetService,
     private readonly catalog: CatalogService,
+    /** Today's jobs/earnings and documents on the roster rows; rows carry null without it. */
+    @Optional() private readonly accounts?: DriverAccountService,
   ) {}
 
   // ───────────────────────── names (K-01) ─────────────────────────
@@ -126,10 +138,12 @@ export class ConsoleReadService implements ConsolePort {
 
   // ───────────────────────── roster ─────────────────────────
 
-  async driversList(input: z.infer<typeof DriversListInput>): Promise<DriversPage> {
+  async driversList(input: z.infer<typeof DriversListInput>, accessorId = 'system:console'): Promise<DriversPage> {
     const now = this.clock.now();
     const kinds = input.filter.role ? [input.filter.role] : RosterRole.options;
     const live = new Map((await this.dispatch.liveDrivers(input.cityId, now)).map((d) => [d.presence.driverId, d]));
+    const { name, tier, docsExpiring } = input.filter;
+    if (name || tier || docsExpiring) return this.driversScan(input, kinds, live, now, accessorId);
 
     let page: { rows: RosterRow[]; nextCursor: string | null; total: number };
     if (input.filter.presence === 'online') {
@@ -149,12 +163,56 @@ export class ConsoleReadService implements ConsolePort {
       if (input.filter.presence === 'offline') page = { ...page, rows: page.rows.filter((r) => !live.has(r.personId)) };
     }
 
-    const rows = await Promise.all(page.rows.map((r) => this.rosterRow(r, live.get(r.personId), now)));
+    const docs = await this.expiringDocs(page.rows.map((r) => r.personId));
+    const rows = await Promise.all(page.rows.map((r) => this.rosterRow(r, live.get(r.personId), now, docs.get(r.personId) ?? null)));
     return { rows, nextCursor: page.nextCursor, total: page.total };
   }
 
-  private async rosterRow(r: RosterRow, d: LiveDriver | undefined, now: Date): Promise<DriverRosterRow> {
-    const [card, cap] = await Promise.all([this.scoring.scorecard(r.personId, r.joinedAt, now), d ? this.caps.status(r.personId) : Promise.resolve(null)]);
+  /**
+   * Name, tier and documents filters: the whole roster (bounded), narrowed by presence, then by the
+   * display name (identity's logged vault match), the documents and the scorecard tier, paged by
+   * person id in memory. `total` counts the matches.
+   */
+  private async driversScan(input: z.infer<typeof DriversListInput>, kinds: readonly RosterRole[], live: Map<string, LiveDriver>, now: Date, accessorId: string): Promise<DriversPage> {
+    const { name, tier, docsExpiring, presence } = input.filter;
+    let roster = (await this.identity.roster({ kinds, limit: ROSTER_SCAN_LIMIT, q: input.filter.q })).rows;
+    if (presence === 'online') roster = roster.filter((r) => live.has(r.personId));
+    if (presence === 'offline') roster = roster.filter((r) => !live.has(r.personId));
+    if (name) {
+      const hits = new Set(await this.identity.matchDisplayNames(roster.map((r) => r.personId), name, accessorId, CONSOLE_DRIVER_SEARCH_PURPOSE));
+      roster = roster.filter((r) => hits.has(r.personId));
+    }
+    const docs = await this.expiringDocs(roster.map((r) => r.personId));
+    if (docsExpiring) roster = roster.filter((r) => docs.has(r.personId));
+    if (tier) {
+      const cards = await Promise.all(roster.map((r) => this.scoring.scorecard(r.personId, r.joinedAt, now)));
+      roster = roster.filter((_, i) => cards[i]!.tier === tier);
+    }
+    const after = roster.filter((r) => input.cursor === undefined || r.personId > input.cursor);
+    const pageRows = after.slice(0, input.limit);
+    const rows = await Promise.all(pageRows.map((r) => this.rosterRow(r, live.get(r.personId), now, docs.get(r.personId) ?? null)));
+    return { rows, nextCursor: after.length > input.limit ? (pageRows.at(-1)?.personId ?? null) : null, total: roster.length };
+  }
+
+  /** Per driver, the soonest approved document that has expired or expires within 30 days. */
+  private async expiringDocs(ids: readonly string[]): Promise<Map<string, NonNullable<DriverRosterRow['docs']>>> {
+    const out = new Map<string, NonNullable<DriverRosterRow['docs']>>();
+    if (!this.accounts || ids.length === 0) return out;
+    for (const [id, list] of await this.accounts.documentsOf(ids)) {
+      const soon = list
+        .filter((d): d is typeof d & { expiresAt: Date } => (d.status === 'expired' || d.status === 'expiring') && d.expiresAt !== null)
+        .sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime())[0];
+      if (soon) out.set(id, { state: soon.status === 'expired' ? 'expired' : 'expiring', expiresAt: soon.expiresAt });
+    }
+    return out;
+  }
+
+  private async rosterRow(r: RosterRow, d: LiveDriver | undefined, now: Date, docs: DriverRosterRow['docs']): Promise<DriverRosterRow> {
+    const [card, cap, today] = await Promise.all([
+      this.scoring.scorecard(r.personId, r.joinedAt, now),
+      this.caps.status(r.personId),
+      this.accounts ? this.accounts.earningsFor(r.personId, 'day', now) : Promise.resolve(null),
+    ]);
     return {
       personId: r.personId,
       roles: r.roles.filter((k): k is DriverRosterRow['roles'][number] => (RosterRole.options as readonly string[]).includes(k)),
@@ -162,7 +220,7 @@ export class ConsoleReadService implements ConsolePort {
       trustTier: r.trustTier,
       joinedAt: r.joinedAt,
       online: d !== undefined,
-      state: d ? pinState(d.state, cap?.overCap ?? false) : null,
+      state: d ? pinState(d.state, cap.overCap) : null,
       vehicleClass: d?.presence.vehicle ?? null,
       zoneId: d?.presence.zoneId ?? null,
       lastSeenAt: d ? new Date(d.presence.lastSeenAt) : null,
@@ -170,6 +228,9 @@ export class ConsoleReadService implements ConsolePort {
       tier: card.tier,
       scoreIndex: card.index,
       observation: card.observation,
+      today: today ? { jobs: today.totals.jobs, earningsIqd: today.totals.netIqd } : null,
+      cash: { heldIqd: cashHeld(cap.cashIqd), owedIqd: cap.owedIqd, capIqd: cap.capIqd, overCap: cap.overCap },
+      docs,
     };
   }
 
@@ -181,6 +242,19 @@ export class ConsoleReadService implements ConsolePort {
 
   async orderEvents(orderId: string): Promise<EventLogEntry[]> {
     return (await this.events.forOrder(orderId)).map(toLogEntry);
+  }
+
+  async orderLedger(orderId: string): Promise<OrderLedgerLine[]> {
+    return (await this.ledger.eventsForOrder(orderId)).map((e) => ({
+      id: e.id,
+      at: e.occurredAt,
+      type: e.type,
+      label_ar: ledgerLineLabel(e.type, 'ar-IQ'),
+      amountIqd: e.amount,
+      fromAccount: e.fromAccount,
+      toAccount: e.toAccount,
+      memo: e.memo ?? null,
+    }));
   }
 
   async tripEvents(tripId: string): Promise<EventLogEntry[]> {

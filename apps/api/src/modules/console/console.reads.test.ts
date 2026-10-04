@@ -10,7 +10,8 @@ import { ordersHarness } from '../orders/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
 import type { SimulatorService } from '../simulator/index.js';
-import { CONSOLE_NAMES_PURPOSE, ConsoleReadService } from './console.reads.js';
+import type { DriverAccountService } from '../driver-account/index.js';
+import { CONSOLE_DRIVER_SEARCH_PURPOSE, CONSOLE_NAMES_PURPOSE, ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
 
 const START = '2026-10-03T09:00:00Z';
@@ -122,6 +123,59 @@ describe('ConsoleReadService', () => {
 
     expect((await list({ cityId: 'aziziyah', filter: { presence: 'offline' } })).rows.map((r) => r.personId)).toEqual([w.people['idle']]);
     expect((await list({ cityId: 'aziziyah', filter: { role: 'khat_driver' } })).rows.map((r) => r.personId)).toEqual([w.people['khat']]);
+  });
+
+  it('driversList: name search (logged vault match), tier and expiring documents; rows carry cash vs cap and today', async () => {
+    const w = await world();
+    await onlineFleet(w);
+    await w.id.service.updateProfile({ personId: w.people['busy']!, sessionId: 's' }, { name: 'حيدر كاظم' });
+    await w.id.service.updateProfile({ personId: w.people['idle']!, sessionId: 's' }, { name: 'حيدرة علي' });
+    await w.id.service.updateProfile({ personId: w.people['broke']!, sessionId: 's' }, { name: 'سجاد حسن' });
+    const expiresAt = new Date('2026-10-20T00:00:00Z');
+    const accounts = {
+      earningsFor: async (id: string) => ({ totals: { jobs: id === w.people['busy'] ? 3 : 0, netIqd: id === w.people['busy'] ? 7_500 : 0 } }),
+      documentsOf: async (ids: string[]) =>
+        new Map(ids.map((id) => [id, id === w.people['broke'] ? [{ kind: 'photo', status: 'approved', expiresAt: null }, { kind: 'licence', status: 'expiring', expiresAt }] : []])),
+    } as unknown as DriverAccountService;
+    (w.reads as unknown as { accounts: DriverAccountService }).accounts = accounts;
+    const list = (input: Parameters<typeof DriversListInput.parse>[0]) => w.reads.driversList(DriversListInput.parse(input), 'p_staff');
+    w.id.repo.accessLogs.length = 0;
+
+    // "حيدر" starts both "حيدر ك." and "حيدره ع."; only the two returned names are logged.
+    const haider = await list({ cityId: 'aziziyah', filter: { name: 'حيدر' } });
+    expect(haider.rows.map((r) => r.personId).sort()).toEqual([w.people['busy'], w.people['idle']].sort());
+    expect(haider.total).toBe(2);
+    expect(w.id.repo.accessLogs.map((l) => [l.personId, l.accessorId, l.purpose]).sort()).toEqual(
+      [[w.people['busy'], 'p_staff', CONSOLE_DRIVER_SEARCH_PURPOSE], [w.people['idle'], 'p_staff', CONSOLE_DRIVER_SEARCH_PURPOSE]].sort(),
+    );
+    expect((await list({ cityId: 'aziziyah', filter: { name: 'حيدرة' } })).rows.map((r) => r.personId)).toEqual([w.people['idle']]);
+    expect((await list({ cityId: 'aziziyah', filter: { name: 'حيدر', presence: 'online' } })).rows.map((r) => r.personId)).toEqual([w.people['busy']]);
+    expect((await list({ cityId: 'aziziyah', filter: { name: 'سجاد ك' } })).rows).toEqual([]);
+
+    const busy = haider.rows.find((r) => r.personId === w.people['busy'])!;
+    expect(busy.today).toEqual({ jobs: 3, earningsIqd: 7_500 });
+    expect(busy.cash).toMatchObject({ capIqd: expect.any(Number), overCap: false });
+    const broke = (await list({ cityId: 'aziziyah', filter: { docsExpiring: true } })).rows;
+    expect(broke.map((r) => r.personId)).toEqual([w.people['broke']]);
+    expect(broke[0]).toMatchObject({ docs: { state: 'expiring', expiresAt }, cash: { overCap: true } });
+    expect(broke[0]!.cash!.owedIqd).toBeGreaterThan(broke[0]!.cash!.capIqd);
+
+    const gold = await list({ cityId: 'aziziyah', filter: { tier: 'gold' }, limit: 1 });
+    expect(gold.rows.every((r) => r.tier === 'gold')).toBe(true);
+    expect(gold.rows.map((r) => r.personId)).not.toContain(undefined);
+    const more = gold.nextCursor ? await list({ cityId: 'aziziyah', filter: { tier: 'gold' }, limit: 50, cursor: gold.nextCursor }) : { rows: [] };
+    expect([...gold.rows, ...more.rows].map((r) => r.personId)).toContain(w.people['idle']);
+    expect(gold.total).toBe(gold.rows.length + more.rows.length);
+  });
+
+  it('orderLedger: the order\'s postings in words-ready shape', async () => {
+    const w = await world();
+    await w.l.posting.orderMoney(workedExample({ orderId: 'o_led', courierId: w.people['busy']!, itemsSubtotalIqd: 10_000 }));
+    const lines = await w.reads.orderLedger('o_led');
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((l) => l.label_ar.length > 0 && l.amountIqd > 0 && l.at instanceof Date)).toBe(true);
+    expect(lines.some((l) => l.fromAccount === `cash:${w.people['busy']}` || l.toAccount === `cash:${w.people['busy']}`)).toBe(true);
+    expect(await w.reads.orderLedger('nope')).toEqual([]);
   });
 
   it('searchOrders and the event logs come from orders and events; quarantined replays stay marked', async () => {

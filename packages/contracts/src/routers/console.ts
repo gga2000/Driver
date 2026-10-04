@@ -37,7 +37,7 @@ export const driversRouter = router({
   list: protectedProcedure(CONSOLE_READ_ROLES)
     .input(DriversListInput)
     .output(DriversPage)
-    .query(({ ctx, input }) => ctx.console.driversList(input)),
+    .query(({ ctx, input }) => ctx.console.driversList(input, ctx.actor.personId)),
 });
 
 /** `merchants.list`: the picker on the finance/drivers pages, with live cash balances. */
