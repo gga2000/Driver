@@ -59,3 +59,30 @@ export const MARKER_COLORS: Readonly<Record<MarkerState, string>> = {
   over_cap: '#d03b3b',
   offline: '#7c776e',
 };
+
+/**
+ * Sequential tier bands for the Console (UI/UX audit K-09). The tiers are ordinal distance and price
+ * bands (centre 500 … edge 2,000 دينار), so they read as one hue, light → dark, not five categorical
+ * hues. An ink wash on paper (sepia, from the design-tokens neutral scale) keeps the bands quiet, so
+ * the driver and order markers stay the loudest things on the map. The light ramp darkens outwards
+ * on the cream base; the dark ramp lightens outwards on the near-black base. `gap` is the hairline
+ * between neighbouring bands (the paper showing through).
+ */
+export const TIER_RAMP: Readonly<Record<'light' | 'dark', Readonly<Record<ZoneTier, string>> & { gap: string }>> = {
+  light: {
+    centre: '#f7efe2',
+    near: '#efe2cc',
+    mid: '#e5d2b4',
+    far: '#d9c19c',
+    edge: '#ccae85',
+    gap: '#fbf6ee',
+  },
+  dark: {
+    centre: '#2b241d',
+    near: '#342b22',
+    mid: '#3f3429',
+    far: '#4c3f31',
+    edge: '#5b4b3a',
+    gap: '#16120e',
+  },
+};

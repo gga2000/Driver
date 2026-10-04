@@ -1,7 +1,7 @@
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { describe, expect, it } from 'vitest';
-import { TIER_COLORS } from './colors.js';
+import { TIER_COLORS, TIER_RAMP, TIERS_IN_ORDER } from './colors.js';
 import { buildGaragesGeoJSON, GARAGES } from './garages.js';
 import { distanceM, regularPolygon, ringArea } from './geo.js';
 import { buildMapStyle, LAYER, SOURCE } from './style.js';
@@ -113,6 +113,23 @@ describe('light theme (customer app)', () => {
     const zones = light.layers.find((l) => l.id === LAYER.zoneFill) as { paint: Record<string, unknown> };
     expect(zones.paint['fill-opacity']).toBe(0.1);
     expect(buildMapStyle().name).toBe('Driver dark');
+  });
+});
+
+describe('sequential tier bands (Console, K-09)', () => {
+  it('shades tiers with one ramp that darkens outwards on light and lightens outwards on dark', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const style = buildMapStyle({ theme, zoneShading: 'sequential' });
+      expect(validateStyleMin(style)).toEqual([]);
+      const fill = style.layers.find((l) => l.id === LAYER.zoneFill) as { paint: Record<string, unknown> };
+      expect(JSON.stringify(fill.paint['fill-color'])).toContain(TIER_RAMP[theme].edge);
+      const lum = TIERS_IN_ORDER.map((tier) => parseInt(TIER_RAMP[theme][tier].slice(1, 3), 16));
+      const sorted = [...lum].sort((a, b) => (theme === 'light' ? b - a : a - b));
+      expect(lum).toEqual(sorted);
+    }
+    // The defaults are untouched: the customer app keeps its wash, the dark map its categorical tiers.
+    const wash = buildMapStyle({ theme: 'light' }).layers.find((l) => l.id === LAYER.zoneFill) as { paint: Record<string, unknown> };
+    expect(wash.paint['fill-opacity']).toBe(0.1);
   });
 });
 

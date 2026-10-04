@@ -1,6 +1,6 @@
 import type { LayerSpecification, SourceSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import type { FeatureCollection } from 'geojson';
-import { MAP_COLORS, MAP_COLORS_LIGHT } from './colors.js';
+import { MAP_COLORS, MAP_COLORS_LIGHT, TIER_RAMP, TIERS_IN_ORDER } from './colors.js';
 import { buildGaragesGeoJSON } from './garages.js';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM, buildZonesGeoJSON } from './zones.js';
 
@@ -56,7 +56,21 @@ export interface DriverStyleOptions {
    * light (slightly desaturated) and zones as a faint neighbourhood wash instead of pricing bands.
    */
   theme?: 'dark' | 'light';
+  /**
+   * How zones are shaded. `categorical` (the dark default): one hue per tier. `wash` (the light
+   * default, customer app): a faint neighbourhood wash. `sequential` (the Console, K-09): the tier
+   * bands as one ink hue, light → dark outwards (`TIER_RAMP`), split by a paper-coloured hairline.
+   */
+  zoneShading?: 'categorical' | 'wash' | 'sequential';
 }
+
+/** `['match', ['get', 'tier'], 'centre', c1, …, fallback]` for a theme's tier ramp. */
+function tierMatch(theme: 'light' | 'dark'): unknown[] {
+  const ramp = TIER_RAMP[theme];
+  return ['match', ['get', 'tier'], ...TIERS_IN_ORDER.flatMap((tier) => [tier, ramp[tier]]), ramp.mid];
+}
+
+const hoverCase = (on: number, off: number) => ['case', ['boolean', ['feature-state', 'hover'], false], on, off];
 
 /**
  * The Driver dark map as code. Dark warm base, amber accent, tier-shaded zones, garages, and empty
@@ -66,6 +80,8 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
   const vector = Boolean(opts.pmtilesUrl);
   const light = opts.theme === 'light';
   const C = light ? MAP_COLORS_LIGHT : MAP_COLORS;
+  const shading = opts.zoneShading ?? (light ? 'wash' : 'categorical');
+  const ramp = light ? 'light' : 'dark';
   const sources: Record<string, SourceSpecification> = {
     [SOURCE.osm]: {
       type: 'raster',
@@ -122,16 +138,19 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
       id: LAYER.zoneFill,
       type: 'fill',
       source: SOURCE.zones,
-      paint: {
-        'fill-color': ['get', 'color'],
-        'fill-opacity': light ? 0.1 : ['case', ['boolean', ['feature-state', 'hover'], false], 0.42, 0.22],
-      },
+      paint:
+        shading === 'sequential'
+          ? { 'fill-color': tierMatch(ramp) as never, 'fill-opacity': hoverCase(1, 0.88) as never }
+          : { 'fill-color': ['get', 'color'], 'fill-opacity': shading === 'wash' ? 0.1 : (hoverCase(0.42, 0.22) as never) },
     },
     {
       id: LAYER.zoneLine,
       type: 'line',
       source: SOURCE.zones,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 1.2, 'line-opacity': light ? 0.4 : 0.85 },
+      paint:
+        shading === 'sequential'
+          ? { 'line-color': TIER_RAMP[ramp].gap, 'line-width': 1.5, 'line-opacity': 1 }
+          : { 'line-color': ['get', 'color'], 'line-width': 1.2, 'line-opacity': shading === 'wash' ? 0.4 : 0.85 },
     },
     {
       id: LAYER.tripLines,

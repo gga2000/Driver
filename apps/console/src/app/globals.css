@@ -73,30 +73,174 @@ select {
   background-image: none;
 }
 
-/* ── Live map (MapLibre): HTML labels so Arabic shapes natively over the raster. ── */
-.map-zone-label {
-  display: none;
+/* ── Live map (MapLibre). HTML labels and markers: Arabic shapes natively, colours are theme roles,
+   driver state is shape + colour (K-09): filled dot free, ring offered, square on a job, cross over
+   the cash cap, dashed hollow offline. ── */
+.ops-label {
+  position: absolute;
   pointer-events: none;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgb(var(--c-text));
-  text-shadow:
-    0 0 3px rgb(var(--c-surface)),
-    0 0 6px rgb(var(--c-surface));
   white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 500;
+  color: rgb(var(--c-muted));
+  text-shadow:
+    0 0 2px rgb(var(--c-surface)),
+    0 0 4px rgb(var(--c-surface)),
+    0 0 6px rgb(var(--c-surface));
 }
-.map-show-zone-labels .map-zone-label {
-  display: block;
-}
-.map-garage-label {
-  pointer-events: none;
-  font-size: 11px;
+.ops-label[data-kind='garage'] {
   font-weight: 700;
   color: rgb(var(--c-accent-text));
-  text-shadow:
-    0 0 3px rgb(var(--c-surface)),
-    0 0 6px rgb(var(--c-surface));
+}
+.ops-label[data-kind='driver'] {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(var(--c-text));
+}
+.ops-label[data-hidden] {
+  visibility: hidden;
+}
+.ops-pin {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  filter: drop-shadow(0 1px 1.5px rgb(var(--c-shadow) / 0.4));
+  transition: transform 120ms ease;
+}
+.ops-pin svg {
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+}
+.ops-pin[data-approx] {
+  opacity: 0.7;
+}
+.ops-pin[data-dim] {
+  opacity: 0.35;
+}
+.ops-pin[data-rank] svg,
+.ops-pin.is-selected svg {
+  transform: scale(1.18);
+}
+.ops-pin.is-selected::after,
+.ops-pin.is-drop::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid rgb(var(--c-focus));
+}
+.ops-pin.is-drop::after {
+  border-style: dashed;
+  inset: -9px;
+}
+:where(.ops-pin, .ops-glyph) .s-fill {
+  stroke: rgb(var(--c-surface));
+  stroke-width: 2.5;
+}
+:where(.ops-pin, .ops-glyph) .s-free {
+  fill: rgb(var(--c-ok-solid));
+}
+:where(.ops-pin, .ops-glyph) .s-on_job {
+  fill: rgb(var(--c-info-solid));
+}
+:where(.ops-pin, .ops-glyph) .s-paper {
+  fill: rgb(var(--c-surface));
+}
+:where(.ops-pin, .ops-glyph) .s-ring {
+  fill: none;
+  stroke: rgb(var(--c-accent-text));
+  stroke-width: 3.5;
+}
+:where(.ops-pin, .ops-glyph) .s-cross-halo {
+  stroke: rgb(var(--c-surface));
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+:where(.ops-pin, .ops-glyph) .s-cross {
+  stroke: rgb(var(--c-bad-solid));
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+:where(.ops-pin, .ops-glyph) .s-dash {
+  fill: rgb(var(--c-surface) / 0.85);
+  stroke: rgb(var(--c-muted));
+  stroke-width: 2;
+  stroke-dasharray: 3 2.4;
+}
+.ops-rank {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgb(var(--c-inverse));
+  color: rgb(var(--c-on-inverse));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgb(var(--c-surface));
+}
+.ops-pin[data-picked] .ops-rank {
+  background: rgb(var(--c-accent));
+  color: rgb(var(--c-on-accent));
+  transform: scale(1.15);
+}
+.ops-order {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1.5px solid rgb(var(--c-line-strong));
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-text));
+  font-size: 11.5px;
+  font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(var(--c-shadow) / 0.18);
+}
+.ops-order::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: inherit;
+  border-right: inherit;
+  border-bottom: inherit;
+  transform: rotate(45deg);
+  border-bottom-right-radius: 2px;
+}
+.ops-order[data-tone='bad'] {
+  background: rgb(var(--c-bad-tint));
+  border-color: rgb(var(--c-bad-solid));
+  color: rgb(var(--c-bad));
+}
+.ops-order[data-tone='warn'] {
+  background: rgb(var(--c-warn-tint));
+  border-color: rgb(var(--c-warn-solid));
+  color: rgb(var(--c-warn));
+}
+.ops-order.is-selected {
+  background: rgb(var(--c-accent));
+  border-color: rgb(var(--c-on-accent));
+  color: rgb(var(--c-on-accent));
+  z-index: 2;
+}
+.ops-order .ops-order-more {
+  font-weight: 500;
+  opacity: 0.85;
 }
 .maplibregl-ctrl-group {
   background: rgb(var(--c-raised)) !important;

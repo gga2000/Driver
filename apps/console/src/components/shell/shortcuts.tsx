@@ -23,6 +23,25 @@ export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () =
       rows: NAV.map((i) => [['G', (i.jump ?? '').toUpperCase()], t(i.key)] as [string[], string]),
     },
     {
+      title: t('console.kb_group_dispatch'),
+      rows: [
+        [['J'], t('console.kb_card_next')],
+        [['K'], t('console.kb_card_prev')],
+        [['A'], t('console.kb_take')],
+        [['1–5'], t('console.kb_pick_driver')],
+        [['↵'], t('console.kb_send_offer')],
+        [['esc'], t('console.kb_unpick')],
+        [['M'], t('console.kb_mute')],
+      ],
+    },
+    {
+      title: t('console.kb_group_map'),
+      rows: [
+        [['F'], t('console.kb_follow')],
+        [['esc'], t('console.kb_follow_stop')],
+      ],
+    },
+    {
       title: t('console.kb_group_support'),
       rows: [
         [['J'], t('console.kb_next')],

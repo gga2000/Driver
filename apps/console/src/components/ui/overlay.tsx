@@ -152,7 +152,7 @@ export function Drawer({
       role="dialog"
       aria-modal="false"
       aria-label={typeof title === 'string' ? title : undefined}
-      className="absolute inset-x-0 bottom-0 z-20 max-h-[70%] animate-pop-in overflow-y-auto rounded-t-xl border border-line bg-raised p-4 shadow-overlay md:inset-x-auto md:bottom-auto md:end-3 md:top-3 md:max-h-[calc(100%-1.5rem)] md:w-96 md:rounded-xl"
+      className="absolute inset-x-0 bottom-0 z-20 max-h-[70%] animate-pop-in overflow-y-auto rounded-t-xl border border-line bg-raised p-4 shadow-overlay md:inset-x-auto md:bottom-auto md:end-3 md:top-3 md:max-h-[calc(100%-1.5rem)] md:w-96 md:rounded-xl focus-visible:outline-none"
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>

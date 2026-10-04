@@ -22,7 +22,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
   const bare = pathname === '/login';
-  const fullBleed = pathname === '/support' || pathname.startsWith('/support/');
+  // Full-bleed pages fill the height and scroll inside their panes (the desk; the map and dispatch
+  // fill it with the live map). They show the network banner themselves.
+  const fullBleed =
+    pathname === '/support' ||
+    pathname.startsWith('/support/') ||
+    pathname === '/dispatch' ||
+    pathname === '/map';
 
   const jumps = Object.fromEntries(
     NAV.filter((i) => i.jump).map((i) => [`g ${i.jump}`, () => router.push(i.href)]),

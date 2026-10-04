@@ -1,7 +1,56 @@
 import { AZIZIYAH_BOUNDS, buildMapStyle, LAYER, MARKER_COLORS, SOURCE } from '@driver/map';
 import { describe, expect, it } from 'vitest';
-import { card, pin, stop, trip } from './fixtures';
-import { buildLiveGeoJSON, capUsePct, countPins, driverPosition, featureId, markerStateForPin, markerStateForTrip, nextStop } from './live-map';
+import { card, offer, pin, stop, trip } from './fixtures';
+import { buildLiveGeoJSON, capUsePct, countMarkers, countPins, driverPosition, featureId, filterLive, markerStateForPin, markerStateForTrip, nextStop, orderTags } from './live-map';
+
+describe('map filters and order tags (K-09)', () => {
+  const P = { lat: 32.905, lng: 45.06 };
+  const Q = { lat: 32.92, lng: 45.07 };
+  const food = trip({ id: 'tf', vertical: 'food', courierId: 'd1', state: 'in_transit', stops: [stop({ id: 'a', seq: 0, target: P }), stop({ id: 'b', seq: 1, type: 'dropoff', target: Q })] });
+  const taxi = trip({ id: 'tt', vertical: 'taxi', state: 'offered', stops: [stop({ id: 'c', seq: 0, target: Q }), stop({ id: 'd', seq: 1, type: 'dropoff', target: P })] });
+  const pins = [
+    pin({ driverId: 'd1', state: 'on_job', tripId: 'tf' }),
+    pin({ driverId: 'bike', state: 'free', vehicleClass: 'bike' }),
+    pin({ driverId: 'car', state: 'free', vehicleClass: 'car' }),
+    pin({ driverId: 'over', state: 'over_cap', vehicleClass: 'car' }),
+  ];
+  const live = buildLiveGeoJSON([food, taxi], [], pins);
+  const ids = (l: typeof live) => l.drivers.features.map((f) => f.properties.driverId).sort();
+
+  it('keeps everything with no filter, and filters drivers by state', () => {
+    expect(filterLive(live, { verticals: new Set(), states: new Set() })).toBe(live);
+    expect(ids(filterLive(live, { verticals: new Set(), states: new Set(['free']) }))).toEqual(['bike', 'car']);
+    expect(countMarkers(live)).toMatchObject({ free: 2, on_job: 1, over_cap: 1, offered: 0 });
+  });
+
+  it('a vertical keeps its routes, the drivers on them and the free drivers whose vehicle fits', () => {
+    const taxiOnly = filterLive(live, { verticals: new Set(['taxi']), states: new Set() });
+    expect(taxiOnly.trips.features.map((f) => f.properties.tripId)).toEqual(['tt']);
+    expect(ids(taxiOnly)).toEqual(['car', 'over']);
+    expect(ids(filterLive(live, { verticals: new Set(['food']), states: new Set() }))).toEqual(['bike', 'car', 'd1', 'over']);
+  });
+
+  it('pins waiting orders at their pickup, one tag per spot, most urgent first', () => {
+    const trips = new Map([
+      ['t1', trip({ id: 't1', stops: [stop({ id: 's1', seq: 0, type: 'pickup', target: P })] })],
+      ['t2', trip({ id: 't2', stops: [stop({ id: 's2', seq: 0, type: 'pickup', target: P })] })],
+      ['t3', trip({ id: 't3', stops: [stop({ id: 's3', seq: 0, type: 'pickup', target: Q })] })],
+      ['t4', trip({ id: 't4', stops: [stop({ id: 's4', seq: 0, type: 'pickup', target: Q })] })],
+    ]);
+    const tags = orderTags(
+      [
+        card({ tripId: 't1', elapsedSec: 30 }),
+        card({ tripId: 't2', status: 'needs_dispatcher', elapsedSec: 20 }),
+        card({ tripId: 't3', elapsedSec: 200, offers: [offer({ driverId: 'x' })] }),
+        card({ tripId: 't4', status: 'assigned', assignedDriverId: 'y' }),
+      ],
+      trips,
+    );
+    expect(tags).toHaveLength(2);
+    expect(tags[0]).toMatchObject({ tripIds: ['t2', 't1'], tone: 'bad', lat: P.lat });
+    expect(tags[1]).toMatchObject({ tripIds: ['t3'], tone: 'warn' });
+  });
+});
 
 const A = { lat: 32.905, lng: 45.06 };
 const B = { lat: 32.942, lng: 45.085 };

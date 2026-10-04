@@ -1,5 +1,7 @@
-import type { BoardCard, DriverPin, DriverPinState, Stop, Trip, TripState } from '@driver/contracts';
-import { MARKER_COLORS, type MarkerState } from '@driver/map';
+import type { BoardCard, DriverPin, DriverPinState, Stop, Trip, TripState, VehicleClass, Vertical } from '@driver/contracts';
+import { MARKER_COLORS, MARKER_STATES, type MarkerState } from '@driver/map';
+import { columnOf } from './board';
+import { pickupOf, vehicleFit, waitTone, type WaitTone } from './dispatch';
 import type { FeatureCollection, LineString, Point } from 'geojson';
 
 /**
@@ -49,6 +51,8 @@ export interface DriverMarkerProps {
   state: MarkerState;
   color: string;
   approx: boolean;
+  /** From presence; null for approximate markers. */
+  vehicle?: VehicleClass | null;
 }
 
 export interface TripLineProps {
@@ -134,7 +138,7 @@ export function buildLiveGeoJSON(trips: readonly Trip[], cards: readonly BoardCa
       type: 'Feature',
       id: featureId(pin.driverId),
       geometry: { type: 'Point', coordinates: [pin.lng, pin.lat] },
-      properties: { kind: 'driver', driverId: pin.driverId, tripId: pin.tripId ?? '', state, color: MARKER_COLORS[state], approx: false },
+      properties: { kind: 'driver', driverId: pin.driverId, tripId: pin.tripId ?? '', state, color: MARKER_COLORS[state], approx: false, vehicle: pin.vehicleClass },
     });
   }
 
@@ -149,6 +153,94 @@ export function buildLiveGeoJSON(trips: readonly Trip[], cards: readonly BoardCa
 export function capUsePct(pin: Pick<DriverPin, 'owedIqd' | 'capIqd'>): number {
   if (pin.capIqd <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((pin.owedIqd / pin.capIqd) * 100)));
+}
+
+// ───────────────────────── filters (map page) ─────────────────────────
+
+export interface MapFilter {
+  /** Empty = every vertical. */
+  verticals: ReadonlySet<Vertical>;
+  /** Empty = every state. */
+  states: ReadonlySet<MarkerState>;
+}
+
+export const NO_FILTER: MapFilter = { verticals: new Set(), states: new Set() };
+
+/**
+ * Applies the map filters. A vertical keeps its trips and stops, the drivers on those trips, and the
+ * drivers without a trip whose vehicle could take that kind of job (a free bike stays for food, not
+ * for taxi). A state keeps the drivers in it; routes stay unless a vertical hides them.
+ */
+export function filterLive(live: LiveGeoJSON, f: MapFilter): LiveGeoJSON {
+  if (f.verticals.size === 0 && f.states.size === 0) return live;
+  const tripVertical = new Map(live.trips.features.map((x) => [x.properties.tripId, x.properties.vertical as Vertical]));
+  const keepTrip = (tripId: string) => f.verticals.size === 0 || f.verticals.has(tripVertical.get(tripId) as Vertical);
+  const keepDriver = (p: DriverMarkerProps) => {
+    if (f.states.size > 0 && !f.states.has(p.state)) return false;
+    if (f.verticals.size === 0) return true;
+    const v = p.tripId ? tripVertical.get(p.tripId) : undefined;
+    if (v) return f.verticals.has(v);
+    return !p.vehicle || [...f.verticals].some((vert) => vehicleFit(vert, p.vehicle!) > 0);
+  };
+  return {
+    trips: { type: 'FeatureCollection', features: live.trips.features.filter((x) => keepTrip(x.properties.tripId)) },
+    stops: { type: 'FeatureCollection', features: live.stops.features.filter((x) => keepTrip(x.properties.tripId) || !tripVertical.has(x.properties.tripId)) },
+    drivers: { type: 'FeatureCollection', features: live.drivers.features.filter((x) => keepDriver(x.properties)) },
+  };
+}
+
+/** Driver markers per state (after the vertical filter), for the state chips. */
+export function countMarkers(live: LiveGeoJSON): Record<MarkerState, number> {
+  const out = Object.fromEntries(MARKER_STATES.map((s) => [s, 0])) as Record<MarkerState, number>;
+  for (const d of live.drivers.features) out[d.properties.state] += 1;
+  return out;
+}
+
+// ───────────────────────── order tags (waiting orders at their pickup) ─────────────────────────
+
+export interface OrderTag {
+  /** Stable key of the pickup spot. */
+  key: string;
+  /** Waiting trips at this spot, most urgent first; the first one is selected on click. */
+  tripIds: string[];
+  lng: number;
+  lat: number;
+  tone: WaitTone;
+}
+
+const TONE_RANK: Record<WaitTone, number> = { bad: 0, warn: 1, neutral: 2 };
+
+/**
+ * Cards still without a driver, pinned at their pickup (the restaurant). Orders waiting at the same
+ * spot share one tag ("#2009 +3"), so a busy kitchen doesn't stack ten tags on top of each other.
+ */
+export function orderTags(cards: readonly BoardCard[], trips: ReadonlyMap<string, Trip>, tick = 0): OrderTag[] {
+  const groups = new Map<string, OrderTag & { worst: number; oldest: number }>();
+  const waiting = cards.filter((c) => {
+    const col = columnOf(c);
+    return col !== null && col !== 'assigned';
+  });
+  for (const c of waiting) {
+    const at = pickupOf(trips.get(c.tripId));
+    if (!at) continue;
+    const key = `${at.lat.toFixed(4)},${at.lng.toFixed(4)}`;
+    const tone = waitTone(c, c.elapsedSec + tick);
+    const g = groups.get(key);
+    const rank = TONE_RANK[tone] * 1e7 - c.elapsedSec;
+    if (!g) {
+      groups.set(key, { key, tripIds: [c.tripId], lng: at.lng, lat: at.lat, tone, worst: rank, oldest: c.elapsedSec });
+      continue;
+    }
+    g.tripIds.push(c.tripId);
+    if (TONE_RANK[tone] < TONE_RANK[g.tone]) g.tone = tone;
+    if (rank < g.worst) {
+      g.worst = rank;
+      g.tripIds = [c.tripId, ...g.tripIds.filter((id) => id !== c.tripId)];
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.worst - b.worst)
+    .map(({ key, tripIds, lng, lat, tone }) => ({ key, tripIds, lng, lat, tone }));
 }
 
 /** Counts per presence state, for the map legend. */

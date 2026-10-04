@@ -1,535 +1,391 @@
 'use client';
 
-import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { BoardCard, BoardPolicy, RightNow as ServerRightNow, VehicleClass, Vertical } from '@driver/contracts';
+import dynamic from 'next/dynamic';
+import type { BoardCard, Order, Trip } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
+import { MARKER_STATES } from '@driver/map';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { rightNow, type BoardColumn } from '@/lib/board';
 import {
-  BOARD_COLUMNS,
-  driversFromBoard,
-  groupBoard,
-  isRedCard,
-  POLICY_MODES,
-  policyMode,
-  outboxHealth,
-  rightNow,
-  serverNowTiles,
-  setPolicyInput,
-  type NowTile,
-  type BoardColumn,
-  type PolicyMode,
-} from '@/lib/board';
-import { formatCountdown, shortId } from '@/lib/format';
+  buildQueue,
+  DESK_START,
+  deskKey,
+  merchantOfTrip,
+  pickupOf,
+  queueOrder,
+  rankCandidates,
+  triage,
+  type Candidate,
+  type DeskKey,
+  type DeskState,
+} from '@/lib/dispatch';
+import { eventKey, isTypingTarget } from '@/lib/hotkeys';
+import { buildLiveGeoJSON, orderTags } from '@/lib/live-map';
+import { LIVE_POLL_MS, useActiveOrders, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
 import { orderLabel, personText, useNames } from '@/lib/names';
-import { offerStateLabel, verticalLabel, zoneName } from '@/lib/labels';
-import { CITY_ID, LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
-import { errorText, useConsoleNetwork } from '@/lib/network';
+import { useConsoleNetwork } from '@/lib/network';
+import { readJson, useTheme, writeJson } from '@/lib/prefs';
 import { useSignedIn } from '@/lib/session';
-import { useTRPC } from '@/lib/trpc';
-import { CopyId, OrderRef, PersonName } from './named';
-import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, SkeletonBlock, useSecondsSince } from './ui';
+import { shortId } from '@/lib/format';
+import { cardTitle, ForceDialog, OtherDriverDialog, useOverride } from './dispatch/assign';
+import { DispatchQueue } from './dispatch/queue';
+import { setMuted, useMuted, useNeedsAlert } from './dispatch/sound';
+import { TriageBar } from './dispatch/triage-bar';
+import type { MapHoverTarget, MapSelection } from './live-map-canvas';
+import { DriverHoverCard, OrderHoverCard, StateGlyph, TierLegend } from './map-cards';
+import { EmptyState, Kbd, LiveBadge, NeedLogin, NetworkBanner, QueryError, SkeletonBlock, useSecondsSince, useToast } from './ui';
 
-const COLUMN_KEY = {
-  searching: 'console.col_searching',
-  offered: 'console.col_offered',
-  assigned: 'console.col_assigned',
-  needs_dispatcher: 'console.col_needs_dispatcher',
-} as const satisfies Record<BoardColumn, string>;
+const LiveMapCanvas = dynamic(() => import('./live-map-canvas'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center text-sm text-muted" role="status">
+      {t('console.map_loading')}
+    </div>
+  ),
+});
 
-const NOW_TILE_KEY = {
-  orders_hour: 'console.now_orders_hour',
-  drivers: 'console.now_drivers_online',
-  time_to_accept: 'console.now_time_to_accept',
-  late: 'console.now_late',
-  cash_field: 'console.now_cash_field',
-  outbox: 'console.now_outbox',
-} as const satisfies Record<NowTile['key'], string>;
+const COLLAPSED_KEY = 'driver.console.dispatch.collapsed';
+const DIGIT_CODES: Record<string, DeskKey> = { Digit1: '1', Digit2: '2', Digit3: '3', Digit4: '4', Digit5: '5', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4', Numpad5: '5' };
 
-const MODE_KEY = {
-  broadcast: 'console.policy_broadcast',
-  auto: 'console.policy_auto',
-  suggest: 'console.policy_suggest',
-  fixed: 'console.policy_fixed',
-} as const satisfies Record<PolicyMode, string>;
-
+/**
+ * /dispatch (K-03, K-04, K-05, K-07): the live map on the start side, the queue on the end side,
+ * the triage bar on top. Select a card (click, J/K, or A for the oldest one waiting) and its five
+ * best drivers open under it and light up on the map with their numbers; 1–5 picks one, Enter sends
+ * the offer. A card can also be dragged onto a driver on the map. Dispatch modes live on /controls.
+ */
 export function DispatchPage() {
   const signedIn = useSignedIn();
   const board = useDispatchBoard();
   const trips = useActiveTrips();
   const server = useRightNow();
   const positions = useDriverPins();
+  const activeOrders = useActiveOrders();
   const net = useConsoleNetwork();
-  /** The board can't vouch for its numbers: never show them as live during an outage. */
+  const theme = useTheme();
+  const toast = useToast();
+  const override = useOverride();
   const cut = net.state !== 'online';
   const tick = useSecondsSince(board.dataUpdatedAt);
-  const [override, setOverride] = useState<{ card: BoardCard; driverId?: string } | null>(null);
-  const [sound, setSound] = useState(false);
+
+  const [desk, setDesk] = useState<DeskState>(DESK_START);
+  const [dropped, setDropped] = useState<string | null>(null);
+  const [force, setForce] = useState<Candidate | null>(null);
+  const [other, setOther] = useState<BoardCard | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<BoardColumn>>(() => new Set<BoardColumn>(['assigned']));
+  useEffect(() => setCollapsed(new Set(readJson<BoardColumn[]>(COLLAPSED_KEY, ['assigned']))), []);
+  const toggle = useCallback((col: BoardColumn) => {
+    setCollapsed((cur) => {
+      const next = new Set(cur);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
+      writeJson(COLLAPSED_KEY, [...next]);
+      return next;
+    });
+  }, []);
 
   const cards = useMemo(() => board.data?.cards ?? [], [board.data]);
-  const grouped = useMemo(() => groupBoard(cards), [cards]);
-  const now = useMemo(() => rightNow(cards), [cards]);
-  const knownDrivers = useMemo(() => {
-    const ids = new Set(driversFromBoard(board.data, trips.data ?? []).map((d) => d.driverId));
-    for (const p of positions.data?.drivers ?? []) if (p.state === 'free') ids.add(p.driverId);
-    return [...ids].sort();
-  }, [board.data, trips.data, positions.data]);
-  // K-02: a card is named by its orders ("#1284"), from the live trips.
-  const vehicles = useMemo(() => new Map((positions.data?.drivers ?? []).map((p) => [p.driverId, p.vehicleClass])), [positions.data]);
-  const ordersByTrip = useMemo(() => new Map((trips.data ?? []).map((tr) => [tr.id, tr.orders.filter((l) => l.detachedAt === null).map((l) => l.orderId)])), [trips.data]);
+  const queue = useMemo(() => buildQueue(cards), [cards]);
+  const local = useMemo(() => rightNow(cards), [cards]);
+  const tri = useMemo(() => triage(queue), [queue]);
+  const order = useMemo(() => queueOrder(queue, collapsed), [queue, collapsed]);
+  const tripList = useMemo(() => trips.data ?? [], [trips.data]);
+  const tripsById = useMemo(() => new Map<string, Trip>(tripList.map((x) => [x.id, x])), [tripList]);
+  const pins = useMemo(() => (positions.isSuccess ? positions.data.drivers : null), [positions.isSuccess, positions.data]);
+  const pinsById = useMemo(() => new Map((pins ?? []).map((p) => [p.driverId, p])), [pins]);
+  const vehicles = useMemo(() => new Map((pins ?? []).map((p) => [p.driverId, p.vehicleClass])), [pins]);
+  const ordersByTrip = useMemo(() => new Map(tripList.map((tr) => [tr.id, tr.orders.filter((l) => l.detachedAt === null).map((l) => l.orderId)])), [tripList]);
+  const ordersById = useMemo(() => new Map<string, Order>((activeOrders.data ?? []).map((o) => [o.id, o])), [activeOrders.data]);
+  const ordersOf = useCallback((tripId: string) => ordersByTrip.get(tripId) ?? [], [ordersByTrip]);
+  const merchantOf = useCallback((tripId: string) => merchantOfTrip(ordersOf(tripId), ordersById), [ordersOf, ordersById]);
+  const cardById = useMemo(() => new Map(cards.map((c) => [c.tripId, c])), [cards]);
 
-  useAlertSound(sound, now.needsDispatcher);
+  const known = board.isSuccess && !board.isError && !cut;
+  const { blocked } = useNeedsAlert(tri.needs, known);
+  const muted = useMuted();
+
+  // The selected card and its candidates (+ a driver dropped on it from beyond the top five).
+  const selectedCard = desk.selected ? cardById.get(desk.selected) : undefined;
+  useEffect(() => {
+    if (desk.selected && board.isSuccess && !cardById.has(desk.selected)) setDesk(DESK_START);
+  }, [desk.selected, cardById, board.isSuccess]);
+  const candidates = useMemo(() => {
+    if (!selectedCard) return [];
+    const all = rankCandidates(selectedCard, pickupOf(tripsById.get(selectedCard.tripId)), pins ?? [], { limit: 500 });
+    const top = all.slice(0, 5);
+    if (dropped && !top.some((c) => c.driverId === dropped)) {
+      const extra = all.find((c) => c.driverId === dropped);
+      if (extra) top.push(extra);
+    }
+    return top;
+  }, [selectedCard, tripsById, pins, dropped]);
+  const assignable = Boolean(selectedCard && selectedCard.status !== 'cancelled');
+  const picked = desk.pick >= 0 ? candidates[desk.pick] : undefined;
+
+  const names = useNames({ people: candidates.map((c) => c.driverId) });
+  const nameOf = useCallback((id: string) => personText(id, names.person(id)) ?? shortId(id), [names]);
+
+  const select = useCallback((tripId: string | null) => {
+    setDropped(null);
+    setDesk(tripId ? { selected: tripId, pick: -1 } : DESK_START);
+  }, []);
+
+  const send = useCallback(
+    (c: Candidate | undefined, reason?: string) => {
+      if (!selectedCard || !c) return;
+      if (c.blockers.length > 0 && !reason) {
+        setForce(c);
+        return;
+      }
+      const name = nameOf(c.driverId);
+      override.mutate(
+        { tripId: selectedCard.tripId, driverId: c.driverId, ...(reason ? { reason, force: true } : {}) },
+        {
+          onSuccess: (out) => {
+            setForce(null);
+            setDesk((d) => ({ ...d, pick: -1 }));
+            setDropped(null);
+            toast({ title: t('console.q_sent_toast', { name }), ...(out.warnings.length ? { body: t('console.override_warnings', { list: out.warnings.join('، ') }) } : {}), tone: 'ok' });
+          },
+          onError: (err) => {
+            if (!reason) toast({ title: t('console.q_send_failed', { name }), body: err.message, tone: 'bad' });
+          },
+        },
+      );
+    },
+    [selectedCard, nameOf, override, toast],
+  );
+
+  // Keys: J/K, A, 1–5, Enter, Esc, M. Physical keys, so an Arabic layout works too.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target) || document.querySelector('dialog[open]')) return;
+      const target = e.target as HTMLElement | null;
+      const k = DIGIT_CODES[e.code] ?? eventKey(e);
+      if (k === 'm') {
+        e.preventDefault();
+        setMuted(!muted);
+        return;
+      }
+      // Enter on a focused control presses that control (a picked candidate's row sends on its own).
+      if (k === 'enter' && target?.closest('button, a, input, select, textarea, summary')) return;
+      if (!['j', 'k', 'a', 'enter', 'escape', '1', '2', '3', '4', '5'].includes(k)) return;
+      const r = deskKey(desk, k as DeskKey, { order, oldest: tri.oldest?.tripId ?? null, candidates: candidates.length, assignable });
+      if (r.state === desk && !r.effect) return;
+      e.preventDefault();
+      if (r.state.selected !== desk.selected) setDropped(null);
+      setDesk(r.state);
+      if (r.effect === 'send') send(candidates[r.state.pick]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [desk, order, tri.oldest, candidates, assignable, send, muted]);
+
+  // Map data.
+  const live = useMemo(() => buildLiveGeoJSON(tripList, cards, pins), [tripList, cards, pins]);
+  const tags = useMemo(() => orderTags(cards, tripsById), [cards, tripsById]);
+  const rankMap = useMemo(() => new Map(candidates.map((c, i) => [c.driverId, i + 1])), [candidates]);
+  const allNames = useNames({ people: (pins ?? []).map((p) => p.driverId) });
+  const driverLabel = useCallback((id: string) => personText(id, allNames.person(id)), [allNames]);
+  const orderText = useCallback((tripId: string) => {
+    const ids = ordersByTrip.get(tripId) ?? [];
+    return ids[0] ? orderLabel(ids[0]) : (cardById.get(tripId) ? t('console.q_trip') : '');
+  }, [ordersByTrip, cardById]);
+  const onMapSelect = useCallback(
+    (s: MapSelection | null) => {
+      if (!s) return;
+      if (s.kind === 'trip' && cardById.has(s.id)) select(s.id);
+      if (s.kind === 'driver') {
+        const i = candidates.findIndex((c) => c.driverId === s.id);
+        if (selectedCard && i >= 0) setDesk((d) => ({ ...d, pick: i }));
+        else if (selectedCard) setDropped(s.id);
+        else if (s.tripId && cardById.has(s.tripId)) select(s.tripId);
+      }
+    },
+    [cardById, candidates, selectedCard, select],
+  );
+  const onDropTrip = useCallback(
+    (tripId: string, driverId: string) => {
+      if (!cardById.has(tripId)) return;
+      setDesk({ selected: tripId, pick: -1 });
+      setDropped(driverId);
+    },
+    [cardById],
+  );
+  // After a drop, pick the dropped driver once the list includes him.
+  useEffect(() => {
+    if (!dropped) return;
+    const i = candidates.findIndex((c) => c.driverId === dropped);
+    if (i >= 0 && desk.pick !== i) setDesk((d) => ({ ...d, pick: i }));
+  }, [dropped, candidates, desk.pick]);
+
+  const renderHover = useCallback(
+    (h: MapHoverTarget) => {
+      if (h.kind === 'driver') {
+        const pin = pinsById.get(h.id);
+        if (!pin) return null;
+        return <DriverHoverCard pin={pin} trip={pin.tripId ? tripsById.get(pin.tripId) : undefined} card={pin.tripId ? cardById.get(pin.tripId) : undefined} />;
+      }
+      const card = cardById.get(h.id);
+      return card ? <OrderHoverCard card={card} orderIds={ordersOf(h.id)} merchantId={merchantOf(h.id)} tick={tick} /> : null;
+    },
+    [pinsById, tripsById, cardById, ordersOf, merchantOf, tick],
+  );
 
   if (!signedIn) {
     return (
-      <div className="mx-auto max-w-7xl">
-        <PageHeader title={t('console.dispatch_title')} subtitle={t('console.dispatch_subtitle')} />
+      <div className="p-8">
+        <h1 className="mb-4 text-2xl font-bold">{t('console.dispatch_title')}</h1>
         <NeedLogin />
       </div>
     );
   }
 
+  const oldestSec = tri.oldest ? tri.oldest.elapsedSec + tick : null;
+  const selectedTitle = selectedCard ? cardTitle(selectedCard, ordersOf(selectedCard.tripId)) : '';
+
   return (
-    <div className="mx-auto max-w-[1600px]">
-      <PageHeader title={t('console.dispatch_title')} subtitle={t('console.dispatch_subtitle')}>
-        <LiveBadge seconds={LIVE_POLL_MS / 1000} updatedAt={board.dataUpdatedAt} fetching={board.isFetching} error={board.isError} />
-        <button type="button" className={ghostBtn} aria-pressed={sound} onClick={() => setSound((s) => !s)}>
-          {sound ? t('console.sound_on') : t('console.sound_off')}
-        </button>
-      </PageHeader>
-
-      {board.error && (
-        <div className="mb-4">
-          <QueryError error={board.error} onRetry={() => void board.refetch()} />
+    <div className="flex h-full min-h-0 flex-col bg-canvas">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-2.5 lg:px-5">
+        <div className="min-w-0 pe-1">
+          <h1 className="text-lg font-bold leading-7">{t('console.dispatch_title')}</h1>
+          <LiveBadge compact seconds={LIVE_POLL_MS / 1000} updatedAt={board.dataUpdatedAt} fetching={board.isFetching} error={board.isError} />
         </div>
-      )}
+        <TriageBar
+          tri={tri}
+          oldestSec={oldestSec}
+          local={local}
+          known={known}
+          server={server.isError || cut ? undefined : server.data}
+          serverError={server.error !== null}
+          onTake={() => tri.oldest && select(tri.oldest.tripId)}
+          blocked={blocked}
+        />
+      </header>
 
-      {/* K-06: no zeros during an outage. Tiles the board can't vouch for right now read "—". */}
-      <RightNowBar now={now} known={board.isSuccess && !board.isError && !cut} server={server.isError || cut ? undefined : server.data} serverError={server.error !== null} />
+      <div className="px-4 empty:hidden lg:px-5 [&>*]:mb-0 [&>*]:mt-3">
+        <NetworkBanner />
+        {board.error ? <QueryError error={board.error} onRetry={() => void board.refetch()} /> : null}
+      </div>
 
-      {board.isPending && (
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label={t('console.loading')}>
-          {BOARD_COLUMNS.map((col) => (
-            <div key={col} className="space-y-2 rounded-xl border border-line bg-surface p-3">
-              <SkeletonBlock className="h-6 w-1/2" />
-              <SkeletonBlock className="h-24" />
-              <SkeletonBlock className="h-24" />
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* Map: the start side (right in RTL), two-thirds. */}
+        <div className="relative h-[46vh] min-h-[320px] lg:h-auto lg:min-w-0 lg:flex-[2]">
+          <LiveMapCanvas
+            live={live}
+            theme={theme}
+            selected={selectedCard ? { kind: 'trip', id: selectedCard.tripId } : null}
+            onSelect={onMapSelect}
+            fitKey={0}
+            focus={null}
+            orders={tags}
+            orderText={orderText}
+            routes="focus"
+            focusTripId={selectedCard?.tripId ?? null}
+            candidates={selectedCard ? rankMap : undefined}
+            picked={picked?.driverId ?? null}
+            driverLabel={driverLabel}
+            renderHover={renderHover}
+            onDropTrip={onDropTrip}
+          />
+          <MapLegend theme={theme} />
+        </div>
+
+        {/* Queue: the end side, one-third. */}
+        <aside aria-label={t('console.dispatch_queue')} className="flex min-h-0 flex-col border-line bg-surface lg:w-[400px] lg:flex-none lg:border-s xl:w-[min(440px,36%)]">
+          {board.isPending ? (
+            <div className="space-y-2 p-4" aria-busy="true" aria-label={t('console.loading')}>
+              {[0, 1, 2, 3].map((i) => (
+                <SkeletonBlock key={i} className="h-16" />
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          ) : board.isSuccess && cards.length === 0 ? (
+            <div className="p-4">
+              <EmptyState title={t('console.board_empty')} hint={t('console.map_empty_hint')} />
+            </div>
+          ) : (
+            <DispatchQueue
+              queue={queue}
+              collapsed={collapsed}
+              onToggle={toggle}
+              selected={desk.selected}
+              onSelect={select}
+              ordersOf={ordersOf}
+              merchantOf={merchantOf}
+              vehicles={vehicles}
+              tick={tick}
+              candidates={candidates}
+              pick={desk.pick}
+              onPick={(i) => setDesk((d) => ({ ...d, pick: i }))}
+              onSend={() => send(picked)}
+              sending={override.isPending && !force}
+              onOther={() => selectedCard && setOther(selectedCard)}
+              dim={cut}
+            />
+          )}
+          <p className="hidden flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-xs text-muted lg:flex">
+            <span className="inline-flex items-center gap-1">
+              <Kbd>J</Kbd>
+              <Kbd>K</Kbd> {t('console.q_k_move')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Kbd>A</Kbd> {t('console.q_k_take')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Kbd>1–5</Kbd> {t('console.q_k_pick')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Kbd>↵</Kbd> {t('console.q_k_send')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Kbd>?</Kbd> {t('console.q_k_all')}
+            </span>
+          </p>
+        </aside>
+      </div>
 
-      {board.data && <PolicySwitches policies={board.data.policies} />}
-
-      {board.isSuccess && cards.length === 0 && (
-        <div className="mt-6">
-          <EmptyState title={t('console.board_empty')} hint={t('console.map_empty_hint')} />
-        </div>
-      )}
-
-      {cards.length > 0 && (
-        <div className={`mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4 transition-opacity ${cut ? 'opacity-60' : ''}`} aria-busy={cut}>
-          {BOARD_COLUMNS.map((col) => (
-            <section
-              key={col}
-              aria-labelledby={`col-${col}`}
-              className={`flex min-w-0 flex-col rounded-xl border p-3 ${col === 'needs_dispatcher' && grouped[col].length ? 'border-bad/40 bg-bad-tint' : 'border-line bg-surface'}`}
-            >
-              <h2 id={`col-${col}`} className="mb-3 flex items-center justify-between font-display text-base font-semibold">
-                {t(COLUMN_KEY[col])}
-                <Chip tone={col === 'needs_dispatcher' && grouped[col].length ? 'bad' : 'neutral'}>{grouped[col].length}</Chip>
-              </h2>
-              {grouped[col].length === 0 ? (
-                <p className="text-sm text-faint">{t('console.col_empty')}</p>
-              ) : (
-                <ul className="space-y-2">
-                  {grouped[col].map((card) => (
-                    <li key={card.tripId}>
-                      <BoardCardView card={card} orderIds={ordersByTrip.get(card.tripId) ?? []} vehicles={vehicles} tick={tick} onAssign={(driverId) => setOverride({ card, ...(driverId ? { driverId } : {}) })} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-        </div>
-      )}
-
-      <OverrideDialog target={override} orderIds={override ? (ordersByTrip.get(override.card.tripId) ?? []) : []} knownDrivers={knownDrivers} onClose={() => setOverride(null)} />
+      <ForceDialog
+        target={force}
+        name={force ? nameOf(force.driverId) : ''}
+        title={selectedTitle}
+        busy={override.isPending}
+        error={force ? override.error : null}
+        onSend={(reason) => send(force ?? undefined, reason)}
+        onClose={() => setForce(null)}
+      />
+      <OtherDriverDialog
+        card={other}
+        title={other ? cardTitle(other, ordersOf(other.tripId)) : ''}
+        drivers={(pins ?? []).map((p) => p.driverId)}
+        onClose={() => setOther(null)}
+        onSent={(id) => {
+          setOther(null);
+          toast({ title: t('console.q_sent_toast', { name: personText(id, allNames.person(id)) ?? shortId(id) }), tone: 'ok' });
+        }}
+      />
     </div>
   );
 }
 
-// ───────────────────────── right-now bar ─────────────────────────
-
-function RightNowBar({ now, known, server, serverError }: { now: ReturnType<typeof rightNow>; known: boolean; server: ServerRightNow | undefined; serverError: boolean }) {
-  const health = server ? outboxHealth(server.outbox) : 'ok';
-  const v = (value: string | number) => (known ? value : '—');
-  const items: [string, string | number, boolean?][] = [
-    ...serverNowTiles(server).map((tile): [string, string, boolean] => [t(NOW_TILE_KEY[tile.key]), tile.value, tile.alert]),
-    [t('console.now_searching'), v(now.searching)],
-    [t('console.now_offered'), v(now.offered)],
-    [t('console.now_assigned'), v(now.assigned)],
-    [t('console.now_needs'), v(now.needsDispatcher), known && now.needsDispatcher > 0],
-    [t('console.now_red'), v(now.red), known && now.red > 0],
-    [t('console.now_avg_wait'), v(formatCountdown(now.avgWaitSec))],
-    [t('console.now_compensated'), v(now.compensated)],
-  ];
+/** The map key: driver state by shape, the tier ramp. Bottom start corner, out of the way. */
+function MapLegend({ theme }: { theme: 'light' | 'dark' }) {
   return (
-    <section aria-label={t('console.now_bar')} className="rounded-xl border border-line bg-surface p-3">
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-        {items.map(([label, value, bad]) => (
-          <div key={label} className={`rounded-lg px-3 py-2 ${bad ? 'bg-bad-tint' : 'bg-surface-2'}`}>
-            <dt className="truncate text-xs text-muted">{label}</dt>
-            <dd className={`font-display text-xl font-bold tabular-nums ${bad ? 'text-bad' : ''}`}>{value}</dd>
-          </div>
+    <div className="pointer-events-none absolute bottom-3 end-3 z-10 w-[min(300px,calc(100%-1.5rem))] rounded-lg border border-line bg-raised/95 px-3 py-2.5 shadow-pop">
+      <ul className="grid grid-cols-3 gap-x-3 gap-y-1 text-xs text-text">
+        {MARKER_STATES.map((s) => (
+          <li key={s} className="flex items-center gap-1.5 whitespace-nowrap">
+            <StateGlyph state={s} size={14} />
+            {t(`console.marker_${s}`)}
+          </li>
         ))}
-      </dl>
-      <p className="mt-2 text-xs text-faint">
-        {serverError ? t('console.now_unavailable') : health === 'failing' ? t('console.now_outbox_failing') : health === 'backlog' ? t('console.now_outbox_backlog') : t('console.now_outbox_hint')}
-      </p>
-    </section>
-  );
-}
-
-// ───────────────────────── policy switches ─────────────────────────
-
-function PolicySwitches({ policies }: { policies: BoardPolicy[] }) {
-  const trpc = useTRPC();
-  const qc = useQueryClient();
-  const [notice, setNotice] = useState<string | null>(null);
-  const setPolicy = useMutation(
-    trpc.dispatch.setPolicy.mutationOptions({
-      onSuccess: (p) => {
-        setNotice(t('console.policy_saved', { vertical: verticalLabel(p.vertical), mode: t(MODE_KEY[policyMode(p)]) }));
-        void qc.invalidateQueries({ queryKey: trpc.dispatch.board.queryKey() });
-      },
-    }),
-  );
-  if (policies.length === 0) return <p className="mt-4 text-sm text-muted">{t('console.policy_none')}</p>;
-  return (
-    <Card title={t('console.policies')} className="mt-4">
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {policies.map((p) => {
-          const mode = policyMode(p);
-          const busy = setPolicy.isPending && setPolicy.variables?.vertical === p.vertical;
-          return (
-            <li key={p.vertical} className="rounded-lg border border-line bg-surface-2 p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="font-semibold">{verticalLabel(p.vertical)}</span>
-                {mode === 'fixed' && <Chip>{t('console.policy_fixed')}</Chip>}
-                {p.overridden && <Chip tone="warn">{t('console.policy_overridden')}</Chip>}
-              </div>
-              <div role="radiogroup" aria-label={verticalLabel(p.vertical)} className="flex flex-wrap gap-1">
-                {POLICY_MODES.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    role="radio"
-                    aria-checked={mode === m}
-                    disabled={busy}
-                    onClick={() => mode !== m && setPolicy.mutate(setPolicyInput(CITY_ID, p.vertical as Vertical, m))}
-                    className={`rounded-pill border px-3 py-1 text-xs transition-colors disabled:opacity-50 ${
-                      mode === m ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
-                    }`}
-                  >
-                    {t(MODE_KEY[m])}
-                  </button>
-                ))}
-              </div>
-              {p.overridden && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setPolicy.mutate({ cityId: CITY_ID, vertical: p.vertical, clear: true })}
-                  className="mt-2 rounded-md text-xs text-muted underline hover:text-accent-text"
-                >
-                  {t('console.policy_reset')}
-                </button>
-              )}
-            </li>
-          );
-        })}
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <span aria-hidden className="inline-flex h-[18px] items-center rounded-pill border-[1.5px] border-bad-solid bg-bad-tint px-1 text-[10px] font-semibold leading-none text-bad">
+            #
+          </span>
+          {t('console.legend_waiting')}
+        </li>
       </ul>
-      <p role="status" className="mt-2 min-h-[1.25rem] text-xs">
-        {setPolicy.error ? <span className="text-bad">{errorText(setPolicy.error)}</span> : <span className="text-muted">{notice}</span>}
-      </p>
-    </Card>
+      <TierLegend theme={theme} className="mt-2" />
+    </div>
   );
-}
-
-// ───────────────────────── card ─────────────────────────
-
-function BoardCardView({
-  card,
-  orderIds,
-  vehicles,
-  tick,
-  onAssign,
-}: {
-  card: BoardCard;
-  orderIds: readonly string[];
-  vehicles: ReadonlyMap<string, VehicleClass>;
-  tick: number;
-  onAssign: (driverId?: string) => void;
-}) {
-  const red = isRedCard(card);
-  const countdown = card.countdownSec === null ? null : Math.max(0, card.countdownSec - tick);
-  const openOffers = card.offers.filter((o) => o.state === 'sent' || o.state === 'seen');
-  return (
-    <article
-      aria-label={`${verticalLabel(card.vertical)} · ${zoneName(card.zoneId)} · ${card.status_ar}`}
-      className={`rounded-lg border p-3 text-sm ${red ? 'border-bad/40 bg-bad-tint' : 'border-line bg-surface-2'}`}
-    >
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <span className="flex flex-wrap items-center gap-x-1.5 font-semibold">
-          {orderIds.map((id) => (
-            <OrderRef key={id} id={id} strong />
-          ))}
-          <span>
-            {orderIds.length > 0 && '· '}
-            {verticalLabel(card.vertical)} · {zoneName(card.zoneId)}
-          </span>
-        </span>
-        <span className="flex flex-wrap gap-1">
-          {card.compensationLabel_ar && <Chip tone="ready">{card.compensationLabel_ar}</Chip>}
-          {red && <Chip tone="bad">{t('console.card_red')}</Chip>}
-        </span>
-      </header>
-      <p className="mt-1">{card.status_ar}</p>
-      <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
-        <span>{t('console.card_elapsed', { time: formatCountdown(card.elapsedSec + tick) })}</span>
-        {countdown !== null && (
-          <span className={countdown <= 10 ? 'font-semibold text-accent-text' : ''} aria-live="off">
-            {t('console.card_countdown', { time: formatCountdown(countdown) })}
-          </span>
-        )}
-        {card.wave > 0 && <span>{t('console.card_wave', { n: card.wave })}</span>}
-        {card.pass > 0 && <span>{t('console.card_pass', { n: card.pass })}</span>}
-      </p>
-      {(orderIds.length === 0 || card.customerMayCancelFree) && (
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
-          {orderIds.length === 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Link href={`/map`} className="text-faint hover:text-accent-text">
-                <Mono title={card.tripId}>{shortId(card.tripId)}</Mono>
-              </Link>
-              <CopyId id={card.tripId} />
-            </span>
-          )}
-          {card.customerMayCancelFree && <span className="text-faint">{t('console.card_free_cancel')}</span>}
-        </p>
-      )}
-
-      {card.assignedDriverId && (
-        <p className="mt-2 text-xs">
-          <span className="text-muted">{t('console.drawer_driver')}: </span>
-          <PersonName id={card.assignedDriverId} vehicle vehicleClass={vehicles.get(card.assignedDriverId)} href={`/drivers/${encodeURIComponent(card.assignedDriverId)}/ledger`} />
-        </p>
-      )}
-
-      {openOffers.length > 0 && (
-        <div className="mt-2">
-          <p className="text-xs text-muted">{t('console.card_offers')}</p>
-          <ul className="mt-1 space-y-0.5 text-xs">
-            {openOffers.map((o) => (
-              <li key={o.offerId} className="flex justify-between gap-2">
-                <PersonName id={o.driverId} copy={false} />
-                <span className="text-muted">
-                  {offerStateLabel(o.state)} · {t('console.offer_expires', { seconds: Math.max(0, o.expiresInSec - tick) })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {card.suggestion.length > 0 && (
-        <div className="mt-2">
-          <p className="text-xs text-muted">{t('console.card_suggestions')}</p>
-          <div className="mt-1 flex flex-wrap gap-1">
-            {card.suggestion.slice(0, 5).map((d) => (
-              <button key={d} type="button" onClick={() => onAssign(d)} className="rounded-pill border border-line bg-surface px-2 py-0.5 text-xs hover:border-accent">
-                <PersonName id={d} copy={false} />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {card.status !== 'assigned' && (
-        <button type="button" onClick={() => onAssign()} className={`${red ? primaryBtn : ghostBtn} mt-3 w-full`}>
-          {t('console.override_assign')}
-        </button>
-      )}
-      {card.status === 'assigned' && (
-        <button type="button" onClick={() => onAssign()} className={`${ghostBtn} mt-3 w-full`}>
-          {t('console.reassign')}
-        </button>
-      )}
-    </article>
-  );
-}
-
-// ───────────────────────── override dialog ─────────────────────────
-
-function OverrideDialog({ target, orderIds, knownDrivers, onClose }: { target: { card: BoardCard; driverId?: string } | null; orderIds: readonly string[]; knownDrivers: string[]; onClose: () => void }) {
-  const trpc = useTRPC();
-  const qc = useQueryClient();
-  const ref = useRef<HTMLDialogElement>(null);
-  const ids = { driver: useId(), reason: useId(), list: useId(), force: useId() };
-  const [driverId, setDriverId] = useState('');
-  const [reason, setReason] = useState('');
-  const names = useNames({ people: knownDrivers });
-  const [force, setForce] = useState(false);
-  const override = useMutation(
-    trpc.dispatch.override.mutationOptions({ onSuccess: () => void qc.invalidateQueries({ queryKey: trpc.dispatch.board.queryKey() }) }),
-  );
-
-  useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (target) {
-      setDriverId(target.driverId ?? target.card.suggestion[0] ?? '');
-      setReason('');
-      setForce(false);
-      override.reset();
-      if (!d.open) d.showModal();
-    } else if (d.open) d.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when the target changes
-  }, [target]);
-
-  const needsReason = force && reason.trim().length === 0;
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!target || !driverId.trim() || needsReason) return;
-    override.mutate({
-      tripId: target.card.tripId,
-      driverId: driverId.trim(),
-      ...(reason.trim() ? { reason: reason.trim() } : {}),
-      ...(force ? { force: true } : {}),
-    });
-  };
-
-  return (
-    <dialog
-      ref={ref}
-      onClose={onClose}
-      aria-labelledby="override-title"
-      className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line bg-raised p-0 text-text shadow-overlay"
-    >
-      {target && (
-        <form onSubmit={submit} className="space-y-4 p-5">
-          <div>
-            <h2 id="override-title" className="font-display text-lg font-semibold">
-              {t('console.override_title')}
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              {verticalLabel(target.card.vertical)} · {zoneName(target.card.zoneId)} · {orderIds.length > 0 ? orderIds.map(orderLabel).join(' ') : t('console.override_trip', { trip: shortId(target.card.tripId) })}
-            </p>
-          </div>
-
-          {target.card.suggestion.length > 0 && (
-            <fieldset>
-              <legend className="mb-1 text-sm text-muted">{t('console.override_pick')}</legend>
-              <div className="flex flex-wrap gap-1">
-                {target.card.suggestion.map((d) => (
-                  <button key={d} type="button" aria-pressed={driverId === d} onClick={() => setDriverId(d)} className={ghostBtn}>
-                    <PersonName id={d} vehicle copy={false} />
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          )}
-
-          <div>
-            <label htmlFor={ids.driver} className="mb-1.5 block text-sm text-muted">
-              {t('console.override_driver')}
-            </label>
-            <input id={ids.driver} dir="ltr" required list={ids.list} className={inputCls} value={driverId} onChange={(e) => setDriverId(e.target.value)} autoComplete="off" />
-            <datalist id={ids.list}>
-              {knownDrivers.map((d) => (
-                <option key={d} value={d} label={personText(d, names.person(d), { vehicle: true }) ?? d} />
-              ))}
-            </datalist>
-          </div>
-
-          <div>
-            <label htmlFor={ids.reason} className="mb-1.5 block text-sm text-muted">
-              {t('console.override_reason')}
-            </label>
-            <textarea
-              id={ids.reason}
-              rows={2}
-              maxLength={500}
-              className={inputCls}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              aria-invalid={needsReason}
-              aria-describedby={`${ids.reason}-hint`}
-            />
-            <p id={`${ids.reason}-hint`} className={`mt-1 text-xs ${needsReason ? 'text-bad' : 'text-faint'}`}>
-              {t('console.override_reason_hint')}
-            </p>
-          </div>
-
-          <label htmlFor={ids.force} className="flex items-start gap-3 text-sm">
-            <input id={ids.force} type="checkbox" className="mt-1 h-4 w-4 accent-[rgb(var(--c-accent))]" checked={force} onChange={(e) => setForce(e.target.checked)} />
-            {t('console.override_force')}
-          </label>
-
-          <div role="status" className="min-h-[1.25rem] text-sm">
-            {override.isSuccess && (
-              <p className="text-ok">
-                {t('console.override_sent')}
-                {override.data.warnings.length > 0 && <span className="block text-accent-text">{t('console.override_warnings', { list: override.data.warnings.join('، ') })}</span>}
-              </p>
-            )}
-            {override.error && <p className="text-bad">{errorText(override.error)}</p>}
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className={ghostBtn} onClick={() => ref.current?.close()}>
-              {override.isSuccess ? t('console.close') : t('console.cancel')}
-            </button>
-            {!override.isSuccess && (
-              <button type="submit" className={primaryBtn} disabled={override.isPending || !driverId.trim() || needsReason}>
-                {override.isPending ? t('status.loading') : t('console.override_submit')}
-              </button>
-            )}
-          </div>
-        </form>
-      )}
-    </dialog>
-  );
-}
-
-// ───────────────────────── alert sound ─────────────────────────
-
-/** Two short beeps when the needs-dispatcher count goes up (opt-in: browsers block autoplay). */
-function useAlertSound(enabled: boolean, needs: number) {
-  const prev = useRef(needs);
-  useEffect(() => {
-    const was = prev.current;
-    prev.current = needs;
-    if (!enabled || needs <= was) return;
-    try {
-      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      [0, 0.25].forEach((at) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.15, ctx.currentTime + at);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + at + 0.18);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(ctx.currentTime + at);
-        osc.stop(ctx.currentTime + at + 0.2);
-      });
-      window.setTimeout(() => void ctx.close(), 800);
-    } catch {
-      /* no audio: the red column is still there */
-    }
-  }, [enabled, needs]);
 }

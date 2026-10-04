@@ -1,5 +1,6 @@
 import { AZIZIYAH_ZONES, type ZoneTier } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
+import { labelDigits } from '@driver/map';
 
 /**
  * Enum → Console label. Keys are built from the enum value (`console.<group>_<value>`), so a new
@@ -28,9 +29,10 @@ export const pinStateLabel = (s: string) => k('pin_state', s);
 
 const ZONES = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z]));
 
-/** Arabic zone name, or the raw id for zones outside the seed (Kut, Baghdad…). */
+/** Arabic zone name in Western digits ("شارع 30"), or the raw id for zones outside the seed (Kut, Baghdad…). */
 export function zoneName(zoneId: string): string {
-  return ZONES.get(zoneId)?.name_ar ?? zoneId;
+  const name = ZONES.get(zoneId)?.name_ar;
+  return name ? labelDigits(name) : zoneId;
 }
 
 export function zoneTier(zoneId: string): ZoneTier | undefined {

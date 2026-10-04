@@ -24,6 +24,7 @@ import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
+import { DispatchModes } from './dispatch-modes';
 import { Card, Chip, dangerBtn, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Stat } from './ui';
 
 /** What a switch dialog acts on. */
@@ -74,6 +75,7 @@ export function ControlsPage() {
           onZone={setZone}
         />
       )}
+      {hasAny(roles, ['admin', 'dispatcher']) && <DispatchModes />}
       <SwitchDialog target={target} onClose={() => setTarget(null)} />
       <CapacityDialog zone={zone} onClose={() => setZone(null)} />
     </div>

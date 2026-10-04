@@ -172,13 +172,43 @@ to do next.
 
 Exception: the `/design` reference page hard-codes sample content as fixtures. It is not product copy.
 
+### Dispatch and the live map (wave 2)
+
+`src/components/dispatch-page.tsx` + `dispatch/` (`triage-bar.tsx`, `queue.tsx`, `assign.tsx`,
+`sound.ts`), `map-page.tsx`, the shared canvas `live-map-canvas.tsx` and `map-cards.tsx`. Pure parts:
+`lib/dispatch.ts` (queue order, candidate ranking, wave history, the key reducer), `lib/map-labels.ts`
+(label placement, order-tag stacking), `lib/live-map.ts` (GeoJSON, filters, order tags).
+
+- **Full bleed**: both pages fill the height (like the desk). Map on the start side (two-thirds),
+  queue 400–440 px on the end side. They show the network banner themselves.
+- **Triage bar**: the one loud block is "27 يحتاجون موزّع · أقدم واحد من 5:26" with **خذه (A)**; then
+  five quiet numbers on hairlines (طلبات بالساعة، سواق أونلاين، وقت القبول، متأخرة، كاش بالميدان). The
+  rest sits behind "تفاصيل", which also links to the dispatch modes. Sound is on by default (two
+  tones when the count rises), with a visible mute (M) that the browser remembers.
+- **Queue**: يحتاج موزّع, معروض, يبحث, مُعيَّن (collapsed). A card is "#1284 مطعم خالد" and the wait
+  on the end side (amber after 3 min, red when it needs a hand), then vertical · zone · wave pips
+  ("جولة 3 · 2 ما قبلوا"). The selected card opens in place with its five best drivers.
+- **Candidates**: ranked by the spec weights (distance 40, tier 30, load 20, vehicle fit 10), the
+  ones that need force (over cap, offline, wrong vehicle) last and in words. Each row: key cap, state
+  shape, name · vehicle · plate, km and minutes to the pickup, cash against the cap. The same numbers
+  1–5 appear on the drivers on the map. 1–5 picks, Enter sends ("دز العرض لحيدر ج."); a forced one
+  asks for the reason first. Drag a card onto a driver on the map to pick him.
+- **Dispatch modes** moved to /controls (`dispatch-modes.tsx`, `#dispatch-modes`): each change asks
+  first, in a sentence that says what will happen.
+- **Map**: the `@driver/map` style with `zoneShading: 'sequential'`: the tier bands as one sepia ink
+  ramp (light → dark outwards on cream, the reverse at night), split by paper-coloured hairlines.
+  Driver state is shape + colour (`lib/marker-shapes.ts`): dot free, ring offered, square on a job,
+  cross over the cap, dashed hollow offline. Waiting orders are tags at the kitchen ("#4816 +3");
+  tags that overlap fold into the most urgent one. Labels (garages, zones from zoom 12, names of the
+  drivers that matter) are placed greedily without collisions; digits are Western.
+- **Map page**: state chips (shape, word, count) and service chips filter the map and the side list;
+  hover a marker for name, vehicle and plate, job and cash; click opens the drawer; F follows a
+  driver until you drag the map or press Esc.
+
 ## Wave 2
 
-- **/dispatch**: map plus queue layout per spec (K-03), with "يحتاج موزّع" first. Policy switches
-  move to /controls behind a confirm (K-14). Assign by name with 1–5 keys (K-04). The triage bar
-  (S-K1). The right-now bar trimmed to 6 tiles.
-- **/map**: a light map style that keeps the tier bands (the `@driver/map` light style washes them
-  out). Label collision, and shape-coded driver state (K-09).
+- **/dispatch, /map**: done (above). Still open: S-K1's sticky triage strip on every other page,
+  the alert repeating until someone takes the card, and a plate for bikes (the registry has none).
 - **/orders, /orders/[id]**: Arabic date ranges (K-15), status tones by phase plus a "late" column
   (K-17), the event log collapsed into a story (K-22). Move to `DataTable`.
 - **/drivers, ledger**: name search (needs a names-aware roster read), and words instead of signs
