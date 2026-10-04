@@ -1,25 +1,29 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { BoardOrder } from '@driver/contracts';
-import { canPlay, onUnlock, playNewOrder } from '@/lib/alert-sound';
-import { unacknowledged } from './logic';
+import { canPlay, chime, onUnlock, setLoop, stopVibration, vibrate } from '@/lib/alert-sound';
+import { alarmAction, alarmPlan, snooze as snoozeMap, STAGE_VOLUME, VIBRATION, type AlarmPlan, type RingCandidate } from './ladder';
 
 /**
- * The new-order alarm, app-wide: it keeps ringing on any screen (menu, money…) until every new order
- * is accepted, rejected or silenced. Acknowledged order ids live here (device memory, not persisted:
- * after a restart an unanswered order rings again, which is what a kitchen wants).
+ * The new-order alarm, app-wide (it rings on any screen — menu, money… — until every new order is
+ * answered). The ladder (ladder.ts) decides what to play: a chime every 4 s, every 2 s in the last
+ * 30 s, a continuous tone in the last 10 s. "سكّت 30 ثانية" snoozes, never for good. An order whose
+ * accept/reject sheet is open stays quiet until the sheet closes. State is device memory only: after a
+ * restart an unanswered order rings again, which is what a kitchen wants.
  */
 
-/** Seconds between chimes while something is unanswered. */
-export const ALARM_REPEAT_MS = 4_000;
+/** How often the ladder is checked. */
+export const ALARM_TICK_MS = 250;
 
-let acked = new Set<string>();
+let snoozedUntil = new Map<string, number>();
+let handling = new Set<string>();
 let soundReady = canPlay();
-/** When the chime last played: the board's own alarm skips its first chime right after a live ring. */
-let lastRingAt = 0;
-function chime() {
-  lastRingAt = Date.now();
-  playNewOrder();
-}
+let lastChimeAt = 0;
+let finalBuzzing = false;
+const EMPTY: AlarmPlan = { ringing: [], snoozed: [], stage: null, mostUrgent: null, snoozeEndsAt: null };
+let plan: AlarmPlan = EMPTY;
+let planKey = '';
+let candidates: RingCandidate[] = [];
+
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
@@ -29,50 +33,125 @@ onUnlock(() => {
   emit();
 });
 
-export const alarm = {
-  acknowledge(ids: readonly string[]) {
-    if (ids.every((id) => acked.has(id))) return;
-    acked = new Set([...acked, ...ids]);
-    emit();
-  },
-  acknowledged: () => acked,
-  /**
-   * A new order arrived on the live channel: ring now, before the board is re-read (it then keeps
-   * ringing through `useNewOrderAlarm` until answered).
-   */
-  ringNow(orderId: string, soundOn: boolean) {
-    if (!soundOn || !soundReady || acked.has(orderId)) return;
-    chime();
-  },
-  subscribe(cb: () => void) {
-    listeners.add(cb);
-    return () => {
-      listeners.delete(cb);
-    };
-  },
+const subscribe = (cb: () => void) => {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
 };
 
-export function useAcknowledged(): ReadonlySet<string> {
-  return useSyncExternalStore(alarm.subscribe, alarm.acknowledged, alarm.acknowledged);
+/** New orders that should ring (partial accepts wait for the customer, not the kitchen). */
+export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
+  return orders.filter((o) => o.column === 'new' && o.partial === null).map((o) => ({ id: o.id, number: o.number, acceptByMs: o.acceptBy ? o.acceptBy.getTime() : null }));
+}
+
+function publish(next: AlarmPlan) {
+  const key = [next.ringing.join(','), next.snoozed.join(','), next.stage, next.mostUrgent?.id, next.mostUrgent?.msLeft === null || !next.mostUrgent ? '' : Math.ceil(next.mostUrgent.msLeft / 1000), next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  plan = next;
+  if (key !== planKey) {
+    planKey = key;
+    emit();
+  }
+}
+
+function quiet() {
+  setLoop(false);
+  if (finalBuzzing) stopVibration();
+  finalBuzzing = false;
+}
+
+/** One check of the ladder: plays, loops or stays quiet. `serverNow` times the windows; spacing uses the device clock. */
+function tick(serverNow: number, soundOn: boolean) {
+  const next = alarmPlan(candidates, snoozedUntil, handling, serverNow);
+  publish(next);
+  const action = alarmAction(next.stage, lastChimeAt, Date.now(), soundOn && soundReady);
+  switch (action.kind) {
+    case 'silent':
+    case 'wait':
+      if (action.kind === 'silent' || finalBuzzing) quiet();
+      return;
+    case 'chime':
+      quiet();
+      lastChimeAt = Date.now();
+      chime(STAGE_VOLUME[action.stage]);
+      vibrate(VIBRATION[action.stage]);
+      return;
+    case 'loop':
+      setLoop(true);
+      if (!finalBuzzing) vibrate(VIBRATION.final, true);
+      finalBuzzing = true;
+      lastChimeAt = Date.now();
+      return;
+  }
+}
+
+export const alarm = {
+  /** The accept/reject sheet for this order is open: quiet until `release`. */
+  handle(id: string) {
+    if (handling.has(id)) return;
+    handling = new Set([...handling, id]);
+    emit();
+  },
+  release(id: string) {
+    if (!handling.has(id)) return;
+    const next = new Set(handling);
+    next.delete(id);
+    handling = next;
+    emit();
+  },
+  /** "سكّت 30 ثانية": the orders ringing now go quiet for 30 s (or until 20 s are left). */
+  snooze(now: number) {
+    snoozedUntil = snoozeMap(snoozedUntil, plan.ringing, now, candidates.map((c) => c.id));
+    quiet();
+    publish(alarmPlan(candidates, snoozedUntil, handling, now));
+  },
+  /** "رجّع الصوت": ends every snooze now. */
+  unsnooze(now: number) {
+    snoozedUntil = new Map();
+    lastChimeAt = 0;
+    publish(alarmPlan(candidates, snoozedUntil, handling, now));
+  },
+  /** A new order arrived on the live channel: ring now, before the board is re-read. */
+  ringNow(orderId: string, soundOn: boolean) {
+    if (!soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
+    lastChimeAt = Date.now();
+    chime(STAGE_VOLUME.calm);
+    vibrate(VIBRATION.calm);
+  },
+  plan: () => plan,
+  handling: () => handling,
+  subscribe,
+};
+
+export function useAlarmPlan(): AlarmPlan {
+  return useSyncExternalStore(subscribe, alarm.plan, alarm.plan);
+}
+
+/** Orders whose sheet is open (quiet while the cook decides). */
+export function useHandling(): ReadonlySet<string> {
+  return useSyncExternalStore(subscribe, alarm.handling, alarm.handling);
 }
 
 /** Whether the browser lets us play sound yet (always true on native). */
 export function useSoundReady(): boolean {
-  return useSyncExternalStore(alarm.subscribe, () => soundReady, () => soundReady);
+  return useSyncExternalStore(subscribe, () => soundReady, () => soundReady);
 }
 
-/** Rings now and every few seconds while there are unanswered new orders and the sound is on. */
-export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soundOn: boolean): string[] {
-  const ackd = useAcknowledged();
-  const ready = useSoundReady();
-  const pending = orders ? unacknowledged(orders, ackd) : [];
-  const ringing = soundOn && ready && pending.length > 0;
-  const key = pending.join(',');
+/**
+ * Runs the ladder while the app is open on a store (mounted once, in MerchantRuntime). `clock` is the
+ * server clock (board offset), so the 90-s windows match the server's auto-reject.
+ */
+export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soundOn: boolean, clock: () => number): AlarmPlan {
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
+  candidates = orders ? ringCandidates(orders) : [];
   useEffect(() => {
-    if (!ringing) return;
-    if (Date.now() - lastRingAt > 1_500) chime();
-    const id = setInterval(chime, ALARM_REPEAT_MS);
-    return () => clearInterval(id);
-  }, [ringing, key]);
-  return pending;
+    tick(clockRef.current(), soundOn);
+    const id = setInterval(() => tick(clockRef.current(), soundOn), ALARM_TICK_MS);
+    return () => {
+      clearInterval(id);
+      quiet();
+    };
+  }, [soundOn]);
+  return useAlarmPlan();
 }

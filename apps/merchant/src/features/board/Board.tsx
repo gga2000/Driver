@@ -1,28 +1,40 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
 import { SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
+import { ModalSheet } from '@/components/ModalSheet';
+import { testChime } from '@/lib/alert-sound';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { localDayKey } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
+import { requestWakeLock, useWakeState } from '@/lib/keep-awake';
 import { useLayout } from '@/lib/layout';
-import { usePrefs } from '@/lib/prefs';
+import { iqd } from '@/lib/money';
+import { prefs as prefsStore, usePrefs } from '@/lib/prefs';
+import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
-import { usePrintOrder } from '@/features/print/runtime';
+import { usePushPrompt } from '@/features/notify/Push';
+import { boardCalmForPrompt } from '@/features/notify/prompt';
+import { printerChipState, usePrinterSnapshot, usePrintOrder } from '@/features/print/runtime';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
-import { StoreHeader } from '@/features/store/StoreHeader';
+import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { AcceptSheet } from './AcceptSheet';
-import { alarm, useAcknowledged, useSoundReady } from './alarm';
-import { InfoStrip, NewOrderBanner } from './Banners';
-import { COLUMN_LABEL, COLUMNS, splitColumns, unacknowledged } from './logic';
+import { alarm, useAlarmPlan, useSoundReady } from './alarm';
+import { InfoStrip, MissedStrip, NewOrderBanner } from './Banners';
+import { stageFor } from './ladder';
+import { COLUMN_LABEL, COLUMNS, oneTapPrep, splitColumns } from './logic';
+import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
 import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
 import { RejectSheet } from './RejectSheet';
+import { ShiftGate } from './ShiftGate';
+import { shiftGateNeeded, startShift, useShift } from './shift';
+import { useMissedSeen } from './useMissed';
 
 const EMPTY_ICON: Record<BoardColumn, MIconName> = { new: 'bell', preparing: 'flame', ready: 'bag' };
 
@@ -67,6 +79,11 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
 /**
  * الطلبات — the orders board (Driver Merchant spec). Tablet: جديد / يتحضّر / جاهز side by side under
  * the store status bar. Phone: one column at a time behind a segmented control with counts.
+ *
+ * UI/UX audit Phase 1: "ابدأ الشغل" gate (sound, screen on, printer) at the start of the day; the alarm
+ * ladder's banner (snooze, never silence); "الصوت طافي" whenever sound can't play; missed orders kept
+ * in a strip and a "فاتك اليوم" counter; one-tap "اقبل · 15 د" and a one-off "+5 د"; the notification
+ * ask only as a strip on a calm board.
  */
 export function Board() {
   const theme = useTheme();
@@ -82,37 +99,79 @@ export function Board() {
   const status = useStoreStatus(storeId);
   const balance = useBalance(storeId, canSeeMoney);
   const online = useOnline();
-  const { ready } = useOrderActions();
+  const { accept, ready, extend } = useOrderActions();
   const { setOpen } = useStoreSwitches();
   const now = useServerNow(board.offset);
   const clock = useCallback(() => Date.now() + board.offset, [board.offset]);
-  const acked = useAcknowledged();
+  const plan = useAlarmPlan();
   const soundReady = useSoundReady();
+  const wake = useWakeState();
+  const shift = useShift();
+  const printerSnap = usePrinterSnapshot();
   const print = usePrintOrder(store?.name ?? '');
+  const { seen, markSeen } = useMissedSeen();
 
   const [segment, setSegment] = useState<BoardColumn>('new');
   const [acceptId, setAcceptId] = useState<string | null>(null);
   const [acceptPartial, setAcceptPartial] = useState(false);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<'close' | 'busy' | 'cash' | null>(null);
+  const [sheet, setSheet] = useState<'close' | 'busy' | 'cash' | 'missed' | null>(null);
   const [readyId, setReadyId] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [extendingId, setExtendingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
   const cols = useMemo(() => splitColumns(orders), [orders]);
   const byId = (id: string | null) => (id ? (orders.find((o) => o.id === id) ?? null) : null);
-  const pending = unacknowledged(orders, acked);
+  const s = status.data;
+  const busyOn = s?.busy.on ?? false;
+  const oneTap = oneTapPrep(s?.defaultPrepMinutes ?? 20, busyOn);
+  const waiting = plan.ringing.length + plan.snoozed.length;
+  const gateOpen = shiftGateNeeded(shift.startedDay, Date.now());
+  const soundOff = !prefs.soundOn || !soundReady;
+  const missed = board.data?.missed;
+  const missedNew = missed ? unseenMissed(missed.orders, seen) : [];
+  const nudge = missed ? missNudge(missed.orders, seen, now) : false;
+  const sheetOpen = acceptId !== null || rejectId !== null || detailId !== null || sheet !== null;
+  const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
 
+  const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
+
+  /** The time sheet (other prep times, partial accept): quiet for this order while it is open. */
   const onAccept = (o: BoardOrder) => {
-    alarm.acknowledge([o.id]);
+    alarm.handle(o.id);
     setDetailId(null);
     setAcceptPartial(false);
     setAcceptId(o.id);
   };
+  /** One tap: the usual time (M-12). */
+  const onAcceptNow = async (o: BoardOrder) => {
+    alarm.handle(o.id);
+    setAcceptingId(o.id);
+    try {
+      await accept.mutateAsync({ orderId: o.id, prepMinutes: oneTap.prepMinutes });
+      toast.show({ message: t('merchant.accept.done', { minutes: oneTap.shown }), tone: 'success', icon: 'check' });
+      if (prefs.autoPrint) void print(o, { auto: true });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setAcceptingId(null);
+      alarm.release(o.id);
+    }
+  };
   const onReject = (o: BoardOrder) => {
-    alarm.acknowledge([o.id]);
+    alarm.handle(o.id);
     setDetailId(null);
     setRejectId(o.id);
+  };
+  const closeAccept = () => {
+    if (acceptId) alarm.release(acceptId);
+    setAcceptId(null);
+  };
+  const closeReject = () => {
+    if (rejectId) alarm.release(rejectId);
+    setRejectId(null);
   };
   const onReady = async (o: BoardOrder) => {
     setReadyId(o.id);
@@ -121,13 +180,23 @@ export function Board() {
       toast.show({ message: t('merchant.card.mark_ready'), tone: 'success', icon: 'check' });
       setDetailId(null);
     } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
+      fail(err);
     } finally {
       setReadyId(null);
     }
   };
+  const onExtend = async (o: BoardOrder) => {
+    setExtendingId(o.id);
+    try {
+      await extend.mutateAsync({ orderId: o.id });
+      toast.show({ message: t('merchant.extend.done'), tone: 'success', icon: 'clock' });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setExtendingId(null);
+    }
+  };
   const toggleOpen = async () => {
-    const s = status.data;
     if (!s) return;
     if (s.open) {
       setSheet('close');
@@ -137,24 +206,43 @@ export function Board() {
       await setOpen.mutateAsync({ merchantOrgId: s.merchantOrgId, open: true });
       toast.show({ message: t('merchant.status.opened'), tone: 'success' });
     } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
+      fail(err);
     }
   };
+  const soundOn = async () => {
+    if (!prefs.soundOn) await prefsStore.setSound(true);
+    const ok = await testChime();
+    toast.show(ok ? { message: t('merchant.sound.on_toast'), tone: 'success', icon: 'check' } : { message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });
+  };
+  const beginShift = async () => {
+    if (!prefs.soundOn) await prefsStore.setSound(true);
+    const r = await startShift();
+    toast.show(r.sound ? { message: t('merchant.shift.started'), tone: 'success', icon: 'check' } : { message: t('merchant.shift.no_sound'), tone: 'warning' });
+  };
 
-  const card = (o: BoardOrder) => (
-    <OrderCard
-      key={o.id}
-      order={o}
-      now={now}
-      clock={clock}
-      ringing={pending.includes(o.id)}
-      onAccept={() => onAccept(o)}
-      onReject={() => onReject(o)}
-      onReady={() => void onReady(o)}
-      onOpen={() => setDetailId(o.id)}
-      busyReady={readyId === o.id}
-    />
-  );
+  const card = (o: BoardOrder) => {
+    const ringing = plan.ringing.includes(o.id);
+    return (
+      <OrderCard
+        key={o.id}
+        order={o}
+        now={now}
+        clock={clock}
+        ringing={ringing}
+        stage={ringing && o.acceptBy ? stageFor(o.acceptBy.getTime() - now) : null}
+        oneTapMinutes={oneTap.shown}
+        onAcceptNow={() => void onAcceptNow(o)}
+        onAccept={() => onAccept(o)}
+        onReject={() => onReject(o)}
+        onReady={() => void onReady(o)}
+        onOpen={() => setDetailId(o.id)}
+        onExtend={() => void onExtend(o)}
+        busyReady={readyId === o.id}
+        busyAccept={acceptingId === o.id}
+        busyExtend={extendingId === o.id}
+      />
+    );
+  };
 
   const loading = !board.data && board.isPending;
   const skeleton = (
@@ -164,7 +252,6 @@ export function Board() {
     </View>
   );
 
-  const s = status.data;
   // Outside the weekly hours or on a holiday: the switch can read "open" while customers can't order.
   const offHours =
     s && !s.closed && !s.pause
@@ -172,6 +259,14 @@ export function Board() {
           dates.dayMonth(new Date(`${d}T12:00:00+03:00`)),
         )
       : null;
+
+  const alerts = [
+    !gateOpen && soundOff ? <HeaderChip key="sound" testID="sound-off-chip" icon="volume-off" tone="danger" dot label={t('merchant.sound.off_chip')} onPress={() => void soundOn()} /> : null,
+    !gateOpen && Platform.OS === 'web' && wake !== 'on' ? <HeaderChip key="wake" testID="wake-chip" icon="screen" tone="warning" label={t('merchant.wake.chip')} onPress={() => void requestWakeLock()} /> : null,
+    missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
+  ].filter((x) => x !== null);
+
+  const urgent = plan.mostUrgent;
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.bg }} testID="board">
       <StoreHeader
@@ -184,8 +279,27 @@ export function Board() {
         onToggleOpen={() => void toggleOpen()}
         onBusy={() => setSheet('busy')}
         onCash={() => setSheet('cash')}
+        alerts={alerts}
       />
-      {pending.length > 0 ? <NewOrderBanner count={pending.length} soundBlocked={prefs.soundOn && !soundReady} onSilence={() => alarm.acknowledge(pending)} /> : null}
+      {waiting > 0 ? (
+        <NewOrderBanner
+          count={plan.ringing.length}
+          snoozedCount={plan.snoozed.length}
+          stage={plan.stage}
+          mostUrgent={urgent ? { number: urgent.number, seconds: urgent.msLeft === null ? null : Math.max(0, Math.ceil(urgent.msLeft / 1000)) } : null}
+          snoozeSeconds={plan.snoozeEndsAt === null ? null : Math.ceil((plan.snoozeEndsAt - now) / 1000)}
+          soundBlocked={prefs.soundOn && !soundReady}
+          onSnooze={() => alarm.snooze(clock())}
+          onUnsnooze={() => alarm.unsnooze(clock())}
+          onEnableSound={() => void soundOn()}
+          compact={!wide}
+        />
+      ) : null}
+      <MissedStrip
+        missed={missedNew}
+        onOk={() => markSeen(missedNew.map((m) => m.orderId))}
+        {...(nudge && !busyOn ? { nudge: { text: t('merchant.missed.nudge'), onBusy: () => setSheet('busy'), onClose: () => setSheet('close') } } : {})}
+      />
       {!online ? <InfoStrip tone="neutral" text={t('merchant.board.offline')} testID="offline-strip" /> : null}
       {s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
@@ -200,10 +314,17 @@ export function Board() {
       ) : offHours ? (
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
-      {board.isError && !board.data ? (
-        <InfoStrip tone="danger" text={t('merchant.board.error')} />
-      ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
+      {push.visible ? (
+        <InfoStrip
+          tone="neutral"
+          icon="bell"
+          testID="push-strip"
+          text={t('merchant.push.strip')}
+          action={{ label: t('merchant.push.enable'), onPress: push.allow, testID: 'push-strip-allow' }}
+          secondary={{ label: t('merchant.push.later'), onPress: push.later, testID: 'push-strip-later' }}
+        />
+      ) : null}
 
       {wide ? (
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], paddingHorizontal: theme.space[5], paddingTop: theme.space[4] }}>
@@ -246,9 +367,9 @@ export function Board() {
 
       <AcceptSheet
         order={byId(acceptId)}
-        onClose={() => setAcceptId(null)}
+        onClose={closeAccept}
         startPartial={acceptPartial}
-        busyOn={s?.busy.on ?? false}
+        busyOn={busyOn}
         usualPrepMinutes={s?.defaultPrepMinutes ?? 20}
         clock={clock}
         onAccepted={(o) => {
@@ -257,20 +378,45 @@ export function Board() {
       />
       <RejectSheet
         order={byId(rejectId)}
-        onClose={() => setRejectId(null)}
+        onClose={closeReject}
         onAlternative={(action, o) => {
           setRejectId(null);
           if (action === 'partial') {
             setAcceptPartial(true);
             setAcceptId(o.id);
+          } else {
+            alarm.release(o.id);
+            setSheet(action === 'busy' ? 'busy' : 'close');
           }
-          else setSheet(action === 'busy' ? 'busy' : 'close');
         }}
       />
       <OrderDetailSheet order={byId(detailId)} now={now} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
+      <ModalSheet visible={sheet === 'missed'} onClose={() => setSheet(null)} title={t('merchant.missed.sheet_title')} testID="missed-sheet">
+        {(missed?.orders ?? []).length === 0 ? (
+          <Text variant="body" color="textMuted">
+            {t('merchant.missed.sheet_empty')}
+          </Text>
+        ) : (
+          (missed?.orders ?? []).map((m) => (
+            <View key={m.orderId} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: m.reason === 'merchant_timeout' ? theme.colors.dangerTint : theme.colors.surfaceSunken }}>
+              <Text weight={700} tabular style={{ fontSize: 20, lineHeight: 28 }}>{`#${m.number}`}</Text>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="label" weight={600} color={m.reason === 'merchant_timeout' ? 'dangerText' : 'text'}>
+                  {m.reason === 'merchant_timeout' ? t('merchant.missed.row_timeout') : t('merchant.missed.row_partial')}
+                  {m.reason === 'merchant_timeout' && !m.scored ? ` · ${t('merchant.missed.not_scored')}` : ''}
+                </Text>
+                <Text variant="caption" color="textMuted" tabular>
+                  {`${clock12(m.missedAt)} · ${t('merchant.card.items', { count: m.itemCount })} · ${iqd(m.totalIqd, { locale })}`}
+                </Text>
+              </View>
+            </View>
+          ))
+        )}
+      </ModalSheet>
+      {gateOpen && storeId ? <ShiftGate waiting={waiting} soundOn={prefs.soundOn} printer={printerChipState(printerSnap, s?.printer.state)} onStart={beginShift} /> : null}
     </SafeAreaView>
   );
 }

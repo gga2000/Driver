@@ -119,6 +119,11 @@ export class OrdersRpc implements OrdersPort {
     return this.orders.markReady(actor.personId, input);
   }
 
+  async merchantExtendPrep(actor: Actor, input: { orderId: string }): Promise<Order> {
+    await this.assertMerchantStaff(actor, input.orderId);
+    return this.orders.merchantExtendPrep(actor.personId, input);
+  }
+
   async merchantHeartbeat(actor: Actor, input: { merchantOrgId: string }): Promise<{ ok: true }> {
     if (!(await this.merchantOf(actor, input.merchantOrgId))) throw new DriverError('forbidden');
     await this.orders.merchantHeartbeat(input.merchantOrgId);

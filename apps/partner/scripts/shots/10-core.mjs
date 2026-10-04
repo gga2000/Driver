@@ -75,7 +75,7 @@ export default async function run(s) {
   // Tuktuk: a ride broadcast reaches him in wave 1.
   const tk = await s.signIn(PHONES.tuktuk);
   await s.demoPost('/demo/online?who=tuktuk');
-  await tk.page.reload({ waitUntil: 'networkidle' });
+  await tk.reload();
   await tk.wait('home');
   await s.demoPost('/demo/offer?who=tuktuk&kind=ride');
   await tk.wait('offer', 10_000);

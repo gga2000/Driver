@@ -9,6 +9,8 @@ import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
+import { keepScreenOn } from '@/features/work/logic';
+import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
@@ -127,6 +129,8 @@ function OfferWatcher() {
   const offer = useCurrentOffer(online);
   // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
   useJobPositions(Boolean(status.data?.activeTripId));
+  // Online or on a job: the screen stays on (P-01) — a phone in a mount must not lock between offers.
+  useKeepAwakeWhile(keepScreenOn(status.data));
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);

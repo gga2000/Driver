@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
+  MERCHANT_PREP_EXTENSION,
   PlaceOrderInput,
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
@@ -494,6 +495,37 @@ export class OrdersService implements OnModuleInit {
       const { order } = await this.load(input.orderId, tx);
       if (order.state === 'ready') return this.view(order.id, tx);
       await this.move(order, 'ready', actorId, tx, { readyAt: this.clock.now() });
+      return this.view(order.id, tx);
+    });
+  }
+
+  /**
+   * "+5 د" (Ali, 2026-10-04, M-12): once per order, while accepted or being prepared, the kitchen may
+   * push its promised ready time by 5 minutes. The courier timing and the customer's ETA read the new
+   * time; the overdue and courier-release checks move with it; `order.prep_extended` tells the
+   * customer ("المطعم زاد 5 دقايق"). A second extension is refused (`prep_already_extended`).
+   */
+  async merchantExtendPrep(actorId: string, input: { orderId: string }): Promise<Order> {
+    return this.uow.run(async (tx) => {
+      const { order } = await this.load(input.orderId, tx);
+      if (!MERCHANT_ORDER_TYPES.includes(order.type) || (order.state !== 'merchant_accepted' && order.state !== 'preparing') || !order.promisedReadyAt) throw new DriverError('order_state_conflict');
+      if (order.prepExtendedAt) throw new DriverError('prep_already_extended');
+      const now = this.clock.now();
+      const minutes = MERCHANT_PREP_EXTENSION.minutes;
+      const promisedReadyAt = new Date(order.promisedReadyAt.getTime() + minutes * 60_000);
+      const next = await this.repo.updateIf(order.id, order.state, { promisedReadyAt, prepExtendedAt: now }, tx);
+      if (!next) throw new DriverError('order_state_conflict');
+      // The old checks carry the old promise as their ref and turn into no-ops; these replace them.
+      const ref = promisedReadyAt.getTime();
+      const untilReady = Math.max(0, ref - now.getTime());
+      await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.readyOverdueMin * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+      await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.courierReleaseMin * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
+      await this.emit(tx, 'order.prep_extended', actorId, next, {
+        merchantOrgId: order.merchantOrgId,
+        minutes,
+        from: order.promisedReadyAt.toISOString(),
+        promisedReadyAt: promisedReadyAt.toISOString(),
+      });
       return this.view(order.id, tx);
     });
   }
@@ -1484,6 +1516,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     scheduledFor: order.scheduledFor,
     merchantOfferedAt: order.merchantOfferedAt,
     promisedReadyAt: order.promisedReadyAt,
+    prepExtendedAt: order.prepExtendedAt ?? null,
     placedAt: order.placedAt,
     acceptedAt: order.acceptedAt,
     preparingAt: order.preparingAt,

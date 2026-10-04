@@ -63,7 +63,9 @@ const errors = [];
  *   settle(ms)                      fonts ready + a pause for animations
  *   shot(name, { element, full })   writes <viewport>-<list>-<name>.png (element: a locator to crop)
  *   demoPost(path)                  POST to the demo API (errors fail the run)
- *   signIn(phone)                   fresh storage, welcome → phone → OTP (dev code) → wherever the guard lands
+ *   signIn(phone, { keepGate })     fresh storage, welcome → phone → OTP (dev code) → wherever the guard lands;
+ *                                   on the board it taps "ابدأ الشغل" unless keepGate (to shoot the gate)
+ *   startShift()                    taps "ابدأ الشغل" if the gate is up (after a reload)
  *   goto(path)                      client-side route change (keeps the session)
  */
 function makeHelpers(page, viewport, list) {
@@ -84,7 +86,15 @@ function makeHelpers(page, viewport, list) {
     if (!r.ok) errors.push(`${path}: ${r.status} ${await r.text()}`);
     return r.ok ? r.json() : null;
   };
-  const signIn = async (phone) => {
+  /** "ابدأ الشغل": the start-of-shift gate over the board (after sign-in and every reload). */
+  const startShift = async () => {
+    const gate = byTestId('shift-start');
+    if (await gate.waitFor({ timeout: 4000 }).then(() => true, () => false)) {
+      await gate.click();
+      await byTestId('shift-gate').waitFor({ state: 'detached', timeout: 5000 });
+    }
+  };
+  const signIn = async (phone, { keepGate = false } = {}) => {
     await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${origin}/welcome`, { waitUntil: 'networkidle' });
@@ -97,6 +107,7 @@ function makeHelpers(page, viewport, list) {
     if (!code) throw new Error('dev code not shown');
     await page.locator('[data-testid="otp-input"]').fill(code);
     await Promise.race(['board', 'stores', 'not-activated'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
+    if (!keepGate && (await byTestId('board').isVisible().catch(() => false))) await startShift();
   };
   const goto = async (path) => {
     await page.evaluate((p) => {
@@ -105,7 +116,7 @@ function makeHelpers(page, viewport, list) {
     }, path);
     await settle(400);
   };
-  return { page, viewport, origin, apiBase, byTestId, settle, shot, demoPost, signIn, goto };
+  return { page, viewport, origin, apiBase, byTestId, settle, shot, demoPost, signIn, startShift, goto };
 }
 
 try {

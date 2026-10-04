@@ -7,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
 import { Wordmark } from '@/components/Wordmark';
-import { PrePromptGate, usePushRegistration } from '@/features/notify/Push';
+import { usePushRegistration } from '@/features/notify/Push';
 import { ReceiptPreview } from '@/features/print/ReceiptPreview';
 import { MerchantRuntime } from '@/features/runtime/MerchantRuntime';
 import { useBoard } from '@/features/board/queries';
@@ -124,8 +124,6 @@ function RootNavigator() {
         {signedIn && access === 'ready' && store ? <MerchantRuntime storeId={store.orgId} onBoard={section === 'orders'} bottomBar={!wide && isSectionRoot(segments)} /> : null}
       </View>
       <ReceiptPreview />
-      {/* A new order must ring with the app closed: ask on the board, once the store is ready. */}
-      <PrePromptGate active={signedIn && access === 'ready' && section === 'orders'} />
       {ready ? null : <Splash />}
     </View>
   );

@@ -172,6 +172,27 @@ the catalog's seeded hours) and mirrored onto the storefront's `hours`, which th
 closed by hours. `merchant.storeStatus` carries an additive `schedule {inHours, holiday, closesAt, opensAt}`; `open` keeps its meaning
 (switch + pause), the board explains "برّا وقت الدوام" separately. Event `merchant.hours_set`.
 
+## UI/UX audit Phase 1 — missed orders and "+5 د" (2026-10-04)
+
+| Procedure | Roles | Input | Output |
+|---|---|---|---|
+| `merchant.board` (additive) | owner or staff of the store | `{merchantOrgId}` | adds `missed {today, orders[] {orderId, number, reason: merchant_timeout\|partial_timeout, placedAt, missedAt, itemCount, totalIqd, scored}}` and per card `prepExtended` |
+| `orders.merchant.extendPrep` | staff of the order's store | `{orderId}` | `Order` (with `prepExtendedAt`) |
+
+- **Missed orders (M-01).** Today's (Baghdad day) orders that left without the kitchen's answer: nobody accepted
+  in 90 s (`merchant_rejected` / `merchant_timeout`, counted in `today`) or the customer let a partial accept lapse
+  (`platform_cancelled` / `partial_timeout`, listed, not counted). `scored: false` when the miss fell inside a pause
+  window. Newest first, at most 10 listed (`MISSED_LIST_MAX`). Read from the orders the store already has; nothing new
+  is stored. The app keeps them in a strip until "تمام" (seen ids per device).
+- **"+5 د" (M-12, approved by Ali).** Once per order (`MERCHANT_PREP_EXTENSION`), while `merchant_accepted` or
+  `preparing`: `promisedReadyAt` += 5 min, `orders.prep_extended_at` set (migration `20261005120500_order_prep_extension`),
+  the overdue / courier-release checks are re-armed on the new promise, event `order.prep_extended {merchantOrgId,
+  minutes, from, promisedReadyAt}`. The live fan-out re-reads the customer's tracking (new ETA) and the board; notify
+  sends push `order_prep_extended` ("المطعم زاد 5 دقايق") to the customer. Errors: `prep_already_extended` (second
+  time), `order_state_conflict` (not accepted, or already ready), `forbidden`.
+- One-tap accept is the app calling `orders.merchant.accept` with the store's usual prep time
+  (`storeStatus.defaultPrepMinutes`); busy mode still adds its 10 minutes on the server.
+
 ## Persistence
 
 Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`: tables `driver_documents`,

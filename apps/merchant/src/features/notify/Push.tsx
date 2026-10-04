@@ -1,10 +1,7 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
-import { Button, Icon, Text, useTheme } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
-import { useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
 import { useSignedIn } from '@/lib/session';
 import { storage } from '@/lib/storage';
@@ -57,29 +54,30 @@ export async function unregisterPush(client: ReturnType<typeof useApiClient>): P
   if (token) await client.notify.unregisterDevice.mutate({ token }).catch(() => undefined);
 }
 
-/** "لا يفوتك طلب": the pre-prompt on the orders board, then the OS prompt. */
-export function PrePromptGate({ active }: { active: boolean }) {
-  const theme = useTheme();
-  const t = useT();
-  const [visible, setVisible] = useState(false);
+/**
+ * "خلّي التابلت يرن حتى لو التطبيق مسكّر" (M-03): whether the board may show its notification strip,
+ * and its two answers. `active` is the board being calm (nothing waiting, no sheet, shift started) —
+ * it is never a modal over a ringing board. "شغّلها" opens the OS prompt; "بعدين" waits a week.
+ */
+export function usePushPrompt(active: boolean): { visible: boolean; busy: boolean; allow: () => void; later: () => void } {
+  const [eligible, setEligible] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!active) return;
     let cancelled = false;
     void (async () => {
       const permission = await pushDevice.permission().catch(() => 'undetermined' as const);
       const raw = await storage.getItem(PREPROMPT_KEY);
       const last = raw ? Number(raw) : null;
-      if (!cancelled && shouldShowPrePrompt(permission, Number.isFinite(last) ? last : null, Date.now())) setVisible(true);
+      if (!cancelled) setEligible(shouldShowPrePrompt(permission, Number.isFinite(last) ? last : null, Date.now()));
     })();
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, []);
 
-  const close = () => {
-    setVisible(false);
+  const later = () => {
+    setEligible(false);
     void storage.setItem(PREPROMPT_KEY, String(Date.now()));
   };
   const allow = async () => {
@@ -87,27 +85,7 @@ export function PrePromptGate({ active }: { active: boolean }) {
     await pushDevice.request().catch(() => 'denied');
     for (const l of listeners) l();
     setBusy(false);
-    close();
+    later();
   };
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: theme.space[5] }}>
-        <Pressable accessibilityLabel={t('notify.preprompt.later')} onPress={close} style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: 'rgba(15, 18, 22, 0.5)' }} />
-        <View testID="push-preprompt" style={{ width: '100%', maxWidth: 440, backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, padding: theme.space[6], gap: theme.space[4] }}>
-          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }}>
-            <Icon name="bell" size={30} color="accentText" />
-          </View>
-          <Text variant="heading" align="center" accessibilityRole="header">
-            {t('notify.preprompt.merchant_title')}
-          </Text>
-          <Text variant="body" color="textMuted" align="center">
-            {t('notify.preprompt.merchant_body')}
-          </Text>
-          <Button testID="push-preprompt-allow" label={t('notify.preprompt.allow')} size="lg" fullWidth loading={busy} onPress={() => void allow()} />
-          <Button testID="push-preprompt-later" label={t('notify.preprompt.later')} variant="ghost" size="lg" fullWidth onPress={close} />
-        </View>
-      </View>
-    </Modal>
-  );
+  return { visible: eligible && active, busy, allow: () => void allow(), later };
 }

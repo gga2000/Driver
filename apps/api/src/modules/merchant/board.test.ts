@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Order, Trip } from '@driver/contracts';
-import { boardColumn, courierView, groupLines, modifierNames, sortBoard, ticketNumber, toBoardOrder } from './board.js';
+import { boardColumn, courierView, groupLines, MISSED_LIST_MAX, missedReason, missedSummary, modifierNames, sortBoard, ticketNumber, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
 const T0 = new Date('2026-10-03T17:00:00Z');
@@ -165,5 +165,55 @@ describe('merchant store status', () => {
     expect(toStoreStatus({ ...base, closed: { reason: 'weird', note: 'x', at: T0 } }).closed?.reason).toBe('other');
     expect(toStoreStatus({ ...base, pause: { reason: 'صلاة الجمعة', end: '13:15' } })).toMatchObject({ open: false, pause: { reason: 'صلاة الجمعة', until: '13:15' } });
     expect(toStoreStatus({ ...base, printer: { state: 'disconnected', name: 'XP-80', at: T0 } }).printer).toEqual({ state: 'disconnected', name: 'XP-80', updatedAt: T0 });
+  });
+});
+
+describe('merchant board — "+5 د" and missed orders (UI/UX audit M-12, M-01)', () => {
+  const NOBODY = { courier: { state: 'none' as const, firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null } };
+
+  it('a preparing card says whether the one "+5 د" was used', () => {
+    const accepted = order({ state: 'merchant_accepted', acceptedAt: min(1), promisedReadyAt: min(16) });
+    expect(toBoardOrder({ order: accepted, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(2) })!.prepExtended).toBe(false);
+    const extended = { ...accepted, promisedReadyAt: min(21), prepExtendedAt: min(5) };
+    const card = toBoardOrder({ order: extended, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(6) })!;
+    expect(card.prepExtended).toBe(true);
+    expect(card.prepMinutes).toBe(20);
+  });
+
+  it('only orders that left without the kitchen answering are misses', () => {
+    expect(missedReason({ state: 'merchant_rejected', cancellationReason: 'merchant_timeout' })).toBe('merchant_timeout');
+    expect(missedReason({ state: 'platform_cancelled', cancellationReason: 'partial_timeout' })).toBe('partial_timeout');
+    expect(missedReason({ state: 'merchant_rejected', cancellationReason: 'sold_out' })).toBeNull();
+    expect(missedReason({ state: 'customer_cancelled', cancellationReason: null })).toBeNull();
+    expect(missedReason({ state: 'merchant_accepted', cancellationReason: null })).toBeNull();
+  });
+
+  it("today's misses: newest first, what happened, whether it counts; the count is the kitchen's own", () => {
+    const timeout = (id: string, at: number, extra: Partial<Order> = {}) => order({ id, state: 'merchant_rejected', cancellationReason: 'merchant_timeout', placedAt: min(at - 1.5), cancelledAt: min(at), ...extra });
+    const orders = [
+      timeout('ord_a', 10),
+      order({ id: 'ord_b', state: 'platform_cancelled', cancellationReason: 'partial_timeout', placedAt: min(18), cancelledAt: min(20) }),
+      timeout('ord_c', 30),
+      order({ id: 'ord_d', state: 'merchant_rejected', cancellationReason: 'too_busy', cancelledAt: min(31) }),
+      order({ id: 'ord_e', state: 'delivered' }),
+    ];
+    const inPause = (at: Date) => at.getTime() === min(30).getTime();
+    const s = missedSummary(orders, inPause);
+    expect(s.today).toBe(2);
+    expect(s.orders.map((m) => [m.orderId, m.reason, m.scored])).toEqual([
+      ['ord_c', 'merchant_timeout', false],
+      ['ord_b', 'partial_timeout', false],
+      ['ord_a', 'merchant_timeout', true],
+    ]);
+    // Removed lines don't count as items (l3 was removed): 2 + 1.
+    expect(s.orders[2]).toMatchObject({ number: ticketNumber('ord_a'), missedAt: min(10), placedAt: min(8.5), itemCount: 3, totalIqd: 15500 });
+  });
+
+  it('lists at most a few, but counts the whole day', () => {
+    const many = Array.from({ length: MISSED_LIST_MAX + 3 }, (_, i) => order({ id: `ord_${i}`, state: 'merchant_rejected', cancellationReason: 'merchant_timeout', cancelledAt: min(i) }));
+    const s = missedSummary(many, () => false);
+    expect(s.today).toBe(MISSED_LIST_MAX + 3);
+    expect(s.orders).toHaveLength(MISSED_LIST_MAX);
+    expect(s.orders[0]!.orderId).toBe(`ord_${MISSED_LIST_MAX + 2}`);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { capShare, clock, driversKey, inZone, jobAction, jobsKey, km, mapsUrl, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneName } from './logic';
+import { capShare, clock, driversKey, inZone, jobAction, jobsKey, keepScreenOn, km, mapsUrl, OFFER_WARN_FROM_S, offerWarnTick, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneName } from './logic';
 
 const t = createT('ar-IQ');
 
@@ -63,5 +63,19 @@ describe('work logic', () => {
     expect(km(0.84)).toBe('0.8');
     expect(km(2)).toBe('2');
     expect(mapsUrl({ lat: 32.9, lng: 45.06 })).toContain('destination=32.900000,45.060000');
+  });
+});
+
+describe('offer alert (P-01, signature S-1)', () => {
+  it('warns every second in the last 5 seconds, never after it ended', () => {
+    expect(OFFER_WARN_FROM_S).toBe(5);
+    expect([15, 6, 5, 4, 3, 2, 1, 0].map(offerWarnTick)).toEqual([false, false, true, true, true, true, true, false]);
+  });
+
+  it('keeps the screen on while online or on a job', () => {
+    expect(keepScreenOn(undefined)).toBe(false);
+    expect(keepScreenOn({ online: false, activeTripId: null })).toBe(false);
+    expect(keepScreenOn({ online: true, activeTripId: null })).toBe(true);
+    expect(keepScreenOn({ online: false, activeTripId: 'trip_1' })).toBe(true);
   });
 });

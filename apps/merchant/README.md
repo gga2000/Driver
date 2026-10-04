@@ -123,13 +123,22 @@ Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board),
 stores (picker), `0770 555 0000` no store (gate). The board section seeds 3 new orders (a group order
 for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,500 دينار cash balance
 and a disconnected printer. New orders auto-reject after 90 s as in production:
-`POST /demo/board/fresh` puts 3 fresh ones on the board; `/demo/board/printer?state=…` and
-`/demo/board/store?open=1&busy=0` reset the switches.
+`POST /demo/board/fresh` puts 3 fresh ones on the board; `POST /demo/board/missed?count=2` adds orders
+that just timed out (the "طلبات فاتتك" strip, the "فاتك اليوم" chip and the busy/close nudge);
+`/demo/board/printer?state=…` and `/demo/board/store?open=1&busy=0` reset the switches. The board opens
+behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
+keepGate: true })` keeps it for a shot).
 
 ## Native notes
 
-- Sound: web plays a WebAudio chime (unlocked by the first tap — the board offers "شغّل صوت الطلبات");
-  native vibrates until a sound module ships (`alert-sound.native.ts`, TODO(native-sound)).
+- Alarm (UI/UX audit S-01, M-02, M-04): the ladder in `features/board/ladder.ts` — a chime every 4 s,
+  every 2 s in the last 30 s (ring and card turn red), a continuous tone and "باقي 10 ثواني على #…" in
+  the last 10 s. "سكّت 30 ثانية" is a snooze, never a silence (it rings again at 20 s left). Web:
+  WebAudio, unlocked by "ابدأ الشغل" (or any tap). Native: `alert-sound.native.ts` plays the bundled
+  `assets/sounds/new-order*.wav` through expo-av with `playsInSilentModeIOS`, plus vibration patterns;
+  `scripts/dev/make-alert-sounds.mjs` regenerates the tones. "جرّب الصوت" is in الإعدادات.
+- Screen on: expo-keep-awake while the app is open on a store (native); the Screen Wake Lock API from
+  "ابدأ الشغل" on the web (a chip asks to keep the screen on where the browser has no such API).
 - Printing: `print/printer.native.ts` documents the Bluetooth ESC/POS plan (BLE module in a dev-client
   build, Arabic rasterised to 576 px, status reported with `merchant.setPrinterStatus`).
 

@@ -176,6 +176,8 @@ export const Order = z.object({
   scheduledFor: z.coerce.date().nullable(),
   merchantOfferedAt: z.coerce.date().nullable(),
   promisedReadyAt: z.coerce.date().nullable(),
+  /** When the kitchen used its one "+5 د" (MERCHANT_PREP_EXTENSION); null/absent = not used. */
+  prepExtendedAt: z.coerce.date().nullable().optional(),
   placedAt: z.coerce.date(),
   acceptedAt: z.coerce.date().nullable(),
   preparingAt: z.coerce.date().nullable(),
@@ -280,6 +282,13 @@ export type OpenDisputeInput = z.infer<typeof OpenDisputeInput>;
 export const ListActiveOrdersInput = z.object({ cityId: CityId.optional(), merchantOrgId: z.string().optional() });
 export type ListActiveOrdersInput = z.infer<typeof ListActiveOrdersInput>;
 export const MerchantHeartbeatInput = z.object({ merchantOrgId: z.string().min(1) });
+/**
+ * "+5 د" after accepting (Ali, 2026-10-04, M-12): once per order, while it is accepted or being
+ * prepared. The promised ready time moves by `minutes` and the customer is told.
+ */
+export const MERCHANT_PREP_EXTENSION = { minutes: 5, perOrder: 1 } as const;
+export const MerchantExtendPrepInput = z.object({ orderId: z.string().min(1) });
+export type MerchantExtendPrepInput = z.infer<typeof MerchantExtendPrepInput>;
 
 /** What the API supplies to the orders router (implemented by `modules/orders`). */
 export interface OrdersPort {
@@ -301,6 +310,8 @@ export interface OrdersPort {
   markPreparing(actor: Actor, input: { orderId: string }): Promise<Order>;
   markReady(actor: Actor, input: { orderId: string }): Promise<Order>;
   merchantHeartbeat(actor: Actor, input: { merchantOrgId: string }): Promise<{ ok: true }>;
+  /** "+5 د": once per accepted order (MERCHANT_PREP_EXTENSION); `prep_already_extended` after that. */
+  merchantExtendPrep(actor: Actor, input: MerchantExtendPrepInput): Promise<Order>;
 }
 
 /**

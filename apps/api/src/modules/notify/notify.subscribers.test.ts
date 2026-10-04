@@ -48,6 +48,9 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', notifyGuardian: false }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
     expect(await one(event('order.accepted', {}, { orderId: 'gone' }))).toEqual([]);
+    // M-12: the kitchen's one "+5 د" — the customer hears "المطعم زاد 5 دقايق".
+    expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_prep_extended', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
+    expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ride_1' }))).toEqual([]);
   });
 
   it('registers one named subscriber; a redelivered event notifies once; sign-out drops the session tokens', async () => {

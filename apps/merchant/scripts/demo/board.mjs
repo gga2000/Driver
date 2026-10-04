@@ -6,6 +6,7 @@
 // New orders auto-reject after 90 s like in production, so screenshots call /demo/board/fresh first.
 //
 //   POST /demo/board/fresh                      replace the new column with 3 fresh orders
+//   POST /demo/board/missed?count=2             orders that just timed out (the "طلبات فاتتك" strip)
 //   POST /demo/board/printer?state=connected|disconnected
 //   POST /demo/board/store?open=1&busy=0        reset the store switches
 export default async function register(ctx) {
@@ -120,6 +121,22 @@ export default async function register(ctx) {
     for (const o of live) if (o.state === 'placed') await orders.merchantReject('demo-staff', { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
     const fresh = await placeNew();
     return { orderIds: fresh.map((o) => o.id) };
+  });
+  // A missed order (M-01) without waiting 90 s: places `count` orders and runs their auto-reject now,
+  // exactly as the 90-s timer would (merchant_timeout, scored, the customer sees it cancelled).
+  ctx.route('/demo/board/missed', async (_req, _res, url) => {
+    const { ORDER_JOBS } = await ctx.load('modules/orders/index.js');
+    const count = Math.min(5, Math.max(1, Number(url.searchParams.get('count') ?? 1)));
+    const ids = [];
+    for (let i = 0; i < count; i++) {
+      // Same baskets as the seeded new orders (above the restaurant minimum).
+      const lines = i % 2 ? [await ctx.line(khalid, 'pacha', 1), await ctx.line(khalid, 'lentil_soup', 2)] : [await ctx.line(khalid, 'kebab_plate', 1, { choose: ['نفر'] }), await ctx.line(khalid, 'pepsi', 2), await ctx.line(khalid, 'salad', 1)];
+      const o = await place(lines);
+      const offered = await orders.get(o.id);
+      await orders.handleTimer(ORDER_JOBS.autoReject, { orderId: o.id, refMs: new Date(offered.merchantOfferedAt).getTime() });
+      ids.push(o.id);
+    }
+    return { orderIds: ids };
   });
   ctx.route('/demo/board/printer', async (_req, _res, url) => {
     const state = url.searchParams.get('state') === 'connected' ? 'connected' : 'disconnected';

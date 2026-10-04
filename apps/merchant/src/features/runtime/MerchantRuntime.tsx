@@ -1,5 +1,7 @@
 import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import { Platform, Pressable, View } from 'react-native';
+import { releaseWakeLock, requestWakeLock } from '@/lib/keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
@@ -25,9 +27,20 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   // The store's live channel: a new order rings the moment the server offers it to the kitchen.
   useLiveMerchantBoard(storeId, (orderId) => alarm.ringNow(orderId, prefs.soundOn));
   const board = useBoard(storeId);
-  const pending = useNewOrderAlarm(board.data?.orders, prefs.soundOn);
+  const offset = board.offset;
+  const clock = useCallback(() => Date.now() + offset, [offset]);
+  // The alarm ladder runs here, so it rings (and escalates) on every screen, not only the board.
+  const plan = useNewOrderAlarm(board.data?.orders, prefs.soundOn, clock);
+  const pending = [...plan.ringing, ...plan.snoozed];
+  // A tablet on the counter must never sleep through an order (native; the web asks on "ابدأ الشغل").
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    void requestWakeLock();
+    return () => releaseWakeLock();
+  }, []);
 
   if (onBoard || pending.length === 0) return null;
+  const hot = plan.stage === 'urgent' || plan.stage === 'final';
   return (
     <View
       pointerEvents="box-none"
@@ -45,7 +58,7 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
           height: 48,
           paddingHorizontal: theme.space[5],
           borderRadius: theme.radius.pill,
-          backgroundColor: theme.colors.accent,
+          backgroundColor: hot ? theme.colors.danger : theme.colors.accent,
           shadowColor: theme.colors.shadow,
           shadowOpacity: 0.25,
           shadowRadius: 16,
@@ -53,11 +66,11 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
           elevation: 8,
         }}
       >
-        <Icon name="bell" size={20} color="onAccent" strokeWidth={2.2} />
-        <Text weight={700} style={{ fontSize: 17, lineHeight: 26, color: theme.colors.onAccent }}>
+        <Icon name="bell" size={20} color={hot ? 'onDanger' : 'onAccent'} strokeWidth={2.2} />
+        <Text weight={700} style={{ fontSize: 17, lineHeight: 26, color: hot ? theme.colors.onDanger : theme.colors.onAccent }}>
           {pending.length > 1 ? t('merchant.board.alert_count', { count: pending.length }) : t('merchant.board.alert_new')}
         </Text>
-        <Icon name="chevron-forward" size={18} color="onAccent" />
+        <Icon name="chevron-forward" size={18} color={hot ? 'onDanger' : 'onAccent'} />
       </Pressable>
     </View>
   );

@@ -19,6 +19,8 @@ export interface StoreHeaderProps {
   onToggleOpen: () => void;
   onBusy: () => void;
   onCash: () => void;
+  /** Chips that must be seen first ("الصوت طافي", "فاتك اليوم: 2"): before busy and printer. */
+  alerts?: ReactNode[];
 }
 
 const TONE_BG: Record<StatusTone, 'surfaceSunken' | 'accentTint' | 'successTint' | 'warningTint' | 'dangerTint' | 'infoTint'> = {
@@ -39,7 +41,7 @@ const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warni
 };
 
 /** A tappable status chip (40 px tall: easy to hit with a wet finger). */
-function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
+export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
   const theme = useTheme();
   return (
     <Pressable hitSlop={2}
@@ -111,14 +113,14 @@ function OpenSwitch({ status, onPress }: { status: StoreStatusView; onPress: () 
  * The board's status bar: store name, open/closed, busy mode (with countdown), printer marker, and —
  * for owners — the live cash balance with "اطلب فلوسك". One row on a tablet; two on a phone.
  */
-export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash }: StoreHeaderProps) {
+export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const printer = usePrinterSnapshot();
   const chip = printerChipState(printer, status?.printer.state);
 
-  const chips: ReactNode[] = [];
+  const chips: ReactNode[] = [...(alerts ?? [])];
   if (status) {
     chips.push(
       status.busy.on && status.busy.until ? (
@@ -187,8 +189,10 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[6], paddingVertical: theme.space[3], borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
         {name}
         {status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />}
-        {chips}
-        <View style={{ flex: 1 }} />
+        {/* Chips scroll rather than squeeze the money pill when alert chips join them. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[3], alignItems: 'center' }}>
+          {chips}
+        </ScrollView>
         {money}
       </View>
     );

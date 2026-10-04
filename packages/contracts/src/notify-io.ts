@@ -98,6 +98,7 @@ export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
+  'order_prep_extended',
   'order_picked_up',
   'courier_arriving',
   'order_receipt',
@@ -163,6 +164,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.order_accepted.title', body: 'push.order_accepted.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // M-12: the kitchen used its one "+5 د"; the customer hears it from us, not from a late courier.
+  order_prep_extended: {
+    id: 'order_prep_extended',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_prep_extended.title', body: 'push.order_prep_extended.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     quietHours: 'send',
   },

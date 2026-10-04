@@ -154,6 +154,16 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
   node scripts/web-shots.mjs <out-dir>                # SHOTS=core,… ; DIST_DIR, DEMO_API
 ```
 
+The harness marks the "لا يفوتك طلب" notification pre-prompt as answered before the app loads (it
+would otherwise open on home and swallow the first tap); `s.signIn(phone, { prePrompt: true })` keeps
+it to shoot the prompt itself. Pages wait for "load", not "networkidle" (the live SSE stream never
+idles). The app itself is unchanged.
+
+Offer alert (UI/UX audit P-01): the offer screen loops `assets/sounds/offer-loop.wav` (expo-av, plays
+with the ringer on silent) with a vibration pattern until he answers or it expires, plus a warning
+haptic every second in the last 5 s; the web repeats a WebAudio doorbell. The screen stays on while
+he is online or on a job (expo-keep-awake). "جرّب صوت الطلب" is in الحساب.
+
 Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 14,000 · 6 طلبات today,
 68,500 cash held ≈ 73 % of his cap, two months of history, scorecard day 65), tuktuk `0770 111 0002`
 (rides with the take; licence expiring, registration rejected), intercity `0770 111 0003`, khat
@@ -167,7 +177,7 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 
 - Background location and a real heartbeat endpoint: presence is refreshed by re-sending
   `partner.goOnline` every 30 s while the app is open.
-- Offer sound on native (expo-av not yet a dependency: `src/lib/alert.native.ts`); SOS is a stub button.
+- SOS is a stub button (decision 3 in docs/research/ui-ux-audit/README.md: built before launch).
   (Call and chat are live: see "Chat and masked calls" below.)
 - The handover photo stays on the device (upload + `handover.photoUrl` in wave 2).
 - Offers, the job, gate and cash are pushed over `live.partner`; queries keep a 60-s safety refetch

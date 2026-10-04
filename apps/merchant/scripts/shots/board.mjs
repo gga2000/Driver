@@ -26,10 +26,28 @@ export default {
     await demoPost('/demo/board/store?open=1&busy=0');
     await demoPost('/demo/board/printer?state=disconnected');
     await demoPost('/demo/board/fresh');
-    await signIn('0770 123 4567');
+    await signIn('0770 123 4567', { keepGate: true });
     await byTestId('board').waitFor();
     await page.locator('[data-testid^="order-"]').first().waitFor({ timeout: 15_000 });
+    // "ابدأ الشغل": sound, screen on, printer — then the ringing board.
+    await shot('shift-gate', { wait: 1200 });
+    await h.startShift();
     await shot('board', { wait: 1200 });
+
+    // "سكّت 30 ثانية" is a snooze: the banner says when it rings again.
+    await byTestId('alarm-snooze').click();
+    await shot('snoozed');
+    await byTestId('alarm-unsnooze').click();
+
+    // Missed orders stay on the board ("طلبات فاتتك" strip, "فاتك اليوم" chip, the busy/close nudge).
+    await demoPost('/demo/board/missed?count=2');
+    await byTestId('missed-strip').waitFor({ timeout: 15_000 });
+    await shot('missed');
+    await byTestId('missed-chip').click();
+    await byTestId('missed-sheet').waitFor();
+    await shot('missed-sheet');
+    await byTestId('missed-sheet-close').click();
+    await byTestId('missed-ok').click();
 
     // The new-order card with its 90-s ring.
     await shot('new-order', { element: page.locator('[data-testid^="order-"]').first() });
@@ -42,8 +60,8 @@ export default {
       await byTestId('segment-new').click();
     }
 
-    // Accept sheet: prep-time choices (15 picked), then the partial-accept list.
-    const firstNew = page.locator('[data-testid^="accept-"]').first();
+    // Accept sheet (the chevron next to one-tap "اقبل · 15 د"): prep-time choices, then partial accept.
+    const firstNew = page.locator('[data-testid^="accept-more-"]').first();
     await firstNew.click();
     await byTestId('accept-sheet').waitFor();
     await byTestId('prep-15').click();
@@ -70,11 +88,23 @@ export default {
     await shot('busy-on', { wait: 1500 });
 
     // Accept with busy mode on: the note says the customer sees +10.
-    await page.locator('[data-testid^="accept-"]').first().click();
+    await page.locator('[data-testid^="accept-more-"]').first().click();
     await byTestId('accept-sheet').waitFor();
     await shot('accept-busy');
     await byTestId('accept-confirm').click();
     await page.waitForTimeout(1200);
+
+    // One tap accepts with the usual time; the preparing card then offers "+5 د" once.
+    await page.locator('[data-testid^="accept-"]:not([data-testid^="accept-more-"])').first().click();
+    await page.waitForTimeout(1200);
+    if (phone) await byTestId('segment-preparing').click();
+    const extend = page.locator('[data-testid^="extend-"]').first();
+    await extend.waitFor();
+    await shot('one-tap-accepted');
+    await extend.click();
+    await page.waitForTimeout(1200);
+    await shot('extended');
+    if (phone) await byTestId('segment-new').click();
 
     // Order detail and the 80 mm receipt preview.
     await page.locator('[data-testid^="order-"]').first().click();
