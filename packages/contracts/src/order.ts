@@ -165,7 +165,16 @@ export const Order = z.object({
   serviceFeeIqd: Iqd,
   discountIqd: Iqd,
   tipIqd: Iqd,
+  /**
+   * What the customer pays: a cash order's price rounded up to 250 (what he hands the courier), a
+   * wallet order's exact price (Ali, 2026-10-04 — `cashToHand`).
+   */
   totalIqd: Iqd,
+  /**
+   * Cash orders: the change in `totalIqd` above the price (0–249), credited to the customer's wallet
+   * when the cash is collected — the receipt's "الباقي رصيد" line. 0 / absent otherwise.
+   */
+  changeIqd: Iqd.min(0).optional(),
   /** Smallest vehicle class that may carry this order (bike ≤ 25,000 / 6 items, tuktuk ≤ 60,000, else car). */
   minVehicleClass: VehicleClass.nullable(),
   /** Above 100,000 the order is a dispatcher-handled catering request. */
@@ -197,7 +206,8 @@ export type Order = z.infer<typeof Order>;
 
 /**
  * `orders.quote` (checkout summary): what `orders.place` would charge for the same input right now —
- * menu-priced items, server fees, the merchant deal that applies and the rounded total. Nothing is
+ * menu-priced items, server fees, the merchant deal that applies (exactly as promised) and the total
+ * the customer pays (cash: rounded up to 250, the change to his wallet). Nothing is
  * stored or reserved; `place` re-checks it (`deal_changed` / `price_changed`).
  */
 export const OrderQuote = z.object({
@@ -206,13 +216,16 @@ export const OrderQuote = z.object({
   serviceFeeIqd: Iqd,
   tipIqd: Iqd,
   discountIqd: Iqd,
+  /** What the customer pays for `paymentMethod`: cash → the price rounded up to 250; wallet → the exact price. */
   totalIqd: Iqd,
+  /** Cash: `totalIqd − price` (0–249), the change credited to his wallet ("الباقي رصيد"); 0 for wallet. */
+  changeIqd: Iqd.min(0).optional(),
   discount: AppliedDiscount.nullable(),
   /** Per input line (same order): what the deal takes off that line after rounding (sums to `discountIqd`; legacy clients). */
   lineSavingsIqd: z.array(Iqd),
   /** Per input line: the deal's exact saving on that line (20 % → 3,000 on a 15,000 dish), before rounding. Sums to `discount.dealIqd`. */
   dealLineSavingsIqd: z.array(Iqd).optional(),
-  /** What rounding the total to the step adds back (`discount.roundingIqd`, 0 without a discount): the "تقريب" line. */
+  /** Legacy "تقريب" line (orders before 2026-10-04 lowered the deal to land on 500): always 0 now — deals apply exactly. */
   roundingIqd: Iqd.min(0).optional(),
   /** The next deal the cart could unlock by adding more (minimum order not met yet), if any. */
   nextDeal: z.object({ dealId: z.string(), label_ar: z.string(), label_en: z.string(), missingIqd: Iqd }).nullable(),

@@ -36,20 +36,21 @@ wins. No deal ever stacks with another.
   different server figure (deal ended, paused, capped, changed) is `deal_changed` (CONFLICT, Arabic
   "العرض انتهى أو خلصت ميزانيته…"); the app refetches the quote and shows the new total. A client never
   sends a discount of its own.
-- **Totals in multiples of 500** (G-88; 250 with a 250 component): the discount is lowered until the
-  total lands on the step — the funder never pays more than the deal promises. The cut is taken from
-  the lines that save most first, so per-line savings stay round (`lineSavingsIqd`, legacy).
-- **Presentation (2026-10-04)**: the money above is unchanged, but the customer never sees a "20 %"
-  deal that reads as 18.7 %. Each line shows the deal's **exact** saving (`dealLineSavingsIqd`: 20 % of
-  15,000 → 3,000), the deal line shows the exact total (`discount.dealIqd`), and the rounding is one
-  separate small line "تقريب" (`roundingIqd = dealIqd − discountIqd`, in the quote and on
-  `Order.discount`; the stored `discount_meta` keeps `dealIqd`). Rounding direction: always **up**
-  (against the deal), exactly as the rule above — so the funder's cost (`discountIqd`, the ledger's
-  `promo_funded`) never exceeds the promise and no platform-funded rounding is needed. (The fallback
-  "round down ≤ 250, platform-funded" was not adopted: it only applies if this rule conflicted, and
-  it does not.) Example: items 21,000, fees 1,250, 20 % deal → 4,200 exact, 22,250 − 4,200 = 18,050 →
-  18,250: lines save 3,000 / 1,000 / 200, deal −4,200, تقريب +200; the merchant's deal costs 4,000.
-  A partial accept that re-prices the deal drops the split (the receipt shows the kept discount).
+- **Cash rounding (Ali, 2026-10-04 — replaces G-88's "multiples of 500" and the "تقريب" line):** the
+  deal is applied **exactly** as promised (never trimmed), so the order's price can be any amount
+  (items 21,000 + fees 1,000 − 20 % deal 4,200 = 17,800). A **cash** customer then hands over the price
+  rounded **up** to 250 (`cashToHand` in `@driver/contracts`: 18,000) and the remainder (0–249: 200) is
+  his change, credited to his wallet when the cash is collected — the receipt shows it as "الباقي رصيد
+  +200" under the total, never as a line that raises the price. A **wallet** order pays the exact price.
+  `orders.quote` / `Order` carry `totalIqd` (what he pays for the chosen method: 18,000 cash, 17,800
+  wallet) and `changeIqd` (200 / 0); `roundingIqd` and `discount.roundingIqd` are 0 on new orders
+  (kept only for orders placed before the change). **Who funds the change: nobody — it is the
+  customer's own cash.** The courier collects the rounded amount (it counts on his cash cap and is
+  settled with the rest); the ledger books the price as charged and the extra as `cash_rounding_credit`
+  (`cash:<courier>` → `customer:<id>`, memo `change_as_credit`), a wallet liability the customer spends
+  on his next order. The merchant pays exactly the deal (`promo_funded` = 4,200 — never more than it
+  promises), the courier and the platform get exactly what they would without rounding, and the
+  `rounding` account is no longer posted to.
 - **Cap, atomically:** the deal's `spent_iqd` is reserved inside the order's unit of work with one
   conditional `UPDATE … SET spent_iqd = spent_iqd + :x WHERE id = :id AND (budget_cap_iqd IS NULL OR
   spent_iqd + :x <= budget_cap_iqd)`; zero rows = `deal_changed`, nothing written. No overspend under
@@ -73,21 +74,27 @@ Money fact field `merchantDeal {promotionId, target: items|delivery, amountIqd}`
   carries `dealIqd` and a net that already subtracts it.
 
 Worked example (base 12 %): items 15,000, delivery 1,000, service 500, 20 % deal → discount 3,000, total
-13,500; commission 12 % × 12,000 = 1,440; merchant 15,000 − 3,000 − 1,440 = 10,560; courier 1,000;
+13,500 (on the 250 step: no change); commission 12 % × 12,000 = 1,440; merchant 15,000 − 3,000 − 1,440 = 10,560; courier 1,000;
 platform 500 + 1,440.
 
 Merchant app: `money.today.dealsIqd` = what its deals cost today (items + free deliveries), `netIqd`
 subtracts it, `commissionByTier.baseIqd` is after items deals; statement lines carry `discountIqd` with
 `discountFunder: 'merchant'` (a platform promo shows as `platform` and does not lower the net), plus
-`dealIqd` (the exact deal) and `roundingIqd` (given back by rounding): "الخصم 4,200 عرضك · تقريب +200".
+`dealIqd` (the exact deal; equal to `discountIqd` since 2026-10-04) and `roundingIqd` (0 on new orders;
+older orders show "الخصم 4,200 عرضك · تقريب +200").
 
 ### Customer app
 
 Restaurant page and cart show the deal badges (`RestaurantCard.deals`, server labels: "خصم 20% على كل
 المنيو", "توصيل مجاني فوق 15,000 دينار"); cart lines show the price after the deal, the menu price struck
 through and "توفّر …" (the exact saving); cart and checkout show the "خصم المطعم" / "توصيل مجاني من
-المطعم" line from `orders.quote` at the exact deal and, when the total was rounded, a small "تقريب"
-line (`PriceBreakdown`'s reconciliation line); the order screen's receipt does the same; the place call sends `discountIqd` and handles `deal_changed`.
+المطعم" line from `orders.quote` at the exact deal, which deal applied and why another did not ("طبّقنا
+الأوفر إلك … العروض ما تنجمع", C-06), and under the total the cash change as "الباقي رصيد"
+(`PriceBreakdown`'s `change`); the order screen's receipt and the arrival screen ("جهّز 18,000 دينار
+للدليفري", C-11) do the same; the place call sends `discountIqd` and handles `deal_changed`. Checkout
+offers the wallet (`paymentMethod: 'wallet'`, exact price) when the balance covers it — `orders.place`
+refuses `wallet_insufficient` when the balance less the customer's open wallet orders does not (C-04);
+the promo field is hidden until platform codes exist (C-05).
 
 ## 2. Wallet top-up with cash
 

@@ -18,8 +18,16 @@ export default async function register(ctx) {
   const customer = () => `demo-customer-${++seq}`;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const place = async (lines, patch = {}) =>
-    orders.place(customer(), { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, paymentMethod: 'cash', dropoff: HOME, lines, ...patch });
+  const place = async (lines, patch = {}) => {
+    const who = customer();
+    // A prepaid (wallet) order needs a wallet that covers it (orders.place refuses wallet_insufficient):
+    // the demo customer topped up at an agent first.
+    if (patch.paymentMethod === 'wallet') {
+      const account = ctx.Accounts.customer(who);
+      await ledger.recordAll({ id: `demo:topup:${who}`, kind: 'money', occurredAt: new Date(), refs: {}, lines: [{ type: 'credit_issued', amount: 100_000, fromAccount: ctx.Accounts.bank, toAccount: account, memo: 'topup:agent' }], controls: [{ account, net: 100_000 }] });
+    }
+    return orders.place(who, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, paymentMethod: 'cash', dropoff: HOME, lines, ...patch });
+  };
 
   // ── the three new orders ──
   async function placeNew() {

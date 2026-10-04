@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common'
 import {
   DriverError,
   PlaceOrderInput,
+  cashToHand,
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
   isDomainEventType,
@@ -69,6 +70,17 @@ export interface OrdersCashRiskPort {
 
 export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
 
+/**
+ * Wallet payments (UI/UX audit C-04): the payer's wallet balance as the ledger has it (the customer's
+ * own, or the household wallet he orders on). `place` subtracts his open wallet orders (charged at
+ * close) and refuses an order the rest does not cover (`wallet_insufficient`). Bound to the ledger.
+ */
+export interface OrdersWalletPort {
+  balanceIqd(payer: { customerId: string; householdId: string | null }): Promise<number>;
+}
+
+export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
+
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
@@ -124,6 +136,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(ORDERS_CATALOG) private readonly catalog: CatalogPort,
     @Optional() @Inject(ORDERS_PROMOTIONS) promotions?: PromotionsPort,
     @Optional() @Inject(ORDERS_CONTROLS) private readonly controls?: OrdersControlsPort,
+    @Optional() @Inject(ORDERS_WALLET) private readonly wallet?: OrdersWalletPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
@@ -164,6 +177,11 @@ export class OrdersService implements OnModuleInit {
     // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
+    // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders.
+    if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
+      const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
+      if (available < total) throw new DriverError('wallet_insufficient');
+    }
 
     return this.uow.run(async (tx) => {
       // The deal's spend is reserved in this transaction, atomically against its budget cap: two
@@ -246,19 +264,34 @@ export class OrdersService implements OnModuleInit {
       tipIqd: input.tipIqd,
       discountIqd: d?.amountIqd ?? 0,
       totalIqd: p.totalIqd,
+      changeIqd: p.changeIqd,
       discount: d ? { promotionId: d.promotionId, amountIqd: d.amountIqd, ...d.meta, ...roundingOf(d.meta, d.amountIqd) } : null,
       lineSavingsIqd: d ? d.lineSavingsIqd : p.newLines.map(() => 0),
       dealLineSavingsIqd: d ? d.dealLineSavingsIqd : p.newLines.map(() => 0),
-      roundingIqd: d ? roundingOf(d.meta, d.amountIqd).roundingIqd : 0,
+      roundingIqd: 0,
       nextDeal: next ? { dealId: next.promotionId, label_ar: next.label_ar, label_en: next.label_en, missingIqd: next.missingIqd } : null,
     };
   }
 
   /**
+   * C-04: what a wallet can still pay — its ledger balance less the customer's open wallet orders
+   * (the ledger charges a wallet order when it closes, so an open one already spoke for its total).
+   */
+  private async walletAvailable(customerId: string, householdId: string | null): Promise<number> {
+    if (!this.wallet) return Number.POSITIVE_INFINITY;
+    const [balance, mine] = await Promise.all([this.wallet.balanceIqd({ customerId, householdId }), this.repo.forPerson(customerId)]);
+    const held = mine
+      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
+      .reduce((a, o) => a + o.totalIqd, 0);
+    return balance - held;
+  }
+
+  /**
    * Prices an order the way `place` charges it: lines from the menu (review C2), fees from the server
-   * quote (M2 follow-up), the tip cap, and the one discount the server grants (merchant deal or a
-   * resolved code, rounded so the total stays a multiple of 500 — G-88). `quote` skips the
-   * merchant-closed checks (the checkout shows those itself).
+   * quote (M2 follow-up), the tip cap, the one discount the server grants (merchant deal or a resolved
+   * code, exactly as promised), and what the customer pays: cash rounds up to 250 with the change to
+   * his wallet, a wallet pays the exact price (Ali, 2026-10-04). `quote` skips the merchant-closed
+   * checks (the checkout shows those itself).
    */
   private async price(ordererId: string, input: z.infer<typeof PlaceOrderInput>, now: Date, opts: { quote: boolean }): Promise<Priced> {
     const merchantType = MERCHANT_ORDER_TYPES.includes(input.type);
@@ -313,17 +346,19 @@ export class OrdersService implements OnModuleInit {
     if (input.tipIqd > ORDERS_RULES.maxTipIqd) throw new DriverError('tip_above_cap');
     const preTotal = input.type === 'ride' ? fees.fareIqd + input.tipIqd : itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + input.tipIqd;
     const discount = await this.discountFor(ordererId, input, { merchantType, newLines, itemsTotal, fees, preTotal, now });
-    const totalIqd = Math.max(0, preTotal - (discount?.amountIqd ?? 0));
+    const priceIqd = Math.max(0, preTotal - (discount?.amountIqd ?? 0));
+    const { totalIqd, changeIqd } = payable(input.type, input.paymentMethod, priceIqd);
     const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
-    return { merchantType, profile, newLines, itemsTotal, fees, discount, totalIqd, caps };
+    return { merchantType, profile, newLines, itemsTotal, fees, discount, totalIqd, changeIqd, caps };
   }
 
   /**
    * The order's one discount (domain §11: no stacking, best for the customer wins): the merchant's
    * best live deal (auto-applied) or a promo code the server resolves (a code nothing resolves is
-   * `promotion_invalid`). Rounded down so the customer total stays a multiple of 500 (250 with a 250
-   * component, G-88): the funder never pays more than the deal promises. Deals are evaluated at the
-   * placement instant (clock port, Baghdad days/hours). Rides, errands and parcels take no discount yet.
+   * `promotion_invalid`). Applied exactly as promised, never more than the order (Ali, 2026-10-04: the
+   * total is no longer bent onto a step by trimming the deal — cash rounding is change to the wallet),
+   * so the funder pays exactly what the deal promises. Deals are evaluated at the placement instant
+   * (clock port, Baghdad days/hours). Rides, errands and parcels take no discount yet.
    */
   private async discountFor(
     customerId: string,
@@ -352,13 +387,11 @@ export class OrdersService implements OnModuleInit {
     } else {
       return null;
     }
-    const step = has250Component({ type: input.type, totalIqd: o.preTotal, tipIqd: input.tipIqd, deliveryFeeIqd: o.fees.deliveryFeeIqd, serviceFeeIqd: o.fees.serviceFeeIqd }) ? 250 : 500;
-    const amountIqd = roundedDiscount(o.preTotal, chosen.amountIqd, step);
+    const amountIqd = Math.min(chosen.amountIqd, Math.max(0, o.preTotal));
     if (amountIqd <= 0) return null;
     const lineSavingsIqd = chosen.meta.target === 'items' && amountIqd !== chosen.amountIqd ? trimSavings(chosen.lineSavingsIqd, chosen.amountIqd - amountIqd) : chosen.lineSavingsIqd;
-    // The deal's exact saving rides on the stored meta: receipts show it on the deal line and the
-    // rounding back as its own "تقريب" line (money is unchanged: the funder pays `amountIqd`).
-    return { ...chosen, amountIqd, lineSavingsIqd, dealLineSavingsIqd: chosen.lineSavingsIqd, meta: { ...chosen.meta, dealIqd: chosen.amountIqd } };
+    // `dealIqd` on the stored meta is the receipt's deal line; with the exact deal it equals `amountIqd`.
+    return { ...chosen, amountIqd, lineSavingsIqd, dealLineSavingsIqd: lineSavingsIqd, meta: { ...chosen.meta, dealIqd: amountIqd } };
   }
 
   /**
@@ -381,16 +414,15 @@ export class OrdersService implements OnModuleInit {
 
   /**
    * Partial accept with a merchant deal: the same deal re-priced on the lines left (schedule and cap
-   * aside — the order already holds its spend), rounded like at placement and never above what the
-   * order had. Null when the order has no merchant deal.
+   * aside — the order already holds its spend), exactly, and never above what the order had. Null
+   * when the order has no merchant deal.
    */
   private async reducedDiscount(order: OrderRecord, kept: readonly OrderLineRecord[], keptItemsIqd: number, now: Date): Promise<number | null> {
     const deal = merchantDealOf(order);
     if (!deal || !order.merchantOrgId) return null;
     const again = await this.promotions.reapplyMerchantDeal(deal.promotionId, dealQuery(order.merchantOrgId, kept, keptItemsIqd, order.deliveryFeeIqd, now));
     const preTotal = keptItemsIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd;
-    const step = has250Component(order) ? 250 : 500;
-    return Math.min(deal.amountIqd, roundedDiscount(preTotal, again?.discountIqd ?? 0, step));
+    return Math.min(deal.amountIqd, Math.max(0, Math.min(again?.discountIqd ?? 0, preTotal)));
   }
 
   /**
@@ -952,7 +984,6 @@ export class OrdersService implements OnModuleInit {
       ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
-      has250Component: has250Component(order),
     };
     if (order.type === 'food' || order.type === 'grocery_catalog') {
       const agg = (await this.repo.find(order.id, tx))!;
@@ -1228,7 +1259,10 @@ interface Priced {
   itemsTotal: number;
   fees: ServerFees;
   discount: OrderDiscount | null;
+  /** What the customer pays (cash: the price rounded up to 250; wallet: the price). */
   totalIqd: number;
+  /** Cash change above the price, credited to his wallet ("الباقي رصيد"). */
+  changeIqd: number;
   caps: ReturnType<typeof vehicleRequirement> | null;
 }
 
@@ -1241,17 +1275,6 @@ function dealQuery(merchantOrgId: string, lines: ReadonlyArray<Pick<NewLine, 'ca
     deliveryFeeIqd,
     at,
   };
-}
-
-/**
- * G-88 with a discount: the largest discount ≤ `rawIqd` that leaves the customer total on the step
- * (500, or 250 with a 250 component). Rounded in the funder's favour, so a deal never costs more than
- * it promises; 0 when no such amount exists.
- */
-export function roundedDiscount(preTotalIqd: number, rawIqd: number, stepIqd: number): number {
-  if (rawIqd <= 0 || preTotalIqd <= 0) return 0;
-  const total = Math.ceil((preTotalIqd - Math.min(rawIqd, preTotalIqd)) / stepIqd) * stepIqd;
-  return Math.max(0, Math.min(rawIqd, preTotalIqd - total));
 }
 
 /** The merchant-funded part of an order's discount by what it comes off (G-87 commission base, ledger lines). */
@@ -1301,10 +1324,39 @@ function moneyDiscount(order: OrderRecord): { merchantDeal: { promotionId: strin
   return {};
 }
 
-/** Total after a partial accept removes `removedIqd` of items; with a re-priced deal, from the parts. */
-function reducedTotalOf(order: Pick<OrderRecord, 'totalIqd' | 'itemsTotalIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd' | 'tipIqd'>, removedIqd: number, reducedDiscountIqd: number | null): number {
-  if (reducedDiscountIqd === null) return Math.max(0, order.totalIqd - removedIqd);
-  return Math.max(0, order.itemsTotalIqd - removedIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - reducedDiscountIqd);
+/**
+ * What the customer pays after a partial accept removes `removedIqd` of items: the price from the parts
+ * (the kept discount, or the re-priced deal), then cash rounding as at placement (`payable`).
+ */
+function reducedTotalOf(order: PricedOrder, removedIqd: number, reducedDiscountIqd: number | null): number {
+  const price = Math.max(0, order.itemsTotalIqd - removedIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - (reducedDiscountIqd ?? order.discountIqd));
+  return payable(order.type, order.paymentMethod, price).totalIqd;
+}
+
+type PricedOrder = Pick<OrderRecord, 'type' | 'paymentMethod' | 'totalIqd' | 'itemsTotalIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd' | 'tipIqd' | 'discountIqd'>;
+
+/**
+ * What the customer pays for a price (Ali, 2026-10-04): cash rounds **up** to 250 and the remainder is
+ * change credited to his wallet when the cash is collected (`cashToHand`, the ledger's
+ * `cash_rounding_credit`); a wallet or prepaid order pays the exact price. Rides keep their quoted
+ * fare (already on the 250 step) plus tip as is.
+ */
+export function payable(type: OrderRecord['type'], paymentMethod: OrderRecord['paymentMethod'], priceIqd: number): { totalIqd: number; changeIqd: number } {
+  if (type === 'ride' || paymentMethod !== 'cash') return { totalIqd: Math.max(0, priceIqd), changeIqd: 0 };
+  const { cashIqd, changeIqd } = cashToHand(priceIqd);
+  return { totalIqd: cashIqd, changeIqd };
+}
+
+/** The order's price before cash rounding: items + fees + tip − discount (rides: the stored total). */
+export function orderPriceIqd(order: PricedOrder): number {
+  if (order.type === 'ride') return order.totalIqd;
+  return Math.max(0, order.itemsTotalIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - order.discountIqd);
+}
+
+/** Cash change in the stored total ("الباقي رصيد"): 0 for wallet orders, rides and orders placed before the rule. */
+export function changeOf(order: PricedOrder): number {
+  if (order.type === 'ride' || order.paymentMethod !== 'cash') return 0;
+  return Math.max(0, order.totalIqd - orderPriceIqd(order));
 }
 
 /** The order view's discount line; old rows without meta are platform promos. */
@@ -1396,17 +1448,6 @@ function beneficiariesOf(fee: CancellationFee, order: OrderRecord, trip: Trip | 
   });
 }
 
-/**
- * G-88: the customer total is a multiple of 500, or of 250 when a 250 component is on the receipt
- * (night delivery +250, street hand-over −250, a 250-step ride fare). The ledger rounds with this;
- * without it a 23,750 night order was rounded to 24,000 and the customer, who paid the 23,750 he
- * was shown, was left owing 250.
- */
-export function has250Component(order: Pick<OrderRecord, 'type' | 'totalIqd' | 'tipIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd'>): boolean {
-  const fees = order.type === 'ride' ? [order.totalIqd - order.tipIqd] : [order.deliveryFeeIqd, order.serviceFeeIqd];
-  return fees.some((f) => f % 500 !== 0);
-}
-
 function dateOrNull(v: unknown): Date | null {
   return typeof v === 'string' || v instanceof Date ? new Date(v) : null;
 }
@@ -1431,6 +1472,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     discountIqd: order.discountIqd,
     tipIqd: order.tipIqd,
     totalIqd: order.totalIqd,
+    changeIqd: changeOf(order),
     minVehicleClass: order.minVehicleClass,
     cateringRequest: MERCHANT_ORDER_TYPES.includes(order.type) && order.itemsTotalIqd > CATERING_ABOVE_IQD,
     lines: lines.map((l) => ({

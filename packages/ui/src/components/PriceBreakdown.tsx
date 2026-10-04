@@ -89,13 +89,19 @@ export interface PriceBreakdownProps {
   totalLabel?: string;
   /** e.g. "السعر مثبّت، ما يتغير" under the total. */
   note?: string;
+  /**
+   * Cash change inside `total` (Ali, 2026-10-04: cash rounds up to 250, the remainder is credited to the
+   * customer's wallet). Shown under the total as "الباقي رصيد +200" with what it means; never as a
+   * line that raises the price.
+   */
+  change?: number;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
-export function PriceBreakdown({ items, total, step, showShadow = false, totalLabel, note, style, testID = 'price' }: PriceBreakdownProps) {
+export function PriceBreakdown({ items, total, step, showShadow = false, totalLabel, note, change, style, testID = 'price' }: PriceBreakdownProps) {
   const theme = useTheme();
-  const s = summarizePrice(items, { total, step });
+  const s = summarizePrice(items, { total, step, change });
   const counted = useCountUp(s.total);
   return (
     <View testID={testID} style={[{ gap: theme.space[1] }, style]}>
@@ -128,6 +134,7 @@ export function PriceBreakdown({ items, total, step, showShadow = false, totalLa
           </Text>
         </View>
       </View>
+      {s.change > 0 ? <ChangeToWallet change={s.change} price={s.total - s.change} cash={s.total} testID={`${testID}-change`} /> : null}
       {note ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
           <Icon name="shield" size={16} color="successText" />
@@ -136,6 +143,40 @@ export function PriceBreakdown({ items, total, step, showShadow = false, totalLa
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * "الباقي رصيد": the cash change in a total, credited to the customer's wallet (customer d-1, C-07).
+ * A success-tinted strip under the total — the remainder is his, not a charge.
+ */
+export function ChangeToWallet({ change, price, cash, testID }: { change: number; price: number; cash: number; testID?: string }) {
+  const theme = useTheme();
+  const hint = t('quote.change_to_wallet_hint', { price: formatAmount(price), cash: formatAmount(cash), amount: formatAmount(change) });
+  return (
+    <View
+      testID={testID}
+      accessible
+      accessibilityLabel={`${t('quote.change_to_wallet')} ${formatAmount(change)} ${t('quote.currency')}. ${hint}`}
+      style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.md, paddingVertical: theme.space[2], paddingHorizontal: theme.space[3], marginTop: theme.space[1] }}
+    >
+      <View style={{ marginTop: 2 }}>
+        <Icon name="wallet" size={18} color="successText" strokeWidth={2.2} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2] }}>
+          <Text variant="label" weight={600} color="successText">
+            {t('quote.change_to_wallet')}
+          </Text>
+          <Text variant="label" weight={700} color="successText" tabular testID={testID ? `${testID}-amount` : undefined}>
+            {formatAmount(change, { sign: true })}
+          </Text>
+        </View>
+        <Text variant="caption" color="textMuted">
+          {hint}
+        </Text>
+      </View>
     </View>
   );
 }

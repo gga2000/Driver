@@ -43,7 +43,7 @@ export default function JobScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={{ flex: 1, width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' }}>
-          <DonePanel earnedIqd={done.earnedIqd} failed={done.failed} onHome={goHome} />
+          <DonePanel earnedIqd={done.earnedIqd} failed={done.failed} onHome={goHome} cash={status.data?.cash ?? null} />
         </View>
       </SafeAreaView>
     );

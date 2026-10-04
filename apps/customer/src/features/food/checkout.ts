@@ -1,5 +1,6 @@
 import {
   AZIZIYAH_MONEY_RULES,
+  cashToHand,
   deliveryFeesOf,
   type AppliedDiscount,
   type OrderQuote,
@@ -42,34 +43,52 @@ export interface CheckoutTotals {
   /** The server's deal (or 0): what `orders.quote` says `place` will take off. */
   discountIqd: number;
   discount: AppliedDiscount | null;
-  /** The deal's exact saving as promised (the deal line); `discountIqd` plus `roundingIqd`. */
+  /** The deal's exact saving as promised (the deal line). Since 2026-10-04 equal to `discountIqd`. */
   dealIqd: number;
-  /** What rounding the total up to the step gives back: the separate "تقريب" line (0 when on the step). */
+  /** Legacy "تقريب" (deal trimmed onto a 500 step): always 0 now. */
   roundingIqd: number;
+  /** What the order costs: items + fees − the deal. */
+  priceIqd: number;
+  /**
+   * What the customer pays (Ali, 2026-10-04): cash → the price rounded up to 250 (what he hands the
+   * courier); wallet → the exact price.
+   */
   totalIqd: number;
+  /** Cash only: `totalIqd − priceIqd` (0–249), credited to his wallet — the "الباقي رصيد" strip. */
+  changeIqd: number;
   /** Delivery's named parts (base, door/street, night…) for the breakdown, service fee last. */
   components: QuoteComponent[];
 }
 
 /**
- * Cart and checkout totals: items at menu prices, fees split from the pricing quote, and the discount
- * line from the server's order quote (`orders.quote`, merchant deal) — never computed here.
+ * Cart and checkout totals: items at menu prices, fees split from the pricing quote, the discount line
+ * from the server's order quote (`orders.quote`, merchant deal) — never computed here — and the
+ * payment: cash rounds up to 250 with the change to the wallet, the wallet pays the exact price
+ * (`cashToHand`, the same helper the server prices with).
  */
-export function checkoutTotals(cart: Pick<CartState, 'lines'>, quote: Pick<Quote, 'components'>, order?: Pick<OrderQuote, 'discountIqd' | 'discount'> | null): CheckoutTotals {
+export function checkoutTotals(
+  cart: Pick<CartState, 'lines'>,
+  quote: Pick<Quote, 'components'>,
+  order?: Pick<OrderQuote, 'discountIqd' | 'discount'> | null,
+  paymentMethod: 'cash' | 'wallet' = 'cash',
+): CheckoutTotals {
   const items = itemsTotal(cart);
   const fees = deliveryFeesOf(quote);
   const parts = quote.components.filter((c) => c.key !== 'promo');
   const components = [...parts.filter((c) => c.key !== 'service_fee'), ...parts.filter((c) => c.key === 'service_fee')];
   const discountIqd = order?.discountIqd ?? 0;
-  const roundingIqd = discountIqd > 0 ? (order?.discount?.roundingIqd ?? 0) : 0;
+  const priceIqd = Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd);
+  const cash = paymentMethod === 'cash' ? cashToHand(priceIqd) : { cashIqd: priceIqd, changeIqd: 0 };
   return {
     itemsIqd: items,
     ...fees,
     discountIqd,
     discount: order?.discount ?? null,
-    dealIqd: discountIqd + roundingIqd,
-    roundingIqd,
-    totalIqd: Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd),
+    dealIqd: discountIqd,
+    roundingIqd: 0,
+    priceIqd,
+    totalIqd: cash.cashIqd,
+    changeIqd: cash.changeIqd,
     components,
   };
 }
@@ -190,7 +209,26 @@ export function clock12(d: Date): string {
 }
 
 /** Errors `orders.place` can answer with that the checkout explains in its own words. */
-export type PlaceProblem = 'price_changed' | 'deal_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'other';
+export type PlaceProblem = 'price_changed' | 'deal_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'wallet_insufficient' | 'other';
+
+/**
+ * The wallet row at checkout (C-04): usable when the balance covers the exact price; otherwise shown
+ * disabled with how much is missing. `null` balance = still loading.
+ */
+export function walletChoice(balanceIqd: number | null, priceIqd: number): { usable: boolean; missingIqd: number } {
+  if (balanceIqd === null) return { usable: false, missingIqd: 0 };
+  const missingIqd = Math.max(0, priceIqd - balanceIqd);
+  return { usable: missingIqd === 0 && priceIqd > 0, missingIqd };
+}
+
+/**
+ * C-06: the restaurant's other live deals that did not apply — deals never combine; the server
+ * applied the one that saves most. Their labels, for "العروض ما تنجمع".
+ */
+export function otherDeals(deals: ReadonlyArray<{ dealId: string; label_ar: string; label_en: string }>, applied: Pick<AppliedDiscount, 'promotionId' | 'funder'> | null): Array<{ dealId: string; label_ar: string; label_en: string }> {
+  if (!applied || applied.funder !== 'merchant') return [];
+  return deals.filter((d) => d.dealId !== applied.promotionId);
+}
 
 export function placeProblem(code: string | null): PlaceProblem {
   switch (code) {
@@ -200,6 +238,7 @@ export function placeProblem(code: string | null): PlaceProblem {
     case 'modifier_invalid':
     case 'new_customer_cash_cap':
     case 'merchant_paused':
+    case 'wallet_insufficient':
       return code;
     default:
       return 'other';

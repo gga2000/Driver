@@ -118,7 +118,7 @@ async function build(ctx) {
   const orders = [];
   let customer = 0;
   // Settlement points: every evening at (now − 2 h) − k days; cash couriers hand over, Driver pays prepaid.
-  const settleAt = (k) => now - 2 * HOUR - k * DAY;
+  const baseSettleAt = (k) => now - 2 * HOUR - k * DAY;
 
   for (let day = startDay; day < now; day += DAY) {
     const dow = new Date(day + BAGHDAD).getUTCDay();
@@ -239,8 +239,15 @@ async function build(ctx) {
     }
   }
 
+  // The latest settlement leaves at least the last three courier-carried cash orders un-handed-over, so
+  // the live balance is positive at any hour of the day ("اطلب فلوسك" can be shown; audit process note) —
+  // normally the last two hours, earlier when the last two hours were quiet.
+  const held = orders.filter((o) => o.cash && o.courierId && o.at).map((o) => o.at).sort((a, b) => b - a);
+  const liveFrom = held[2] !== undefined ? Math.min(baseSettleAt(0), held[2] - MIN) : baseSettleAt(0);
+  const settleAt = (k) => (k === 0 ? liveFrom : baseSettleAt(k));
+
   // Evening settlements: each courier hands over what he collected since the last one (PIN), Driver
-  // transfers the prepaid orders' net (ZainCash) — so the live balance is just the last two hours.
+  // transfers the prepaid orders' net (ZainCash) — so the live balance is just the latest cash orders.
   const merchantAgg = { name: 'merchant', id: khalid.orgId };
   let seq = 0;
   for (let k = 35; k >= 0; k--) {

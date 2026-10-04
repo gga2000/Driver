@@ -53,8 +53,12 @@ export const MoneyRules = z.object({
     parcel: TakeRule,
     parcel_intercity: TakeRule,
   }),
-  /** G-88: customer-facing totals are multiples of this; 250 only where a 250 component exists and it is enabled. */
-  rounding: z.object({ stepIqd: Iqd.positive(), allowQuarterStepWith250Component: z.boolean() }),
+  /**
+   * Ali, 2026-10-04 (UI/UX audit C-07, replaces G-88's "multiples of 500"): a cash customer hands over
+   * his price rounded **up** to this step; the remainder is his change, credited to his wallet
+   * ("الباقي رصيد"). Wallet payments pay the exact price. See `cashToHand`.
+   */
+  rounding: z.object({ stepIqd: Iqd.positive() }),
   points: z.object({
     /** Decisions §2: 1 point per this much platform revenue (service fee + commission) on food/grocery/parcels/errands. */
     revenueIqdPerPoint: Iqd.positive(),
@@ -113,7 +117,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
     parcel: { rate: 0.15 },
     parcel_intercity: { rate: 0.15 },
   },
-  rounding: { stepIqd: 500, allowQuarterStepWith250Component: true },
+  rounding: { stepIqd: 250 },
   points: { revenueIqdPerPoint: 100, rideTakeIqdPerPoint: 200, maxPerOrder: 50, organizerBonusRate: 0.1, pointValueIqd: 10 },
   referral: { pointsPerSide: 200, minOrderIqd: 10000, unlockOnQualifyingOrder: 2, monthlyCapPerReferrer: 10 },
   caps: {
@@ -140,3 +144,21 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   },
   nightly: { hour: 2, utcOffsetMin: 180 },
 });
+
+/** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */
+export const CASH_STEP_IQD = 250;
+
+/**
+ * What a cash customer hands over for a price, and his change (Ali's rounding decision, 2026-10-04):
+ * the price rounded **up** to the step (250) and the remainder (0–249) credited to his wallet as
+ * "الباقي رصيد" — never a "تقريب +" line that raises the price. The change is the customer's own cash:
+ * the courier collects it (it counts on his cash cap like the rest) and the ledger books it as
+ * `cash_rounding_credit` into the customer's wallet; no merchant or deal pays for it. Wallet and
+ * prepaid orders pay the exact price (no cash, no change). Shared by the API (quote, place, ledger)
+ * and the apps (cart, checkout, receipts), so the number is the same everywhere.
+ */
+export function cashToHand(priceIqd: number, stepIqd: number = CASH_STEP_IQD): { cashIqd: number; changeIqd: number } {
+  if (!(priceIqd > 0)) return { cashIqd: 0, changeIqd: 0 };
+  const cashIqd = Math.ceil(priceIqd / stepIqd) * stepIqd;
+  return { cashIqd, changeIqd: cashIqd - priceIqd };
+}

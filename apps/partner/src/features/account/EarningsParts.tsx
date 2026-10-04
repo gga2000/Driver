@@ -7,11 +7,12 @@ import { jobsKey, VEHICLE_ICON } from '@/features/work/logic';
 import { useStatus } from '@/features/work/queries';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { CashMeter } from './CashMeter';
 import { Glyph } from './Glyph';
 import {
   bestBucket,
   breakdownRows,
-  capTone,
+  cashTruth,
   clockTime,
   componentLabel,
   componentsKey,
@@ -332,74 +333,26 @@ export function BreakdownCard({ totals }: { totals: EarningsView['totals'] }) {
   );
 }
 
-const TONE_FILL = { success: 'success', accent: 'accent', warning: 'warning', danger: 'danger' } as const;
-
 /**
- * Cash in hand against the cap (money & ops §4). The bar is what counts against the cap (cash held net
- * of what we owe him), with a tick where offers stop warning; the hand-over CTA is primary once he is
- * near or over it.
+ * The cash card (money & ops §4, P-05): one "لازم تسلّم" number — what counts against the cap — as the
+ * hero, the bar and colour from it (amber from 70 %, red from 90 %), what he holds as the explanation,
+ * when offers stop, today's cash movement, and the hand-over CTA (primary once he is near or over).
  */
 export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: EarningsView; onHandover: () => void; period?: boolean; rangeLabel?: string }) {
   const theme = useTheme();
   const t = useT();
   const { cap, cash } = view;
-  const tone = capTone(cap);
-  const fillColor = theme.colors[TONE_FILL[tone]];
+  const truth = cashTruth({ owedIqd: cap.owedIqd, heldIqd: cash.heldIqd, capIqd: cap.capIqd, overCap: cap.overCap });
   const next = nextTierCap(cap);
-  const urgent = tone === 'warning' || tone === 'danger';
-  const grow = useSharedValue(0);
-  useEffect(() => {
-    grow.value = theme.reduceMotion ? cap.fill : withTiming(cap.fill, { duration: 800, easing: Easing.out(Easing.cubic) });
-  }, [cap.fill, grow, theme.reduceMotion]);
-  const bar = useAnimatedStyle(() => ({ width: `${Math.max(grow.value > 0 ? 3 : 0, grow.value * 100)}%` }));
-  const note =
-    tone === 'danger'
-      ? t('partner.cash_over', { amount: amountParam(Math.max(0, cap.owedIqd - cap.capIqd)) })
-      : tone === 'warning'
-        ? t('partner.cap_warning', { percent: Math.round(cap.fill * 100) })
-        : t('partner.cash_remaining', { amount: amountParam(cap.remainingIqd) });
+  const urgent = truth.tone !== 'success';
   return (
-    <Card testID="cash-cap-card" elevation={1} padding={5} style={urgent ? { borderWidth: 1.5, borderColor: withAlpha(fillColor, 0.45) } : undefined}>
+    <Card testID="cash-cap-card" elevation={1} padding={5} style={urgent ? { borderWidth: 1.5, borderColor: withAlpha(theme.colors[truth.tone], 0.45) } : undefined}>
       <View style={{ gap: theme.space[4] }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text variant="title">{t('partner.cashcap_title')}</Text>
           <StatusPill size="sm" tone={cap.tier === 'gold' ? 'accent' : cap.tier === 'silver' ? 'info' : 'neutral'} icon="star" label={t(`partner.tier_${cap.tier}`)} />
         </View>
-        <View style={{ gap: 2 }}>
-          <Text variant="footnote" color="textMuted">
-            {t('partner.cash_held_now')}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-            <Text testID="cash-held" variant="amount" tabular color={tone === 'danger' ? 'dangerText' : 'text'}>
-              {amountParam(cash.heldIqd)}
-            </Text>
-            <Text variant="label" color="textMuted">
-              {t('quote.currency')}
-            </Text>
-          </View>
-        </View>
-        <View style={{ gap: theme.space[2] }}>
-          <View style={{ height: 14, borderRadius: 7, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden' }}>
-            <Animated.View style={[{ height: 14, borderRadius: 7, backgroundColor: fillColor }, bar]} />
-            <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: '80%', width: 2, backgroundColor: theme.colors.surface }} />
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text variant="caption" color="textMuted" tabular>
-              {`${t('partner.cash_owed_label')} ${amountParam(cap.owedIqd)} ${t('quote.currency')}`}
-            </Text>
-            <Text variant="caption" weight={600} tabular>
-              {t('partner.cash_cap_tier', { tier: t(`partner.tier_${cap.tier}`), amount: amountParam(cap.capIqd) })}
-            </Text>
-          </View>
-        </View>
-        <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start' }}>
-          <View style={{ marginTop: 3 }}>
-            {urgent ? <Glyph name="alert" size={16} color={tone === 'danger' ? 'dangerText' : 'warningText'} /> : <Icon name="check" size={16} color="successText" strokeWidth={2.6} />}
-          </View>
-          <Text testID="cash-cap-note" variant="footnote" color={tone === 'danger' ? 'dangerText' : tone === 'warning' ? 'warningText' : 'textMuted'} style={{ flex: 1 }}>
-            {note}
-          </Text>
-        </View>
+        <CashMeter owedIqd={cap.owedIqd} heldIqd={cash.heldIqd} capIqd={cap.capIqd} overCap={cap.overCap} size="hero" testID="cash-card-meter" />
         {period !== false ? (
           <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
             {rangeLabel ? (

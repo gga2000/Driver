@@ -170,7 +170,7 @@ describe('orders × trips — end to end', () => {
     expect(t2.courierId).toBe('d2');
   });
 
-  it('a night delivery fee (+250) tells the ledger the total may end in 250 (G-88; simulator regression)', async () => {
+  it('a night delivery fee (+250): the 250-step total is collected as is and nobody owes (simulator regression)', async () => {
     // Found by the Aziziyah simulator: the ledger rounded a 16,750 night order up to 17,000 and the
     // customer, who paid the 16,750 he was shown, was left owing 250. The server quotes the +250 at night.
     const h = ordersHarness('2026-10-03T20:30:00Z'); // 23:30 Baghdad
@@ -180,7 +180,8 @@ describe('orders × trips — end to end', () => {
     const t = await h.tripFor(night.id);
     await h.pickup(t.id);
     await h.dropoff(t.id, { cashCollectedIqd: night.totalIqd });
-    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { has250Component: true, cashCollectedIqd: night.totalIqd } });
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { cashCollectedIqd: night.totalIqd } });
+    expect(night.changeIqd).toBe(0);
 
     h.clock.set(Date.parse('2026-10-04T09:00:00Z')); // next day, 12:00 Baghdad
     const day = await h.orders.place('c2', h.foodInput());
@@ -188,7 +189,7 @@ describe('orders × trips — end to end', () => {
     const t2 = await h.tripFor(day.id, { driverId: 'd2' });
     await h.pickup(t2.id, 'd2');
     await h.dropoff(t2.id, { cashCollectedIqd: day.totalIqd, driverId: 'd2' });
-    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { has250Component: false } });
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ order: { cashCollectedIqd: day.totalIqd } });
   });
 
   it('order cap reaches the trip: a bike cannot accept a car-sized order', async () => {

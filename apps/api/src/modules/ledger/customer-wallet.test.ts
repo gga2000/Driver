@@ -67,7 +67,7 @@ describe('customer wallet: readable lines', () => {
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount, l.method, l.title_ar, l.detail_ar])).toEqual([
       ['food', -16_500, 'cash', 'طلب أكل', 'كاش عند الاستلام'],
-      ['cash_change', 500, null, 'باقي الكاش', 'صار رصيد إلك'],
+      ['cash_change', 500, null, 'الباقي رصيد', 'صار رصيد إلك'],
     ]);
     expect(lines[0]!.orderId).toBe('o1');
   });

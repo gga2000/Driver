@@ -5,7 +5,8 @@ import type { MerchantBalanceView, StoreStatusView } from '@driver/contracts';
 import { Button, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
+import { balanceState } from '@/features/money/logic';
 import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 
@@ -148,20 +149,45 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
     );
   }
 
+  // M-07 / S-M5: the balance in one readable line. Positive: what Driver holds for him and "اطلب فلوسك".
+  // Negative: "عليك 4,250 دينار عمولة · تنخصم من فلوسك الجاية" on the warning tint, no dead button (tap
+  // opens the Money screen that explains it). Zero: says so, no button.
+  const state = balance ? balanceState(balance.balanceIqd) : null;
   const money =
-    canSeeMoney && balance ? (
-      <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 48, paddingStart: theme.space[4], paddingEnd: 4, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
-        <MIcon name="cash" size={20} color="successText" />
-        <View style={{ flex: wide ? undefined : 1 }}>
-          <Text variant="caption" color="textMuted" style={{ lineHeight: 16 }}>
-            {t('merchant.money.balance_label')}
-          </Text>
-          <Text variant="label" weight={700} tabular color={balance.balanceIqd < 0 ? 'dangerText' : 'text'} style={{ lineHeight: 20 }}>
-            {iqd(balance.balanceIqd, { locale })}
-          </Text>
+    canSeeMoney && balance && state ? (
+      state.kind === 'owed' ? (
+        <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 48, paddingStart: theme.space[4], paddingEnd: 4, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+          <MIcon name="cash" size={20} color="successText" />
+          <View style={{ flex: wide ? undefined : 1 }}>
+            <Text variant="caption" color="textMuted" style={{ lineHeight: 16 }}>
+              {t('merchant.money.pill_positive')}
+            </Text>
+            <Text variant="label" weight={700} tabular style={{ lineHeight: 20 }}>
+              {iqd(balance.balanceIqd, { locale })}
+            </Text>
+          </View>
+          <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onCash} />
         </View>
-        <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onCash} disabled={balance.balanceIqd <= 0} />
-      </View>
+      ) : (
+        <Pressable
+          testID="cash-balance"
+          accessibilityRole="button"
+          onPress={() => router.push('/money')}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, paddingHorizontal: theme.space[4], paddingVertical: 4, borderRadius: theme.radius.pill, backgroundColor: state.kind === 'owe' ? theme.colors.warningTint : theme.colors.surface, borderWidth: 1, borderColor: state.kind === 'owe' ? theme.colors.warning : theme.colors.border }}
+        >
+          <MIcon name="cash" size={20} color={state.kind === 'owe' ? 'warningText' : 'textMuted'} />
+          <View style={{ flex: wide ? undefined : 1 }}>
+            <Text variant="label" weight={700} tabular color={state.kind === 'owe' ? 'warningText' : 'text'} style={{ lineHeight: 20 }}>
+              {state.kind === 'owe' ? t('merchant.money.pill_owe', { amount: amountParam(state.amountIqd) }) : t('merchant.money.pill_zero')}
+            </Text>
+            {state.kind === 'owe' ? (
+              <Text variant="caption" color="warningText" style={{ lineHeight: 16 }}>
+                {t('merchant.money.pill_owe_hint')}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      )
     ) : null;
 
   const name = (

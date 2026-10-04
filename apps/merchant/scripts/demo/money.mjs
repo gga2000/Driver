@@ -2,12 +2,14 @@
 //
 // History (scripts/demo/lib/khalid-history.mjs): five weeks of orders posted to the ledger, couriers
 // handing the cash over every evening with the PIN, Driver transferring the prepaid orders' net. The
-// live balance is the last two hours (couriers holding it). Hand-over PIN 4821. Disputes: a missing
+// live balance is the last two hours, or at least the last three cash orders (couriers holding it), so it
+// is positive at any hour. Hand-over PIN 4821. Disputes: a missing
 // item (fresh), a cold order (8 h left, urgent), a wrong item already contested with a photo, and an
 // older one accepted.
 //
 //   POST /demo/money/request     "اطلب فلوسك" now (the courier holding most of the cash is routed)
 //   POST /demo/money/handover    that courier hands it over with the PIN → the timeline completes
+//   POST /demo/money/owe         everything handed over and overpaid: the balance reads −4,250 (M-07)
 import { Buffer } from 'node:buffer';
 import { deflateSync } from 'node:zlib';
 import { khalidHistory } from './lib/khalid-history.mjs';
@@ -119,5 +121,17 @@ export default async function register(ctx) {
     if (!courierId || amount <= 0) return { handedOver: 0 };
     const out = await cash.confirmHandover({ handoverId: `hv-live-${Date.now().toString(36)}`, courierId, merchantId: khalid.orgId, amountIqd: amount, merchantConfirmedIqd: amount, pin: HANDOVER_PIN });
     return { courierId, ...out };
+  });
+  // M-07 (audit): the negative state — couriers hand everything over and Driver's ZainCash transfer
+  // overpays by a day's commission, so the balance reads −4,250 ("عليك 4,250 دينار عمولة").
+  ctx.route('/demo/money/owe', async () => {
+    for (const h of await cash.holders(khalid.orgId)) {
+      if (h.amountIqd > 0) await cash.confirmHandover({ handoverId: `hv-owe-${h.courierId}-${Date.now().toString(36)}`, courierId: h.courierId, merchantId: khalid.orgId, amountIqd: h.amountIqd, merchantConfirmedIqd: h.amountIqd, pin: HANDOVER_PIN });
+    }
+    const { postSettlement } = await ctx.load('modules/ledger/postings.js');
+    const balance = (await cash.balance(khalid.orgId)).balanceIqd;
+    const amountIqd = balance + 4_250;
+    if (amountIqd > 0) await ctx.services.ledger.recordAll([postSettlement({ kind: 'merchant_payout', merchantId: khalid.orgId, amountIqd, channel: 'zaincash', reference: `M-OWE-${Date.now().toString(36).slice(-4)}`, occurredAt: new Date() })]);
+    return { balanceIqd: (await cash.balance(khalid.orgId)).balanceIqd };
   });
 }

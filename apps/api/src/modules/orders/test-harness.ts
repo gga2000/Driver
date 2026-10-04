@@ -143,6 +143,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     if (!menus.has(orgId)) menus.set(orgId, Promise.all(HARNESS_MENU.map((m) => catalog.addItem({ ...m, id: scoped(orgId, m.id), orgId }))));
     return menus.get(orgId)!;
   };
+  /** Wallet balances the harness's wallet port answers with (`customer:<id>` / `household:<id>`). */
+  const wallets = new Map<string, number>();
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
     itemsOf: async (orgId, ids) => {
       if (await merchants.profile(orgId)) await ensureMenu(orgId);
@@ -151,7 +153,10 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     },
     // Opening hours and minimum: none until a test saves a storefront (`catalog.saveStorefront`).
     storefront: (orgId) => catalog.storefront(orgId),
-  }, promotions);
+  }, promotions, undefined, {
+    // C-04: wallet balances by payer (customer or household); unset = 0.
+    balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
+  });
   orders.onModuleInit();
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
@@ -221,5 +226,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

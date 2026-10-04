@@ -27,7 +27,13 @@ export default async function register(demo) {
   const buyer = () => demo.people.get('buyer').personId;
   const item = (r, key) => demo.restaurants[r].itemIds.get(key);
 
+  let topUps = 0;
   async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note) {
+    // A prepaid (wallet) order needs a wallet that covers it (wallet_insufficient): the buyer topped up.
+    if (paymentMethod === 'wallet') {
+      const account = demo.Accounts.customer(buyer());
+      await services.ledger.recordAll({ id: `demo:topup:buyer:${++topUps}:${Date.now()}`, kind: 'money', occurredAt: new Date(), refs: {}, lines: [{ type: 'credit_issued', amount: 50_000, fromAccount: demo.Accounts.bank, toAccount: account, memo: 'topup:agent' }], controls: [{ account, net: 50_000 }] });
+    }
     const placed = await orders.place(buyer(), { cityId: CITY, type: 'food', merchantOrgId: demo.restaurants[restaurant].orgId, lines, paymentMethod, dropoff, ...(note ? { note } : {}) });
     await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
     await orders.markPreparing('demo-staff', { orderId: placed.id });

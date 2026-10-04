@@ -19,11 +19,14 @@ const Payer = {
   /** Household wallet pays instead of the customer's own (domain §12). */
   householdId: z.string().min(1).optional(),
   payment: LedgerPaymentMethod,
-  /** Actual cash handed over; defaults to the rounded total. Less = wallet debt, more = rounding credit. */
+  /**
+   * Actual cash handed over; defaults to the price rounded up to 250 (`cashToHand`). Less = wallet
+   * debt, more = change credited to the wallet ("الباقي رصيد", `cash_rounding_credit`).
+   */
   cashCollectedIqd: Iqd.nonnegative().optional(),
   /** Points the customer redeems (100 = 1,000 IQD), against the service fee first, delivery second. */
   pointsRedeemed: z.number().int().nonnegative().default(0),
-  /** G-88: a 250 component is on the receipt, so the total may be a multiple of 250. */
+  /** Legacy (G-88 500-step rounding): ignored since the 250 change-to-wallet rule (2026-10-04). */
   has250Component: z.boolean().default(false),
   /** Referrer of this customer, if any (decisions §1). */
   referredBy: z.string().min(1).optional(),

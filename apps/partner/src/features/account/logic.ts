@@ -1,3 +1,4 @@
+import { CAP_DANGER_SHARE, CAP_WARN_SHARE, capState } from '@driver/contracts';
 import type {
   DocumentsView,
   DriverDocumentKind,
@@ -239,14 +240,49 @@ export function breakdownRows(totals: EarningsView['totals']): Array<{ key: Mess
 
 // ───────────────────────── the cash cap ─────────────────────────
 
-export type CapTone = 'success' | 'accent' | 'warning' | 'danger';
+export type CapTone = 'success' | 'warning' | 'danger';
 
-/** Green while comfortable, orange from 60 %, amber from 80 % (the server's near-cap line), red over. */
+/**
+ * P-05 honest cap colours: green while comfortable, amber from 70 % (the server's near-cap line), red
+ * from 90 % and over the cap. `fill` is what counts against the cap (`owedIqd / capIqd`).
+ */
 export function capTone(cap: Pick<EarningsView['cap'], 'fill' | 'overCap'>): CapTone {
-  if (cap.overCap || cap.fill >= 1) return 'danger';
-  if (cap.fill >= 0.8) return 'warning';
-  if (cap.fill >= 0.6) return 'accent';
+  if (cap.overCap || cap.fill >= CAP_DANGER_SHARE) return 'danger';
+  if (cap.fill >= CAP_WARN_SHARE) return 'warning';
   return 'success';
+}
+
+export interface CashTruth {
+  /** 0–1: what counts against the cap. The bar's length. */
+  share: number;
+  tone: CapTone;
+  over: boolean;
+  /** How far past the cap (0 when under). */
+  overIqd: number;
+  /** How much more before offers stop (0 when over). */
+  leftIqd: number;
+  /**
+   * Why "بيدك" differs from "لازم تسلّم": his own pay rides in the cash he holds (`own`), or he owes
+   * commission on top of the cash (`more`). Null when the two are equal.
+   */
+  heldNote: { kind: 'own' | 'more'; amountIqd: number } | null;
+}
+
+/**
+ * One cash truth (P-05): "لازم تسلّم" is `owedIqd` (held cash net of what the platform owes him) — the
+ * figure the cap counts — on every screen; the colour and the bar come from it alone.
+ */
+export function cashTruth(c: { owedIqd: number; heldIqd: number; capIqd: number; overCap: boolean }): CashTruth {
+  const s = capState(c.owedIqd, c.capIqd, c.overCap);
+  const diff = c.heldIqd - c.owedIqd;
+  return {
+    share: s.share,
+    tone: s.tone,
+    over: s.over,
+    overIqd: s.overIqd,
+    leftIqd: s.leftIqd,
+    heldNote: diff > 0 ? { kind: 'own', amountIqd: diff } : diff < 0 ? { kind: 'more', amountIqd: -diff } : null,
+  };
 }
 
 /** The next tier's cap when it is higher than his own (intercity caps are flat). */

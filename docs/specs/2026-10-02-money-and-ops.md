@@ -36,7 +36,8 @@ Take rates are shown openly to drivers. Fare tables themselves are set in Plan 3
 
 ## 4. Cash and settlement
 Channels: (1) field-ops cash round with WhatsApp receipt; (2) ZainCash to company wallet, auto-matched by amount + driver ID; (3) agent shops accepting driver settlements and customer wallet top-ups for a small fee.
-Credit caps: 75,000 new · 150,000 Silver · 300,000 Gold. Over cap: finish current job, no new offers, WhatsApp with nearest settlement option.
+Credit caps: 75,000 new · 150,000 Silver · 300,000 Gold. Over cap: finish current job, no new offers, WhatsApp with nearest settlement option. The Partner app shows one figure everywhere — "لازم تسلّم", what counts against the cap — amber from 70 % of the cap, red from 90 % (UI/UX audit P-05, 2026-10-04).
+Customer cash rounding (Ali, 2026-10-04): a cash customer pays his price rounded up to 250; the remainder is change credited to his wallet ("الباقي رصيد"), funded by his own cash, never by the merchant or a promo budget. Wallet payments pay the exact price.
 Restaurant payouts: weekly (Sunday), `merchant_payable` netted against commission, via ZainCash or ops round, WhatsApp PDF statement per order; daily payout at Gold tier.
 Nightly close at 02:00: ledger invariant; morning WhatsApp to every driver (jobs, earnings, owed, cap remaining); discrepancies open incidents; finance screen shows cash in field / due / collected per driver. Driver earnings live in Partner with every component named.
 

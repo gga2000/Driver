@@ -68,7 +68,7 @@ Four audiences, one voice:
 
 - **Western-Arabic digits (0–9)** everywhere, including inside Arabic strings. Thousands separator is a comma: `1,000 دينار`. No Eastern-Arabic digits (٠–٩).
 - Currency is always `دينار` after the number; never "د.ع" or "IQD" in customer-facing Arabic. English uses `IQD`.
-- Amounts are inserted via `{amount}` placeholders already formatted by the client (rounded to 250/500 per spec).
+- Amounts are inserted via `{amount}` placeholders already formatted by the client. Cash totals are rounded up to 250 and the remainder is shown as "الباقي رصيد" (change to the wallet), never as a "تقريب +" line.
 - Time: 12-hour, `الساعة {time}` with the client formatting `7:30`. Durations: `{n} دقيقة` for singular/plural alike (Iraqi speech uses `دقيقة` after numbers above 10 and `دقايق` for 3–10; we use `دقايق` only in fixed phrases such as "5 دقايق", "أول 3 دقايق").
 - Countdowns use `{minutes}:{seconds}`.
 - Distances: `{n} كم`.

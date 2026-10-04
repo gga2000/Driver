@@ -5,7 +5,7 @@ import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queu
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS } from '../catalog/index.js';
-import { CapsService, LedgerModule } from '../ledger/index.js';
+import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
@@ -17,7 +17,7 @@ import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
-import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, OrdersService, type OrderTimerJob } from './orders.service.js';
+import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
@@ -51,6 +51,14 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_PROMOTIONS, useFactory: (promotions: PromotionsService) => new MerchantDealsPromotions(promotions), inject: [PromotionsService] },
     // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
     { provide: ORDERS_CASH_RISK, useExisting: CapsService },
+    // C-04: wallet payments at checkout are checked against the ledger balance of the paying wallet.
+    {
+      provide: ORDERS_WALLET,
+      useFactory: (ledger: LedgerService): OrdersWalletPort => ({
+        balanceIqd: async ({ customerId, householdId }) => (await ledger.balance(householdId ? Accounts.household(householdId) : Accounts.customer(customerId))).amount,
+      }),
+      inject: [LedgerService],
+    },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
     { provide: ORDERS_CATALOG, useExisting: CatalogService },
     { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService, clock: Clock) => new OrgsMerchantDirectory(orgs, () => clock.now()), inject: [OrgsService, CLOCK] },

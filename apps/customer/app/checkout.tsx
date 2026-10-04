@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
@@ -15,8 +15,10 @@ import {
   placeProblem,
   priorCashOrders,
   scheduleSlots,
+  walletChoice,
   type Recipient,
 } from '@/features/food/checkout';
+import { useWalletBalance } from '@/features/account/queries';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { priceItems } from '@/features/food/price-lines';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
@@ -31,11 +33,13 @@ const STREET_SAVING_IQD = 250;
 
 /**
  * One-screen checkout (spec §3): deliver-to (saved place, door or street hand-over −250), who
- * receives it, when (now or a half-hour slot), payment (cash; the wallet appears once the customer
- * wallet read exists), the named price lines, a promo field, and "اطلب هسة · total". Places the
- * order with catalog ids, participants and the drop-off, and explains price_changed, sold-out items
- * and the new-customer cash cap in plain Arabic. The restaurant's deal is the server's own line
- * (`orders.quote`); a deal that ended between cart and place refreshes the total (`deal_changed`).
+ * receives it, when (now or a half-hour slot), payment (cash — rounded up to 250, the change back to
+ * the wallet as "الباقي رصيد" — or the wallet, which pays the exact price; disabled with what is
+ * missing and a top-up link when short, C-04), the named price lines and "اطلب هسة · total". No promo
+ * field until promo codes exist (C-05). Places the order with catalog ids, participants and the
+ * drop-off, and explains price_changed, sold-out items, a short wallet and the new-customer cash cap in
+ * plain Arabic. The restaurant's deal is the server's own line (`orders.quote`); a deal that ended
+ * between cart and place refreshes the total (`deal_changed`).
  */
 export default function CheckoutScreen() {
   const theme = useTheme();
@@ -52,6 +56,8 @@ export default function CheckoutScreen() {
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
+  const wallet = useWalletBalance();
+  const [payment, setPayment] = useState<'cash' | 'wallet'>('cash');
 
   const [recipientId, setRecipientId] = useState<string>('me');
   const [otherName, setOtherName] = useState('');
@@ -59,12 +65,19 @@ export default function CheckoutScreen() {
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const slots = useMemo(() => scheduleSlots(new Date()), []);
   const [slot, setSlot] = useState(0);
-  const [promo, setPromo] = useState('');
-  const [promoNote, setPromoNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
 
   const merchant = cart.merchant;
+  const ready = Boolean(quote.data && (orderQuote.data || orderQuote.isError));
+  const priced = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, 'wallet') : null;
+  const balance = wallet.data ? wallet.data.moneyIqd : null;
+  const walletRow = walletChoice(balance, priced?.priceIqd ?? 0);
+  // A wallet that no longer covers the order (cart grew, balance spent elsewhere) falls back to cash.
+  useEffect(() => {
+    if (payment === 'wallet' && priced && balance !== null && !walletRow.usable) setPayment('cash');
+  }, [payment, priced, balance, walletRow.usable]);
+
   if (!merchant || cart.lines.length === 0) {
     return (
       <Screen edges={['bottom']} testID="checkout">
@@ -74,12 +87,12 @@ export default function CheckoutScreen() {
   }
 
   // The server's deal (orders.quote) is part of the total; place sends it back as an expectation.
-  const totals = quote.data && (orderQuote.data || orderQuote.isError) ? checkoutTotals(cart, quote.data, orderQuote.data) : null;
+  const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
   const restaurant = menu.data?.restaurant;
   const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
   const { groups } = groupByPerson(cart);
   const shortfall = minOrderShortfall(cart);
-  const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), 'cash') : false;
+  const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
 
   const recipientItems = [
@@ -123,7 +136,7 @@ export default function CheckoutScreen() {
           streetHandover: street,
           recipient: r,
           scheduledFor,
-          paymentMethod: 'cash',
+          paymentMethod: payment,
           fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd },
           ...(orderQuote.data ? { discountIqd: totals.discountIqd } : {}),
         }),
@@ -151,6 +164,10 @@ export default function CheckoutScreen() {
         setProblem(t('checkout.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
       } else if (kind === 'merchant_paused') {
         setProblem(t('checkout.paused'));
+      } else if (kind === 'wallet_insufficient') {
+        await wallet.refetch();
+        setPayment('cash');
+        setProblem(t('checkout.wallet_insufficient'));
       } else {
         setProblem(apiErrorMessage(err, t('error.network'), locale));
       }
@@ -283,38 +300,43 @@ export default function CheckoutScreen() {
         <Card elevation={0} padding={0}>
           <ListRow
             testID="checkout-pay-cash"
-            leading="wallet"
+            leading="cash"
             title={t('checkout.pay_cash')}
-            subtitle={t('checkout.cash_on_arrival')}
-            selected
-            trailing={<Icon name="check" size={20} color="accentText" strokeWidth={2.4} />}
+            subtitle={t('checkout.cash_change_hint')}
+            selected={payment === 'cash'}
+            onPress={() => setPayment('cash')}
+            chevron={false}
+            divider
+            trailing={payment === 'cash' ? <Icon name="check" size={20} color="accentText" strokeWidth={2.4} /> : undefined}
+          />
+          <ListRow
+            testID="checkout-pay-wallet"
+            leading="wallet"
+            title={t('checkout.pay_wallet')}
+            subtitle={
+              balance === null
+                ? '…'
+                : walletRow.usable || walletRow.missingIqd === 0
+                  ? t('checkout.wallet_balance', { amount: amountParam(balance) })
+                  : t('checkout.wallet_short', { balance: amountParam(balance), missing: amountParam(walletRow.missingIqd) })
+            }
+            selected={payment === 'wallet'}
+            onPress={walletRow.usable ? () => setPayment('wallet') : undefined}
+            chevron={false}
+            trailing={
+              payment === 'wallet' ? (
+                <Icon name="check" size={20} color="accentText" strokeWidth={2.4} />
+              ) : balance !== null && !walletRow.usable ? (
+                <Button size="sm" variant="secondary" icon="plus" label={t('checkout.wallet_topup')} onPress={() => router.push('/topup')} testID="checkout-wallet-topup" />
+              ) : undefined
+            }
           />
         </Card>
       </Section>
 
-      <View style={{ gap: theme.space[2] }}>
-        <TextField
-          testID="checkout-promo"
-          value={promo}
-          onChangeText={(v) => {
-            setPromo(v);
-            setPromoNote(null);
-          }}
-          placeholder={t('checkout.promo_placeholder')}
-          leadingIcon="gift"
-          autoCapitalize="characters"
-          trailing={<Button size="sm" variant="ghost" label={t('checkout.promo_apply')} disabled={!promo.trim()} onPress={() => setPromoNote(t('checkout.promo_none'))} />}
-        />
-        {promoNote ? (
-          <Text variant="footnote" color="textMuted" testID="checkout-promo-note">
-            {promoNote}
-          </Text>
-        ) : null}
-      </View>
-
       <Section title={t('checkout.price_breakdown')}>
         {totals ? (
-          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} note={t('quote.quote_locked')} testID="checkout-price" />
+          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} note={t('quote.quote_locked')} testID="checkout-price" />
         ) : (
           <View style={{ gap: theme.space[2] }}>
             <Skeleton height={16} />

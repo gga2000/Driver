@@ -1,3 +1,4 @@
+import { CAP_WARN_SHARE } from '@driver/contracts';
 import type {
   ErrorCode,
   Order,
@@ -180,8 +181,8 @@ export function kmBetween(a: { lat: number; lng: number }, b: { lat: number; lng
   return Math.round(Math.sqrt(dx * dx + dy * dy) * 10) / 10;
 }
 
-/** Cap share at which the app starts warning (money §4 / partner.cap_warning). */
-export const NEAR_CAP_SHARE = 0.8;
+/** Cap share at which the app starts warning (money §4 / partner.cap_warning; UI/UX audit P-05: amber from 70 %). */
+export const NEAR_CAP_SHARE = CAP_WARN_SHARE;
 
 /**
  * The typed error `partner.goOnline` answers with when the online gate is closed, worst reason

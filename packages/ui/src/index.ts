@@ -19,7 +19,7 @@ export { Chip, ChipGroup, nextChipSelection, type ChipProps, type ChipGroupProps
 export { Avatar, toneFor, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
 export { Card, type CardProps } from './components/Card';
 export { ListRow, type ListRowProps } from './components/ListRow';
-export { PriceLine, PriceBreakdown, type PriceLineProps, type PriceBreakdownProps } from './components/PriceBreakdown';
+export { PriceLine, PriceBreakdown, ChangeToWallet, type PriceLineProps, type PriceBreakdownProps } from './components/PriceBreakdown';
 export { Rule, type RuleProps } from './components/Rule';
 export { Sheet, type SheetProps } from './components/Sheet';
 export { Stepper, clampStep, type StepperProps } from './components/Stepper';

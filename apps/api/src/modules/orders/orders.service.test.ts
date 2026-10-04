@@ -203,7 +203,8 @@ describe('OrdersService — new-customer cash cap (decisions §4)', () => {
     const big = h.foodInput({ lines: [{ catalogItemId: 'tray_9k', qty: 3, unitPriceIqd: 9000 }] }); // 27,000 + 1,500 fees
     expect(await code(h.orders.place('new1', big))).toBe('new_customer_cash_cap');
     expect(h.cashRisk.asked).toEqual([{ customerId: 'new1', totalIqd: 28500 }]);
-    // wallet orders are not cash exposure
+    // wallet orders are not cash exposure (the wallet covers it)
+    h.wallets.set('customer:new1', 30000);
     expect((await h.orders.place('new1', { ...big, paymentMethod: 'wallet' })).state).toBe('placed');
     const small = await h.orders.place('new1', h.foodInput());
     expect(h.events.ofType('order.placed').find((e) => e.orderId === small.id)!.payload).toMatchObject({ arrivingCallRequired: true });

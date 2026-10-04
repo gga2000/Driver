@@ -45,6 +45,8 @@ export const ICONS = {
     { d: 'M12 12v9' },
     { d: 'M7.75 5.25l8.5 4.5' },
   ],
+  /** A banknote: cash payments and hand-overs (same drawing as the merchant app's `cash`). */
+  cash: [{ d: 'M4.5 6h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z' }, { circle: [12, 12, 2.6] }, { d: 'M6 9.5v5M18 9.5v5' }],
   wallet: [
     { d: 'M4 7.5A2.5 2.5 0 0 1 6.5 5H17v3' },
     { d: 'M4 7.5V17a2 2 0 0 0 2 2h13a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1H6.5A2.5 2.5 0 0 1 4 7.5z' },

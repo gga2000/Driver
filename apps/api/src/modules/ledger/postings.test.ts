@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AZIZIYAH_MONEY_RULES as rules, type OrderMoneyPayload } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES as rules, cashToHand, type OrderMoneyPayload } from '@driver/contracts';
 import { validateGroup } from './ledger.service.js';
 import {
   allocate,
@@ -111,8 +111,9 @@ describe('order closed — money §2 worked example', () => {
       ['points:delivery_fee', 100],
     ]);
     expect(nets(p.money)['platform']).toBe(2750 - 600);
-    expect(p.totalIqd).toBe(16000); // 16,500 − 600 = 15,900 → rounds to 16,000
-    expect(nets(p.money)['rounding']).toBe(100);
+    expect(p.totalIqd).toBe(16000); // 16,500 − 600 = 15,900 → hands over 16,000
+    expect(nets(p.money)['customer:c1']).toBe(100); // the 100 change is his wallet credit
+    expect(nets(p.money)['rounding']).toBeUndefined();
     expect(p.redeem && nets(p.redeem)).toEqual({ 'points:c1': -60, points_pool: 60 });
     // Never more than service fee + delivery: 1,000 points ask for 10,000 but only 150 apply.
     expect(postOrderClosed(workedExample({ pointsRedeemed: 1000 }), rules).redeem?.lines[0]?.amount).toBe(150);
@@ -125,31 +126,68 @@ describe('order closed — money §2 worked example', () => {
   });
 });
 
-describe('rounding (G-88)', () => {
-  it('customer totals are multiples of 500, half up; 250 only with a 250 component', () => {
-    expect(roundCustomerTotal(16250, rules)).toBe(16500);
-    expect(roundCustomerTotal(16249, rules)).toBe(16000);
-    expect(roundCustomerTotal(16250, rules, true)).toBe(16250);
-    expect(roundCustomerTotal(16100, rules, true)).toBe(16000);
+describe('cash rounding: up to 250, the change to the wallet (Ali, 2026-10-04)', () => {
+  it('a cash customer hands over his price rounded up to 250; exact multiples stay as they are', () => {
+    expect(roundCustomerTotal(16250, rules)).toBe(16250);
+    expect(roundCustomerTotal(16251, rules)).toBe(16500);
+    expect(roundCustomerTotal(16100, rules)).toBe(16250);
+    expect(roundCustomerTotal(16000, rules)).toBe(16000);
+    expect(roundCustomerTotal(0, rules)).toBe(0);
+    expect(cashToHand(17800)).toEqual({ cashIqd: 18000, changeIqd: 200 });
+    expect(cashToHand(18050)).toEqual({ cashIqd: 18250, changeIqd: 200 });
+    expect(cashToHand(18000)).toEqual({ cashIqd: 18000, changeIqd: 0 });
   });
 
-  it('residue posts to the rounding account in either direction', () => {
-    const up = postOrderClosed(workedExample({ itemsSubtotalIqd: 14750 }), rules);
-    validateGroup(up.money);
-    expect(up.totalIqd).toBe(16500);
-    expect(nets(up.money)['rounding']).toBe(250);
-    const down = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600 }), rules);
-    validateGroup(down.money);
-    expect(down.totalIqd).toBe(16000);
-    expect(nets(down.money)['rounding']).toBe(-100);
-    const quarter = postOrderClosed(workedExample({ itemsSubtotalIqd: 14750, has250Component: true }), rules);
-    expect(quarter.totalIqd).toBe(16250);
-    expect(nets(quarter.money)['rounding']).toBeUndefined();
+  it('the remainder is change credited to the customer, from the cash the courier holds — nobody else pays for it', () => {
+    const p = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600 }), rules); // 14,600 + 500 + 1,000 = 16,100
+    validateGroup(p.money);
+    expect(p.totalIqd).toBe(16250);
+    const n = nets(p.money);
+    expect(n['customer:c1']).toBe(150); // "الباقي رصيد"
+    expect(n['cash:k1']).toBe(-16250); // the courier holds all of it (counts on his cap until he settles)
+    expect(n['rounding']).toBeUndefined();
+    expect(p.money.lines.find((l) => l.type === 'cash_rounding_credit')).toMatchObject({ amount: 150, memo: 'change_as_credit', fromAccount: 'cash:k1', toAccount: 'customer:c1' });
+    // The merchant and the platform get exactly what they would without rounding.
+    const exact = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600, payment: 'wallet' }), rules);
+    expect(n['merchant_cash:m1']).toBe(nets(exact.money)['merchant_cash:m1']);
+    expect(n['platform']).toBe(nets(exact.money)['platform']);
+    expect(n['driver:k1']).toBe(nets(exact.money)['driver:k1']);
+  });
+
+  it('a wallet payment is charged the exact price: no cash, no change, no rounding', () => {
+    const w = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600, payment: 'wallet' }), rules);
+    validateGroup(w.money);
+    expect(w.totalIqd).toBe(16100);
+    expect(nets(w.money)['customer:c1']).toBe(-16100);
+    expect(w.money.lines.some((l) => l.type === 'cash_collected' || l.type === 'cash_rounding_credit' || l.type === 'rounding_residue')).toBe(false);
+  });
+
+  it('a merchant deal is taken exactly as promised; the cash change goes to the wallet, the merchant never pays more', () => {
+    // Items 21,000, fees 1,000, 20 % deal = 4,200 exact → price 17,800 → hands over 18,000, 200 change.
+    const p = postOrderClosed(workedExample({ itemsSubtotalIqd: 21000, deliveryFeeIqd: 500, serviceFeeIqd: 500, merchantDeal: { promotionId: 'd20', target: 'items', amountIqd: 4200 } }), rules);
+    validateGroup(p.money);
+    expect(p.totalIqd).toBe(18000);
+    expect(p.money.lines.filter((l) => l.type === 'promo_funded').map((l) => l.amount)).toEqual([4200]);
+    expect(nets(p.money)['customer:c1']).toBe(200);
+  });
+
+  it('tips count in the price: a 1,000 tip on 16,100 → 17,250 handed over, 150 change', () => {
+    const p = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600, tipIqd: 1000 }), rules);
+    expect(p.totalIqd).toBe(17250);
+    expect(nets(p.money)['customer:c1']).toBe(150);
+  });
+
+  it('short cash is still wallet debt; extra cash beyond the change is credit too', () => {
+    const short = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600, cashCollectedIqd: 16000 }), rules);
+    validateGroup(short.money);
+    expect(nets(short.money)['customer:c1']).toBe(-100);
+    const extra = postOrderClosed(workedExample({ itemsSubtotalIqd: 14600, cashCollectedIqd: 20000 }), rules);
+    expect(nets(extra.money)['customer:c1']).toBe(3900);
   });
 });
 
-describe('review L: postings agree with the order total rule (has250Component)', () => {
-  it('a 16,250 night order (+250 delivery) collected in full nets the customer to zero even without the flag', () => {
+describe('review L: a total on a 250 step collected in full nets the customer to zero', () => {
+  it('a 16,250 night order (+250 delivery) collected in full nets the customer to zero', () => {
     const p = postOrderClosed(
       { orderId: 'o1', orderType: 'food', occurredAt: at, customerId: 'c', payment: 'cash', cashCollectedIqd: 16250, merchantId: 'm', courierId: 'k', itemsSubtotalIqd: 15000, commissionTier: 'base', serviceFeeIqd: 0, deliveryFeeIqd: 1250 },
       rules,
@@ -160,7 +198,7 @@ describe('review L: postings agree with the order total rule (has250Component)',
     expect(nets(p.money)['rounding']).toBeUndefined();
   });
 
-  it('a street hand-over (−250) and a 250-step ride fare round to 250 too', () => {
+  it('a street hand-over (−250) and a 250-step ride fare need no change', () => {
     const street = postOrderClosed(workedExample({ deliveryFeeIqd: 750, cashCollectedIqd: 16250 }), rules);
     expect(street.totalIqd).toBe(16250);
     expect(nets(street.money)['customer:c1'] ?? 0).toBe(0);
@@ -338,15 +376,18 @@ describe('property: random orders always balance', () => {
           batchedSecond: courier && rand() < 0.2,
           tipIqd: courier && rand() < 0.1 ? 1000 : 0,
           pointsRedeemed: rand() < 0.2 ? Math.floor(rand() * 200) : 0,
-          has250Component: rand() < 0.3,
           ...(rand() < 0.3 ? { cashCollectedIqd: 250 * Math.floor(rand() * 220) } : {}),
           participants: rand() < 0.3 ? [{ personId: `p${i}`, itemsIqd: 0 }] : [],
         };
         const p = postOrderClosed(o, rules);
         validateGroup(p.money);
         if (p.redeem) validateGroup(p.redeem);
-        expect(p.totalIqd % 250).toBe(0);
-        if (!o.has250Component) expect(p.totalIqd % 500).toBe(0);
+        if (o.payment === 'cash') {
+          expect(p.totalIqd % 250).toBe(0);
+          // The customer ends with his change (0–249) when he paid the default; never owing then.
+          if (o.cashCollectedIqd === undefined) expect(nets(p.money)[`customer:${o.customerId}`] ?? 0).toBeGreaterThanOrEqual(0);
+          if (o.cashCollectedIqd === undefined) expect(nets(p.money)[`customer:${o.customerId}`] ?? 0).toBeLessThan(250);
+        }
         const sum = Object.values(nets(p.money)).reduce((a, b) => a + b, 0);
         expect(sum).toBe(0);
         expect(p.money.lines.every((l) => Number.isInteger(l.amount) && l.amount > 0)).toBe(true);

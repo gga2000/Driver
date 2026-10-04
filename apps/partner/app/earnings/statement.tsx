@@ -76,7 +76,7 @@ export default function Statement() {
           <CashCapCard view={v} rangeLabel={e.label} onHandover={() => setHandover(true)} />
         </View>
       )}
-      <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={v?.cash.heldIqd ?? 0} />
+      <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={v?.cash.heldIqd ?? 0} owedIqd={v?.cap.owedIqd ?? 0} />
     </Screen>
   );
 }
