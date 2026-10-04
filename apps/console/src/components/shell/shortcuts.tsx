@@ -53,6 +53,16 @@ export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () =
         [[mod, '↵'], t('console.kb_send')],
       ],
     },
+    {
+      title: t('console.kb_group_approvals'),
+      rows: [
+        [['A'], t('console.kb_approve')],
+        [['X'], t('console.kb_reject')],
+        [['1', '–', '4'], t('console.kb_reason')],
+        [['J'], t('console.kb_next_item')],
+        [['K'], t('console.kb_prev_item')],
+      ],
+    },
   ];
   return (
     <Dialog

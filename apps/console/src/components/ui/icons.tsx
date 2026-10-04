@@ -267,6 +267,46 @@ export const IconExternal = make(
     <path d="M11.5 3.5H16.5v5M16.5 3.5 9.5 10.5" />
   </>,
 );
+export const IconBell = make(
+  <>
+    <path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 2h-13l1.5-2Z" />
+    <path d="M8.3 17.5a1.9 1.9 0 0 0 3.4 0" />
+  </>,
+);
+export const IconShield = make(
+  <path d="M10 2.5 16 5v4.5c0 3.8-2.6 6.6-6 8-3.4-1.4-6-4.2-6-8V5l6-2.5Z" />,
+);
+/** A stop sign: something switched off on purpose (kill switches). */
+export const IconStop = make(
+  <>
+    <path d="M7 2.5h6L17.5 7v6L13 17.5H7L2.5 13V7L7 2.5Z" />
+    <path d="M7 10h6" />
+  </>,
+);
+export const IconDownload = make(
+  <>
+    <path d="M10 3v10M6 9l4 4 4-4" />
+    <path d="M3.5 14.5v2h13v-2" />
+  </>,
+);
+export const IconPin = make(
+  <>
+    <path d="M10 17.5s5.5-5 5.5-9.5a5.5 5.5 0 0 0-11 0c0 4.5 5.5 9.5 5.5 9.5Z" />
+    <circle cx="10" cy="8" r="2" />
+  </>,
+);
+export const IconTarget = make(
+  <>
+    <circle cx="10" cy="10" r="7" />
+    <circle cx="10" cy="10" r="3.5" />
+  </>,
+);
+export const IconZoom = make(
+  <>
+    <circle cx="9" cy="9" r="5.5" />
+    <path d="m13 13 4 4M9 6.5v5M6.5 9h5" />
+  </>,
+);
 export const IconDot = ({ className = '' }: { className?: string }) => (
   <span aria-hidden className={`inline-block h-2 w-2 shrink-0 rounded-pill ${className}`} />
 );

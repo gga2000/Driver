@@ -3,10 +3,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AZIZIYAH_ZONES, INTERCITY_DESTINATIONS, type PriceRequestInput, type QuoteComponent, type Vertical, type ZoneTier } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { formatClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
+import { Checkbox, Chip, cx, Field, Input, PageHeader, Segmented, Select, Skeleton, tdCls, thCls } from './ui';
 
 const CITY_ID = 'aziziyah';
 const CITY_TZ = 'Asia/Baghdad';
@@ -27,8 +28,11 @@ const ZONE_GROUPS = TIERS.map((tier) => ({
   tier,
   zones: AZIZIYAH_ZONES.filter((z) => z.tier === tier).map((z) => ({ id: z.id, name: z.name_ar })),
 }));
+const ZONE_NAMES = new Map<string, string>([...AZIZIYAH_ZONES.map((z) => [z.id, z.name_ar] as const), ...INTERCITY_DESTINATIONS.map((d) => [d.id, d.name_ar] as const)]);
+const zoneName = (id: string) => ZONE_NAMES.get(id) ?? id;
 
 type Pickup = 'door' | 'street';
+type When = 'now' | 'night' | 'custom';
 
 interface SimState {
   vertical: SimVertical;
@@ -43,6 +47,7 @@ interface SimState {
   durationMin: number;
   /** `datetime-local` string; empty means "now". */
   at: string;
+  when: When;
 }
 
 const INITIAL: SimState = {
@@ -57,12 +62,20 @@ const INITIAL: SimState = {
   distanceKm: 0,
   durationMin: 0,
   at: '',
+  when: 'now',
 };
+
+/** "السبت 4 تشرين الأول · 10:53 م" in the city's zone (Arabic month names, Western digits; K-15). */
+function formatWhen(d: Date): string {
+  const day = new Intl.DateTimeFormat('ar-IQ-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', timeZone: CITY_TZ }).format(d);
+  return `${day} · ${formatClock(d, CITY_TZ)}`;
+}
 
 export function PricingSimulator() {
   const trpc = useTRPC();
   const [s, setS] = useState<SimState>(INITIAL);
   const patch = (p: Partial<SimState>) => setS((prev) => ({ ...prev, ...p }));
+  const ids = { from: useId(), to: useId(), at: useId() };
 
   const isRide = RIDES.has(s.vertical);
   const isIntercity = s.vertical === 'intercity';
@@ -103,168 +116,154 @@ export function PricingSimulator() {
     patch({ vertical, to, from, pickup: RIDES.has(vertical) ? 'street' : 'door' });
   };
 
-  const setNow = () => {
-    setNowDate(new Date());
-    patch({ at: '' });
-  };
-  const setNight = () => {
-    const d = new Date();
-    d.setHours(23, 30, 0, 0);
-    patch({ at: toLocalInputValue(d) });
+  const setWhen = (when: When) => {
+    if (when === 'now') {
+      setNowDate(new Date());
+      patch({ at: '', when });
+    } else if (when === 'night') {
+      const d = new Date();
+      d.setHours(23, 30, 0, 0);
+      patch({ at: toLocalInputValue(d), when });
+    } else patch({ at: s.at || toLocalInputValue(at), when });
   };
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold md:text-3xl">{t('console.pricing_title')}</h1>
-        <p className="mt-1 text-sm text-muted">{t('console.pricing_subtitle')}</p>
-      </header>
+    <div className="mx-auto max-w-[1240px]">
+      <PageHeader title={t('console.pricing_title')} subtitle={t('console.pricing_subtitle')} />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <form className="space-y-5" onSubmit={(e) => e.preventDefault()} aria-label={t('console.pricing_title')}>
-          <Card>
-            <Field label={t('console.pricing_vertical')}>
-              {(id) => (
-                <div id={id} role="group" aria-label={t('console.pricing_vertical')} className="flex flex-wrap gap-2">
-                  {VERTICALS.map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      aria-pressed={s.vertical === v}
-                      onClick={() => changeVertical(v)}
-                      className={`rounded-pill border px-3 py-1.5 text-sm transition-colors ${
-                        s.vertical === v ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
-                      }`}
-                    >
-                      {t(verticalKey(v))}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Field>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label={t('console.pricing_from')}>
-                {(id) => <ZoneSelect id={id} value={s.from} onChange={(from) => patch({ from })} intercity={isIntercity} />}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+        <form className="rounded-lg border border-line bg-surface shadow-card" onSubmit={(e) => e.preventDefault()} aria-label={t('console.pricing_title')}>
+          <section className="space-y-4 p-5">
+            <div className="space-y-1.5">
+              <p className="text-dense font-medium">{t('console.pricing_vertical')}</p>
+              <Segmented<SimVertical> label={t('console.pricing_vertical')} value={s.vertical} onChange={changeVertical} options={VERTICALS.map((v) => ({ value: v, label: t(verticalKey(v)) }))} className="flex-wrap" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('console.pricing_from')} htmlFor={ids.from}>
+                <ZoneSelect id={ids.from} value={s.from} onChange={(from) => patch({ from })} intercity={isIntercity} />
               </Field>
-              <Field label={t('console.pricing_to')}>
-                {(id) => <ZoneSelect id={id} value={s.to} onChange={(to) => patch({ to })} intercity={isIntercity} destinationsOnly={isIntercity} />}
+              <Field label={t('console.pricing_to')} htmlFor={ids.to}>
+                <ZoneSelect id={ids.to} value={s.to} onChange={(to) => patch({ to })} intercity={isIntercity} destinationsOnly={isIntercity} />
               </Field>
             </div>
-          </Card>
+          </section>
 
-          <Card title={t('console.pricing_options')}>
-            <fieldset>
-              <legend className="mb-2 text-sm text-muted">{isRide ? t('quote.door_pickup') : t('quote.delivery')}</legend>
-              <div className="flex gap-2">
-                <Radio name="pickup" checked={s.pickup === 'door'} onChange={() => patch({ pickup: 'door' })}>
-                  {isRide ? t('console.option_door_pickup') : t('quote.door_pickup')}
-                </Radio>
-                <Radio name="pickup" checked={s.pickup === 'street'} onChange={() => patch({ pickup: 'street' })}>
-                  {isRide ? t('console.option_street_pickup') : t('console.option_street_handover')}
-                </Radio>
-              </div>
-            </fieldset>
-
-            {isIntercity && (
-              <label className="mt-4 flex items-center gap-3 text-sm">
-                <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--c-accent))]" checked={s.frontSeat} onChange={(e) => patch({ frontSeat: e.target.checked })} />
-                {t('console.option_front_seat')}
-              </label>
-            )}
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {isRide && (
-                <NumberField label={t('console.option_passengers')} value={s.passengers} min={1} max={4} onChange={(passengers) => patch({ passengers })} />
-              )}
+          <section className="space-y-4 border-t border-line p-5">
+            <h2 className="text-[15px] font-semibold">{t('console.pricing_options')}</h2>
+            <div className="space-y-1.5">
+              <p className="text-dense font-medium">{isRide ? t('console.pricing_pickup') : t('quote.delivery')}</p>
+              <Segmented<Pickup>
+                label={isRide ? t('console.pricing_pickup') : t('quote.delivery')}
+                value={s.pickup}
+                onChange={(pickup) => patch({ pickup })}
+                options={[
+                  { value: 'door', label: isRide ? t('console.option_door_pickup') : t('quote.door_pickup') },
+                  { value: 'street', label: isRide ? t('console.option_street_pickup') : t('console.option_street_handover') },
+                ]}
+              />
+            </div>
+            {isIntercity && <Checkbox label={t('console.option_front_seat')} checked={s.frontSeat} onChange={(frontSeat) => patch({ frontSeat })} />}
+            <div className="grid gap-4 sm:grid-cols-3">
+              {isRide && <NumberField label={t('console.option_passengers')} value={s.passengers} min={1} max={4} onChange={(passengers) => patch({ passengers })} />}
               <NumberField label={t('console.option_wait')} value={s.waitMinutes} min={0} max={120} onChange={(waitMinutes) => patch({ waitMinutes })} />
               <NumberField label={t('console.option_promo')} value={s.promoIqd} min={0} max={50_000} step={250} onChange={(promoIqd) => patch({ promoIqd })} />
               <NumberField label={t('console.distance_km')} value={s.distanceKm} min={0} max={200} step={0.5} onChange={(distanceKm) => patch({ distanceKm })} />
               <NumberField label={t('console.duration_min')} value={s.durationMin} min={0} max={600} onChange={(durationMin) => patch({ durationMin })} />
             </div>
-          </Card>
+            <p className="text-xs text-muted">{t('console.pricing_zero_hint')}</p>
+          </section>
 
-          <Card title={t('console.pricing_time')}>
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label={t('console.pricing_time')} className="min-w-[14rem] flex-1" srLabel>
-                {(id) => (
-                  <input
-                    id={id}
-                    type="datetime-local"
-                    dir="ltr"
-                    className={inputCls}
-                    value={s.at || (now ? toLocalInputValue(now) : '')}
-                    onChange={(e) => patch({ at: e.target.value })}
-                  />
-                )}
-              </Field>
-              <button type="button" onClick={setNow} className={ghostBtn} aria-pressed={s.at === ''}>
-                {t('console.pricing_now')}
-              </button>
-              <button type="button" onClick={setNight} className={ghostBtn}>
-                {t('console.pricing_try_night')}
-              </button>
+          <section className="space-y-3 border-t border-line p-5">
+            <h2 className="text-[15px] font-semibold">{t('console.pricing_time')}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented<When>
+                label={t('console.pricing_time')}
+                value={s.when}
+                onChange={setWhen}
+                options={[
+                  { value: 'now', label: t('console.pricing_now') },
+                  { value: 'night', label: t('console.pricing_try_night') },
+                  { value: 'custom', label: t('console.pricing_pick_time') },
+                ]}
+              />
+              {s.when === 'custom' && (
+                <span className="block w-56">
+                  <label htmlFor={ids.at} className="sr-only">
+                    {t('console.pricing_time')}
+                  </label>
+                  <Input id={ids.at} type="datetime-local" dir="ltr" value={s.at} onChange={(e) => patch({ at: e.target.value })} />
+                </span>
+              )}
             </div>
-            <p className="mt-2 text-xs text-muted">
-              {t('quote.reason.night', { time: '11' })} · {ready ? formatClock(at, CITY_TZ) : '—'}
+            <p className="text-dense text-muted">
+              {t('console.pricing_priced_at', { when: ready ? formatWhen(at) : '—' })}
+              <span className="text-faint"> · {t('console.pricing_night_rule')}</span>
             </p>
-          </Card>
+          </section>
         </form>
 
-        <Card title={t('console.pricing_result')} className="self-start lg:sticky lg:top-6">
-          {!ready && <p className="text-sm text-muted">{t('console.pricing_pick_zones')}</p>}
-          {ready && quote.isPending && <p className="text-sm text-muted">{t('console.pricing_loading')}</p>}
-          {ready && quote.isError && (
-            <p className="text-sm text-bad" role="alert">
-              {errorText(quote.error)}
-            </p>
-          )}
-          {quote.data && (
-            <div className={quote.isFetching ? 'opacity-70 transition-opacity' : 'transition-opacity'} aria-busy={quote.isFetching}>
-              <QuoteTable shown={quote.data.components} shadow={quote.data.shadowComponents} />
-
-              <dl className="mt-4 space-y-1 border-t border-line pt-4 text-sm">
-                <SummaryRow k={t('console.quote_subtotal')} v={formatIqd(quote.data.subtotal)} />
-                <SummaryRow
-                  k={t('console.quote_rounding', { step: formatIqd(quote.data.rounding.step) })}
-                  v={formatSigned(quote.data.rounding.applied)}
-                />
-                {(quote.data.bounds.floor !== undefined || quote.data.bounds.ceiling !== undefined) && (
-                  <SummaryRow
-                    k={t(quote.data.bounds.clamped ? 'console.quote_clamped' : 'console.quote_bounds', {
-                      floor: formatIqd(quote.data.bounds.floor ?? 0),
-                      ceiling: formatIqd(quote.data.bounds.ceiling ?? 0),
-                    })}
-                    v={quote.data.bounds.clamped ? '!' : ''}
-                    muted
-                  />
-                )}
-              </dl>
-
-              <div className="mt-4 flex items-baseline justify-between gap-4 rounded-lg bg-surface-2 px-4 py-3">
-                <span className="text-sm text-muted">
-                  {t('console.quote_total')}
-                  {isRide && s.passengers > 1 && <span className="ms-2 text-xs">· {t('console.quote_per_seat')}</span>}
-                </span>
-                <output className="font-display text-3xl font-bold tabular-nums text-accent-text" aria-live="polite">
-                  {formatIqd(quote.data.total)} <span className="text-base font-normal text-muted">{t('quote.currency')}</span>
-                </output>
+        <section aria-labelledby="quote-title" className="rounded-lg border border-line bg-surface shadow-card lg:sticky lg:top-6">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+            <h2 id="quote-title" className="text-[15px] font-semibold">
+              {t('console.pricing_result')}
+            </h2>
+            <span className="text-dense text-muted">{t('console.pricing_route', { from: zoneName(s.from), to: zoneName(s.to), vertical: t(verticalKey(s.vertical)) })}</span>
+          </header>
+          <div className="p-5">
+            {!ready && <p className="text-sm text-muted">{t('console.pricing_pick_zones')}</p>}
+            {ready && quote.isPending && (
+              <div className="space-y-3" aria-busy>
+                <Skeleton className="h-16 rounded-md" />
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-5" />
+                ))}
               </div>
-              {isRide && s.passengers > 1 && (
-                <p className="mt-2 text-sm text-muted">
-                  {t('console.quote_seats_total', { n: s.passengers, amount: formatIqd(quote.data.total * s.passengers) })}
-                </p>
-              )}
-
-              <p className="mt-3 text-xs text-faint">
-                {t('console.quote_shadow_total')}: {formatMoney(quote.data.shadowTotal)}
+            )}
+            {ready && quote.isError && (
+              <p className="text-sm text-bad" role="alert">
+                {errorText(quote.error)}
               </p>
-              {freeCancelSec !== undefined && (
-                <p className="mt-1 text-xs text-faint">{t('console.free_cancel', { seconds: freeCancelSec })}</p>
-              )}
-            </div>
-          )}
-        </Card>
+            )}
+            {quote.data && (
+              <div className={cx('transition-opacity', quote.isFetching && 'opacity-70')} aria-busy={quote.isFetching}>
+                <div className="flex items-end justify-between gap-4 rounded-md bg-accent-wash px-4 py-4">
+                  <span className="text-sm text-muted">
+                    {t('console.quote_total')}
+                    {isRide && s.passengers > 1 && <span className="block text-xs">{t('console.quote_per_seat')}</span>}
+                  </span>
+                  <output className="text-[34px] font-bold leading-[42px] tracking-[-0.01em] text-accent-text" aria-live="polite">
+                    {formatIqd(quote.data.total)} <span className="text-base font-medium text-muted">{t('quote.currency')}</span>
+                  </output>
+                </div>
+                {isRide && s.passengers > 1 && <p className="mt-2 text-sm text-muted">{t('console.quote_seats_total', { n: s.passengers, amount: formatIqd(quote.data.total * s.passengers) })}</p>}
+
+                <QuoteTable shown={quote.data.components} shadow={quote.data.shadowComponents} />
+
+                <dl className="mt-3 space-y-1.5 text-sm">
+                  <SummaryRow k={t('console.quote_subtotal')} v={formatIqd(quote.data.subtotal)} />
+                  <SummaryRow k={t('console.quote_rounding', { step: formatIqd(quote.data.rounding.step) })} v={formatSigned(quote.data.rounding.applied)} />
+                  {(quote.data.bounds.floor !== undefined || quote.data.bounds.ceiling !== undefined) && (
+                    <SummaryRow
+                      k={t(quote.data.bounds.clamped ? 'console.quote_clamped' : 'console.quote_bounds', {
+                        floor: formatIqd(quote.data.bounds.floor ?? 0),
+                        ceiling: formatIqd(quote.data.bounds.ceiling ?? 0),
+                      })}
+                      v={quote.data.bounds.clamped ? t('console.quote_clamped_short') : ''}
+                      muted
+                    />
+                  )}
+                </dl>
+
+                <div className="mt-4 space-y-1 border-t border-line pt-3 text-xs text-muted">
+                  <p>
+                    {t('console.quote_shadow_total')}: <span className="num font-medium text-text">{formatMoney(quote.data.shadowTotal)}</span>
+                  </p>
+                  {freeCancelSec !== undefined && <p>{t('console.free_cancel', { seconds: freeCancelSec })}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -272,25 +271,9 @@ export function PricingSimulator() {
 
 // ───────────────────────── pieces ─────────────────────────
 
-const inputCls =
-  'w-full rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-faint disabled:opacity-50';
-const ghostBtn = 'rounded-md border border-line bg-surface-2 px-3 py-2 text-sm hover:border-line-strong aria-pressed:border-accent aria-pressed:text-accent-text';
-
-function ZoneSelect({
-  id,
-  value,
-  onChange,
-  intercity,
-  destinationsOnly = false,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  intercity: boolean;
-  destinationsOnly?: boolean;
-}) {
+function ZoneSelect({ id, value, onChange, intercity, destinationsOnly = false }: { id: string; value: string; onChange: (v: string) => void; intercity: boolean; destinationsOnly?: boolean }) {
   return (
-    <select id={id} className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+    <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
       {!destinationsOnly &&
         ZONE_GROUPS.map((g) => (
           <optgroup key={g.tier} label={t(tierKey(g.tier))}>
@@ -310,22 +293,23 @@ function ZoneSelect({
           ))}
         </optgroup>
       )}
-    </select>
+    </Select>
   );
 }
 
 function QuoteTable({ shown, shadow }: { shown: QuoteComponent[]; shadow: QuoteComponent[] }) {
   return (
-    <table className="w-full text-sm">
-      <thead className="text-xs text-muted">
-        <tr className="border-b border-line">
-          <th scope="col" className="py-2 text-start font-medium">
+    <table className="mt-4 w-full border-separate border-spacing-0 text-sm">
+      <caption className="sr-only">{t('console.pricing_result')}</caption>
+      <thead>
+        <tr>
+          <th scope="col" className={thCls}>
             {t('console.col_component')}
           </th>
-          <th scope="col" className="py-2 text-start font-medium">
+          <th scope="col" className={thCls}>
             {t('console.col_share')}
           </th>
-          <th scope="col" className="py-2 text-end font-medium">
+          <th scope="col" className={cx(thCls, 'text-end')}>
             {t('console.col_amount')}
           </th>
         </tr>
@@ -345,21 +329,21 @@ function QuoteTable({ shown, shadow }: { shown: QuoteComponent[]; shadow: QuoteC
 function ComponentRow({ c }: { c: QuoteComponent }) {
   const shadow = c.visibility === 'shadow';
   return (
-    <tr className={`border-b border-line/50 ${shadow ? 'text-faint' : ''}`}>
-      <td className="py-2">
+    <tr className={shadow ? 'text-muted' : ''}>
+      <td className={tdCls}>
         <span className="flex flex-wrap items-center gap-2">
           {c.label_ar}
           {c.leg !== undefined && <span className="text-xs text-muted">{t('console.leg', { n: c.leg + 1 })}</span>}
           {shadow && (
-            <span className="rounded-pill border border-line px-2 py-0.5 text-[11px] uppercase tracking-wide text-faint">
+            <Chip size="sm" title={t('console.badge_shadow_hint')}>
               {t('console.badge_shadow')}
-            </span>
+            </Chip>
           )}
         </span>
       </td>
-      <td className="py-2 text-xs">{t(shareKey(c.driverShareRule))}</td>
-      <td className="py-2 text-end tabular-nums" dir="ltr">
-        {formatSigned(c.amount)}
+      <td className={cx(tdCls, 'text-xs text-muted')}>{t(shareKey(c.driverShareRule))}</td>
+      <td className={cx(tdCls, 'num text-end font-medium')}>
+        <bdi dir="ltr">{formatSigned(c.amount)}</bdi>
       </td>
     </tr>
   );
@@ -378,94 +362,34 @@ function shareKey(rule: QuoteComponent['driverShareRule']): MessageKey {
 
 function SummaryRow({ k, v, muted = false }: { k: string; v: string; muted?: boolean }) {
   return (
-    <div className={`flex justify-between gap-4 ${muted ? 'text-muted' : ''}`}>
+    <div className={cx('flex justify-between gap-4', muted && 'text-muted')}>
       <dt>{k}</dt>
-      <dd className="tabular-nums" dir="ltr">
-        {v}
+      <dd className="num">
+        <bdi dir="ltr">{v}</bdi>
       </dd>
     </div>
   );
 }
 
-function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
-  return (
-    <section className={`rounded-xl border border-line bg-surface p-5 shadow-card ${className}`}>
-      {title && <h2 className="mb-4 text-base font-semibold">{title}</h2>}
-      {children}
-    </section>
-  );
-}
-
-/** Label + control wired by id; `srLabel` hides the label visually when the group already names it. */
-function Field({
-  label,
-  children,
-  className = '',
-  srLabel = false,
-}: {
-  label: string;
-  children: (id: string) => ReactNode;
-  className?: string;
-  srLabel?: boolean;
-}) {
+function NumberField({ label, value, onChange, min, max, step = 1 }: { label: string; value: number; onChange: (v: number) => void; min: number; max: number; step?: number }) {
   const id = useId();
   return (
-    <div className={className}>
-      <label htmlFor={id} className={srLabel ? 'sr-only' : 'mb-1.5 block text-sm text-muted'}>
-        {label}
-      </label>
-      {children(id)}
-    </div>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  min: number;
-  max: number;
-  step?: number;
-}) {
-  return (
-    <Field label={label}>
-      {(id) => (
-        <input
-          id={id}
-          type="number"
-          inputMode="decimal"
-          dir="ltr"
-          className={inputCls}
-          value={value}
-          min={min}
-          max={max}
-          step={step}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
-          }}
-        />
-      )}
+    <Field label={label} htmlFor={id}>
+      <Input
+        id={id}
+        type="number"
+        inputMode="decimal"
+        dir="ltr"
+        className="num"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+        }}
+      />
     </Field>
-  );
-}
-
-function Radio({ name, checked, onChange, children }: { name: string; checked: boolean; onChange: () => void; children: ReactNode }) {
-  return (
-    <label
-      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-        checked ? 'border-accent text-accent-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
-      }`}
-    >
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="accent-[rgb(var(--c-accent))]" />
-      {children}
-    </label>
   );
 }

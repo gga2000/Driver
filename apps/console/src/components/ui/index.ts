@@ -16,3 +16,4 @@ export * from './toast';
 export * from './misc';
 export * from './status';
 export * from './icons';
+export * from './switch';

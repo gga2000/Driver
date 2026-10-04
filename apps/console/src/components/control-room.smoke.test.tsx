@@ -105,12 +105,33 @@ describe('control room pages render', () => {
         canBanner
         onSwitch={() => undefined}
         onZone={() => undefined}
+        policies={[{ vertical: 'food', policy: 'smart_broadcast', suggestOnly: false, overridden: true }]}
+        onPolicy={() => undefined}
       />,
     );
-    for (const text of ['مفاتيح الإيقاف', 'الموقّف هسة', 'الطريق للخماس مسدود بسبب المطر', 'سقف الطلبات بالمناطق', 'زاكور', 'ممتلئ', 'مزدحم', 'إعلان لكل التطبيقات', 'المطر قوي، التوصيل يتأخر شوية', 'سجل التحكّم', 'وقّف الخماس: مطر قوي', 'مطعم خالد', 'العزيزية ⇄ بغداد']) {
+    for (const text of [
+      'الخدمات بكل المدينة',
+      'الموقّف هسة',
+      'الطريق للخماس مسدود بسبب المطر',
+      'يرجع وحده الساعة 12:00 ص',
+      'المناطق والخدمات',
+      'زاكور',
+      'ممتلئ',
+      'مزدحم',
+      'role="switch"',
+      'طريقة التوزيع',
+      'رجّعه للإعداد',
+      'إعلان لكل التطبيقات',
+      'المطر قوي، التوصيل يتأخر شوية',
+      'درايفر للسواق',
+      'سجل التحكّم',
+      'وقّف الخماس: مطر قوي',
+      'مطعم خالد',
+      'العزيزية ⇄ بغداد',
+    ]) {
       expect(html).toContain(text);
     }
-    // Full zones first in the gauge grid.
+    // Full zones first in the matrix.
     expect(html.indexOf('زاكور')).toBeLessThan(html.indexOf('العزيزية (مركز)'));
   });
 
@@ -226,7 +247,9 @@ describe('control room pages render', () => {
       totals: { cashInFieldIqd: 48_000, merchantsPayableIqd: 120_000, collectedTodayIqd: 30_000, couriersOverCap: 0 },
     };
     const html = wrap(<FinanceDesk desk={desk} />);
-    for (const text of ['الدفتر متوازن', 'جولة الساعة', 'زاكور', 'مرتضى', 'مطعم خالد', '48,000', 'تسليمات اليوم', 'خريطة الجولة']) expect(html).toContain(text);
+    for (const text of ['الدفتر متوازن', 'ماكو فرق', 'جولة الساعة', 'زاكور', 'مرتضى', 'مطعم خالد', '48,000', 'لازم يسلّم 52,000 دينار', 'للمطعم 120,000 دينار', 'سلّم 30,000 دينار لمطعم خالد', 'تسليمات اليوم', 'خريطة الجولة']) expect(html).toContain(text);
+    // Words, not signs (K-16).
+    expect(html).not.toMatch(/\d,\d{3}-/);
   });
 
   it('wall: six metrics against the playbook targets and orders per day', () => {
@@ -249,6 +272,6 @@ describe('control room pages render', () => {
       openTickets: 2,
     };
     const html = wrap(<Wall data={data} />);
-    for (const text of ['الأسبوع الأول', 'وسيط وقت التوصيل', '31 د', 'على الهدف', 'بعيد عن الهدف', 'بعد وكت', 'الطلبات باليوم', '4 من 6 على الهدف']) expect(html).toContain(text);
+    for (const text of ['الأسبوع الأول', 'وسيط وقت التوصيل', '31 د', 'على الهدف', 'بعيد عن الهدف', 'بعد وكت', 'الطلبات باليوم', '4 من 6', 'الهدف 30 طلب باليوم', 'اليوم']) expect(html).toContain(text);
   });
 });
