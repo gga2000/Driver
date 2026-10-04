@@ -8,12 +8,15 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
-// Never crawl or watch build output, logs or agent worktrees (full repo copies under .claude/): on
-// a big checkout they multiply Metro's file map and memory by an order of magnitude.
+// Never crawl or watch build output, logs or nested agent worktrees (full repo copies under this
+// checkout's .claude/): on a big checkout they multiply Metro's file map and memory. Anchored at this
+// workspace root, so a checkout that itself lives inside some .claude/worktrees/… still builds.
 // (Not `dist`: workspace packages and dependencies ship their code there.)
-const IGNORED_DIRS = ['.claude', '.studio', '.turbo', '.next', 'dist-web', 'dist-e2e', 'coverage', 'web-shots', 'gallery-dist', 'gallery-shots'];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const ignored = new RegExp(`[/\\\\](${IGNORED_DIRS.map(escape).join('|')})([/\\\\]|$)`);
+const sep = '[/\\\\]';
+const ROOT_ONLY = ['.claude', '.studio', '.turbo'].map((d) => escape(path.join(workspaceRoot, d)) + `(${sep}|$)`);
+const ANYWHERE = ['.next', 'dist-web', 'dist-e2e', 'coverage', 'web-shots', 'gallery-dist', 'gallery-shots'].map((d) => `${sep}${escape(d)}(${sep}|$)`);
+const ignored = new RegExp(`^(${ROOT_ONLY.join('|')})|${ANYWHERE.join('|')}`);
 const blockList = config.resolver.blockList;
 config.resolver.blockList = [...(Array.isArray(blockList) ? blockList : blockList ? [blockList] : []), ignored];
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules'), path.resolve(workspaceRoot, 'node_modules')];
