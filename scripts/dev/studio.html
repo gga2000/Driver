@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Driver Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #FBF6EE; --surface: #FFFFFF; --text: #1F1A14; --muted: #6B6157; --accent: #E08A1E;
+    --accent-text: #9A5200; --tint: #FCEBD3; --border: #EADFCF; --ok: #2E8B57; --warn: #C98A00; --bad: #C0392B;
+    --frame: #1F1A14;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px; background: rgba(251, 246, 238, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .logo { width: 36px; height: 36px; border-radius: 10px; background: var(--accent); color: var(--text); display: grid; place-items: center; font-weight: 700; font-size: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  .zoom { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .zoom input { accent-color: var(--accent); }
+  button, .btn { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 999px; padding: 6px 12px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  main { display: flex; gap: 32px; padding: 24px; overflow-x: auto; align-items: flex-start; }
+  .card { flex: none; display: flex; flex-direction: column; gap: 10px; }
+  .card-head { display: flex; align-items: center; gap: 8px; }
+  .card-head h2 { font-size: 16px; margin: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); flex: none; }
+  .dot.ready { background: var(--ok); } .dot.stopped { background: var(--bad); }
+  .state { font-size: 12px; color: var(--muted); }
+  .hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 8px 12px; max-width: 100%; }
+  .hint b { color: var(--text); font-weight: 600; direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+  .device { position: relative; background: var(--frame); border-radius: 44px; padding: 12px; box-shadow: 0 24px 60px rgba(31, 26, 20, 0.18); }
+  .device.tablet { border-radius: 28px; padding: 14px; }
+  .device.desktop { border-radius: 14px; padding: 8px; }
+  .screen { overflow: hidden; border-radius: 34px; background: var(--bg); position: relative; }
+  .tablet .screen { border-radius: 16px; } .desktop .screen { border-radius: 8px; }
+  iframe { border: 0; display: block; transform-origin: top right; background: var(--bg); }
+  .loading { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 14px; padding: 24px; background: var(--bg); }
+  .loading .spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--tint); border-top-color: var(--accent); animation: spin 1s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  footer { padding: 0 24px 32px; color: var(--muted); font-size: 12.5px; }
+  code { font-family: ui-monospace, Menlo, monospace; direction: ltr; unicode-bidi: isolate; background: var(--tint); padding: 1px 6px; border-radius: 6px; color: var(--accent-text); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">د</div>
+  <div>
+    <h1>استوديو درايفر</h1>
+    <div class="sub">كل التطبيقات على بيانات تجريبية · أي تعديل بالكود يبين هنا وحده</div>
+  </div>
+  <div class="spacer"></div>
+  <label class="zoom">الحجم <input id="zoom" type="range" min="50" max="100" value="80" /> <span id="zoomv">80%</span></label>
+  <button id="reloadAll">↻ حدّث الكل</button>
+</header>
+<main id="frames"></main>
+<footer>
+  رمز الدخول (OTP) يطلع تلقائياً على شاشة الرمز بوضع التجربة. السجلات الكاملة بمجلد <code>.studio/logs</code>.
+  لإيقاف كلشي: <code>Ctrl+C</code> بالتيرمنال.
+</footer>
+<script>
+  const APPS = {
+    customer: { title: 'الزبون · Driver', url: 'http://localhost:8081', kind: 'phone', w: 390, h: 844, svc: ['customer-api', 'customer-web'],
+      hint: 'ادخل بأي رقم، مثلاً <b>0770 222 3344</b>' },
+    partner: { title: 'السايق · Driver Partner', url: 'http://localhost:8082', kind: 'phone', w: 390, h: 844, svc: ['partner-api', 'partner-web'],
+      hint: 'دليفري <b>0770 111 0001</b> · تكتك <b>0770 111 0002</b> · الرجعة <b>0770 111 0003</b> · خطوط <b>0770 111 0004</b> · أسطول <b>0770 111 0005</b> · عمليات <b>0770 111 0006</b>' },
+    merchant: { title: 'المطعم · Driver Merchant', url: 'http://localhost:8083', kind: 'tablet', w: 1280, h: 800, svc: ['merchant-api', 'merchant-web'],
+      hint: 'صاحب مطعم خالد <b>0770 123 4567</b> · موظف بمطعمين <b>0770 999 0000</b>' },
+    console: { title: 'لوحة التحكّم · Console', url: 'http://localhost:3100', kind: 'desktop', w: 1440, h: 900, svc: ['console-api', 'console-web'],
+      hint: 'علي (كل الصلاحيات) <b>0770 000 0001</b> · عمليات <b>0770 000 0002</b> · دعم <b>0770 000 0003</b>' },
+  };
+  const SCALE_BASE = { phone: 1, tablet: 0.62, desktop: 0.55 };
+  const main = document.getElementById('frames');
+  const zoom = document.getElementById('zoom');
+  const zoomv = document.getElementById('zoomv');
+  const cards = {};
+  let loadingNow = null;
+  try { zoom.value = localStorage.getItem('studio-zoom') || zoom.value; } catch {}
+
+  function build(apps) {
+    main.innerHTML = '';
+    for (const key of apps) {
+      const a = APPS[key];
+      const card = document.createElement('section');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-head"><span class="dot"></span><h2>${a.title}</h2><span class="state">يشتغل…</span></div>
+        <div class="device ${a.kind}"><div class="screen">
+          <iframe title="${a.title}" allow="geolocation; camera; clipboard-write"></iframe>
+          <div class="loading"><div><div class="spin"></div>نجهّز التطبيق… أول مرة تاخذ دقيقة أو دقيقتين</div></div>
+        </div></div>
+        <div class="tools">
+          <button data-act="reload">↻ حدّث</button>
+          <a class="btn" href="${a.url}" target="_blank" rel="noopener">↗ افتحه بصفحة لحاله</a>
+        </div>
+        <div class="hint">${a.hint}</div>`;
+      card.querySelector('[data-act=reload]').onclick = () => { const f = card.querySelector('iframe'); if (f.src) f.src = a.url + '?t=' + Date.now(); };
+      main.appendChild(card);
+      cards[key] = { card, a, loaded: false };
+    }
+    applyZoom();
+  }
+
+  function applyZoom() {
+    const z = Number(zoom.value) / 100;
+    zoomv.textContent = zoom.value + '%';
+    try { localStorage.setItem('studio-zoom', zoom.value); } catch {}
+    for (const { card, a } of Object.values(cards)) {
+      const s = z * SCALE_BASE[a.kind];
+      const f = card.querySelector('iframe');
+      f.style.width = a.w + 'px'; f.style.height = a.h + 'px'; f.style.transform = `scale(${s})`;
+      const screen = card.querySelector('.screen');
+      screen.style.width = a.w * s + 'px'; screen.style.height = a.h * s + 'px';
+      card.querySelector('.hint').style.width = a.w * s + 24 + 'px';
+    }
+  }
+  zoom.oninput = applyZoom;
+  document.getElementById('reloadAll').onclick = () => {
+    for (const { card, a } of Object.values(cards)) { const f = card.querySelector('iframe'); if (f.src) f.src = a.url + '?t=' + Date.now(); }
+  };
+
+  async function poll() {
+    try {
+      const r = await fetch('/status', { cache: 'no-store' });
+      const s = await r.json();
+      if (!Object.keys(cards).length) build(s.apps);
+      for (const [key, c] of Object.entries(cards)) {
+        const states = c.a.svc.map((n) => s.services[n]);
+        const ready = states.every((x) => x === 'ready');
+        const stopped = states.some((x) => x === 'stopped');
+        const dot = c.card.querySelector('.dot');
+        dot.className = 'dot' + (ready ? ' ready' : stopped ? ' stopped' : '');
+        c.card.querySelector('.state').textContent = ready ? 'شغّال' : stopped ? 'وگف — شوف السجل' : 'يشتغل…';
+        // One app bundles at a time: the first open of each app compiles it (heavy), so the next frame
+        // waits until the previous one has finished loading.
+        if (ready && !c.loaded && !loadingNow) {
+          c.loaded = true;
+          loadingNow = key;
+          const f = c.card.querySelector('iframe');
+          const done = () => { c.card.querySelector('.loading').style.display = 'none'; if (loadingNow === key) loadingNow = null; };
+          f.onload = () => setTimeout(done, 1500);
+          setTimeout(() => { if (loadingNow === key) loadingNow = null; }, 180000);
+          f.src = c.a.url;
+        } else if (ready && !c.loaded) {
+          c.card.querySelector('.loading div').lastChild.textContent = 'ينتظر دوره… نجهّز التطبيقات وحدة وحدة';
+        }
+      }
+    } catch {
+      document.querySelector('.sub').textContent = 'الاستوديو وگف — شغّله من جديد بـ pnpm studio';
+    }
+    setTimeout(poll, 1500);
+  }
+  poll();
+</script>
+</body>
+</html>

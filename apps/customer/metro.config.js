@@ -8,6 +8,14 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
+// Never crawl or watch build output, logs or agent worktrees (full repo copies under .claude/): on
+// a big checkout they multiply Metro's file map and memory by an order of magnitude.
+// (Not `dist`: workspace packages and dependencies ship their code there.)
+const IGNORED_DIRS = ['.claude', '.studio', '.turbo', '.next', 'dist-web', 'dist-e2e', 'coverage', 'web-shots', 'gallery-dist', 'gallery-shots'];
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ignored = new RegExp(`[/\\\\](${IGNORED_DIRS.map(escape).join('|')})([/\\\\]|$)`);
+const blockList = config.resolver.blockList;
+config.resolver.blockList = [...(Array.isArray(blockList) ? blockList : blockList ? [blockList] : []), ignored];
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules'), path.resolve(workspaceRoot, 'node_modules')];
 // pnpm: packages resolve their own deps through the virtual store (node_modules/.pnpm/node_modules),
 // so hierarchical lookup must stay on (Babel-injected @babel/runtime helpers need it).

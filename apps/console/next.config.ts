@@ -19,7 +19,10 @@ const nextConfig: NextConfig = {
       {
         source: '/:path*',
         headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
+          // `next dev` only: the local Driver Studio (pnpm studio, localhost:4000) shows the Console in a frame.
+          ...(process.env['NODE_ENV'] === 'development'
+            ? [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' http://localhost:4000" }]
+            : [{ key: 'X-Frame-Options', value: 'DENY' }]),
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'same-origin' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },

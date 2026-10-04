@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "jsx": "react-native",
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -9,9 +12,24 @@
     "declaration": false,
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["react", "react-native"],
-    "paths": { "@/*": ["./src/*"] }
+    "types": [
+      "react",
+      "react-native"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "include": ["app", "src", "expo-env.d.ts"],
-  "exclude": ["node_modules", ".expo"]
+  "include": [
+    "app",
+    "src",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".expo"
+  ]
 }

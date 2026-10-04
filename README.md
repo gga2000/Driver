@@ -18,6 +18,17 @@ The approved design is in [`docs/specs/2026-10-02-platform-core-design.md`](docs
 | `packages/design-tokens` | Colors, spacing (×4), radii, Arabic-first type scale, motion. |
 | `packages/i18n` | `ar-IQ.json`, `en.json` and a tiny `t()` helper. |
 
+## See the apps (no database needed)
+
+```sh
+pnpm install
+pnpm studio            # all apps with live reload on demo data → http://localhost:4000
+pnpm studio customer   # or just some: customer | partner | merchant | console
+```
+
+First-time Mac setup in plain steps: [`docs/dev/mac-setup.md`](docs/dev/mac-setup.md). Working with
+Claude Code: [`CLAUDE.md`](CLAUDE.md).
+
 ## Run
 
 Requires Node 22 (`.nvmrc`), pnpm 10 (`corepack enable`) and Docker for the local database.

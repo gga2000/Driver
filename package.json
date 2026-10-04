@@ -2,7 +2,7 @@
   "name": "driver",
   "private": true,
   "version": "0.1.0",
-  "description": "Driver (\u062f\u0631\u0627\u064a\u0641\u0631) \u2014 hyperlocal delivery and mobility platform for Iraq",
+  "description": "Driver (درايفر) — hyperlocal delivery and mobility platform for Iraq",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -23,6 +23,7 @@
     "sim": "pnpm --filter @driver/api sim",
     "dev:api": "pnpm --filter @driver/api dev",
     "dev:console": "pnpm --filter @driver/console dev",
+    "studio": "node scripts/dev/studio.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml,yml}\""
   },
   "devDependencies": {

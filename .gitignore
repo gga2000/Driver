@@ -29,3 +29,6 @@ google-play-service-account*.json
 *.keystore
 *.p8
 *.mobileprovision
+
+# Driver Studio (pnpm studio) logs
+.studio/
