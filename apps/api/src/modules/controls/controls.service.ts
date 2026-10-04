@@ -81,6 +81,14 @@ export function throttleMessage(etaMin: number, mode: 'refuse' | 'queue'): strin
   return mode === 'queue' ? `${base} أو احجز طلبك لبعد ${quarterHour(etaMin)} ويوصلك بوقته` : base;
 }
 
+/** "11:30 م" in Baghdad (UTC+3 all year), Western digits, as the voice guide writes a time. */
+export function baghdadClock(d: Date): string {
+  const local = new Date(d.getTime() + 3 * 3_600_000);
+  const h24 = local.getUTCHours();
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${String(local.getUTCMinutes()).padStart(2, '0')} ${h24 < 12 ? 'ص' : 'م'}`;
+}
+
 export function loadState(maxActive: number | null, active: number, killed: boolean): { load: number; state: ZoneLoadState } {
   if (killed) return { load: maxActive ? active / maxActive : 0, state: 'off' };
   if (!maxActive) return { load: 0, state: 'ok' };
@@ -152,22 +160,30 @@ export class ControlsService implements ControlsPort {
     );
   }
 
+  /**
+   * The customer's refusal when the switch has no message of its own (UI/UX audit K-13): with an end
+   * time it says when the service is back ("لحد الساعة 11:30 م"); never "إن شاء الله" in a time. The
+   * Console sends its preview as `message_ar`, so this is the fallback for other callers.
+   */
   private async refusalFor(s: KillSwitchRecord, cityId: string): Promise<string> {
     if (s.messageAr) return s.messageAr;
+    const until = s.expiresAt ? ` لحد الساعة ${baghdadClock(s.expiresAt)}` : '';
     switch (s.scope) {
       case 'vertical':
-        return `خدمة ${VERTICAL_AR[s.key as Vertical] ?? s.key} موقّفة مؤقتاً. نرجع قريب إن شاء الله`;
+        return until
+          ? `خدمة ${VERTICAL_AR[s.key as Vertical] ?? s.key} موقّفة${until}. جرّب بعدها`
+          : `خدمة ${VERTICAL_AR[s.key as Vertical] ?? s.key} موقّفة هسة. جرّب بعدين`;
       case 'zone':
-        return `ما نگدر نخدم منطقة ${this.zoneName(cityId, s.key)} هسة. نرجع قريب إن شاء الله`;
+        return until ? `ما نگدر نخدم منطقة ${this.zoneName(cityId, s.key)}${until}. جرّب بعدها` : `ما نگدر نخدم منطقة ${this.zoneName(cityId, s.key)} هسة. جرّب بعدين`;
       case 'restaurant': {
         const name = await this.orgs
           .get(s.key)
           .then((o) => o.name)
           .catch(() => 'المطعم');
-        return `${name} موقّف الطلبات مؤقتاً. جرّب مطعم ثاني`;
+        return until ? `${name} موقّف الطلبات${until}. جرّب مطعم ثاني` : `${name} موقّف الطلبات مؤقتاً. جرّب مطعم ثاني`;
       }
       case 'corridor':
-        return `حجز ${this.corridors.find((c) => c.id === s.key)?.name_ar ?? 'هذا الخط'} موقّف مؤقتاً`;
+        return `حجز ${this.corridors.find((c) => c.id === s.key)?.name_ar ?? 'هذا الخط'} موقّف${until || ' مؤقتاً'}`;
     }
   }
 

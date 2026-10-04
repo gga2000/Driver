@@ -122,6 +122,7 @@ Amounts read "12,500 دينار" (`formatMoney`). IDs, phones and order numbers 
 | `DataTable` (+ `thCls`/`tdCls`/`trCls`) | sticky header, hover, selection, skeleton rows, empty state, numeric end-aligned |
 | `Tabs`, `Segmented` | radio-like keyboard; in RTL the right arrow goes back |
 | `Input`, `Textarea`, `Select`, `Checkbox`, `Combobox`, `Field` | `aria-invalid` red edge plus the error in words |
+| `Switch` | `role="switch"`, `on` = running; it only asks (`onToggle`), the page confirms and the server flips it. The state goes in words beside it |
 | `Dialog`, `Sheet`, `Drawer`, `Popover` | native `<dialog>` for modals (focus trap, Esc); the sheet comes in from the end edge |
 | `ToastProvider` / `useToast`, `ToastCard` | the toast uses the action's own word: "انرسل الرد", "تعوّض 2,000 دينار" |
 | `Tooltip`, `Avatar`, `Timeline`, `Kbd`, `KeyboardHint`, `EmptyState`, `Skeleton` | |
@@ -163,6 +164,37 @@ order chats, composer, "/" picker), `context.tsx` (customer, actions, order, led
 - Reads: `support.list/get/customer` (`customer` is additive: first name via a logged vault read,
   orders, lifetime value, refunds, other tickets).
 
+### The control room (Controls, Approvals, Finance, Wall, Pricing, System, Login)
+
+- **/controls** is a breaker panel. Top to bottom: four stats, **الموقّف هسة** (every switch that is
+  on, with the reason, who, "يرجع وحده الساعة …" and the exact line customers see), the city-wide
+  services as big `Switch`es (`ui/switch.tsx`: `on` = running, the knob and the word say it, colour
+  is never alone), the **zones × services matrix** (one row per zone: live load meter that opens the
+  cap dialog, then a cell per service; a cell is `on`, `off` here, or inherited from the whole zone
+  or the whole city, `matrixCell()` in `lib/control-room.ts`; only zones that need eyes show until
+  "كل المناطق"), restaurants, the status banner composer with a live phone preview per app (light
+  islands), then **طريقة التوزيع** (moved from /dispatch, K-14) and the control log in sentences.
+- Nothing flips on click. A switch, cell, cap or dispatch mode opens a dialog that names the action
+  in its button ("وقّف تكسي بشارع 30", "غيّره إلى تلقائي"). The stop dialog shows the customer's
+  phone with the refusal, and the message follows the end time ("لحد الساعة 11:30 م", rounded up to
+  5 minutes) until the person writes their own (K-13). The API's fallback copy says the same.
+- **/approvals** reviews one item at a time: the queue on the start side, the item with its photo
+  (side by side with the comparison, or wide with the facts beside it when there is nothing to
+  compare, K-20), and a sticky decision bar. Keys: A approve, X reject (needs a reason), 1–4 quick
+  reasons, J/K next/previous. "g a" never approves. Document expiry is picked as "بعد سنة / سنتين / 3
+  سنين" and read back as "4 تشرين الأول 2027" (K-15).
+- **/finance** says money in words (K-16): "بيده 48,000 دينار", "لازم يسلّم 52,000 دينار", "له 2,000
+  دينار", "للمطعم 120,000 دينار". The ledger check is a calm hero (check icon, "الدفتر متوازن", each
+  net as "ماكو فرق"). Courier cash against the cap uses the money spec's thresholds (amber from 70 %,
+  red from 90 %, ticks on the meter, the level in words beside it). The 23:00 round is a numbered
+  list beside a light map cropped to the route (`round-map.tsx`, theme roles only). One "صدّر CSV" menu.
+- **/wall** is built for a TV at 1920×1080 and fits without scrolling: dark island (`?theme=light`
+  for a bright room, `?tv=1` hides the way back), six tiles with the status as icon + words + a
+  bullet bar to the playbook target, orders per day as emphasis bars (today orange, the rest ink)
+  with the 30-a-day line, and a red line across the top once it hasn't updated for 2 minutes. Status
+  colours (green/red) fail the CVD check against each other (dataviz validator, ΔE 5.2 deutan), so
+  they always travel with an icon and a word.
+
 ## Copy
 
 Iraqi Arabic from `packages/i18n` (`console.*`). Follow the voice guide: الدليفري for food couriers,
@@ -183,7 +215,8 @@ Exception: the `/design` reference page hard-codes sample content as fixtures. I
   (K-17), the event log collapsed into a story (K-22). Move to `DataTable`.
 - **/drivers, ledger**: name search (needs a names-aware roster read), and words instead of signs
   (K-16).
-- **/controls, /approvals, /finance**: collapse the empty compare pane (K-20), and a kill-switch copy
-  pass (K-13). The round-map SVG still uses the dark `MAP_COLORS`.
+- **/controls, /approvals, /finance, /wall**: done (see "The control room" above): K-13, K-14 (the
+  dispatch modes now live on /controls; /dispatch should drop its copy), K-15 on these pages, K-16,
+  K-20, K-21.
 - **Voice**: `apps/api/src/modules/support/canned.ts` still says "المندوب" in customer-facing replies
   (K-12).

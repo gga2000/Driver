@@ -119,7 +119,7 @@ describe('launch control room (e2e)', () => {
       const customer = await person();
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: true, reason: 'مطر قوي' });
       const v = await errOf(order(customer.client));
-      expect(v).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة مؤقتاً. نرجع قريب إن شاء الله' });
+      expect(v).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: false, reason: 'خلص المطر' });
 
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'restaurant', key: khalid.orgId, active: true, reason: 'عطل بالفرن', message_ar: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
@@ -132,7 +132,7 @@ describe('launch control room (e2e)', () => {
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'zone', key: 'zakur', active: true, reason: 'طريق مغلق' });
       const z = await errOf(order(customer.client));
       expect(z.code).toBe('service_paused');
-      expect(z.message).toBe('ما نگدر نخدم منطقة زاكور هسة. نرجع قريب إن شاء الله');
+      expect(z.message).toBe('ما نگدر نخدم منطقة زاكور هسة. جرّب بعدين');
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'zone', key: 'zakur', active: false, reason: 'انفتح' });
       expect((await order(customer.client)).state).toBeTruthy();
     });

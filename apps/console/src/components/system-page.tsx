@@ -3,85 +3,122 @@
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
+import type { ReactNode } from 'react';
 import { outboxHealth } from '@/lib/board';
 import { formatClock, formatDayClock, formatIqd, shortId } from '@/lib/format';
+import { netWords } from '@/lib/control-room';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
-import { Card, Chip, ghostBtn, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Row } from './ui';
+import { Button, Card, Chip, cx, IconAlert, IconCheckCircle, IconClock, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Row, Skeleton, useToast } from './ui';
 
+/** Engineering health lives here (K-23): the API and its stores, the nightly close, the outbox and the simulator. */
 export function SystemPage() {
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-[1180px]">
       <PageHeader title={t('console.system_title')} subtitle={t('console.system_subtitle')} />
-      <div className="grid gap-4 md:grid-cols-2">
-        <HealthCard />
-        <NightlyCard />
-        <OutboxCard />
-        <SimulatorCard />
+      <div className="space-y-5">
+        <HealthStrip />
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <div className="space-y-5">
+            <NightlyCard />
+            <SimulatorCard />
+          </div>
+          <OutboxCard />
+        </div>
       </div>
     </div>
   );
 }
 
-function Status({ ok }: { ok: boolean }) {
-  return <Chip tone={ok ? 'done' : 'bad'}>{ok ? t('console.health_ok') : t('console.health_down')}</Chip>;
-}
-
-function HealthCard() {
+function HealthStrip() {
   const trpc = useTRPC();
   const health = useQuery(trpc.health.ping.queryOptions(undefined, { refetchInterval: 5_000, retry: false }));
   const h = health.data;
+  const checking = health.isPending;
+  const parts: Array<{ k: string; ok: boolean | null; detail?: ReactNode }> = [
+    { k: t('console.health_api'), ok: checking ? null : health.isSuccess, detail: h ? <Mono>{h.version}</Mono> : undefined },
+    { k: t('console.health_db'), ok: h ? h.db === 'ok' : checking ? null : false },
+    { k: t('console.health_redis'), ok: h ? h.redis === 'ok' : checking ? null : false },
+  ];
+  const down = parts.filter((p) => p.ok === false).length;
   return (
-    <Card title={t('console.health')} actions={<LiveBadge seconds={5} updatedAt={health.dataUpdatedAt} fetching={health.isFetching} />}>
-      <dl>
-        <Row k={t('console.health_api')} v={health.isPending ? t('console.api_checking') : <Status ok={health.isSuccess} />} />
-        <Row k={t('console.health_db')} v={h ? <Status ok={h.db === 'ok'} /> : '—'} />
-        <Row k={t('console.health_redis')} v={h ? <Status ok={h.redis === 'ok'} /> : '—'} />
-        <Row k={t('console.health_version')} v={h ? <Mono>{h.version}</Mono> : '—'} />
-        <Row k={t('console.health_server_time')} v={h ? formatDayClock(h.now) : '—'} />
+    <section aria-labelledby="sys-health" className="rounded-lg border border-line bg-surface shadow-card">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+        <h2 id="sys-health" className="flex items-center gap-2 text-[15px] font-semibold">
+          {t('console.health')}
+          {!checking && <span className={cx('text-dense font-medium', down ? 'text-bad' : 'text-ok')}>{down ? t('console.health_n_down', { n: down }) : t('console.health_all_ok')}</span>}
+        </h2>
+        <LiveBadge seconds={5} updatedAt={health.dataUpdatedAt} fetching={health.isFetching} error={Boolean(health.error)} />
+      </header>
+      <dl className="grid divide-y divide-line sm:grid-cols-4 sm:divide-x sm:divide-y-0 sm:divide-x-reverse">
+        {parts.map((p) => (
+          <div key={p.k} className="px-5 py-4">
+            <dt className="text-dense text-muted">{p.k}</dt>
+            <dd className={cx('mt-1 flex items-center gap-2 text-lg font-semibold', p.ok === null ? 'text-muted' : p.ok ? 'text-text' : 'text-bad')}>
+              {p.ok === null ? <IconClock size={20} /> : p.ok ? <IconCheckCircle size={20} className="text-ok" /> : <IconAlert size={20} />}
+              {p.ok === null ? t('console.api_checking') : p.ok ? t('console.health_ok') : t('console.health_down')}
+            </dd>
+            {p.detail ? <dd className="mt-0.5 text-xs text-muted">{p.detail}</dd> : null}
+          </div>
+        ))}
+        <div className="px-5 py-4">
+          <dt className="text-dense text-muted">{t('console.health_server_time')}</dt>
+          <dd className="num mt-1 text-lg font-semibold">{h ? formatClock(h.now) : '—'}</dd>
+          <dd className="mt-0.5 text-xs text-muted">{h ? formatDayClock(h.now).split(' · ')[0] : ''}</dd>
+        </div>
       </dl>
-      {health.error && <p className="mt-2 text-sm text-bad">{t('console.api_offline')}</p>}
-    </Card>
+      {health.error && <p className="border-t border-line px-5 py-2.5 text-sm text-bad">{t('console.api_offline')}</p>}
+    </section>
   );
 }
 
 function NightlyCard() {
   const trpc = useTRPC();
+  const toast = useToast();
   const signedIn = useSignedIn();
-  const run = useMutation(trpc.ledger.runNightly.mutationOptions());
+  const run = useMutation(trpc.ledger.runNightly.mutationOptions({ onSuccess: (r) => toast({ title: r.message_ar, tone: r.ok ? 'ok' : 'bad' }) }));
   const r = run.data;
   const overCap = r?.drivers.filter((d) => d.overCap) ?? [];
+  const lines = r
+    ? [
+        { ok: r.money.ok, text: t('console.nightly_money_words', { net: netWords(r.money.net), events: formatIqd(r.money.events) }) },
+        { ok: r.points.ok, text: t('console.nightly_points_words', { net: netWords(r.points.net), events: formatIqd(r.points.events) }) },
+        { ok: r.kindViolations === 0, text: t('console.nightly_kind', { n: r.kindViolations }) },
+        { ok: overCap.length === 0, text: t('console.nightly_over_cap', { n: overCap.length }), warn: true },
+      ]
+    : [];
   return (
-    <Card title={t('console.nightly')} tone={r ? (r.ok ? 'ok' : 'bad') : 'default'}>
-      <p className="text-sm text-muted">{t('console.nightly_hint')}</p>
+    <Card title={t('console.nightly')} hint={t('console.nightly_hint')} tone={r ? (r.ok ? 'ok' : 'bad') : 'default'}>
       {!signedIn ? (
-        <div className="mt-3">
-          <NeedLogin />
-        </div>
+        <NeedLogin />
       ) : (
-        <button type="button" className={`${primaryBtn} mt-4`} disabled={run.isPending} onClick={() => run.mutate()}>
+        <Button variant="primary" loading={run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? t('console.nightly_running') : t('console.nightly_run')}
-        </button>
+        </Button>
       )}
-
-      <div role="status" aria-live="polite" className="mt-4 space-y-2">
+      <div role="status" aria-live="polite" className="mt-4 space-y-3 empty:hidden">
         {run.error && <QueryError error={run.error} />}
         {r && (
           <>
-            <p className={`font-display text-xl font-bold ${r.ok ? 'text-ok' : 'text-bad'}`}>{r.message_ar}</p>
-            <ul className="space-y-1 text-sm">
-              <li className={r.money.ok ? '' : 'text-bad'}>{t('console.nightly_money', { net: formatIqd(r.money.net), events: r.money.events })}</li>
-              <li className={r.points.ok ? '' : 'text-bad'}>{t('console.nightly_points', { net: formatIqd(r.points.net), events: r.points.events })}</li>
-              <li className={r.kindViolations > 0 ? 'text-bad' : ''}>{t('console.nightly_kind', { n: r.kindViolations })}</li>
-              <li className={overCap.length > 0 ? 'text-accent-text' : ''}>{t('console.nightly_over_cap', { n: overCap.length })}</li>
+            <p className={cx('flex items-center gap-2 text-lg font-semibold', r.ok ? 'text-text' : 'text-bad')}>
+              {r.ok ? <IconCheckCircle size={22} className="text-ok" /> : <IconAlert size={22} />}
+              {r.message_ar}
+            </p>
+            <ul className="space-y-1.5 text-sm">
+              {lines.map((l) => (
+                <li key={l.text} className={cx('flex items-center gap-2', !l.ok && (l.warn ? 'text-warn' : 'text-bad'))}>
+                  {l.ok ? <IconCheckCircle size={16} className="shrink-0 text-ok" /> : <IconAlert size={16} className="shrink-0" />}
+                  {l.text}
+                </li>
+              ))}
             </ul>
             {overCap.length > 0 && (
               <ul className="flex flex-wrap gap-2 text-sm">
                 {overCap.map((d) => (
                   <li key={d.driverId}>
-                    <Link href={`/drivers/${encodeURIComponent(d.driverId)}/ledger`} className="text-accent-text underline">
+                    <Link href={`/drivers/${encodeURIComponent(d.driverId)}/ledger`} className="text-accent-text underline underline-offset-4">
                       <Mono title={d.driverId}>{shortId(d.driverId)}</Mono>
                     </Link>
                   </li>
@@ -89,7 +126,7 @@ function NightlyCard() {
               </ul>
             )}
             {r.incidentId && <p className="text-sm text-bad">{t('console.nightly_incident', { id: r.incidentId })}</p>}
-            <p className="text-xs text-faint">{t('console.nightly_ran_at', { time: formatClock(r.runAt) })}</p>
+            <p className="text-xs text-muted">{t('console.nightly_ran_at', { time: formatClock(r.runAt) })}</p>
           </>
         )}
       </div>
@@ -104,31 +141,23 @@ function OutboxCard() {
   const o = outbox.data;
   const health = o ? outboxHealth(o) : 'ok';
   return (
-    <Card
-      title={t('console.outbox')}
-      tone={health === 'failing' ? 'bad' : 'default'}
-      actions={signedIn ? <LiveBadge seconds={5} updatedAt={outbox.dataUpdatedAt} fetching={outbox.isFetching} /> : undefined}
-    >
-      <p className="text-sm text-muted">{t('console.outbox_hint')}</p>
-      {!signedIn && (
-        <div className="mt-3">
-          <NeedLogin />
-        </div>
-      )}
+    <Card title={t('console.outbox')} hint={t('console.outbox_hint')} tone={health === 'failing' ? 'bad' : 'default'} actions={signedIn ? <LiveBadge seconds={5} updatedAt={outbox.dataUpdatedAt} fetching={outbox.isFetching} compact /> : undefined}>
+      {!signedIn && <NeedLogin />}
       {outbox.error && <QueryError error={outbox.error} onRetry={() => void outbox.refetch()} />}
+      {signedIn && !o && outbox.isPending && <Skeleton className="h-16" />}
       {o && (
         <>
-          <dl className="mt-3">
-            <Row k={t('console.outbox_pending')} v={<span className={`tabular-nums ${health === 'backlog' ? 'text-accent-text' : ''}`}>{o.pending}</span>} />
-            <Row k={t('console.outbox_failed')} v={<span className={`tabular-nums ${o.failed > 0 ? 'text-bad' : ''}`}>{o.failed}</span>} />
-            <Row k={t('console.outbox_published')} v={<span className="tabular-nums">{o.published}</span>} />
+          <dl className="grid grid-cols-3 gap-3">
+            <Count k={t('console.outbox_pending')} v={o.pending} tone={health === 'backlog' ? 'warn' : undefined} />
+            <Count k={t('console.outbox_failed')} v={o.failed} tone={o.failed > 0 ? 'bad' : undefined} />
+            <Count k={t('console.outbox_published')} v={o.published} />
           </dl>
-          {o.recentFailed.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-muted">{t('console.outbox_recent_failed')}</p>
-              <ul className="mt-1 max-h-72 space-y-2 overflow-y-auto text-sm">
+          {o.recentFailed.length > 0 ? (
+            <div className="mt-4">
+              <p className="text-dense font-medium">{t('console.outbox_recent_failed')}</p>
+              <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto text-sm">
                 {o.recentFailed.map((f) => (
-                  <li key={f.id} className="rounded-md border border-bad/40 bg-bad-tint px-2 py-1.5">
+                  <li key={f.id} className="rounded-md border border-bad/40 bg-bad-tint px-3 py-2">
                     <p className="flex flex-wrap items-center justify-between gap-2">
                       <Mono title={f.eventId}>{f.type}</Mono>
                       <span className="text-xs text-muted">
@@ -139,7 +168,7 @@ function OutboxCard() {
                       {f.aggregate} · <Mono title={f.aggregateId}>{shortId(f.aggregateId)}</Mono>
                     </p>
                     {f.lastError && (
-                      <p dir="ltr" className="mt-1 break-words font-mono text-xs text-bad">
+                      <p dir="ltr" className="mt-1 break-words text-xs text-bad">
                         {f.lastError}
                       </p>
                     )}
@@ -147,11 +176,24 @@ function OutboxCard() {
                 ))}
               </ul>
             </div>
+          ) : (
+            <p className="mt-4 flex items-center gap-2 text-sm text-text">
+              <IconCheckCircle size={16} className="text-ok" />
+              {t('console.outbox_all_ok')}
+            </p>
           )}
-          {o.failed === 0 && <p className="mt-3 text-sm text-ok">{t('console.outbox_all_ok')}</p>}
         </>
       )}
     </Card>
+  );
+}
+
+function Count({ k, v, tone }: { k: string; v: number; tone?: 'bad' | 'warn' }) {
+  return (
+    <div className="rounded-md bg-surface-2 px-3 py-2.5">
+      <dt className="text-xs text-muted">{k}</dt>
+      <dd className={cx('mt-0.5 text-xl font-semibold', tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : 'text-text')}>{formatIqd(v)}</dd>
+    </div>
   );
 }
 
@@ -166,33 +208,27 @@ function SimulatorCard() {
   const stop = useMutation(trpc.system.simulator.stop.mutationOptions(refresh));
   const s = status.data;
   return (
-    <Card title={t('console.simulator')}>
-      <p className="text-sm text-muted">{t('console.simulator_hint')}</p>
-      {!signedIn && (
-        <div className="mt-3">
-          <NeedLogin />
-        </div>
-      )}
+    <Card
+      title={t('console.simulator')}
+      hint={t('console.simulator_hint')}
+      actions={s?.available ? <Chip tone={s.running ? 'live' : 'neutral'} dot>{s.running ? t('console.simulator_running') : t('console.simulator_stopped')}</Chip> : undefined}
+    >
+      {!signedIn && <NeedLogin />}
       {status.error && <QueryError error={status.error} onRetry={() => void status.refetch()} />}
-      {s && !s.available && (
-        <p className="mt-3">
-          <Chip>{t('console.simulator_unavailable')}</Chip>
-        </p>
-      )}
+      {signedIn && !s && status.isPending && <Skeleton className="h-16" />}
+      {s && !s.available && <p className="text-sm text-muted">{t('console.simulator_unavailable')}</p>}
       {s?.available && (
         <>
-          <dl className="mt-3">
-            <Row k={t('console.simulator_state')} v={<Chip tone={s.running ? 'live' : 'neutral'}>{s.running ? t('console.simulator_running') : t('console.simulator_stopped')}</Chip>} />
-            <Row k={t('console.simulator_drivers')} v={<span className="tabular-nums">{s.drivers}</span>} />
-            {s.startedAt && <Row k={t('console.simulator_started')} v={formatDayClock(s.startedAt)} />}
-          </dl>
-          {s.progress && (
-            <p className="mt-2 text-sm tabular-nums">
-              {t('console.simulator_progress', { time: formatClock(s.progress.simTime), placed: s.progress.placed, delivered: s.progress.delivered, online: s.progress.driversOnline })}
-            </p>
-          )}
-          {s.lastReport && (
-            <dl className="mt-2">
+          <dl>
+            <Row k={t('console.simulator_drivers')} v={<span className="num">{s.drivers}</span>} />
+            {s.startedAt && <Row k={t('console.simulator_started')} v={<span className="num">{formatDayClock(s.startedAt)}</span>} />}
+            {s.progress && (
+              <Row
+                k={t('console.simulator_now')}
+                v={<span className="num">{t('console.simulator_progress', { time: formatClock(s.progress.simTime), placed: s.progress.placed, delivered: s.progress.delivered, online: s.progress.driversOnline })}</span>}
+              />
+            )}
+            {s.lastReport && (
               <Row
                 k={t('console.simulator_last_report')}
                 v={
@@ -203,19 +239,22 @@ function SimulatorCard() {
                   </Chip>
                 }
               />
-            </dl>
-          )}
+            )}
+          </dl>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className={primaryBtn} disabled={s.running || start.isPending} onClick={() => start.mutate({ cityId: CITY_ID })}>
-              {t('console.simulator_start')}
-            </button>
-            <button type="button" className={ghostBtn} disabled={!s.running || stop.isPending} onClick={() => stop.mutate()}>
-              {t('console.simulator_stop')}
-            </button>
+            {s.running ? (
+              <Button loading={stop.isPending} onClick={() => stop.mutate()}>
+                {t('console.simulator_stop')}
+              </Button>
+            ) : (
+              <Button variant="primary" loading={start.isPending} onClick={() => start.mutate({ cityId: CITY_ID })}>
+                {t('console.simulator_start')}
+              </Button>
+            )}
           </div>
         </>
       )}
-      <div role="status" className="mt-2 text-sm">
+      <div role="status" className="mt-2 text-sm empty:hidden">
         {start.error && <p className="text-bad">{errorText(start.error)}</p>}
         {stop.error && <p className="text-bad">{errorText(stop.error)}</p>}
       </div>

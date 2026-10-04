@@ -1,6 +1,6 @@
-import type { ApprovalItem, BannerSeverity, KillScope, LaunchMetric, SlaState, TicketSummary, ZoneCapacityView, ZoneLoadState } from '@driver/contracts';
-import { t } from '@driver/i18n';
-import { formatIqd } from './format';
+import type { ApprovalItem, BannerSeverity, ControlsView, KillScope, KillSwitchView, LaunchMetric, SlaState, TicketSummary, Vertical, ZoneCapacityView, ZoneLoadState } from '@driver/contracts';
+import { t, type MessageKey } from '@driver/i18n';
+import { formatClock, formatIqd } from './format';
 import type { ChipTone } from '@/components/ui';
 import { compactDuration } from './support-views';
 
@@ -48,15 +48,18 @@ export function gaugePct(z: Pick<ZoneCapacityView, 'maxActive' | 'active'>): num
 export type ExpiryKey = 'none' | '30m' | '1h' | '2h' | 'midnight';
 export const EXPIRY_KEYS: readonly ExpiryKey[] = ['none', '30m', '1h', '2h', 'midnight'];
 
-/** When a switch comes back by itself; `midnight` = the next Baghdad midnight (UTC+3). */
+/** Up to the next 5 minutes, so the customer reads "11:30", not "11:27". */
+const ceil5 = (ms: number) => new Date(Math.ceil(ms / (5 * MIN)) * 5 * MIN);
+
+/** When a switch comes back by itself (rounded up to 5 minutes); `midnight` = the next Baghdad midnight (UTC+3). */
 export function expiryAt(key: ExpiryKey, now: Date): Date | undefined {
   switch (key) {
     case '30m':
-      return new Date(now.getTime() + 30 * MIN);
+      return ceil5(now.getTime() + 30 * MIN);
     case '1h':
-      return new Date(now.getTime() + 60 * MIN);
+      return ceil5(now.getTime() + 60 * MIN);
     case '2h':
-      return new Date(now.getTime() + 120 * MIN);
+      return ceil5(now.getTime() + 120 * MIN);
     case 'midnight': {
       const local = new Date(now.getTime() + 180 * MIN);
       const next = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1);
@@ -67,18 +70,158 @@ export function expiryAt(key: ExpiryKey, now: Date): Date | undefined {
   }
 }
 
-/** The refusal customers see when the switch has no message of its own (mirrors the API's defaults). */
-export function defaultRefusal(scope: KillScope, label: string): string {
+/**
+ * The refusal customers see (K-13, mirrors the API's `refusalFor`): with an end time it says when the
+ * service comes back ("موقّفة لحد الساعة 11:30 م"), without one it says to try later. No "إن شاء الله"
+ * in a time.
+ */
+export function defaultRefusal(scope: KillScope, label: string, until?: Date | null): string {
+  const time = until ? formatClock(until) : null;
   switch (scope) {
     case 'vertical':
-      return t('console.ctl_refusal_vertical', { name: label });
+      return time ? t('console.ctl_refusal_vertical_until', { name: label, time }) : t('console.ctl_refusal_vertical', { name: label });
     case 'zone':
-      return t('console.ctl_refusal_zone', { name: label });
+      return time ? t('console.ctl_refusal_zone_until', { name: label, time }) : t('console.ctl_refusal_zone', { name: label });
     case 'restaurant':
-      return t('console.ctl_refusal_restaurant', { name: label });
+      return time ? t('console.ctl_refusal_restaurant_until', { name: label, time }) : t('console.ctl_refusal_restaurant', { name: label });
     case 'corridor':
-      return t('console.ctl_refusal_corridor', { name: label });
+      return time ? t('console.ctl_refusal_corridor_until', { name: label, time }) : t('console.ctl_refusal_corridor', { name: label });
   }
+}
+
+/** Verticals a zone switch can stop one at a time (rides and deliveries that start in a zone). */
+export const ZONE_VERTICALS: readonly Vertical[] = ['food', 'grocery', 'errand', 'parcel', 'taxi', 'tuktuk'];
+
+/**
+ * One cell of the zone × service matrix: `on` (running), `off` (this switch is on), `zone` (the whole
+ * zone is stopped), `city` (the service is stopped in every zone). `sw` is the switch to restore.
+ */
+export type CellState = 'on' | 'off' | 'zone' | 'city';
+export interface MatrixCell {
+  state: CellState;
+  sw: KillSwitchView | null;
+}
+
+export function matrixCell(view: Pick<ControlsView, 'switches' | 'verticals'>, zoneKey: string, vertical: Vertical | null): MatrixCell {
+  const live = view.switches.filter((s) => s.active && s.scope === 'zone' && s.key === zoneKey);
+  const whole = live.find((s) => s.vertical === null) ?? null;
+  if (vertical === null) return whole ? { state: 'off', sw: whole } : { state: 'on', sw: null };
+  const own = live.find((s) => s.vertical === vertical) ?? null;
+  if (own) return { state: 'off', sw: own };
+  if (whole) return { state: 'zone', sw: whole };
+  if (view.verticals.some((v) => v.key === vertical && v.killed)) return { state: 'city', sw: null };
+  return { state: 'on', sw: null };
+}
+
+/** A zone needs a row in the short matrix: stopped (wholly or one service), capped, or busy. */
+export function zoneNeedsRow(view: Pick<ControlsView, 'switches'>, z: ZoneCapacityView): boolean {
+  return z.killed || z.maxActive !== null || z.state !== 'ok' || view.switches.some((s) => s.active && s.scope === 'zone' && s.key === z.zoneKey);
+}
+
+/** The switch that is on for a whole-city target (vertical, restaurant, corridor), if any. */
+export function activeSwitch(view: Pick<ControlsView, 'switches'>, scope: KillScope, key: string): KillSwitchView | null {
+  return view.switches.find((s) => s.active && s.scope === scope && s.key === key && (scope !== 'zone' || s.vertical === null)) ?? null;
+}
+
+/** "يرجع الساعة 11:30 م" / "لحد ما ترجّعه" for a switch that is on. */
+export function switchUntil(s: Pick<KillSwitchView, 'expiresAt'>): string {
+  return s.expiresAt ? t('console.ctl_back_at', { time: formatClock(s.expiresAt) }) : t('console.ctl_back_by_hand');
+}
+
+// ───────────────────────── dispatch modes (moved here from /dispatch, K-14) ─────────────────────────
+
+/** What each dispatch mode does, in one line, for the confirm dialog. */
+export function modeExplainKey(mode: 'broadcast' | 'auto' | 'suggest'): MessageKey {
+  return `console.ctl_mode_explain_${mode}` as MessageKey;
+}
+
+// ───────────────────────── money in words (K-16) ─────────────────────────
+
+/**
+ * Where a courier's cash stands against the cap (money spec §4: amber from 70 %, red from 90 %, over
+ * at 100 %). The word goes beside the bar so the level never rides on colour alone.
+ */
+export type CashLevel = 'ok' | 'near' | 'edge' | 'over';
+export function cashLevel(fill: number, overCap: boolean): CashLevel {
+  if (overCap || fill >= 1) return 'over';
+  if (fill >= 0.9) return 'edge';
+  if (fill >= 0.7) return 'near';
+  return 'ok';
+}
+
+export const CASH_LEVEL_CLS: Record<CashLevel, { bar: string; text: string }> = {
+  ok: { bar: 'bg-ok-solid', text: 'text-muted' },
+  near: { bar: 'bg-warn-solid', text: 'text-warn' },
+  edge: { bar: 'bg-bad-solid', text: 'text-bad' },
+  over: { bar: 'bg-bad-solid', text: 'text-bad' },
+};
+
+/** "لازم يسلّم 52,000 دينار" / "له 2,000 دينار" / "ماكو حساب": what the courier owes, in words. */
+export function owedWords(owedIqd: number): string {
+  if (owedIqd > 0) return t('console.fin_owes', { amount: formatIqd(owedIqd) });
+  if (owedIqd < 0) return t('console.fin_is_owed', { amount: formatIqd(-owedIqd) });
+  return t('console.fin_square');
+}
+
+/** "للمطعم 120,000 دينار" / "على المطعم 4,250 دينار" / "ماكو حساب". */
+export function merchantWords(payableIqd: number): string {
+  if (payableIqd > 0) return t('console.fin_to_merchant', { amount: formatIqd(payableIqd) });
+  if (payableIqd < 0) return t('console.fin_from_merchant', { amount: formatIqd(-payableIqd) });
+  return t('console.fin_square');
+}
+
+/** Net of a ledger check in words: "ماكو فرق" or "فرق 250". */
+export function netWords(net: number): string {
+  return net === 0 ? t('console.fin_no_gap') : t('console.fin_gap', { amount: formatIqd(Math.abs(net)) });
+}
+
+// ───────────────────────── wall ─────────────────────────
+
+/**
+ * The playbook §6 targets as numbers, for the bullet bar under each tile: `lower` = smaller is better.
+ * The label beside the bar is the server's `target_ar`; these only place the marks.
+ */
+export const WALL_TARGETS: Partial<Record<LaunchMetric['key'], { target: number; better: 'lower' | 'higher'; max: number }>> = {
+  median_delivery: { target: 35, better: 'lower', max: 60 },
+  acceptance: { target: 0.85, better: 'higher', max: 1 },
+  disputes_24h: { target: 0, better: 'lower', max: 5 },
+  orders_day: { target: 30, better: 'higher', max: 60 },
+  rajaa_seats: { target: 20, better: 'higher', max: 40 },
+};
+
+/** Value and target marks on a 0–100 track (the value clamps; a scale grows to fit a big value). */
+export function bullet(key: LaunchMetric['key'], value: number | null): { value: number; target: number } | null {
+  const spec = WALL_TARGETS[key];
+  if (!spec || value === null) return null;
+  const max = Math.max(spec.max, value * 1.1, spec.target * 1.25);
+  return { value: Math.min(100, Math.round((value / max) * 100)), target: Math.round((spec.target / max) * 100) };
+}
+
+/** The wall stops being trusted after 2 minutes without a fresh read (S-K6). */
+export const WALL_STALE_MS = 120_000;
+export function wallStale(updatedAt: number, now: number): boolean {
+  return updatedAt > 0 && now - updatedAt > WALL_STALE_MS;
+}
+
+/** "4 تشرين الأول" (+ the year when asked) for an ISO day: Arabic month names, Western digits (K-15). */
+export function arabicDay(isoDate: string, withYear = false): string {
+  return new Intl.DateTimeFormat('ar-IQ-u-nu-latn', { day: 'numeric', month: 'long', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'Asia/Baghdad' }).format(new Date(`${isoDate.slice(0, 10)}T12:00:00+03:00`));
+}
+
+/** Day labels for the orders strip: "ج 2/10" style is ambiguous, so the weekday in Arabic + day number. */
+export function dayLabel(isoDate: string): string {
+  const d = new Date(`${isoDate}T12:00:00+03:00`);
+  const wd = new Intl.DateTimeFormat('ar-IQ-u-nu-latn', { weekday: 'long', timeZone: 'Asia/Baghdad' }).format(d);
+  return `${wd} ${Number(isoDate.slice(8, 10))}`;
+}
+
+// ───────────────────────── approvals ─────────────────────────
+
+/** The item after `id` once it is decided (the next one down, else the one above, else none). */
+export function nextAfter<T extends { id: string }>(items: readonly T[], id: string): T | null {
+  const i = items.findIndex((x) => x.id === id);
+  if (i < 0) return items[0] ?? null;
+  return items[i + 1] ?? items[i - 1] ?? null;
 }
 
 /** "ربع ساعة" / "نص ساعة" / "ساعة" / "20 دقيقة" — the wait as the refusal says it. */

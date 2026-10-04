@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ZoneCapacityView } from '@driver/contracts';
-import { ageLabel, dayBars, defaultRefusal, expiryAt, fileUrl, gaugePct, metricTone, refundChips, slaClock, sortZones, throttlePreview, waitLabel } from './control-room';
+import type { ControlsView, KillSwitchView } from '@driver/contracts';
+import { ageLabel, bullet, cashLevel, dayBars, defaultRefusal, expiryAt, fileUrl, gaugePct, matrixCell, merchantWords, metricTone, nextAfter, owedWords, refundChips, slaClock, sortZones, throttlePreview, waitLabel, wallStale } from './control-room';
 
 const z = (zoneKey: string, over: Partial<ZoneCapacityView>): ZoneCapacityView => ({
   zoneKey,
@@ -41,8 +42,12 @@ describe('control room helpers (console)', () => {
   });
 
   it('the customer-facing copy matches the API (refusals and the throttle)', () => {
-    expect(defaultRefusal('vertical', 'الأكل')).toBe('خدمة الأكل موقّفة مؤقتاً. نرجع قريب إن شاء الله');
-    expect(defaultRefusal('zone', 'زاكور')).toBe('ما نگدر نخدم منطقة زاكور هسة. نرجع قريب إن شاء الله');
+    // K-13: with an end time the customer is told when it's back; never "إن شاء الله" in a time.
+    expect(defaultRefusal('vertical', 'الأكل')).toBe('خدمة الأكل موقّفة هسة. جرّب بعدين');
+    expect(defaultRefusal('zone', 'زاكور')).toBe('ما نگدر نخدم منطقة زاكور هسة. جرّب بعدين');
+    expect(defaultRefusal('vertical', 'التكسي', new Date('2026-10-04T20:30:00Z'))).toBe('خدمة التكسي موقّفة لحد الساعة 11:30 م. جرّب بعدها');
+    expect(defaultRefusal('restaurant', 'مطعم خالد', new Date('2026-10-04T19:00:00Z'))).toBe('مطعم خالد موقّف الطلبات لحد الساعة 10:00 م. جرّب مطعم ثاني');
+    for (const s of ['vertical', 'zone', 'restaurant', 'corridor'] as const) expect(defaultRefusal(s, 'x', new Date())).not.toContain('إن شاء الله');
     expect(throttlePreview(15, 'refuse')).toBe('الطلبات هواية هسة بمنطقتك، جرّب بعد ربع ساعة');
     expect(throttlePreview(30, 'queue')).toBe('الطلبات هواية هسة بمنطقتك، جرّب بعد نص ساعة أو احجز طلبك لبعد نص ساعة ويوصلك بوقته');
     expect(waitLabel(20)).toBe('20 دقيقة');
@@ -64,5 +69,44 @@ describe('control room helpers (console)', () => {
     expect(fileUrl('https://cdn.example/x.jpg', 'http://127.0.0.1:3395/trpc')).toBe('https://cdn.example/x.jpg');
     expect([metricTone({ ok: true }), metricTone({ ok: false }), metricTone({ ok: null })]).toEqual(['ok', 'bad', 'pending']);
     expect(dayBars([{ orders: 0 }, { orders: 10 }, { orders: 5 }])).toEqual([0, 100, 50]);
+  });
+
+  it('the zone × service matrix: own switch, whole zone, city-wide service', () => {
+    const sw = (over: Partial<KillSwitchView>): KillSwitchView => ({ id: 's', cityId: 'aziziyah', scope: 'zone', key: 'zakur', label_ar: 'زاكور', vertical: null, active: true, holdDispatch: false, message_ar: null, reason: 'x', setBy: 'p', setByName: null, setAt: new Date(), expiresAt: null, ...over });
+    const view: Pick<ControlsView, 'switches' | 'verticals'> = {
+      switches: [sw({ id: 'a', key: 'khamas', vertical: 'taxi' }), sw({ id: 'b', key: 'zakur' }), sw({ id: 'c', key: 'centre', vertical: 'food', active: false })],
+      verticals: [
+        { key: 'food', label_ar: 'الأكل', killed: false },
+        { key: 'parcel', label_ar: 'الطرود', killed: true },
+      ],
+    };
+    expect(matrixCell(view, 'khamas', 'taxi')).toMatchObject({ state: 'off', sw: { id: 'a' } });
+    expect(matrixCell(view, 'khamas', 'food').state).toBe('on');
+    expect(matrixCell(view, 'khamas', null).state).toBe('on');
+    expect(matrixCell(view, 'zakur', null)).toMatchObject({ state: 'off', sw: { id: 'b' } });
+    expect(matrixCell(view, 'zakur', 'food').state).toBe('zone');
+    expect(matrixCell(view, 'centre', 'food').state).toBe('on'); // switched back
+    expect(matrixCell(view, 'centre', 'parcel').state).toBe('city');
+  });
+
+  it('money in words (K-16) and cash levels by the money spec (70 % amber, 90 % red)', () => {
+    expect(owedWords(52_000)).toBe('لازم يسلّم 52,000 دينار');
+    expect(owedWords(-2_000)).toBe('له 2,000 دينار');
+    expect(owedWords(0)).toBe('ماكو حساب');
+    expect(merchantWords(120_000)).toBe('للمطعم 120,000 دينار');
+    expect(merchantWords(-4_250)).toBe('على المطعم 4,250 دينار');
+    expect([cashLevel(0.5, false), cashLevel(0.7, false), cashLevel(0.92, false), cashLevel(0.4, true)]).toEqual(['ok', 'near', 'edge', 'over']);
+  });
+
+  it('wall bullets, staleness and the next approval after a decision', () => {
+    expect(bullet('median_delivery', 31)).toEqual({ value: 52, target: 58 });
+    expect(bullet('ledger', 0)).toBeNull();
+    expect(bullet('acceptance', null)).toBeNull();
+    expect(wallStale(1_000, 1_000 + 119_000)).toBe(false);
+    expect(wallStale(1_000, 1_000 + 121_000)).toBe(true);
+    const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(nextAfter(items, 'b')?.id).toBe('c');
+    expect(nextAfter(items, 'c')?.id).toBe('b');
+    expect(nextAfter([{ id: 'a' }], 'a')).toBeNull();
   });
 });

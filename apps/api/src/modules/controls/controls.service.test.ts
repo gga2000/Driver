@@ -49,6 +49,15 @@ describe('launch controls', () => {
     expect(view.zones.find((z) => z.zoneKey === 'zakur')).toMatchObject({ killed: false, state: 'ok' });
   });
 
+  it('the default refusal says when the service is back, and never "إن شاء الله" (K-13)', async () => {
+    const h = await harness();
+    await h.svc.setSwitch(ALI, { cityId: 'aziziyah', scope: 'vertical', key: 'food', active: true, holdDispatch: false, reason: 'مطر', expiresAt: new Date('2026-10-04T20:30:00Z') });
+    await expect(h.svc.assertOrderAllowed(gate())).rejects.toMatchObject({ envelope: { message_ar: 'خدمة الأكل موقّفة لحد الساعة 11:30 م. جرّب بعدها' } });
+    await h.svc.setSwitch(ALI, { cityId: 'aziziyah', scope: 'vertical', key: 'food', active: false, holdDispatch: false, reason: 'خلص' });
+    await h.svc.setSwitch(ALI, { cityId: 'aziziyah', scope: 'zone', key: 'zakur', active: true, holdDispatch: false, reason: 'حفريات' });
+    await expect(h.svc.assertOrderAllowed(gate())).rejects.toMatchObject({ envelope: { message_ar: 'ما نگدر نخدم منطقة زاكور هسة. جرّب بعدين' } });
+  });
+
   it('refuses unknown targets and past expiries; writes an event and an audit row per change', async () => {
     const h = await harness();
     await expect(h.svc.setSwitch(ALI, { cityId: 'aziziyah', scope: 'restaurant', key: 'org_nope', active: true, holdDispatch: false, reason: 'تجربة' })).rejects.toMatchObject({ code: 'control_invalid' });
