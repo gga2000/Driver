@@ -136,14 +136,14 @@ describe('SMS twins', () => {
     const push = new ScriptedPush();
     const h = notifyHarness({ push });
     await h.register('owner', 'ExponentPushToken[owner-1]', 'merchant');
-    await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', orderId: 'o1', params: { id: 'A1B2C3', items: '3', orderId: 'o1' } });
+    await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', orderId: 'o1', params: { id: '1284', items: '3 أصناف', orderId: 'o1' } });
     await h.run();
     expect(push.sent[0]).toMatchObject({ channelId: 'offers', sound: 'offer.wav', priority: 'high', ttlSec: 120 });
     await h.run(29 * SEC);
     expect(h.sms.sent).toHaveLength(0);
     await h.run(1 * SEC);
     expect(push.receiptsAsked).toEqual([['t1']]);
-    expect(h.sms.sent.map((m) => [m.to, m.body])).toEqual([['+9647701110003', 'درايفر: طلب جديد! — #A1B2C3 · 3 صنف · اقبله خلال 90 ثانية']]);
+    expect(h.sms.sent.map((m) => [m.to, m.body])).toEqual([['+9647701110003', 'درايفر: طلب جديد! — #1284 · 3 أصناف · اقبله خلال 90 ثانية']]);
     const rows = await h.rows({ orderId: 'o1' });
     expect(rows.map((r) => [r.channel, r.status, r.twin])).toEqual([
       ['push', 'sent', false],
@@ -322,5 +322,12 @@ describe('devices', () => {
     const wa = (h.whatsapp as unknown as { sent: Array<{ language: string }> }).sent[0]!;
     expect(wa.language).toBe('en');
     expect((h.push as unknown as { sent: Array<{ title: string }> }).sent[0]!.title).toBe('Order delivered');
+  });
+});
+
+describe('itemsAr', () => {
+  it('counts dishes the Iraqi way', async () => {
+    const { itemsAr } = await import('./notify.subscribers.js');
+    expect([1, 2, 3, 10, 11].map(itemsAr)).toEqual(['صنف واحد', 'صنفين', '3 أصناف', '10 أصناف', '11 صنف']);
   });
 });

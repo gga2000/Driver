@@ -4,6 +4,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SimulatorStatus } from '@driver/contracts';
 import { AppModule } from './app.module.js';
+import { CLOCK, type Clock } from './shared/clock.js';
 import { ConsoleReadService } from './modules/console/index.js';
 import { SimulatorService } from './modules/simulator/index.js';
 
@@ -18,7 +19,12 @@ describe('simulator live mode against the running app', () => {
   let app: INestApplicationContext;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    // The live run starts at the app clock's "now": pin it to a lunchtime start running at real speed,
+    // so the test does not depend on the hour it runs at (a 04:00 start sees almost no demand).
+    const t0 = Date.now();
+    const start = new Date('2026-10-04T09:00:00Z').getTime();
+    const lunchClock: Clock = { now: () => new Date(start + (Date.now() - t0)) };
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(lunchClock).compile();
     moduleRef.useLogger(['error']);
     app = await moduleRef.init();
   });

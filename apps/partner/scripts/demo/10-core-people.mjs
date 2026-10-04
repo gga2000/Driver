@@ -11,6 +11,14 @@ export default async function register(demo) {
   const { services, Accounts } = demo;
 
   const seeded = await demo.seedStorefronts(services.orgs, services.catalog, undefined, 'demo-owner');
+  // Demo restaurants stay open around the clock so screens and shots work at any hour
+  // (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
+  if (process.env.DEMO_HOURS !== 'real') {
+    for (const s of seeded) {
+      const front = await services.catalog.storefront(s.orgId);
+      if (front && front.hours.length > 0) await services.catalog.saveStorefront({ ...front, hours: [] });
+    }
+  }
   await services.orgs.settled?.();
   demo.restaurants = Object.fromEntries(seeded.map((s) => [s.seed.key, s]));
 

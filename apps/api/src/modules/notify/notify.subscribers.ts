@@ -1,9 +1,18 @@
 import { Logger } from '@nestjs/common';
+import { orderTicketNumber } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import type { NotifyRepository } from './notify.repository.js';
 import { iqd, localDate, localTime } from './render.js';
+
+/** Iraqi count of dishes: صنف واحد · صنفين · 3 أصناف · 11 صنف (the kitchen reads it at a glance). */
+export function itemsAr(n: number): string {
+  if (n === 1) return 'صنف واحد';
+  if (n === 2) return 'صنفين';
+  if (n >= 3 && n <= 10) return `${n} أصناف`;
+  return `${n} صنف`;
+}
 
 /**
  * The notify module's own outbox subscriber (kept apart from the realtime fan-out and every other
@@ -40,7 +49,6 @@ const MERCHANT_OWNERS = ['merchant_owner'] as const;
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const shortId = (id: string) => id.slice(-6).toUpperCase();
 
 /** Turns one event into the notifications it implies. Exported for tests. */
 export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
@@ -61,7 +69,7 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       const orgId = str(p['merchantOrgId']) ?? order?.merchantOrgId ?? null;
       if (!order || !orgId) return [];
       const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
-      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: shortId(order.id), items: order.itemCount, orderId: order.id }, data: { orderId: order.id } }));
+      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id } }));
     }
     case 'order.delivered': {
       const order = e.orderId ? await L.order(e.orderId) : null;

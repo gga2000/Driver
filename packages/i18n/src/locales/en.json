@@ -839,7 +839,7 @@
   "push.partner_substitute.title": "Route needs a substitute",
   "push.partner_substitute.body": "{route} · {date} · {amount} IQD",
   "push.merchant_new_order.title": "New order!",
-  "push.merchant_new_order.body": "#{id} · {items} items · accept within 90s",
+  "push.merchant_new_order.body": "#{id} · {items} · accept within 90s",
   "push.merchant_courier_waiting.title": "Courier waiting",
   "push.merchant_courier_waiting.body": "Is #{id} ready? Waiting is charged to you",
   "push.safety_deviation.title": "Everything OK?",

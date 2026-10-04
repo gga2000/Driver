@@ -839,7 +839,7 @@
   "push.partner_substitute.title": "خط يحتاج بديل",
   "push.partner_substitute.body": "{route} · {date} · {amount} دينار",
   "push.merchant_new_order.title": "طلب جديد!",
-  "push.merchant_new_order.body": "#{id} · {items} صنف · اقبله خلال 90 ثانية",
+  "push.merchant_new_order.body": "#{id} · {items} · اقبله خلال 90 ثانية",
   "push.merchant_courier_waiting.title": "الدليفري ينتظر",
   "push.merchant_courier_waiting.body": "طلب #{id} جاهز؟ الانتظار ينحسب عليك",
   "push.safety_deviation.title": "كلشي تمام؟",

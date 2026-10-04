@@ -42,6 +42,14 @@ const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// Demo restaurants stay open around the clock so screens and shots work at any hour
+// (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
+if (process.env.DEMO_HOURS !== 'real') {
+  for (const s of seeded) {
+    const front = await catalog.storefront(s.orgId);
+    if (front && front.hours.length > 0) await catalog.saveStorefront({ ...front, hours: [] });
+  }
+}
 await orgs.settled?.();
 const khalid = seeded.find((s) => s.seed.key === 'khalid');
 /** مطعم خالد's pin: the pickup for the live-order demo. */

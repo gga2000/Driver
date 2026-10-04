@@ -30,8 +30,8 @@ describe('notify subscribers: events → notifications', () => {
     const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
     expect(await one(event('order.accepted', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_accepted', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
     expect(await one(event('order.offered_to_merchant', { merchantOrgId: 'org_k' }, { orderId: 'ord_1' }))).toEqual([
-      { template: 'merchant_new_order', to: 'staff', params: { id: 'ORD_1', items: 3, orderId: 'ord_1' } },
-      { template: 'merchant_new_order', to: 'owner', params: { id: 'ORD_1', items: 3, orderId: 'ord_1' } },
+      { template: 'merchant_new_order', to: 'staff', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
+      { template: 'merchant_new_order', to: 'owner', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
     ]);
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);

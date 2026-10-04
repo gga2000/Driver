@@ -79,6 +79,24 @@ const { orgs, catalog, identity } = services;
 // ───────────────────────── stores ─────────────────────────
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// Demo restaurants stay open around the clock so screens and shots work at any hour
+// (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
+if (process.env.DEMO_HOURS !== 'real') {
+  for (const s of seeded) {
+    const front = await catalog.storefront(s.orgId);
+    if (front && front.hours.length > 0) await catalog.saveStorefront({ ...front, hours: [] });
+  }
+}
+// Five weeks of history (scripts/demo/lib/khalid-history.mjs) include small real-life orders below
+// today's minimum; the demo places them with the minimum off and restores it afterwards.
+const demoMinimums = new Map();
+for (const s of seeded) {
+  const front = await catalog.storefront(s.orgId);
+  if (front && front.minOrderIqd > 0) {
+    demoMinimums.set(s.orgId, front.minOrderIqd);
+    await catalog.saveStorefront({ ...front, minOrderIqd: 0 });
+  }
+}
 await orgs.settled?.();
 const byKey = (key) => seeded.find((s) => s.seed.key === key);
 const khalid = byKey('khalid');
@@ -164,5 +182,9 @@ for (const file of sections) {
   console.log(`DEMO_API section ${file}`);
 }
 
+for (const [orgId, minOrderIqd] of demoMinimums) {
+  const front = await catalog.storefront(orgId);
+  if (front) await catalog.saveStorefront({ ...front, minOrderIqd });
+}
 await app.listen(PORT);
 console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (khalid=${khalid.orgId}, owner=${people.owner.phone})`);
