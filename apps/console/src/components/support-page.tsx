@@ -14,7 +14,7 @@ import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
 import { orderLabel } from '@/lib/names';
 import { OrderRef, OrgName, PersonName } from './named';
-import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Stat, useSecondsSince } from './ui';
+import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Stat, useSecondsSince } from './ui';
 
 type StatusFilter = 'active' | 'escalated' | 'resolved' | 'all';
 const FILTERS: readonly StatusFilter[] = ['active', 'escalated', 'resolved', 'all'];

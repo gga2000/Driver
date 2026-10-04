@@ -93,7 +93,8 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
 
   it('K-01 console names: batched reads, one log row per person read, against the staff member', async () => {
     await service.setName({ personId, sessionId: 'it' }, 'حيدر كاظم');
-    const staff = `it_staff_${Date.now().toString(36)}`;
+    // The accessor is a real person (vault_access_logs.accessor_id references persons).
+    const staff = (await prisma.prisma.person.create({ data: {} })).id;
     const before = await prisma.prisma.vaultAccessLog.count({ where: { personId, purpose: 'console_names_it' } });
     const out = await service.displayNamesFor([personId, personId, 'p_does_not_exist'], staff, 'console_names_it');
     expect(out).toEqual({ [personId]: { displayName: 'حيدر ك.', deleted: false } });

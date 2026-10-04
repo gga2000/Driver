@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import type { LaunchService } from '@driver/contracts';
-import { SearchField, StaleNote, Text, useLoadTimeout, useTheme, useToast } from '@driver/ui';
+import { SearchField, StaleNote, Text, useLoadTimeout, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
