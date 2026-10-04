@@ -58,7 +58,7 @@ export default function JobScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={{ flex: 1, width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' }}>
           {queued ? <QueuedStrip sending={queue.sending} text="partner.done_queued" /> : null}
-          <DonePanel earnedIqd={done?.earnedIqd ?? job.data?.pay.totalIqd ?? 0} failed={done?.failed ?? false} onHome={goHome} />
+          <DonePanel earnedIqd={done?.earnedIqd ?? job.data?.pay.totalIqd ?? 0} failed={done?.failed ?? false} onHome={goHome} cash={status.data?.cash ?? null} />
         </View>
       </SafeAreaView>
     );

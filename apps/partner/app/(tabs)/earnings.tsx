@@ -109,7 +109,7 @@ export default function EarningsTab() {
           </View>
         </>
       )}
-      <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={v?.cash.heldIqd ?? status?.cash.heldIqd ?? 0} />
+      <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={v?.cash.heldIqd ?? status?.cash.heldIqd ?? 0} owedIqd={v?.cap.owedIqd ?? status?.cash.owedIqd ?? 0} />
     </Screen>
   );
 }

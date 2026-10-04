@@ -8,12 +8,37 @@ import { localDayKey, startOfLocalWeek } from '@/lib/calendar';
 
 export type Tone = 'success' | 'warning' | 'danger' | 'neutral';
 
-/** Exposure bar (decisions §3, cap 300,000 by default): fill 0–1 and its tone. */
+/**
+ * Exposure bar (decisions §3, cap 300,000 by default): fill 0–1 and its tone. Clamped (M-07): a
+ * negative balance is an empty bar and the room left is the whole cap — never "304,250 left of 300,000".
+ */
 export function exposure(balanceIqd: number, capIqd: number): { fill: number; tone: Tone; leftIqd: number; over: boolean } {
   const cap = Math.max(1, capIqd);
-  const fill = Math.min(1, Math.max(0, balanceIqd / cap));
-  const over = balanceIqd >= cap;
-  return { fill, tone: over || fill >= 0.9 ? 'danger' : fill >= 0.65 ? 'warning' : 'success', leftIqd: Math.max(0, cap - balanceIqd), over };
+  const held = Math.max(0, balanceIqd);
+  const fill = Math.min(1, held / cap);
+  const over = held >= cap;
+  return { fill, tone: over || fill >= 0.9 ? 'danger' : fill >= 0.65 ? 'warning' : 'success', leftIqd: Math.max(0, cap - held), over };
+}
+
+/**
+ * M-07: the balance in plain words. `owed` — Driver holds money for the merchant (he can ask for it);
+ * `owe` — negative: he took his orders' cash from the couriers and Driver's commission is left on him,
+ * taken off his next money (nothing to pay, nothing to ask for); `zero` — nothing either way.
+ */
+export function balanceState(balanceIqd: number): { kind: 'owed' | 'owe' | 'zero'; amountIqd: number } {
+  if (balanceIqd > 0) return { kind: 'owed', amountIqd: balanceIqd };
+  if (balanceIqd < 0) return { kind: 'owe', amountIqd: -balanceIqd };
+  return { kind: 'zero', amountIqd: 0 };
+}
+
+/**
+ * Why "اطلب فلوسك" can't be pressed (M-07: a disabled button always says why), or null when it can.
+ */
+export function requestBlocker(account: Pick<MerchantCashAccount, 'balanceIqd' | 'request'>): 'open' | 'owe' | 'zero' | null {
+  if (account.request && account.request.state !== 'handed_over') return 'open';
+  if (account.balanceIqd < 0) return 'owe';
+  if (account.balanceIqd === 0) return 'zero';
+  return null;
 }
 
 export interface HolderRow {

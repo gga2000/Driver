@@ -50,11 +50,17 @@ export default async function register(ctx) {
       for (const [key, qty] of basket) lines.push(await ctx.line(khalid, key, qty));
       // New customers' first cash orders are capped at 25,000; the big trays go prepaid.
       const big = basket.some(([key]) => key === 'grill_mix_kilo' || key === 'khalid_mix');
+      const paymentMethod = !big && rand() < 0.7 ? 'cash' : 'wallet';
+      // A wallet order needs a wallet that covers it (wallet_insufficient): the customer topped up first.
+      if (paymentMethod === 'wallet') {
+        const account = ctx.Accounts.customer(`demo-history-${placed}`);
+        await ctx.services.ledger.recordAll({ id: `demo:topup:history-${placed}`, kind: 'money', occurredAt: at, refs: {}, lines: [{ type: 'credit_issued', amount: 100_000, fromAccount: ctx.Accounts.bank, toAccount: account, memo: 'topup:agent' }], controls: [{ account, net: 100_000 }] });
+      }
       const o = await orders.place(`demo-history-${placed}`, {
         cityId: 'aziziyah',
         type: 'food',
         merchantOrgId: orgId,
-        paymentMethod: !big && rand() < 0.7 ? 'cash' : 'wallet',
+        paymentMethod,
         dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } },
         lines,
       });

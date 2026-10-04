@@ -1,4 +1,5 @@
 import {
+  cashToHand,
   DepartureCancelledPayload,
   OrderCancelledPayload,
   ErrandMoneyPayload,
@@ -97,10 +98,13 @@ export function takeOf(fareIqd: number, rule: TakeRule): number {
   return Math.min(fareIqd, take);
 }
 
-/** G-88: customer totals in multiples of 500 (250 only with a 250 component, when enabled); half rounds up. */
-export function roundCustomerTotal(totalIqd: number, rules: MoneyRules, has250Component = false): number {
-  const step = has250Component && rules.rounding.allowQuarterStepWith250Component ? 250 : rules.rounding.stepIqd;
-  return Math.floor(totalIqd / step + 0.5) * step;
+/**
+ * What a cash customer hands over for `chargedIqd` (Ali, 2026-10-04; replaces G-88's 500 step): the
+ * price rounded **up** to `rules.rounding.stepIqd` (250). The remainder is his change and goes to his
+ * wallet (`settleCustomer`), so rounding never raises what he pays and never costs a funder anything.
+ */
+export function roundCustomerTotal(totalIqd: number, rules: MoneyRules): number {
+  return cashToHand(totalIqd, rules.rounding.stepIqd).cashIqd;
 }
 
 /** Splits `total` across weights so the parts sum exactly to `total` (largest remainder). */
@@ -127,7 +131,6 @@ interface PayerSide {
   householdId?: string | undefined;
   payment: 'cash' | 'wallet';
   cashCollectedIqd?: number | undefined;
-  has250Component: boolean;
 }
 
 function payerAccount(p: { customerId: string; householdId?: string | undefined }): string {
@@ -135,35 +138,26 @@ function payerAccount(p: { customerId: string; householdId?: string | undefined 
 }
 
 /**
- * Rounds the customer total, posts the residue to `rounding`, then the payment: cash collected by
- * `collector` (a courier's `cash:` or a merchant's cash account), or nothing for wallet orders.
- * Short cash stays on the payer as wallet debt; extra cash becomes a rounding credit.
+ * The payment side of a sale: the payer is charged exactly `chargedIqd` (no rounding line). Wallet:
+ * that is all. Cash: `collector` (a courier's `cash:` or a merchant's cash account) takes the cash —
+ * by default the price rounded up to 250 (`cashToHand`); whatever he hands over above the price is
+ * his change, credited to his wallet (`cash_rounding_credit`, memo `change_as_credit`, "الباقي رصيد").
+ * The change is the customer's own money: it sits with the collector until he settles (it counts on
+ * a courier's cap) and the platform owes it to the customer as wallet credit — no merchant, deal or
+ * platform budget pays for it. Short cash stays on the payer as wallet debt. Returns what he paid.
  */
 function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd: number, collector: string, rules: MoneyRules): number {
   if (chargedIqd < 0) throw new RangeError(`customer total is negative (${chargedIqd})`);
-  const total = roundCustomerTotal(chargedIqd, rules, p.has250Component);
-  const residue = total - chargedIqd;
-  if (residue > 0) b.add('rounding_residue', residue, payer, Accounts.rounding);
-  if (residue < 0) b.add('rounding_residue', -residue, Accounts.rounding, payer);
   if (p.payment === 'wallet') {
-    b.control(payer, -total);
-    return total;
+    b.control(payer, -chargedIqd);
+    return chargedIqd;
   }
-  const collected = p.cashCollectedIqd ?? total;
-  b.add('cash_collected', Math.min(collected, total), collector, payer);
-  if (collected > total) b.add('cash_rounding_credit', collected - total, collector, payer, 'change_as_credit');
-  b.control(payer, collected - total);
-  return total;
-}
-
-/**
- * G-88, same rule as orders' `has250Component` (review L): a fee that is not a multiple of 500 (night
- * +250, street hand-over −250, a 250-step fare) puts a 250 component on the receipt, so the total
- * rounds to 250. Derived here too, so a payload that omits the flag can never leave a customer who
- * paid the total he was shown owing 250.
- */
-function hasQuarterStep(...fees: number[]): boolean {
-  return fees.some((f) => f % 500 !== 0);
+  const due = roundCustomerTotal(chargedIqd, rules);
+  const collected = p.cashCollectedIqd ?? due;
+  b.add('cash_collected', Math.min(collected, chargedIqd), collector, payer);
+  if (collected > chargedIqd) b.add('cash_rounding_credit', collected - chargedIqd, collector, payer, 'change_as_credit');
+  b.control(payer, collected - chargedIqd);
+  return due;
 }
 
 /** Points value redeemed against the service fee first, then delivery (decisions §2). */
@@ -233,7 +227,7 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
 
   const charged = o.itemsSubtotalIqd + serviceFee + o.smallOrderFeeIqd + o.deliveryFeeIqd + o.tipIqd - promo - itemDeal - deliveryDeal - red.valueIqd;
   const collector = o.courierId ? Accounts.cash(o.courierId) : merchant;
-  const total = settleCustomer(b, payer, { ...o, has250Component: o.has250Component || hasQuarterStep(o.deliveryFeeIqd, serviceFee, o.smallOrderFeeIqd) }, charged, collector, rules);
+  const total = settleCustomer(b, payer, o, charged, collector, rules);
 
   return {
     money: b.build(),
@@ -266,7 +260,7 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
   const charged = e.actualCostIqd + e.errandFeeIqd + serviceFee + e.tipIqd - red.valueIqd;
-  const total = settleCustomer(b, payer, { ...e, has250Component: e.has250Component || hasQuarterStep(e.errandFeeIqd, serviceFee) }, charged, Accounts.cash(e.shopperId), rules);
+  const total = settleCustomer(b, payer, e, charged, Accounts.cash(e.shopperId), rules);
   return {
     money: b.build(),
     redeem: red.points > 0 ? redeemGroup(`order:${e.orderId}:redeem`, e.customerId, red.points, e.occurredAt, refs) : null,
@@ -296,7 +290,7 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, { ...r, has250Component: r.has250Component || hasQuarterStep(r.fareIqd) }, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 

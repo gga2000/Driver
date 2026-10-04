@@ -71,10 +71,27 @@ export const PartnerCash = z.object({
   capIqd: Iqd.min(0),
   remainingIqd: Iqd.min(0),
   overCap: z.boolean(),
-  /** ≥ 80 % of the cap: the app warns before offers stop. */
+  /** ≥ 70 % of the cap (`CAP_WARN_SHARE`): the app warns before offers stop. */
   nearCap: z.boolean(),
 });
 export type PartnerCash = z.infer<typeof PartnerCash>;
+
+/** UI/UX audit P-05: the cap bar turns amber from 70 % of the cap … */
+export const CAP_WARN_SHARE = 0.7;
+/** … and red from 90 % (and at/over the cap, where offers stop). */
+export const CAP_DANGER_SHARE = 0.9;
+
+/**
+ * One cash truth for the Partner app (P-05): the courier's "لازم تسلّم" number is what counts against
+ * his cap (`owedIqd`), and the bar's length and colour both come from it — success below 70 %, warning
+ * from 70 %, danger from 90 % or over the cap. `overIqd` is how far past the cap he is.
+ */
+export function capState(owedIqd: number, capIqd: number, overCap = false): { share: number; tone: 'success' | 'warning' | 'danger'; over: boolean; overIqd: number; leftIqd: number } {
+  const share = capIqd > 0 ? Math.max(0, Math.min(1, owedIqd / capIqd)) : owedIqd > 0 ? 1 : 0;
+  const over = overCap || (capIqd > 0 && owedIqd >= capIqd);
+  const tone = over || share >= CAP_DANGER_SHARE ? 'danger' : share >= CAP_WARN_SHARE ? 'warning' : 'success';
+  return { share, tone, over, overIqd: Math.max(0, owedIqd - capIqd), leftIqd: Math.max(0, capIqd - owedIqd) };
+}
 
 /** Why he may not go online now (same codes as `driverAccount.onlineGate`): scoring §2. */
 export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired']);

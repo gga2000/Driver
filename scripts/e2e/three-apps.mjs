@@ -259,7 +259,10 @@ async function foodFlow() {
   });
   const orderId = order.id;
   check(order.state === 'placed', `order placed (${orderId}), total ${order.totalIqd}`, order.state);
-  check(order.totalIqd === cheap.priceIqd + second.priceIqd + fees.deliveryFeeIqd + fees.serviceFeeIqd, 'server total = items + quoted fees');
+  // Ali's rounding (2026-10-04): a cash total is the price rounded up to 250; the remainder is change
+  // credited to the wallet ("الباقي رصيد"), never a charge.
+  const price = cheap.priceIqd + second.priceIqd + fees.deliveryFeeIqd + fees.serviceFeeIqd;
+  check(order.totalIqd === Math.ceil(price / 250) * 250 && (order.changeIqd ?? 0) === order.totalIqd - price, `server total = items + quoted fees, cash rounded up to 250 (price ${price}, change ${order.changeIqd ?? 0})`);
 
   let customerLive = null;
   if (LIVE) {

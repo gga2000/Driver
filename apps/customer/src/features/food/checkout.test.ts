@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -118,16 +118,38 @@ describe('checkout payload builder', () => {
     expect(t.components.map((c) => c.key)).toEqual(['base', 'street_pickup', 'service_fee']);
   });
 
-  it('deal shown at its exact saving per line; the rounding is a separate amount (never spread over lines)', () => {
+  it('deal shown at its exact saving; a cash total rounds up to 250 and the change goes to the wallet (Ali, 2026-10-04)', () => {
     const cart = twoPersonCart();
-    const deal = { promotionId: 'd1', funder: 'merchant' as const, target: 'items' as const, type: 'percent' as const, label_ar: 'خصم 15%', label_en: '15% off', amountIqd: 3750, dealIqd: 4050, roundingIqd: 300 };
-    const t = checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 3750, discount: deal });
-    // 27,000 + 1,500 − 4,050 = 24,450 → 24,750 on the step: the deal line says 4,050, the rounding +300.
-    expect(t).toMatchObject({ discountIqd: 3750, dealIqd: 4050, roundingIqd: 300, totalIqd: 27000 + 1500 - 3750 });
-    const saved = lineSavings(cart, { lineSavingsIqd: [600, 3150], dealLineSavingsIqd: [600, 3450] });
+    const deal = { promotionId: 'd1', funder: 'merchant' as const, target: 'items' as const, type: 'percent' as const, label_ar: 'خصم 15%', label_en: '15% off', amountIqd: 4050, dealIqd: 4050, roundingIqd: 0 };
+    const t = checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 4050, discount: deal });
+    // 27,000 + 1,500 − 4,050 = 24,450 → hands over 24,500, 50 back as "الباقي رصيد".
+    expect(t).toMatchObject({ discountIqd: 4050, dealIqd: 4050, roundingIqd: 0, priceIqd: 24450, totalIqd: 24500, changeIqd: 50 });
+    // The wallet pays the exact price.
+    expect(checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 4050, discount: deal }, 'wallet')).toMatchObject({ priceIqd: 24450, totalIqd: 24450, changeIqd: 0 });
+    // An exact multiple has no change.
+    expect(checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] })).toMatchObject({ priceIqd: 28500, totalIqd: 28500, changeIqd: 0 });
+    const saved = lineSavings(cart, { lineSavingsIqd: [600, 3450], dealLineSavingsIqd: [600, 3450] });
     expect([...saved.values()]).toEqual([600, 3450]);
-    // Old API without the exact field: the rounded shares.
+    // Old API without the exact field: the per-line shares.
     expect([...lineSavings(cart, { lineSavingsIqd: [600, 3150] }).values()]).toEqual([600, 3150]);
+  });
+
+  it('wallet row (C-04): usable when it covers the exact price, otherwise how much is missing', () => {
+    expect(walletChoice(null, 18000)).toEqual({ usable: false, missingIqd: 0 });
+    expect(walletChoice(25000, 17800)).toEqual({ usable: true, missingIqd: 0 });
+    expect(walletChoice(17800, 17800)).toEqual({ usable: true, missingIqd: 0 });
+    expect(walletChoice(3000, 17750)).toEqual({ usable: false, missingIqd: 14750 });
+  });
+
+  it('deals never combine (C-06): the other live deals are named, the applied one is not', () => {
+    const deals = [
+      { dealId: 'd20', label_ar: 'خصم 20% على كل المنيو', label_en: '20% off' },
+      { dealId: 'dfree', label_ar: 'توصيل مجاني فوق 15,000 دينار', label_en: 'Free delivery over 15,000' },
+    ];
+    expect(otherDeals(deals, { promotionId: 'd20', funder: 'merchant' }).map((d) => d.dealId)).toEqual(['dfree']);
+    expect(otherDeals(deals, null)).toEqual([]);
+    expect(otherDeals(deals, { promotionId: 'p1', funder: 'platform' })).toEqual([]);
+    expect(placeProblem('wallet_insufficient')).toBe('wallet_insufficient');
   });
 
   it('builds orders.place: catalog ids + menu prices, a diner per tagged person, line tags and notes', () => {

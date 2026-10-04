@@ -241,10 +241,10 @@ export function TopUpDesk({
           testID="job-topup-cap"
           tone={cash.overCap ? 'danger' : cash.nearCap ? 'warning' : 'info'}
           text={t('partner.job_topup_cap', {
-            held: amountParam(cash.heldIqd),
+            held: amountParam(cash.owedIqd),
             cap: amountParam(cash.capIqd),
           })}
-          share={capShare(cash.heldIqd, cash.capIqd)}
+          share={capShare(cash.owedIqd, cash.capIqd)}
         />
       ) : null}
 

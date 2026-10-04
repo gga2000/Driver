@@ -4,7 +4,8 @@ import type { PartnerCash, PartnerDemand, VehicleClass } from '@driver/contracts
 import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { capShare, driversKey, inZone, todayKey, VEHICLE_ICON, VEHICLE_KEY, waitingKey } from './logic';
+import { CashMeter } from '@/features/account/CashMeter';
+import { driversKey, inZone, todayKey, VEHICLE_ICON, VEHICLE_KEY, waitingKey } from './logic';
 import { color } from '@driver/design-tokens';
 
 /** Floating pill over the map: "12,500 · 6 طلبات" — taps through to الأرباح. */
@@ -71,35 +72,13 @@ export function VehicleChip({ vehicle }: { vehicle: VehicleClass }) {
 }
 
 /**
- * Cash in hand vs the cap (money & ops §4). The bar is what counts against the cap (held cash net
- * of what the platform owes him); amber from 80 %, red over the cap with the settle message.
+ * Home's cash line (P-05): "لازم تسلّم" — what counts against the cap — with the bar and colour from that
+ * one number, what he holds as the explanation, and when offers stop. Same meter as earnings and done.
  */
 export function CashBar({ cash }: { cash: PartnerCash }) {
-  const theme = useTheme();
-  const t = useT();
-  // The bar is cash in hand against the cap (what the driver counts); warnings follow the server's
-  // cap maths (held cash net of what the platform owes him).
-  const share = capShare(cash.heldIqd, cash.capIqd);
-  const tone = cash.overCap ? theme.colors.danger : cash.nearCap ? theme.colors.warning : theme.colors.success;
-  const note = cash.overCap ? t('partner.cash_cap_reached') : cash.nearCap ? t('partner.cap_warning', { percent: Math.round(capShare(cash.owedIqd, cash.capIqd) * 100) }) : null;
   return (
-    <View testID="cash-bar" style={{ gap: theme.space[2] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <Text variant="label" color="textMuted">
-          {t('partner.cash_held')}
-        </Text>
-        <Text variant="label" weight={600} tabular>
-          {t('partner.cash_of_cap', { held: amountParam(cash.heldIqd), cap: amountParam(cash.capIqd) })}
-        </Text>
-      </View>
-      <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden' }}>
-        {share > 0 ? <View style={{ height: 8, borderRadius: 4, backgroundColor: tone, width: `${Math.max(share * 100, 3)}%` }} /> : null}
-      </View>
-      {note ? (
-        <Text variant="footnote" color={cash.overCap ? 'dangerText' : 'warningText'}>
-          {note}
-        </Text>
-      ) : null}
+    <View testID="cash-bar">
+      <CashMeter owedIqd={cash.owedIqd} heldIqd={cash.heldIqd} capIqd={cash.capIqd} overCap={cash.overCap} testID="cash-bar-meter" />
     </View>
   );
 }

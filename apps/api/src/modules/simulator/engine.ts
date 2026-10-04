@@ -186,6 +186,20 @@ export class Simulation implements SimContext {
     this.unsubscribe = null;
   }
 
+  /** A cash top-up at an agent (wallet spec §9): `credit_issued` from the bank into the customer's wallet. */
+  private async topUp(customerId: string, key: string): Promise<void> {
+    await this.call('customer.topup', () =>
+      this.s.ledger.recordAll({
+        id: `sim:topup:${key}`,
+        kind: 'money',
+        occurredAt: new Date(this.t),
+        refs: {},
+        lines: [{ type: 'credit_issued', amount: 100_000, fromAccount: 'bank', toAccount: `customer:${customerId}`, memo: 'topup:agent' }],
+        controls: [{ account: `customer:${customerId}`, net: 100_000 }],
+      }),
+    );
+  }
+
   private async customer(index: number): Promise<string> {
     const known = this.customers.get(index);
     if (known) return known;
@@ -215,6 +229,8 @@ export class Simulation implements SimContext {
       const p = this.plan[this.nextPlan++]!;
       const run = this.newRun(p);
       run.customerId = await this.customer(p.customer);
+      // C-04: a wallet order needs a wallet that covers it — wallet payers top up at an agent first.
+      if (p.payment === 'wallet') await this.topUp(run.customerId, p.key);
       this.orders.set(p.key, run);
       await placeOrder(this, run);
       if (run.orderId) {

@@ -214,7 +214,7 @@ async function startMover(tripId, courierId, path, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }) {
   const placed = await orders.place(personId, {
     cityId: 'aziziyah',
     type: 'food',
@@ -224,9 +224,11 @@ async function placeAccepted(personId, prepMinutes) {
       { catalogItemId: khalid.itemIds.get('liver_plate'), qty: 2 },
       { catalogItemId: khalid.itemIds.get('salad'), qty: 1 },
       { catalogItemId: khalid.itemIds.get('pepsi'), qty: 2 },
+      // To the saved home (the arrival demo): a soup too, so a running 20 % deal leaves change for the wallet.
+      ...(dropoff.pin !== HOME ? [{ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 }] : []),
     ],
     paymentMethod: 'cash',
-    dropoff: { zoneKey: 'zakur', pin: HOME },
+    dropoff,
   });
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   await orders.markPreparing('demo-staff', { orderId: placed.id });
@@ -263,8 +265,9 @@ async function advance(orderId, { move = true } = {}) {
   } else if (d.step === 'on_the_way') {
     stopMover(tripId);
     const drop = await stopOf(tripId, 'dropoff');
-    await trips.reportPosition(courierId, { tripId, pin: HOME, at: new Date(), bearing: 135, speedKmh: 0 });
-    await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+    const door = d.door ?? HOME;
+    await trips.reportPosition(courierId, { tripId, pin: door, at: new Date(), bearing: 135, speedKmh: 0 });
+    await trips.arrive(tripId, drop.id, courierId, { pin: door });
     d.step = 'at_door';
   } else if (d.step === 'at_door' || d.step === 'unreachable') {
     const drop = await stopOf(tripId, 'dropoff');
@@ -275,13 +278,22 @@ async function advance(orderId, { move = true } = {}) {
   return d.step;
 }
 
+/** The person's saved home with a gate photo (POST /demo/account adds one), for the arrival screen (C-11). */
+async function savedHome(personId) {
+  const { SavedPlacesService } = await load('modules/places/index.js');
+  const mine = await app.get(SavedPlacesService).mine(personId);
+  return mine.find((p) => p.label === 'home' && p.photos.length > 0) ?? null;
+}
+
 async function scenario(personId, name) {
   const late = name === 'late';
-  const orderId = await placeAccepted(personId, late ? 1 : 20);
+  // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
+  const home = name === 'arrived' ? await savedHome(personId) : null;
+  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
   const tripId = await assign(orderId, courierId);
-  const d = { tripId, courierId, step: late ? 'late' : 'preparing' };
+  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null };
   demos.set(orderId, d);
   if (name === 'preparing' || late) {
     await startMover(tripId, courierId, late ? FAR_TO_KITCHEN : TO_KITCHEN, late ? 22 : 30);

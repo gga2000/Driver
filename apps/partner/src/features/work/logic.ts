@@ -227,9 +227,10 @@ export function topUpCapEffect(
   amountIqd: number,
 ): { heldIqd: number; afterIqd: number; capIqd: number; overCap: boolean } {
   const add = Math.max(0, amountIqd);
+  // P-05 one cash truth: the cap counts what he must hand over (`owedIqd`), so the top-up adds to that.
   return {
     heldIqd: cash.heldIqd,
-    afterIqd: cash.heldIqd + add,
+    afterIqd: cash.owedIqd + add,
     capIqd: cash.capIqd,
     overCap: cash.capIqd > 0 && cash.owedIqd + add > cash.capIqd,
   };

@@ -56,8 +56,8 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'an order');
     o.cancellationFeeIqd = o.totalIqd + 500;
   },
-  customer_totals_multiple_of_500: (s) => {
-    first(s.orders, 'an order').totalIqd += 100;
+  customer_cash_rounds_to_250: (s) => {
+    first(s.orders, 'a cash order', (o) => o.paymentMethod === 'cash').totalIqd += 100;
   },
   no_offer_to_over_cap_driver: (s) => void s.offers.push({ tripId: 'trip_fault', driverId: 'fault', at: 0, kind: 'dispatch.offer_sent', overCap: true, owedIqd: 80_000, capIqd: 75_000 }),
   batched_hot_wait_within_10_min: (s) => void s.hotWaits.push({ orderId: 'ord_fault', courierId: 'fault', readyAtMs: 0, departAtMs: 12.5 * 60_000, waitMin: 12.5, rawWaitMin: 12.5, kitchenLateMin: 0, courierOffline: false }),

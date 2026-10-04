@@ -7,7 +7,7 @@ import { Screen } from '@/components/Screen';
 import { groupByPerson, ME, minOrderShortfall } from '@/features/food/cart';
 import { CartLineRow } from '@/features/food/CartLineRow';
 import { cartStore, useCart } from '@/features/food/cart-store';
-import { checkoutTotals, lineSavings } from '@/features/food/checkout';
+import { checkoutTotals, lineSavings, otherDeals } from '@/features/food/checkout';
 import { DealBadges } from '@/features/food/DealBadge';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { FoodArt, motifForDish } from '@/features/food/FoodArt';
@@ -169,14 +169,11 @@ export default function CartScreen() {
 
       <View style={{ gap: theme.space[2] }} testID="cart-total">
         {totals && totals.discountIqd > 0 ? (
-          <Card elevation={0} padding={3} style={{ backgroundColor: theme.colors.successTint }} testID="cart-deal-saving">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Icon name="gift" size={18} color="successText" />
-              <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
-                {t('cart.deal_saving', { amount: amountParam(totals.dealIqd || totals.discountIqd) })}
-              </Text>
-            </View>
-          </Card>
+          <DealApplied
+            label={totals.discount ? (locale === 'en' ? totals.discount.label_en : totals.discount.label_ar) : null}
+            savingIqd={totals.dealIqd || totals.discountIqd}
+            others={otherDeals(deals, totals.discount).map((d) => (locale === 'en' ? d.label_en : d.label_ar))}
+          />
         ) : nextDeal && shortfall === 0 ? (
           <Card elevation={0} padding={3} style={{ backgroundColor: theme.colors.accentTint }} testID="cart-deal-unlock">
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
@@ -202,7 +199,7 @@ export default function CartScreen() {
             {guest ? t('cart.price_after_sign_in') : t('cart.pick_place')}
           </Text>
         ) : totals ? (
-          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} totalLabel={t('quote.total')} note={t('quote.quote_locked')} testID="cart-price" />
+          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} totalLabel={t('quote.total')} note={t('quote.quote_locked')} testID="cart-price" />
         ) : quote.isError ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="label" color="dangerText" style={{ flex: 1 }}>
@@ -222,5 +219,38 @@ export default function CartScreen() {
         </Text>
       </View>
     </Screen>
+  );
+}
+
+/**
+ * C-06: which deal applied and why another did not — deals never combine; the server applied the one
+ * that saves most ("العروض ما تنجمع — طبّقنا الأوفر إلك").
+ */
+function DealApplied({ label, savingIqd, others }: { label: string | null; savingIqd: number; others: string[] }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Card elevation={0} padding={3} style={{ backgroundColor: theme.colors.successTint }} testID="cart-deal-saving">
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+        <View style={{ marginTop: 2 }}>
+          <Icon name="gift" size={18} color="successText" />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="label" weight={600} color="successText">
+            {label ? t('cart.deal_applied', { label }) : t('cart.deal_saving', { amount: amountParam(savingIqd) })}
+          </Text>
+          {label ? (
+            <Text variant="footnote" weight={600} color="successText" testID="cart-deal-amount">
+              {t('cart.deal_applied_saving', { amount: amountParam(savingIqd) })}
+            </Text>
+          ) : null}
+          {others.length > 0 ? (
+            <Text variant="footnote" color="textMuted" testID="cart-deal-not-stacked">
+              {t('cart.deals_dont_stack', { other: others.join('، ') })}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </Card>
   );
 }

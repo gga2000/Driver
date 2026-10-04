@@ -1,24 +1,33 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type OrderTracking } from '@driver/contracts';
-import { Button, Icon, ltr, Text, useCountUp, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Icon, ltr, Text, useCountUp, useTheme, useToast } from '@driver/ui';
+import { useMyPlaces } from '@/features/account/queries';
+import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
+import { amountParam } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
+import { cashAtDoor, gatePhotoFor } from './arrival';
 import { BottomPanel } from './Panels';
 import { useRateOrder } from './queries';
 
 /**
- * The arrival moment (spec §4): a success haptic and a full-screen "وصل!" with the place photo
- * (placeholder until place photos ship), then the two-tap rating.
+ * The arrival moment (spec §4, C-11): a success haptic and a full-screen "وصل طلبك" with the gate
+ * photo the customer saved for that place (no card at all when there is none — never a placeholder),
+ * and the cash hand-off: the exact amount to hand the courier and, when the total was rounded up to
+ * 250, the change that comes back to his wallet ("الباقي رصيد"). Then the two-tap rating.
  */
 export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking; onRate: () => void; onLater: () => void }) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
+  const places = useMyPlaces();
   const ride = view.order.type === 'ride';
+  const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
+  const pay = cashAtDoor(view.order);
   useEffect(() => {
     theme.haptic('success');
     // Once per arrival.
@@ -29,52 +38,43 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
       testID="arrival"
       entering={FadeIn.duration(220)}
       exiting={FadeOut.duration(200)}
-      style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space[10], paddingBottom: Math.max(insets.bottom, theme.space[6]), paddingHorizontal: theme.space[6] }]}
+      style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space[8], paddingBottom: Math.max(insets.bottom, theme.space[6]), paddingHorizontal: theme.space[6] }]}
     >
-      <View style={{ flex: 1, alignItems: 'center', gap: theme.space[5], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
+      <View style={{ flex: 1, alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <Animated.View
           entering={ZoomIn.springify().damping(11)}
-          style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
+          style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
         >
-          <Icon name="check" size={52} color="onAccent" strokeWidth={3} />
+          <Icon name="check" size={48} color="onAccent" strokeWidth={3} />
         </Animated.View>
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
-          <Text variant="display" style={{ fontSize: 44, lineHeight: 64 }} accessibilityRole="header">
-            {t('track.arrived_title')}
+          <Text variant="display" style={{ fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center">
+            {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
             {ride ? t('track.arrived_ride') : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
-        {/* Gate photo placeholder: the saved place's photo replaces it when places carry photos. A ride
-            ends wherever the rider asked, not at a door: no door picture there. */}
-        {ride ? <RideArrivalSummary view={view} /> : (
-        <View
-          testID="arrival-photo"
-          style={{
-            width: '100%',
-            flex: 1,
-            maxHeight: 260,
-            minHeight: 150,
-            borderRadius: theme.radius.xl,
-            backgroundColor: theme.colors.surfaceSunken,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: theme.space[2],
-            overflow: 'hidden',
-          }}
-        >
-          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '38%', backgroundColor: withAlpha(theme.colors.borderStrong, 0.18) }} />
-          <View style={{ width: 76, height: 104, borderTopLeftRadius: 38, borderTopRightRadius: 38, borderWidth: 3, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ position: 'absolute', end: 12, top: 56, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.accent }} />
-            <Icon name="home" size={30} color="borderStrong" />
-          </View>
-          <Text variant="caption" color="textMuted">
-            {t('track.arrived_photo')}
-          </Text>
-        </View>
+        {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
+        {ride ? (
+          <RideArrivalSummary view={view} />
+        ) : (
+          <>
+            {photo ? (
+              <View testID="arrival-photo" style={{ width: '100%', flexShrink: 1, gap: theme.space[1] }}>
+                <Image
+                  source={{ uri: photoUri(photo) }}
+                  accessibilityLabel={t('track.arrived_gate')}
+                  resizeMode="cover"
+                  style={{ width: '100%', height: 200, maxHeight: 220, borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}
+                />
+                <Text variant="caption" color="textMuted" align="center">
+                  {t('track.arrived_gate')}
+                </Text>
+              </View>
+            ) : null}
+            <CashAtDoor pay={pay} />
+          </>
         )}
       </View>
       <View style={{ gap: theme.space[2], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
@@ -82,6 +82,53 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onLater} />
       </View>
     </Animated.View>
+  );
+}
+
+/** "جهّز 18,000 دينار للدليفري" and, when rounded, "الطلب 17,800 دينار، والـ200 الباقية ترجعلك رصيد بمحفظتك". */
+function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
+  const theme = useTheme();
+  const t = useT();
+  if (pay.kind === 'paid') {
+    return (
+      <View testID="arrival-paid" style={{ width: '100%', flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
+        <Icon name="wallet" size={20} color="successText" strokeWidth={2.2} />
+        <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
+          {t('track.paid_wallet', { amount: amountParam(pay.amountIqd) })}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View testID="arrival-cash" style={{ width: '100%', backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4], gap: theme.space[3] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+        <View style={{ width: 44, height: 44, borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="cash" size={24} color="accentText" strokeWidth={2} />
+        </View>
+        <Text variant="title" weight={700} style={{ flex: 1 }} testID="arrival-cash-amount">
+          {t('track.cash_ready', { amount: amountParam(pay.cashIqd) })}
+        </Text>
+      </View>
+      {pay.changeIqd > 0 ? (
+        <View testID="arrival-change" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>
+          <View style={{ marginTop: 2 }}>
+            <Icon name="wallet" size={16} color="successText" strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" weight={600} color="successText">
+              {`${t('quote.change_to_wallet')} ${amountParam(pay.changeIqd, { sign: true })}`}
+            </Text>
+            <Text variant="caption" color="textMuted">
+              {t('track.cash_change_note', { price: amountParam(pay.priceIqd), change: amountParam(pay.changeIqd) })}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <Text variant="footnote" color="textMuted">
+          {t('track.cash_exact_note')}
+        </Text>
+      )}
+    </View>
   );
 }
 

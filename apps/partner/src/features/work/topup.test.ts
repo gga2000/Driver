@@ -43,10 +43,10 @@ describe('wallet top-up on a job', () => {
     expect(canTopUpOnJob(null, ['courier'])).toBe(false);
   });
 
-  it('counts on the cash cap: before, after, and whether it tips him over', () => {
+  it('counts on the cash cap by what he must hand over (P-05): before, after, and whether it tips him over', () => {
     expect(topUpCapEffect({ heldIqd: 40_000, owedIqd: 38_000, capIqd: 75_000 }, 25_000)).toEqual({
       heldIqd: 40_000,
-      afterIqd: 65_000,
+      afterIqd: 63_000,
       capIqd: 75_000,
       overCap: false,
     });

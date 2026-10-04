@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MerchantDispute, StatementOrderLine } from '@driver/contracts';
 import { hour12, hourPeriod, localDayKey, localParts, relativeDay, startOfLocalWeek } from '@/lib/calendar';
-import { canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, requestProgress, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
+import { balanceState, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, requestBlocker, requestProgress, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
 
 const H = 3_600_000;
 
@@ -29,6 +29,18 @@ describe('cash account', () => {
     expect(exposure(280_000, 300_000).tone).toBe('danger');
     expect(exposure(320_000, 300_000)).toMatchObject({ fill: 1, over: true, leftIqd: 0 });
     expect(exposure(-5_000, 300_000).fill).toBe(0);
+    // M-07: clamped — a negative balance never reads as more room than the cap.
+    expect(exposure(-4_250, 300_000)).toEqual({ fill: 0, tone: 'success', leftIqd: 300_000, over: false });
+  });
+
+  it('M-07: a negative balance is explained, and a blocked "اطلب فلوسك" always has a reason', () => {
+    expect(balanceState(87_500)).toEqual({ kind: 'owed', amountIqd: 87_500 });
+    expect(balanceState(-4_250)).toEqual({ kind: 'owe', amountIqd: 4_250 });
+    expect(balanceState(0)).toEqual({ kind: 'zero', amountIqd: 0 });
+    expect(requestBlocker({ balanceIqd: 87_500, request: null })).toBeNull();
+    expect(requestBlocker({ balanceIqd: -4_250, request: null })).toBe('owe');
+    expect(requestBlocker({ balanceIqd: 0, request: null })).toBe('zero');
+    expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'on_the_way' } as never })).toBe('open');
   });
 
   it('holder rows: couriers then Driver, with shares for the bars', () => {

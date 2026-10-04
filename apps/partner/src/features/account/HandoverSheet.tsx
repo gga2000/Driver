@@ -7,16 +7,28 @@ import { ModalSheet } from './ModalSheet';
 import { useHandoverCode } from './queries';
 
 /**
- * "سلّم الفلوس": the daily 4-digit code he reads to field ops (`driverAccount.handoverCode`; ops type
- * it into `ops.recordCashReceipt`), big enough to read across a counter, with what he holds now.
+ * "سلّم الفلوس": how much to hand over first (P-05: the same "لازم تسلّم" number as home and earnings —
+ * what he owes the company; his own pay stays with him), then the daily 4-digit code he reads to field
+ * ops (`driverAccount.handoverCode`; ops type it into `ops.recordCashReceipt`), big enough to read
+ * across a counter, and what he holds in hand.
  */
-export function HandoverSheet({ visible, onClose, heldIqd }: { visible: boolean; onClose: () => void; heldIqd: number }) {
+export function HandoverSheet({ visible, onClose, heldIqd, owedIqd }: { visible: boolean; onClose: () => void; heldIqd: number; owedIqd: number }) {
   const theme = useTheme();
   const t = useT();
   const code = useHandoverCode(visible);
   const digits = code.data?.code.split('') ?? [];
   return (
     <ModalSheet visible={visible} onClose={onClose} title={t('partner.handover_title')} testID="handover-sheet">
+      <View testID="handover-amount" style={{ gap: 2 }}>
+        <Text variant="heading" weight={700} tabular>
+          {owedIqd > 0 ? t('partner.handover_give', { amount: amountParam(owedIqd) }) : t('partner.handover_nothing')}
+        </Text>
+        {owedIqd > 0 ? (
+          <Text variant="footnote" color="textMuted">
+            {t('partner.handover_give_hint')}
+          </Text>
+        ) : null}
+      </View>
       <Text variant="body" color="textMuted">
         {t('partner.handover_body')}
       </Text>
@@ -64,7 +76,7 @@ export function HandoverSheet({ visible, onClose, heldIqd }: { visible: boolean;
         <Text variant="label" color="textMuted">
           {t('partner.cash_held_now')}
         </Text>
-        <Text variant="title" tabular>{`${amountParam(heldIqd)} ${t('quote.currency')}`}</Text>
+        <Text variant="label" weight={600} color="textMuted" tabular>{`${amountParam(heldIqd)} ${t('quote.currency')}`}</Text>
       </View>
       <View style={{ gap: theme.space[2] }}>
         <Hint glyph="lock" text={t('partner.handover_private')} />

@@ -45,7 +45,7 @@ export const AppliedDiscount = z.object({
   type: DealType.nullable(),
   label_ar: z.string(),
   label_en: z.string(),
-  /** What the order really takes off (the funder's cost): the deal after the total is rounded to the step. */
+  /** What the order really takes off (the funder's cost). Since 2026-10-04 exactly the deal as promised. */
   amountIqd: Iqd.min(0),
   /**
    * The deal's exact saving as promised (20 % of 15,000 = 3,000), before the total is rounded. The
@@ -54,9 +54,9 @@ export const AppliedDiscount = z.object({
    */
   dealIqd: Iqd.min(0).optional(),
   /**
-   * `dealIqd − amountIqd`: what rounding the total up to the step (500, or 250) adds back. Shown as
-   * its own small "تقريب" line, so a 20 % deal never reads as 18.7 %. Never negative: rounding goes
-   * against the deal (docs/api/deals-and-topup.md — the funder never pays more than the deal promises).
+   * Legacy (orders placed before 2026-10-04, when the deal was lowered so the total landed on 500):
+   * `dealIqd − amountIqd`, shown as a small "تقريب" line. 0 on newer orders — the deal applies exactly
+   * and cash rounding is change to the wallet instead (`Order.changeIqd`).
    */
   roundingIqd: Iqd.min(0).optional(),
 });

@@ -307,7 +307,8 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
   if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
-  // The deal at its exact promised saving; a rounded total shows the difference as PriceBreakdown's "تقريب" line.
+  // The deal at its exact promised saving. A cash total's change is PriceBreakdown's "الباقي رصيد" strip; orders
+  // placed before 2026-10-04 (deal trimmed onto 500) still show their difference as a small "تقريب" line.
   if (o.discountIqd > 0) {
     const merchantDeal = o.discount?.funder === 'merchant';
     const label = merchantDeal ? t(o.discount?.target === 'delivery' ? 'quote.deal_free_delivery' : 'quote.deal_discount') : t('quote.promo');
@@ -322,7 +323,7 @@ export function PriceSection({ view }: { view: OrderTracking }) {
   const t = useT();
   const ride = view.order.type === 'ride';
   const note = ride ? (view.order.paymentMethod === 'cash' ? t('ride.pay_cash_hint') : t('ride.paid_wallet')) : undefined;
-  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} note={note} testID="track-price" />;
+  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} change={view.order.changeIqd ?? 0} note={note} testID="track-price" />;
 }
 
 // ───────────────────────── context actions ─────────────────────────

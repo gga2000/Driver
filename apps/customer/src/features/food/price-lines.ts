@@ -21,8 +21,8 @@ const NAMES: Partial<Record<QuoteComponent['key'], { label: MessageKey; reason?:
 
 /**
  * The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, then
- * the deal (negative) at its exact promised saving. When the server rounded the total up to the step,
- * the lines no longer sum to it and `PriceBreakdown` adds the small "تقريب" line for the difference.
+ * the deal (negative) at its exact promised saving. They sum to the price; a cash total's change (up
+ * to 250) is `PriceBreakdown`'s "الباقي رصيد" strip under the total, never a line.
  */
 export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en'): PriceItem[] {
   const out: PriceItem[] = [{ key: 'items', label: t('quote.subtotal'), amount: totals.itemsIqd }];

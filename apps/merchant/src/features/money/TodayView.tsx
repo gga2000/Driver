@@ -12,7 +12,7 @@ import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { canRequest, exposure, holderRows, requestProgress } from './logic';
+import { balanceState, exposure, holderRows, requestBlocker, requestProgress } from './logic';
 import { useRequestMoney } from './queries';
 
 const TONE_COLOR = { success: 'success', warning: 'warning', danger: 'danger', neutral: 'textMuted' } as const;
@@ -74,7 +74,8 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
   const toast = useToast();
   const request = useRequestMoney();
   const ex = exposure(account.balanceIqd, account.exposureCapIqd);
-  const negative = account.balanceIqd < 0;
+  const state = balanceState(account.balanceIqd);
+  const blocker = requestBlocker(account);
   const ask = async () => {
     try {
       await request.mutateAsync({ merchantId: merchantOrgId });
@@ -112,14 +113,26 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
           </View>
         </View>
 
-        <View style={{ gap: 2 }}>
-          <Text variant="label" color="textMuted">
-            {negative ? t('merchant.money.cash_negative', { amount: amountParam(-account.balanceIqd) }) : t('merchant.money.cash_caption')}
-          </Text>
-          <Text testID="cash-balance" weight={700} tabular color={negative ? 'dangerText' : 'text'} style={{ fontSize: 44, lineHeight: 58, letterSpacing: -0.5 }}>
-            {iqd(account.balanceIqd, { locale })}
-          </Text>
-        </View>
+        {state.kind === 'owed' ? (
+          <View style={{ gap: 2 }}>
+            <Text variant="label" color="textMuted">
+              {t('merchant.money.cash_caption')}
+            </Text>
+            <Text testID="cash-balance" weight={700} tabular style={{ fontSize: 44, lineHeight: 58, letterSpacing: -0.5 }}>
+              {iqd(account.balanceIqd, { locale })}
+            </Text>
+          </View>
+        ) : (
+          // M-07: a negative balance is explained in plain words (not a 44-px red minus), zero says so.
+          <View testID={`cash-${state.kind}`} style={{ gap: theme.space[2], backgroundColor: state.kind === 'owe' ? theme.colors.warningTint : theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
+            <Text testID="cash-balance" variant="title" weight={700} tabular color={state.kind === 'owe' ? 'warningText' : 'text'}>
+              {state.kind === 'owe' ? t('merchant.money.owe_title', { amount: amountParam(state.amountIqd) }) : t('merchant.money.zero_title')}
+            </Text>
+            <Text variant="footnote" color="text">
+              {state.kind === 'owe' ? t('merchant.money.owe_why') : t('merchant.money.zero_why')}
+            </Text>
+          </View>
+        )}
 
         <View style={{ gap: theme.space[2] }}>
           <Meter value={ex.fill} color={theme.colors[TONE_COLOR[ex.tone]]} height={12} />
@@ -138,14 +151,15 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
           ) : null}
         </View>
 
-        {open ? null : canRequest(account) ? (
+        {open ? null : (
           <View style={{ gap: theme.space[2] }}>
-            <Button testID="money-request" label={t('merchant.request_money')} icon="wallet" size="lg" fullWidth loading={request.isPending} onPress={() => void ask()} />
-            <Text variant="caption" color="textMuted" align="center">
-              {t('merchant.money.request_hint')}
+            <Button testID="money-request" label={t('merchant.request_money')} icon="wallet" size="lg" fullWidth loading={request.isPending} disabled={blocker !== null} onPress={() => void ask()} />
+            {/* M-07: a disabled button always says why. */}
+            <Text testID={blocker ? 'money-request-reason' : undefined} variant="caption" color="textMuted" align="center">
+              {blocker === 'owe' ? t('merchant.money.request_disabled_owe') : blocker === 'zero' ? t('merchant.money.request_disabled_zero') : t('merchant.money.request_hint')}
             </Text>
           </View>
-        ) : null}
+        )}
       </View>
       {open || justDone ? <RequestTrack request={(open ?? justDone)!} onReceipt={onReceipt} /> : null}
     </View>

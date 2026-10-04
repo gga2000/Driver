@@ -117,6 +117,26 @@ describe('PriceBreakdown', () => {
     expect(screen.getByTestId('price-total-amount').textContent).toBe('2,250');
   });
 
+  it('cash change shows as "الباقي رصيد" under the total, never as a rounding line that raises the price', () => {
+    // Items 21,000 + fees 1,000 − deal 4,200 = 17,800 → pays 18,000 cash, 200 back to the wallet.
+    renderUI(
+      <PriceBreakdown
+        items={[
+          { key: 'items', label: 'الأصناف', amount: 21000 },
+          { key: 'fees', label: 'التوصيل', amount: 1000 },
+          { key: 'deal', label: 'خصم المطعم', amount: -4200 },
+        ]}
+        total={18000}
+        change={200}
+      />,
+    );
+    expect(screen.queryByTestId('price-rounding')).toBeNull();
+    expect(screen.getByTestId('price-total-amount').textContent).toBe('18,000');
+    expect(strip(screen.getByTestId('price-change-amount').textContent)).toBe('+200');
+    expect(screen.getByTestId('price-change').textContent).toContain('الباقي رصيد');
+    expect(strip(screen.getByTestId('price-change').textContent)).toContain('17,800');
+  });
+
   it('uses the server total when given', () => {
     renderUI(<PriceBreakdown items={[{ key: 'base', label: 'base', amount: 1200 }]} total={1500} />);
     expect(screen.getByTestId('price-total-amount').textContent).toBe('1,500');

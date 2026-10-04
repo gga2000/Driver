@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_MONEY_RULES, DriverError, type MerchantPayableAccruedPayload, type OrderMoneyPayload } from '@driver/contracts';
 import { Accounts } from '../ledger/accounts.js';
 import { postOrderClosed } from '../ledger/postings.js';
-import { roundedDiscount } from './orders.service.js';
 import { OrdersStorefrontMerchants } from './storefront.port.js';
 import { ordersHarness } from './test-harness.js';
 
@@ -37,47 +36,73 @@ async function deliverCash(h: ReturnType<typeof ordersHarness>, orderId: string,
   };
 }
 
-describe('roundedDiscount — totals stay multiples of 500 (G-88), in the funder’s favour', () => {
-  it('lowers the discount until the total lands on the step, never raises it', () => {
-    expect(roundedDiscount(16500, 3000, 500)).toBe(3000);
-    expect(roundedDiscount(16500, 2250, 500)).toBe(2000);
-    expect(roundedDiscount(16750, 1000, 250)).toBe(1000);
-    expect(roundedDiscount(16500, 400, 500)).toBe(0);
-    expect(roundedDiscount(16500, 99_000, 500)).toBe(16500);
-  });
-});
-
 describe('merchant deals at checkout (domain §11, G-87)', () => {
-  it('percent off: the quote shows the line, the savings and a 500-step total; place locks the same numbers', async () => {
+  it('percent off: the quote shows the line and the exact savings; place locks the same numbers', async () => {
     const h = ordersHarness();
     const d = await h.promotions.addDeal({ type: 'percent', value: 15 });
     const q = await h.orders.quote('c1', h.foodInput());
-    // 15 % of 15,000 = 2,250 → 2,000 so the total is 14,500 (not 14,250).
-    expect(q).toMatchObject({ itemsTotalIqd: 15000, deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 2000, totalIqd: 14500, lineSavingsIqd: [1250, 750], nextDeal: null });
-    expect(q.discount).toMatchObject({ promotionId: d.id, funder: 'merchant', target: 'items', type: 'percent', label_ar: 'خصم 15% على كل المنيو' });
+    // 15 % of 15,000 = 2,250 exactly (Ali, 2026-10-04: the deal is never trimmed); 16,500 − 2,250 = 14,250.
+    expect(q).toMatchObject({ itemsTotalIqd: 15000, deliveryFeeIqd: 1000, serviceFeeIqd: 500, discountIqd: 2250, totalIqd: 14250, changeIqd: 0, lineSavingsIqd: [1500, 750], roundingIqd: 0, nextDeal: null });
+    expect(q.discount).toMatchObject({ promotionId: d.id, funder: 'merchant', target: 'items', type: 'percent', label_ar: 'خصم 15% على كل المنيو', amountIqd: 2250, dealIqd: 2250, roundingIqd: 0 });
     const o = await h.orders.place('c1', h.foodInput({ discountIqd: q.discountIqd }));
-    expect(o).toMatchObject({ discountIqd: 2000, totalIqd: 14500, discount: { funder: 'merchant', target: 'items', amountIqd: 2000 } });
-    expect(await h.promotions.spent(d.id)).toBe(2000);
-    expect(h.events.last('order.placed')!.payload).toMatchObject({ discountIqd: 2000, promotionId: d.id, discountFunder: 'merchant' });
+    expect(o).toMatchObject({ discountIqd: 2250, totalIqd: 14250, changeIqd: 0, discount: { funder: 'merchant', target: 'items', amountIqd: 2250 } });
+    expect(await h.promotions.spent(d.id)).toBe(2250);
+    expect(h.events.last('order.placed')!.payload).toMatchObject({ discountIqd: 2250, promotionId: d.id, discountFunder: 'merchant' });
   });
 
-  it('presentation: each line shows the exact deal saving, the rounding is its own line, money unchanged', async () => {
+  it('cash rounding (Ali, 2026-10-04): the total rounds up to 250 and the change goes to the wallet; the merchant pays exactly the deal', async () => {
     const h = ordersHarness();
-    await h.promotions.addDeal({ type: 'percent', value: 15 });
+    await h.promotions.addDeal({ type: 'percent', value: 7 });
     const q = await h.orders.quote('c1', h.foodInput());
-    // 15 % of 10,000 + 5,000 = 1,500 + 750 = 2,250 exactly; the total rounds up to 14,500, so 250 comes back.
-    expect(q).toMatchObject({ discountIqd: 2000, totalIqd: 14500, dealLineSavingsIqd: [1500, 750], roundingIqd: 250 });
-    expect(q.discount).toMatchObject({ amountIqd: 2000, dealIqd: 2250, roundingIqd: 250 });
-    // items − exact deal + fees + rounding = the total the customer pays.
-    expect(q.itemsTotalIqd - q.discount!.dealIqd! + q.deliveryFeeIqd + q.serviceFeeIqd + q.roundingIqd!).toBe(q.totalIqd);
+    // 7 % of 10,000 + 5,000 = 700 + 350 = 1,050 → price 15,450 → hands over 15,500, 50 back as wallet credit.
+    expect(q).toMatchObject({ discountIqd: 1050, totalIqd: 15500, changeIqd: 50, dealLineSavingsIqd: [700, 350], lineSavingsIqd: [700, 350], roundingIqd: 0 });
+    expect(q.discount).toMatchObject({ amountIqd: 1050, dealIqd: 1050, roundingIqd: 0 });
+    // items − deal + fees + change = what he hands over; no line raises the price.
+    expect(q.itemsTotalIqd - q.discountIqd + q.deliveryFeeIqd + q.serviceFeeIqd + q.changeIqd!).toBe(q.totalIqd);
+    // A wallet payment pays the exact price.
+    expect(await h.orders.quote('c1', h.foodInput({ paymentMethod: 'wallet' }))).toMatchObject({ totalIqd: 15450, changeIqd: 0 });
     const o = await h.orders.place('c1', h.foodInput({ discountIqd: q.discountIqd }));
-    expect(o.discount).toMatchObject({ amountIqd: 2000, dealIqd: 2250, roundingIqd: 250 });
-    // The funder pays the rounded figure (never more than the deal promises).
+    expect(o).toMatchObject({ totalIqd: 15500, changeIqd: 50, discountIqd: 1050 });
     const { fact } = await deliverCash(h, o.id, o.totalIqd);
-    expect(fact.merchantDeal).toMatchObject({ amountIqd: 2000 });
+    expect(fact.merchantDeal).toMatchObject({ amountIqd: 1050 });
+    const posted = postOrderClosed(fact, AZIZIYAH_MONEY_RULES);
+    const n = nets(posted.money.lines);
+    expect(posted.totalIqd).toBe(15500);
+    expect(n.get(Accounts.customer('c1'))).toBe(50); // "الباقي رصيد"
+    expect(posted.money.lines.filter((l) => l.type === 'promo_funded').map((l) => l.amount)).toEqual([1050]);
+    expect(posted.money.lines.find((l) => l.type === 'cash_rounding_credit')).toMatchObject({ amount: 50, memo: 'change_as_credit' });
   });
 
-  it('presentation: an unrounded deal has no rounding line', async () => {
+  it('cash rounding edge cases: exact multiples, tips and partial accepts keep the 250 rule', async () => {
+    const h = ordersHarness();
+    // No deal: 16,500 is already on the step.
+    expect(await h.orders.quote('c1', h.foodInput())).toMatchObject({ totalIqd: 16500, changeIqd: 0 });
+    // A 100 tip makes 16,600 → 16,750 handed over, 150 back.
+    expect(await h.orders.quote('c1', h.foodInput({ tipIqd: 100 }))).toMatchObject({ totalIqd: 16750, changeIqd: 150 });
+    // Partial accept with a 7 % deal: the reduced total is the reduced price rounded up the same way.
+    await h.promotions.addDeal({ type: 'percent', value: 7 });
+    const o = await h.orders.place('c1', h.foodInput({ discountIqd: 1050 }));
+    const tikka = o.lines.find((l) => l.catalogItemId === 'tikka')!;
+    const proposed = await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15, unavailableLineIds: [tikka.id] });
+    // 10,000 − 700 + 1,500 = 10,800 → 11,000 (200 change).
+    expect(proposed.partial).toMatchObject({ reducedItemsTotalIqd: 10000, reducedTotalIqd: 11000 });
+    const approved = await h.orders.respondPartial('c1', { orderId: o.id, approve: true });
+    expect(approved).toMatchObject({ totalIqd: 11000, changeIqd: 200, discountIqd: 700 });
+  });
+
+  it('wallet at checkout (C-04): the order must be covered by the balance left after open wallet orders', async () => {
+    const h = ordersHarness();
+    expect(await code(h.orders.place('c1', h.foodInput({ paymentMethod: 'wallet' })))).toBe('wallet_insufficient');
+    h.wallets.set('customer:c1', 20000);
+    const first = await h.orders.place('c1', h.foodInput({ paymentMethod: 'wallet' }));
+    expect(first).toMatchObject({ paymentMethod: 'wallet', totalIqd: 16500, changeIqd: 0 });
+    // 20,000 − 16,500 open = 3,500 left: a second one is refused until the first closes.
+    expect(await code(h.orders.place('c1', h.foodInput({ paymentMethod: 'wallet' })))).toBe('wallet_insufficient');
+    // Cash is never checked against the wallet.
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+  });
+
+  it('presentation: a deal applies exactly, so there is never a rounding line', async () => {
     const h = ordersHarness();
     await h.promotions.addDeal({ type: 'percent', value: 20 });
     const q = await h.orders.quote('c1', h.foodInput());

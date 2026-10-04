@@ -4,6 +4,7 @@ import { createT } from '@driver/i18n';
 import {
   breakdownRows,
   capTone,
+  cashTruth,
   chartBuckets,
   clockTime,
   componentLabel,
@@ -110,15 +111,32 @@ describe('earnings', () => {
     ]);
   });
 
-  it('colours the cap bar green → orange → amber → red, and names the next tier', () => {
+  it('colours the cap bar honestly (P-05): green, amber from 70 %, red from 90 % and over; names the next tier', () => {
     expect(capTone({ fill: 0.4, overCap: false })).toBe('success');
-    expect(capTone({ fill: 0.65, overCap: false })).toBe('accent');
-    expect(capTone({ fill: 0.85, overCap: false })).toBe('warning');
+    expect(capTone({ fill: 0.69, overCap: false })).toBe('success');
+    expect(capTone({ fill: 0.7, overCap: false })).toBe('warning');
+    expect(capTone({ fill: 0.89, overCap: false })).toBe('warning');
+    expect(capTone({ fill: 0.9, overCap: false })).toBe('danger');
     expect(capTone({ fill: 1, overCap: true })).toBe('danger');
     expect(nextTierCap({ tier: 'bronze', capIqd: 75_000, byTier: { bronze: 75_000, silver: 150_000, gold: 300_000 } })).toEqual({ tier: 'silver', capIqd: 150_000 });
     expect(nextTierCap({ tier: 'gold', capIqd: 300_000, byTier: { bronze: 75_000, silver: 150_000, gold: 300_000 } })).toBeNull();
     expect(nextTierCap({ tier: 'bronze', capIqd: 300_000, byTier: { bronze: 300_000, silver: 300_000, gold: 300_000 } })).toBeNull();
     expect(shortRef('trp_01HZX9a7f')).toBe('9A7F');
+  });
+});
+
+describe('one cash truth (P-05)', () => {
+  it('"لازم تسلّم" is what counts against the cap; the bar and colour follow it, held cash only explains', () => {
+    // The audit's courier: 68,500 held, 54,500 owed of a 75,000 cap → 73 %: amber, not a green 91 % bar.
+    expect(cashTruth({ heldIqd: 68_500, owedIqd: 54_500, capIqd: 75_000, overCap: false })).toMatchObject({ tone: 'warning', over: false, leftIqd: 20_500, heldNote: { kind: 'own', amountIqd: 14_000 } });
+    expect(cashTruth({ heldIqd: 68_500, owedIqd: 54_500, capIqd: 75_000, overCap: false }).share).toBeCloseTo(0.7267, 3);
+    // After the job: 67,500 owed = 90 % → red, 7,500 left before offers stop.
+    expect(cashTruth({ heldIqd: 82_500, owedIqd: 67_500, capIqd: 75_000, overCap: false })).toMatchObject({ tone: 'danger', over: false, leftIqd: 7_500 });
+    // Over the cap: stopped, by how much.
+    expect(cashTruth({ heldIqd: 90_000, owedIqd: 82_500, capIqd: 75_000, overCap: true })).toMatchObject({ tone: 'danger', over: true, overIqd: 7_500, leftIqd: 0, share: 1 });
+    // A tuktuk owing commission beyond the cash he holds.
+    expect(cashTruth({ heldIqd: 0, owedIqd: 1_200, capIqd: 75_000, overCap: false })).toMatchObject({ tone: 'success', heldNote: { kind: 'more', amountIqd: 1_200 } });
+    expect(cashTruth({ heldIqd: 5_000, owedIqd: 5_000, capIqd: 75_000, overCap: false }).heldNote).toBeNull();
   });
 });
 

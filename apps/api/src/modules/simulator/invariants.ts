@@ -38,7 +38,7 @@ export interface InvariantResult {
 }
 
 export const RULES = {
-  customerTotalStepIqd: 500,
+  cashStepIqd: 250,
   maxHotWaitMin: 10,
   pointsCapPerOrder: 50,
 };
@@ -86,10 +86,6 @@ function byOrder(rows: readonly LedgerEvent[]): Map<string, LedgerEvent[]> {
   }
   return m;
 }
-
-/** G-88's exception: a 250 component on the receipt (fees, or a ride fare) allows a 250 step. */
-export const has250Component = (o: Pick<Order, 'type' | 'totalIqd' | 'tipIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd'>) =>
-  (o.type === 'ride' ? [o.totalIqd - o.tipIqd] : [o.deliveryFeeIqd, o.serviceFeeIqd]).some((f) => f % 500 !== 0);
 
 const sum = (rows: readonly LedgerEvent[], pred: (e: LedgerEvent) => boolean) => rows.filter(pred).reduce((s, e) => s + e.amount, 0);
 
@@ -198,22 +194,25 @@ export const INVARIANTS: readonly Definition[] = [
     },
   },
   {
-    name: 'customer_totals_multiple_of_500',
-    description: 'customer totals (and cash collected) are multiples of 500 — 250 with a 250 component — and rounding never leaves a cash customer owing',
+    name: 'customer_cash_rounds_to_250',
+    description: "cash totals (and cash collected) are multiples of 250; what a cash customer hands over above his price (< 250) is change credited to his wallet, never a charge, and he never ends up owing (Ali, 2026-10-04)",
     run: (s) => {
       const bad: string[] = [];
       const rows = byOrder(s.ledger);
+      const step = RULES.cashStepIqd;
       for (const o of s.orders) {
-        const step = has250Component(o) ? 250 : RULES.customerTotalStepIqd;
-        if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) total ${o.totalIqd}`);
+        if (o.paymentMethod !== 'cash') continue;
+        if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) cash total ${o.totalIqd}`);
         const r = rows.get(o.id) ?? [];
         const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit');
         if (collected % step !== 0) bad.push(`${o.id} (${o.type}) collected ${collected}`);
-        if (o.state !== 'closed' || o.paymentMethod !== 'cash') continue;
+        if (r.some((e) => e.type === 'rounding_residue')) bad.push(`${o.id} (${o.type}) has a rounding_residue line (rounding must be change to the wallet)`);
+        if (o.state !== 'closed') continue;
         const groups = new Set(moneyGroupsOf(s.ledger, o.id));
         const payer = `customer:${o.ordererId}`;
         const net = r.filter((e) => e.postingGroupId && groups.has(e.postingGroupId)).reduce((n, e) => n + (e.toAccount === payer ? e.amount : 0) - (e.fromAccount === payer ? e.amount : 0), 0);
-        if (net !== 0) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd}`);
+        if (net < 0 || net >= step) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd} (change must be 0–${step - 1})`);
+        if (net !== (o.changeIqd ?? 0)) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0}`);
       }
       return { checked: s.orders.length, bad };
     },
