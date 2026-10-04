@@ -1,9 +1,11 @@
 {
   "expo": {
     "name": "درايفر بارتنر",
-    "slug": "درايفر بارتنر",
+    "slug": "driver-partner",
     "scheme": "driver-partner",
     "version": "0.1.0",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": { "enabled": true, "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

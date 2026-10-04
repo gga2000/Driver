@@ -55,6 +55,23 @@ describe('OutboxPublisher — sync mode (no Redis)', () => {
   });
 });
 
+describe('OutboxPublisher — graceful shutdown', () => {
+  it('shutdown() delivers rows still pending (the tick never ran) and stops the interval', async () => {
+    const h = queued();
+    const seen: string[] = [];
+    h.events.subscribe('test:seen', '*', async (e) => {
+      seen.push(e.orderId!);
+    });
+    await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
+    await h.events.emit(undefined, order('o2'), { name: 'order', id: 'o2' });
+    expect(await h.events.pendingOutbox()).toBe(2);
+    expect(await h.events.publisher.shutdown()).toBe(2);
+    expect(seen).toEqual(['o1', 'o2']);
+    expect(await h.events.pendingOutbox()).toBe(0);
+    expect(await h.events.publisher.shutdown()).toBe(0); // idempotent
+  });
+});
+
 describe('OutboxPublisher — queue mode (BullMQ contract on InMemoryQueue)', () => {
   it('a commit pokes one `tick` job; the worker drains it; later pokes enqueue again', async () => {
     const h = queued();

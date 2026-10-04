@@ -9,7 +9,9 @@ import {
   MEETING_POINTS,
   TAXONOMY,
   hexagonWkt,
+  iraqiE164,
   pointWkt,
+  seedOptionsFromEnv,
   storefrontJson,
 } from '../prisma/seed-data.js';
 
@@ -97,5 +99,23 @@ describe('seed data (plan Step 1)', () => {
 
   it('dispatcher is seeded by E.164 phone (vault only)', () => {
     expect(DISPATCHER.phoneE164).toMatch(/^\+964\d{9,10}$/);
+  });
+});
+
+describe('seed profile (SEED_PROFILE / SEED_ADMIN_PHONE)', () => {
+  it('defaults to dev with no admin', () => {
+    expect(seedOptionsFromEnv({})).toEqual({ profile: 'dev' });
+  });
+
+  it('production with the first admin, phone normalised to E.164', () => {
+    expect(seedOptionsFromEnv({ SEED_PROFILE: 'production', SEED_ADMIN_PHONE: '0770 123 4567', SEED_ADMIN_NAME: 'علي' })).toEqual({
+      profile: 'production',
+      admin: { phoneE164: '+9647701234567', name: 'علي' },
+    });
+    for (const raw of ['+9647701234567', '009647701234567', '9647701234567', '7701234567']) expect(iraqiE164(raw)).toBe('+9647701234567');
+  });
+
+  it('refuses a number that is not an Iraqi mobile', () => {
+    expect(() => seedOptionsFromEnv({ SEED_ADMIN_PHONE: '12345' })).toThrow(/Iraqi mobile/);
   });
 });

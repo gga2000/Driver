@@ -22,3 +22,10 @@ apps/partner/web-shots/
 apps/merchant/dist-web*/
 apps/merchant/web-shots/
 apps/*/dist-e2e/
+
+# Mobile release credentials (docs/deploy/mobile.md) — never commit.
+google-play-service-account*.json
+*.jks
+*.keystore
+*.p8
+*.mobileprovision

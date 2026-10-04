@@ -16,7 +16,7 @@ generator client {
 datasource db {
   provider   = "postgresql"
   extensions = [postgis]
-  schemas    = ["public", "vault"]
+  schemas    = ["public", "identity_vault"]
 }
 
 // ═════════════════════════════ Identity ═════════════════════════════
@@ -342,7 +342,9 @@ model GuardianLink {
 }
 
 // ═════════════════════════════ Vault (domain §13) ═════════════════════════════
-// Only modules/identity may touch `vault.*`. Re-identification goes through the console and is logged.
+// Only modules/identity may touch `identity_vault.*` (the Postgres schema is not called `vault`: Supabase
+// reserves that name for its own extension; docs/deploy/supabase.md). Re-identification goes through the
+// console and is logged.
 
 /// The identifiers for one Person. Selfie refs are dropped after 90 days (result kept on `people`).
 model PersonIdentity {
@@ -364,7 +366,7 @@ model PersonIdentity {
   person Person @relation(fields: [personId], references: [id])
 
   @@map("person_identities")
-  @@schema("vault")
+  @@schema("identity_vault")
 }
 
 /// A child carried on خطوط (khat) runs. The id is the opaque `childRef` that stops and events carry;
@@ -382,7 +384,7 @@ model ChildIdentity {
 
   @@index([guardianId])
   @@map("child_identities")
-  @@schema("vault")
+  @@schema("identity_vault")
 }
 
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
@@ -404,7 +406,7 @@ model VaultAccessLog {
   @@index([personId, createdAt])
   @@index([accessorId, createdAt])
   @@map("vault_access_logs")
-  @@schema("vault")
+  @@schema("identity_vault")
 }
 
 // ═════════════════════════════ Fleet & geography ═════════════════════════════

@@ -148,3 +148,15 @@ export PRISMA_SCHEMA_ENGINE_BINARY=/bin/true
 With these set, `pnpm db:migrate` and `pnpm db:drift` still exit 0 but **do nothing**, because the schema
 engine is `/bin/true`. Never set them in CI, and never trust a migration or drift result produced with
 them.
+
+## Deploy and backup workflows
+
+Two more workflows live next to `ci.yml`; neither runs on pull requests:
+
+- `.github/workflows/deploy.yml` — on a `v*` tag or by hand: `prisma migrate deploy` over `DIRECT_URL`
+  (+ `driver_harden()` and the setup script's checklist), the API to Fly (image built by Fly's remote
+  builder, blue-green), a health smoke test, then the Console and the web apps. Each part skips with a
+  notice while its secrets are not configured.
+- `.github/workflows/backup.yml` — nightly encrypted `pg_dump` of `public` + `identity_vault`.
+
+Details, secrets and rollback: [deploy/runbook.md](deploy/runbook.md).

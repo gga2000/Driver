@@ -52,18 +52,18 @@ describe('prisma schema — structure', () => {
     for (const r of REQUIRED_MODELS) expect(names, `missing model ${r}`).toContain(r);
   });
 
-  it('uses postgres with postgis and the vault schema', () => {
+  it('uses postgres with postgis and the identity_vault schema (not `vault`: Supabase reserves it)', () => {
     expect(schema).toMatch(/provider\s*=\s*"postgresql"/);
     expect(schema).toMatch(/extensions\s*=\s*\[postgis\]/);
     expect(schema).toMatch(/previewFeatures\s*=\s*\["postgresqlExtensions"\]/);
-    expect(schema).toMatch(/schemas\s*=\s*\["public",\s*"vault"\]/);
+    expect(schema).toMatch(/schemas\s*=\s*\["public",\s*"identity_vault"\]/);
   });
 
   it('every model has created_at, updated_at and a schema', () => {
     for (const m of models) {
       expect(m.body, `${m.name} lacks created_at`).toMatch(/@map\("created_at"\)/);
       expect(m.body, `${m.name} lacks updated_at`).toMatch(/@updatedAt @map\("updated_at"\)/);
-      expect(m.body, `${m.name} lacks @@schema`).toMatch(/@@schema\("(public|vault)"\)/);
+      expect(m.body, `${m.name} lacks @@schema`).toMatch(/@@schema\("(public|identity_vault)"\)/);
     }
   });
 
@@ -126,19 +126,19 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('vault tables are in the vault schema and hold the identifiers', () => {
     const pi = model('PersonIdentity');
-    expect(pi).toMatch(/@@schema\("vault"\)/);
+    expect(pi).toMatch(/@@schema\("identity_vault"\)/);
     for (const col of ['personId', 'phoneE164', 'phoneHash', 'name', 'documentRefs', 'selfieRefs']) {
       expect(fields(pi), `vault.person_identities.${col}`).toContain(col);
     }
     expect(pi).toMatch(/phoneE164\s+String\s+@unique/);
     expect(pi).toMatch(/phoneHash\s+String\s+@unique/);
     expect(pi).toMatch(/personId\s+String\s+@unique/);
-    expect(model('VaultAccessLog')).toMatch(/@@schema\("vault"\)/);
+    expect(model('VaultAccessLog')).toMatch(/@@schema\("identity_vault"\)/);
     for (const col of ['personId', 'accessorId', 'purpose']) expect(fields(model('VaultAccessLog'))).toContain(col);
   });
 
   it('only vault tables live in the vault schema', () => {
-    const inVault = models.filter((m) => /@@schema\("vault"\)/.test(m.body)).map((m) => m.name).sort();
+    const inVault = models.filter((m) => /@@schema\("identity_vault"\)/.test(m.body)).map((m) => m.name).sort();
     expect(inVault).toEqual(['ChildIdentity', 'PersonIdentity', 'VaultAccessLog']);
   });
 
@@ -148,7 +148,7 @@ describe('prisma schema — identity vault (domain §13)', () => {
     expect(model('Stop')).not.toMatch(/@map\("child_name"\)/);
     expect(stop).toContain('childRef');
     const child = model('ChildIdentity');
-    expect(child).toMatch(/@@schema\("vault"\)/);
+    expect(child).toMatch(/@@schema\("identity_vault"\)/);
     for (const col of ['id', 'guardianId', 'name']) expect(fields(child), `vault.child_identities.${col}`).toContain(col);
     expect(fields(model('VaultAccessLog'))).toContain('childRef');
   });

@@ -3,7 +3,8 @@
 -- Hand-maintained (plan Step 1): the schema engine cannot run in the sandbox, so the DDL below was
 -- produced from prisma/schema.prisma by scripts/schema-to-sql.ts using Prisma's naming conventions,
 -- then edited for the parts Prisma cannot express:
---   1. CREATE EXTENSION postgis and the `vault` schema (domain §13)
+--   1. CREATE EXTENSION postgis and the `identity_vault` schema (domain §13). It was `vault` until
+--      2026-10-04: Supabase reserves `vault` for its supabase_vault extension (docs/deploy/supabase.md).
 --   2. GIST indexes on every geography column
 --   3. trail_points partitioned monthly by `at` (plan Step 1) with a helper to add partitions
 --   4. append-only trigger on ledger_events and vault.vault_access_logs (no UPDATE/DELETE ever)
@@ -13,7 +14,7 @@
 
 -- ───────────── extensions & schemas ─────────────
 CREATE EXTENSION IF NOT EXISTS "postgis";
-CREATE SCHEMA IF NOT EXISTS "vault";
+CREATE SCHEMA IF NOT EXISTS "identity_vault";
 
 -- ───────────── enums ─────────────
 CREATE TYPE "public"."RoleKind" AS ENUM ('customer', 'courier', 'shopper', 'driver', 'intercity_driver', 'khat_driver', 'merchant_staff', 'merchant_owner', 'fleet_owner', 'guardian', 'field_ops', 'dispatcher', 'support', 'finance', 'admin');
@@ -159,7 +160,7 @@ CREATE TABLE "public"."guardian_links" (
     CONSTRAINT "guardian_links_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "vault"."person_identities" (
+CREATE TABLE "identity_vault"."person_identities" (
     "id" TEXT NOT NULL,
     "person_id" TEXT NOT NULL,
     "phone_e164" TEXT NOT NULL,
@@ -173,7 +174,7 @@ CREATE TABLE "vault"."person_identities" (
     CONSTRAINT "person_identities_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "vault"."vault_access_logs" (
+CREATE TABLE "identity_vault"."vault_access_logs" (
     "id" TEXT NOT NULL,
     "person_id" TEXT NOT NULL,
     "accessor_id" TEXT NOT NULL,
@@ -820,11 +821,11 @@ CREATE INDEX "sessions_person_id_expires_at_idx" ON "public"."sessions"("person_
 CREATE INDEX "otp_challenges_phone_hash_created_at_idx" ON "public"."otp_challenges"("phone_hash", "created_at");
 CREATE INDEX "guardian_links_guardian_id_state_idx" ON "public"."guardian_links"("guardian_id", "state");
 CREATE INDEX "guardian_links_ward_person_id_idx" ON "public"."guardian_links"("ward_person_id");
-CREATE UNIQUE INDEX "person_identities_person_id_key" ON "vault"."person_identities"("person_id");
-CREATE UNIQUE INDEX "person_identities_phone_e164_key" ON "vault"."person_identities"("phone_e164");
-CREATE UNIQUE INDEX "person_identities_phone_hash_key" ON "vault"."person_identities"("phone_hash");
-CREATE INDEX "vault_access_logs_person_id_created_at_idx" ON "vault"."vault_access_logs"("person_id", "created_at");
-CREATE INDEX "vault_access_logs_accessor_id_created_at_idx" ON "vault"."vault_access_logs"("accessor_id", "created_at");
+CREATE UNIQUE INDEX "person_identities_person_id_key" ON "identity_vault"."person_identities"("person_id");
+CREATE UNIQUE INDEX "person_identities_phone_e164_key" ON "identity_vault"."person_identities"("phone_e164");
+CREATE UNIQUE INDEX "person_identities_phone_hash_key" ON "identity_vault"."person_identities"("phone_hash");
+CREATE INDEX "vault_access_logs_person_id_created_at_idx" ON "identity_vault"."vault_access_logs"("person_id", "created_at");
+CREATE INDEX "vault_access_logs_accessor_id_created_at_idx" ON "identity_vault"."vault_access_logs"("accessor_id", "created_at");
 CREATE UNIQUE INDEX "vehicles_plate_key" ON "public"."vehicles"("plate");
 CREATE INDEX "vehicles_owner_org_id_idx" ON "public"."vehicles"("owner_org_id");
 CREATE UNIQUE INDEX "zones_city_id_key_key" ON "public"."zones"("city_id", "key");
@@ -913,9 +914,9 @@ ALTER TABLE "public"."sessions" ADD CONSTRAINT "sessions_device_id_fkey" FOREIGN
 ALTER TABLE "public"."guardian_links" ADD CONSTRAINT "guardian_links_guardian_id_fkey" FOREIGN KEY ("guardian_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "public"."guardian_links" ADD CONSTRAINT "guardian_links_ward_person_id_fkey" FOREIGN KEY ("ward_person_id") REFERENCES "public"."people"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "public"."guardian_links" ADD CONSTRAINT "guardian_links_ward_participant_id_fkey" FOREIGN KEY ("ward_participant_id") REFERENCES "public"."participants"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "vault"."person_identities" ADD CONSTRAINT "person_identities_person_id_fkey" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "vault"."vault_access_logs" ADD CONSTRAINT "vault_access_logs_person_id_fkey" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "vault"."vault_access_logs" ADD CONSTRAINT "vault_access_logs_accessor_id_fkey" FOREIGN KEY ("accessor_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "identity_vault"."person_identities" ADD CONSTRAINT "person_identities_person_id_fkey" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "identity_vault"."vault_access_logs" ADD CONSTRAINT "vault_access_logs_person_id_fkey" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "identity_vault"."vault_access_logs" ADD CONSTRAINT "vault_access_logs_accessor_id_fkey" FOREIGN KEY ("accessor_id") REFERENCES "public"."people"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "public"."vehicles" ADD CONSTRAINT "vehicles_owner_org_id_fkey" FOREIGN KEY ("owner_org_id") REFERENCES "public"."orgs"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "public"."vehicles" ADD CONSTRAINT "vehicles_active_driver_id_fkey" FOREIGN KEY ("active_driver_id") REFERENCES "public"."people"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "public"."zones" ADD CONSTRAINT "zones_city_id_fkey" FOREIGN KEY ("city_id") REFERENCES "public"."cities"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1033,7 +1034,7 @@ CREATE TRIGGER "ledger_events_append_only"
   FOR EACH ROW EXECUTE FUNCTION "public"."reject_mutation"();
 
 CREATE TRIGGER "vault_access_logs_append_only"
-  BEFORE UPDATE OR DELETE ON "vault"."vault_access_logs"
+  BEFORE UPDATE OR DELETE ON "identity_vault"."vault_access_logs"
   FOR EACH ROW EXECUTE FUNCTION "public"."reject_mutation"();
 
 -- ───────────── updated_at safety net ─────────────
@@ -1050,7 +1051,7 @@ DECLARE t RECORD;
 BEGIN
   FOR t IN
     SELECT table_schema, table_name FROM information_schema.columns
-    WHERE column_name = 'updated_at' AND table_schema IN ('public', 'vault')
+    WHERE column_name = 'updated_at' AND table_schema IN ('public', 'identity_vault')
       AND table_name NOT IN ('ledger_events', 'vault_access_logs')
       AND table_name NOT LIKE 'trail_points_%'
   LOOP

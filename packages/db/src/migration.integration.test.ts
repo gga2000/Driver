@@ -22,17 +22,19 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
 
   beforeAll(async () => {
     await client.connect();
-    // Isolate: run the migration with public/vault renamed to throwaway schemas.
-    const dirs = readdirSync(migrationsDir).filter((d) => /^\d{14}_/.test(d)).sort();
+    // Isolate: run the migrations with public/identity_vault renamed to throwaway schemas.
+    // The vault-rename migration only moves a pre-2026-10-04 `vault` schema of a real database: skip it here.
+    const dirs = readdirSync(migrationsDir).filter((d) => /^\d{14}_/.test(d) && !d.endsWith('_identity_vault_rename')).sort();
     await client.query(`CREATE SCHEMA "public_${suffix}"`);
     await client.query(`CREATE SCHEMA "vault_${suffix}"`);
     await client.query(`CREATE EXTENSION IF NOT EXISTS postgis`);
     for (const d of dirs) {
       const sql = readFileSync(resolve(migrationsDir, d, 'migration.sql'), 'utf8')
-        .replace(/CREATE SCHEMA IF NOT EXISTS "vault";/g, '')
+        .replace(/CREATE SCHEMA IF NOT EXISTS "identity_vault";/g, '')
         .replace(/"public"\./g, `"public_${suffix}".`)
-        .replace(/"vault"\./g, `"vault_${suffix}".`)
-        .replace(/table_schema IN \('public', 'vault'\)/g, `table_schema IN ('public_${suffix}', 'vault_${suffix}')`);
+        .replace(/"identity_vault"\./g, `"vault_${suffix}".`)
+        .replace(/table_schema IN \('public', 'identity_vault'\)/g, `table_schema IN ('public_${suffix}', 'vault_${suffix}')`)
+        .replace(/ARRAY\['public', 'identity_vault'\], 'identity_vault'/g, `ARRAY['public_${suffix}', 'vault_${suffix}'], 'vault_${suffix}'`);
       await client.query(sql);
     }
   }, 60_000);
@@ -129,5 +131,32 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
     expect(stops).not.toContain('child_name');
     expect(await cols(`vault_${suffix}`, 'child_identities')).toEqual(expect.arrayContaining(['id', 'guardian_id', 'name']));
     expect(await cols(`vault_${suffix}`, 'vault_access_logs')).toContain('child_ref');
+  });
+
+  it('Supabase hardening: RLS on every table and partition, the vault closed to PUBLIC', async () => {
+    const r = await client.query(
+      `SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = ANY ($1) AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity`,
+      [[`public_${suffix}`, `vault_${suffix}`]],
+    );
+    expect(r.rows).toEqual([]);
+    await client.query(`SELECT "public_${suffix}"."ensure_trail_partition"('2031-01-01'::date)`);
+    const p = await client.query(
+      `SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = 'trail_points_2031_01'`,
+      [`public_${suffix}`],
+    );
+    expect(p.rows[0]?.relrowsecurity).toBe(true);
+    const v = await client.query(`SELECT has_schema_privilege('public', $1, 'USAGE') AS u`, [`vault_${suffix}`]);
+    expect(v.rows[0].u).toBe(false);
+    const fn = await client.query(`SELECT has_function_privilege('public', $1, 'EXECUTE') AS x`, [`"public_${suffix}".ensure_trail_partition(date)`]);
+    expect(fn.rows[0].x).toBe(false);
+    // On a database with Supabase's API roles (anon, authenticated), they can read nothing of ours.
+    const roles = await client.query(`SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated')`);
+    for (const { rolname } of roles.rows as Array<{ rolname: string }>) {
+      const t = await client.query(`SELECT has_table_privilege($1, $2, 'SELECT') AS s`, [rolname, `"public_${suffix}".people`]);
+      expect(t.rows[0].s, `${rolname} reads people`).toBe(false);
+      const s2 = await client.query(`SELECT has_schema_privilege($1, $2, 'USAGE') AS u`, [rolname, `vault_${suffix}`]);
+      expect(s2.rows[0].u, `${rolname} uses the vault`).toBe(false);
+    }
   });
 });

@@ -1,0 +1,22 @@
+# Redis for the Driver API (BullMQ queues, dispatch store, GEO index, OTP rate limits), on a private
+# Fly machine in Frankfurt with a 1 GB volume (docs/deploy/hosting.md, "Redis"). Not exposed to the
+# internet: no [http_service]; the API reaches it at driver-redis.internal:6379 over Fly's private
+# network. Once:
+#   flyctl apps create driver-redis
+#   flyctl volumes create redis_data --config deploy/fly/redis.toml --region fra --size 1 --yes
+#   flyctl secrets set --config deploy/fly/redis.toml REDIS_PASSWORD=<long random>
+#   flyctl deploy . --config deploy/fly/redis.toml --dockerfile deploy/fly/redis/Dockerfile --remote-only
+# Then on the API: REDIS_URL=redis://default:<same password>@driver-redis.internal:6379?family=6
+
+app = "driver-redis"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[mounts]
+  source = "redis_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

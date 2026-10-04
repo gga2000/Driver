@@ -7,10 +7,11 @@
  * (modifier groups included), the four launch restaurants with storefronts and sectioned menus
  * (M3) — each an orderable merchant org: kitchen pin (PostGIS) and zone, prep time, commission tier,
  * Friday-prayer pause — and a dispatcher person whose phone lives only in the vault.
- * Re-running updates in place; nothing is duplicated.
+ * `SEED_PROFILE=production` skips the demo restaurant and dispatcher; `SEED_ADMIN_PHONE` adds the first
+ * admin (seed-data.ts `SeedOptions`, docs/deploy/supabase.md). Re-running updates in place; nothing is duplicated.
  */
 import { createHmac } from 'node:crypto';
-import { createPrisma, type PrismaClient, type Tx } from '../src/index.js';
+import { createPrisma, dbOptionsFromEnv, type PrismaClient, type Tx } from '../src/index.js';
 import {
   AZIZIYAH_RESTAURANTS,
   AZIZIYAH_ZONES,
@@ -22,7 +23,9 @@ import {
   TAXONOMY,
   hexagonWkt,
   pointWkt,
+  seedOptionsFromEnv,
   storefrontJson,
+  type SeedOptions,
 } from './seed-data.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -236,19 +239,21 @@ async function seedLaunchRestaurants(tx: Tx, taxonomy: Map<string, string>): Pro
   }
 }
 
-/** Pseudonymous person + vault identity + dispatcher role. The phone never touches `people`. */
-async function seedDispatcher(tx: Tx): Promise<void> {
-  const hash = phoneHash(DISPATCHER.phoneE164);
+/** Pseudonymous person + vault identity + staff roles. The phone never touches `people`. */
+async function seedStaff(
+  tx: Tx,
+  p: { id: string; phoneE164: string; name: string; locale: string; roles: ReadonlyArray<'dispatcher' | 'support' | 'finance' | 'admin'> },
+): Promise<void> {
+  const hash = phoneHash(p.phoneE164);
   const existing = await tx.personIdentity.findUnique({ where: { phoneHash: hash } });
   const personId =
-    existing?.personId ??
-    (await tx.person.create({ data: { id: 'person_demo_dispatcher', locale: DISPATCHER.locale, trustTier: 'gold', lastVerifiedAt: now() } })).id;
+    existing?.personId ?? (await tx.person.create({ data: { id: p.id, locale: p.locale, trustTier: 'gold', lastVerifiedAt: now() } })).id;
   await tx.personIdentity.upsert({
     where: { personId },
-    update: { phoneE164: DISPATCHER.phoneE164, phoneHash: hash, name: DISPATCHER.name },
-    create: { personId, phoneE164: DISPATCHER.phoneE164, phoneHash: hash, name: DISPATCHER.name },
+    update: { phoneE164: p.phoneE164, phoneHash: hash, name: p.name },
+    create: { personId, phoneE164: p.phoneE164, phoneHash: hash, name: p.name },
   });
-  for (const kind of ['dispatcher', 'support'] as const) {
+  for (const kind of p.roles) {
     // (personId, kind, orgId) is unique but orgId is NULL here, which upsert cannot address: find-or-create.
     const r = await tx.role.findFirst({ where: { personId, kind, orgId: null } });
     if (r) await tx.role.update({ where: { id: r.id }, data: { revokedAt: null, frozenAt: null } });
@@ -256,20 +261,31 @@ async function seedDispatcher(tx: Tx): Promise<void> {
   }
 }
 
-export async function seed(prisma: PrismaClient): Promise<void> {
+/** The demo dispatcher (local development, the simulator's Console). Never in production. */
+async function seedDispatcher(tx: Tx): Promise<void> {
+  await seedStaff(tx, { id: 'person_demo_dispatcher', ...DISPATCHER, roles: ['dispatcher', 'support'] });
+}
+
+export async function seed(prisma: PrismaClient, opts: SeedOptions = { profile: 'dev' }): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await seedCities(tx);
     const zoneIds = await seedZones(tx);
     await seedMeetingPoints(tx, zoneIds);
     const taxonomy = await seedTaxonomy(tx);
-    await seedDemoRestaurant(tx, taxonomy);
+    if (opts.profile === 'dev') await seedDemoRestaurant(tx, taxonomy);
     await seedLaunchRestaurants(tx, taxonomy);
-    await seedDispatcher(tx);
+    if (opts.profile === 'dev') await seedDispatcher(tx);
+    if (opts.admin) await seedStaff(tx, { id: 'person_admin', locale: 'ar-IQ', ...opts.admin, roles: ['admin', 'dispatcher', 'support', 'finance'] });
   }, { timeout: 60_000 });
 }
 
-const prisma = createPrisma(DATABASE_URL);
-seed(prisma)
+const options = seedOptionsFromEnv(process.env);
+if (options.profile === 'production' && options.admin && !process.env['PHONE_HASH_PEPPER']) {
+  console.error('SEED_ADMIN_PHONE in production needs the production PHONE_HASH_PEPPER, or the admin could never sign in.');
+  process.exit(1);
+}
+const prisma = createPrisma(DATABASE_URL, dbOptionsFromEnv());
+seed(prisma, options)
   .then(async () => {
     const [zones, mps, items, merchants] = await Promise.all([
       prisma.zone.count(),
@@ -277,7 +293,8 @@ seed(prisma)
       prisma.catalogItem.count(),
       prisma.org.count({ where: { type: { in: ['restaurant', 'grocer'] }, locationZoneKey: { not: null } } }),
     ]);
-    console.log(`seeded: ${CITIES.length} cities, ${zones} zones, ${mps} meeting points, ${TAXONOMY.length} taxonomy nodes, ${merchants} orderable merchants, ${items} catalog items, 1 dispatcher`);
+    const staff = [options.profile === 'dev' ? '1 demo dispatcher' : '', options.admin ? '1 admin' : ''].filter(Boolean).join(', ') || 'no staff';
+    console.log(`seeded (${options.profile}): ${CITIES.length} cities, ${zones} zones, ${mps} meeting points, ${TAXONOMY.length} taxonomy nodes, ${merchants} orderable merchants, ${items} catalog items, ${staff}`);
     await prisma.$disconnect();
   })
   .catch(async (err: unknown) => {

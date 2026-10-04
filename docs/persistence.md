@@ -35,7 +35,7 @@ Still in memory with a database (known gaps, not part of this change):
 
 | Store | Tables | Notes |
 | --- | --- | --- |
-| `PrismaOrgsRepository` | `orgs`, `org_members`, `payer_approvals` | Merchant settings are columns on `orgs` (`busy_until`, `closed_*`, `printer_*`, `default_prep_min`, `commission_tier`, `location_zone_key` + `location_pin geography(Point)` with a GIST index). `pause_windows` NULL = the city's seeded windows. Member names and phones stay in `vault.person_identities`; `org_members` holds person ids only. |
+| `PrismaOrgsRepository` | `orgs`, `org_members`, `payer_approvals` | Merchant settings are columns on `orgs` (`busy_until`, `closed_*`, `printer_*`, `default_prep_min`, `commission_tier`, `location_zone_key` + `location_pin geography(Point)` with a GIST index). `pause_windows` NULL = the city's seeded windows. Member names and phones stay in `identity_vault.person_identities`; `org_members` holds person ids only. |
 | `PrismaSavedPlacesRepository` | `places` (`label` NOT NULL) | `pin geography(Point)` (GIST), `zone_key`, `photo_refs` (upload ids, never URLs), `confirmed_at`, `share_with_household`, `client_ref` (unique per owner). |
 | `PrismaPlacesRepository` | `places` (`label` NULL) + `place_photos` | Learned places and landmarks; `nearby` uses `ST_DWithin` on the GIST index. |
 | `PrismaUploadRecords` | `uploads` | Owner person id, declared type and size, state, object key. Bytes live in object storage. |

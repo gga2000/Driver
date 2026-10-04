@@ -1,0 +1,90 @@
+# Driver (درايفر) — nightly logical backup of the production database (docs/deploy/runbook.md, "Backups").
+#
+# Supabase Pro already keeps daily physical backups (7 days) and offers PITR as an add-on; this is the
+# independent copy you own: `pg_dump` of our two schemas (public, identity_vault), encrypted with your
+# passphrase, kept 14 days as a workflow artifact and — when the BACKUP_S3_* secrets are set — copied
+# to an S3-compatible bucket you control (Cloudflare R2 recommended: no egress fees).
+# Skips cleanly until the secrets exist.
+#
+# Secrets: DIRECT_URL (same as deploy), BACKUP_PASSPHRASE (long random; keep it in your password
+# manager — without it a backup cannot be opened), optional BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET,
+# BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY.
+name: Backup
+
+on:
+  schedule:
+    # 01:17 UTC = 04:17 Baghdad, after the nightly ledger close and before the morning.
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+      S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+    steps:
+      - name: Configured?
+        id: cfg
+        run: |
+          if [ -z "$DIRECT_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::notice title=Backup::DIRECT_URL or BACKUP_PASSPHRASE not set — skipped"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install pg_dump 17 (must be >= the server's major version)
+        if: steps.cfg.outputs.run == 'true'
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Dump (custom format) and encrypt
+        if: steps.cfg.outputs.run == 'true'
+        run: |
+          stamp=$(date -u +%Y-%m-%dT%H%MZ)
+          file="driver-${stamp}.dump"
+          /usr/lib/postgresql/17/bin/pg_dump "$DIRECT_URL" --format=custom --no-owner --no-acl \
+            --schema=public --schema=identity_vault --file="$file"
+          /usr/lib/postgresql/17/bin/pg_restore --list "$file" | grep -c "TABLE DATA" | xargs -I{} echo "tables with data: {}"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$file" -out "$file.enc" -pass env:BACKUP_PASSPHRASE
+          rm -f "$file"
+          sha256sum "$file.enc" | tee "$file.enc.sha256"
+          echo "FILE=$file.enc" >> "$GITHUB_ENV"
+
+      - name: Keep 14 days in GitHub
+        if: steps.cfg.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE }}
+          path: |
+            ${{ env.FILE }}
+            ${{ env.FILE }}.sha256
+          retention-days: 14
+
+      - name: Copy to your bucket (optional)
+        if: steps.cfg.outputs.run == 'true' && env.S3_ENDPOINT != '' && env.S3_BUCKET != ''
+        run: |
+          aws s3 cp "$FILE" "s3://${S3_BUCKET}/driver/$(date -u +%Y/%m)/$FILE" --endpoint-url "$S3_ENDPOINT"
+          aws s3 cp "$FILE.sha256" "s3://${S3_BUCKET}/driver/$(date -u +%Y/%m)/$FILE.sha256" --endpoint-url "$S3_ENDPOINT"

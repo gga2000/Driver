@@ -145,3 +145,30 @@ export const DISPATCHER = {
   name: 'موزّع تجريبي',
   locale: 'ar-IQ',
 };
+
+/**
+ * `SEED_PROFILE=production` (scripts/deploy/supabase-setup.mjs): reference data and the launch
+ * restaurants only — no demo restaurant, and no demo dispatcher, whose made-up number would hand the
+ * Console to whoever really owns it. The first admin comes from `SEED_ADMIN_PHONE` (any Iraqi mobile
+ * form), hashed with the production PHONE_HASH_PEPPER so the API recognises it at sign-in.
+ */
+export interface SeedOptions {
+  profile: 'dev' | 'production';
+  admin?: { phoneE164: string; name: string };
+}
+
+/** 07xx…, 7xx…, 9647…, +9647… → +9647xxxxxxxxx (the API's normalizeIraqiPhone rule, Western digits). */
+export function iraqiE164(raw: string): string {
+  const digits = raw.replace(/[^\d]/g, '');
+  const national = digits.startsWith('00964') ? digits.slice(5) : digits.startsWith('964') ? digits.slice(3) : digits.startsWith('0') ? digits.slice(1) : digits;
+  if (!/^7\d{9}$/.test(national)) throw new Error(`not an Iraqi mobile number: ${raw}`);
+  return `+964${national}`;
+}
+
+export function seedOptionsFromEnv(env: Record<string, string | undefined>): SeedOptions {
+  const phone = env['SEED_ADMIN_PHONE']?.trim();
+  return {
+    profile: env['SEED_PROFILE'] === 'production' ? 'production' : 'dev',
+    ...(phone ? { admin: { phoneE164: iraqiE164(phone), name: env['SEED_ADMIN_NAME']?.trim() || 'المدير' } } : {}),
+  };
+}

@@ -4,6 +4,8 @@
     "slug": "driver-merchant",
     "scheme": "driver-merchant",
     "version": "0.1.0",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": { "enabled": true, "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
     "orientation": "default",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,

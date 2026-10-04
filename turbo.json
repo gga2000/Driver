@@ -58,6 +58,11 @@
     "SMS_PROVIDER",
     "NEXT_PUBLIC_API_URL",
     "PORT",
+    "DIRECT_URL",
+    "DATABASE_CA_CERT",
+    "NEXT_OUTPUT",
+    "EXPO_PUBLIC_API_URL",
+    "EXPO_PUBLIC_SHARE_BASE_URL",
     "CI"
   ]
 }

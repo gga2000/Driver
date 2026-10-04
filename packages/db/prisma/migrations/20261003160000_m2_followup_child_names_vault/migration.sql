@@ -9,7 +9,7 @@
 -- share one ref), and only then is stops.child_name dropped, so no name is lost and none stays public.
 
 -- 1. The vault side.
-CREATE TABLE "vault"."child_identities" (
+CREATE TABLE "identity_vault"."child_identities" (
     "id" TEXT NOT NULL,
     "guardian_id" TEXT,
     "name" TEXT NOT NULL,
@@ -17,17 +17,17 @@ CREATE TABLE "vault"."child_identities" (
     "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "child_identities_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "child_identities_guardian_id_idx" ON "vault"."child_identities"("guardian_id");
-ALTER TABLE "vault"."child_identities" ADD CONSTRAINT "child_identities_guardian_id_fkey" FOREIGN KEY ("guardian_id") REFERENCES "public"."people"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-CREATE TRIGGER "child_identities_set_updated_at" BEFORE UPDATE ON "vault"."child_identities" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
+CREATE INDEX "child_identities_guardian_id_idx" ON "identity_vault"."child_identities"("guardian_id");
+ALTER TABLE "identity_vault"."child_identities" ADD CONSTRAINT "child_identities_guardian_id_fkey" FOREIGN KEY ("guardian_id") REFERENCES "public"."people"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+CREATE TRIGGER "child_identities_set_updated_at" BEFORE UPDATE ON "identity_vault"."child_identities" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
 
-ALTER TABLE "vault"."vault_access_logs" ADD COLUMN "child_ref" TEXT;
+ALTER TABLE "identity_vault"."vault_access_logs" ADD COLUMN "child_ref" TEXT;
 
 -- 2. The public side: an opaque reference only.
 ALTER TABLE "public"."stops" ADD COLUMN "child_ref" TEXT;
 
 -- 3. Move names already on stops into the vault (guardian unknown for these rows: NULL).
-INSERT INTO "vault"."child_identities" ("id", "guardian_id", "name", "created_at", "updated_at")
+INSERT INTO "identity_vault"."child_identities" ("id", "guardian_id", "name", "created_at", "updated_at")
 SELECT DISTINCT 'chm_' || md5(coalesce("order_id", "trip_id") || ':' || "child_name"), NULL, "child_name", CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM "public"."stops"
 WHERE "child_name" IS NOT NULL;

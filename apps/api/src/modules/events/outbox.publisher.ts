@@ -111,6 +111,18 @@ export class OutboxPublisher {
   }
 
   /**
+   * Graceful shutdown (src/shutdown.ts, docs/deploy/runbook.md): stops the interval, lets a running
+   * drain finish, then drains once more until nothing is due, so the rows this instance's last
+   * commits wrote are delivered before the process exits. Returns how many rows the final drain
+   * claimed. Anything it cannot finish stays `pending` for the next instance (at-least-once).
+   */
+  async shutdown(): Promise<number> {
+    this.stop();
+    if (this.draining) await this.draining.catch(() => 0);
+    return this.drainUntilIdle();
+  }
+
+  /**
    * Drains until nothing is due. Re-entrant calls (a subscriber's own commit poking while this
    * drain runs) return at once and the running loop picks their rows up; awaiting the running
    * drain from inside it would deadlock.

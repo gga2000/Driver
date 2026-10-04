@@ -4,7 +4,7 @@
 
 **العربية (اللهجة العراقية) هي اللغة الأولى لكل شاشة، والاتجاه من اليمين لليسار هو الافتراضي.** الإنكليزية ترجمة ثانوية. كل النصوص في `packages/i18n`، وكل الألوان والمسافات والخطوط في `packages/design-tokens`.
 
-The approved design is in [`docs/specs/2026-10-02-platform-core-design.md`](docs/specs/2026-10-02-platform-core-design.md); architecture rules are in [`docs/architecture.md`](docs/architecture.md). Milestone 1 delivered the monorepo with in-memory modules; **Milestone 2** (in progress, plan in [`docs/plans/2026-10-02-milestone-2-platform-core.md`](docs/plans/2026-10-02-milestone-2-platform-core.md)) adds Postgres + Redis, the full domain model and the state machines.
+The approved design is in [`docs/specs/2026-10-02-platform-core-design.md`](docs/specs/2026-10-02-platform-core-design.md); architecture rules are in [`docs/architecture.md`](docs/architecture.md); going live (Supabase, Fly, Cloudflare Pages, EAS, deploys, backups, runbook) is in [`docs/deploy/`](docs/deploy/runbook.md). Milestone 1 delivered the monorepo with in-memory modules; **Milestone 2** (in progress, plan in [`docs/plans/2026-10-02-milestone-2-platform-core.md`](docs/plans/2026-10-02-milestone-2-platform-core.md)) adds Postgres + Redis, the full domain model and the state machines.
 
 ## Layout
 
@@ -14,7 +14,7 @@ The approved design is in [`docs/specs/2026-10-02-platform-core-design.md`](docs
 | `apps/console` | Next.js 15 "Driver Console" (RTL) — health + live quote breakdown. |
 | `apps/customer`, `apps/partner`, `apps/merchant` | Expo SDK 52 + expo-router apps, RTL forced, one screen each fetching a quote. |
 | `packages/contracts` | zod schemas, TS types, the tRPC `AppRouter` and wire transformer. Root export is client-safe; `@driver/contracts/router` is server-only. |
-| `packages/db` | Prisma 7 schema (Postgres + PostGIS, `public` + `vault` schemas), migration, seed. |
+| `packages/db` | Prisma 7 schema (Postgres + PostGIS, `public` + `identity_vault` schemas), migration, seed. |
 | `packages/design-tokens` | Colors, spacing (×4), radii, Arabic-first type scale, motion. |
 | `packages/i18n` | `ar-IQ.json`, `en.json` and a tiny `t()` helper. |
 
@@ -27,7 +27,7 @@ pnpm install
 cp .env.example .env    # DATABASE_URL, REDIS_URL, JWT_SECRET, SMS_PROVIDER=fake, PORT
 
 pnpm db:up              # Postgres 16 + PostGIS and Redis 7 via docker compose
-pnpm db:migrate         # prisma migrate deploy (public + vault schemas, GIST indexes, ledger trigger)
+pnpm db:migrate         # prisma migrate deploy (public + identity_vault schemas, GIST indexes, ledger trigger)
 pnpm db:seed            # 3 cities, 34 Aziziyah zones, garages + meeting points, taxonomy, demo restaurant, dispatcher
 pnpm db:reset           # drop everything and re-apply migrations (then db:seed again)
 pnpm db:studio          # Prisma Studio: browse the tables
@@ -64,7 +64,7 @@ PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 PRISMA_SCHEMA_ENGINE_BINARY=/bin/true \
 ## Conventions
 
 - Money is integer IQD, rounded to the nearest 250 by default, never floats.
-- People are pseudonymous: phone numbers, names and documents live only in the `vault` schema, reachable through the identity module.
+- People are pseudonymous: phone numbers, names and documents live only in the `identity_vault` schema (named `vault` until 2026-10-04; Supabase reserves that name), reachable through the identity module.
 - Delivery is priced by zone tier pair (centre/near↔near 500 · near↔mid 1,000 · any↔far 1,500 · edge 2,000); exact zone pairs override.
 - Every price is a sum of named components with Arabic labels; `distance` and `time` are always computed as *shadow* components and hidden until a city enables them.
 - The ledger is append-only; balances are computed from events and the whole book sums to zero.

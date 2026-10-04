@@ -1,0 +1,212 @@
+# Driver (درايفر) — production deploy (docs/deploy/runbook.md).
+#
+# Runs on a version tag (git tag v1.2.3 && git push --tags) or by hand (Actions → Deploy → Run workflow).
+# Order: migrate the database (DIRECT_URL) → deploy the API to Fly → smoke it → deploy the Console and
+# the web apps. Every part checks its own secrets first and SKIPS (green, with a notice) when they are
+# not configured yet, so this workflow is safe to merge before any account exists.
+#
+# Secrets (Settings → Secrets and variables → Actions → Secrets):
+#   DIRECT_URL              Supabase direct / session connection string (migrations) — docs/deploy/supabase.md
+#   DATABASE_CA_CERT        optional: Supabase's CA certificate (PEM) to verify TLS
+#   FLY_API_TOKEN           `flyctl tokens create deploy -a driver-api` (and console) — docs/deploy/hosting.md
+#   CLOUDFLARE_API_TOKEN    Pages "Edit" token; CLOUDFLARE_ACCOUNT_ID — docs/deploy/web.md
+# Variables (same page → Variables; not secret):
+#   API_PUBLIC_URL          e.g. https://driver-api.fly.dev/trpc (what the web apps and the Console call)
+#   FLY_API_APP             default driver-api;  FLY_CONSOLE_APP  e.g. driver-console (unset: no Console deploy)
+#   SHARE_BASE_URL          public origin of the customer web app, e.g. https://driver-customer.pages.dev
+#   CF_PAGES_CUSTOMER / CF_PAGES_PARTNER / CF_PAGES_MERCHANT   Pages project names (unset: that app is skipped)
+name: Deploy
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [all, api, web, console, migrate-only]
+        default: all
+      skip_migrate:
+        description: Skip database migrations (only when you know none are pending)
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: plan (which parts are configured)
+    runs-on: ubuntu-latest
+    outputs:
+      db: ${{ steps.p.outputs.db }}
+      api: ${{ steps.p.outputs.api }}
+      web: ${{ steps.p.outputs.web }}
+      console: ${{ steps.p.outputs.console }}
+      migrate: ${{ steps.p.outputs.migrate }}
+    steps:
+      - id: p
+        env:
+          TARGET: ${{ inputs.target || 'all' }}
+          SKIP_MIGRATE: ${{ inputs.skip_migrate || false }}
+          HAS_DB: ${{ secrets.DIRECT_URL != '' }}
+          HAS_FLY: ${{ secrets.FLY_API_TOKEN != '' }}
+          HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          API_URL: ${{ vars.API_PUBLIC_URL }}
+          CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
+        run: |
+          want() { [ "$TARGET" = all ] || [ "$TARGET" = "$1" ]; }
+          migrate=false; api=false; web=false; console=false
+          if [ "$HAS_DB" = true ] && [ "$SKIP_MIGRATE" != true ] && { want api || [ "$TARGET" = migrate-only ]; }; then migrate=true; fi
+          if [ "$HAS_FLY" = true ] && want api; then api=true; fi
+          if [ "$HAS_CF" = true ] && [ -n "$API_URL" ] && want web; then web=true; fi
+          if [ "$HAS_FLY" = true ] && [ -n "$CONSOLE_APP" ] && [ -n "$API_URL" ] && want console; then console=true; fi
+          {
+            echo "db=$HAS_DB"; echo "migrate=$migrate"; echo "api=$api"; echo "web=$web"; echo "console=$console"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy plan (target: $TARGET)"
+            echo "| part | runs | why not |"
+            echo "| --- | --- | --- |"
+            echo "| migrate database | $migrate | $([ "$HAS_DB" = true ] || echo 'secret DIRECT_URL not set')$([ "$SKIP_MIGRATE" = true ] && echo 'skip_migrate chosen') |"
+            echo "| API (Fly) | $api | $([ "$HAS_FLY" = true ] || echo 'secret FLY_API_TOKEN not set') |"
+            echo "| web apps (Cloudflare Pages) | $web | $([ "$HAS_CF" = true ] || echo 'CLOUDFLARE_* secrets not set') $([ -n "$API_URL" ] || echo 'variable API_PUBLIC_URL not set') |"
+            echo "| Console (Fly) | $console | $([ -n "$CONSOLE_APP" ] || echo 'variable FLY_CONSOLE_APP not set') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$HAS_DB$HAS_FLY$HAS_CF" = falsefalsefalse ] && echo "::notice title=Deploy::Nothing is configured yet — every part skipped (docs/deploy/runbook.md)." || true
+
+  migrate:
+    name: migrate database (prisma migrate deploy + harden + verify)
+    needs: plan
+    if: needs.plan.outputs.migrate == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global corepack@latest && corepack enable
+      - name: Install (db package only)
+        run: pnpm install --frozen-lockfile --filter=driver --filter=@driver/db...
+      - name: Build @driver/db (prisma generate, real engines)
+        run: pnpm turbo run build --filter=@driver/db
+      - name: prisma migrate deploy
+        run: pnpm --filter @driver/db exec prisma migrate deploy
+      - name: Harden (RLS, revokes, partitions) and verify
+        # No seed here: production data is never re-seeded by a deploy (the setup script seeds once).
+        run: node scripts/deploy/supabase-setup.mjs --skip-migrate --skip-seed
+
+  api:
+    name: deploy API (Fly, fra)
+    needs: [plan, migrate]
+    if: ${{ !cancelled() && needs.plan.outputs.api == 'true' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP: ${{ vars.FLY_API_APP || 'driver-api' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Build the image (Fly remote builder) and deploy blue-green
+        run: |
+          flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --app "$APP" \
+            --remote-only --image-label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}" \
+            --env APP_RELEASE="${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
+      - name: Smoke (health.ping → db ok, redis ok)
+        run: |
+          url="https://${APP}.fly.dev/trpc/health.ping"
+          for _ in $(seq 1 30); do body=$(curl -fsS "$url" 2>/dev/null) && break; sleep 2; done
+          echo "$body" | jq .
+          echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
+            echo "::error title=API smoke::$url must report db: ok and redis: ok — roll back with docs/deploy/runbook.md"; exit 1; }
+
+  console:
+    name: deploy Console (Fly)
+    needs: [plan, api]
+    if: ${{ !cancelled() && needs.plan.outputs.console == 'true' && needs.api.result != 'failure' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: |
+          flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
+            --app "${{ vars.FLY_CONSOLE_APP }}" --remote-only \
+            --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}"
+
+  web:
+    name: deploy web (${{ matrix.app }})
+    needs: [plan, api]
+    if: ${{ !cancelled() && needs.plan.outputs.web == 'true' && needs.api.result != 'failure' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: customer
+            project_var: CF_PAGES_CUSTOMER
+          - app: partner
+            project_var: CF_PAGES_PARTNER
+          - app: merchant
+            project_var: CF_PAGES_MERCHANT
+    env:
+      PROJECT: ${{ vars[matrix.project_var] }}
+      EXPO_PUBLIC_API_URL: ${{ vars.API_PUBLIC_URL }}
+      EXPO_PUBLIC_SHARE_BASE_URL: ${{ vars.SHARE_BASE_URL }}
+    steps:
+      - name: Skip when no Pages project is named for this app
+        if: env.PROJECT == ''
+        run: echo "::notice title=web ${{ matrix.app }}::variable ${{ matrix.project_var }} not set — skipped"
+      - uses: actions/checkout@v4
+        if: env.PROJECT != ''
+      - uses: actions/setup-node@v4
+        if: env.PROJECT != ''
+        with:
+          node-version-file: .nvmrc
+      - if: env.PROJECT != ''
+        run: npm install --global corepack@latest && corepack enable
+      - name: Install
+        if: env.PROJECT != ''
+        run: pnpm install --frozen-lockfile --filter=driver --filter=@driver/${{ matrix.app }}...
+      - name: Build workspace packages
+        if: env.PROJECT != ''
+        run: pnpm turbo run build --filter=@driver/${{ matrix.app }}^...
+      - name: expo export (web)
+        if: env.PROJECT != ''
+        run: pnpm --filter @driver/${{ matrix.app }} web:export
+      - name: Check the bundle, write _headers (cache, SPA fallback)
+        if: env.PROJECT != ''
+        run: node scripts/deploy/prepare-web.mjs apps/${{ matrix.app }}/dist-web --api-url "$EXPO_PUBLIC_API_URL"
+      - name: Upload to Cloudflare Pages
+        if: env.PROJECT != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/${{ matrix.app }}/dist-web --project-name=${{ env.PROJECT }} --branch=main --commit-dirty=true

@@ -1,0 +1,24 @@
+# Docker build context = repository root (apps/api/Dockerfile, apps/console/Dockerfile).
+# Everything is rebuilt inside the image; nothing local is copied in.
+.git
+.github
+.claude
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/.expo
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!.env.example
+packages/db/src/generated
+apps/*/dist-web*
+apps/*/dist-e2e
+apps/*/web-shots
+packages/ui/gallery-dist
+packages/ui/gallery-shots
+docs
+simulation-report.json
