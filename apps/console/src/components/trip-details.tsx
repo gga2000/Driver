@@ -50,13 +50,13 @@ export function TripDetails({ trip, card }: { trip: Trip | undefined; card: Boar
       </dl>
       {trip?.acceptedAt && <p className="text-xs text-muted">{t('console.trip_accepted_at', { time: formatClock(trip.acceptedAt) })}</p>}
       {trip?.unreachable && (
-        <p role="status" className="rounded-md border border-danger-500 bg-danger-500/10 px-3 py-2 text-sm">
+        <p role="status" className="rounded-md border border-bad/40 bg-bad-tint px-3 py-2 text-sm">
           {t('console.trip_unreachable', { time: formatClock(trip.unreachable.startedAt) })}
         </p>
       )}
 
       {card && (
-        <div className={`rounded-lg border p-3 ${card.red ? 'border-danger-500 bg-danger-500/10' : 'border-line bg-surface-2'}`}>
+        <div className={`rounded-lg border p-3 ${card.red ? 'border-bad/40 bg-bad-tint' : 'border-line bg-surface-2'}`}>
           <p className="text-xs text-muted">{t('console.trip_card')}</p>
           <p className="mt-1 font-semibold">{card.status_ar}</p>
           <p className="mt-1 text-xs text-muted">

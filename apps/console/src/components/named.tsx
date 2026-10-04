@@ -32,7 +32,7 @@ export function CopyId({ id }: { id: string }) {
       }}
       title={copied ? t('console.copied') : id}
       aria-label={t('console.copy_id', { id })}
-      className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint opacity-60 after:absolute after:-inset-2 after:content-[''] hover:text-accent hover:opacity-100 focus-visible:opacity-100"
+      className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint opacity-0 transition-opacity after:absolute after:-inset-2 after:content-[''] hover:text-accent-text hover:opacity-100 focus-visible:opacity-100 group-hover/id:opacity-70"
     >
       {copied ? (
         <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 text-ok" fill="none" stroke="currentColor" strokeWidth="2">
@@ -61,9 +61,9 @@ function Labelled({ id, text, href, className = '', copy = true, strong }: { id:
     <Mono title={id}>{shortId(id)}</Mono>
   );
   return (
-    <span className={`inline-flex max-w-full items-center gap-1 align-baseline ${className}`}>
+    <span className={`group/id inline-flex max-w-full items-center gap-1 align-baseline ${className}`}>
       {href ? (
-        <Link href={href} className="min-w-0 truncate text-accent underline">
+        <Link href={href} className="min-w-0 truncate font-medium text-accent-text underline decoration-accent-text/30 underline-offset-4 hover:decoration-accent-text">
           {body}
         </Link>
       ) : (

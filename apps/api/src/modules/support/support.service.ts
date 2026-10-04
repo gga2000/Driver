@@ -13,6 +13,7 @@ import {
   type Order,
   type RefundLimits,
   type SlaState,
+  type SupportCustomer,
   type SupportList,
   type SupportListInput,
   type SupportPort,
@@ -98,6 +99,24 @@ export function urgencyOf(t: TicketRecord, ctx: { activeOrder: boolean; orderTot
   if (t.status === 'waiting') score -= 15;
   score += Math.min(20, Math.floor((now.getTime() - t.openedAt.getTime()) / (10 * 60_000)));
   return { score: Math.max(0, score), reasons };
+}
+
+const DELIVERED_STATES: readonly Order['state'][] = ['delivered', 'completed', 'closed'];
+const CANCELLED_STATES: readonly Order['state'][] = ['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'failed'];
+
+/** The customer card's order numbers: only orders this person placed (not ones they carried). */
+export function customerOrderStats(orders: readonly Pick<Order, 'ordererId' | 'state' | 'totalIqd' | 'placedAt'>[], customerId: string) {
+  const mine = orders.filter((o) => o.ordererId === customerId);
+  const delivered = mine.filter((o) => DELIVERED_STATES.includes(o.state));
+  const times = mine.map((o) => o.placedAt.getTime());
+  return {
+    orders: mine.length,
+    delivered: delivered.length,
+    cancelled: mine.filter((o) => CANCELLED_STATES.includes(o.state)).length,
+    lifetimeIqd: delivered.reduce((a, o) => a + o.totalIqd, 0),
+    firstOrderAt: times.length ? new Date(Math.min(...times)) : null,
+    lastOrderAt: times.length ? new Date(Math.max(...times)) : null,
+  };
 }
 
 function chatKindsFor(order: Order | null): ChatThreadKind[] {
@@ -475,6 +494,35 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       canned: this.canned(),
       suggestion: disputeKind.success ? (SUGGESTED_BY_DISPUTE[disputeKind.data] ?? null) : null,
       customerDisputes30d: disputes30d,
+    };
+  }
+
+  /**
+   * The customer behind a ticket, for the case's context panel: the first name (a logged
+   * identity-vault read with the agent as accessor, purpose "support_case"), their orders and lifetime
+   * value, support credits and disputes in the last 30 days, and their other tickets. Scoped to a
+   * ticket so the desk can only look up people who wrote in.
+   */
+  async customer(actor: Actor, input: { ticketId: string }): Promise<SupportCustomer | null> {
+    const ticket = await this.load(input.ticketId);
+    const customerId = ticket.customerId;
+    if (!customerId) return null;
+    const now = this.clock.now();
+    const names = await this.identity.firstNamesFor([customerId], actor.personId, 'support_case').catch(() => ({}) as Record<string, string | null>);
+    const orders = await this.orders.listForPerson(customerId).catch(() => [] as Order[]);
+    const tickets = await this.repo.forCustomer(customerId, new Date(now.getTime() - 365 * DAY_MS));
+    const since30 = now.getTime() - 30 * DAY_MS;
+    return {
+      customerId,
+      firstName: names[customerId] ?? null,
+      ...customerOrderStats(orders, customerId),
+      refunded30dIqd: await this.customerCredits(customerId, now),
+      disputes30d: tickets.filter((t) => t.kind === 'dispute' && t.openedAt.getTime() >= since30).length,
+      recentTickets: tickets
+        .filter((t) => t.id !== ticket.id)
+        .sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime())
+        .slice(0, 5)
+        .map((t) => ({ id: t.id, subject: t.subject, kind: t.kind, kind_ar: KIND_AR[t.kind], status: t.status, status_ar: STATUS_AR[t.status], openedAt: t.openedAt, refundedIqd: t.refundedIqd })),
     };
   }
 

@@ -23,7 +23,7 @@ export function WallPage() {
   const signedIn = useSignedIn();
   const wall = useQuery(trpc.metrics.wall.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, refetchInterval: POLL_MS, retry: queryRetry }));
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-bg">
+    <div data-theme="dark" className="fixed inset-0 z-40 overflow-y-auto bg-canvas text-text">
       {!signedIn && (
         <div className="p-8">
           <NeedLogin />
@@ -57,7 +57,7 @@ export function Wall({ data }: { data: LaunchMetricsView }) {
     <div className="mx-auto flex min-h-screen max-w-[1800px] flex-col p-6 md:p-10">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-accent">{t('console.wall_kicker')}</p>
+          <p className="text-sm font-semibold text-accent-text">{t('console.wall_kicker')}</p>
           <h1 className="font-display text-4xl font-bold md:text-5xl">{t('console.wall_title', { day: data.day })}</h1>
           <p className="mt-2 text-lg text-muted">{t('console.wall_met', { n: met, total: data.metrics.length })}</p>
         </div>
@@ -67,7 +67,7 @@ export function Wall({ data }: { data: LaunchMetricsView }) {
           </p>
           <p className="mt-1 text-sm text-muted">
             {t('console.wall_updated', { time: formatClock(data.at) })} ·{' '}
-            <Link href="/controls" className="underline hover:text-accent">
+            <Link href="/controls" className="underline hover:text-accent-text">
               {t('console.wall_exit')}
             </Link>
           </p>
@@ -80,13 +80,13 @@ export function Wall({ data }: { data: LaunchMetricsView }) {
         ))}
       </ul>
 
-      <section className="mt-8 rounded-2xl border border-line bg-surface p-6" aria-label={t('console.wall_orders_by_day')}>
+      <section className="mt-8 rounded-lg border border-line bg-surface shadow-card p-6" aria-label={t('console.wall_orders_by_day')}>
         <h2 className="mb-4 font-display text-xl font-semibold">{t('console.wall_orders_by_day')}</h2>
         <ol className="flex h-40 items-end gap-3">
           {data.ordersByDay.map((d, i) => (
             <li key={d.date} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
               <span className="font-display text-xl font-bold tabular-nums">{d.orders}</span>
-              <span className={`w-full rounded-t-md ${i === data.ordersByDay.length - 1 ? 'bg-accent' : 'bg-surface-2'}`} style={{ height: `${Math.max(bars[i] ?? 0, 3)}%` }} />
+              <span className={`w-full rounded-t-md ${i === data.ordersByDay.length - 1 ? 'bg-accent' : 'bg-surface-3'}`} style={{ height: `${Math.max(bars[i] ?? 0, 3)}%` }} />
               <span className="text-xs text-muted tabular-nums" dir="ltr">
                 {d.date.slice(5).replace('-', '/')}
               </span>
@@ -100,13 +100,14 @@ export function Wall({ data }: { data: LaunchMetricsView }) {
 
 function MetricTile({ m }: { m: LaunchMetric }) {
   const tone = metricTone(m);
-  const ring = tone === 'ok' ? 'border-success-500 bg-success-500/10' : tone === 'bad' ? 'border-danger-500 bg-danger-500/15' : 'border-line bg-surface';
+  const bar = tone === 'ok' ? 'bg-ok-solid' : tone === 'bad' ? 'bg-bad-solid' : 'bg-line-strong';
   const value = tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : 'text-text';
   return (
-    <li className={`flex min-h-[13rem] flex-col justify-between rounded-2xl border-2 p-6 ${ring}`}>
+    <li className="relative flex min-h-[13rem] flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface p-6 ps-8">
+      <span aria-hidden className={`absolute inset-y-0 start-0 w-1.5 ${bar}`} />
       <div className="flex items-start justify-between gap-3">
         <h2 className="font-display text-2xl font-semibold">{m.label_ar}</h2>
-        <span className={`shrink-0 whitespace-nowrap rounded-pill px-3 py-1 text-sm font-semibold ${tone === 'ok' ? 'bg-success-500 text-white' : tone === 'bad' ? 'bg-danger-500 text-white' : 'bg-surface-2 text-muted'}`}>
+        <span className={`shrink-0 whitespace-nowrap rounded-pill px-3 py-1 text-sm font-semibold ${tone === 'ok' ? 'bg-ok-tint text-ok' : tone === 'bad' ? 'bg-bad-tint text-bad' : 'bg-surface-3 text-muted'}`}>
           {t(tone === 'ok' ? 'console.wall_on_target' : tone === 'bad' ? 'console.wall_off_target' : 'console.wall_pending')}
         </span>
       </div>

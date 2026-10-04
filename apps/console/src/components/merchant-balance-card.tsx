@@ -39,7 +39,7 @@ export function MerchantBalanceCard({ merchantId }: { merchantId: string }) {
       {b && (
         <>
           <p className="text-xs text-muted">{b.balanceIqd >= 0 ? t('console.merchant_owed') : t('console.merchant_owes')}</p>
-          <p className={`font-display text-3xl font-bold tabular-nums ${b.balanceIqd < 0 ? 'text-bad' : 'text-accent-strong'}`}>
+          <p className={`font-display text-3xl font-bold tabular-nums ${b.balanceIqd < 0 ? 'text-bad' : 'text-accent-text'}`}>
             {formatIqd(Math.abs(b.balanceIqd))} <span className="text-base font-normal text-muted">{t('quote.currency')}</span>
           </p>
           {b.overExposure && (

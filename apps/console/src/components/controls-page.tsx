@@ -190,7 +190,7 @@ export function ControlsBoard({
                     disabled={!canSwitch}
                     onClick={() => onZone(z)}
                     title={t('console.ctl_edit_cap')}
-                    className="inline-flex items-center gap-2 rounded-pill border border-line bg-surface-2/50 px-3 py-1 text-xs hover:border-muted disabled:cursor-default"
+                    className="inline-flex items-center gap-2 rounded-pill border border-line bg-surface-2/50 px-3 py-1 text-xs hover:border-line-strong disabled:cursor-default"
                   >
                     {z.name_ar}
                     <span className={`tabular-nums ${z.active ? 'text-text' : 'text-faint'}`}>{z.active}</span>
@@ -228,11 +228,11 @@ function SwitchTile({ label, killed, disabled, onClick }: { label: string; kille
       aria-pressed={killed}
       title={`${label} · ${killed ? t('console.ctl_tile_restore') : t('console.ctl_tile_stop')}`}
       className={`flex min-h-[3.25rem] items-center justify-between gap-2 rounded-lg border px-3 py-2 text-start text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
-        killed ? 'border-danger-500 bg-danger-500/15 hover:bg-danger-500/25' : 'border-line bg-surface-2 hover:border-muted'
+        killed ? 'border-bad/40 bg-bad-tint hover:bg-bad-tint' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
       }`}
     >
       <span className="min-w-0 truncate font-semibold">{label}</span>
-      <span className={`flex shrink-0 items-center gap-1.5 text-xs ${killed ? 'text-danger-100' : 'text-ok'}`}>
+      <span className={`flex shrink-0 items-center gap-1.5 text-xs ${killed ? 'text-bad' : 'text-ok'}`}>
         <span aria-hidden className={`inline-block h-2 w-2 rounded-pill ${killed ? 'bg-bad' : 'bg-ok'}`} />
         {killed ? t('console.ctl_state_off') : t('console.ctl_state_on')}
       </span>
@@ -242,7 +242,7 @@ function SwitchTile({ label, killed, disabled, onClick }: { label: string; kille
 
 function ActiveSwitch({ s, canSwitch, onRestore }: { s: KillSwitchView; canSwitch: boolean; onRestore: () => void }) {
   return (
-    <li className="rounded-lg border border-danger-500/60 bg-danger-500/10 p-3">
+    <li className="rounded-lg border border-bad/40 bg-bad-tint p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 font-semibold">
@@ -271,7 +271,7 @@ function ZoneGauge({ z, canEdit, onEdit, onKill }: { z: ZoneCapacityView; canEdi
   const tone = gaugeTone(z.state);
   const pct = gaugePct(z);
   return (
-    <li className={`flex flex-col rounded-lg border p-3 ${z.state === 'full' ? 'border-danger-500 bg-danger-500/10' : z.state === 'off' ? 'border-line bg-surface-2/40' : 'border-line bg-surface-2/60'}`}>
+    <li className={`flex flex-col rounded-lg border p-3 ${z.state === 'full' ? 'border-bad/40 bg-bad-tint' : z.state === 'off' ? 'border-line bg-surface-2/40' : 'border-line bg-surface-2/60'}`}>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 truncate font-semibold" title={z.name_ar}>
           {z.name_ar}
@@ -358,7 +358,7 @@ function BannerCard({ banners, canBanner, className = '' }: { banners: SystemBan
             <div className="flex flex-wrap gap-3 text-sm">
               {AUDIENCES.map((a) => (
                 <label key={a} className="flex items-center gap-2">
-                  <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={audiences.includes(a)} onChange={() => toggle(a)} />
+                  <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--c-accent))]" checked={audiences.includes(a)} onChange={() => toggle(a)} />
                   {t(`console.banner_app_${a}` as MessageKey)}
                 </label>
               ))}
@@ -419,20 +419,21 @@ function BannerCard({ banners, canBanner, className = '' }: { banners: SystemBan
 
 /** How the strip looks on a phone (the apps render it with `StatusBanner` from @driver/ui). */
 export function BannerPreview({ severity, message }: { severity: BannerSeverity; message: string }) {
-  // The apps' theme tints (dangerTint / warningTint / infoTint) on the light phone surface.
-  const cls = severity === 'critical' ? 'border-danger-500 bg-danger-50 text-danger-700' : severity === 'warning' ? 'border-warning-500 bg-warning-100 text-warning-700' : 'border-info-500 bg-[#E1ECF7] text-[#245C96]';
+  // The apps' theme tints (dangerTint / warningTint / infoTint) on the light phone surface: a light
+  // island, whatever the Console's own theme.
+  const cls = severity === 'critical' ? 'border-bad/40 bg-bad-tint text-bad' : severity === 'warning' ? 'border-warn/40 bg-warn-tint text-warn' : 'border-info/40 bg-info-tint text-info';
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-[#FBF8F3] shadow-card" aria-hidden>
+    <div data-theme="light" className="overflow-hidden rounded-xl border border-line bg-canvas text-text shadow-card" aria-hidden>
       <div className={`flex items-center gap-3 border-b px-3 py-2 ${cls}`}>
         <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-current text-xs">
-          <span className="text-white">!</span>
+          <span className="text-surface">!</span>
         </span>
         <span className="text-sm font-semibold">{message}</span>
       </div>
       <div className="space-y-2 p-3">
-        <div className="h-3 w-2/3 rounded-pill bg-[#E9E1D6]" />
-        <div className="h-3 w-1/2 rounded-pill bg-[#E9E1D6]" />
-        <div className="h-16 rounded-lg bg-[#F1EBE2]" />
+        <div className="h-3 w-2/3 rounded-pill bg-surface-3" />
+        <div className="h-3 w-1/2 rounded-pill bg-surface-3" />
+        <div className="h-16 rounded-lg bg-surface-2" />
       </div>
     </div>
   );
@@ -501,7 +502,7 @@ export function SwitchDialog({ target, onClose }: { target: SwitchTarget | null;
     });
   };
   return (
-    <dialog ref={ref} onClose={onClose} aria-labelledby="switch-title" className="w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-0 text-text shadow-card">
+    <dialog ref={ref} onClose={onClose} aria-labelledby="switch-title" className="w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-line bg-raised p-0 text-text shadow-overlay">
       {target && (
         <form onSubmit={submit} className="space-y-4 p-5">
           <div>
@@ -555,7 +556,7 @@ export function SwitchDialog({ target, onClose }: { target: SwitchTarget | null;
                 </div>
                 {(target.scope === 'vertical' || target.scope === 'zone') && (
                   <label htmlFor={ids.hold} className="flex max-w-xs items-start gap-3 self-end text-sm">
-                    <input id={ids.hold} type="checkbox" className="mt-1 h-4 w-4 accent-[var(--color-accent)]" checked={hold} onChange={(e) => setHold(e.target.checked)} />
+                    <input id={ids.hold} type="checkbox" className="mt-1 h-4 w-4 accent-[rgb(var(--c-accent))]" checked={hold} onChange={(e) => setHold(e.target.checked)} />
                     {t('console.ctl_hold')}
                   </label>
                 )}
@@ -612,7 +613,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
     save.mutate({ cityId: CITY_ID, zoneKey: zone.zoneKey, maxActive: n, mode, etaMin: eta });
   };
   return (
-    <dialog ref={ref} onClose={onClose} aria-labelledby="cap-title" className="w-[min(30rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-0 text-text shadow-card">
+    <dialog ref={ref} onClose={onClose} aria-labelledby="cap-title" className="w-[min(30rem,calc(100vw-2rem))] rounded-xl border border-line bg-raised p-0 text-text shadow-overlay">
       {zone && (
         <form onSubmit={submit} className="space-y-4 p-5">
           <div>

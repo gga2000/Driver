@@ -85,7 +85,7 @@ export function MapPage() {
                 {!signedIn ? (
                   <>
                     {t('console.map_signed_out')}{' '}
-                    <Link href="/login" className="text-accent underline">
+                    <Link href="/login" className="text-accent-text underline">
                       {t('console.login')}
                     </Link>
                   </>
@@ -124,11 +124,11 @@ export function MapPage() {
                 </li>
               ))}
               <li className="flex items-center gap-2">
-                <span aria-hidden className="inline-block h-3 w-3 rounded-pill border-2 border-primary-400 bg-bg" />
+                <span aria-hidden className="inline-block h-3 w-3 rounded-pill border-2 border-accent bg-bg" />
                 {t('console.legend_garage')}
               </li>
               <li className="flex items-center gap-2">
-                <span aria-hidden className="inline-block h-0 w-4 border-t-2 border-dashed border-info-500" />
+                <span aria-hidden className="inline-block h-0 w-4 border-t-2 border-dashed border-info/40" />
                 {t('console.legend_trip')}
               </li>
             </ul>

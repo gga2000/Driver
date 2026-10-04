@@ -235,6 +235,14 @@ const repo = get(SUPPORT_REPOSITORY);
 const old = new Date(Date.now() - 26 * 3_600_000);
 const stale = await repo.create({ cityId: 'aziziyah', kind: 'question', status: 'open', channel: 'phone', subject: 'متى يوصل التوصيل لمشروع عويد؟', orderId: null, tripId: null, customerId: customers[12], openedById: zainab, openedAt: old, firstResponseAt: null, resolvedAt: null, slaDueAt: new Date(old.getTime() + 6 * 3_600_000), assigneeId: null, faultParty: 'none', refundedIqd: 0, escalatedTo: null, escalatedAt: null, resolution: null, sourceKey: null, reopenCount: 0, lastActivityAt: old });
 await repo.addEntry({ ticketId: stale.id, actorId: customers[12], kind: 'opened', text: 'سألت أكثر من مرة وما أحد جاوب', amountIqd: null, meta: {}, idempotencyKey: null, at: old });
+// A desk with some history: an internal note on the late-food dispute, علي answering the missing-item
+// one (so it's "his"), and a safety incident called in by phone.
+const queue = (await support.list(actor(ali), { cityId: 'aziziyah', status: 'active', limit: 100 })).rows;
+const late = queue.find((r) => r.orderId === placed[0].id);
+if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتصلت بالمطعم: الطلب طلع بوقته، التأخير من الدليفري بالطريق. نعوّضه رصيد ونحسبها على الدليفري.', internal: true });
+const missing = queue.find((r) => r.orderId === placed[7].id);
+if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
+await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
 const solved = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'question', channel: 'in_app', subject: 'شلون أشحن المحفظة كاش؟', customerId: customers[3] });
 await support.resolve(actor(zainab), { ticketId: solved.id, resolution: 'شرحناله الشحن عن طريق المندوب أو وكيل' });
 

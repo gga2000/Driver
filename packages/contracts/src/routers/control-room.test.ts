@@ -90,6 +90,7 @@ function ports() {
     escalate: vi.fn(async () => ticketCase),
     resolve: vi.fn(async () => ticketCase),
     canned: vi.fn(() => []),
+    customer: vi.fn(async () => null),
   };
   return { controls, controlRoom, support };
 }
@@ -131,6 +132,7 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['approvals.decide', ['field_ops', 'support', 'admin'], (c) => c.approvals.decide({ kind: 'driver_document', refId: 'd1', decision: 'approve' })],
   ['support.list', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.list({})],
   ['support.get', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.get({ ticketId: 'tk_1' })],
+  ['support.customer', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.customer({ ticketId: 'tk_1' })],
   ['support.canned', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.canned()],
   ['support.open', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.open({ kind: 'question', subject: 'سؤال عن الطلب' })],
   ['support.reply', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.reply({ ticketId: 'tk_1', text: 'هلا' })],

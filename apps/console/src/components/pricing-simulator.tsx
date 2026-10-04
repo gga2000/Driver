@@ -133,7 +133,7 @@ export function PricingSimulator() {
                       aria-pressed={s.vertical === v}
                       onClick={() => changeVertical(v)}
                       className={`rounded-pill border px-3 py-1.5 text-sm transition-colors ${
-                        s.vertical === v ? 'border-accent bg-accent text-on-accent font-semibold' : 'border-line bg-surface-2 text-text hover:border-muted'
+                        s.vertical === v ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
                       }`}
                     >
                       {t(verticalKey(v))}
@@ -168,7 +168,7 @@ export function PricingSimulator() {
 
             {isIntercity && (
               <label className="mt-4 flex items-center gap-3 text-sm">
-                <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={s.frontSeat} onChange={(e) => patch({ frontSeat: e.target.checked })} />
+                <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--c-accent))]" checked={s.frontSeat} onChange={(e) => patch({ frontSeat: e.target.checked })} />
                 {t('console.option_front_seat')}
               </label>
             )}
@@ -246,7 +246,7 @@ export function PricingSimulator() {
                   {t('console.quote_total')}
                   {isRide && s.passengers > 1 && <span className="ms-2 text-xs">· {t('console.quote_per_seat')}</span>}
                 </span>
-                <output className="font-display text-3xl font-bold tabular-nums text-accent-strong" aria-live="polite">
+                <output className="font-display text-3xl font-bold tabular-nums text-accent-text" aria-live="polite">
                   {formatIqd(quote.data.total)} <span className="text-base font-normal text-muted">{t('quote.currency')}</span>
                 </output>
               </div>
@@ -274,7 +274,7 @@ export function PricingSimulator() {
 
 const inputCls =
   'w-full rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-faint disabled:opacity-50';
-const ghostBtn = 'rounded-md border border-line bg-surface-2 px-3 py-2 text-sm hover:border-muted aria-pressed:border-accent aria-pressed:text-accent';
+const ghostBtn = 'rounded-md border border-line bg-surface-2 px-3 py-2 text-sm hover:border-line-strong aria-pressed:border-accent aria-pressed:text-accent-text';
 
 function ZoneSelect({
   id,
@@ -461,10 +461,10 @@ function Radio({ name, checked, onChange, children }: { name: string; checked: b
   return (
     <label
       className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-        checked ? 'border-accent text-accent' : 'border-line bg-surface-2 hover:border-muted'
+        checked ? 'border-accent text-accent-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
       }`}
     >
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="accent-[var(--color-accent)]" />
+      <input type="radio" name={name} checked={checked} onChange={onChange} className="accent-[rgb(var(--c-accent))]" />
       {children}
     </label>
   );

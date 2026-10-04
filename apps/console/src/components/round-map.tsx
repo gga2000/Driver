@@ -48,8 +48,8 @@ export function RoundMap({ stops, className = '' }: { stops: readonly RoundStop[
         const r = 34 + Math.round((s.totalIqd / max) * 16);
         return (
           <g key={s.zoneKey}>
-            <circle cx={x(c.lng)} cy={y(c.lat)} r={r} fill={s.couriers.some((k) => k.overCap) ? '#d03b3b' : MAP_COLORS.accentStrong} stroke={MAP_COLORS.background} strokeWidth={4} />
-            <text x={x(c.lng)} y={y(c.lat)} textAnchor="middle" dominantBaseline="central" fontSize={38} fontWeight={700} fill="#1a1917">
+            <circle cx={x(c.lng)} cy={y(c.lat)} r={r} fill={MAP_COLORS.accentStrong} className={s.couriers.some((k) => k.overCap) ? 'fill-bad-solid' : undefined} stroke={MAP_COLORS.background} strokeWidth={4} />
+            <text x={x(c.lng)} y={y(c.lat)} textAnchor="middle" dominantBaseline="central" fontSize={38} fontWeight={700} className="fill-on-accent">
               {s.seq}
             </text>
             <title>{`${s.seq}. ${s.zone_ar} · ${formatIqd(s.totalIqd)}`}</title>

@@ -1,3 +1,5 @@
+import { t, type MessageKey } from '@driver/i18n';
+
 /**
  * Number and money formatting per the voice guide (§5): Western digits 0–9, comma thousands,
  * `دينار` after the amount, no Eastern-Arabic digits. Kept pure so it is testable without React.
@@ -71,4 +73,11 @@ export function formatClock(d: Date, timeZone = 'Asia/Baghdad'): string {
   const minute = get('minute');
   const pm = get('dayPeriod').toUpperCase() === 'PM';
   return `${hour}:${minute} ${pm ? 'م' : 'ص'}`;
+}
+
+/** "أيلول 2026" (Iraqi month names, Western digits) in the city zone. */
+export function formatMonthYear(d: Date, timeZone = 'Asia/Baghdad'): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, month: 'numeric', year: 'numeric' }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${t(`console.month_${get('month')}` as MessageKey)} ${get('year')}`;
 }

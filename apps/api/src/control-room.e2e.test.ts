@@ -355,6 +355,12 @@ describe('launch control room (e2e)', () => {
       expect(await codeOf(agent.client.support.reply.mutate({ ticketId: t2.id, text: 'شي ثاني؟' }))).toBe('ticket_closed');
       expect(done.entries.map((e) => e.kind)).toEqual(['opened', 'refund', 'fault', 'escalate', 'resolve']);
 
+      // The context panel's customer card: their orders, the credits so far and the other ticket.
+      const card = await agent.client.support.customer.query({ ticketId: ticket.id });
+      expect(card).toMatchObject({ customerId: customer.personId, orders: 1, refunded30dIqd: 25_000, disputes30d: 1 });
+      expect(card!.recentTickets.map((r) => r.id)).toEqual([t2.id]);
+      expect(await codeOf(courierP.client.support.customer.query({ ticketId: ticket.id }))).toBe('forbidden');
+
       const list = await agent.client.support.list.query({});
       expect(list.counts.resolvedToday).toBeGreaterThanOrEqual(1);
       expect(list.rows.every((r) => r.status !== 'resolved')).toBe(true);

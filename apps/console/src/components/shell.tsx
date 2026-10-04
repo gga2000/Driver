@@ -1,110 +1,84 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { usePathname, useRouter } from 'next/navigation';
 import { t } from '@driver/i18n';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
-import { NetworkBanner } from './ui';
-import { clearSession, getSession, useSignedIn } from '@/lib/session';
-import { useTRPC } from '@/lib/trpc';
+import { CommandPalette } from './shell/command-palette';
+import { ShortcutsSheet } from './shell/shortcuts';
+import { Sidebar } from './shell/sidebar';
+import { TopBar } from './shell/topbar';
+import { cx, NetworkBanner, ToastProvider } from './ui';
 
 /**
- * RTL console shell: sidebar on the start (right) side at ≥ 1024 px, a horizontal tab strip under the
- * header on phones. Nav labels come from i18n so the brand swap and locale swap stay data changes.
+ * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
+ * the page. Full-bleed pages (the support desk) fill the height and scroll inside their panes.
+ * Global keys: ⌘K / Ctrl+K or "/" search, "?" shortcuts, "g" + letter jumps to a page.
  */
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  return (
-    <div className="flex min-h-screen flex-col lg:flex-row">
-      <aside className="border-line bg-surface lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:border-e lg:border-b-0 border-b">
-        <div className="flex items-center justify-between px-5 py-4 lg:block">
-          <Link href="/" className="rounded-md font-display text-lg font-bold">
-            <span className="text-accent">●</span> {t('app.console')}
-          </Link>
-          <div className="flex items-center gap-4 lg:block">
-            <ApiStatus />
-            <span className="lg:hidden">
-              <SessionControl />
-            </span>
-          </div>
-        </div>
-        <nav aria-label={t('app.console')} className="overflow-x-auto px-3 pb-3 lg:px-3">
-          <ul className="flex gap-1 lg:flex-col">
-            {NAV.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return (
-                <li key={item.href} className="shrink-0">
-                  <Link
-                    href={item.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`block rounded-md px-3 py-2 text-sm transition-colors ${
-                      active ? 'bg-surface-2 font-semibold text-accent' : 'text-muted hover:bg-surface-2 hover:text-text'
-                    }`}
-                  >
-                    {t(item.key)}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-        <div className="hidden px-5 pb-4 lg:block">
-          <SessionControl />
-        </div>
-      </aside>
-      <main id="main" className="min-w-0 flex-1 p-4 md:p-8">
-        <NetworkBanner />
-        {children}
-      </main>
-    </div>
-  );
-}
+  const router = useRouter();
+  const [palette, setPalette] = useState(false);
+  const [keys, setKeys] = useState(false);
+  const bare = pathname === '/login';
+  const fullBleed = pathname === '/support' || pathname.startsWith('/support/');
 
-function ApiStatus() {
-  const trpc = useTRPC();
-  const health = useQuery(trpc.health.ping.queryOptions(undefined, { refetchInterval: 10_000 }));
-  const label = health.isPending ? t('console.api_checking') : health.isSuccess ? t('console.api_online') : t('console.api_offline');
-  const dot = health.isPending ? 'bg-muted' : health.isSuccess ? 'bg-ok' : 'bg-bad';
-  return (
-    <p className="mt-0 flex items-center gap-2 text-xs text-muted lg:mt-2" role="status">
-      <span aria-hidden className={`inline-block h-2 w-2 rounded-pill ${dot}`} />
-      {label}
-      {health.data?.version && <span className="font-mono">v{health.data.version}</span>}
-    </p>
+  const jumps = Object.fromEntries(
+    NAV.filter((i) => i.jump).map((i) => [`g ${i.jump}`, () => router.push(i.href)]),
   );
-}
+  useHotkeys(
+    {
+      'mod+k': () => setPalette((p) => !p),
+      '/': () => setPalette(true),
+      '?': () => setKeys(true),
+      ...jumps,
+    },
+    { enabled: !bare && !palette },
+  );
 
-function SessionControl() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const signedIn = useSignedIn();
-  const logout = useMutation(trpc.identity.logout.mutationOptions());
-  if (!signedIn) {
+  if (bare) {
     return (
-      <Link href="/login" className="rounded-md text-sm text-accent underline">
-        {t('console.login')}
-      </Link>
+      <ToastProvider>
+        <main id="main" className="min-h-screen">
+          {children}
+        </main>
+      </ToastProvider>
     );
   }
-  const signOut = () => {
-    const refreshToken = getSession()?.refreshToken;
-    // Best-effort server revoke first (the batch link reads the bearer token when it sends),
-    // then the local session is cleared whatever the outcome.
-    logout.mutate(refreshToken ? { refreshToken } : {}, {
-      onSettled: () => {
-        clearSession();
-        queryClient.clear();
-      },
-    });
-  };
+
   return (
-    <span className="flex items-center gap-3 text-xs text-muted">
-      <span className="hidden lg:inline">{t('console.login_signed_in')}</span>
-      <button type="button" onClick={signOut} disabled={logout.isPending} className="rounded-md text-sm text-text underline hover:text-accent">
-        {t('console.logout')}
-      </button>
-    </span>
+    <ToastProvider>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-3 focus:top-3 focus:z-[70] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:shadow-pop"
+      >
+        {t('console.skip_to_content')}
+      </a>
+      <div className="flex min-h-screen">
+        <Sidebar onShortcuts={() => setKeys(true)} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar onSearch={() => setPalette(true)} />
+          <main
+            id="main"
+            className={cx(
+              'min-w-0',
+              fullBleed
+                ? 'h-[calc(100vh-106px)] flex-none overflow-hidden lg:h-[calc(100vh-57px)]'
+                : 'flex-1 px-4 py-6 lg:px-8 lg:py-7',
+            )}
+          >
+            {fullBleed ? null : <NetworkBanner />}
+            {children}
+          </main>
+        </div>
+      </div>
+      <CommandPalette
+        open={palette}
+        onClose={() => setPalette(false)}
+        onShortcuts={() => setKeys(true)}
+      />
+      <ShortcutsSheet open={keys} onClose={() => setKeys(false)} />
+    </ToastProvider>
   );
 }

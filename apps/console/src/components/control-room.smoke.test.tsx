@@ -2,13 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ApprovalItem, ControlsView, FinanceDeskView, LaunchMetricsView, SupportList, SystemBannerView, TicketCase, TicketSummary } from '@driver/contracts';
+import type { ApprovalItem, ControlsView, FinanceDeskView, LaunchMetricsView, SupportCustomer, SystemBannerView, TicketCase, TicketSummary } from '@driver/contracts';
 import { makeTrpcClient, TRPCProvider } from '@/lib/trpc';
 import { ApprovalsBoard } from './approvals-page';
 import { ControlsBoard } from './controls-page';
 import { FinanceDesk } from './finance-page';
-import { SupportCase } from './support-case';
-import { SupportQueue } from './support-page';
+import { viewCounts } from '@/lib/support-views';
+import { SupportActionDialogs } from './support/actions';
+import { ContextPane } from './support/context';
+import { Conversation } from './support/conversation';
+import { SupportQueue } from './support/queue';
+import { ToastProvider } from './ui';
 import { Wall } from './wall-page';
 
 /** Page smoke tests: every control-room page body renders from realistic data (server render, no API). */
@@ -144,18 +148,21 @@ describe('control room pages render', () => {
     expect(html).toContain('http://localhost:3000/files/up_1');
   });
 
-  it('support: the urgency-ranked queue with SLA clocks', () => {
-    const list: SupportList = { at: AT, rows: [ticket], counts: { open: 1, breached: 0, overdue24h: 0, escalated: 0, resolvedToday: 2 } };
-    const html = wrap(<SupportQueue data={list} status="active" onStatus={() => undefined} />);
-    for (const text of ['الطلب تأخّر أو وصل بارد', 'زينب', 'باقي 2:30', 'زعلان', 'انحلّت اليوم']) expect(html).toContain(text);
+  it('support: the urgency-ranked queue with smart views and SLA fuses', () => {
+    const html = wrap(
+      <SupportQueue rows={[ticket]} counts={viewCounts([ticket], 'p1')} view="open" onView={() => undefined} query="" onQuery={() => undefined} selectedId="tk_1" onSelect={() => undefined} onNew={() => undefined} now={AT} seen={{}} />,
+    );
+    for (const text of ['الطلب تأخّر أو وصل بارد', 'زينب', 'باقي 2 س 30 د', 'طلب شغّال هسة', 'المفتوحة', 'جديد', 'data-ticket-row']) expect(html).toContain(text);
+    expect(html).toContain('aria-selected="true"');
   });
 
-  it('support case: conversation, canned answers, refund limits, order and ledger', () => {
+  it('support case: thread, suggestion, customer card, order, actions, limits and ledger', () => {
     const data: TicketCase = {
       ticket,
       entries: [
         { id: 'e1', at: ticket.openedAt, actorId: 'c1', actorName: 'زينب', kind: 'opened', text: 'وصل بارد وبعد ساعة', amountIqd: null, meta: {} },
-        { id: 'e2', at: AT, actorId: 'p1', actorName: 'علي', kind: 'refund', text: '1,000 دينار رصيد بالمحفظة', amountIqd: 1000, meta: {} },
+        { id: 'e2', at: AT, actorId: 'p1', actorName: 'علي', kind: 'note', text: 'نتأكد من الدليفري أول', amountIqd: null, meta: {} },
+        { id: 'e3', at: AT, actorId: 'p1', actorName: 'علي', kind: 'refund', text: '1,000 دينار رصيد بالمحفظة', amountIqd: 1000, meta: {} },
       ],
       order: { id: 'ord_123456789', type: 'food', state: 'disputed', totalIqd: 6500, paymentMethod: 'cash', merchantOrgId: 'org_1', merchantName: 'مطعم خالد', placedAt: ticket.openedAt, deliveredAt: AT, courierId: 'd1', lines: [{ name: 'وجبة كبد', qty: 1, totalIqd: 5000 }] },
       timeline: [],
@@ -166,8 +173,44 @@ describe('control room pages render', () => {
       suggestion: { cannedKey: 'late_sorry', reason_ar: 'شكوى تأخير' },
       customerDisputes30d: 4,
     };
-    const html = wrap(<SupportCase data={data} />);
-    for (const text of ['وصل بارد وبعد ساعة', 'تعويض', 'تأخير', 'المقترح', 'وجبة كبد', 'مطعم خالد', 'رصيد مضاف', 'تگدر تعوّض لحد 5,500 دينار', 'صعّد لعلي', 'المراجعة يدوية']) expect(html).toContain(text);
+    const customer: SupportCustomer = {
+      customerId: 'c1',
+      firstName: 'زينب',
+      orders: 12,
+      delivered: 11,
+      cancelled: 1,
+      lifetimeIqd: 148_000,
+      firstOrderAt: new Date('2026-09-02T12:00:00Z'),
+      lastOrderAt: AT,
+      refunded30dIqd: 1000,
+      disputes30d: 4,
+      recentTickets: [{ id: 'tk_0', subject: 'الدليفري ما رجّع الباقي', kind: 'complaint', kind_ar: 'شكوى', status: 'resolved', status_ar: 'محلولة', openedAt: new Date('2026-09-20T12:00:00Z'), refundedIqd: 0 }],
+    };
+    const html = wrap(
+      <ToastProvider>
+        <Conversation data={data} now={AT} composerRef={null} onCanned={() => undefined} />
+        <ContextPane data={data} customer={customer} customerLoading={false} onAction={() => undefined} />
+        <SupportActionDialogs data={data} open={null} onClose={() => undefined} prefill={null} />
+      </ToastProvider>,
+    );
+    for (const text of [
+      'وصل بارد وبعد ساعة',
+      'ملاحظة داخلية · ما يشوفها الزبون',
+      'تعويض',
+      'المقترح',
+      'تأخير',
+      'وجبة كبد',
+      'مطعم خالد',
+      'رصيد مضاف',
+      'تگدر تعوّض لحد 5,500 دينار',
+      'صعّد لعلي',
+      'المراجعة يدوية',
+      'زبون من أيلول 2026',
+      '148,000',
+      'الدليفري ما رجّع الباقي',
+      'data-composer',
+    ])
+      expect(html).toContain(text);
   });
 
   it('finance: the ledger check, the 23:00 round with its map, hand-overs, couriers and merchants', () => {

@@ -100,7 +100,7 @@ export function ApprovalsBoard({
                     type="button"
                     onClick={() => onSelect(i.id)}
                     aria-current={current?.id === i.id ? 'true' : undefined}
-                    className={`w-full rounded-lg border px-3 py-2 text-start transition-colors ${current?.id === i.id ? 'border-accent bg-surface-2' : 'border-line hover:border-muted'}`}
+                    className={`w-full rounded-lg border px-3 py-2 text-start transition-colors ${current?.id === i.id ? 'border-accent bg-surface-2' : 'border-line hover:border-line-strong'}`}
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate font-semibold">{i.title_ar}</span>
@@ -181,7 +181,7 @@ function ApprovalDetail({ item, now, onDecided }: { item: ApprovalItem; now: Dat
       </p>
 
       {item.ownItem && (
-        <p role="note" className="mb-4 rounded-lg border border-primary-500/60 bg-primary-500/10 px-3 py-2 text-sm text-accent">
+        <p role="note" className="mb-4 rounded-lg border border-accent/60 bg-accent-tint px-3 py-2 text-sm text-accent-text">
           {t('console.apr_own_note')}
         </p>
       )}
@@ -272,7 +272,7 @@ function PhotoZoom({ photo, onClose }: { photo: ApprovalPhoto; onClose: () => vo
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div role="dialog" aria-modal="true" aria-label={photo.label_ar} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={photo.label_ar} className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim)] p-6 backdrop-blur-sm" onClick={onClose}>
       {/* eslint-disable-next-line @next/next/no-img-element -- signed API URLs */}
       <img src={fileUrl(photo.url, API_URL)} alt={photo.label_ar} className="max-h-full max-w-full rounded-lg object-contain" />
       <button type="button" className={`${ghostBtn} absolute end-4 top-4`} onClick={onClose} aria-label={t('console.close')}>

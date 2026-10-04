@@ -37,7 +37,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <Link href="/orders" className="rounded-md text-sm text-muted hover:text-accent">
+      <Link href="/orders" className="rounded-md text-sm text-muted hover:text-accent-text">
         ← {t('console.order_back')}
       </Link>
 
@@ -73,7 +73,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 <span>· {formatDayClock(o.placedAt)}</span>
               </p>
             </div>
-            <p className="font-display text-3xl font-bold tabular-nums text-accent-strong">
+            <p className="font-display text-3xl font-bold tabular-nums text-accent-text">
               {formatIqd(o.totalIqd)} <span className="text-base font-normal text-muted">{t('quote.currency')}</span>
             </p>
           </header>
@@ -133,7 +133,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                       k={t('console.drawer_trip')}
                       v={
                         <span className="inline-flex items-center gap-1">
-                          <Link href="/map" className="text-accent underline">
+                          <Link href="/map" className="text-accent-text underline">
                             <Mono title={trip.id}>{shortId(trip.id)}</Mono>
                           </Link>
                           <CopyId id={trip.id} />
@@ -150,7 +150,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 {o.scheduledFor && <p className="mt-2 text-xs text-muted">{t('console.order_scheduled_for', { time: formatDayClock(o.scheduledFor) })}</p>}
                 {o.promisedReadyAt && <p className="mt-1 text-xs text-muted">{t('console.order_promised_ready', { time: formatClock(o.promisedReadyAt) })}</p>}
                 {o.partial && (
-                  <p role="status" className="mt-2 rounded-md border border-primary-500 bg-primary-500/10 px-3 py-2 text-sm">
+                  <p role="status" className="mt-2 rounded-md border border-accent bg-accent-tint px-3 py-2 text-sm">
                     {t('console.order_partial', { amount: formatIqd(o.partial.reducedTotalIqd), time: formatClock(o.partial.deadline) })}
                   </p>
                 )}

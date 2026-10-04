@@ -1,5 +1,4 @@
-import { SupportPage } from '@/components/support-page';
-
+/** The desk itself lives in ./layout.tsx (queue · conversation · context). */
 export default function Page() {
-  return <SupportPage />;
+  return null;
 }

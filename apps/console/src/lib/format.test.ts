@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatClock, formatCountdown, formatDayClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, safeDecode, shortId, toLocalInputValue } from './format';
+import { formatClock, formatCountdown, formatDayClock, formatIqd, formatMoney, formatMonthYear, formatSigned, fromLocalInputValue, safeDecode, shortId, toLocalInputValue } from './format';
 
 describe('money formatting (voice guide §5)', () => {
   it('uses Western digits with a comma thousands separator', () => {
@@ -61,5 +61,11 @@ describe('console helpers', () => {
   it('decodes route params safely', () => {
     expect(safeDecode('a%20b')).toBe('a b');
     expect(safeDecode('%E0%A4%A')).toBe('%E0%A4%A');
+  });
+
+  it('month and year with Iraqi month names', () => {
+    expect(formatMonthYear(new Date('2026-09-15T12:00:00Z'))).toBe('أيلول 2026');
+    // 23:30 UTC on 31 Dec is already January in Baghdad.
+    expect(formatMonthYear(new Date('2025-12-31T23:30:00Z'))).toBe('كانون الثاني 2026');
   });
 });

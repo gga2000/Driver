@@ -56,7 +56,7 @@ export function DriversPage() {
                     aria-pressed={filter.presence === p}
                     onClick={() => setFilter((f) => ({ ...f, presence: p }))}
                     className={`rounded-pill border px-3 py-1.5 text-sm transition-colors ${
-                      filter.presence === p ? 'border-accent bg-accent font-semibold text-on-accent' : 'border-line bg-surface-2 hover:border-muted'
+                      filter.presence === p ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
                     }`}
                   >
                     {t(presenceKey(p))}
@@ -147,7 +147,7 @@ export function DriversPage() {
                             {d.lastSeenAt && <span className="block">{t('console.driver_seen_at', { time: formatClock(d.lastSeenAt) })}</span>}
                           </td>
                           <td className="py-2 text-end">
-                            <Link href={`/drivers/${encodeURIComponent(d.personId)}/ledger`} className="rounded-md text-accent underline">
+                            <Link href={`/drivers/${encodeURIComponent(d.personId)}/ledger`} className="rounded-md text-accent-text underline">
                               {t('console.open_ledger')}
                             </Link>
                           </td>

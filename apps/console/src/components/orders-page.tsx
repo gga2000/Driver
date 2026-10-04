@@ -70,7 +70,7 @@ export function OrdersPage() {
                   aria-pressed={filter.state === f}
                   onClick={() => setFilter((p) => ({ ...p, state: f }))}
                   className={`inline-flex items-center gap-2 rounded-pill border px-3 py-1.5 text-sm transition-colors ${
-                    filter.state === f ? 'border-accent bg-accent font-semibold text-on-accent' : 'border-line bg-surface-2 hover:border-muted'
+                    filter.state === f ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
                   }`}
                 >
                   {t(filterKey(f))}

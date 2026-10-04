@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DisputeKind } from '@driver/contracts';
 import { CANNED_RESPONSES, DISPUTE_SUBJECT_AR, SUGGESTED_BY_DISPUTE } from './canned.js';
 import { InMemorySupportRepository, type TicketRecord } from './support.repository.js';
-import { slaDueAt, slaStateOf, urgencyOf } from './support.service.js';
+import { customerOrderStats, slaDueAt, slaStateOf, urgencyOf } from './support.service.js';
 
 function ticket(over: Partial<TicketRecord> = {}): TicketRecord {
   const openedAt = over.openedAt ?? new Date('2026-10-04T09:00:00Z');
@@ -93,5 +93,22 @@ describe('support desk rules', () => {
     await repo.update(t.id, { status: 'resolved', resolvedAt: at });
     expect(await repo.list({ cityId: 'aziziyah', statuses: ['open'], limit: 10 })).toEqual([]);
     expect((await repo.list({ cityId: 'aziziyah', statuses: [], resolvedSince: new Date('2026-10-04T00:00:00Z'), limit: 10 })).map((x) => x.id)).toEqual([t.id]);
+  });
+
+  it('customer card: counts only orders the customer placed; lifetime value from delivered ones', () => {
+    const at = (d: string) => new Date(`2026-${d}T12:00:00Z`);
+    const stats = customerOrderStats(
+      [
+        { ordererId: 'c1', state: 'closed', totalIqd: 8_000, placedAt: at('09-01') },
+        { ordererId: 'c1', state: 'delivered', totalIqd: 6_500, placedAt: at('10-03') },
+        { ordererId: 'c1', state: 'customer_cancelled', totalIqd: 4_000, placedAt: at('09-20') },
+        { ordererId: 'c1', state: 'preparing', totalIqd: 3_000, placedAt: at('10-04') },
+        // Carried by c1 as a household member, ordered by someone else: not theirs.
+        { ordererId: 'c2', state: 'closed', totalIqd: 50_000, placedAt: at('08-01') },
+      ],
+      'c1',
+    );
+    expect(stats).toEqual({ orders: 4, delivered: 2, cancelled: 1, lifetimeIqd: 14_500, firstOrderAt: at('09-01'), lastOrderAt: at('10-04') });
+    expect(customerOrderStats([], 'c1')).toMatchObject({ orders: 0, lifetimeIqd: 0, firstOrderAt: null, lastOrderAt: null });
   });
 });

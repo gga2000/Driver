@@ -4,7 +4,9 @@ import { InMemoryLiveBus } from './live.bus.js';
 import { LIVE_QUEUE_MAX, LiveService } from './live.service.js';
 import { StreamTokens } from './live.tokens.js';
 
-const T0 = new Date('2026-10-04T09:00:00Z');
+// Session claims are checked against the real clock: issue them now, not on a fixed date (a fixed T0
+// expired 15 minutes after it, failing these tests later the same day).
+const T0 = new Date();
 const claims = (over: Partial<SessionClaims> = {}): SessionClaims => ({
   sub: 'p1',
   sid: 's1',

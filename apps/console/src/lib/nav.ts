@@ -1,19 +1,105 @@
+import type { RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
-/** Console sections in sidebar order (console spec; plan Step 8 acceptance). */
-export const NAV = [
-  { href: '/map', key: 'console.nav_map' },
-  { href: '/dispatch', key: 'console.nav_dispatch' },
-  { href: '/orders', key: 'console.nav_orders' },
-  { href: '/drivers', key: 'console.nav_drivers' },
-  // Launch-week control room.
-  { href: '/controls', key: 'console.nav_controls' },
-  { href: '/approvals', key: 'console.nav_approvals' },
-  { href: '/support', key: 'console.nav_support' },
-  { href: '/finance', key: 'console.nav_finance' },
-  { href: '/wall', key: 'console.nav_wall' },
-  { href: '/pricing', key: 'console.nav_pricing' },
-  { href: '/system', key: 'console.nav_system' },
-] as const satisfies readonly { href: string; key: MessageKey }[];
+/**
+ * Console sections, grouped as the sidebar shows them (العمليات · الخدمة · الفلوس · النظام). `roles`
+ * mirrors the API's role gate for the page's main read (contracts routers), so a support agent
+ * doesn't see pages that would only say "ما عندك صلاحية" (K-08). The API decides anyway.
+ */
+
+const READ: readonly RoleKind[] = ['dispatcher', 'support', 'finance', 'admin'];
+const DISPATCH: readonly RoleKind[] = ['dispatcher', 'admin'];
+const SUPPORT: readonly RoleKind[] = ['support', 'dispatcher', 'finance', 'admin'];
+const APPROVALS: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
+const FINANCE: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
+
+export type IconName =
+  | 'map'
+  | 'dispatch'
+  | 'orders'
+  | 'drivers'
+  | 'support'
+  | 'approvals'
+  | 'cash'
+  | 'pricing'
+  | 'controls'
+  | 'wall'
+  | 'system';
+
+export interface NavItem {
+  href: string;
+  key: MessageKey;
+  icon: IconName;
+  roles: readonly RoleKind[];
+  /** Second key of the "g …" jump shortcut. */
+  jump?: string;
+}
+
+export interface NavGroup {
+  key: MessageKey;
+  items: readonly NavItem[];
+}
+
+export const NAV_GROUPS: readonly NavGroup[] = [
+  {
+    key: 'console.navg_ops',
+    items: [
+      { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
+      {
+        href: '/dispatch',
+        key: 'console.nav_dispatch',
+        icon: 'dispatch',
+        roles: DISPATCH,
+        jump: 'd',
+      },
+      { href: '/orders', key: 'console.nav_orders', icon: 'orders', roles: READ, jump: 'o' },
+      { href: '/drivers', key: 'console.nav_drivers', icon: 'drivers', roles: READ, jump: 'r' },
+    ],
+  },
+  {
+    key: 'console.navg_service',
+    items: [
+      { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      {
+        href: '/approvals',
+        key: 'console.nav_approvals',
+        icon: 'approvals',
+        roles: APPROVALS,
+        jump: 'a',
+      },
+    ],
+  },
+  {
+    key: 'console.navg_money',
+    items: [
+      { href: '/finance', key: 'console.nav_finance', icon: 'cash', roles: FINANCE, jump: 'f' },
+      { href: '/pricing', key: 'console.nav_pricing', icon: 'pricing', roles: READ, jump: 'p' },
+    ],
+  },
+  {
+    key: 'console.navg_system',
+    items: [
+      { href: '/controls', key: 'console.nav_controls', icon: 'controls', roles: READ, jump: 'c' },
+      { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
+      { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
+    ],
+  },
+];
+
+/** Flat list, sidebar order. */
+export const NAV: readonly NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 export type NavHref = (typeof NAV)[number]['href'];
+
+/** Groups with only the items these roles may open; everything while roles are still loading. */
+export function visibleNav(roles: ReadonlySet<RoleKind>, loaded: boolean): NavGroup[] {
+  if (!loaded) return [...NAV_GROUPS];
+  return NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => i.roles.some((r) => roles.has(r))),
+  })).filter((g) => g.items.length > 0);
+}
+
+export function isActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

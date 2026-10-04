@@ -2,6 +2,7 @@ import type { ApprovalItem, BannerSeverity, KillScope, LaunchMetric, SlaState, T
 import { t } from '@driver/i18n';
 import { formatIqd } from './format';
 import type { ChipTone } from '@/components/ui';
+import { compactDuration } from './support-views';
 
 /**
  * Pure helpers for the launch control room pages (controls, approvals, support, finance, wall), kept
@@ -122,16 +123,14 @@ export function ageLabel(from: Date, now: Date): string {
   return t('console.age_days', { n: Math.floor(h / 24) });
 }
 
-/** SLA clock for a ticket row: time left (or over) to the same-day deadline, `H:MM`. */
+/** SLA clock for a ticket row: time left (or over) to the same-day deadline, as a compact duration. */
 export function slaClock(t0: Pick<TicketSummary, 'slaDueAt' | 'slaState' | 'status'>, now: Date): { text: string; tone: ChipTone } {
   if (t0.status === 'resolved') return { text: t(t0.slaState === 'met' ? 'console.sla_met' : 'console.sla_late'), tone: t0.slaState === 'met' ? 'done' : 'bad' };
   const ms = t0.slaDueAt.getTime() - now.getTime();
-  const abs = Math.abs(ms);
-  const h = Math.floor(abs / 3_600_000);
-  const m = Math.floor((abs % 3_600_000) / MIN);
-  const hm = `${h}:${String(m).padStart(2, '0')}`;
-  if (ms < 0) return { text: t('console.sla_over', { time: hm }), tone: 'bad' };
-  return { text: t('console.sla_left', { time: hm }), tone: ms < 3_600_000 ? 'warn' : 'neutral' };
+  // K-12: "متأخرة 20 س" / "باقي 2 س 30 د" — a duration, never something that reads like a clock time.
+  const time = compactDuration(ms);
+  if (ms < 0) return { text: t('console.sla_over', { time }), tone: 'bad' };
+  return { text: t('console.sla_left', { time }), tone: ms < 3_600_000 ? 'warn' : 'neutral' };
 }
 
 export function slaTone(s: SlaState): ChipTone {

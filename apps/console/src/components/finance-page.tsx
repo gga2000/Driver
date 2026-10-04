@@ -57,7 +57,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
     <div className="space-y-4">
       <section
         role="status"
-        className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${n.ok ? 'border-success-500 bg-success-500/10' : 'border-danger-500 bg-danger-500/15'}`}
+        className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${n.ok ? 'border-ok/40 bg-ok-tint' : 'border-bad/40 bg-bad-tint'}`}
       >
         <div>
           <p className={`font-display text-2xl font-bold ${n.ok ? 'text-ok' : 'text-bad'}`}>{n.message_ar}</p>
@@ -160,7 +160,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
                 {desk.couriers.map((c) => (
                   <tr key={c.driverId} className="border-t border-line/50">
                     <td className="py-1.5">
-                      <Link href={`/drivers/${encodeURIComponent(c.driverId)}/ledger`} className="hover:text-accent">
+                      <Link href={`/drivers/${encodeURIComponent(c.driverId)}/ledger`} className="hover:text-accent-text">
                         {c.name ?? <PersonName id={c.driverId} copy={false} />}
                       </Link>
                       <span className="ms-2 text-xs text-faint">{capTierLabel(c.tier)}</span>

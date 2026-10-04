@@ -133,7 +133,7 @@ export function DispatchPage() {
             <section
               key={col}
               aria-labelledby={`col-${col}`}
-              className={`flex min-w-0 flex-col rounded-xl border p-3 ${col === 'needs_dispatcher' && grouped[col].length ? 'border-danger-500 bg-danger-500/5' : 'border-line bg-surface'}`}
+              className={`flex min-w-0 flex-col rounded-xl border p-3 ${col === 'needs_dispatcher' && grouped[col].length ? 'border-bad/40 bg-bad-tint' : 'border-line bg-surface'}`}
             >
               <h2 id={`col-${col}`} className="mb-3 flex items-center justify-between font-display text-base font-semibold">
                 {t(COLUMN_KEY[col])}
@@ -179,9 +179,9 @@ function RightNowBar({ now, known, server, serverError }: { now: ReturnType<type
     <section aria-label={t('console.now_bar')} className="rounded-xl border border-line bg-surface p-3">
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         {items.map(([label, value, bad]) => (
-          <div key={label} className={`rounded-lg px-3 py-2 ${bad ? 'bg-danger-500/15' : 'bg-surface-2'}`}>
+          <div key={label} className={`rounded-lg px-3 py-2 ${bad ? 'bg-bad-tint' : 'bg-surface-2'}`}>
             <dt className="truncate text-xs text-muted">{label}</dt>
-            <dd className={`font-display text-xl font-bold tabular-nums ${bad ? 'text-danger-100' : ''}`}>{value}</dd>
+            <dd className={`font-display text-xl font-bold tabular-nums ${bad ? 'text-bad' : ''}`}>{value}</dd>
           </div>
         ))}
       </dl>
@@ -230,7 +230,7 @@ function PolicySwitches({ policies }: { policies: BoardPolicy[] }) {
                     disabled={busy}
                     onClick={() => mode !== m && setPolicy.mutate(setPolicyInput(CITY_ID, p.vertical as Vertical, m))}
                     className={`rounded-pill border px-3 py-1 text-xs transition-colors disabled:opacity-50 ${
-                      mode === m ? 'border-accent bg-accent font-semibold text-on-accent' : 'border-line bg-surface text-text hover:border-muted'
+                      mode === m ? 'border-accent/70 bg-accent-tint font-semibold text-text' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-text'
                     }`}
                   >
                     {t(MODE_KEY[m])}
@@ -242,7 +242,7 @@ function PolicySwitches({ policies }: { policies: BoardPolicy[] }) {
                   type="button"
                   disabled={busy}
                   onClick={() => setPolicy.mutate({ cityId: CITY_ID, vertical: p.vertical, clear: true })}
-                  className="mt-2 rounded-md text-xs text-muted underline hover:text-accent"
+                  className="mt-2 rounded-md text-xs text-muted underline hover:text-accent-text"
                 >
                   {t('console.policy_reset')}
                 </button>
@@ -279,7 +279,7 @@ function BoardCardView({
   return (
     <article
       aria-label={`${verticalLabel(card.vertical)} · ${zoneName(card.zoneId)} · ${card.status_ar}`}
-      className={`rounded-lg border p-3 text-sm ${red ? 'border-danger-500 bg-danger-500/15' : 'border-line bg-surface-2'}`}
+      className={`rounded-lg border p-3 text-sm ${red ? 'border-bad/40 bg-bad-tint' : 'border-line bg-surface-2'}`}
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex flex-wrap items-center gap-x-1.5 font-semibold">
@@ -300,7 +300,7 @@ function BoardCardView({
       <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
         <span>{t('console.card_elapsed', { time: formatCountdown(card.elapsedSec + tick) })}</span>
         {countdown !== null && (
-          <span className={countdown <= 10 ? 'font-semibold text-accent' : ''} aria-live="off">
+          <span className={countdown <= 10 ? 'font-semibold text-accent-text' : ''} aria-live="off">
             {t('console.card_countdown', { time: formatCountdown(countdown) })}
           </span>
         )}
@@ -311,7 +311,7 @@ function BoardCardView({
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
           {orderIds.length === 0 && (
             <span className="inline-flex items-center gap-1">
-              <Link href={`/map`} className="text-faint hover:text-accent">
+              <Link href={`/map`} className="text-faint hover:text-accent-text">
                 <Mono title={card.tripId}>{shortId(card.tripId)}</Mono>
               </Link>
               <CopyId id={card.tripId} />
@@ -416,7 +416,7 @@ function OverrideDialog({ target, orderIds, knownDrivers, onClose }: { target: {
       ref={ref}
       onClose={onClose}
       aria-labelledby="override-title"
-      className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-0 text-text shadow-card"
+      className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line bg-raised p-0 text-text shadow-overlay"
     >
       {target && (
         <form onSubmit={submit} className="space-y-4 p-5">
@@ -474,7 +474,7 @@ function OverrideDialog({ target, orderIds, knownDrivers, onClose }: { target: {
           </div>
 
           <label htmlFor={ids.force} className="flex items-start gap-3 text-sm">
-            <input id={ids.force} type="checkbox" className="mt-1 h-4 w-4 accent-[var(--color-accent)]" checked={force} onChange={(e) => setForce(e.target.checked)} />
+            <input id={ids.force} type="checkbox" className="mt-1 h-4 w-4 accent-[rgb(var(--c-accent))]" checked={force} onChange={(e) => setForce(e.target.checked)} />
             {t('console.override_force')}
           </label>
 
@@ -482,7 +482,7 @@ function OverrideDialog({ target, orderIds, knownDrivers, onClose }: { target: {
             {override.isSuccess && (
               <p className="text-ok">
                 {t('console.override_sent')}
-                {override.data.warnings.length > 0 && <span className="block text-accent">{t('console.override_warnings', { list: override.data.warnings.join('، ') })}</span>}
+                {override.data.warnings.length > 0 && <span className="block text-accent-text">{t('console.override_warnings', { list: override.data.warnings.join('، ') })}</span>}
               </p>
             )}
             {override.error && <p className="text-bad">{errorText(override.error)}</p>}

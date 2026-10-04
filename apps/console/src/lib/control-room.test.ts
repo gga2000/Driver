@@ -50,9 +50,9 @@ describe('control room helpers (console)', () => {
 
   it('SLA clocks, ages and refund chips', () => {
     const now = new Date('2026-10-04T18:30:00Z');
-    expect(slaClock({ slaDueAt: new Date('2026-10-04T21:00:00Z'), slaState: 'ok', status: 'open' }, now)).toEqual({ text: 'باقي 2:30', tone: 'neutral' });
-    expect(slaClock({ slaDueAt: new Date('2026-10-04T19:00:00Z'), slaState: 'due_soon', status: 'open' }, now)).toEqual({ text: 'باقي 0:30', tone: 'warn' });
-    expect(slaClock({ slaDueAt: new Date('2026-10-04T18:00:00Z'), slaState: 'breached', status: 'waiting' }, now)).toEqual({ text: 'فات 0:30', tone: 'bad' });
+    expect(slaClock({ slaDueAt: new Date('2026-10-04T21:00:00Z'), slaState: 'ok', status: 'open' }, now)).toEqual({ text: 'باقي 2 س 30 د', tone: 'neutral' });
+    expect(slaClock({ slaDueAt: new Date('2026-10-04T19:00:00Z'), slaState: 'due_soon', status: 'open' }, now)).toEqual({ text: 'باقي 30 د', tone: 'warn' });
+    expect(slaClock({ slaDueAt: new Date('2026-10-04T18:00:00Z'), slaState: 'breached', status: 'waiting' }, now)).toEqual({ text: 'متأخرة 30 د', tone: 'bad' });
     expect(slaClock({ slaDueAt: now, slaState: 'met', status: 'resolved' }, now).text).toBe('انحلّت بوقتها');
     expect(ageLabel(new Date('2026-10-04T18:20:00Z'), now)).toBe('قبل 10 د');
     expect(ageLabel(new Date('2026-10-02T18:20:00Z'), now)).toBe('قبل 2 يوم');

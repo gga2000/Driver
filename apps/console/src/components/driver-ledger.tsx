@@ -43,7 +43,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <Link href="/drivers" className="rounded-md text-sm text-muted hover:text-accent">
+      <Link href="/drivers" className="rounded-md text-sm text-muted hover:text-accent-text">
         ← {t('console.ledger_back')}
       </Link>
       <div className="mt-3">
@@ -98,7 +98,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
                 {t('console.ledger_over_cap')}
               </p>
             )}
-            {cap.warn && <p className="mt-2 text-accent">{t('console.ledger_near_cap')}</p>}
+            {cap.warn && <p className="mt-2 text-accent-text">{t('console.ledger_near_cap')}</p>}
           </Card>
 
           <Card
@@ -106,7 +106,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
             actions={
               <div role="tablist" aria-label={t('console.ledger_statement')} className="flex gap-1">
                 {(['cash', 'earnings'] as const).map((k) => (
-                  <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`${ghostBtn} aria-selected:border-accent aria-selected:text-accent`}>
+                  <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`${ghostBtn} aria-selected:border-accent aria-selected:text-accent-text`}>
                     {k === 'cash' ? t('console.ledger_cash') : t('console.ledger_earnings')}
                   </button>
                 ))}

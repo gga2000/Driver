@@ -3,6 +3,7 @@ import type { RoleKind } from '../auth.js';
 import {
   CannedResponse,
   OpenTicketInput,
+  SupportCustomer,
   SupportList,
   SupportListInput,
   TicketCase,
@@ -29,6 +30,11 @@ export const supportRouter = router({
     .input(TicketIdInput)
     .output(TicketCase)
     .query(({ ctx, input }) => ctx.support.get(ctx.actor, input)),
+  /** The customer card on a case: first name (logged vault read), orders, lifetime value, refunds, other tickets. */
+  customer: protectedProcedure(SUPPORT_DESK_ROLES)
+    .input(TicketIdInput)
+    .output(SupportCustomer.nullable())
+    .query(({ ctx, input }) => ctx.support.customer(ctx.actor, input)),
   canned: protectedProcedure(SUPPORT_DESK_ROLES)
     .output(z.array(CannedResponse))
     .query(({ ctx }) => ctx.support.canned()),

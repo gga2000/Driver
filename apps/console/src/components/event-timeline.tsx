@@ -17,7 +17,7 @@ export function EventTimeline({ entries }: { entries: readonly LogEntry[] }) {
     <ol className="relative space-y-3 border-s border-line ps-5">
       {entries.map((e) => (
         <li key={e.id} className={`relative ${e.quarantined ? 'opacity-70' : ''}`}>
-          <span aria-hidden className={`absolute -start-[1.6rem] top-1.5 h-2.5 w-2.5 rounded-pill ${e.quarantined ? 'bg-bad' : e.flagged ? 'bg-primary-500' : 'bg-accent'}`} />
+          <span aria-hidden className={`absolute -start-[1.6rem] top-1.5 h-2.5 w-2.5 rounded-pill ${e.quarantined ? 'bg-bad' : e.flagged ? 'bg-accent' : 'bg-accent'}`} />
           <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <span className="font-semibold" title={e.type}>
               {e.label}

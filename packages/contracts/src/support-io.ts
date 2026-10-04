@@ -145,6 +145,31 @@ export const TicketCase = z.object({
 });
 export type TicketCase = z.infer<typeof TicketCase>;
 
+/**
+ * The context panel's customer card (support desk): who is writing, how much they order and what
+ * happened last time. First name only (logged vault read, the agent as accessor); no phone.
+ */
+export const SupportCustomer = z.object({
+  customerId: z.string(),
+  firstName: z.string().nullable(),
+  /** Orders this person placed (any state). */
+  orders: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  cancelled: z.number().int().nonnegative(),
+  /** Sum of delivered / completed / closed order totals. */
+  lifetimeIqd: Iqd,
+  firstOrderAt: z.coerce.date().nullable(),
+  lastOrderAt: z.coerce.date().nullable(),
+  /** Support credits in the last 30 days (all agents). */
+  refunded30dIqd: Iqd,
+  disputes30d: z.number().int().nonnegative(),
+  /** Their other tickets, newest first (at most 5). */
+  recentTickets: z.array(
+    z.object({ id: z.string(), subject: z.string(), kind: TicketKind, kind_ar: z.string(), status: TicketStatus, status_ar: z.string(), openedAt: z.coerce.date(), refundedIqd: Iqd }),
+  ),
+});
+export type SupportCustomer = z.infer<typeof SupportCustomer>;
+
 export const SupportListInput = z.object({
   cityId: CityId.default('aziziyah'),
   status: z.enum(['active', 'all', 'resolved', 'escalated']).default('active'),
@@ -206,5 +231,7 @@ export interface SupportPort {
   attributeFault(actor: Actor, input: z.output<typeof TicketFaultInput>): Promise<TicketCase>;
   escalate(actor: Actor, input: z.output<typeof TicketEscalateInput>): Promise<TicketCase>;
   resolve(actor: Actor, input: z.output<typeof TicketResolveInput>): Promise<TicketCase>;
+  /** The customer behind a ticket (null when the ticket has none). Additive read for the context panel. */
+  customer(actor: Actor, input: { ticketId: string }): Promise<SupportCustomer | null>;
   canned(): CannedResponse[];
 }

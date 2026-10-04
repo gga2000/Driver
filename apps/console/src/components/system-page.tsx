@@ -75,13 +75,13 @@ function NightlyCard() {
               <li className={r.money.ok ? '' : 'text-bad'}>{t('console.nightly_money', { net: formatIqd(r.money.net), events: r.money.events })}</li>
               <li className={r.points.ok ? '' : 'text-bad'}>{t('console.nightly_points', { net: formatIqd(r.points.net), events: r.points.events })}</li>
               <li className={r.kindViolations > 0 ? 'text-bad' : ''}>{t('console.nightly_kind', { n: r.kindViolations })}</li>
-              <li className={overCap.length > 0 ? 'text-accent' : ''}>{t('console.nightly_over_cap', { n: overCap.length })}</li>
+              <li className={overCap.length > 0 ? 'text-accent-text' : ''}>{t('console.nightly_over_cap', { n: overCap.length })}</li>
             </ul>
             {overCap.length > 0 && (
               <ul className="flex flex-wrap gap-2 text-sm">
                 {overCap.map((d) => (
                   <li key={d.driverId}>
-                    <Link href={`/drivers/${encodeURIComponent(d.driverId)}/ledger`} className="text-accent underline">
+                    <Link href={`/drivers/${encodeURIComponent(d.driverId)}/ledger`} className="text-accent-text underline">
                       <Mono title={d.driverId}>{shortId(d.driverId)}</Mono>
                     </Link>
                   </li>
@@ -119,7 +119,7 @@ function OutboxCard() {
       {o && (
         <>
           <dl className="mt-3">
-            <Row k={t('console.outbox_pending')} v={<span className={`tabular-nums ${health === 'backlog' ? 'text-accent' : ''}`}>{o.pending}</span>} />
+            <Row k={t('console.outbox_pending')} v={<span className={`tabular-nums ${health === 'backlog' ? 'text-accent-text' : ''}`}>{o.pending}</span>} />
             <Row k={t('console.outbox_failed')} v={<span className={`tabular-nums ${o.failed > 0 ? 'text-bad' : ''}`}>{o.failed}</span>} />
             <Row k={t('console.outbox_published')} v={<span className="tabular-nums">{o.published}</span>} />
           </dl>
@@ -128,7 +128,7 @@ function OutboxCard() {
               <p className="text-xs text-muted">{t('console.outbox_recent_failed')}</p>
               <ul className="mt-1 max-h-72 space-y-2 overflow-y-auto text-sm">
                 {o.recentFailed.map((f) => (
-                  <li key={f.id} className="rounded-md border border-danger-500/50 bg-danger-500/5 px-2 py-1.5">
+                  <li key={f.id} className="rounded-md border border-bad/40 bg-bad-tint px-2 py-1.5">
                     <p className="flex flex-wrap items-center justify-between gap-2">
                       <Mono title={f.eventId}>{f.type}</Mono>
                       <span className="text-xs text-muted">
