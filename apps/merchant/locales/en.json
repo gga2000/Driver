@@ -304,6 +304,8 @@
   "merchant.statement.pay_wallet": "Wallet",
   "merchant.statement.pay_prepaid": "Prepaid",
   "merchant.statement.discount_platform": "Paid by Driver",
+  "merchant.statement.discount_merchant": "Your deal",
+  "merchant.statement.rounding_back": "rounding +{amount}",
   "merchant.statement.day_total": "{orders} orders · net {net}",
   "merchant.statement.lines_title": "Orders in detail",
   "merchant.statement.settlements_title": "Hand-overs and transfers",

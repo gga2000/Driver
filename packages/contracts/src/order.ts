@@ -208,8 +208,12 @@ export const OrderQuote = z.object({
   discountIqd: Iqd,
   totalIqd: Iqd,
   discount: AppliedDiscount.nullable(),
-  /** Per input line (same order): what the deal takes off that line (0 when not covered). */
+  /** Per input line (same order): what the deal takes off that line after rounding (sums to `discountIqd`; legacy clients). */
   lineSavingsIqd: z.array(Iqd),
+  /** Per input line: the deal's exact saving on that line (20 % → 3,000 on a 15,000 dish), before rounding. Sums to `discount.dealIqd`. */
+  dealLineSavingsIqd: z.array(Iqd).optional(),
+  /** What rounding the total to the step adds back (`discount.roundingIqd`, 0 without a discount): the "تقريب" line. */
+  roundingIqd: Iqd.min(0).optional(),
   /** The next deal the cart could unlock by adding more (minimum order not met yet), if any. */
   nextDeal: z.object({ dealId: z.string(), label_ar: z.string(), label_en: z.string(), missingIqd: Iqd }).nullable(),
 });

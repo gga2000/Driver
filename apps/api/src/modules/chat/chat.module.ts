@@ -21,9 +21,8 @@ import { CHAT_IDENTITY, CHAT_ORDERS, CHAT_STORES, CHAT_TRIPS, ChatService, type 
  * is development or test and CALL_BRIDGE is not `proxy`; otherwise `ProxyCallBridge` with
  * CALL_PROXY_NUMBER (unset → `call_unavailable`).
  *
- * Realtime: clients poll `chat.thread` every 3 s (`CHAT_POLL_MS`) until the push/subscription channel
- * (Supabase Realtime or Ably, platform core §infrastructure) ships; the push notification already
- * goes out through the outbox.
+ * Realtime: `chat.message_sent` reaches open `live.chat` / `live.order` streams through the `live`
+ * module's outbox subscriber (docs/api/live.md); the push notification goes out through the outbox.
  */
 @Module({
   imports: [EventsModule, IdentityModule, NotifyModule, OrdersModule, OrgsModule, PlacesModule, TripsModule],

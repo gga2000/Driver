@@ -304,6 +304,8 @@
   "merchant.statement.pay_wallet": "محفظة",
   "merchant.statement.pay_prepaid": "مدفوع",
   "merchant.statement.discount_platform": "على درايفر",
+  "merchant.statement.discount_merchant": "عرضك",
+  "merchant.statement.rounding_back": "تقريب +{amount}",
   "merchant.statement.day_total": "{orders} طلب · صافي {net}",
   "merchant.statement.lines_title": "الطلبات بالتفصيل",
   "merchant.statement.settlements_title": "التسليمات والتحويلات",

@@ -195,6 +195,16 @@ function PayTag({ line }: { line: StatementOrderLine }) {
   return <Tag label={t(`merchant.statement.pay_${line.payment}` as TKey)} tone={PAY_TONE[line.payment]} />;
 }
 
+/**
+ * "الخصم 3,000 عرضك · تقريب +250": the deal at its exact promised saving, who funded it, and what
+ * rounding the customer's total up to the step gave back (the net already counts only the cost).
+ */
+function discountText(line: StatementOrderLine, t: ReturnType<typeof useT>): string {
+  const who = t(line.discountFunder === 'merchant' ? 'merchant.statement.discount_merchant' : 'merchant.statement.discount_platform');
+  const head = `${t('merchant.statement.discount')} ${amountParam(line.dealIqd || line.discountIqd)} ${who}`;
+  return line.roundingIqd > 0 ? `${head} · ${t('merchant.statement.rounding_back', { amount: amountParam(line.roundingIqd) })}` : head;
+}
+
 function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }) {
   const theme = useTheme();
   const t = useT();
@@ -215,7 +225,7 @@ function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }
           {[
             iqd(line.itemsIqd, { locale }),
             line.commissionPct !== null ? `${t('merchant.statement.commission_line', { pct: line.commissionPct })} ${iqd(-line.commissionIqd, { locale })}` : null,
-            line.discountIqd > 0 ? `${t('merchant.statement.discount')} ${amountParam(line.discountIqd)} ${t('merchant.statement.discount_platform')}` : null,
+            line.discountIqd > 0 ? discountText(line, t) : null,
           ]
             .filter(Boolean)
             .join(' · ')}
@@ -278,11 +288,16 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
                 {l.discountIqd > 0 ? (
                   <>
                     <Text variant="body" tabular color="textMuted">
-                      {amountParam(-l.discountIqd)}
+                      {amountParam(-(l.dealIqd || l.discountIqd))}
                     </Text>
                     <Text variant="caption" color="infoText">
-                      {t('merchant.statement.discount_platform')}
+                      {t(l.discountFunder === 'merchant' ? 'merchant.statement.discount_merchant' : 'merchant.statement.discount_platform')}
                     </Text>
+                    {l.roundingIqd > 0 ? (
+                      <Text variant="caption" color="textMuted" tabular testID={`line-${l.orderId}-rounding`}>
+                        {t('merchant.statement.rounding_back', { amount: amountParam(l.roundingIqd) })}
+                      </Text>
+                    ) : null}
                   </>
                 ) : (
                   <Text variant="body" color="textMuted">

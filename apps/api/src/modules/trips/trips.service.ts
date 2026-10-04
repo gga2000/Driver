@@ -92,6 +92,8 @@ export interface DeviceStamp {
  */
 @Injectable()
 export class TripsService implements OnModuleInit {
+  private readonly positionListeners = new Set<(report: PositionReport) => void>();
+
   constructor(
     @Inject(TRIPS_REPOSITORY) private readonly repo: TripsRepository,
     @Inject(TRIP_EVENTS) private readonly events: TripEventEmitter,
@@ -279,8 +281,36 @@ export class TripsService implements OnModuleInit {
    * stop within 60 m: the first entry records `geofenceEnteredAt` and emits `stop.geofence_entered`.
    */
   async reportPosition(driverId: string, input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined }): Promise<ReportPositionOutput> {
+    let tripIds: string[] = [];
+    const out = await this.reportPositionTx(driverId, input, (ids) => (tripIds = ids));
+    // After the commit: observers (the live channel) see the fix. Positions are not domain events (domain §6).
+    if (this.positionListeners.size > 0) {
+      const report: PositionReport = { driverId, pin: input.pin, at: input.at, bearing: input.bearing ?? null, speedKmh: input.speedKmh ?? null, tripIds };
+      for (const l of [...this.positionListeners]) {
+        try {
+          l(report);
+        } catch {
+          // an observer never fails the driver's report
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Observes committed position reports (the live channel's courier positions and Console pins). */
+  onPositionReported(listener: (report: PositionReport) => void): () => void {
+    this.positionListeners.add(listener);
+    return () => void this.positionListeners.delete(listener);
+  }
+
+  private async reportPositionTx(
+    driverId: string,
+    input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined },
+    seen: (tripIds: string[]) => void,
+  ): Promise<ReportPositionOutput> {
     return this.uow.run(async (tx) => {
       const trips = input.tripId ? [await this.load(input.tripId, tx)] : await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx);
+      seen(trips.map((t) => t.id));
       const armed: ReportPositionOutput['armed'] = [];
       const now = this.clock.now();
       if (trips.length === 0) {
@@ -762,6 +792,17 @@ export class TripsService implements OnModuleInit {
  * events — before, a reused key completed the trip while its `stop.completed` never reached orders
  * or the ledger.
  */
+/** A committed position report, as `onPositionReported` observers get it. */
+export interface PositionReport {
+  driverId: string;
+  pin: LatLng;
+  at: Date;
+  bearing: number | null;
+  speedKmh: number | null;
+  /** The trips the fix was recorded on (his trips in progress; none when idle). */
+  tripIds: string[];
+}
+
 export function scopedIdempotencyKey(type: string, actorId: string, tripId: string, payload: Record<string, unknown>, clientKey: string): string {
   const stop = typeof payload['stopId'] === 'string' ? `/stop:${payload['stopId']}` : '';
   return `${type}:${actorId}:trip:${tripId}${stop}:${clientKey}`;

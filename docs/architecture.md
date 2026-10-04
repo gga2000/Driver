@@ -31,6 +31,8 @@ Every state change emits a domain event. The `events` module owns both the actor
 3. A payload another module consumes has exactly one schema, in `packages/contracts/src/domain-events.ts` (`DOMAIN_EVENT_PAYLOADS`). The producer builds it as `DomainEventInput<type>` and its `emit` runs `encodeDomainEvent` (a drifted payload fails the producer's own transaction, never as a failed outbox row); consumers parse with `decodeDomainEvent`. `apps/api/src/domain-events.contract.test.ts` feeds what orders and trips really emit to the ledger and dispatch.
 4. Offline actions carry device timestamps and idempotency keys. `emit` and `ledger.record` both short-circuit on a repeated key, so client retries never double-write. A contradiction between an offline action and server state emits `dispute_opened` rather than overwriting.
 
+5. Clients hear about changes through the `live` module's subscriber (`live:fanout`), which turns each event into compact invalidate/patch events on Redis pub/sub channels (per order, driver, merchant, chat thread, city; in memory without Redis) for the `live.*` SSE subscriptions — see [api/live.md](api/live.md). It is best-effort; the outbox stays the source of truth.
+
 The `Outbox` model in `packages/db/prisma/schema.prisma` is the durable form of this queue. Never bypass it by calling a notification or analytics sink directly from a service.
 
 ## 3. Adding a city

@@ -141,6 +141,16 @@ export class SessionService {
     const parsed = SessionClaims.safeParse(payload);
     if (!parsed.success) throw new DriverError('token_invalid');
     const claims = parsed.data;
+    await this.assertSessionLive(claims);
+    return claims;
+  }
+
+  /**
+   * The session named by `sid` exists, belongs to `sub` (and `did`), and is neither revoked nor
+   * expired. Shared by access-token checks and long-lived streams (`live.*` re-checks it while open).
+   */
+  async assertSessionLive(claims: Pick<SessionClaims, 'sub' | 'sid' | 'did'>): Promise<void> {
+    const now = this.clock.now();
     const session = await this.repo.findSessionById(claims.sid);
     // The session must belong to the subject: a live sid of person A never authenticates a token
     // that claims to be person B (review H), nor a device the session is not bound to.
@@ -148,7 +158,6 @@ export class SessionService {
     if (session.personId !== claims.sub) throw new DriverError('token_invalid');
     if (claims.did !== undefined && claims.did !== session.deviceId) throw new DriverError('token_invalid');
     if (session.revokedAt || session.expiresAt.getTime() <= now.getTime()) throw new DriverError('session_expired');
-    return claims;
   }
 
   private async tokensFor(session: SessionRecord, refreshToken: string, now: Date): Promise<TokenPair> {

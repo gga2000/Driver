@@ -19,7 +19,11 @@ const NAMES: Partial<Record<QuoteComponent['key'], { label: MessageKey; reason?:
   wait: { label: 'quote.wait' },
 };
 
-/** The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, then the deal (negative). */
+/**
+ * The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, then
+ * the deal (negative) at its exact promised saving. When the server rounded the total up to the step,
+ * the lines no longer sum to it and `PriceBreakdown` adds the small "تقريب" line for the difference.
+ */
 export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en'): PriceItem[] {
   const out: PriceItem[] = [{ key: 'items', label: t('quote.subtotal'), amount: totals.itemsIqd }];
   for (const c of totals.components) {
@@ -40,7 +44,7 @@ export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en')
     out.push({
       key: 'deal',
       label: d.funder === 'merchant' ? t(d.target === 'delivery' ? 'quote.deal_free_delivery' : 'quote.deal_discount') : label,
-      amount: -totals.discountIqd,
+      amount: -(totals.dealIqd || totals.discountIqd),
       ...(d.funder === 'merchant' ? { reason: t('quote.deal_reason', { label }) } : {}),
     });
   }

@@ -67,6 +67,8 @@ export function orderLines(statement: Statement, orders: ReadonlyMap<string, Ord
       commissionIqd: 0,
       discountIqd: platformDiscount,
       discountFunder: platformDiscount > 0 ? 'platform' : null,
+      dealIqd: platformDiscount > 0 ? (order?.discount?.dealIqd ?? platformDiscount) : 0,
+      roundingIqd: platformDiscount > 0 ? (order?.discount?.roundingIqd ?? 0) : 0,
       feesIqd: 0,
       netIqd: 0,
     };
@@ -75,6 +77,10 @@ export function orderLines(statement: Statement, orders: ReadonlyMap<string, Ord
       if (row.discountFunder !== 'merchant') row.discountIqd = 0;
       row.discountIqd += Math.abs(l.amountIqd);
       row.discountFunder = 'merchant';
+      // The receipt split (exact deal, rounding given back) from the order; the ledger line is the cost.
+      const rounding = order?.discount?.funder === 'merchant' ? (order.discount.roundingIqd ?? 0) : 0;
+      row.roundingIqd = rounding;
+      row.dealIqd = row.discountIqd + rounding;
     } else if (l.type === 'commission_accrued') {
       row.commissionIqd -= l.amountIqd;
       row.commissionTier = tierOf(l.memo) ?? row.commissionTier;

@@ -322,6 +322,10 @@ export const StatementOrderLine = z.object({
   discountIqd: Iqd.default(0),
   /** Who funded `discountIqd`: merchant deals come off the net, platform promos don't. */
   discountFunder: z.enum(['platform', 'merchant']).nullable().default(null),
+  /** The deal's exact saving as promised (20 % → 3,000); `discountIqd` is that less `roundingIqd` (0 when unrounded or unknown). */
+  dealIqd: Iqd.default(0),
+  /** Rounding the customer's total up to the step gave this back to the funder ("تقريب"); `discountIqd = dealIqd − roundingIqd`. */
+  roundingIqd: Iqd.default(0),
   /** Courier-waiting / cancellation fees paid to the merchant on this order. */
   feesIqd: Iqd,
   netIqd: Iqd,

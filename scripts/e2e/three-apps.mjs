@@ -4,6 +4,7 @@
 //   node scripts/e2e/three-apps.mjs                      # all flows, API assertions only
 //   FLOWS=food,rajaa,ride node scripts/e2e/three-apps.mjs
 //   KEEP=1 node scripts/e2e/three-apps.mjs               # keep the API up on :3340 afterwards
+//   LIVE=0 node scripts/e2e/three-apps.mjs               # skip the real-time (live.* over SSE) checks
 //
 // Screenshots of the same order in each app at every step (optional): export the three web builds
 // against http://127.0.0.1:3340/trpc into apps/<app>/dist-e2e, then
@@ -16,6 +17,11 @@
 // person who would tap the button. After each step it reads what each app reads (orders.track for
 // the customer, merchant.board + ledger.merchantBalance for the kitchen, partner.* for the courier)
 // and asserts they agree.
+//
+// Real time (on unless LIVE=0): the customer, the kitchen and the courier also hold their live.*
+// streams (tRPC subscriptions over SSE, stream token in connection params — what the apps do), and
+// the food flow asserts the events arrive: the kitchen's new_order ring, the customer's order states
+// and courier positions, the courier's offer and job invalidations.
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -39,8 +45,10 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const FLOWS = new Set((process.env.FLOWS ?? 'food,rajaa,ride').split(',').map((s) => s.trim()).filter(Boolean));
 const CITY = 'aziziyah';
 
-const { createTRPCClient, httpBatchLink } = await fromApp('@trpc/client');
+const { createTRPCClient, httpBatchLink, httpSubscriptionLink } = await fromApp('@trpc/client');
 const contracts = await fromApp('@driver/contracts');
+const LIVE = process.env.LIVE !== '0';
+const liveClient = LIVE ? await fromApp('@driver/contracts/live-client') : null;
 const { transformer, deliveryFeesOf } = contracts;
 
 // ───────────────────────── assertions ─────────────────────────
@@ -101,7 +109,42 @@ async function signIn(phone, { name, roles = [], orgRoles = [], vehicle } = {}) 
   if (vehicle) vehicles.register?.(personId, vehicle);
   const api = createTRPCClient({ links: [httpBatchLink({ url: `${BASE}/trpc`, transformer, headers: { authorization: `Bearer ${out.tokens.accessToken}` } })] });
   if (name) await api.identity.updateProfile.mutate({ name });
-  return { personId, phone, tokens: out.tokens, api };
+  // The apps' subscription link: SSE (Node has no EventSource: the fetch ponyfill), stream token in connection params.
+  let live = null;
+  if (liveClient) {
+    const streamTokens = liveClient.createStreamTokenCache(() => api.live.token.mutate());
+    live = createTRPCClient({
+      links: [httpSubscriptionLink({ url: `${BASE}/trpc`, transformer, EventSource: liveClient.createFetchEventSource(), connectionParams: async () => ({ streamToken: await streamTokens.get() }) })],
+    });
+  }
+  return { personId, phone, tokens: out.tokens, api, live };
+}
+
+/** An open live.* stream: the events so far and a waiter (resolves null on timeout). */
+const taps = [];
+function tap(label, subscribe) {
+  const events = [];
+  let error = null;
+  const sub = subscribe({
+    onData: (e) => events.push({ ...e, receivedAt: Date.now() }),
+    onError: (err) => (error = err),
+    onComplete: () => undefined,
+  });
+  const t = {
+    label,
+    events,
+    get error() {
+      return error;
+    },
+    /** First event after `from` (index) matching `pred`, or null after `timeoutMs`. */
+    async next(pred, { timeoutMs = 5000, from = 0 } = {}) {
+      return until(() => events.slice(from).find(pred) ?? null, { timeoutMs, everyMs: 25 });
+    },
+    mark: () => events.length,
+    close: () => sub.unsubscribe(),
+  };
+  taps.push(t);
+  return t;
 }
 
 /** The daily selfie check-in, the way the Partner app does it: challenge → photo upload → submit. */
@@ -188,7 +231,15 @@ async function foodFlow() {
   const fees = deliveryFeesOf(quote);
   console.log(`  · ${cheap?.name} ${cheap?.priceIqd} + ${second?.name} ${second?.priceIqd}; fees ${JSON.stringify(fees)}`);
 
+  let kitchenLive = null;
+  if (LIVE) {
+    step('live: the kitchen opens its board stream (live.merchantBoard)');
+    kitchenLive = tap('kitchen', (h) => staff.live.live.merchantBoard.subscribe({ merchantOrgId: khalid.orgId }, h));
+    check(await kitchenLive.next((e) => e.type === 'hello'), 'live.merchantBoard: hello (stream token accepted, store scope checked)', kitchenLive.error?.message);
+  }
+
   step('customer places a cash order for two people (orders.place)');
+  const placedAt = Date.now();
   const order = await customer.api.orders.place.mutate({
     cityId: CITY,
     type: 'food',
@@ -210,6 +261,16 @@ async function foodFlow() {
   check(order.state === 'placed', `order placed (${orderId}), total ${order.totalIqd}`, order.state);
   check(order.totalIqd === cheap.priceIqd + second.priceIqd + fees.deliveryFeeIqd + fees.serviceFeeIqd, 'server total = items + quoted fees');
 
+  let customerLive = null;
+  if (LIVE) {
+    const ring = await kitchenLive.next((e) => e.type === 'new_order' && e.orderId === orderId);
+    check(ring, `live: the kitchen's new_order ring arrives (${ring ? ring.receivedAt - placedAt : '?'} ms after place)`);
+    customerLive = tap('customer', (h) => customer.live.live.order.subscribe({ orderId }, h));
+    check(await customerLive.next((e) => e.type === 'hello'), 'live.order: hello for the customer (orders.track scope)', customerLive.error?.message);
+    const stranger = tap('stranger', (h) => people.owner.live.live.order.subscribe({ orderId }, h));
+    await until(() => stranger.error, { timeoutMs: 3000 });
+    check(stranger.error?.data?.code === 'forbidden' && !stranger.events.length, 'live.order: someone else cannot open this order\'s stream (forbidden)', stranger.error?.data?.code);
+  }
   let t = await track(orderId);
   check(t.order.state === 'placed' && !t.courier, 'customer tracking: waiting for the kitchen, no courier yet');
   let c = await until(() => cardOf(orderId), { timeoutMs: 5000 });
@@ -226,11 +287,21 @@ async function foodFlow() {
   check(online.online, 'partner.goOnline: online');
   const cashBefore = online.cash.heldIqd;
   check((await courier.api.partner.currentOffer.query()) === null, 'partner: no offer before the kitchen accepts');
+  let courierLive = null;
+  if (LIVE) {
+    courierLive = tap('courier', (h) => courier.live.live.partner.subscribe(undefined, h));
+    check(await courierLive.next((e) => e.type === 'hello' && e.channels[0] === `driver:${courier.personId}`), 'live.partner: hello on his own channel', courierLive.error?.message);
+  }
   await capture('1-placed', { customer: `/order/${orderId}`, merchant: '/', partner: '/' });
 
   step('kitchen accepts with 15 min prep (orders.merchant.accept)');
+  const acceptMark = customerLive?.mark() ?? 0;
   const accepted = await staff.api.orders.merchant.accept.mutate({ orderId, prepMinutes: 15 });
   check(accepted.state === 'merchant_accepted', 'order accepted', accepted.state);
+  if (LIVE) {
+    check(await customerLive.next((e) => e.type === 'order_state' && e.state === 'merchant_accepted', { from: acceptMark }), 'live: the customer gets order_state merchant_accepted');
+    check(await customerLive.next((e) => e.type === 'invalidate' && e.keys.includes('orders.track'), { from: acceptMark }), 'live: … and an orders.track invalidation');
+  }
   c = await cardOf(orderId);
   check(c?.column === 'preparing', 'merchant board: moved to "preparing"', c?.column);
   t = await track(orderId);
@@ -241,12 +312,14 @@ async function foodFlow() {
   await capture('2-accepted', { customer: `/order/${orderId}`, merchant: '/', partner: '/' });
 
   step('kitchen marks ready early → courier offer goes out now');
+  const readyMark = courierLive?.mark() ?? 0;
   const ready = await staff.api.orders.merchant.ready.mutate({ orderId });
   check(ready.state === 'ready', 'order ready', ready.state);
   c = await cardOf(orderId);
   check(c?.column === 'ready', 'merchant board: moved to "ready"', c?.column);
   const offer = await until(() => courier.api.partner.currentOffer.query(), { timeoutMs: 8000 });
   check(offer, 'partner.currentOffer: the courier gets the offer');
+  if (LIVE) check(await courierLive.next((e) => e.type === 'invalidate' && e.keys.includes('partner.currentOffer'), { from: readyMark }), 'live: the courier is told to re-read his offer (dispatch.offer_sent)');
   if (!offer) return;
   check(offer.vertical === 'food' && offer.pickup.label === khalid.seed.nameAr, `offer: food pickup at ${offer.pickup.label}`);
   check(offer.collectIqd === order.totalIqd, 'offer: cash to collect = order total', offer.collectIqd);
@@ -269,6 +342,10 @@ async function foodFlow() {
   check(t.courier?.firstName === 'حيدر', 'customer tracking: courier card shows حيدر', t.courier);
   const pos = await customer.api.orders.courierPosition.query({ orderId });
   check(pos, 'customer tracking: courier position visible on the map', pos);
+  if (LIVE) {
+    const fix = await customerLive.next((e) => e.type === 'position' && e.orderId === orderId);
+    check(fix && Math.abs(fix.pin.lat - (KHALID_PIN.lat + 0.003)) < 1e-9, 'live: the courier position is pushed to the customer', fix?.pin);
+  }
   await capture('4-courier-assigned', { customer: `/order/${orderId}`, merchant: '/', partner: '/job' });
 
   step('courier at the kitchen, picks up');
@@ -299,6 +376,11 @@ async function foodFlow() {
   await courier.api.trips.completeStop.mutate({ tripId: job.tripId, stopId: drop.stopId, handover: { cashCollectedIqd: order.totalIqd }, occurredAt: new Date() });
   t = await track(orderId);
   check(t.order.state === 'delivered', 'customer tracking: delivered', t.order.state);
+  if (LIVE) {
+    check(await customerLive.next((e) => e.type === 'order_state' && e.state === 'delivered'), 'live: the customer gets order_state delivered');
+    check(await courierLive.next((e) => e.type === 'invalidate' && e.keys.includes('partner.status')), 'live: the courier is told his cash/earnings moved (partner.status)');
+    for (const x of [kitchenLive, customerLive, courierLive]) x.close();
+  }
 
   step('money: merchant cash balance and courier cash held');
   const bal = await until(async () => {
@@ -498,6 +580,7 @@ try {
   console.error(`\n[${currentFlow}] crashed:`, err?.stack ?? err);
   results.push({ flow: currentFlow, ok: false, what: `crash: ${err?.message ?? err}` });
 } finally {
+  for (const x of taps) x.close();
   if (shots) await shots.close();
 }
 

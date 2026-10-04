@@ -5,13 +5,13 @@ import { Icon, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { usePrefs } from '@/lib/prefs';
-import { useNewOrderAlarm } from '@/features/board/alarm';
-import { useBoard, useHeartbeat } from '@/features/board/queries';
+import { alarm, useNewOrderAlarm } from '@/features/board/alarm';
+import { useBoard, useHeartbeat, useLiveMerchantBoard } from '@/features/board/queries';
 import { usePrinterSync } from '@/features/print/runtime';
 
 /**
  * App-wide kitchen services for the selected store, mounted once under the navigator: the 30-s
- * heartbeat, the board poll that drives the new-order alarm (it rings on every screen, not only on
+ * heartbeat, the live channel (`live.merchantBoard`: rings on a new order at once), the board that drives the new-order alarm (it rings on every screen, not only on
  * the board), and printer status reporting. Off the board, a floating "طلب جديد!" pill leads back.
  */
 export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: string; onBoard: boolean; /** Phone tab bar showing: the pill sits above it. */ bottomBar: boolean }) {
@@ -22,6 +22,8 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const { wide } = useLayout();
   useHeartbeat(storeId);
   usePrinterSync(storeId);
+  // The store's live channel: a new order rings the moment the server offers it to the kitchen.
+  useLiveMerchantBoard(storeId, (orderId) => alarm.ringNow(orderId, prefs.soundOn));
   const board = useBoard(storeId);
   const pending = useNewOrderAlarm(board.data?.orders, prefs.soundOn);
 

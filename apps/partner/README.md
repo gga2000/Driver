@@ -51,7 +51,8 @@ scripts/
   khat drivers a today's-run card, fleet/ops-only people a hub instead of the switch. Going online
   sends `partner.goOnline` with a GPS fix (fallback: last server position, then the town centre) and
   re-sends it every 30 s while the app is open (presence lives 90 s in the dispatch index).
-- **Offer** — `<OfferWatcher>` polls `partner.currentOffer` every 2 s while online and pushes
+- **Offer** — `<OfferWatcher>` keeps the driver's `live.partner` stream open (SSE, `docs/api/live.md`):
+  `partner.currentOffer` is re-read the moment the server offers him a job, and it pushes
   `/offer` when one arrives (also while on a job: batch offers). The ring runs from the server's
   `expiresAt`/`ringSec`; heavy haptic + chime on arrival and at 5 s; `dispatch.offerSeen` after 3 s
   in the foreground; `dispatch.respond` answers (errors: `offer_taken`, `offer_expired`, `over_cap`).
@@ -169,7 +170,8 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 - Offer sound on native (expo-av not yet a dependency: `src/lib/alert.native.ts`); SOS is a stub button.
   (Call and chat are live: see "Chat and masked calls" below.)
 - The handover photo stays on the device (upload + `handover.photoUrl` in wave 2).
-- Realtime push for offers is polling (2 s) until the realtime channel ships.
+- Offers, the job, gate and cash are pushed over `live.partner`; queries keep a 60-s safety refetch
+  (30-s polling when SSE does not get through). الرجعة, خطوط, fleet and ops screens still poll.
 - The customer's first name is not on the job card (no vault read for drivers yet).
 
 ## Known gaps (wave 2, driver account)
@@ -202,6 +204,6 @@ food job, the customer otherwise; a platform number in production, the real numb
 development API), **الزبون** / **رسالة** and **المطعم** (`chat.threads` unread badges, every 5 s) open the
 conversation: bubbles, the courier's quick replies (`QUICK_REPLIES` in contracts: "وصلت يم الباب"،
 "ما دا ألگى البيت، دزلي لوكيشن"، "الطلب بالطريق"…), photo, location, read receipts, the closed banner
-30 min after delivery. The screen is the customer app's, kept in step (`ChatScreen.tsx`); it polls
-every 3 s until the realtime channel ships. Demo: `POST /demo/chat?who=courier[&step=…]`
+30 min after delivery. The screen is the customer app's, kept in step (`ChatScreen.tsx`); new
+messages are pushed over `live.chat`. Demo: `POST /demo/chat?who=courier[&step=…]`
 (`scripts/demo/60-chat.mjs`); shots: `SHOTS=partner-chat` (`scripts/shots/60-chat.mjs`).

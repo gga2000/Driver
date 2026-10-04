@@ -45,7 +45,20 @@ export const AppliedDiscount = z.object({
   type: DealType.nullable(),
   label_ar: z.string(),
   label_en: z.string(),
+  /** What the order really takes off (the funder's cost): the deal after the total is rounded to the step. */
   amountIqd: Iqd.min(0),
+  /**
+   * The deal's exact saving as promised (20 % of 15,000 = 3,000), before the total is rounded. The
+   * cart, checkout and receipts show this on the deal line; absent on orders placed before
+   * 2026-10-04 (show `amountIqd`).
+   */
+  dealIqd: Iqd.min(0).optional(),
+  /**
+   * `dealIqd − amountIqd`: what rounding the total up to the step (500, or 250) adds back. Shown as
+   * its own small "تقريب" line, so a 20 % deal never reads as 18.7 %. Never negative: rounding goes
+   * against the deal (docs/api/deals-and-topup.md — the funder never pays more than the deal promises).
+   */
+  roundingIqd: Iqd.min(0).optional(),
 });
 export type AppliedDiscount = z.infer<typeof AppliedDiscount>;
 

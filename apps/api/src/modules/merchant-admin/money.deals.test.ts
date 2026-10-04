@@ -36,6 +36,16 @@ describe('merchant money with its own deals (G-87)', () => {
     ]);
   });
 
+  it('statement: a rounded deal shows the exact deal and the rounding given back; the net is the ledger cost', async () => {
+    const h = ledgerHarness();
+    // 15 % of 15,000 = 2,250 promised; the total rounded up to the 500 step, so the deal cost 2,000.
+    await h.ledger.recordAll(postOrderClosed(workedExample({ orderId: 'or', merchantDeal: { promotionId: 'deal_1', target: 'items', amountIqd: 2000 } }), AZIZIYAH_MONEY_RULES).money);
+    const statement = await h.ledger.statement(Accounts.merchantCash('m1'));
+    const orders = new Map([order('or', { discountIqd: 2000, discount: { promotionId: 'deal_1', funder: 'merchant', target: 'items', type: 'percent', label_ar: 'خصم', label_en: 'off', amountIqd: 2000, dealIqd: 2250, roundingIqd: 250 } })]);
+    const week = composeStatement({ merchantOrgId: 'm1', from: new Date('2026-09-27T21:00:00Z'), to: new Date('2026-10-04T21:00:00Z'), statement, orders });
+    expect(week.lines[0]).toMatchObject({ discountIqd: 2000, dealIqd: 2250, roundingIqd: 250, discountFunder: 'merchant', netIqd: 15000 - 2000 - 1950 });
+  });
+
   it('a platform promo is shown for information and does not lower the merchant net', async () => {
     const h = ledgerHarness();
     await h.ledger.recordAll(postOrderClosed(workedExample({ orderId: 'op', platformPromo: { promotionId: 'promo_launch', amountIqd: 1000 } }), AZIZIYAH_MONEY_RULES).money);

@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
+import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { transformer, type AppRouter } from '@driver/contracts';
+import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
 import { session as appSession, type SessionStore } from './session';
@@ -10,7 +11,8 @@ import { session as appSession, type SessionStore } from './session';
 export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthorized } from './api-links';
 
 /**
- * The merchant app's API layer: one tRPC client (httpBatchLink + superjson) whose requests carry
+ * The merchant app's API layer: one tRPC client (httpBatchLink + superjson; `live.*` subscriptions
+ * over SSE with httpSubscriptionLink) whose requests carry
  * `Authorization: Bearer <access token>` from the session, refresh once on a 401 and retry, and a
  * React Query client shared by every screen.
  *
@@ -28,24 +30,49 @@ const { TRPCProvider, useTRPC, useTRPCClient } = createTRPCContext<AppRouter>();
 /** `EXPO_PUBLIC_API_URL` is inlined at bundle time by Expo (and by `expo export`). */
 export const API_URL: string = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/trpc';
 
+// Hermes (native) has no ReadableStream; tRPC's SSE consumer needs the small part the ponyfill gives.
+installReadableStreamPolyfill();
+
+/** Browsers keep their EventSource; React Native gets the XHR one (it has none). */
+const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource;
+
+/** Stream tokens per client (`live.*` subscriptions): `useLiveTokens()` drops it after a 401. */
+const liveTokens = new WeakMap<object, StreamTokenCache>();
+
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
   const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
-  return createTRPCClient<AppRouter>({
+  const batch = httpBatchLink({
+    url,
+    transformer,
+    async headers() {
+      const token = await store.getAccessToken();
+      return token ? { authorization: `Bearer ${token}` } : {};
+    },
+  });
+  // `live.*` subscriptions go over SSE. EventSource cannot send headers, so each connection carries a
+  // short-lived stream token (`live.token`, Bearer-authenticated) in tRPC connection params.
+  const authed = createTRPCClient<AppRouter>({ links: [authRetryLink(store), batch] });
+  const tokens = createStreamTokenCache(() => authed.live.token.mutate());
+  store.onSignOut(() => tokens.clear());
+  const client = createTRPCClient<AppRouter>({
     links: [
-      authRetryLink(store),
-      httpBatchLink({
-        url,
-        transformer,
-        async headers() {
-          const token = await store.getAccessToken();
-          return token ? { authorization: `Bearer ${token}` } : {};
-        },
+      splitLink({
+        condition: (op) => op.type === 'subscription',
+        true: httpSubscriptionLink({ url, transformer, EventSource: EventSourceImpl, connectionParams: async () => ({ streamToken: await tokens.get() }) }),
+        false: [authRetryLink(store), batch],
       }),
     ],
   });
+  liveTokens.set(client, tokens);
+  return client;
+}
+
+/** The stream-token cache of the app's client (the live hooks clear it when a stream is refused with 401). */
+export function useLiveTokens(): StreamTokenCache | null {
+  return liveTokens.get(useTRPCClient()) ?? null;
 }
 
 export function makeQueryClient() {

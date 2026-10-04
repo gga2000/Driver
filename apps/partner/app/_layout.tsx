@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
-import { useCurrentOffer, usePartnerGate, useStatus } from '@/features/work/queries';
+import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
 import { ApiProvider } from '@/lib/api';
 import { useAppFonts } from '@/lib/fonts';
@@ -116,6 +116,8 @@ function RootNavigator() {
 function OfferWatcher() {
   const status = useStatus();
   const online = status.data?.online ?? false;
+  // The driver's live channel: a new offer, job changes, gate and cash arrive as events.
+  useLivePartner(Boolean(status.data?.canDrive));
   const offer = useCurrentOffer(online);
   // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
   useJobPositions(Boolean(status.data?.activeTripId));

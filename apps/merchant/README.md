@@ -26,7 +26,7 @@ src/
                      BottomBar), MIcon (kitchen icons on the @driver/ui grid), EntryTile,
                      PlaceholderScreen, OtpInput, Wordmark
   features/board/    Board, OrderCard, AcceptSheet, RejectSheet, OrderDetailSheet, Banners, alarm,
-                     queries (board poll, actions, heartbeat), logic (+ tests)
+                     queries (live board stream, actions, heartbeat), logic (+ tests)
   features/store/    StoreHeader (open/closed, busy, printer, cash), StoreSheets (close, busy,
                      اطلب فلوسك), queries (myStores, storeStatus, switches, balance)
   features/print/    runtime (printer driver, print an order, printer sync), ReceiptPreview
@@ -49,7 +49,7 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   time until now + 60 min; orders and the customer storefront honour it) / `setPrinterStatus`.
 - Chat (`src/features/chat/`, `app/chat/[orderId].tsx?kind=merchant_courier|customer_merchant&number=…`):
   the order detail's "التواصل" row — راسل الدليفري / اتصل بالدليفري (masked) / راسل الزبون, unread
-  badges from `chat.threads` (5 s); the conversation polls `chat.thread` every 3 s (realtime later).
+  badges from `chat.threads` (pushed by `live.merchantBoard`); the conversation by `live.chat`.
   Any staff member reads for the kitchen (one read receipt per store). Demo `POST /demo/chat/fresh`
   (`scripts/demo/chat.mjs`), shots `SHOTS=merchant-chat`.
 - Order actions stay on `orders.merchant.accept` (with `prepMinutes` and `unavailableLineIds` for a
@@ -132,3 +132,10 @@ and a disconnected printer. New orders auto-reject after 90 s as in production:
   native vibrates until a sound module ships (`alert-sound.native.ts`, TODO(native-sound)).
 - Printing: `print/printer.native.ts` documents the Bluetooth ESC/POS plan (BLE module in a dev-client
   build, Arabic rasterised to 576 px, status reported with `merchant.setPrinterStatus`).
+
+## Real time (`live.merchantBoard`)
+
+`MerchantRuntime` keeps the selected store's `live.merchantBoard` stream open (SSE, stream token in
+connection params, `docs/api/live.md`). A `new_order` event rings the alarm at once (`alarm.ringNow`,
+before the board is re-read); order, courier and store changes re-read the board. The board keeps a
+60-s safety refetch while live and polls every 30 s when SSE does not get through.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -116,6 +116,18 @@ describe('checkout payload builder', () => {
     const t = checkoutTotals(twoPersonCart(), { components: [comp('service_fee', 500), comp('base', 1000), comp('street_pickup', -250), comp('promo', -1000)] });
     expect(t).toMatchObject({ itemsIqd: 4000 + 23000, deliveryFeeIqd: 750, serviceFeeIqd: 500, totalIqd: 27000 + 1250 });
     expect(t.components.map((c) => c.key)).toEqual(['base', 'street_pickup', 'service_fee']);
+  });
+
+  it('deal shown at its exact saving per line; the rounding is a separate amount (never spread over lines)', () => {
+    const cart = twoPersonCart();
+    const deal = { promotionId: 'd1', funder: 'merchant' as const, target: 'items' as const, type: 'percent' as const, label_ar: 'خصم 15%', label_en: '15% off', amountIqd: 3750, dealIqd: 4050, roundingIqd: 300 };
+    const t = checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 3750, discount: deal });
+    // 27,000 + 1,500 − 4,050 = 24,450 → 24,750 on the step: the deal line says 4,050, the rounding +300.
+    expect(t).toMatchObject({ discountIqd: 3750, dealIqd: 4050, roundingIqd: 300, totalIqd: 27000 + 1500 - 3750 });
+    const saved = lineSavings(cart, { lineSavingsIqd: [600, 3150], dealLineSavingsIqd: [600, 3450] });
+    expect([...saved.values()]).toEqual([600, 3450]);
+    // Old API without the exact field: the rounded shares.
+    expect([...lineSavings(cart, { lineSavingsIqd: [600, 3150] }).values()]).toEqual([600, 3150]);
   });
 
   it('builds orders.place: catalog ids + menu prices, a diner per tagged person, line tags and notes', () => {
