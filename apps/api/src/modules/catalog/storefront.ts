@@ -185,16 +185,8 @@ export function menuSections(items: readonly CatalogItemRecord[], at: Date, time
   return out;
 }
 
-/** Arabic search folding: no diacritics or tatweel, one alef, ة→ه, ى→ي, گ→ك, چ→ج. */
-export function foldArabic(s: string): string {
-  return s
-    .normalize('NFKC')
-    .replace(/[ً-ٰٟـ]/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/گ/g, 'ك')
-    .replace(/چ/g, 'ج')
-    .toLowerCase()
-    .trim();
-}
+/**
+ * Arabic search folding (ة/ه, أ/ا/إ, ى/ي, گ/ك, leading "ال", Eastern digits): the shared contracts
+ * fold, so the API matches exactly what the apps fold on their side.
+ */
+export { foldArabic } from '@driver/contracts';

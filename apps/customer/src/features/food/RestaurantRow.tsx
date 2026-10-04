@@ -1,0 +1,110 @@
+import { router } from 'expo-router';
+import { View } from 'react-native';
+import { Card, Icon, Skeleton, StatusPill, Text, toneFor, useTheme } from '@driver/ui';
+import { HERO, monogram, range } from '@/features/home/RestaurantRail';
+import type { RestaurantSummary } from '@/features/home/restaurant-summary';
+import { useT } from '@/lib/i18n';
+import { amountParam } from '@/lib/money';
+
+const ART = 76;
+
+/**
+ * One kitchen in a vertical list (all restaurants, search results): art tile, name, cuisine, rating,
+ * door time and delivery fee. A closed kitchen stays tappable, muted, with when it opens: its menu can
+ * be browsed (audit C-02).
+ */
+export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; testID?: string; onOpen?: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const tone = HERO[toneFor(r.name)];
+  const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
+  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? range(r.etaMinMinutes, r.etaMaxMinutes) : range(r.prepMinMinutes, r.prepMaxMinutes);
+  const closedLabel = r.opensAt ? t('list.closed_opens_at', { time: r.opensAt }) : t('list.closed');
+  return (
+    <Card
+      testID={testID ?? `restaurant-row-${r.id}`}
+      padding={3}
+      onPress={() => {
+        onOpen?.();
+        router.push({ pathname: '/restaurant/[id]', params: { id: r.id } });
+      }}
+      accessibilityLabel={[r.name, r.cuisine, r.open ? null : closedLabel].filter(Boolean).join('، ')}
+    >
+      <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+        <View
+          style={{
+            width: ART,
+            height: ART,
+            borderRadius: theme.radius.lg,
+            backgroundColor: r.open ? theme.colors[tone.bg] : theme.colors.surfaceSunken,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text weight={700} color={r.open ? tone.fg : 'textMuted'} style={{ fontSize: 34, lineHeight: 46 }}>
+            {monogram(r.name)}
+          </Text>
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {r.name}
+            </Text>
+            {r.open && r.dealCount > 0 ? <StatusPill size="sm" tone="success" icon="gift" label={t('list.deal')} /> : null}
+          </View>
+          <Text variant="footnote" color="textMuted" numberOfLines={1}>
+            {r.cuisine}
+          </Text>
+          {r.open ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Icon name="star" size={14} color="accent" filled />
+                <Text variant="caption" weight={600} tabular>
+                  {r.rating === null ? t('list.new') : r.rating.toFixed(1)}
+                </Text>
+              </View>
+              <Dot />
+              <Text variant="caption" color="textMuted" tabular>
+                {t('list.minutes', { range: time })}
+              </Text>
+              {r.deliveryFeeIqd !== null ? (
+                <>
+                  <Dot />
+                  <Text variant="caption" weight={free ? 600 : 400} color={free ? 'successText' : 'textMuted'} tabular>
+                    {free ? t('list.fee_free') : t('list.fee', { amount: amountParam(r.deliveryFeeIqd) })}
+                  </Text>
+                </>
+              ) : null}
+            </View>
+          ) : (
+            <View style={{ alignItems: 'flex-start', gap: 2, marginTop: 2 }}>
+              <StatusPill size="sm" tone="neutral" icon="clock" label={closedLabel} />
+            </View>
+          )}
+        </View>
+        <Icon name="chevron-forward" size={18} color="textMuted" />
+      </View>
+    </Card>
+  );
+}
+
+function Dot() {
+  const theme = useTheme();
+  return <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: theme.colors.textMuted }} />;
+}
+
+export function RestaurantRowSkeleton() {
+  const theme = useTheme();
+  return (
+    <Card padding={3} elevation={0}>
+      <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+        <Skeleton width={ART} height={ART} radius={theme.radius.lg} />
+        <View style={{ flex: 1, gap: theme.space[2] }}>
+          <Skeleton height={16} width="55%" />
+          <Skeleton height={12} width="40%" />
+          <Skeleton height={12} width="70%" />
+        </View>
+      </View>
+    </Card>
+  );
+}

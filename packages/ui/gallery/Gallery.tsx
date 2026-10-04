@@ -353,6 +353,7 @@ function FieldsSection() {
       <Panel gap={4}>
         <SearchField value={q} onChangeText={setQ} placeholder={t('search.placeholder')} onVoice={() => {}} onClear={() => setQ('')} />
         <SearchField value="تكسي للكوت" onChangeText={() => {}} onClear={() => {}} />
+        <SearchField placeholder={t('search.placeholder')} onPress={() => {}} />
         <TextField label="رقم الموبايل" value={phone} onChangeText={setPhone} keyboardType="phone-pad" error={t('error.phone_invalid')} />
         <TextField label={t('cart.note_courier')} placeholder={t('cart.note_courier_placeholder')} hint="الدليفري يشوفها لمن يوصل" />
         <TextField placeholder={t('checkout.promo_placeholder')} leadingIcon="gift" trailing={<Button label={t('promo.apply')} size="sm" variant="ghost" />} />

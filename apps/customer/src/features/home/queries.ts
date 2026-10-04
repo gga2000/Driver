@@ -37,18 +37,16 @@ export function useActiveOrder() {
 }
 
 /**
- * Restaurants for the home rails: `catalog.restaurants` for the deliver-to zone (fee preview and
- * ETA), favourites from the person's own orders (a curated default for new people).
+ * Restaurants for the home rails and the full list: `catalog.restaurants` for the deliver-to zone
+ * (fee preview and ETA). Public (guests browse too); favourites only from the person's own orders.
  */
 export function useRestaurants() {
   const api = useApi();
-  const signedIn = useSignedIn();
   const { dropoff } = useDeliverTo();
   const mine = useMyOrders();
   const ordered = useMemo(() => [...new Set((mine.data ?? []).map((o) => o.merchantOrgId).filter((id): id is string => Boolean(id)))], [mine.data]);
   return useQuery({
     ...api.catalog.restaurants.queryOptions({ cityId: CITY_ID, ...(dropoff ? { dropoff } : {}), filters: {} }),
-    enabled: signedIn,
     placeholderData: keepPreviousData,
     select: (cards: RestaurantCard[]): RestaurantSummary[] => {
       const fav = favouriteIds(cards, ordered);

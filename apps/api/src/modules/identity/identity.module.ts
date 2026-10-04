@@ -5,7 +5,8 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { EventsServiceAdapter, IDENTITY_EVENTS } from './events.adapter.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
-import { IdentityService, OTP_REQUEST_GUARD, PHONE_PEPPER } from './identity.service.js';
+import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
+import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { InMemoryRateLimiter, OtpRequestGuard, RedisRateLimiter, otpRateLimitsFromEnv } from './rate-limit.js';
 import { ROLE_READER } from './role-reader.js';
@@ -33,6 +34,9 @@ export const IDENTITY_REDIS = Symbol('IDENTITY_REDIS');
     // OTP codes go through the shared SmsPort: SMS_PROVIDER=dev (default, codes in the terminal and
     // identity.devLastOtp) | http (generic gateway, SMS_HTTP_*) | twilio (SMS_TWILIO_*).
     { provide: SMS_PROVIDER, useFactory: () => smsPortFromEnv() },
+    // "ما وصلك؟ دزلي على واتساب": login codes over WhatsApp (template `otp_login`), same provider choice
+    // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
+    { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     {
       provide: SessionService,

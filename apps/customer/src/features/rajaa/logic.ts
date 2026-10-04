@@ -478,3 +478,12 @@ export function requestWhen(day: RequestDay, hour: number, now: Date, utcOffsetM
 export function requestHourAvailable(day: RequestDay, hour: number, now: Date, utcOffsetMin: number = IRAQ_UTC_OFFSET_MIN): boolean {
   return day === 'tomorrow' || requestWhen(day, hour, now, utcOffsetMin).getTime() > now.getTime();
 }
+
+/**
+ * A garage or meeting-point name as customers see it (audit C-16): the network config marks places
+ * field ops have not verified yet with "(مسودة)" for Ali and ops; customers never see the word. The
+ * screens say "مكان تقريبي لحد ما نثبّته" from the `draft` flag instead.
+ */
+export function publicPlaceName(nameAr: string): string {
+  return nameAr.replace(/\s*\(\s*مسودة\s*\)\s*/g, ' ').trim();
+}

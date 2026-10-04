@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
-import { SearchField, Text, useTheme, useToast } from '@driver/ui';
+import type { LaunchService } from '@driver/contracts';
+import { SearchField, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
-import { CommunityDealCard } from '@/features/home/CommunityDealCard';
+import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useRestaurants } from '@/features/home/queries';
 import { RajaaCard } from '@/features/home/RajaaCard';
@@ -15,15 +16,16 @@ import { useT } from '@/lib/i18n';
 import { useProfile } from '@/lib/profile';
 
 /**
- * Home (spec §1): food-led feed. Header with the deliver-to picker, one search bar, the pinned
- * active order, the compact services row, "وين رايح؟" (taxi / tuktuk), الرجعة second, then food rails and a community deal.
+ * Home (spec §1): food-led feed. Header with the deliver-to picker, one search bar (opens /search),
+ * the pinned active order, the compact services row (coming-soon tiles open a "خبرني" sheet),
+ * "وين رايح؟" (taxi / tuktuk), الرجعة second, then food rails, each with "شوف الكل" → /restaurants.
+ * Guests browse it all (audit C-18). Favourites only from real orders; no sample deals (C-16).
  */
 export default function Home() {
   const theme = useTheme();
   const t = useT();
-  const toast = useToast();
   const { name } = useProfile();
-  const [query, setQuery] = useState('');
+  const [soon, setSoon] = useState<LaunchService | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const railsY = useRef(0);
   const active = useActiveOrder();
@@ -41,7 +43,7 @@ export default function Home() {
     if (id === 'food') scrollRef.current?.scrollTo({ y: railsY.current, animated: true });
     else if (id === 'rajaa') router.push('/rajaa');
     else if (id === 'taxi') startRide('taxi');
-    else toast.show({ message: t('shell.stub_title'), icon: 'clock' });
+    else setSoon(id);
   };
 
   const onRefresh = async () => {
@@ -57,14 +59,8 @@ export default function Home() {
         <Text variant="heading" accessibilityRole="header">
           {name ? t('home.greeting', { name }) : t('home.greeting_anon')}
         </Text>
-        <SearchField
-          testID="home-search"
-          value={query}
-          onChangeText={setQuery}
-          onClear={() => setQuery('')}
-          onVoice={() => toast.show({ message: t('shell.stub_title'), icon: 'mic' })}
-          placeholder={t('search.placeholder')}
-        />
+        {/* No mic until voice search exists (audit C-01). */}
+        <SearchField testID="home-search" placeholder={t('search.placeholder')} accessibilityLabel={t('search.a11y_open')} onPress={() => router.push('/search')} />
       </View>
 
       {active.data ? <ActiveOrderPill order={active.data} /> : null}
@@ -76,14 +72,17 @@ export default function Home() {
       <RajaaCard />
 
       <View onLayout={(e) => (railsY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[6] }}>
-        <RestaurantRail testID="rail-favourites" title={t('home.rail_favourites')} restaurants={list?.filter((r) => r.favourite)} {...rail} />
-        <RestaurantRail testID="rail-open" title={t('home.rail_open_now')} restaurants={list?.filter((r) => r.open)} {...rail} />
-        <CommunityDealCard />
+        {/* Only kitchens this person really ordered from: no rail at all for a new account or a guest. */}
+        {list?.some((r) => r.favourite) ? (
+          <RestaurantRail testID="rail-favourites" title={t('home.rail_favourites')} restaurants={list.filter((r) => r.favourite)} seeAll="all" {...rail} />
+        ) : null}
+        <RestaurantRail testID="rail-open" title={t('home.rail_open_now')} restaurants={list?.filter((r) => r.open)} seeAll="open" {...rail} />
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
         {!list || list.some((r) => !!r.deal) ? (
-          <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list?.filter((r) => !!r.deal)} showDeal {...rail} />
+          <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list?.filter((r) => !!r.deal)} showDeal seeAll="deals" {...rail} />
         ) : null}
       </View>
+      <ComingSoonSheet service={soon} onClose={() => setSoon(null)} />
     </Screen>
   );
 }

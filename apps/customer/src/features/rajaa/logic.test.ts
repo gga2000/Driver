@@ -34,7 +34,16 @@ import {
   suggestDirection,
   toSeatMap,
   waitingWithMe,
+  publicPlaceName,
 } from './logic';
+
+describe('publicPlaceName (audit C-16)', () => {
+  it('never shows customers the "(مسودة)" draft marker', () => {
+    expect(publicPlaceName('جسر ديالى (مسودة)')).toBe('جسر ديالى');
+    expect(publicPlaceName('كراج الكوت ( مسودة )')).toBe('كراج الكوت');
+    expect(publicPlaceName('كراج النهضة')).toBe('كراج النهضة');
+  });
+});
 
 const MIN = 60_000;
 /** 2026-10-03 12:00 Baghdad (09:00 UTC). */

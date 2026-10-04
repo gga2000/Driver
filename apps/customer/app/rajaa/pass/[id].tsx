@@ -4,7 +4,7 @@ import { Share, View } from 'react-native';
 import { Button, Card, CountdownRing, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList, vehicleLine } from '@/features/rajaa/labels';
-import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES } from '@/features/rajaa/logic';
+import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
 import { garageName, useBoardingPass, useBooking, useCancelSeat, useImHere, useNetwork } from '@/features/rajaa/queries';
 import { shareUrl } from '@/features/rajaa/share';
@@ -78,7 +78,7 @@ export default function BoardingPassScreen() {
   const rule = cancelRule(b, now);
   const opensAt = boardingOpensAt(b.departure.departAt);
   const atPoint = b.pickup.kind !== 'garage';
-  const stopName = b.pickup.kind === 'garage' ? garage : b.pickup.nameAr ?? t('rajaa.pickup_door');
+  const stopName = b.pickup.kind === 'garage' ? garage : (b.pickup.nameAr ? publicPlaceName(b.pickup.nameAr) : null) ?? t('rajaa.pickup_door');
   const prepaid = p ? p.prepayRail !== 'cash_reservation' : b.prepaid;
   const graceMs = p?.graceEndsAt ? p.graceEndsAt.getTime() - b.departure.departAt.getTime() : RAJAA_RULES.prepaidGraceMin * MIN;
 

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RequestPostView, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
-import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES } from './logic';
+import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
 
 /**
  * الرجعة queries (routes router). The board polls every 5 s while a screen shows it; bookings and the
@@ -24,7 +24,8 @@ export function useNetwork() {
 }
 
 export function garageName(network: IntercityNetwork | undefined, id: string): string {
-  return network?.garages.find((g) => g.id === id)?.nameAr ?? '';
+  const name = network?.garages.find((g) => g.id === id)?.nameAr;
+  return name ? publicPlaceName(name) : '';
 }
 
 /** Live departure board for one corridor and direction, polled every 5 s. */

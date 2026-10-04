@@ -36,6 +36,7 @@ import {
   quoteSelection,
   rowOptions,
   toSeatMap,
+  publicPlaceName,
 } from '@/features/rajaa/logic';
 import { OptionCard, Section } from '@/features/rajaa/Option';
 import { garageName, useBoard, useHoldSeat, useNetwork } from '@/features/rajaa/queries';
@@ -320,7 +321,7 @@ export default function BookSeat() {
             key={m.id}
             testID={`pickup-${m.id}`}
             icon="map-pin"
-            title={m.nameAr}
+            title={publicPlaceName(m.nameAr)}
             detail={m.draft ? `${t('rajaa.pickup_short_way')} · ${t('rajaa.pickup_draft')}` : t('rajaa.pickup_short_way')}
             trailing={`+${amountParam(m.feeIqd)}`}
             selected={pickup.kind === 'meeting_point' && pickup.meetingPointId === m.id}

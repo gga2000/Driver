@@ -42,9 +42,19 @@ export const GuardianLinkView = z.object({
 });
 export type GuardianLinkView = z.infer<typeof GuardianLinkView>;
 
+/**
+ * How the code travels: SMS (default) or WhatsApp — the customer's "ما وصلك؟ دزلي على واتساب" after
+ * 30 s (SMS delivery in Iraq is unreliable). Same challenge rules either way (resend cool-down,
+ * attempts, expiry); a WhatsApp request after an SMS one replaces it.
+ */
+export const OtpChannel = z.enum(['sms', 'whatsapp']);
+export type OtpChannel = z.infer<typeof OtpChannel>;
+
 export const RequestOtpInput = z.object({
   phone: z.string().min(7).max(20),
   purpose: OtpPurpose.default('login'),
+  /** Absent = SMS. */
+  channel: OtpChannel.optional(),
   /** The requesting app's device: OTP requests are rate-limited per device (and per IP) — `rate_limited`. */
   device: DeviceInfo.optional(),
 });
@@ -52,6 +62,8 @@ export const RequestOtpInput = z.object({
 export type RequestOrigin = { ip?: string | null | undefined };
 export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
+  /** The channel the code went out on (absent from older APIs = SMS). */
+  channel: OtpChannel.optional(),
   expiresAt: z.coerce.date(),
   resendAfterSec: z.number().int(),
 });

@@ -73,6 +73,10 @@ page.on('response', (r) => {
   if (r.status() >= 400) console.log(`[http ${r.status()}] ${r.request().method()} ${r.url()}`);
 });
 
+// Page loads wait for 'load' and then for the screen's own element, never 'networkidle': the live
+// order / chat screens keep an SSE stream open and the map keeps fetching tiles, so the network is
+// never idle there.
+const LOADED = { waitUntil: 'load' };
 const byTestId = (id) => page.locator(`[data-testid="${id}"]`).first();
 const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
@@ -120,11 +124,12 @@ const demoPost = async (path) => {
 };
 
 try {
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/`, LOADED);
   await byTestId('welcome-start').waitFor({ timeout: 20_000 });
   await shot('app-welcome');
 
-  await byTestId('welcome-start').click();
+  // "يلا نبدي" browses as a guest (C-18); the shots sign in through "عندك حساب؟".
+  await byTestId('welcome-signin').click();
   const input = page.locator('[data-testid="phone-input"]');
   await input.waitFor();
   await input.fill(phone);
@@ -157,7 +162,7 @@ try {
   if (personId) {
     const r = await fetch(`${apiBase}/demo/active-order?personId=${encodeURIComponent(personId)}`, { method: 'POST' });
     if (!r.ok) errors.push(`seed active order: ${r.status} ${await r.text()}`);
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload(LOADED);
     await byTestId('home').waitFor();
   }
   await byTestId('home-active-order').waitFor({ timeout: 15_000 }).catch(() => errors.push('active order pill not shown'));
@@ -196,7 +201,7 @@ try {
 async function acctShots(personId) {
   if (personId) {
     await demoPost(`/demo/account?personId=${encodeURIComponent(personId)}`);
-    await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+    await page.goto(`${origin}/`, LOADED);
     await byTestId('home').waitFor({ timeout: 15_000 });
   }
   await byTestId('tab-account').click();
@@ -219,7 +224,7 @@ async function acctShots(personId) {
   await shot('acct-wallet');
   await fullShot('acct-wallet-full');
 
-  await page.goto(`${origin}/household`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/household`, LOADED);
   await byTestId('household').waitFor({ timeout: 15_000 });
   await shot('acct-household');
   await fullShot('acct-household-full');
@@ -232,7 +237,7 @@ async function acctShots(personId) {
  */
 async function foodFlow(khalid) {
   const item = (key) => `${khalid}_${key}`;
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/`, LOADED);
   await byTestId('home').waitFor({ timeout: 15_000 });
   await byTestId(`restaurant-${khalid}`).click();
   await byTestId('restaurant-facts').waitFor({ timeout: 15_000 });
@@ -297,7 +302,7 @@ async function foodFlow(khalid) {
   await page.waitForURL(/\/order\//, { timeout: 15_000 }).catch(() => errors.push('accepted order did not open /order/[id]'));
 
   // Second order → the kitchen says no → move the cart to a similar open kitchen.
-  await page.goto(`${origin}/restaurant/${khalid}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
   await byTestId(`dish-add-${item('pepsi')}`).waitFor({ timeout: 15_000 });
   await byTestId(`dish-add-${item('pepsi')}`).click();
   await byTestId(`dish-${item('kebab_kilo')}`).click();
@@ -333,7 +338,7 @@ async function trackShots(personId) {
     return body.orderId;
   };
   const openOrder = async (orderId, query = '') => {
-    await page.goto(`${origin}/order/${orderId}${query}`, { waitUntil: 'networkidle' });
+    await page.goto(`${origin}/order/${orderId}${query}`, LOADED);
     await byTestId('sheet-header').waitFor({ timeout: 15_000 });
     await byTestId('status-line').waitFor({ timeout: 15_000 });
   };
@@ -342,7 +347,7 @@ async function trackShots(personId) {
 
   // Orders tab rows open the live screen.
   const prepId = await seed('preparing');
-  await page.goto(`${origin}/orders`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/orders`, LOADED);
   await byTestId(`order-${prepId}`).click();
   await byTestId('order-live').waitFor({ timeout: 15_000 });
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
@@ -400,7 +405,7 @@ async function trackShots(personId) {
 
 /** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
 async function rajaaShots(personId) {
-  await page.goto(`${origin}/rajaa`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/rajaa`, LOADED);
   await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
   const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
   await firstCar.waitFor({ timeout: 15_000 });
@@ -437,7 +442,7 @@ async function rajaaShots(personId) {
   await fullShot('rajaa-pass-full');
 
   // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
-  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
   await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
   await byTestId('chip-rijal').click();
   await shot('rajaa-demand');
@@ -453,7 +458,7 @@ async function rajaaShots(personId) {
   }
 
   // Request board: post → offers arrive → pick one → deposit rules → matched.
-  await page.goto(`${origin}/rajaa/request`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid="rajaa-req-from"]').fill('العزيزية، حي الزهراء');
   await page.locator('[data-testid="rajaa-req-to"]').fill('النجف');
@@ -475,7 +480,7 @@ async function rajaaShots(personId) {
   }
 
   // Home: the الرجعة card now reads the live board (and the booked trip).
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/`, LOADED);
   await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
   await shot('rajaa-home');
 }
@@ -487,7 +492,7 @@ async function rajaaShots(personId) {
 async function dealsShots(khalid) {
   const item = (key) => `${khalid}_${key}`;
   await demoPost('/demo/deals');
-  await page.goto(`${origin}/restaurant/${khalid}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
   await byTestId('restaurant-deals').waitFor({ timeout: 15_000 });
   await byTestId(`dish-${item('kebab_wrap')}`).waitFor({ timeout: 15_000 });
   await shot('deals-restaurant');
@@ -526,7 +531,7 @@ async function dealsShots(khalid) {
  * mode, its own browser context) keys the code in and confirms; the customer's screen becomes the receipt.
  */
 async function topupShots() {
-  await page.goto(`${origin}/wallet`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/wallet`, LOADED);
   await byTestId('wallet-topup').waitFor({ timeout: 15_000 });
   await shot('topup-wallet');
   await byTestId('wallet-topup').click();
@@ -569,7 +574,7 @@ async function topupShots() {
     console.log(file);
   };
   try {
-    await ops.goto(`${pOrigin}/`, { waitUntil: 'networkidle' });
+    await ops.goto(`${pOrigin}/`, LOADED);
     await opsId('welcome-start').waitFor({ timeout: 30_000 });
     await opsId('welcome-start').click();
     await ops.locator('[data-testid="phone-input"]').fill(agent.phone);
@@ -578,7 +583,7 @@ async function topupShots() {
     const otp = (await opsId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
     await ops.locator('[data-testid="otp-input"]').fill(otp ?? '');
     await opsId('home').waitFor({ timeout: 20_000 }).catch(() => undefined);
-    await ops.goto(`${pOrigin}/ops`, { waitUntil: 'networkidle' });
+    await ops.goto(`${pOrigin}/ops`, LOADED);
     await opsId('ops-go-topup').waitFor({ timeout: 15_000 });
     await opsShot('topup-ops-home');
     await opsId('ops-go-topup').click();
@@ -612,7 +617,7 @@ async function chatShots(personId) {
 
   // The order screen: chat (unread badge), masked call, share; quick replies under the card.
   const c = await seed('courier');
-  await page.goto(`${origin}/order/${c.orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${c.orderId}?sheet=1`, LOADED);
   await byTestId('courier-card').waitFor({ timeout: 20_000 });
   await byTestId('chat-courier').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(5500); // the threads poll brings the unread badge
@@ -638,7 +643,7 @@ async function chatShots(personId) {
 
   // The kitchen thread.
   const m = await seed('merchant');
-  await page.goto(`${origin}/chat/${m.orderId}?kind=customer_merchant`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/chat/${m.orderId}?kind=customer_merchant`, LOADED);
   await byTestId('chat-msg-4').waitFor({ timeout: 15_000 });
   await shot('chat-merchant-thread');
 
@@ -646,14 +651,14 @@ async function chatShots(personId) {
   await demoPost(`/demo/track/advance?orderId=${c.orderId}`);
   await demoPost(`/demo/track/advance?orderId=${c.orderId}`);
   await demoPost('/demo/chat/clock?minutes=31');
-  await page.goto(`${origin}/chat/${c.orderId}?kind=customer_courier`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/chat/${c.orderId}?kind=customer_courier`, LOADED);
   await byTestId('chat-closed').waitFor({ timeout: 15_000 });
   await shot('chat-closed');
   await demoPost('/demo/chat/clock?minutes=0');
 
   // A ride: share sheet, then the public page in a signed-out browser, then revoked.
   const r = await seed('ride');
-  await page.goto(`${origin}/order/${r.orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${r.orderId}?sheet=1`, LOADED);
   await byTestId('share-trip').waitFor({ timeout: 20_000 });
   await shot('chat-ride-order');
   await byTestId('share-trip').click();
@@ -662,7 +667,6 @@ async function chatShots(personId) {
 
   const guest = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   guest.on('pageerror', (e) => errors.push(`guest: ${e.stack ?? e.message}`));
-  // 'load', not 'networkidle': the page polls every 5 s and the map keeps asking for tiles.
   await guest.goto(`${origin}${r.path}`, { waitUntil: 'load', timeout: 30_000 });
   await guest.locator('[data-testid="share-page"]').waitFor({ timeout: 20_000 });
   await guest.locator('[data-testid="share-driver"]').waitFor({ timeout: 15_000 });
@@ -692,7 +696,7 @@ async function chatShots(personId) {
  */
 async function rideShots() {
   await demoPost('/demo/ride?acceptMs=0');
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/`, LOADED);
   await byTestId('home-where-to').waitFor({ timeout: 15_000 });
   await byTestId('home-where-to').scrollIntoViewIfNeeded();
   await shot('ride-home');
@@ -741,7 +745,7 @@ async function rideShots() {
 
   // A fresh tuktuk booking from home's shortcut, the destination as a pin on the map: drag the map
   // ~800 m north-west, the zone under the pin resolves (server side).
-  await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/`, LOADED);
   await byTestId('where-to-tuktuk').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
   await byTestId('ride-on-map').first().click();
@@ -775,7 +779,7 @@ async function rideShots() {
   await page.waitForTimeout(4200);
   await shot('ride-searching');
   await byTestId('ride-cancel-searching').waitFor({ state: 'attached', timeout: 5_000 }).catch(() => undefined);
-  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-cancel-searching').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot('ride-searching-expanded');
@@ -788,33 +792,34 @@ async function rideShots() {
   // The nearest tuktuk accepts and drives over.
   const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
   if (!ok) return;
-  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(4500);
   await shot('ride-matched');
-  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('courier-card').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await shot('ride-matched-expanded');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
-  await page.goto(`${origin}/order/${orderId}?sheet=1`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-wait-note').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot('ride-at-pickup');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
-  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(5000);
   await shot('ride-on-trip');
-  await page.goto(`${origin}/order/${orderId}?sheet=2`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
   await byTestId('sheet-body').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
   await page.waitForTimeout(1200);
   await shot('ride-on-trip-actions');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
-  await page.goto(`${origin}/order/${orderId}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('arrival').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1200);
   await shot('ride-arrived');

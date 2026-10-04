@@ -119,6 +119,7 @@ export const ERROR_TABLE = {
   lost_sim_manual: { message_ar: 'سجّلنا طلبك. الدعم يكمّله يدوياً بعد مطابقة الهوية', message_en: 'Claim recorded; support completes it manually after ID match', retryHint: 'support', status: 'CONFLICT' },
   sms_not_configured: { message_ar: 'خدمة الرسائل مو مهيأة', message_en: 'SMS gateway not configured', retryHint: 'support', status: 'INTERNAL_SERVER_ERROR' },
   sms_send_failed: { message_ar: 'ما گدرنا نبعث الرسالة هسة. جرّب بعد شوية', message_en: 'Could not send the SMS right now; try again shortly', retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },
+  otp_channel_unavailable: { message_ar: 'الواتساب مو متوفر هسة. اطلب الرمز برسالة', message_en: 'WhatsApp codes are not available; use SMS', retryHint: 'never', status: 'BAD_REQUEST' },
 
   // orgs / households
   org_not_found: { message_ar: 'ما لگينا الجهة', message_en: 'Org not found', retryHint: 'never', status: 'NOT_FOUND' },

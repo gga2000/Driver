@@ -8,6 +8,8 @@ app/
   _layout.tsx            providers (theme, toast, API), fonts, route guard, root <Stack>
   (auth)/                welcome → phone → otp → setup (name + first place, skippable)
   (tabs)/                index (الرئيسية) · orders (طلباتي) · wallet (المحفظة) · account (حسابي)
+  search                 دوّر: recents, popular terms, kitchens + dishes (`catalog.search`)
+  restaurants            كل المطاعم ("شوف الكل"): sort + filters, closed kitchens below (?preset=open|deals)
   places/                deliver-to picker (modal), add place, place editor (edit?id=, "موقعي هنا")
   profile/               name, safety (emergency contact) — modal
   household/             العائلة: approvals, members + limits, shared places; invite; member limit
@@ -23,13 +25,28 @@ src/
   components/            Screen, TabBar, SectionHeader, OtpInput, PlaceholderScreen, Wordmark, QuoteCard
   features/<flow>/       a flow's components and query hooks (home, auth, places, account, food,
                          track, rajaa)
-  fixtures/              isolated sample data where the API has no customer read yet
+  fixtures/              isolated sample data where the API has no customer read yet (none today)
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
 
 الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
 POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…). `SHOTS=rajaa`
 limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
 ```
+
+## Guest browsing (audit C-18, Ali 2026-10-04)
+
+- First launch shows welcome once; "يلا نبدي" opens home as a guest, "عندك حساب؟" goes to the phone.
+  Guests browse home, search, the restaurant list, menus and the cart (`GUEST_SEGMENTS` in
+  `lib/guard.ts`); orders, wallet and account show a "دخّل رقمك" card (`GuestGate`). The catalog reads
+  are public on the API (rate-limited per IP for guests, `docs/api/guest-search-and-launch-interest.md`).
+- The number is asked at "كمّل الطلب" (cart), at الرجعة / rides, and at "خبرني": `requireSignIn(path)`
+  (`lib/guest.ts`) keeps `returnTo` in the device profile; a guest who opens a protected screen
+  directly is stopped there too. After OTP (and setup for a new account) the guard replaces the auth
+  screens with that path, so back from checkout is the cart again.
+- OTP screen: after 30 s, "ما وصلك؟ دزلي على واتساب" (`requestOtp` with `channel: 'whatsapp'`) next to
+  "دزلي رسالة ثانية".
+- Home: the search bar opens `/search` (no mic until voice exists); coming-soon tiles (سوق، خطوط، طرود)
+  open a sheet with "خبرني لمن تنفتح" (`notify.launchInterest`); favourites only from real orders.
 
 ## Session and API
 
@@ -77,7 +94,8 @@ the dev storage are relative to the API origin (`photoUri`).
    }
    ```
 
-   Protected queries pass `enabled: useSignedIn()` so nothing fires (and 401s) before sign-in.
+   Protected queries pass `enabled: useSignedIn()` so nothing fires (and 401s) before sign-in;
+   the public catalog reads (`catalog.*`) run for guests too.
    For one-off imperative calls use `useApiClient()` (`await client.orders.cancel.mutate(…)`).
    Show errors with `apiErrorMessage(err, t('error.network'), locale)` — the server's
    `message_ar` when present — and branch on `apiErrorCode(err)` (`otp_invalid`, `price_changed`…).
@@ -88,7 +106,7 @@ the dev storage are relative to the API origin (`photoUri`).
 4. **Money** — `iqd(amount)` → `12,500 دينار`; `amountParam(n)` for `{amount}` placeholders.
    Ranges and Latin runs inside Arabic go in an LTR isolate (`⁦…⁩`).
 5. **No API yet?** — put sample data in `src/fixtures/<thing>.ts` behind a query hook with a
-   `TODO(api)` note (see `fixtures/restaurants.ts` + `features/home/queries.ts`) so swapping the
+   `TODO(api)` note so swapping the
    queryFn is the only change later.
 6. **Tests** — pure logic in `src/**/*.test.ts` (Vitest, plain Node: don't import react-native
    there).

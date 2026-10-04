@@ -1,5 +1,5 @@
 import { forwardRef, useState, type ReactNode } from 'react';
-import { Platform, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { Platform, Pressable, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
@@ -16,11 +16,13 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'placehol
   trailing?: ReactNode;
   /** Pill-shaped (search) instead of the rounded rectangle. */
   pill?: boolean;
+  /** Dim the field when `editable` is false (default). Off for a field that is really a button. */
+  dimWhenReadOnly?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
-  { label, hint, error, leadingIcon, trailing, pill, style, onFocus, onBlur, editable = true, ...input },
+  { label, hint, error, leadingIcon, trailing, pill, dimWhenReadOnly = true, style, onFocus, onBlur, editable = true, ...input },
   ref,
 ) {
   const theme = useTheme();
@@ -45,7 +47,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           backgroundColor: theme.colors.surfaceSunken,
           borderWidth: 2,
           borderColor,
-          opacity: editable ? 1 : theme.state.disabledOpacity,
+          opacity: editable || !dimWhenReadOnly ? 1 : theme.state.disabledOpacity,
         }}
       >
         {leadingIcon ? <Icon name={leadingIcon} size={20} color={focused ? 'text' : 'textMuted'} /> : null}
@@ -100,11 +102,36 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
 export interface SearchFieldProps extends Omit<TextFieldProps, 'leadingIcon' | 'pill' | 'trailing' | 'label'> {
   onVoice?: () => void;
   onClear?: () => void;
+  /**
+   * Entry mode: the bar is a button that opens the full search screen (home, lists) instead of
+   * taking input in place. It looks exactly like the field, reads as a button to screen readers, and
+   * shows no clear or voice action.
+   */
+  onPress?: () => void;
 }
 
 /** The one search bar over everything (customer spec §1): dishes, restaurants, "تكسي للكوت", people. */
-export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({ onVoice, onClear, value, ...rest }, ref) {
+export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({ onVoice, onClear, onPress, value, ...rest }, ref) {
+  const theme = useTheme();
   const hasValue = !!value && value.length > 0;
+  if (onPress) {
+    return (
+      <Pressable
+        testID={rest.testID}
+        accessibilityRole="button"
+        accessibilityLabel={rest.accessibilityLabel ?? rest.placeholder}
+        onPress={() => {
+          theme.haptic('selection');
+          onPress();
+        }}
+        style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }, rest.style]}
+      >
+        <View pointerEvents="none">
+          <TextField ref={ref} value={value} leadingIcon="search" pill editable={false} dimWhenReadOnly={false} focusable={false} placeholder={rest.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        </View>
+      </Pressable>
+    );
+  }
   return (
     <TextField
       ref={ref}

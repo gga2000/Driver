@@ -24,6 +24,10 @@ export interface RestaurantSummary {
   favourite: boolean;
   /** Deal line for the "عروض اليوم" rail (none until promotions have a customer read). */
   deal?: string;
+  /** Cuisine tags (`grill`, `shawarma`…): the list's cuisine chips. */
+  tags: string[];
+  /** Live merchant deals (badges); the list's "عروض" filter. */
+  dealCount: number;
 }
 
 export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantSummary {
@@ -43,22 +47,16 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     open: card.open,
     ...(card.opensAt ? { opensAt: card.opensAt } : {}),
     favourite,
+    tags: [...card.tags],
+    dealCount: card.deals?.length ?? 0,
   };
 }
 
 /**
- * Favourites (spec §1): kitchens the person has ordered from, most recent first. New people get a
- * curated default — the two best-rated open kitchens.
+ * Favourites (spec §1): kitchens the person has really ordered from. A new account (or a guest) has
+ * none, and gets no favourites rail: a curated "favourite" would be fake personalisation (audit C-16).
  */
 export function favouriteIds(cards: readonly RestaurantCard[], orderedMerchantIds: readonly string[]): Set<string> {
   const known = new Set(cards.map((c) => c.id));
-  const mine = orderedMerchantIds.filter((id) => known.has(id));
-  if (mine.length > 0) return new Set(mine);
-  return new Set(
-    [...cards]
-      .filter((c) => c.open)
-      .sort((a, b) => (b.rating?.avg ?? 0) - (a.rating?.avg ?? 0))
-      .slice(0, 2)
-      .map((c) => c.id),
-  );
+  return new Set(orderedMerchantIds.filter((id) => known.has(id)));
 }
