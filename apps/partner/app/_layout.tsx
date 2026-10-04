@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
+import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
 import { ApiProvider } from '@/lib/api';
@@ -64,6 +65,8 @@ function RootNavigator() {
   const t = useT();
   const { status } = useSession();
   const gate = usePartnerGate();
+  // Push token registration, foreground acks, taps → screens (signed in only).
+  usePushRegistration();
   const segments = useSegments();
   const router = useRouter();
   const ready = status === 'signedOut' || (status === 'signedIn' && gate !== 'unknown');

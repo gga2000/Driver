@@ -24,6 +24,7 @@ import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
 import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
+import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -62,6 +63,7 @@ export class TrpcService {
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
     private readonly shareLinks: ShareLinksService,
+    private readonly notify: NotifyService,
   ) {}
 
   /**
@@ -105,6 +107,7 @@ export class TrpcService {
       merchant: this.merchant,
       chat: this.chat,
       trackingShare: this.shareLinks,
+      notify: this.notify,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -129,5 +132,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, NotifyModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

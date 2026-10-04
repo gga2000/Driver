@@ -223,6 +223,20 @@ describe('sessions', () => {
     await h.service.logout(actor, tokens.refreshToken);
     await expectCode(h.service.verifyAccessToken(tokens.accessToken), 'session_expired');
     await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused');
+    // Notify drops the push tokens this session registered.
+    expect(h.events.last('session.signed_out')).toMatchObject({ payload: { personId: actor.personId, sessionId: actor.sessionId } });
+  });
+
+  it('notifyContact reads the phone only when asked, and logs that read; childNotice names the guardian', async () => {
+    const h = harness();
+    const { actor } = await h.login(PHONE);
+    const reads = async () => (await h.repo.vaultAccessLogs(actor.personId)).filter((l) => l.accessorId === 'system:notify');
+    expect(await h.service.notifyContact(actor.personId, { phone: false, purpose: 'notify:order_accepted' })).toEqual({ locale: 'ar-IQ', phoneE164: null });
+    expect(await reads()).toHaveLength(0);
+    expect((await h.service.notifyContact(actor.personId, { phone: true, purpose: 'notify:order_receipt' }))?.phoneE164).toMatch(/^\+964/);
+    expect((await reads()).map((l) => [l.purpose, l.fieldsRead])).toEqual([['notify:order_receipt', ['phone_e164']]]);
+    expect(await h.service.notifyContact('nobody', { phone: true, purpose: 'x' })).toBeNull();
+    expect(await h.service.childNotice('chref_missing')).toBeNull();
   });
 
   it('review H: a live session id of person A never authenticates a token claiming person B', async () => {

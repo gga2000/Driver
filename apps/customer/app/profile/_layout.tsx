@@ -18,6 +18,7 @@ export default function ProfileLayout() {
     >
       <Stack.Screen name="name" options={{ title: t('profile.name_title') }} />
       <Stack.Screen name="safety" options={{ title: t('account.safety') }} />
+      <Stack.Screen name="notifications" options={{ title: t('notify.settings.title') }} />
     </Stack>
   );
 }

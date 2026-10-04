@@ -39,6 +39,7 @@ Still in memory with a database (known gaps, not part of this change):
 | `PrismaSavedPlacesRepository` | `places` (`label` NOT NULL) | `pin geography(Point)` (GIST), `zone_key`, `photo_refs` (upload ids, never URLs), `confirmed_at`, `share_with_household`, `client_ref` (unique per owner). |
 | `PrismaPlacesRepository` | `places` (`label` NULL) + `place_photos` | Learned places and landmarks; `nearby` uses `ST_DWithin` on the GIST index. |
 | `PrismaUploadRecords` | `uploads` | Owner person id, declared type and size, state, object key. Bytes live in object storage. |
+| `PrismaNotifyRepository` | `push_tokens`, `notify_preferences`, `notify_deliveries` | Migration `20261004220000_notify_delivery`. Push tokens carry the registering session (dropped on `session.signed_out`). One delivery row per message × channel × person; unique (`dedupe_key` = event id + template + person, `channel`) makes an outbox redelivery a no-op. Rows hold the rendered text and params, never a phone number. Support reads them through `notify.log`. |
 
 ## Photo storage (`ObjectStoragePort`)
 

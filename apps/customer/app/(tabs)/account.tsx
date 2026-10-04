@@ -7,6 +7,7 @@ import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
 import { useHousehold, useMe, useMyPlaces, useSavedPeople } from '@/features/account/queries';
+import { unregisterPush } from '@/features/notify/usePush';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
@@ -34,7 +35,9 @@ export default function Account() {
   const signOut = async () => {
     setSigningOut(true);
     const refreshToken = session.getSnapshot().session?.refreshToken;
-    // Best effort: revoke server-side, then forget everything on this device regardless.
+    // Best effort: drop this phone's push token, revoke server-side (which also drops the session's
+    // tokens), then forget everything on this device regardless.
+    await unregisterPush(client);
     await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
     await profile.reset();
     await session.signOut();
@@ -124,7 +127,7 @@ export default function Account() {
             onPress={() => router.push('/household')}
             divider
           />
-          <ListRow leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} trailing={<StatusPill size="sm" label={t('wallet.soon_badge')} />} chevron={false} />
+          <ListRow testID="account-notifications" leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} onPress={() => router.push('/profile/notifications')} />
         </Card>
         <Chip
           testID="account-share-trips"

@@ -13,6 +13,7 @@ import { useRideMemo } from '@/features/ride/store';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
+import { PrePromptGate } from '@/features/notify/PrePrompt';
 import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
@@ -305,6 +306,8 @@ export default function OrderLiveScreen() {
         />
       ) : null}
       {v && rating ? <RatingPanel view={v} onDone={() => setRating(false)} /> : null}
+      {/* The moment notifications matter: an order is live. Our pre-prompt, then the OS prompt. */}
+      <PrePromptGate active={Boolean(v && live)} />
     </View>
   );
 }

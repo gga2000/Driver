@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { HeaderBack } from '@/features/food/HeaderBack';
+import { usePushRegistration } from '@/features/notify/usePush';
 import { ApiProvider } from '@/lib/api';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard } from '@/lib/guard';
@@ -69,6 +70,8 @@ export default function RootLayout() {
 function RootNavigator() {
   const t = useT();
   const { status } = useSession();
+  // Push token registration, foreground acks and taps → screens (signed in only).
+  usePushRegistration();
   const prof = useProfile();
   const segments = useSegments();
   const router = useRouter();

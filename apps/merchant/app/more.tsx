@@ -3,7 +3,9 @@ import { Linking, View } from 'react-native';
 import { Text, useTheme } from '@driver/ui';
 import { EntryTile } from '@/components/EntryTile';
 import { Page } from '@/components/Page';
+import { unregisterPush } from '@/features/notify/Push';
 import { useCurrentStore } from '@/features/store/queries';
+import { useApiClient } from '@/lib/api';
 import { SUPPORT_PHONE } from '@/lib/env';
 import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
@@ -17,6 +19,15 @@ export default function More() {
   const { store, stores, canSeeMoney } = useCurrentStore();
   const grid = { flexDirection: wide ? ('row' as const) : ('column' as const), flexWrap: 'wrap' as const, gap: theme.space[3] };
   const cell = wide ? { flexBasis: '48%' as const, flexGrow: 1 } : undefined;
+  const client = useApiClient();
+  // Best effort: drop this device's push token and end the session server-side (which also drops
+  // the session's tokens), then forget the session here regardless.
+  const signOut = async () => {
+    const refreshToken = session.getSnapshot().session?.refreshToken;
+    await unregisterPush(client);
+    await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
+    await session.signOut();
+  };
   return (
     <Page title={t('merchant.more.title')} subtitle={store?.name} testID="more" maxWidth={960}>
       <View style={grid}>
@@ -41,7 +52,7 @@ export default function More() {
       <View style={{ gap: theme.space[3] }}>
         {stores.length > 1 ? <EntryTile icon="swap" title={t('merchant.more.switch_store')} hint={store?.name} onPress={() => router.push('/stores')} /> : null}
         <EntryTile icon="phone" title={t('merchant.more.support')} onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`)} />
-        <EntryTile testID="sign-out" icon="sign-out" title={t('merchant.more.sign_out')} tone="danger" onPress={() => void session.signOut()} trailing={<View />} />
+        <EntryTile testID="sign-out" icon="sign-out" title={t('merchant.more.sign_out')} tone="danger" onPress={() => void signOut()} trailing={<View />} />
       </View>
       <Text variant="caption" color="textMuted" align="center">
         {t('merchant.settings.version', { version: '0.1.0' })}

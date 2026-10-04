@@ -1,5 +1,6 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { DriverError, OTP_LENGTH, OTP_MAX_ATTEMPTS, OTP_RESEND_SEC, OTP_TTL_SEC, type OtpPurpose } from '@driver/contracts';
+import { isProviderError } from '../../shared/messaging/http.js';
+import { DriverError, isDriverError, OTP_LENGTH, OTP_MAX_ATTEMPTS, OTP_RESEND_SEC, OTP_TTL_SEC, type OtpPurpose } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { IdentityRepository, OtpRecord } from './identity.repository.js';
@@ -41,7 +42,13 @@ export class OtpService {
     const code = randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
     const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
     await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now }, tx);
-    await this.sms.send({ to: phoneE164, body: BODY_BY_PURPOSE[purpose](code), code });
+    try {
+      await this.sms.send({ to: phoneE164, body: BODY_BY_PURPOSE[purpose](code), code });
+    } catch (err) {
+      // A gateway that is not configured is an ops problem; anything else the person may retry.
+      if (isDriverError(err)) throw err;
+      throw new DriverError(isProviderError(err) && err.code === 'not_configured' ? 'sms_not_configured' : 'sms_send_failed', { cause: err as Error });
+    }
     return { expiresAt, resendAfterSec: OTP_RESEND_SEC };
   }
 

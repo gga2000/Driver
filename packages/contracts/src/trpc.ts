@@ -25,6 +25,7 @@ import type { MerchantPort } from './merchant-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
+import type { NotifyPort } from './notify-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -76,6 +77,8 @@ export interface AppContext {
   chat: ChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
+  /** Push tokens, notification preferences, the delivery log (`modules/notify`). */
+  notify: NotifyPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

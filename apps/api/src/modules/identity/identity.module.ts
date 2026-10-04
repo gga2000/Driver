@@ -10,15 +10,14 @@ import { InMemoryIdentityRepository } from './memory.repository.js';
 import { InMemoryRateLimiter, OtpRequestGuard, RedisRateLimiter, otpRateLimitsFromEnv } from './rate-limit.js';
 import { ROLE_READER } from './role-reader.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
-import { FakeSmsProvider } from './sms/fake.provider.js';
-import { GatewaySmsProvider, smsProviderFromEnv } from './sms/gateway.provider.js';
+import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER } from './sms/provider.js';
 
 export const IDENTITY_REDIS = Symbol('IDENTITY_REDIS');
 
 /**
- * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; SMS provider
- * from SMS_PROVIDER; JWT keys from JWT_SECRET/JWT_KID; phone pepper from PHONE_HASH_PEPPER
+ * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; SMS port
+ * from SMS_PROVIDER (`shared/messaging/sms.ts`); JWT keys from JWT_SECRET/JWT_KID; phone pepper from PHONE_HASH_PEPPER
  * (falls back to JWT_SECRET so a dev box needs one secret). With NODE_ENV=production both secrets
  * are mandatory (≥ 32 chars, no placeholders) and a missing one stops the boot.
  */
@@ -31,11 +30,9 @@ export const IDENTITY_REDIS = Symbol('IDENTITY_REDIS');
       inject: [PrismaService],
     },
     { provide: IDENTITY_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
-    {
-      provide: SMS_PROVIDER,
-      useFactory: () =>
-        smsProviderFromEnv() === 'gateway' ? new GatewaySmsProvider({ url: process.env['SMS_GATEWAY_URL'], apiKey: process.env['SMS_GATEWAY_KEY'] }) : new FakeSmsProvider(),
-    },
+    // OTP codes go through the shared SmsPort: SMS_PROVIDER=dev (default, codes in the terminal and
+    // identity.devLastOtp) | http (generic gateway, SMS_HTTP_*) | twilio (SMS_TWILIO_*).
+    { provide: SMS_PROVIDER, useFactory: () => smsPortFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     {
       provide: SessionService,

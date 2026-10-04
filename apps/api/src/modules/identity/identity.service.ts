@@ -39,7 +39,7 @@ import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
 import { SessionService } from './session.service.js';
-import { FakeSmsProvider } from './sms/fake.provider.js';
+import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
 
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
@@ -203,6 +203,8 @@ export class IdentityService implements IdentityPort {
     await this.uow.run(async (tx) => {
       await this.sessions.revoke(actor.sessionId, tx);
       if (refreshToken) await this.sessions.revokeByRefreshToken(refreshToken, tx);
+      // Notify drops the push tokens this session registered (a signed-out phone gets nothing).
+      await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: this.clock.now(), payload: { personId: actor.personId, sessionId: actor.sessionId } }, { name: 'person', id: actor.personId });
     });
   }
 
@@ -623,6 +625,37 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /**
+   * What the notify module needs to reach a person: the locale (public side) always, the E.164
+   * number only with `phone` (an SMS or WhatsApp is about to go out). A phone read is a
+   * VaultAccessLog row (accessor `system:notify`, the template as purpose). Null for unknown or
+   * deleted people.
+   */
+  async notifyContact(personId: string, opts: { phone: boolean; purpose: string }): Promise<{ locale: 'ar-IQ' | 'en'; phoneE164: string | null } | null> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return null;
+      const locale = person.locale === 'en' ? 'en' : 'ar-IQ';
+      if (!opts.phone) return { locale, phoneE164: null };
+      const identity = await this.repo.readIdentity(personId, tx);
+      await this.repo.logVaultAccess({ personId, accessorId: 'system:notify', purpose: opts.purpose, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
+      return { locale, phoneE164: identity?.phoneE164 ?? null };
+    });
+  }
+
+  /**
+   * خطوط guardian notice (domain §8 "child dropped"): the child's guardian and first name for the
+   * "{child} وصل {place} بالسلامة" message. Logged as a vault read against the guardian.
+   */
+  async childNotice(childRef: string): Promise<{ guardianId: string; childFirstName: string } | null> {
+    return this.uow.run(async (tx) => {
+      const [child] = await this.repo.readChildIdentities([childRef], tx);
+      if (!child?.guardianId) return null;
+      await this.repo.logVaultAccess({ personId: child.guardianId, accessorId: 'system:notify', purpose: 'khat_child_arrived', fieldsRead: ['child_name'], childRef, now: this.clock.now() }, tx);
+      return { guardianId: child.guardianId, childFirstName: firstNameOf(child.name) || child.name };
+    });
+  }
+
   /** Field-ops onboarding: names a person created by phone, only when the vault has no name yet. */
   async nameIfMissing(personId: string, name: string): Promise<void> {
     const trimmed = name.trim();
@@ -759,7 +792,7 @@ export class IdentityService implements IdentityPort {
 
   async devLastOtp(phone: string): Promise<{ phoneMasked: string; code: string | null }> {
     const { e164, masked } = this.phone(phone);
-    const code = this.sms instanceof FakeSmsProvider ? this.sms.lastCodeFor(e164) : null;
+    const code = this.sms instanceof DevSmsProvider ? this.sms.lastCodeFor(e164) : null;
     return { phoneMasked: masked, code };
   }
 }
