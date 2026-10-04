@@ -28,7 +28,7 @@ export function AuthHeader({
             icon="chevron-back"
             variant="outline"
             accessibilityLabel={t('action.back')}
-            onPress={() => (onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/welcome'))}
+            onPress={() => (onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/'))}
           />
         ) : (
           <View />

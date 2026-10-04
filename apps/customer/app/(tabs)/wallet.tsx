@@ -13,6 +13,8 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { color } from '@driver/design-tokens';
+import { GuestGate } from '@/components/GuestGate';
+import { useSignedIn } from '@/lib/session';
 
 const KIND_ICON: Record<WalletLineKind, IconName> = {
   food: 'bag',
@@ -37,7 +39,12 @@ const KIND_ICON: Record<WalletLineKind, IconName> = {
  * المحفظة (customer spec §9): money balance, points and their IQD worth, pending points to claim,
  * the household (approvals first), top-up channels and readable transactions.
  */
-export default function Wallet() {
+/** Guests see what lives here and add their number (audit C-18). */
+export default function WalletTab() {
+  return useSignedIn() ? <Wallet /> : <GuestGate kind="wallet" />;
+}
+
+function Wallet() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();

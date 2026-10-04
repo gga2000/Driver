@@ -5,6 +5,10 @@ import {
   type AckDeliveryInput,
   type Actor,
   type DeliveryLogRow,
+  type LaunchDemandRow,
+  type LaunchInterestInput,
+  LaunchService,
+  type MyLaunchInterests,
   type NotifyApp,
   type NotifyLogInput,
   type NotifyPort,
@@ -134,6 +138,35 @@ export class NotifyService implements NotifyPort {
 
   async ack(actor: Actor, input: AckDeliveryInput): Promise<{ ok: boolean }> {
     return { ok: await this.wired().engine.ack(actor.personId, input.deliveryId, input.opened) };
+  }
+
+  async launchInterest(actor: Actor, input: LaunchInterestInput): Promise<MyLaunchInterests> {
+    const { repo } = this.wired();
+    await repo.saveLaunchInterest({ personId: actor.personId, service: input.service, zoneKey: input.zoneKey ?? null }, this.clock.now());
+    return this.myLaunchInterests(actor);
+  }
+
+  async myLaunchInterests(actor: Actor): Promise<MyLaunchInterests> {
+    const mine = new Set(await this.wired().repo.launchInterestsOf(actor.personId));
+    return { services: LaunchService.options.filter((s) => mine.has(s)) };
+  }
+
+  async launchDemand(_actor: Actor): Promise<LaunchDemandRow[]> {
+    const rows = await this.wired().repo.launchInterests();
+    return LaunchService.options
+      .map((service): LaunchDemandRow => {
+        const mine = rows.filter((r) => r.service === service);
+        const zones = new Map<string | null, number>();
+        for (const r of mine) zones.set(r.zoneKey, (zones.get(r.zoneKey) ?? 0) + 1);
+        const lastAt = mine.reduce<Date | null>((at, r) => (!at || r.updatedAt > at ? r.updatedAt : at), null);
+        return {
+          service,
+          people: mine.length,
+          byZone: [...zones.entries()].map(([zoneKey, people]) => ({ zoneKey, people })).sort((a, b) => b.people - a.people || String(a.zoneKey).localeCompare(String(b.zoneKey))),
+          lastAt,
+        };
+      })
+      .sort((a, b) => b.people - a.people);
   }
 
   async log(_actor: Actor, input: NotifyLogInput): Promise<DeliveryLogRow[]> {

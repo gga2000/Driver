@@ -1,9 +1,16 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  CATALOG_PUBLIC_RATE,
+  CATALOG_SEARCH_LIMITS,
   DriverError,
   PriceRequest,
   deliveryFeesOf,
+  searchScore,
   type Actor,
+  type CatalogReader,
+  type CatalogSearchDish,
+  type CatalogSearchInput,
+  type CatalogSearchResult,
   type CustomerCatalogPort,
   type DealBadge,
   type DeliveryPoint,
@@ -15,10 +22,11 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { PricingService } from '../pricing/index.js';
 import type { CatalogItemRecord, StorefrontRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
-import { basePrepMin, etaRange, foldArabic, menuSections, openState, prepRange, rideMinutes } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, menuItemView, menuSections, openState, prepRange, rideMinutes } from './storefront.js';
 
 /** The quote engine the fee preview uses: the same one `orders.place` locks fees with. */
 export interface StorefrontPricing {
@@ -63,17 +71,21 @@ export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
 @Injectable()
 export class CatalogRpc implements CustomerCatalogPort {
   private readonly clock: Clock;
+  private readonly guests: WindowCounter;
 
   constructor(
     private readonly catalog: CatalogService,
     @Inject(STOREFRONT_MERCHANTS) private readonly merchants: StorefrontMerchants,
     @Inject(PricingService) private readonly pricing: StorefrontPricing,
     @Optional() @Inject(CLOCK) clock?: Clock,
+    @Optional() @Inject(WINDOW_COUNTER) guests?: WindowCounter,
   ) {
     this.clock = clock ?? new SystemClock();
+    this.guests = guests ?? new InMemoryWindowCounter(this.clock);
   }
 
-  async restaurants(_actor: Actor, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]> {
+  async restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]> {
+    await this.admit(reader);
     const now = this.clock.now();
     const fronts = await this.catalog.storefronts(input.cityId);
     const f = input.filters;
@@ -97,7 +109,8 @@ export class CatalogRpc implements CustomerCatalogPort {
     );
   }
 
-  async menu(_actor: Actor, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu> {
+  async menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu> {
+    await this.admit(reader);
     const s = await this.catalog.storefront(input.merchantId);
     if (!s) throw new DriverError('org_not_found');
     const now = this.clock.now();
@@ -105,8 +118,92 @@ export class CatalogRpc implements CustomerCatalogPort {
     return { restaurant: await this.card(s, items, input.dropoff ?? null, now), categories: menuSections(items, now, this.merchants.timeZone) };
   }
 
+  /**
+   * Search (`catalog.search`): kitchens by name, cuisine line or tag; dishes by name or menu section. Every query word
+   * has to match (narrowing). Closed kitchens stay in, marked with when they open, so they can still
+   * be opened (and scheduled once pre-orders exist).
+   */
+  async search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult> {
+    await this.admit(reader);
+    const folded = foldArabic(input.query);
+    if (!folded) return { folded, restaurants: [], dishes: [] };
+    const now = this.clock.now();
+    const restaurants: Array<{ card: RestaurantCard; score: number }> = [];
+    const dishes: Array<{ dish: CatalogSearchDish; score: number }> = [];
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      const items = await this.catalog.menu(s.orgId);
+      // A name match outranks a cuisine or tag match ("خالد" → مطعم خالد before a kebab place).
+      const byName = searchScore(folded, s.nameAr);
+      const byKind = Math.max(searchScore(folded, s.cuisineAr), ...s.tags.map((tag) => searchScore(folded, tag)), 0);
+      const kitchenScore = byName > 0 ? byName + 3 : byKind;
+      // A dish matches by its name, or (weaker) by its menu section ("ريوگ" → كاهي وقيمر، مخلمة…).
+      const hits = items
+        .map((item) => {
+          const byDish = searchScore(folded, item.nameAr);
+          return { item, score: byDish > 0 ? byDish : item.categoryAr && searchScore(folded, item.categoryAr) > 0 ? 0.5 : 0 };
+        })
+        .filter((h) => h.score > 0);
+      if (kitchenScore === 0 && hits.length === 0) continue;
+      const card = await this.card(s, items, input.dropoff ?? null, now);
+      // A kitchen that only matches by its dishes still shows in the kitchen list, after the rest.
+      restaurants.push({ card, score: kitchenScore > 0 ? kitchenScore : 0.5 });
+      for (const { item, score } of hits) {
+        const view = menuItemView(item, now, this.merchants.timeZone);
+        dishes.push({
+          score,
+          dish: {
+            id: view.id,
+            name: view.name,
+            description: view.description,
+            priceIqd: view.priceIqd,
+            photoUrl: view.photoUrl,
+            available: view.available,
+            restaurantId: card.id,
+            restaurantName: card.name,
+            restaurantOpen: card.open,
+            restaurantOpensAt: card.opensAt,
+          },
+        });
+      }
+    }
+    restaurants.sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(b.card.open) - Number(a.card.open) ||
+        (a.card.etaMinMinutes ?? a.card.prepMinMinutes) - (b.card.etaMinMinutes ?? b.card.prepMinMinutes) ||
+        a.card.name.localeCompare(b.card.name, 'ar'),
+    );
+    dishes.sort(
+      (a, b) =>
+        Number(b.dish.restaurantOpen && b.dish.available) - Number(a.dish.restaurantOpen && a.dish.available) ||
+        b.score - a.score ||
+        a.dish.priceIqd - b.dish.priceIqd ||
+        a.dish.name.localeCompare(b.dish.name, 'ar'),
+    );
+    return {
+      folded,
+      restaurants: restaurants.slice(0, CATALOG_SEARCH_LIMITS.restaurants).map((r) => r.card),
+      dishes: dishes.slice(0, CATALOG_SEARCH_LIMITS.dishes).map((d) => d.dish),
+    };
+  }
+
+  /**
+   * Guests (no valid token) are limited per client IP (`CATALOG_PUBLIC_RATE`): the catalog is public,
+   * so a scraper is held back without slowing down people who signed in. No IP (tests, in-process
+   * callers) means no limit.
+   */
+  private async admit(reader: Actor | CatalogReader): Promise<void> {
+    if ('personId' in reader || reader.actor || !reader.ip) return;
+    const hit = await this.guests.hit(`catalog:guest:${reader.ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
+    if (!hit.allowed) throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+  }
+
   private matches(s: StorefrontRecord, items: readonly CatalogItemRecord[], q: string): boolean {
-    return [s.nameAr, s.cuisineAr, ...items.map((i) => i.nameAr)].some((text) => foldArabic(text).includes(q));
+    const words = q.split(' ');
+    return [s.nameAr, s.cuisineAr, ...items.map((i) => i.nameAr)].some((text) => {
+      const folded = foldArabic(text);
+      return words.every((w) => folded.includes(w));
+    });
   }
 
   private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {

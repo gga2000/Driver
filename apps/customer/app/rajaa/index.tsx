@@ -8,7 +8,7 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { CorridorPicker, DemandBanner, TripPill } from '@/features/rajaa/BoardParts';
 import { DepartureTile } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
-import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection } from '@/features/rajaa/logic';
+import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { garageName, useActiveBooking, useBoard, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
@@ -133,7 +133,7 @@ export default function RajaaBoard() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                 <Icon name="garage" size={20} color="textMuted" />
                 <View style={{ flex: 1 }}>
-                  <SectionHeader title={g.garage.nameAr} />
+                  <SectionHeader title={publicPlaceName(g.garage.nameAr)} />
                 </View>
                 {gi === 0 ? <StatusPill size="sm" tone="success" live label={t('rajaa.live')} /> : null}
                 <Text variant="caption" color="textMuted">

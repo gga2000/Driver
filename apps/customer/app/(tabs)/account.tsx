@@ -11,14 +11,20 @@ import { unregisterPush } from '@/features/notify/usePush';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
-import { session } from '@/lib/session';
+import { GuestGate } from '@/components/GuestGate';
+import { session, useSignedIn } from '@/lib/session';
 
 /**
  * حسابي (customer spec §10): who you are (name from the vault), saved places with their gate
  * photos and the "موقعك مؤكد ✓" badge, people you order for, safety, notifications, language,
  * sign out.
  */
-export default function Account() {
+/** Guests see what lives here and add their number (audit C-18). */
+export default function AccountTab() {
+  return useSignedIn() ? <Account /> : <GuestGate kind="account" />;
+}
+
+function Account() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();

@@ -5,6 +5,11 @@ import type { Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { IdentityRepository, OtpRecord } from './identity.repository.js';
 import type { SmsProvider } from './sms/provider.js';
+import { DevWhatsAppProvider, type WhatsAppPort } from '../../shared/messaging/whatsapp.js';
+import type { OtpChannel } from '@driver/contracts';
+
+/** The approved WhatsApp authentication template for login codes (Meta: one `{{1}}` = the code). */
+export const OTP_WHATSAPP_TEMPLATE = 'otp_login';
 
 const LOCK_MINUTES = 15;
 
@@ -20,14 +25,20 @@ const BODY_BY_PURPOSE: Record<OtpPurpose, (code: string) => string> = {
  * provider. After 5 wrong tries the challenge locks for 15 minutes.
  */
 export class OtpService {
+  /** Dev only: the channel each phone's latest code went out on, so `devLastOtp` reads the right outbox. */
+  private readonly devChannel = new Map<string, OtpChannel>();
+
   constructor(
     private readonly repo: IdentityRepository,
     private readonly sms: SmsProvider,
     private readonly clock: Clock,
     private readonly pepper: string,
+    /** WhatsApp for "دزلي على واتساب"; without it a WhatsApp request is refused (`otp_channel_unavailable`). */
+    private readonly whatsapp?: WhatsAppPort,
   ) {}
 
-  async request(phoneE164: string, phoneHash: string, purpose: OtpPurpose, tx?: Tx): Promise<{ expiresAt: Date; resendAfterSec: number }> {
+  async request(phoneE164: string, phoneHash: string, purpose: OtpPurpose, tx?: Tx, channel: OtpChannel = 'sms'): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel }> {
+    if (channel === 'whatsapp' && (!this.whatsapp || purpose !== 'login')) throw new DriverError('otp_channel_unavailable');
     const now = this.clock.now();
     const latest = await this.repo.latestOtp(phoneHash, purpose, tx);
     if (latest) {
@@ -43,13 +54,21 @@ export class OtpService {
     const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
     await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now }, tx);
     try {
-      await this.sms.send({ to: phoneE164, body: BODY_BY_PURPOSE[purpose](code), code });
+      if (channel === 'whatsapp') {
+        await this.whatsapp!.send({ to: phoneE164, template: OTP_WHATSAPP_TEMPLATE, language: 'ar', params: [code], preview: BODY_BY_PURPOSE[purpose](code) });
+      } else {
+        await this.sms.send({ to: phoneE164, body: BODY_BY_PURPOSE[purpose](code), code });
+      }
     } catch (err) {
       // A gateway that is not configured is an ops problem; anything else the person may retry.
       if (isDriverError(err)) throw err;
       throw new DriverError(isProviderError(err) && err.code === 'not_configured' ? 'sms_not_configured' : 'sms_send_failed', { cause: err as Error });
     }
-    return { expiresAt, resendAfterSec: OTP_RESEND_SEC };
+    if (this.whatsapp instanceof DevWhatsAppProvider) {
+      if (channel === 'whatsapp') this.devChannel.set(phoneE164, 'whatsapp');
+      else this.devChannel.delete(phoneE164);
+    }
+    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel };
   }
 
   /**
@@ -74,6 +93,16 @@ export class OtpService {
       throw new DriverError('otp_invalid');
     }
     return this.repo.updateOtp(latest.id, { verifiedAt: now, attempts: latest.attempts + 1 }, tx);
+  }
+
+  /** Dev only: the code a dev WhatsApp provider delivered last to this phone, when its latest code went that way. */
+  devWhatsAppCode(phoneE164: string): string | null {
+    if (this.devChannel.get(phoneE164) !== 'whatsapp' || !(this.whatsapp instanceof DevWhatsAppProvider)) return null;
+    for (let i = this.whatsapp.sent.length - 1; i >= 0; i -= 1) {
+      const m = this.whatsapp.sent[i]!;
+      if (m.to === phoneE164 && m.template === OTP_WHATSAPP_TEMPLATE) return m.params[0] ?? null;
+    }
+    return null;
   }
 
   private hash(code: string, phoneHash: string): string {

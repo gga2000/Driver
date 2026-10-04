@@ -16,27 +16,40 @@ export function useDeliverTo(): { place: SavedPlace | null; dropoff: DeliveryPoi
   return useMemo(() => ({ place, dropoff: place ? deliveryPointOf(place) : null }), [place]);
 }
 
-/** `catalog.restaurants` for the deliver-to zone (fee preview + ETA). */
+/** `catalog.restaurants` for the deliver-to zone (fee preview + ETA). Public: guests browse too. */
 export function useCatalogRestaurants(filters: RestaurantsInput['filters'] = {}) {
   const api = useApi();
-  const signedIn = useSignedIn();
   const { dropoff } = useDeliverTo();
   return useQuery({
     ...api.catalog.restaurants.queryOptions({ cityId: CITY_ID, ...(dropoff ? { dropoff } : {}), filters }),
-    enabled: signedIn,
     placeholderData: keepPreviousData,
   });
 }
 
-/** A restaurant's card + sectioned menu (`catalog.menu`), priced for the deliver-to zone. */
+/** A restaurant's card + sectioned menu (`catalog.menu`), priced for the deliver-to zone. Public. */
 export function useMenu(merchantId: string | undefined) {
   const api = useApi();
-  const signedIn = useSignedIn();
   const { dropoff } = useDeliverTo();
   return useQuery({
     ...api.catalog.menu.queryOptions({ merchantId: merchantId ?? '', ...(dropoff ? { dropoff } : {}) }),
-    enabled: signedIn && Boolean(merchantId),
+    enabled: Boolean(merchantId),
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * `catalog.search` for a typed query (Arabic-folded on the server), priced for the deliver-to zone.
+ * Public. Keeps the last results on screen while the next query loads, so typing never flashes.
+ */
+export function useCatalogSearch(query: string) {
+  const api = useApi();
+  const { dropoff } = useDeliverTo();
+  const q = query.trim();
+  return useQuery({
+    ...api.catalog.search.queryOptions({ cityId: CITY_ID, query: q || ' ', ...(dropoff ? { dropoff } : {}) }),
+    enabled: q.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
 }
 

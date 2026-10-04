@@ -1,4 +1,4 @@
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
@@ -6,12 +6,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
+import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
-import { resolveGuard } from '@/lib/guard';
+import { resolveGuard, returnSpent } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
@@ -75,16 +76,26 @@ function RootNavigator() {
   const { status } = useSession();
   // Push token registration, foreground acks and taps → screens (signed in only).
   usePushRegistration();
+  // Saved places and the vault name → this device; device-only places → the server (once). At the
+  // root, not in the tabs: a guest who signs in at "كمّل الطلب" lands on checkout, which needs them.
+  useAccountSync();
   const prof = useProfile();
   const segments = useSegments();
+  const pathname = usePathname();
   const router = useRouter();
   const ready = status !== 'loading' && prof.loaded;
 
   useEffect(() => {
     if (!ready) return;
-    const target = resolveGuard({ status, setupPending: prof.setupPending, segments });
-    if (target) router.replace(target);
-  }, [ready, status, prof.setupPending, segments, router]);
+    const input = { status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo };
+    // Back where the guest was going (after OTP and setup): the return path is spent.
+    if (returnSpent(input)) void profile.setReturnTo(null);
+    const target = resolveGuard(input);
+    if (!target) return;
+    // A guest stopped at a protected screen comes back to it after sign-in.
+    if (target.remember) void profile.setReturnTo(target.remember);
+    router.replace(target.to as never);
+  }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>
@@ -106,6 +117,9 @@ function RootNavigator() {
         <Stack.Screen name="kitchen/[id]" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="cart" options={{ title: t('cart.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="checkout" options={{ title: t('checkout.title'), headerLeft: () => <HeaderBack /> }} />
+        {/* Search and the full restaurant list (audit C-01, C-02): public, like home and menus. */}
+        <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
+        <Stack.Screen name="restaurants" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />

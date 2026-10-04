@@ -5,6 +5,7 @@ import { routeLabel } from '@/features/rajaa/labels';
 import { bookingHref, clockLabel } from '@/features/rajaa/logic';
 import { useRajaaHome } from '@/features/rajaa/queries';
 import { useT } from '@/lib/i18n';
+import { useSignedIn } from '@/lib/session';
 
 /**
  * الرجعة card, second on home: the live board of cars back to Aziziyah (`routes.board`), or the
@@ -14,6 +15,8 @@ export function RajaaCard() {
   const theme = useTheme();
   const t = useT();
   const r = useRajaaHome();
+  // Guests see what الرجعة is; the live board (and booking) comes with their number (audit C-18).
+  const guest = !useSignedIn();
   const route = r.trip && r.tripCityId ? routeLabel(t, r.tripCityId, r.trip.departure.direction) : routeLabel(t, 'baghdad', 'to_aziziyah');
   const summary = r.trip
     ? r.trip.state === 'held' && r.trip.heldUntil
@@ -46,7 +49,11 @@ export function RajaaCard() {
             {r.garage ? ` · ${r.garage}` : ''}
           </Text>
           <Text variant="title">{route}</Text>
-          {r.loading ? (
+          {guest ? (
+            <Text variant="footnote" color="textMuted" testID="home-rajaa-summary">
+              {t('rajaa.home_guest')}
+            </Text>
+          ) : r.loading ? (
             <Skeleton height={14} width="70%" />
           ) : (
             <Text variant="footnote" color="textMuted" tabular testID="home-rajaa-summary">

@@ -635,15 +635,15 @@ const rajaa = await (async () => {
       ]);
 
       // Household: payer = this person; Minar orders with a 25,000 limit and asks for 32,000.
-      let household = orgs.householdsOf(personId)[0];
-      household ??= orgs.createHousehold({ name: 'بيت علي', cityId: 'aziziyah', payerId: personId });
+      let household = (await orgs.householdsOf(personId))[0];
+      household ??= await orgs.createHousehold({ name: 'بيت علي', cityId: 'aziziyah', payerId: personId });
       const minar = await identity.ensurePersonByPhone('07801234567', personId, 'demo');
       await identity.updateProfile({ personId: minar, sessionId: 'demo' }, { name: 'منار' });
-      orgs.addMember(household.id, minar, { role: 'orderer', spendingLimitIqd: 25_000, actorId: personId });
+      await orgs.addMember(household.id, minar, { role: 'orderer', spendingLimitIqd: 25_000, actorId: personId });
       const kid = await identity.ensurePersonByPhone('07709876543', personId, 'demo');
       await identity.updateProfile({ personId: kid, sessionId: 'demo' }, { name: 'حسين' });
-      orgs.addMember(household.id, kid, { role: 'orderer', spendingLimitIqd: 10_000, actorId: personId });
-      orgs.requestPayerApproval({ orgId: household.id, orderId: `demo-order-${now}`, requestedBy: minar, amountIqd: 32_000 });
+      await orgs.addMember(household.id, kid, { role: 'orderer', spendingLimitIqd: 10_000, actorId: personId });
+      await orgs.requestPayerApproval({ orgId: household.id, orderId: `demo-order-${now}`, requestedBy: minar, amountIqd: 32_000 });
       if (!(await places.mine(minar)).some((p) => p.access === 'owner')) {
         await places.save(minar, { cityId: 'aziziyah', label: 'custom', name: 'بيت أهل منار', pin: { lat: 32.887, lng: 45.0765 }, note: 'البيت الثالث بعد الفرن', photoIds: [], shareWithHousehold: true });
       }
@@ -790,19 +790,12 @@ const rajaa = await (async () => {
       const PICKUP = { lat: 32.9012, lng: 45.0702 };
       const DROP = { lat: 32.9165, lng: 45.0585 };
       const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', pickup: { zoneKey: 'centre', pin: PICKUP }, dropoff: { zoneKey: 'mahdood_2', pin: DROP } });
-      const trip = await trips.createForOrders({
-        cityId: 'aziziyah',
-        vertical: 'taxi',
-        orders: [{ orderId: ride.id }],
-        stops: [
-          { orderId: ride.id, type: 'pickup', zoneKey: 'centre', target: PICKUP },
-          { orderId: ride.id, type: 'dropoff', zoneKey: 'mahdood_2', target: DROP },
-        ],
-      });
+      // orders.place builds the ride's trip and broadcasts it (the dispatcher's waves): use that trip.
+      const trip = await trips.activeForOrder(ride.id);
+      if (!trip) throw new Error(`orders.place built no trip for ride ${ride.id}`);
       const driverId = await driverWithCar(PICKUP);
-      await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: PICKUP, dropoffZoneId: 'mahdood_2', cashIqd: ride.totalIqd });
       const open = await dispatch.openOffer(driverId, 'aziziyah');
-      const offerId = open?.offer.id ?? (await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId, reason: 'demo', force: true })).offerId;
+      const offerId = open && open.request.tripId === trip.id ? open.offer.id : (await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId, reason: 'demo', force: true })).offerId;
       await dispatch.respond({ personId: driverId, sessionId: 'demo' }, { offerId, accept: true });
       const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
       await trips.reportPosition(driverId, { tripId: trip.id, pin: PICKUP, at: new Date(), bearing: 320, speedKmh: 0 });

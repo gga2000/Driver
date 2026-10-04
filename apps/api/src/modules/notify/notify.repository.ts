@@ -106,6 +106,19 @@ export interface NotifyRepository {
   /** Marketing messages that went (or are going) to a person since `since`, one per dedupe key. */
   countMarketingSince(personId: string, since: Date): Promise<number>;
   log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]>;
+  /** "خبرني لمن ينفتح": one row per person and service; asking again refreshes the zone and time. */
+  saveLaunchInterest(input: { personId: string; service: string; zoneKey: string | null }, now: Date): Promise<void>;
+  launchInterestsOf(personId: string): Promise<string[]>;
+  /** Every interest row (the Console aggregates them; a few thousand rows at most per city). */
+  launchInterests(): Promise<LaunchInterestRecord[]>;
+}
+
+export interface LaunchInterestRecord {
+  personId: string;
+  service: string;
+  zoneKey: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const NOTIFY_REPOSITORY = Symbol('NOTIFY_REPOSITORY');
@@ -122,6 +135,7 @@ export class InMemoryNotifyRepository implements NotifyRepository {
   readonly tokens = new Map<string, PushTokenRecord>();
   readonly prefs = new Map<string, NotifyPreferences>();
   readonly deliveries = new Map<string, DeliveryRecord>();
+  readonly interests = new Map<string, LaunchInterestRecord>();
   private readonly byKey = new Map<string, string>();
   /** Insertion order: the log's tie-break for rows created in the same millisecond. */
   private readonly seqOf = new Map<string, number>();
@@ -162,6 +176,20 @@ export class InMemoryNotifyRepository implements NotifyRepository {
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {
     return this.prefs.get(personId) ?? null;
+  }
+
+  async saveLaunchInterest(input: { personId: string; service: string; zoneKey: string | null }, now: Date): Promise<void> {
+    const key = `${input.personId}|${input.service}`;
+    const prior = this.interests.get(key);
+    this.interests.set(key, { ...input, createdAt: prior?.createdAt ?? now, updatedAt: now });
+  }
+
+  async launchInterestsOf(personId: string): Promise<string[]> {
+    return [...this.interests.values()].filter((r) => r.personId === personId).map((r) => r.service);
+  }
+
+  async launchInterests(): Promise<LaunchInterestRecord[]> {
+    return [...this.interests.values()].map((r) => ({ ...r }));
   }
 
   async setPreferences(personId: string, prefs: NotifyPreferences): Promise<NotifyPreferences> {
@@ -313,6 +341,22 @@ export class PrismaNotifyRepository implements NotifyRepository {
 
   async tokensOf(personId: string, app?: NotifyApp): Promise<PushTokenRecord[]> {
     return (await this.db().pushToken.findMany({ where: { personId, ...(app ? { app } : {}) }, orderBy: { lastSeenAt: 'desc' } })).map(tokenOf);
+  }
+
+  async saveLaunchInterest(input: { personId: string; service: string; zoneKey: string | null }): Promise<void> {
+    await this.db().launchInterest.upsert({
+      where: { personId_service: { personId: input.personId, service: input.service } },
+      create: { id: newId('lin'), personId: input.personId, service: input.service, zoneKey: input.zoneKey },
+      update: { zoneKey: input.zoneKey },
+    });
+  }
+
+  async launchInterestsOf(personId: string): Promise<string[]> {
+    return (await this.db().launchInterest.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } })).map((r) => r.service);
+  }
+
+  async launchInterests(): Promise<LaunchInterestRecord[]> {
+    return (await this.db().launchInterest.findMany({ orderBy: { updatedAt: 'desc' } })).map((r) => ({ personId: r.personId, service: r.service, zoneKey: r.zoneKey, createdAt: r.createdAt, updatedAt: r.updatedAt }));
   }
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {

@@ -20,11 +20,11 @@ export function monogram(name: string): string {
 }
 
 /** "20–30" kept left-to-right inside Arabic text (otherwise the bidi algorithm shows 30–20). */
-function range(min: number, max: number): string {
+export function range(min: number, max: number): string {
   return `\u2066${min}–${max}\u2069`;
 }
 
-const HERO: Record<AvatarTone, { bg: ThemeColorKey; fg: ThemeColorKey }> = {
+export const HERO: Record<AvatarTone, { bg: ThemeColorKey; fg: ThemeColorKey }> = {
   accent: { bg: 'accentTint', fg: 'accentText' },
   info: { bg: 'infoTint', fg: 'infoText' },
   success: { bg: 'successTint', fg: 'successText' },
@@ -134,17 +134,22 @@ export interface RestaurantRailProps {
   error: boolean;
   onRetry: () => void;
   showDeal?: boolean;
+  /** "شوف الكل" opens the full list (/restaurants) with this filter preset (audit C-02). */
+  seeAll?: 'all' | 'open' | 'deals';
   testID?: string;
 }
 
 /** Horizontal rail bleeding to the screen edges, with skeleton, empty and error states. */
-export function RestaurantRail({ title, restaurants, loading, error, onRetry, showDeal, testID }: RestaurantRailProps) {
+export function RestaurantRail({ title, restaurants, loading, error, onRetry, showDeal, seeAll = 'all', testID }: RestaurantRailProps) {
   const theme = useTheme();
   const t = useT();
   const gutter = theme.space[5];
   return (
     <View testID={testID} style={{ gap: theme.space[3] }}>
-      <SectionHeader title={title} action={restaurants?.length ? { label: t('action.see_all'), onPress: () => {} } : undefined} />
+      <SectionHeader
+        title={title}
+        action={restaurants?.length ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: seeAll } }) } : undefined}
+      />
       {loading ? (
         <View accessibilityLabel={t('status.loading')} style={{ flexDirection: 'row', gap: theme.space[3], marginHorizontal: -gutter, paddingHorizontal: gutter, overflow: 'hidden' }}>
           <CardSkeleton />

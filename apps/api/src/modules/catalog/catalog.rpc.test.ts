@@ -1,6 +1,5 @@
-import { TRPCError } from '@trpc/server';
 import { describe, expect, it } from 'vitest';
-import type { AppContext, MenuItem, RestaurantCard } from '@driver/contracts';
+import { CATALOG_PUBLIC_RATE, isDriverError, type AppContext, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { FakeClock } from '../../shared/clock.js';
@@ -120,16 +119,83 @@ describe('catalog.restaurants (customer read, M3)', () => {
     expect(after.etaMinMinutes! - before.etaMinMinutes!).toBe(10);
   });
 
-  it('requires a signed-in person (no role needed)', async () => {
+  it('is public for guest browsing: no account needed, same cards as a signed-in reader', async () => {
     const w = await world();
-    const err = await caller(w.rpc, null)
-      .restaurants({ cityId: 'aziziyah' })
-      .then(
-        () => null,
-        (e: unknown) => e,
-      );
-    expect(err).toBeInstanceOf(TRPCError);
-    expect((err as TRPCError).code).toBe('UNAUTHORIZED');
+    const guest = await caller(w.rpc, null).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    const signedIn = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(guest).toEqual(signedIn);
+    const menu = await caller(w.rpc, null).menu({ merchantId: w.byKey('khalid').orgId });
+    expect(menu.restaurant.name).toBe('مطعم خالد');
+  });
+
+  it('limits guests per client IP (rate_limited with retryAfterSec); signed-in readers are not limited', async () => {
+    const w = await world();
+    const guest = { actor: null, ip: '10.0.0.7' };
+    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' });
+    const err = await w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(isDriverError(err) && err.code).toBe('rate_limited');
+    expect(isDriverError(err) && err.envelope.retryAfterSec).toBeGreaterThan(0);
+    // Another guest, and the same IP once signed in, still read.
+    await expect(w.rpc.restaurants({ actor: null, ip: '10.0.0.8' }, { cityId: 'aziziyah', filters: {} })).resolves.toHaveLength(4);
+    await expect(w.rpc.restaurants({ actor: ACTOR, ip: '10.0.0.7' }, { cityId: 'aziziyah', filters: {} })).resolves.toHaveLength(4);
+    // The window slides: a minute later the guest reads again.
+    w.clock.advance(CATALOG_PUBLIC_RATE.windowMs + 1);
+    await expect(w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} })).resolves.toHaveLength(4);
+  });
+});
+
+describe('catalog.search', () => {
+  const search = async (query: string, at?: string) => {
+    const w = await world(at);
+    return caller(w.rpc, null).search({ cityId: 'aziziyah', query, dropoff: ZAKUR });
+  };
+
+  it('finds kitchens by name first, then dishes, with Arabic folding (ة/ه, أ/ا, ى/ي, گ/ك, "ال", Eastern digits)', async () => {
+    const byName = await search('خالد');
+    expect(byName.restaurants[0]?.name).toBe('مطعم خالد');
+    expect(byName.dishes.map((d) => d.name)).toContain('مشكّل خالد');
+
+    // "الشاورما" (with ال and a typed ة/ه mix) finds the shawarma kitchen and its dishes.
+    const shawarma = await search('الشاورما');
+    expect(shawarma.restaurants.map((r) => r.name)).toEqual(['مأكولات الشام']);
+    expect(shawarma.dishes.map((d) => d.name)).toEqual(expect.arrayContaining(['شاورما دجاج', 'شاورما لحم', 'صحن شاورما دجاج']));
+    expect(shawarma.dishes.every((d) => d.restaurantName === 'مأكولات الشام' && d.priceIqd > 0)).toBe(true);
+
+    expect((await search('تكه')).dishes.map((d) => d.name)).toEqual(expect.arrayContaining(['لفة تكة', 'وجبة تكة', 'تكة لحم']));
+    // گ folds to ك; a menu section matches its dishes ("ريوگ" → the breakfast plates).
+    expect((await search('ريوك')).dishes.map((d) => d.name)).toEqual(expect.arrayContaining(['كاهي وقيمر', 'مخلمة']));
+    expect((await search('باجه')).dishes.map((d) => d.name)[0]).toBe('باچة');
+    expect((await search('جاي عراقى')).dishes.map((d) => d.name)).toEqual(['چاي عراقي']);
+    expect((await search('اربيل')).dishes.map((d) => d.name)).toEqual(['لبن أربيل']);
+    // Eastern digits fold to Western ("خبز تنور (4 أرغفة)").
+    expect((await search('تنور ٤')).dishes.map((d) => d.name)).toEqual(['خبز تنور (4 أرغفة)']);
+    // A kitchen that matches only through its dishes is still listed, after the name matches.
+    expect((await search('كباب')).restaurants.map((r) => r.name).sort()).toEqual(['مشويات الحاج كريم', 'مطعم خالد'].sort());
+  });
+
+  it('keeps closed kitchens reachable: marked with when they open, their dishes after open ones', async () => {
+    // Saturday 18:12: المسافر (5:00–15:00) is closed; تمن is on its menu and on الحاج كريم's.
+    const r = await search('تمن');
+    const musafir = r.restaurants.find((c) => c.name === 'مطعم المسافر');
+    expect(musafir).toMatchObject({ open: false, opensAt: '5:00' });
+    const fromMusafir = r.dishes.find((d) => d.restaurantName === 'مطعم المسافر');
+    expect(fromMusafir).toMatchObject({ restaurantOpen: false, restaurantOpensAt: '5:00' });
+    expect(r.dishes[0]?.restaurantOpen).toBe(true);
+    const firstClosed = r.dishes.findIndex((d) => !d.restaurantOpen);
+    expect(r.dishes.slice(firstClosed).every((d) => !d.restaurantOpen)).toBe(true);
+  });
+
+  it('says nothing found plainly (empty lists), and folds punctuation-only queries to nothing', async () => {
+    expect(await search('بيتزا')).toMatchObject({ folded: 'بيتزا', restaurants: [], dishes: [] });
+    expect(await search('؟!')).toEqual({ folded: '', restaurants: [], dishes: [] });
+  });
+
+  it('every query word has to match (narrowing)', async () => {
+    const r = await search('شاورما لحم');
+    expect(r.dishes.map((d) => d.name)).toEqual(['شاورما لحم']);
   });
 });
 

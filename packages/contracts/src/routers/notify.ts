@@ -3,6 +3,9 @@ import type { RoleKind } from '../auth.js';
 import {
   AckDeliveryInput,
   DeliveryLogRow,
+  LaunchDemandRow,
+  LaunchInterestInput,
+  MyLaunchInterests,
   NotifyLogInput,
   NotifyPreferences,
   RegisterDeviceInput,
@@ -14,6 +17,8 @@ import { protectedProcedure, router } from '../trpc.js';
 
 /** Who may read the delivery log (support desk, dispatch, admin). */
 export const NOTIFY_LOG_ROLES: readonly RoleKind[] = ['support', 'dispatcher', 'admin'];
+/** Who may read coming-soon demand (the Console's launch planning). */
+export const LAUNCH_DEMAND_ROLES: readonly RoleKind[] = ['admin', 'dispatcher', 'support', 'field_ops'];
 
 /**
  * Push tokens, notification preferences and the delivery log (`modules/notify` behind `ctx.notify`).
@@ -45,4 +50,16 @@ export const notifyRouter = router({
     .input(NotifyLogInput)
     .output(z.array(DeliveryLogRow))
     .query(({ ctx, input }) => ctx.notify.log(ctx.actor, input)),
+  /** "خبرني لمن ينفتح" on a coming-soon tile (grocery, خطوط, parcels): idempotent per person and service. */
+  launchInterest: protectedProcedure()
+    .input(LaunchInterestInput)
+    .output(MyLaunchInterests)
+    .mutation(({ ctx, input }) => ctx.notify.launchInterest(ctx.actor, input)),
+  myLaunchInterests: protectedProcedure()
+    .output(MyLaunchInterests)
+    .query(({ ctx }) => ctx.notify.myLaunchInterests(ctx.actor)),
+  /** Console: demand for each coming-soon service, by zone. */
+  launchDemand: protectedProcedure(LAUNCH_DEMAND_ROLES)
+    .output(z.array(LaunchDemandRow))
+    .query(({ ctx }) => ctx.notify.launchDemand(ctx.actor)),
 });

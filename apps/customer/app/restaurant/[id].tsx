@@ -1,5 +1,5 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem, RestaurantCard } from '@driver/contracts';
@@ -29,7 +29,8 @@ function range(min: number, max: number): string {
  * dish cards with one-tap add, the item sheet, and the floating cart bar.
  */
 export default function RestaurantScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `item`: a dish picked in search opens its sheet straight away (audit C-01).
+  const { id, item: itemParam } = useLocalSearchParams<{ id: string; item?: string }>();
   const theme = useTheme();
   const t = useT();
   const toast = useToast();
@@ -53,6 +54,13 @@ export default function RestaurantScreen() {
     return m;
   }, [cart, mine]);
   const closed = restaurant ? !restaurant.open : false;
+  const openedFromSearch = useRef(false);
+  useEffect(() => {
+    if (!itemParam || openedFromSearch.current || categories.length === 0) return;
+    const found = categories.flatMap((c) => c.items).find((i) => i.id === itemParam);
+    openedFromSearch.current = true;
+    if (found) setOpen(found);
+  }, [itemParam, categories]);
 
   const onAdded = (name: string) => {
     setOpen(null);

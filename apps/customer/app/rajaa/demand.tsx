@@ -6,7 +6,7 @@ import type { MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, ltr, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { driverLabel, routeLabel, seatsCount, seatsList, TRAVELLING_AS, travellingAsLabel, vehicleLine, windowLabel } from '@/features/rajaa/labels';
-import { clockLabel, demandWindows, endpoints, holdCountdown, hourLabel, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId } from '@/features/rajaa/logic';
+import { clockLabel, demandWindows, endpoints, holdCountdown, hourLabel, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
 import { garageName, useBoard, useCancelDemand, useMyBookings, useMyDemand, useNetwork, usePostDemand } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
@@ -256,7 +256,7 @@ export default function DemandScreen() {
       <Section title={t('rajaa.pickup_title')}>
         <ChipGroup
           required
-          items={[{ id: 'any', label: t('rajaa.any_garage'), icon: 'garage' as const }, ...garages.map((g) => ({ id: g.id, label: g.nameAr }))]}
+          items={[{ id: 'any', label: t('rajaa.any_garage'), icon: 'garage' as const }, ...garages.map((g) => ({ id: g.id, label: publicPlaceName(g.nameAr) }))]}
           value={[garageId]}
           onChange={(next) => setGarageId(next[0] ?? 'any')}
         />

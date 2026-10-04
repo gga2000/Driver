@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
+import type { OtpChannel } from '@driver/contracts';
 import { View } from 'react-native';
 import { Button, Card, Icon, Text, useTheme } from '@driver/ui';
 import { OtpInput } from '@/components/OtpInput';
@@ -36,6 +37,9 @@ export default function OtpEntry() {
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
   const [resendUntil, setResendUntil] = useState(() => Date.now() + Number(params.resendAfter ?? 30) * 1000);
+  // SMS first; after 30 s "ما وصلك؟ دزلي على واتساب" sends the next code over WhatsApp (audit C-18).
+  const [channel, setChannel] = useState<OtpChannel>('sms');
+  const [resending, setResending] = useState<OtpChannel | null>(null);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
 
@@ -68,15 +72,20 @@ export default function OtpEntry() {
     if (v.length === CODE_LENGTH) void submit(v);
   };
 
-  const onResend = async () => {
+  const onResend = async (via: OtpChannel) => {
+    setResending(via);
     try {
-      const res = await resend.mutateAsync({ phone, purpose: 'login', device: await getDeviceInfo() });
+      const res = await resend.mutateAsync({ phone, purpose: 'login', channel: via, device: await getDeviceInfo() });
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
+      setChannel(res.channel ?? via);
       setCode('');
+      if (verify.error) verify.reset();
       if (DEV_TOOLS) void devCode.refetch();
     } catch (err) {
       const after = apiRetryAfter(err);
       if (after) setResendUntil(Date.now() + after * 1000);
+    } finally {
+      setResending(null);
     }
   };
 
@@ -92,7 +101,10 @@ export default function OtpEntry() {
 
   return (
     <Screen>
-      <AuthHeader title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
+      <AuthHeader
+        title={t('onboarding.otp_title')}
+        subtitle={t(channel === 'whatsapp' ? 'onboarding.otp_sent_whatsapp' : 'onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })}
+      />
 
       <View style={{ gap: theme.space[3] }}>
         <OtpInput
@@ -115,13 +127,33 @@ export default function OtpEntry() {
         ) : null}
       </View>
 
-      <View style={{ alignItems: 'center', gap: theme.space[1] }}>
+      <View style={{ alignItems: 'center', gap: theme.space[2] }}>
         {secondsLeft > 0 ? (
           <Text variant="label" color="textMuted" tabular>
             {t('onboarding.otp_resend_in', { seconds: secondsLeft })}
           </Text>
         ) : (
-          <Button testID="otp-resend" variant="ghost" label={t('onboarding.otp_resend')} loading={resend.isPending} onPress={() => void onResend()} style={{ alignSelf: 'center' }} />
+          <View style={{ alignSelf: 'stretch', gap: theme.space[2] }} testID="otp-not-received">
+            <Button
+              testID="otp-whatsapp"
+              variant="secondary"
+              icon="chat"
+              fullWidth
+              label={t('onboarding.otp_whatsapp_offer')}
+              loading={resending === 'whatsapp'}
+              disabled={resending !== null}
+              onPress={() => void onResend('whatsapp')}
+            />
+            <Button
+              testID="otp-resend"
+              variant="ghost"
+              label={t('onboarding.otp_resend_sms')}
+              loading={resending === 'sms'}
+              disabled={resending !== null}
+              onPress={() => void onResend('sms')}
+              style={{ alignSelf: 'center' }}
+            />
+          </View>
         )}
         <Button variant="ghost" size="sm" label={t('onboarding.otp_change_number')} onPress={() => router.back()} style={{ alignSelf: 'center' }} />
       </View>

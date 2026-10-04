@@ -48,10 +48,17 @@ export interface ProfileState {
   setupPending: boolean;
   /** Safety (customer spec §10): share live trips with the emergency contact by default. */
   shareTripsByDefault: boolean;
+  /** The welcome screen was seen once (guest browsing starts from it; later launches open home). */
+  welcomed: boolean;
+  /**
+   * Where a guest was going when the phone number was asked ("كمّل الطلب" → `/checkout`, "احجز" →
+   * `/rajaa/…`): the guard returns them there after OTP (and setup), then clears it.
+   */
+  returnTo: string | null;
 }
 
 const KEY = 'driver.customer.profile';
-const EMPTY: ProfileState = { loaded: false, name: null, places: [], selectedPlaceId: null, locale: 'ar-IQ', setupPending: false, shareTripsByDefault: false };
+const EMPTY: ProfileState = { loaded: false, name: null, places: [], selectedPlaceId: null, locale: 'ar-IQ', setupPending: false, shareTripsByDefault: false, welcomed: false, returnTo: null };
 
 export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
   const z = AZIZIYAH_ZONES.find((x) => x.id === zoneId);
@@ -142,6 +149,8 @@ export function createProfileStore(store: KeyValueStorage) {
           locale: parsed.locale === 'en' ? 'en' : 'ar-IQ',
           setupPending: parsed.setupPending === true,
           shareTripsByDefault: parsed.shareTripsByDefault === true,
+          welcomed: parsed.welcomed === true,
+          returnTo: typeof parsed.returnTo === 'string' && parsed.returnTo.startsWith('/') ? parsed.returnTo : null,
         });
       })();
       return loading;
@@ -149,6 +158,9 @@ export function createProfileStore(store: KeyValueStorage) {
     setName: (name: string) => save({ ...state, name: name.trim() || null }),
     setSetupPending: (setupPending: boolean) => save({ ...state, setupPending }),
     setLocale: (locale: AppLocale) => save({ ...state, locale }),
+    setWelcomed: () => (state.welcomed ? Promise.resolve() : save({ ...state, welcomed: true })),
+    /** Remember (or clear, with null) where to go after sign-in; only in-app paths are kept. */
+    setReturnTo: (returnTo: string | null) => save({ ...state, returnTo: returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null }),
     addPlace(place: Omit<SavedPlace, 'id'>): Promise<SavedPlace> {
       const saved: SavedPlace = { ...place, id: `place_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}` };
       return save({ ...state, places: [...state.places, saved], selectedPlaceId: state.selectedPlaceId ?? saved.id }).then(() => saved);
@@ -174,7 +186,7 @@ export function createProfileStore(store: KeyValueStorage) {
       return save({ ...state, places, selectedPlaceId });
     },
     /** Sign-out: forget the person's data on this device, keep the UI language. */
-    reset: () => save({ ...EMPTY, loaded: true, locale: state.locale }),
+    reset: () => save({ ...EMPTY, loaded: true, locale: state.locale, welcomed: state.welcomed }),
   };
   return api;
 }

@@ -2508,6 +2508,24 @@ model NotifyDelivery {
   @@schema("public")
 }
 
+/// "خبرني لمن ينفتح" on the customer home's coming-soon tiles: one row per person and service
+/// (`grocery` | `khat` | `parcel`); asking again refreshes `updated_at` and the zone. The Console reads
+/// the counts per service and zone (`notify.launchDemand`); the launch push goes to these people.
+model LaunchInterest {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  service   String
+  /// Zone of the person's deliver-to place when they asked (null = no place yet).
+  zoneKey   String?  @map("zone_key")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([personId, service])
+  @@index([service, zoneKey])
+  @@map("launch_interests")
+  @@schema("public")
+}
+
 // ───────────────────────── launch control room ─────────────────────────
 
 /// Kill switch (launch playbook §3): one row per target `<scope>:<key>:<vertical|*>` in a city. Turning it

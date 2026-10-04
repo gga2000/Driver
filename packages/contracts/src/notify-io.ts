@@ -365,6 +365,33 @@ export const NotifyLogInput = z
   .refine((v) => Boolean(v.personId ?? v.orderId), { message: 'personId or orderId' });
 export type NotifyLogInput = z.infer<typeof NotifyLogInput>;
 
+/**
+ * "خبرني" on the home's coming-soon tiles (customer C-03): a person asks to be told when a service
+ * opens. One row per person and service (asking again only refreshes it); the Console reads the
+ * counts per service and zone (`notify.launchDemand`) to decide where to open first.
+ */
+export const LaunchService = z.enum(['grocery', 'khat', 'parcel']);
+export type LaunchService = z.infer<typeof LaunchService>;
+
+export const LaunchInterestInput = z.object({
+  service: LaunchService,
+  /** The zone of the person's deliver-to place, when they have one (demand by area). */
+  zoneKey: z.string().min(1).max(40).optional(),
+});
+export type LaunchInterestInput = z.infer<typeof LaunchInterestInput>;
+
+export const MyLaunchInterests = z.object({ services: z.array(LaunchService) });
+export type MyLaunchInterests = z.infer<typeof MyLaunchInterests>;
+
+export const LaunchDemandRow = z.object({
+  service: LaunchService,
+  people: z.number().int().min(0),
+  /** Most-asked zones first; people without a place count under `null`. */
+  byZone: z.array(z.object({ zoneKey: z.string().nullable(), people: z.number().int().min(0) })),
+  lastAt: z.coerce.date().nullable(),
+});
+export type LaunchDemandRow = z.infer<typeof LaunchDemandRow>;
+
 export interface NotifyPort {
   registerDevice(actor: Actor, input: RegisterDeviceInput): Promise<RegisterDeviceOutput>;
   unregisterDevice(actor: Actor, input: UnregisterDeviceInput): Promise<RegisterDeviceOutput>;
@@ -373,4 +400,10 @@ export interface NotifyPort {
   ack(actor: Actor, input: AckDeliveryInput): Promise<{ ok: boolean }>;
   /** Support / dispatch: deliveries for a person or an order, newest first. */
   log(actor: Actor, input: NotifyLogInput): Promise<DeliveryLogRow[]>;
+  /** "خبرني لمن ينفتح": records (or refreshes) this person's interest in a coming-soon service. */
+  launchInterest(actor: Actor, input: LaunchInterestInput): Promise<MyLaunchInterests>;
+  /** The services this person asked about (the sheet says "راح نخبرك"). */
+  myLaunchInterests(actor: Actor): Promise<MyLaunchInterests>;
+  /** Console: how many people asked for each coming-soon service, by zone. */
+  launchDemand(actor: Actor): Promise<LaunchDemandRow[]>;
 }

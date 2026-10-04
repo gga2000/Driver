@@ -5,7 +5,7 @@ import type { SeatPayment } from '@driver/contracts';
 import { Button, Card, CountdownRing, EmptyState, PriceLine, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { seatsList } from '@/features/rajaa/labels';
-import { boardingOpensAt, clockLabel, holdCountdown, RAJAA_RULES } from '@/features/rajaa/logic';
+import { boardingOpensAt, clockLabel, holdCountdown, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { OptionCard, RuleList, Section } from '@/features/rajaa/Option';
 import { garageName, useBookSeat, useBooking, useCancelSeat, useNetwork, useWalletBalance } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
@@ -146,7 +146,7 @@ export default function HoldAndPay() {
           </View>
           <Text variant="footnote" color="textMuted">
             {t('rajaa.seat_label')}: {seatsList(t, b.seatIds)}
-            {b.pickup.kind !== 'garage' && b.pickup.nameAr ? ` · ${b.pickup.nameAr}` : ''}
+            {b.pickup.kind !== 'garage' && b.pickup.nameAr ? ` · ${publicPlaceName(b.pickup.nameAr)}` : ''}
           </Text>
           <Rule style={{ marginVertical: theme.space[2] }} />
           <PriceLine label={t('rajaa.line_seats', { n: b.seatIds.length, amount: amountParam(b.seatPriceIqd) })} amount={seatsTotal} />

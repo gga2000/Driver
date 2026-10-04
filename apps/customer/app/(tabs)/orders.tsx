@@ -8,6 +8,8 @@ import { isActiveOrder, useMyOrders } from '@/features/home/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { GuestGate } from '@/components/GuestGate';
+import { useSignedIn } from '@/lib/session';
 
 const TYPE_ICON: Record<OrderType, IconName> = {
   food: 'bag',
@@ -27,7 +29,12 @@ function tone(o: Order): StatusTone {
 }
 
 /** طلباتي: the person's own orders (`orders.mine`), newest first. Detail opens /order/[id]. */
-export default function Orders() {
+/** Guests see what lives here and add their number (audit C-18). */
+export default function OrdersTab() {
+  return useSignedIn() ? <Orders /> : <GuestGate kind="orders" />;
+}
+
+function Orders() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -63,7 +70,7 @@ export default function Orders() {
           icon="receipt"
           title={t('empty.orders')}
           body={t('empty.orders_hint')}
-          action={{ label: t('home.order_now'), onPress: () => router.navigate('/') }}
+          action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }}
         />
       ) : (
         <Card elevation={0} padding={0}>

@@ -16,7 +16,9 @@ import { useCartQuote, useDeliverTo, useMenu, useOrderQuote } from '@/features/f
 import { upsellItems } from '@/features/food/upsell';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { requireSignIn } from '@/lib/guest';
 import { useProfile } from '@/lib/profile';
+import { useSignedIn } from '@/lib/session';
 
 /**
  * Cart (spec §3): one kitchen, lines grouped by person once more than one person is tagged, swipe or
@@ -45,6 +47,8 @@ export default function CartScreen() {
   const shortfall = minOrderShortfall(cart);
   const upsell = useMemo(() => (menu.data ? upsellItems(menu.data.categories, cart) : []), [menu.data, cart]);
   const closed = menu.data ? !menu.data.restaurant.open : false;
+  // A guest builds the cart freely; "كمّل الطلب" asks for the phone and comes back to checkout (C-18).
+  const guest = !useSignedIn();
 
   if (!cart.merchant || cart.lines.length === 0) {
     return (
@@ -65,7 +69,7 @@ export default function CartScreen() {
     if (res.ok) toast.show({ message: t('restaurant.added', { name: item.name }), tone: 'success', icon: 'cart' });
   };
 
-  const canCheckout = Boolean(totals) && shortfall === 0;
+  const canCheckout = (guest || Boolean(totals)) && shortfall === 0;
   const footer = (
     <Button
       testID="cart-checkout"
@@ -73,7 +77,7 @@ export default function CartScreen() {
       fullWidth
       disabled={!canCheckout}
       label={totals ? `${t('cart.checkout')} · ${iqd(totals.totalIqd, { locale })}` : t('cart.checkout')}
-      onPress={() => router.push('/checkout')}
+      onPress={() => (guest ? void requireSignIn('/checkout') : router.push('/checkout'))}
     />
   );
 
@@ -194,8 +198,8 @@ export default function CartScreen() {
           </Card>
         ) : null}
         {!dropoff ? (
-          <Text variant="label" color="textMuted">
-            {t('cart.pick_place')}
+          <Text variant="label" color="textMuted" testID="cart-price-pending">
+            {guest ? t('cart.price_after_sign_in') : t('cart.pick_place')}
           </Text>
         ) : totals ? (
           <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} totalLabel={t('quote.total')} note={t('quote.quote_locked')} testID="cart-price" />

@@ -41,6 +41,10 @@ import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
 import { SessionService } from './session.service.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
+import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
+
+/** WhatsApp port for login codes (`identity.requestOtp` with `channel: 'whatsapp'`); WHATSAPP_PROVIDER=dev|meta. */
+export const OTP_WHATSAPP = Symbol('OTP_WHATSAPP');
 
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
 /** The OTP request guard (per-IP / per-device limits); bound by the module, Redis-backed when configured. */
@@ -95,9 +99,10 @@ export class IdentityService implements IdentityPort {
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpRequestGuard,
+    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
   ) {
     this.otpGuard = otpGuard ?? new OtpRequestGuard(new InMemoryRateLimiter(clock));
-    this.otp = new OtpService(repo, sms, clock, pepper);
+    this.otp = new OtpService(repo, sms, clock, pepper, otpWhatsApp);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
   }
@@ -121,8 +126,8 @@ export class IdentityService implements IdentityPort {
     const purpose: OtpPurpose = input.purpose ?? 'login';
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
-      const res = await this.otp.request(e164, hash, purpose, tx);
-      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec };
+      const res = await this.otp.request(e164, hash, purpose, tx, input.channel ?? 'sms');
+      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel };
     });
   }
 
@@ -797,7 +802,7 @@ export class IdentityService implements IdentityPort {
 
   async devLastOtp(phone: string): Promise<{ phoneMasked: string; code: string | null }> {
     const { e164, masked } = this.phone(phone);
-    const code = this.sms instanceof DevSmsProvider ? this.sms.lastCodeFor(e164) : null;
+    const code = this.otp.devWhatsAppCode(e164) ?? (this.sms instanceof DevSmsProvider ? this.sms.lastCodeFor(e164) : null);
     return { phoneMasked: masked, code };
   }
 }
