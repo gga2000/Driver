@@ -16,7 +16,7 @@ import { SharePanel } from '@/features/share/SharePanel';
 import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
-import { isLive, useCourierPosition, useTracking } from '@/features/track/queries';
+import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
 import { ActionRow, CourierCard, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
 import { TrackMap } from '@/features/track/TrackMap';
@@ -55,6 +55,7 @@ export default function OrderLiveScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { id = '', sheet } = useLocalSearchParams<{ id: string; sheet?: string }>();
+  useLiveOrder(id);
   const track = useTracking(id);
   const v = track.data;
   const live = isLive(v);

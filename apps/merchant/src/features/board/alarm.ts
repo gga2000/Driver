@@ -14,6 +14,12 @@ export const ALARM_REPEAT_MS = 4_000;
 
 let acked = new Set<string>();
 let soundReady = canPlay();
+/** When the chime last played: the board's own alarm skips its first chime right after a live ring. */
+let lastRingAt = 0;
+function chime() {
+  lastRingAt = Date.now();
+  playNewOrder();
+}
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
@@ -30,6 +36,14 @@ export const alarm = {
     emit();
   },
   acknowledged: () => acked,
+  /**
+   * A new order arrived on the live channel: ring now, before the board is re-read (it then keeps
+   * ringing through `useNewOrderAlarm` until answered).
+   */
+  ringNow(orderId: string, soundOn: boolean) {
+    if (!soundOn || !soundReady || acked.has(orderId)) return;
+    chime();
+  },
   subscribe(cb: () => void) {
     listeners.add(cb);
     return () => {
@@ -56,8 +70,8 @@ export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soun
   const key = pending.join(',');
   useEffect(() => {
     if (!ringing) return;
-    playNewOrder();
-    const id = setInterval(playNewOrder, ALARM_REPEAT_MS);
+    if (Date.now() - lastRingAt > 1_500) chime();
+    const id = setInterval(chime, ALARM_REPEAT_MS);
     return () => clearInterval(id);
   }, [ringing, key]);
   return pending;

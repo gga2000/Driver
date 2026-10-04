@@ -25,6 +25,7 @@ import type { MerchantPort } from './merchant-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
+import { LIVE_RULES, type LivePort } from './live-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -76,6 +77,12 @@ export interface AppContext {
   chat: ChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
+  /** Real-time channel (`modules/live`): stream tokens and the SSE event streams of `live.*`. */
+  live: LivePort;
+  /** Verified claims of the stream token in the SSE URL's connection params (`live.*` only), if any. */
+  liveAuth?: SessionClaims | null;
+  /** Why `liveAuth` is null when a stream token was presented. */
+  liveAuthError?: ErrorCode | null;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
@@ -98,6 +105,9 @@ export function toTrpcError(err: unknown): TRPCError {
 
 export const t = initTRPC.context<AppContext>().create({
   transformer,
+  // `live.*` subscriptions over SSE: a keep-alive comment so proxies keep idle streams open, and the
+  // client reconnects when even those stop arriving.
+  sse: { ping: { enabled: true, intervalMs: LIVE_RULES.pingMs }, client: { reconnectAfterInactivityMs: LIVE_RULES.inactivityMs } },
   // Spec §12: clients never see stack traces; every error carries {code, message_ar, retryHint}.
   errorFormatter({ shape, error }) {
     const data = { ...shape.data } as Record<string, unknown>;

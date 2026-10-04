@@ -2,17 +2,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPartner } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
+import { LIVE_PARTNER_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 
 /**
- * Partner query hooks over `partner.*`, `dispatch.*` and `trips.*`. Polling stands in for push
- * until the realtime channel ships: the offer every 2 s while online (an offer rings for 15–20 s),
- * the job every 4 s, the status every 10 s.
+ * Partner query hooks over `partner.*`, `dispatch.*` and `trips.*`. The driver's own channel
+ * (`live.partner`, SSE) pushes what changed — a new offer (it rings for 15–20 s, so it must show at
+ * once), the job, presence/gate, cash and earnings — and the queries re-read on the event. They keep
+ * a slow safety refetch while the stream is live, and poll every 30 s when SSE does not get through.
  */
 
-export const OFFER_POLL_MS = 2_000;
-export const JOB_POLL_MS = 4_000;
-export const STATUS_POLL_MS = 10_000;
+/**
+ * Keeps `live.partner` open app-wide for a driving partner (fleet owners and field ops have no
+ * driver channel). Mounted once, by the root layout's offer watcher.
+ */
+export function useLivePartner(enabled: boolean) {
+  const signedIn = useSignedIn();
+  return useLiveChannel({
+    enabled: signedIn && enabled,
+    key: LIVE_PARTNER_KEY,
+    subscribe: (client, h) => client.live.partner.subscribe(undefined, h),
+    resyncKeys: ['partner.status', 'partner.currentOffer', 'partner.activeJob', 'chat.threads'],
+  });
+}
 
 export function useMe() {
   const api = useApi();
@@ -31,19 +43,22 @@ export function useStatus() {
   const api = useApi();
   const signedIn = useSignedIn();
   const gate = usePartnerGate();
-  return useQuery({ ...api.partner.status.queryOptions(), enabled: signedIn && gate === 'allowed', refetchInterval: STATUS_POLL_MS });
+  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  return useQuery({ ...api.partner.status.queryOptions(), enabled: signedIn && gate === 'allowed', refetchInterval: pollMs });
 }
 
 export function useCurrentOffer(enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
-  return useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: OFFER_POLL_MS, staleTime: 0 });
+  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  return useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
 }
 
 export function useActiveJob(enabled = true) {
   const api = useApi();
   const signedIn = useSignedIn();
-  return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: JOB_POLL_MS, staleTime: 0 });
+  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
 }
 
 /** Invalidates everything the home and job screens read after a state change. */

@@ -17,19 +17,22 @@ export interface PriceLineProps {
   shadow?: boolean;
   /** Bold row (subtotal). */
   strong?: boolean;
+  /** A small, muted row (the "تقريب" rounding line): part of the sum, not a price component. */
+  minor?: boolean;
   testID?: string;
 }
 
 /** One named price component. Negative amounts (discounts, points) read in the success colour. */
-export function PriceLine({ label, amount, reason, shadow, strong, testID }: PriceLineProps) {
+export function PriceLine({ label, amount, reason, shadow, strong, minor, testID }: PriceLineProps) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
-  const discount = amount < 0 && !shadow;
-  const amountColor = shadow ? 'textMuted' : discount ? 'successText' : 'text';
+  const discount = amount < 0 && !shadow && !minor;
+  const amountColor = shadow || minor ? 'textMuted' : discount ? 'successText' : 'text';
+  const variant = minor ? 'caption' : strong ? 'bodyStrong' : 'body';
   const row = (
-    <View testID={testID} style={{ gap: 2, paddingVertical: theme.space[1] }}>
+    <View testID={testID} style={{ gap: 2, paddingVertical: minor ? 0 : theme.space[1] }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-        <Text variant={strong ? 'bodyStrong' : 'body'} color={shadow ? 'textMuted' : 'text'} style={{ flexShrink: 1 }}>
+        <Text variant={variant} color={shadow || minor ? 'textMuted' : 'text'} style={{ flexShrink: 1 }}>
           {label}
         </Text>
         {reason ? (
@@ -40,7 +43,7 @@ export function PriceLine({ label, amount, reason, shadow, strong, testID }: Pri
         {/* Dotted leader: ties a label to its amount across a wide row, like a printed receipt. */}
         <Rule kind="dotted" color="borderStrong" thickness={1.5} style={{ flex: 1, minWidth: theme.space[3], alignSelf: 'center', marginTop: 8 }} />
         <Text
-          variant={strong ? 'bodyStrong' : 'body'}
+          variant={variant}
           weight={strong || discount ? 600 : 400}
           color={amountColor}
           tabular
@@ -100,7 +103,7 @@ export function PriceBreakdown({ items, total, step, showShadow = false, totalLa
         <PriceLine key={i.key} testID={`${testID}-line-${i.key}`} label={i.label} amount={i.amount} reason={i.reason} />
       ))}
       {s.rounding !== 0 ? (
-        <PriceLine testID={`${testID}-rounding`} label={t('quote.rounding')} amount={s.rounding} />
+        <PriceLine testID={`${testID}-rounding`} label={t('quote.rounding')} amount={s.rounding} minor />
       ) : null}
       {showShadow
         ? s.shadow.map((i) => (

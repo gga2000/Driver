@@ -1,11 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useApi, useApiClient } from '@/lib/api';
+import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { clockOffset } from '@/lib/time';
 
-/** How often the board polls (new orders must show within seconds; a push channel replaces this later). */
-export const BOARD_POLL_MS = 5_000;
+/**
+ * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
+ * new order rings the moment it arrives (`new_order`, before the board is even re-read); order,
+ * courier and store changes re-read the board. The board keeps a slow safety refetch while live and
+ * polls every 30 s when SSE does not get through.
+ */
+export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (orderId: string) => void) {
+  const signedIn = useSignedIn();
+  return useLiveChannel({
+    enabled: signedIn && !!merchantOrgId,
+    key: `merchant:${merchantOrgId ?? ''}`,
+    aliases: [LIVE_MERCHANT_KEY],
+    subscribe: (client, h) => client.live.merchantBoard.subscribe({ merchantOrgId: merchantOrgId ?? '' }, h),
+    resyncKeys: ['merchant.board', 'merchant.storeStatus', 'chat.threads'],
+    onEvent: (e, qc, api) => {
+      if (e.type !== 'new_order' || e.merchantOrgId !== merchantOrgId) return;
+      onNewOrder(e.orderId);
+      void qc.invalidateQueries(api.merchant.board.pathFilter());
+    },
+  });
+}
 /** Merchant presence ping (edge-case review A.2): silent for 2 min counts as "no presence". */
 export const HEARTBEAT_MS = 30_000;
 
@@ -13,10 +33,11 @@ export const HEARTBEAT_MS = 30_000;
 export function useBoard(merchantOrgId: string | null) {
   const api = useApi();
   const signedIn = useSignedIn();
+  const pollMs = useLivePollMs(LIVE_MERCHANT_KEY);
   const q = useQuery({
     ...api.merchant.board.queryOptions({ merchantOrgId: merchantOrgId ?? '' }),
     enabled: signedIn && !!merchantOrgId,
-    refetchInterval: BOARD_POLL_MS,
+    refetchInterval: pollMs,
     refetchIntervalInBackground: true,
     staleTime: 0,
   });

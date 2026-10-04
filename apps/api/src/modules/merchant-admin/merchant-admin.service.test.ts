@@ -271,7 +271,7 @@ describe('merchantAdmin.money', () => {
     const s = await h.svc.moneyStatement(h.owner, { merchantOrgId: h.orgId });
     expect(s.from.toISOString()).toBe('2026-09-26T21:00:00.000Z'); // Sunday 27 Sep, Baghdad
     expect(s.lines).toEqual([
-      { orderId: 'o1', at: expect.any(Date), payment: 'cash', itemsIqd: 15000, commissionTier: 'featured', commissionPct: 15, commissionIqd: 2250, discountIqd: 0, discountFunder: null, feesIqd: 0, netIqd: 12750 },
+      { orderId: 'o1', at: expect.any(Date), payment: 'cash', itemsIqd: 15000, commissionTier: 'featured', commissionPct: 15, commissionIqd: 2250, discountIqd: 0, discountFunder: null, dealIqd: 0, roundingIqd: 0, feesIqd: 0, netIqd: 12750 },
     ]);
     expect(s.settlements).toEqual([{ at: expect.any(Date), kind: 'courier_handover', amountIqd: 12750, reference: null }]);
     expect(s.totals).toMatchObject({ orders: 1, netIqd: 12750, settledIqd: 12750 });

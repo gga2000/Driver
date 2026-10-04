@@ -210,6 +210,11 @@ export class IdentityService implements IdentityPort {
     return this.sessions.verifyAccessToken(token);
   }
 
+  /** Throws `session_expired` / `token_invalid` unless the session is still live (open `live.*` streams re-check it). */
+  assertSessionLive(claims: Pick<SessionClaims, 'sub' | 'sid' | 'did'>): Promise<void> {
+    return this.sessions.assertSessionLive(claims);
+  }
+
   // ───────────────────────── re-verification (edge-case §7) ─────────────────────────
 
   /** True when the person must re-verify by OTP: 120 idle days, or a device not yet verified. */

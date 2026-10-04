@@ -235,8 +235,10 @@ export class OrdersService implements OnModuleInit {
       tipIqd: input.tipIqd,
       discountIqd: d?.amountIqd ?? 0,
       totalIqd: p.totalIqd,
-      discount: d ? { promotionId: d.promotionId, amountIqd: d.amountIqd, ...d.meta } : null,
+      discount: d ? { promotionId: d.promotionId, amountIqd: d.amountIqd, ...d.meta, ...roundingOf(d.meta, d.amountIqd) } : null,
       lineSavingsIqd: d ? d.lineSavingsIqd : p.newLines.map(() => 0),
+      dealLineSavingsIqd: d ? d.dealLineSavingsIqd : p.newLines.map(() => 0),
+      roundingIqd: d ? roundingOf(d.meta, d.amountIqd).roundingIqd : 0,
       nextDeal: next ? { dealId: next.promotionId, label_ar: next.label_ar, label_en: next.label_en, missingIqd: next.missingIqd } : null,
     };
   }
@@ -325,6 +327,7 @@ export class OrdersService implements OnModuleInit {
         promotionId: deal.promotionId,
         amountIqd: deal.discountIqd,
         lineSavingsIqd: deal.lineSavingsIqd,
+        dealLineSavingsIqd: deal.lineSavingsIqd,
         meta: { funder: 'merchant', target: deal.target, type: deal.type, label_ar: deal.label_ar, label_en: deal.label_en },
       };
     } else if (code) {
@@ -332,6 +335,7 @@ export class OrdersService implements OnModuleInit {
         promotionId: code.promotionId,
         amountIqd: code.discountIqd,
         lineSavingsIqd: o.newLines.map(() => 0),
+        dealLineSavingsIqd: o.newLines.map(() => 0),
         meta: { funder: 'platform', target: 'order', type: null, label_ar: PLATFORM_PROMO_LABEL.ar, label_en: PLATFORM_PROMO_LABEL.en },
       };
     } else {
@@ -341,7 +345,9 @@ export class OrdersService implements OnModuleInit {
     const amountIqd = roundedDiscount(o.preTotal, chosen.amountIqd, step);
     if (amountIqd <= 0) return null;
     const lineSavingsIqd = chosen.meta.target === 'items' && amountIqd !== chosen.amountIqd ? trimSavings(chosen.lineSavingsIqd, chosen.amountIqd - amountIqd) : chosen.lineSavingsIqd;
-    return { ...chosen, amountIqd, lineSavingsIqd };
+    // The deal's exact saving rides on the stored meta: receipts show it on the deal line and the
+    // rounding back as its own "تقريب" line (money is unchanged: the funder pays `amountIqd`).
+    return { ...chosen, amountIqd, lineSavingsIqd, dealLineSavingsIqd: chosen.lineSavingsIqd, meta: { ...chosen.meta, dealIqd: chosen.amountIqd } };
   }
 
   /**
@@ -508,7 +514,13 @@ export class OrdersService implements OnModuleInit {
         {
           itemsTotalIqd: order.itemsTotalIqd - removed,
           totalIqd: reducedTotalOf(order, removed, keptDiscount),
-          ...(deal && keptDiscount !== null ? { discountIqd: keptDiscount, ...(keptDiscount === 0 ? { promotionId: null, discountMeta: null } : {}) } : {}),
+          ...(deal && keptDiscount !== null
+            ? {
+                discountIqd: keptDiscount,
+                // Re-priced on fewer lines: the stored exact saving no longer applies; the receipt shows the kept discount unsplit.
+                ...(keptDiscount === 0 ? { promotionId: null, discountMeta: null } : keptDiscount !== order.discountIqd && order.discountMeta ? { discountMeta: withoutDealSplit(order.discountMeta) } : {}),
+              }
+            : {}),
         },
         tx,
       );
@@ -1158,6 +1170,8 @@ interface OrderDiscount {
   promotionId: string;
   amountIqd: number;
   lineSavingsIqd: number[];
+  /** Per line, the deal's exact saving before rounding (sums to `meta.dealIqd`). */
+  dealLineSavingsIqd: number[];
   meta: DiscountMeta;
 }
 
@@ -1218,6 +1232,13 @@ export function trimSavings(savings: readonly number[], cutIqd: number): number[
   return out;
 }
 
+function withoutDealSplit(meta: DiscountMeta): DiscountMeta {
+  const rest = { ...meta };
+  delete rest.dealIqd;
+  delete rest.roundingIqd;
+  return rest;
+}
+
 /** Commission base (G-87): items at menu prices less a merchant deal on items; free delivery is not in it. */
 export function commissionBaseOf(order: Pick<OrderRecord, 'itemsTotalIqd' | 'discountIqd' | 'promotionId' | 'discountMeta'>): number {
   const deal = merchantDealOf(order);
@@ -1245,7 +1266,19 @@ function reducedTotalOf(order: Pick<OrderRecord, 'totalIqd' | 'itemsTotalIqd' | 
 function discountView(order: OrderRecord): Order['discount'] {
   if (!order.promotionId || order.discountIqd <= 0) return null;
   const meta: DiscountMeta = order.discountMeta ?? { funder: 'platform', target: 'order', type: null, label_ar: PLATFORM_PROMO_LABEL.ar, label_en: PLATFORM_PROMO_LABEL.en };
-  return { promotionId: order.promotionId, amountIqd: order.discountIqd, ...meta };
+  return { promotionId: order.promotionId, amountIqd: order.discountIqd, ...meta, ...roundingOf(meta, order.discountIqd) };
+}
+
+/**
+ * The receipt split of a rounded discount: the deal's exact saving (`dealIqd`, stored on the meta)
+ * and what rounding the total up to the step gave back (`roundingIqd = dealIqd − amountIqd`, the
+ * "تقريب" line). Rounding always goes against the deal (G-88, docs/api/deals-and-topup.md), so it is
+ * never negative and the funder never pays more than the deal promises. Old rows without `dealIqd`
+ * read as unrounded.
+ */
+export function roundingOf(meta: Pick<DiscountMeta, 'dealIqd'>, amountIqd: number): { dealIqd: number; roundingIqd: number } {
+  const dealIqd = Math.max(amountIqd, meta.dealIqd ?? amountIqd);
+  return { dealIqd, roundingIqd: dealIqd - amountIqd };
 }
 
 /**

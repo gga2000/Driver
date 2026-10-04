@@ -24,6 +24,7 @@ import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
 import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
+import { LiveModule, LiveService } from '../modules/live/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -62,13 +63,14 @@ export class TrpcService {
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
     private readonly shareLinks: ShareLinksService,
+    private readonly live: LiveService,
   ) {}
 
   /**
    * Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. `ip` is the
    * client address as Express resolves it (`trust proxy` decides whether X-Forwarded-For counts).
    */
-  async context(authorization?: string, ip?: string | null): Promise<AppContext> {
+  async context(authorization?: string, ip?: string | null, connectionParams?: Record<string, string | undefined> | null): Promise<AppContext> {
     let auth: SessionClaims | null = null;
     let authError: ErrorCode | null = null;
     const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
@@ -77,6 +79,18 @@ export class TrpcService {
         auth = await this.identity.verifyAccessToken(token);
       } catch (err) {
         authError = isDriverError(err) ? err.code : 'token_invalid';
+      }
+    }
+    // `live.*` over SSE: EventSource cannot send headers, so the stream token rides in the URL's
+    // connection params. It authenticates the live router only (`ctx.liveAuth`), never `ctx.auth`.
+    let liveAuth: SessionClaims | null = null;
+    let liveAuthError: ErrorCode | null = null;
+    const streamToken = connectionParams?.['streamToken'];
+    if (!auth && typeof streamToken === 'string' && streamToken) {
+      try {
+        liveAuth = await this.live.authenticate(streamToken);
+      } catch (err) {
+        liveAuthError = isDriverError(err) ? err.code : 'token_invalid';
       }
     }
     return {
@@ -105,6 +119,9 @@ export class TrpcService {
       merchant: this.merchant,
       chat: this.chat,
       trackingShare: this.shareLinks,
+      live: this.live,
+      liveAuth,
+      liveAuthError,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -119,7 +136,7 @@ export class TrpcService {
       TRPC_PATH,
       createExpressMiddleware({
         router: appRouter,
-        createContext: ({ req }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null),
+        createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
           if (error.code === 'INTERNAL_SERVER_ERROR') this.logger.error(`${path ?? '?'}: ${error.message}`, (error.cause as Error | undefined)?.stack ?? error.stack);
@@ -129,5 +146,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

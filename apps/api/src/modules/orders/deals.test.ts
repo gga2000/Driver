@@ -61,6 +61,29 @@ describe('merchant deals at checkout (domain §11, G-87)', () => {
     expect(h.events.last('order.placed')!.payload).toMatchObject({ discountIqd: 2000, promotionId: d.id, discountFunder: 'merchant' });
   });
 
+  it('presentation: each line shows the exact deal saving, the rounding is its own line, money unchanged', async () => {
+    const h = ordersHarness();
+    await h.promotions.addDeal({ type: 'percent', value: 15 });
+    const q = await h.orders.quote('c1', h.foodInput());
+    // 15 % of 10,000 + 5,000 = 1,500 + 750 = 2,250 exactly; the total rounds up to 14,500, so 250 comes back.
+    expect(q).toMatchObject({ discountIqd: 2000, totalIqd: 14500, dealLineSavingsIqd: [1500, 750], roundingIqd: 250 });
+    expect(q.discount).toMatchObject({ amountIqd: 2000, dealIqd: 2250, roundingIqd: 250 });
+    // items − exact deal + fees + rounding = the total the customer pays.
+    expect(q.itemsTotalIqd - q.discount!.dealIqd! + q.deliveryFeeIqd + q.serviceFeeIqd + q.roundingIqd!).toBe(q.totalIqd);
+    const o = await h.orders.place('c1', h.foodInput({ discountIqd: q.discountIqd }));
+    expect(o.discount).toMatchObject({ amountIqd: 2000, dealIqd: 2250, roundingIqd: 250 });
+    // The funder pays the rounded figure (never more than the deal promises).
+    const { fact } = await deliverCash(h, o.id, o.totalIqd);
+    expect(fact.merchantDeal).toMatchObject({ amountIqd: 2000 });
+  });
+
+  it('presentation: an unrounded deal has no rounding line', async () => {
+    const h = ordersHarness();
+    await h.promotions.addDeal({ type: 'percent', value: 20 });
+    const q = await h.orders.quote('c1', h.foodInput());
+    expect(q).toMatchObject({ discountIqd: 3000, dealLineSavingsIqd: [2000, 1000], lineSavingsIqd: [2000, 1000], roundingIqd: 0, discount: { dealIqd: 3000, roundingIqd: 0 } });
+  });
+
   it('money: an items deal lowers the commission base; the merchant funds it; courier and platform fee unchanged', async () => {
     const h = ordersHarness();
     const d = await h.promotions.addDeal({ type: 'percent', value: 20 });

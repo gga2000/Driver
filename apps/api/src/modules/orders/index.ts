@@ -1,5 +1,5 @@
 export { OrdersModule } from './orders.module.js';
-export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, ORDERS_CASH_RISK, toOrderView, lineValue, roundedDiscount, commissionBaseOf, merchantDealOf } from './orders.service.js';
+export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, ORDERS_CASH_RISK, toOrderView, lineValue, roundedDiscount, roundingOf, commissionBaseOf, merchantDealOf } from './orders.service.js';
 export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrderTimerJob } from './orders.service.js';
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';

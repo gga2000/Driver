@@ -43,7 +43,7 @@ export const CHAT_THREAD_PARTIES: Readonly<Record<ChatThreadKind, readonly [Chat
 export const CHAT_TEXT_MAX = 500;
 /** A thread stays readable — and writable — this long after the order or ride is done. */
 export const CHAT_CLOSE_AFTER_MIN = 30;
-/** Clients poll the open thread this often until the push/subscription channel ships. */
+/** Old poll interval of the open thread; the apps now get messages over `live.chat` (kept for older clients). */
 export const CHAT_POLL_MS = 3000;
 
 // ───────────────────────── quick replies ─────────────────────────

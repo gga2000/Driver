@@ -42,6 +42,10 @@ export interface CheckoutTotals {
   /** The server's deal (or 0): what `orders.quote` says `place` will take off. */
   discountIqd: number;
   discount: AppliedDiscount | null;
+  /** The deal's exact saving as promised (the deal line); `discountIqd` plus `roundingIqd`. */
+  dealIqd: number;
+  /** What rounding the total up to the step gives back: the separate "تقريب" line (0 when on the step). */
+  roundingIqd: number;
   totalIqd: number;
   /** Delivery's named parts (base, door/street, night…) for the breakdown, service fee last. */
   components: QuoteComponent[];
@@ -57,15 +61,30 @@ export function checkoutTotals(cart: Pick<CartState, 'lines'>, quote: Pick<Quote
   const parts = quote.components.filter((c) => c.key !== 'promo');
   const components = [...parts.filter((c) => c.key !== 'service_fee'), ...parts.filter((c) => c.key === 'service_fee')];
   const discountIqd = order?.discountIqd ?? 0;
-  return { itemsIqd: items, ...fees, discountIqd, discount: order?.discount ?? null, totalIqd: Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd), components };
+  const roundingIqd = discountIqd > 0 ? (order?.discount?.roundingIqd ?? 0) : 0;
+  return {
+    itemsIqd: items,
+    ...fees,
+    discountIqd,
+    discount: order?.discount ?? null,
+    dealIqd: discountIqd + roundingIqd,
+    roundingIqd,
+    totalIqd: Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd),
+    components,
+  };
 }
 
-/** What each cart line saves under the server's deal, by line key (the quote's savings follow the cart's line order). */
-export function lineSavings(cart: Pick<CartState, 'lines'>, order: Pick<OrderQuote, 'lineSavingsIqd'> | null | undefined): Map<string, number> {
+/**
+ * What each cart line saves under the server's deal, by line key (the quote's savings follow the
+ * cart's line order): the deal's exact saving (20 % of 15,000 → 3,000), never the rounded share —
+ * rounding is its own line in the summary.
+ */
+export function lineSavings(cart: Pick<CartState, 'lines'>, order: Pick<OrderQuote, 'lineSavingsIqd' | 'dealLineSavingsIqd'> | null | undefined): Map<string, number> {
   const out = new Map<string, number>();
   if (!order) return out;
+  const savings = order.dealLineSavingsIqd ?? order.lineSavingsIqd;
   cart.lines.forEach((l, i) => {
-    const s = order.lineSavingsIqd[i] ?? 0;
+    const s = savings[i] ?? 0;
     if (s > 0) out.set(l.key, s);
   });
   return out;

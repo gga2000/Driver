@@ -169,7 +169,7 @@ export default function CartScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="gift" size={18} color="successText" />
               <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
-                {t('cart.deal_saving', { amount: amountParam(totals.discountIqd) })}
+                {t('cart.deal_saving', { amount: amountParam(totals.dealIqd || totals.discountIqd) })}
               </Text>
             </View>
           </Card>

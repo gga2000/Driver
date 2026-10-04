@@ -307,7 +307,12 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
   if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
-  if (o.discountIqd > 0) items.push({ key: 'discount', label: t('quote.promo'), amount: -o.discountIqd });
+  // The deal at its exact promised saving; a rounded total shows the difference as PriceBreakdown's "تقريب" line.
+  if (o.discountIqd > 0) {
+    const merchantDeal = o.discount?.funder === 'merchant';
+    const label = merchantDeal ? t(o.discount?.target === 'delivery' ? 'quote.deal_free_delivery' : 'quote.deal_discount') : t('quote.promo');
+    items.push({ key: 'discount', label, amount: -Math.max(o.discountIqd, o.discount?.dealIqd ?? 0) });
+  }
   if (o.tipIqd > 0) items.push({ key: 'tip', label: t('quote.tip'), amount: o.tipIqd });
   if (o.cancellationFeeIqd > 0) items.push({ key: 'cancel', label: t('quote.cancellation'), amount: o.cancellationFeeIqd });
   return items;

@@ -38,7 +38,18 @@ wins. No deal ever stacks with another.
   sends a discount of its own.
 - **Totals in multiples of 500** (G-88; 250 with a 250 component): the discount is lowered until the
   total lands on the step — the funder never pays more than the deal promises. The cut is taken from
-  the lines that save most first, so per-line savings stay round.
+  the lines that save most first, so per-line savings stay round (`lineSavingsIqd`, legacy).
+- **Presentation (2026-10-04)**: the money above is unchanged, but the customer never sees a "20 %"
+  deal that reads as 18.7 %. Each line shows the deal's **exact** saving (`dealLineSavingsIqd`: 20 % of
+  15,000 → 3,000), the deal line shows the exact total (`discount.dealIqd`), and the rounding is one
+  separate small line "تقريب" (`roundingIqd = dealIqd − discountIqd`, in the quote and on
+  `Order.discount`; the stored `discount_meta` keeps `dealIqd`). Rounding direction: always **up**
+  (against the deal), exactly as the rule above — so the funder's cost (`discountIqd`, the ledger's
+  `promo_funded`) never exceeds the promise and no platform-funded rounding is needed. (The fallback
+  "round down ≤ 250, platform-funded" was not adopted: it only applies if this rule conflicted, and
+  it does not.) Example: items 21,000, fees 1,250, 20 % deal → 4,200 exact, 22,250 − 4,200 = 18,050 →
+  18,250: lines save 3,000 / 1,000 / 200, deal −4,200, تقريب +200; the merchant's deal costs 4,000.
+  A partial accept that re-prices the deal drops the split (the receipt shows the kept discount).
 - **Cap, atomically:** the deal's `spent_iqd` is reserved inside the order's unit of work with one
   conditional `UPDATE … SET spent_iqd = spent_iqd + :x WHERE id = :id AND (budget_cap_iqd IS NULL OR
   spent_iqd + :x <= budget_cap_iqd)`; zero rows = `deal_changed`, nothing written. No overspend under
@@ -67,14 +78,16 @@ platform 500 + 1,440.
 
 Merchant app: `money.today.dealsIqd` = what its deals cost today (items + free deliveries), `netIqd`
 subtracts it, `commissionByTier.baseIqd` is after items deals; statement lines carry `discountIqd` with
-`discountFunder: 'merchant'` (a platform promo shows as `platform` and does not lower the net).
+`discountFunder: 'merchant'` (a platform promo shows as `platform` and does not lower the net), plus
+`dealIqd` (the exact deal) and `roundingIqd` (given back by rounding): "الخصم 4,200 عرضك · تقريب +200".
 
 ### Customer app
 
 Restaurant page and cart show the deal badges (`RestaurantCard.deals`, server labels: "خصم 20% على كل
 المنيو", "توصيل مجاني فوق 15,000 دينار"); cart lines show the price after the deal, the menu price struck
-through and "توفّر …"; cart and checkout show the "خصم المطعم" / "توصيل مجاني من المطعم" line from
-`orders.quote`; the place call sends `discountIqd` and handles `deal_changed`.
+through and "توفّر …" (the exact saving); cart and checkout show the "خصم المطعم" / "توصيل مجاني من
+المطعم" line from `orders.quote` at the exact deal and, when the total was rounded, a small "تقريب"
+line (`PriceBreakdown`'s reconciliation line); the order screen's receipt does the same; the place call sends `discountIqd` and handles `deal_changed`.
 
 ## 2. Wallet top-up with cash
 

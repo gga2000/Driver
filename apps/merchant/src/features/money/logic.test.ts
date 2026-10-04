@@ -69,6 +69,8 @@ describe('weekly statement', () => {
     commissionIqd,
     discountIqd: 0,
     discountFunder: null,
+    dealIqd: 0,
+    roundingIqd: 0,
     feesIqd: 0,
     netIqd: itemsIqd - commissionIqd,
   });

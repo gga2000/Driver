@@ -18,6 +18,10 @@
     "./seeds": {
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"
+    },
+    "./live-client": {
+      "types": "./dist/live-client.d.ts",
+      "default": "./dist/live-client.js"
     }
   },
   "scripts": {

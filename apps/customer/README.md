@@ -184,9 +184,9 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 
 ## Chat, masked call, share-trip (`src/features/chat/`, `src/features/share/`)
 
-- **Chat** — `chat.threads` (badges on the courier card's chat button and the "راسل المطعم" row, every
-  5 s), `chat.thread` (the open conversation, every 3 s — `CHAT_POLL_MS`; a push / subscription
-  channel replaces polling later, the push notification already goes out from the API), `chat.send`
+- **Chat** — `chat.threads` (badges on the courier card's chat button and the "راسل المطعم" row,
+  pushed by `live.order`), `chat.thread` (the open conversation, pushed by `live.chat`; the push
+  notification still goes out from the API), `chat.send`
   (text ≤ 500, quick-reply key, photo via `places.photoUpload`, location), `chat.markRead` for what is
   on screen. Pending messages show at the bottom and retry with the same `clientId` (the server
   stores them once). Phone numbers typed into a message come back masked (`[رقم مخفي]` + a note).
@@ -201,3 +201,11 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 - Demo: `POST /demo/chat?personId=…&scenario=courier|merchant|ride` (a conversation already going, or a
   ride with a moving car and a share link → `{token, path}`), `POST /demo/chat/clock?minutes=31` (the
   chat module's clock, to show a closed thread; `0` resets). `SHOTS=chat` writes `chat-*.png`.
+
+## Real time (`live.*`)
+
+The order screen keeps `live.order` open (`useLiveOrder`): state changes, the courier's position
+(≤ every 2 s) and chat badges arrive over SSE (`httpSubscriptionLink` + stream token, see
+`docs/api/live.md`); the chat screen keeps `live.chat`. `src/lib/live.ts` reconnects with backoff,
+re-reads on every reconnect and polls every 30 s while SSE does not get through (60-s safety refetch
+while live). Native: `XhrEventSource` + the ReadableStream ponyfill from `@driver/contracts/live-client`.

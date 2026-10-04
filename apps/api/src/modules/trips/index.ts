@@ -1,6 +1,6 @@
 export { TripsModule } from './trips.module.js';
 export { TripsService, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
-export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob } from './trips.service.js';
+export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob, PositionReport } from './trips.service.js';
 export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES } from './trips.rpc.js';
 export type { RoleChecker, ChildNamesPort } from './trips.rpc.js';
 export { TRIP_TRANSITIONS, canTransition, deriveTripState, TripTransitionError } from './trip.machine.js';
