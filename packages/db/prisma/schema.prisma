@@ -441,6 +441,11 @@ model Vehicle {
   seatMap        Json         @default("[]") @map("seat_map")
   parcelCapacity Int          @default(0) @map("parcel_capacity")
   active         Boolean      @default(true)
+  /// Launch control room: a fleet owner's new vehicle waits for ops ("pending"); everything else is "verified".
+  reviewState    String       @default("verified") @map("review_state")
+  reviewedById   String?      @map("reviewed_by_id")
+  reviewedAt     DateTime?    @map("reviewed_at")
+  reviewNote     String?      @map("review_note")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
@@ -2266,6 +2271,7 @@ model LandmarkPhoto {
   addedById    String    @map("added_by_id")
   reviewedById String?   @map("reviewed_by_id")
   reviewedAt   DateTime? @map("reviewed_at")
+  rejectReason String?   @map("reject_reason")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -2336,6 +2342,10 @@ model MerchantOnboarding {
   notes           String?
   state           String   @default("draft")
   createdById     String   @map("created_by_id")
+  /// Console approvals queue: who activated or rejected the draft, when, and why.
+  reviewedById    String?   @map("reviewed_by_id")
+  reviewedAt      DateTime? @map("reviewed_at")
+  rejectReason    String?   @map("reject_reason")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -2416,5 +2426,163 @@ model MerchantDisputeResponse {
 
   @@index([merchantOrgId])
   @@map("merchant_dispute_responses")
+  @@schema("public")
+}
+
+// ───────────────────────── launch control room ─────────────────────────
+
+/// Kill switch (launch playbook §3): one row per target `<scope>:<key>:<vertical|*>` in a city. Turning it
+/// off keeps the row (active = false) so the console shows who switched what back and when.
+model OpsKillSwitch {
+  id           String    @id @default(cuid())
+  cityId       String    @map("city_id")
+  /// vertical | zone | restaurant | corridor
+  scope        String
+  key          String
+  /// Zone switches may stop one vertical only; NULL = every vertical.
+  vertical     String?
+  target       String
+  active       Boolean   @default(true)
+  /// Also hold automatic dispatch offers in this scope (new jobs go suggest-only to the dispatcher).
+  holdDispatch Boolean   @default(false) @map("hold_dispatch")
+  messageAr    String?   @map("message_ar")
+  reason       String
+  setById      String    @map("set_by_id")
+  setAt        DateTime  @map("set_at")
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([cityId, target])
+  @@index([cityId, active])
+  @@map("ops_kill_switches")
+  @@schema("public")
+}
+
+/// Capacity throttle per zone (launch playbook §3): max concurrent active orders and the honest wait.
+model OpsZoneCapacity {
+  id        String   @id @default(cuid())
+  cityId    String   @map("city_id")
+  zoneKey   String   @map("zone_key")
+  /// NULL = no throttle.
+  maxActive Int?     @map("max_active")
+  /// refuse | queue
+  mode      String   @default("refuse")
+  etaMin    Int      @default(15) @map("eta_min")
+  setById   String   @map("set_by_id")
+  setAt     DateTime @map("set_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([cityId, zoneKey])
+  @@map("ops_zone_capacities")
+  @@schema("public")
+}
+
+/// Status banner broadcast to every open app (customer / partner / merchant); always expires.
+model SystemBanner {
+  id          String    @id @default(cuid())
+  /// NULL = every city.
+  cityId      String?   @map("city_id")
+  /// info | warning | critical
+  severity    String
+  audiences   String[]  @default([])
+  messageAr   String    @map("message_ar")
+  messageEn   String?   @map("message_en")
+  startsAt    DateTime  @map("starts_at")
+  expiresAt   DateTime  @map("expires_at")
+  setById     String    @map("set_by_id")
+  clearedAt   DateTime? @map("cleared_at")
+  clearedById String?   @map("cleared_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("system_banners")
+  @@schema("public")
+}
+
+/// Console audit log (console spec, system/admin): every control-room action, who did it, on what.
+model ConsoleAuditLog {
+  id          String   @id @default(cuid())
+  cityId      String?  @map("city_id")
+  actorId     String   @map("actor_id")
+  action      String
+  subjectKind String   @map("subject_kind")
+  subjectId   String   @map("subject_id")
+  summaryAr   String   @map("summary_ar")
+  detail      Json     @default("{}")
+  at          DateTime
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([at])
+  @@index([subjectKind, at])
+  @@map("console_audit_log")
+  @@schema("public")
+}
+
+/// Support ticket (notifications & support §2): disputes open one by themselves (`source_key`).
+model SupportTicket {
+  id              String    @id @default(cuid())
+  cityId          String    @map("city_id")
+  /// dispute | complaint | incident | question
+  kind            String
+  /// open | waiting | escalated | resolved
+  status          String    @default("open")
+  /// in_app | whatsapp | phone | system
+  channel         String
+  subject         String
+  orderId         String?   @map("order_id")
+  tripId          String?   @map("trip_id")
+  customerId      String?   @map("customer_id")
+  openedById      String    @map("opened_by_id")
+  openedAt        DateTime  @map("opened_at")
+  firstResponseAt DateTime? @map("first_response_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  slaDueAt        DateTime  @map("sla_due_at")
+  assigneeId      String?   @map("assignee_id")
+  /// none | courier | merchant | platform | customer
+  faultParty      String    @default("none") @map("fault_party")
+  refundedIqd     Int       @default(0) @map("refunded_iqd")
+  escalatedTo     String?   @map("escalated_to")
+  escalatedAt     DateTime? @map("escalated_at")
+  resolution      String?
+  /// Idempotent auto-open (`dispute:<orderId>`); NULL for tickets opened by hand.
+  sourceKey       String?   @unique @map("source_key")
+  reopenCount     Int       @default(0) @map("reopen_count")
+  lastActivityAt  DateTime  @map("last_activity_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  entries SupportTicketEntry[]
+
+  @@index([status, openedAt])
+  @@index([orderId])
+  @@index([customerId, openedAt])
+  @@map("support_tickets")
+  @@schema("public")
+}
+
+/// A ticket's history: replies, notes, refunds (ledger group in meta), fault, escalation, resolution.
+model SupportTicketEntry {
+  id             String   @id @default(cuid())
+  ticketId       String   @map("ticket_id")
+  actorId        String   @map("actor_id")
+  /// opened | note | reply | refund | fault | escalate | resolve | reopen | assign
+  kind           String
+  text           String
+  amountIqd      Int?     @map("amount_iqd")
+  meta           Json     @default("{}")
+  idempotencyKey String?  @unique @map("idempotency_key")
+  at             DateTime
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, at])
+  @@index([actorId, kind, at])
+  @@map("support_ticket_entries")
   @@schema("public")
 }

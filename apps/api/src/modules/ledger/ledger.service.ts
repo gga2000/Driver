@@ -115,6 +115,16 @@ export class LedgerService {
     return this.repo.byTrip(tripId);
   }
 
+  /** Every line carrying this order id, in recording order (support case view). */
+  async eventsForOrder(orderId: string): Promise<LedgerEvent[]> {
+    return sortByTime(await this.repo.byOrder(orderId));
+  }
+
+  /** Lines of these types that occurred in `[from, to)` (finance desk). */
+  async eventsOfTypes(types: readonly LedgerEvent['type'][], from: Date, to: Date): Promise<LedgerEvent[]> {
+    return sortByTime(await this.repo.byTypesBetween(types, from, to));
+  }
+
   async eventsForGroups(groupIds: readonly string[]): Promise<LedgerEvent[]> {
     return sortByTime(await this.repo.byPostingGroups(groupIds));
   }

@@ -17,3 +17,5 @@ export { settlementReference, matchTransfer } from './settlement-ref.js';
 export { CustomerWalletService, moneyLines, pointsLines, pageLines, pointsWorthIqd, claimablePending, PENDING_POINTS_TTL_DAYS, WALLET_PEOPLE, WALLET_HOUSEHOLDS } from './customer-wallet.js';
 export type { WalletPeople, WalletHouseholds } from './customer-wallet.js';
 export type { PostingGroup } from './postings.js';
+export { SupportCreditService, SUPPORT_CREDIT_MEMO } from './support-credit.js';
+export type { SupportCredit, SupportCreditFunder } from './support-credit.js';

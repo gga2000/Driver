@@ -12,6 +12,7 @@ import { MerchantRuntime } from '@/features/runtime/MerchantRuntime';
 import { useBoard } from '@/features/board/queries';
 import { useCurrentStore } from '@/features/store/queries';
 import { ApiProvider } from '@/lib/api';
+import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
@@ -60,6 +61,8 @@ export default function RootLayout() {
           <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
             <ApiProvider>
               <StatusBar style="dark" />
+              {/* Launch status banner from the Console (system.banner), above every screen. */}
+              <SystemBanner />
               <RootNavigator />
             </ApiProvider>
           </ToastProvider>

@@ -12,8 +12,8 @@ export type { LiveDriver, LiveJobs, DispatchDriverState } from './driver-pins.js
 export { canBatch } from './batching.js';
 export type { BatchOrder, BatchRules, BatchVerdict } from './batching.js';
 /** Ports other modules implement (trips: offers/assign; ledger: caps; routes: departures). */
-export { TRIP_OFFERS, CAPS, DEPARTURES, FakeTripOffers, FakeCaps, FakeDepartures } from './ports.js';
-export type { TripOffersPort, CapsPort, DeparturesPort, CourierTripInput, JobExposure } from './ports.js';
+export { TRIP_OFFERS, CAPS, DEPARTURES, DISPATCH_HOLDS, FakeTripOffers, FakeCaps, FakeDepartures } from './ports.js';
+export type { TripOffersPort, CapsPort, DeparturesPort, DispatchHoldsPort, CourierTripInput, JobExposure } from './ports.js';
 export { TripsServiceTripOffers } from './trips.adapter.js';
 /** The offer-timer queue (the simulator drains it on its fake clock). */
 export { DISPATCH_QUEUE } from './offer.orchestrator.js';

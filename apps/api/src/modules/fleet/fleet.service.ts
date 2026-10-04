@@ -75,6 +75,38 @@ export class FleetService implements FleetPort {
     @Optional() private readonly orgs?: OrgsService,
   ) {}
 
+  // ───────────────────────── Console approvals queue ─────────────────────────
+
+  /** Fleet owners' new vehicles waiting for the ops check (plate, class, seats), oldest first. */
+  vehiclesInReview(limit = 200): Promise<VehicleRecord[]> {
+    return this.repo.vehiclesInReview(limit);
+  }
+
+  fleetVehicle(vehicleId: string): Promise<VehicleRecord | null> {
+    return this.repo.vehicle(vehicleId);
+  }
+
+  /**
+   * The ops decision on a fleet vehicle: verified, or rejected (inactive and unassigned, so nobody goes
+   * online on it). The fleet's own owner never decides on his vehicles (`approval_own_item`).
+   */
+  async reviewVehicle(actor: Actor, input: { vehicleId: string; approve: boolean; reason?: string | undefined }): Promise<VehicleRecord> {
+    const v = await this.repo.vehicle(input.vehicleId);
+    if (!v || !v.ownerOrgId) throw new DriverError('approval_not_found');
+    if (await this.identity.hasRole(actor.personId, 'fleet_owner', v.ownerOrgId)) throw new DriverError('approval_own_item');
+    const now = this.clock.now();
+    return this.uow.run(async (tx) => {
+      const decided = await this.repo.reviewVehicle(v.id, { verified: input.approve, by: actor.personId, at: now, note: input.reason ?? null }, tx);
+      if (!decided) throw new DriverError('approval_state_conflict');
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: input.approve ? 'fleet.vehicle_verified' : 'fleet.vehicle_rejected', occurredAt: now, payload: { fleetOrgId: v.ownerOrgId, vehicleId: v.id, plate: v.plate, reason: input.reason ?? null } },
+        { name: 'org', id: v.ownerOrgId! },
+      );
+      return decided;
+    });
+  }
+
   /** The fleet the caller owns: the one named, or his only one. */
   async fleetOf(actor: Actor, fleetOrgId?: string): Promise<string> {
     const owned = (await this.identity.scopedOrgs(actor.personId, ['fleet_owner'])).map((o) => o.orgId);

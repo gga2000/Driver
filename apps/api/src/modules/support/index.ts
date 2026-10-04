@@ -1,3 +1,5 @@
 export { SupportModule } from './support.module.js';
-export { SupportService, ERRORS, apiError } from './support.service.js';
-export type { Ticket, ErrorCode } from './support.service.js';
+export { SupportService, SUPPORT_LIMITS, slaDueAt, slaStateOf, urgencyOf } from './support.service.js';
+export { CANNED_RESPONSES, SUGGESTED_BY_DISPUTE } from './canned.js';
+export { SUPPORT_REPOSITORY, InMemorySupportRepository, PrismaSupportRepository } from './support.repository.js';
+export type { SupportRepository, TicketRecord, EntryRecord } from './support.repository.js';

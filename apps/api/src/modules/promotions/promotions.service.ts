@@ -190,6 +190,11 @@ export class PromotionsService {
     return this.repo.releaseSpend(dealId, amountIqd, tx);
   }
 
+  /** Deals waiting for platform approval, oldest first (Console approvals queue). */
+  pendingDeals(limit = 200): Promise<DealRecord[]> {
+    return this.repo.pendingDeals(limit);
+  }
+
   async get(dealId: string): Promise<DealRecord> {
     const d = await this.repo.deal(dealId);
     if (!d) throw new DriverError('deal_not_found');
@@ -216,6 +221,8 @@ export class PromotionsService {
     const d = await this.get(dealId);
     const now = this.clock.now();
     if (d.proposalState !== 'pending_approval') throw new DriverError('deal_state_conflict');
+    // Separation of duties: whoever proposed a deal never approves it (launch control room).
+    if (d.ownerId === reviewerId) throw new DriverError('approval_own_item');
     return this.uow.run(async (tx) => {
       const updated = await this.repo.updateDeal(dealId, { proposalState: approve ? 'approved' : 'rejected', approvedAt: approve ? now : null }, tx);
       await this.events.emit(

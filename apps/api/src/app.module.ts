@@ -22,6 +22,8 @@ import { RoutesModule } from './modules/routes/index.js';
 import { ScoringModule } from './modules/scoring/index.js';
 import { SimulatorModule } from './modules/simulator/index.js';
 import { SupportModule } from './modules/support/index.js';
+import { ControlsModule } from './modules/controls/index.js';
+import { ControlRoomModule } from './modules/control-room/index.js';
 import { TripsModule } from './modules/trips/index.js';
 import { TopUpsModule } from './modules/topups/index.js';
 import { InfraModule } from './shared/infra.module.js';
@@ -51,6 +53,8 @@ import { TrpcModule } from './trpc/trpc.module.js';
     ScoringModule,
     NotifyModule,
     SupportModule,
+    ControlsModule,
+    ControlRoomModule,
     EventsModule,
     SimulatorModule,
     PartnerModule,

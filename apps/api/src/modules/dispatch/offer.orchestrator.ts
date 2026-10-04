@@ -15,7 +15,7 @@ import { etaMin, haversineKm } from './geo.js';
 import { CITY_RADIUS_KM, type DriverPresence } from './geo-index.js';
 import { DEFAULT_WAVES } from './policies.js';
 import type { DispatchJob } from './policy.js';
-import { CAPS, DEPARTURES, TRIP_OFFERS, type CapsPort, type DeparturesPort, type JobExposure, type TripOffersPort } from './ports.js';
+import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type DeparturesPort, type DispatchHoldsPort, type JobExposure, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker, type RankedDriver } from './ranker.js';
 import { batchLimit, vehicleFit } from './vehicles.js';
@@ -101,6 +101,7 @@ export class OfferOrchestrator {
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly uow: UnitOfWork,
     @Optional() ranker?: DriverRanker,
+    @Optional() @Inject(DISPATCH_HOLDS) private readonly holds?: DispatchHoldsPort,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.queue.process(async (job) => this.onTimer(job.data));
@@ -160,7 +161,11 @@ export class OfferOrchestrator {
   async request(job: DispatchRequestInput): Promise<DispatchRequest> {
     const existing = await this.store.getRequest(job.tripId);
     if (existing && existing.status !== 'cancelled') return existing;
-    const { cfg } = await this.effectiveConfig(job.cityId, job.vertical);
+    const { cfg: base } = await this.effectiveConfig(job.cityId, job.vertical);
+    // Launch kill switch with "hold dispatch": no automatic offers in that vertical / zone, the
+    // dispatcher decides (suggest-only). Seat low-fill checks are not offers and keep running.
+    const held = base.policy !== 'scheduled' && !base.suggestOnly && ((await this.holds?.dispatchHeld({ cityId: job.cityId, vertical: job.vertical, zoneId: job.zoneId })) ?? false);
+    const cfg = held ? { ...base, suggestOnly: true } : base;
     const pickup = job.pickup ?? this.zones.centre(job.cityId, job.zoneId);
     if (!pickup) throw new DriverError('invalid_input');
     const now = this.now();
@@ -892,6 +897,13 @@ export class OfferOrchestrator {
   }
 
   /** Offers accepted since `since` and the mean seconds from send to accept (Console right-now bar). */
+  /** Offers sent since `since`, by outcome (launch wall: acceptance rate = accepted / answered). */
+  async offerOutcomes(since: Date): Promise<{ accepted: number; declined: number; timedOut: number; open: number }> {
+    const rows = await this.repo.sentSince(since);
+    const n = (st: string) => rows.filter((o) => o.state === st).length;
+    return { accepted: n('accepted'), declined: n('declined'), timedOut: n('timed_out'), open: n('sent') + n('seen') };
+  }
+
   async acceptStats(since: Date): Promise<{ accepted: number; avgSec: number | null }> {
     const rows = (await this.repo.acceptedSince(since)).filter((o) => o.respondedAt !== null);
     if (rows.length === 0) return { accepted: 0, avgSec: null };

@@ -19,6 +19,7 @@ import { MerchantCashService } from './merchant-cash.service.js';
 import { InMemoryMerchantSettingsRepository, PrismaMerchantSettingsRepository } from './merchant-settings.repository.js';
 import { NIGHTLY_QUEUE, NightlyJob } from './nightly.job.js';
 import { PostingService } from './posting.service.js';
+import { SupportCreditService } from './support-credit.js';
 import { PrismaLedgerRepository, type LedgerEventDelegate } from './prisma.repository.js';
 import { InMemoryLedgerRepository } from './repository.js';
 import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT_SETTINGS_REPOSITORY, MONEY_RULES } from './tokens.js';
@@ -73,8 +74,9 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
       inject: [OrgsService],
     },
     CustomerWalletService,
+    SupportCreditService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade, CustomerWalletService],
+  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);

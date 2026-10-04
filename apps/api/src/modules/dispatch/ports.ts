@@ -70,6 +70,16 @@ export interface DeparturesPort {
 }
 export const DEPARTURES = Symbol('DEPARTURES');
 
+/**
+ * Launch kill switches with "hold dispatch" (`modules/controls`): a new job in a held vertical or zone
+ * gets no automatic offers; it goes to the dispatcher as suggest-only. Optional (harnesses run without it).
+ */
+export interface DispatchHoldsPort {
+  dispatchHeld(job: { cityId: string; vertical: Vertical; zoneId: string }): Promise<boolean>;
+}
+
+export const DISPATCH_HOLDS = Symbol('DISPATCH_HOLDS');
+
 // ───────────────────────── fakes for tests and the simulator ─────────────────────────
 
 export class FakeTripOffers implements TripOffersPort {

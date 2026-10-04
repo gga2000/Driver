@@ -9,6 +9,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { useCurrentOffer, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
 import { ApiProvider } from '@/lib/api';
+import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
@@ -51,6 +52,8 @@ export default function RootLayout() {
           <ToastProvider bottomOffset={96}>
             <ApiProvider>
               <StatusBar style="dark" />
+              {/* Launch status banner from the Console (system.banner), above every screen. */}
+              <SystemBanner />
               <RootNavigator />
             </ApiProvider>
           </ToastProvider>

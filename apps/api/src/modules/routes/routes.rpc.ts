@@ -25,7 +25,8 @@ import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord } from '
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
-import { ROUTES_RIDER_NAMES, type RiderNamesReader } from './tokens.js';
+import { ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesControlsPort } from './tokens.js';
+import { HOME_CITY } from './intercity.config.js';
 import {
   bookingView,
   corridorView,
@@ -54,7 +55,19 @@ export class RoutesRpc implements RoutesPort {
     private readonly requests: RequestBoardService,
     @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
     @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
+    @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
   ) {}
+
+  /** Seats booked (held seats that were booked, any later state but cancelled) since `since` — launch wall. */
+  async seatsBookedSince(since: Date): Promise<number> {
+    let seats = 0;
+    for (const d of await this.repo.listDepartures({ from: new Date(since.getTime() - 86_400_000) })) {
+      for (const b of await this.repo.bookingsFor(d.id)) {
+        if (b.bookedAt && b.bookedAt.getTime() >= since.getTime() && !['cancelled', 'cancelled_by_rider', 'expired'].includes(b.state)) seats += b.seatIds.length;
+      }
+    }
+    return seats;
+  }
 
   async network(): Promise<IntercityNetwork> {
     const n = this.departures.network;
@@ -119,6 +132,11 @@ export class RoutesRpc implements RoutesPort {
   // ───────────────────────── riders ─────────────────────────
 
   async holdSeat(actor: Actor, input: In<'holdSeat'>): Promise<BookingView> {
+    if (this.controls) {
+      const dep = await this.repo.getDeparture(input.departureId);
+      // Launch kill switch: a switched-off corridor (or الرجعة as a whole) takes no new holds.
+      if (dep) await this.controls.assertCorridorOpen({ cityId: HOME_CITY, corridorId: dep.corridorId });
+    }
     return this.view(await this.departures.hold(actor.personId, input), true);
   }
 
@@ -204,6 +222,8 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async postRequest(actor: Actor, input: In<'postRequest'>): Promise<RequestPostView> {
+    // The request board has no corridor: only a switch on الرجعة as a whole stops it.
+    await this.controls?.assertCorridorOpen({ cityId: HOME_CITY, corridorId: '*' });
     return requestView(await this.requests.post(actor.personId, input));
   }
 

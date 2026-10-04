@@ -36,6 +36,8 @@ export interface DispatchRepository {
   listByTrip(tripId: string, tx?: Tx): Promise<OfferRecord[]>;
   /** Offers accepted at or after `since` (the Console's time-to-accept). */
   acceptedSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
+  /** Offers sent at or after `since`, any state (launch wall acceptance rate). */
+  sentSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
 }
 
 export const DISPATCH_REPOSITORY = Symbol('DISPATCH_REPOSITORY');
@@ -73,6 +75,10 @@ export class PrismaDispatchRepository implements DispatchRepository {
 
   async acceptedSince(since: Date, tx?: Tx): Promise<OfferRecord[]> {
     return (await this.db(tx).dispatchOffer.findMany({ where: { state: 'accepted', respondedAt: { gte: since } }, orderBy: { respondedAt: 'asc' } })) as OfferRecord[];
+  }
+
+  async sentSince(since: Date, tx?: Tx): Promise<OfferRecord[]> {
+    return (await this.db(tx).dispatchOffer.findMany({ where: { sentAt: { gte: since } }, orderBy: { sentAt: 'asc' } })) as OfferRecord[];
   }
 }
 
@@ -118,6 +124,10 @@ export class InMemoryDispatchRepository implements DispatchRepository {
     return [...this.rows.values()]
       .filter((r) => r.state === 'accepted' && r.respondedAt !== null && r.respondedAt.getTime() >= since.getTime())
       .map((r) => ({ ...r }));
+  }
+
+  async sentSince(since: Date): Promise<OfferRecord[]> {
+    return [...this.rows.values()].filter((r) => r.sentAt.getTime() >= since.getTime()).map((r) => ({ ...r }));
   }
 
   all(): OfferRecord[] {
