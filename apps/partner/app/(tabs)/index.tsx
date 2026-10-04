@@ -13,6 +13,7 @@ import { DriverMap } from '@/features/map/DriverMap';
 import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip } from '@/features/work/HomeParts';
 import { VEHICLE_ICON } from '@/features/work/logic';
 import { OnlineSwitch } from '@/features/work/OnlineSwitch';
+import { PrePromptGate } from '@/features/notify/Push';
 import { useStatus } from '@/features/work/queries';
 import { usePresence } from '@/features/work/usePresence';
 import { useT } from '@/lib/i18n';
@@ -132,6 +133,8 @@ export default function Home() {
           )}
         </View>
       </View>
+      {/* Offers ring with the app closed only with notifications on: ask here, before he goes online. */}
+      <PrePromptGate active={Boolean(s?.canDrive)} />
     </View>
   );
 }

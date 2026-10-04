@@ -6,6 +6,7 @@ import { Screen } from '@/components/Screen';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
+import { unregisterPush } from '@/features/notify/Push';
 import { useMe, useStatus } from '@/features/work/queries';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -50,6 +51,7 @@ export default function Account() {
 
   const signOut = async () => {
     const refreshToken = session.getSnapshot().session?.refreshToken;
+    await unregisterPush(client);
     await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
     await session.signOut();
   };

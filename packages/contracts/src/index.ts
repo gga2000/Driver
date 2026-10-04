@@ -37,6 +37,7 @@ export * from './topup-io.js';
 export * from './chat-io.js';
 export * from './share-io.js';
 export * from './live-io.js';
+export * from './notify-io.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
 export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';

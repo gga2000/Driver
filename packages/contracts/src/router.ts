@@ -20,6 +20,7 @@ import { merchantRouter } from './routers/merchant.js';
 import { chatRouter } from './routers/chat.js';
 import { trackingRouter } from './routers/tracking.js';
 import { liveRouter } from './routers/live.js';
+import { notifyRouter } from './routers/notify.js';
 import { publicProcedure, router } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -72,6 +73,7 @@ export const appRouter = router({
   chat: chatRouter,
   tracking: trackingRouter,
   live: liveRouter,
+  notify: notifyRouter,
 });
 
 export type AppRouter = typeof appRouter;

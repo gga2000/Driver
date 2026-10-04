@@ -20,7 +20,8 @@ export function corsOriginFromEnv(env: Record<string, string | undefined> = proc
 }
 
 export async function createApp(opts: { logger?: LoggerService } = {}): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: opts.logger ?? ['error', 'warn', 'log'] });
+  // rawBody: webhook signatures (WhatsApp `X-Hub-Signature-256`) are computed over the exact bytes.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: opts.logger ?? ['error', 'warn', 'log'], rawBody: true });
   app.enableCors({ origin: corsOriginFromEnv() });
   // Per-IP OTP limits need the client's address: behind a load balancer set TRUST_PROXY (hop count,
   // e.g. "1", or an Express trust-proxy value) so req.ip comes from X-Forwarded-For.

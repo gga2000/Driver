@@ -26,6 +26,7 @@ import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
+import type { NotifyPort } from './notify-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -83,6 +84,8 @@ export interface AppContext {
   liveAuth?: SessionClaims | null;
   /** Why `liveAuth` is null when a stream token was presented. */
   liveAuthError?: ErrorCode | null;
+  /** Push tokens, notification preferences, the delivery log (`modules/notify`). */
+  notify: NotifyPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

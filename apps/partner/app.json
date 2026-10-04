@@ -34,7 +34,8 @@
           "cameraPermission": "درايفر بارتنر يحتاج الكاميرا حتى تصوّر الطلب عند التسليم وتسوي التحقق اليومي"
         }
       ],
-      ["expo-location", { "locationWhenInUsePermission": "درايفر بارتنر يحتاج موقعك حتى يوصلك طلبات قريبة ويعرف الزبون وين صرت" }]
+      ["expo-location", { "locationWhenInUsePermission": "درايفر بارتنر يحتاج موقعك حتى يوصلك طلبات قريبة ويعرف الزبون وين صرت" }],
+      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }]
     ],
     "experiments": { "typedRoutes": true }
   }

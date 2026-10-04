@@ -34,7 +34,8 @@
     "plugins": [
       "expo-router",
       ["expo-localization", {}],
-      ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }]
+      ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }],
+      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }]
     ],
     "experiments": { "typedRoutes": true }
   }

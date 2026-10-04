@@ -34,7 +34,8 @@
           "cameraPermission": "درايفر يحتاج الكاميرا حتى تصوّر باب البيت للدليفري"
         }
       ],
-      ["expo-location", { "locationWhenInUsePermission": "درايفر يحتاج موقعك حتى يثبّت مكان بيتك ويوصلك الدليفري للباب" }]
+      ["expo-location", { "locationWhenInUsePermission": "درايفر يحتاج موقعك حتى يثبّت مكان بيتك ويوصلك الدليفري للباب" }],
+      ["expo-notifications", { "defaultChannel": "orders" }]
     ],
     "experiments": { "typedRoutes": true }
   }
