@@ -123,6 +123,8 @@ Aziziyah and nobody else has them. The fix is to push that specificity outward (
 
 Severity: **P0** broken or blocks a task · **P1** hurts conversion or trust · **P2** noticeably below
 best-in-class · **P3** polish. Effort: **S** < 1 day · **M** 1–3 days · **L** > 3 days.
+Totals: 45 findings: **P0 2 · P1 19 · P2 17 · P3 7**. IDs are stable; rows are grouped by
+severity, not strictly numbered.
 
 | ID | Sev | Screen | Screenshot | Evidence | Why (principle + benchmark) | Recommendation | Effort |
 |---|---|---|---|---|---|---|---|
@@ -142,7 +144,7 @@ best-in-class · **P3** polish. Effort: **S** < 1 day · **M** 1–3 days · **L
 | C-14 | P1 | Times everywhere | `app-orders.png`, `rajaa-board-full.png`, `rajaa-demand.png` | "6:35", "7:00", "4–6", "الليلة" with no ص/م and no day. The orders list has no date. | For intercity departures, morning vs evening confusion is a missed car. Voice spec §5 says 12-hour, so the period must be explicit. | Use "7:00 الصبح / 7:00 المسا" (or "ص/م") in every clock label (`formatClock`, `clockLabel`). The orders list says "اليوم 6:35 المسا" / "أمس" / "الأحد 2/10". Demand chips: "4–6 العصر". | S |
 | C-15 | P1 | Orders list | `app-orders.png`, `x-orders-20-full.png` | Row title is "أكل · طلب #1284"; no restaurant name, no item summary, no reorder. | Recognition over recall. "اطلب نفس الطلب" (`home.reorder` exists) is the single biggest repeat-order lever (Talabat, Toters, Uber Eats "Order again"). | Row: restaurant name (title) · items "لفة تكة، بيبسي…" · date + total · status pill · a "اطلبه مرة ثانية" button on delivered rows. Add a "اطلب نفس الطلب" card on home for the last delivered order. | M |
 | C-16 | P1 | Demo or draft content shipped | `rajaa-seat-sheet.png`, `acct-wallet-full.png`, `app-home-full.png` | Meeting points named "جسر ديالى (مسودة)"; wallet says "قائمة الوكلاء مبدئية لحد ما نفتح الشحن" next to a live top-up button; "عرض أهل المنطقة" comes from `FIXTURE_COMMUNITY_DEAL`; a brand-new account gets "مطاعمك المفضلة" with a starred restaurant (`x-home-new-user.png`). | Internal states leaking to customers ("draft"), fake deals and fake personalisation all erode trust. | Filter draft meeting points out of the customer read (or label "نقطة جديدة" without the word draft). Remove the agent-list caveat or the list. Hide `CommunityDealCard` until promotions have a read. Hide the favourites rail until the person has favourites, and replace it with "قريب منك". | S |
-| C-17 | P1 | Offline | `x-home-offline.png`, `x-restaurant-offline.png`, `x-checkout-offline-place.png` | Network off: home keeps stale data with no hint; the restaurant page shows skeletons indefinitely; there is no global offline strip (required by CLAUDE.md). `error.offline_queued` exists but is unused. | Patchy networks are the norm in Wasit. Silent failure makes users tap repeatedly. Uber and Careem show a persistent "No internet" bar. | A global `OfflineBanner` in `@driver/ui` (`NetInfo` / `navigator.onLine` + failed-fetch heuristic) under the header: "ماكو نت. نعرضلك آخر شي شفناه". Skeleton timeout (8 s) → card "النت ضعيف. نحاول نرجع نجيب المنيو" + retry. On checkout, block "اطلب" with the reason and keep the cart. | M |
+| C-17 | P1 | Offline | `x-home-offline.png`, `x-restaurant-offline.png` | Network off: home keeps stale data with no hint; the restaurant page shows skeletons indefinitely (still skeletons after 4 s and after the network returned); there is no global offline strip (required by CLAUDE.md). `error.offline_queued` exists but is unused. | Patchy networks are the norm in Wasit. Silent failure makes users tap repeatedly. Uber and Careem show a persistent "No internet" bar. | A global `OfflineBanner` in `@driver/ui` (`NetInfo` / `navigator.onLine` + failed-fetch heuristic) under the header: "ماكو نت. نعرضلك آخر شي شفناه". Skeleton timeout (8 s) → card "النت ضعيف. نحاول نرجع نجيب المنيو" + retry. On checkout, block "اطلب" with the reason and keep the cart. | M |
 | C-18 | P1 | Sign-up | `app-welcome.png` → `app-otp.png` | No browsing before giving a phone number (`guard.ts` sends signed-out users to /welcome). No WhatsApp OTP, although `onboarding.otp_via_whatsapp` exists and Toters offers it. | Value before commitment (sign-up CRO). SMS delivery in Iraq is unreliable, and an OTP that never arrives is a hard drop-off. | Guest mode: home, restaurants and menus are public; ask for the phone at "كمّل الطلب" / "احجز". On the OTP screen, after 30 s offer "ما وصلك؟ دزلي على واتساب" next to resend. | M |
 | C-19 | P1 | الرجعة driver identity | `rajaa-board-full.png`, `rajaa-pass-full.png` | Driver shown as "السايق #7K2Q" (an ID code); no name or photo on the board or the pass, though spec §2 says "driver photo + plate". | Intercity with strangers: identity is the safety signal (Baly reviews: "no plate numbers"; OBR ships route sharing and insurance). A code reads robotic. | Board tile: first name + photo + "متحقق اليوم" (selfie check-in exists) + plate chip. Pass: the same in a "سايقك" row with the masked-call button. | M |
 | C-20 | P1 | Ride driver card | `ride-matched-expanded.png` | "تكتك · باجاج · أحمر · و…": the plate is truncated by `numberOfLines`. | The plate is the most important safety detail at pickup (Uber shows it biggest). | Plate in its own chip, styled like an Iraqi plate (white box, black digits, governorate word), larger than the model. Model and colour on a second line. | S |
@@ -158,7 +160,7 @@ best-in-class · **P3** polish. Effort: **S** < 1 day · **M** 1–3 days · **L
 | C-30 | P2 | New-customer cash cap discovered late | `checkout.tsx` | The 25,000 cap for the first 3 cash orders only appears as a checkout blocker. | Error prevention: tell people before they build a 30,000 cart. | Cart strip when the total passes the cap: "أول 3 طلبات كاش حدها 25,000 دينار. ادفع من المحفظة أو قسّمها". | S |
 | C-31 | P2 | Cash change | checkout | No "how will you pay?" step; yet the ledger supports change as credit ("باقي الكاش" in the wallet). | "Driver didn't return change" is a top Baly complaint (teardown). This is a differentiator hiding in the ledger. | Under cash: "الدليفري ما عنده خردة؟ الباقي يصير رصيد بمحفظتك" (always on, stated). Optional chips "راح أدفع بـ 25,000 / 50,000" so the courier brings change. | S |
 | C-32 | P2 | Error states | `x-home-error.png`, `x-orders-error.png` | Every rail shows its own "ما گدرنا نجيب المطاعم + جرب مرة ثانية" (2–3 identical error cards). The fallback message for any failure is "ماكو نت، جرب مرة ثانية" even when the server erred. | One problem, one message. Don't blame the network for server errors. | Page-level error card once at the top of the food section. Use `error.server` ("مشكلة من عدنا مو منك…") for 5xx and `error.network` only for fetch failures. | S |
-| C-33 | P2 | Ride "where to" | `ride-where-full.png` | 9 landmarks plus 34 zone chips in one scroll; saved-place chips show "البيت" three times with no zone. | Cognitive load (Hick). Recognition: identical labels. | Show recents + saved (with zone subtitle: "البيت · شارع 30") + 5 nearest landmarks. Zones behind "كل المناطق". Disambiguate duplicates with the owner ("بيت أهل منار"). | S |
+| C-33 | P2 | Ride "where to" | `ride-where-full.png`, `x-s360-ride-where.png` | 9 landmarks plus 34 zone chips in one scroll. When two saved places share a label (here from repeated demo seeds, but a real household shares homes too), the chips show "البيت" three times with no zone. Opening `/ride` directly focuses the pickup field, not the destination. | Cognitive load (Hick). Recognition: identical labels. | Show recents + saved (with zone subtitle: "البيت · شارع 30") + 5 nearest landmarks. Zones behind "كل المناطق". Disambiguate duplicates with the owner ("بيت أهل منار"). | S |
 | C-34 | P2 | Ride map labels | `ride-choose.png`, `ride-searching-expanded.png` | The destination pill uses the **home** icon and overlaps zone labels; the pickup label collides with the street label. | Map legibility; wrong iconography. | Destination: flag icon; pickup: dot. Pill offset with a collision check against zone labels (or hide zone labels within 40 px of pins). | S |
 | C-35 | P2 | Restaurant page | `food-restaurant.png` | No favourite toggle, no in-menu search, no "الأكثر طلباً" section, no share. | Talabat and Uber Eats offer all four. Favourites already exist server-side (`r.favourite`) but can't be set. | Heart in the hero bar; a "الأكثر طلباً" first section (from order counts); a search icon in the sticky category bar on menus with > 15 items. | M |
 | C-36 | P2 | Topup "وين تدفع؟" | `topup-amount.png` | Two rows look tappable (list rows with icons) but are informational. The wallet lists "وكلاء الشحن" yet the top-up flow says "موظف العمليات بأي مكان تشوفه". | Affordance mismatch and inconsistent story. | Present as a short "تدفع لواحد من هذني" bulleted note, or make them real choices that show the right instructions. One vocabulary: "وكيل الشحن". | S |
@@ -168,6 +170,8 @@ best-in-class · **P3** polish. Effort: **S** < 1 day · **M** 1–3 days · **L
 | C-40 | P3 | Pre-prompt scrim | `PrePrompt.tsx` | Hard-coded `rgba(15, 18, 22, 0.45)` scrim. | Token rule (CLAUDE.md). | `theme.colors.scrim`. | S |
 | C-41 | P3 | Sign-out | `acct-profile-full.png` | No confirm. | Low risk but irreversible on the device (cart, places cache). | Confirm sheet "تطلع من حسابك؟ سلتك تنمسح". | S |
 | C-42 | P3 | Item sheet | `food-item-sheet.png` | A 64 px thumb in the sheet header; no hero image. | Benchmarks lead the sheet with a large photo. | 16:9 hero when `photoUrl` exists; keep the compact header otherwise. | S |
+| C-44 | P2 | Orders list at volume | `x-orders-20.png`, `x-orders-20-full.png` | With 20 orders the status pill is a sentence ("وصل طلبك، صحة وعافية") that squeezes the title to "أكل · طلب …" (the ticket number disappears) and wraps "دينار" onto its own line. There are no "شغّال / قبل" sections and no date grouping. | Scannability at volume; the list is where support calls start ("which order?"). | List pills use short labels ("وصل"، "انلغى"، "دا يتحضّر"); the sentence stays on the order screen. Sections: "شغّال هسة" pinned on top, then by day ("اليوم"، "أمس"، "الأحد 2/10"). Title never truncates the ticket number. | S |
+| C-45 | P3 | Wallet, new user | `x-wallet-new-user.png` | Hero shows "0 دينار" with the full top-up block plus "0 نقطة = 0 دينار". The transactions empty state talks about points ("بعد ما كسبت نقاط"). | Empty states should sell the next action, and match their section. | Zero balance: one line "اشحن مرة وحدة وادفع بلمسة بالطلب الجاي" + the button. Hide the points card until the first points. Transactions empty: "أول طلب أو شحن يطلع هنا". | S |
 | C-43 | P3 | Welcome | `app-welcome.png` | Six tilted icons on a tint: pleasant but generic, with no sense of Aziziyah, no proof ("4 مطاعم، 12 سيارة للرجعة اليوم") and no language switch. | First impression and distinctiveness. | See signature idea §d-6 (Aziziyah map welcome). Add "English" as a quiet link top-left. | M |
 
 Harness notes (not product findings, but they block the next reviewer): `demo-api.mjs` crashes on
@@ -286,5 +290,32 @@ the money rule), and copy PR C-27–C-29.
 | الرجعة seat | Card 1 → departure 1 → traveller type 1 → seat 1 → pickup 0–1 → hold 1 → pay 1 = **6–7** | Bus apps (e.g. redBus) ≈ 7 | On par; the 10-min hold is a great buffer |
 | Top-up | Wallet tab 1 → شحن 1 → amount 0–1 → code 1 → hand cash = **3–4** | Baly agent top-up ≈ similar | Good; fix C-36 wording |
 
-Viewport checks: 360×740 (`x-s360-*.png`) and 430×932 (`x-l430-*.png`) are listed in the
-screenshot directory; see the addendum below for what changed at each size.
+## Appendix: viewports and edge data
+
+- **360×740** (`x-s360-home.png`, `x-s360-restaurant.png`, `x-s360-item-sheet.png`,
+  `x-s360-rajaa.png`, `x-s360-ride-where.png`, `x-s360-wallet.png`): nothing clips or overflows.
+  The restaurant facts card wraps cleanly (fee and minimum on separate rows), and the six service
+  tiles still fit with labels. The cost is the first fold: home shows search, services, the ride
+  block and the الرجعة card, and only the top edge of one restaurant card, which strengthens C-09.
+  The item sheet keeps "باقي تختار: الخبز" right above the disabled CTA (good).
+- **430×932** (`x-l430-home.png`, `x-l430-restaurant.png`, `x-l430-item-sheet.png`): the layout
+  scales well; content is capped by `MAX_CONTENT_WIDTH`. The first two restaurant cards are fully
+  visible, which is the only size where food is in the first fold.
+- **20 orders** (`x-orders-20*.png`): see C-44.
+- **Long Arabic names**: the browser-side response rewrite did not take (the screenshots show the
+  seed names), so this was checked in code instead. Restaurant names are `numberOfLines={2}` on the
+  restaurant page and `1` on cards; dish names `2`; cart line names are not clamped. A 60-character
+  restaurant name truncates to one line on home cards (236 px wide) with no way to read the rest
+  until the page opens. Acceptable, but cards should allow two lines for the name and drop the
+  minimum-order line to compensate.
+- **Loading** (`x-home-loading.png`, `x-restaurant-loading.png`): skeletons match final layout
+  (no jump). **Errors** (`x-home-error*.png`, `x-restaurant-error.png`, `x-orders-error.png`):
+  present everywhere, but see C-32 and C-26 (the restaurant error has no way back when deep
+  linked). **Offline**: see C-17.
+- **Validation** (`x-phone-invalid.png`, `x-otp-wrong.png`): inline, specific and in dialect ("الرقم
+  مو صحيح. لازم يبدي بـ 07 ويكون 11 رقم", "الرمز غلط. تأكد من الرسالة وجرب مرة ثانية"). Good.
+
+Not captured: the public share page and the ride chat thread (the demo hook fails, see harness
+notes; `app/share/[token].tsx` was reviewed in code: first name, car, plate, live car and ETA, no
+phone or address, which is right), and the top-up receipt (it needs a Partner export for the ops
+side).
