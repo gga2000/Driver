@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { EmptyState, Icon, Skeleton, Text, useTheme, usePulse, type IconName } from '@driver/ui';
+import { agoText, EmptyState, Icon, Skeleton, Text, useConnectionBanner, useTheme, usePulse, useToast, type IconName } from '@driver/ui';
 import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
@@ -17,6 +17,7 @@ import { PrePromptGate } from '@/features/notify/Push';
 import { useStatus } from '@/features/work/queries';
 import { usePresence } from '@/features/work/usePresence';
 import { useT } from '@/lib/i18n';
+import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
 /**
  * الرئيسية — waiting for work. Map with his own puck, today's earnings pill, the vehicle he is on,
@@ -32,7 +33,11 @@ export default function Home() {
   const [panelH, setPanelH] = useState(320);
   const online = s?.online ?? false;
   const vehicle = s?.vehicleClass ?? 'bike';
-  const pulse = usePulse(online);
+  const toast = useToast();
+  // P-09: the server may say "online", but with no network no offer can reach him. Say that instead.
+  const conn = useConnectionBanner({ live: useLiveMode(LIVE_PARTNER_KEY), updatedAt: status.dataUpdatedAt || null });
+  const cut = !conn.net.online;
+  const pulse = usePulse(online && !cut);
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
   // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
@@ -73,7 +78,15 @@ export default function Home() {
       >
         <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', padding: theme.space[5], paddingBottom: theme.space[4], gap: theme.space[4] }}>
           {/* A failed refresh while we still show the last status: offers can't reach him, say so. */}
-          {s && status.isError ? (
+          {s && !cut && conn.kind === 'stale' ? (
+            <View testID="home-stale" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.warningTint }}>
+              <Icon name="clock" size={18} color="warningText" />
+              <Text variant="label" color="warningText" style={{ flex: 1 }}>
+                {t('net.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })}
+              </Text>
+            </View>
+          ) : null}
+          {s && !cut && status.isError ? (
             <View testID="home-connection-lost" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.warningTint }}>
               <Icon name="clock" size={18} color="warningText" />
               <Text variant="label" color="warningText" style={{ flex: 1 }}>
@@ -99,15 +112,19 @@ export default function Home() {
               {s.canDrive ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                   <View style={{ width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }}>
-                    {online ? <Animated.View style={[{ position: 'absolute', width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.success }, pulse]} /> : null}
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: online ? theme.colors.success : theme.colors.borderStrong }} />
+                    {online && !cut ? <Animated.View style={[{ position: 'absolute', width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.success }, pulse]} /> : null}
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cut ? theme.colors.danger : online ? theme.colors.success : theme.colors.borderStrong }} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text variant="title" testID="home-status">
-                      {online ? t('partner.online_title') : t('partner.offline_title')}
+                    <Text variant="title" testID="home-status" color={cut ? 'dangerText' : undefined}>
+                      {cut ? t(conn.net.state === 'unreachable' ? 'partner.net_unreachable_title' : 'partner.net_offline_title') : online ? t('partner.online_title') : t('partner.offline_title')}
                     </Text>
                     <Text variant="footnote" color="textMuted">
-                      {online ? t('partner.online_body') : t('partner.offline_body')}
+                      {cut
+                        ? t('partner.net_offline_body', { ago: agoText(conn.ageSeconds ?? 0, t) })
+                        : online
+                          ? t('partner.online_body')
+                          : t('partner.offline_body')}
                     </Text>
                   </View>
                 </View>
@@ -115,7 +132,7 @@ export default function Home() {
 
               {s.activeTripId ? <ActiveJobBanner /> : null}
               {invite && !s.activeTripId ? <FleetInviteBanner invite={invite} /> : null}
-              {online && s.demand ? <DemandRow demand={s.demand} /> : null}
+              {online && !cut && s.demand ? <DemandRow demand={s.demand} /> : null}
 
               {s.modes.includes('intercity') ? (
                 <ModeCard testID="mode-intercity" icon="garage" href="/intercity" title={t('partner.intercity_card_title')} body={t('partner.intercity_card_body')} cta={t('partner.intercity_card_cta')} />
@@ -128,7 +145,12 @@ export default function Home() {
               {s.canDrive && gate ? <GateBanner kind={gate} /> : null}
               {s.canDrive ? <CashBar cash={s.cash} /> : null}
               {s.canDrive && gate ? <BlockedSwitch kind={gate} /> : null}
-              {s.canDrive && !gate ? <OnlineSwitch online={online} busy={presence.busy} onGoOnline={() => void presence.goOnline()} onGoOffline={() => void presence.goOffline()} /> : null}
+              {s.canDrive && !gate ? <OnlineSwitch
+                  online={online}
+                  busy={presence.busy}
+                  onGoOnline={() => (cut ? toast.show({ message: t('partner.go_online_offline'), tone: 'warning', icon: 'wifi-off' }) : void presence.goOnline())}
+                  onGoOffline={() => void presence.goOffline()}
+                /> : null}
             </>
           )}
         </View>

@@ -6,6 +6,7 @@ import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { formatClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 
 const CITY_ID = 'aziziyah';
 const CITY_TZ = 'Asia/Baghdad';
@@ -215,7 +216,7 @@ export function PricingSimulator() {
           {ready && quote.isPending && <p className="text-sm text-muted">{t('console.pricing_loading')}</p>}
           {ready && quote.isError && (
             <p className="text-sm text-bad" role="alert">
-              {quote.error.message || t('error.generic')}
+              {errorText(quote.error)}
             </p>
           )}
           {quote.data && (

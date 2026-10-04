@@ -23,10 +23,12 @@
     "gallery:shots": "node gallery/screenshot.mjs"
   },
   "dependencies": {
+    "@driver/contracts": "workspace:*",
     "@driver/design-tokens": "workspace:*",
     "@driver/i18n": "workspace:*"
   },
   "peerDependencies": {
+    "@react-native-community/netinfo": "11.4.1",
     "react": "18.3.1",
     "react-native": "0.76.9",
     "react-native-gesture-handler": "2.20.2",
@@ -37,6 +39,7 @@
     "@babel/core": "7.29.7",
     "@eslint/js": "9.39.5",
     "@fontsource/ibm-plex-sans-arabic": "5.3.0",
+    "@react-native-community/netinfo": "11.4.1",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/react": "18.3.31",

@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
-import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useTheme } from '@driver/ui';
+import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, minOrderShortfall, reconcile } from '@/features/food/cart';
 import { cartStore, useCart } from '@/features/food/cart-store';
@@ -52,6 +52,7 @@ export default function CheckoutScreen() {
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
+  const net = useNetwork();
 
   const [recipientId, setRecipientId] = useState<string>('me');
   const [otherName, setOtherName] = useState('');
@@ -89,7 +90,9 @@ export default function CheckoutScreen() {
   ];
   const recipientName = recipientId === 'me' ? null : recipientId === 'other' ? otherName.trim() || null : (cart.people.find((p) => p.id === recipientId)?.name ?? null);
 
-  const blocker = !dropoff
+  // Offline: say so up front and keep the cart, instead of a tap that fails (C-17).
+  const netBlocker = net.state === 'offline' ? t('checkout.offline_blocked') : net.state === 'unreachable' ? t('checkout.unreachable_blocked') : null;
+  const blocker = netBlocker ?? (!dropoff
     ? t('cart.pick_place')
     : shortfall > 0
       ? t('cart.min_not_met', { amount: amountParam(shortfall) })
@@ -99,7 +102,7 @@ export default function CheckoutScreen() {
           : t('error.merchant_closed', { time: restaurant.opensAt ?? '' })
         : capHit
           ? t('checkout.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) })
-          : null;
+          : null);
 
   const recipient = (): Recipient | null => {
     if (recipientId === 'me') return { kind: 'me' };

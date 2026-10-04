@@ -23,9 +23,11 @@ import {
 import { formatCountdown, shortId } from '@/lib/format';
 import { offerStateLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
+import { useConsoleNetwork } from '@/lib/network';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, useSecondsSince } from './ui';
+import { errorText } from '@/lib/network';
+import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, SkeletonBlock, useSecondsSince } from './ui';
 
 const COLUMN_KEY = {
   searching: 'console.col_searching',
@@ -56,6 +58,9 @@ export function DispatchPage() {
   const trips = useActiveTrips();
   const server = useRightNow();
   const positions = useDriverPins();
+  const net = useConsoleNetwork();
+  /** The board can't vouch for its numbers: never show them as live during an outage. */
+  const cut = net.state !== 'online';
   const tick = useSecondsSince(board.dataUpdatedAt);
   const [override, setOverride] = useState<{ card: BoardCard; driverId?: string } | null>(null);
   const [sound, setSound] = useState(false);
@@ -83,7 +88,7 @@ export function DispatchPage() {
   return (
     <div className="mx-auto max-w-[1600px]">
       <PageHeader title={t('console.dispatch_title')} subtitle={t('console.dispatch_subtitle')}>
-        <LiveBadge seconds={LIVE_POLL_MS / 1000} updatedAt={board.dataUpdatedAt} fetching={board.isFetching} />
+        <LiveBadge seconds={LIVE_POLL_MS / 1000} updatedAt={board.dataUpdatedAt} fetching={board.isFetching} error={board.isError} />
         <button type="button" className={ghostBtn} aria-pressed={sound} onClick={() => setSound((s) => !s)}>
           {sound ? t('console.sound_on') : t('console.sound_off')}
         </button>
@@ -95,7 +100,20 @@ export function DispatchPage() {
         </div>
       )}
 
-      <RightNowBar now={now} server={server.data} serverError={server.error !== null} />
+      {/* K-06: no zeros during an outage. Tiles the board can't vouch for right now read "—". */}
+      <RightNowBar now={now} known={board.isSuccess && !board.isError && !cut} server={server.isError || cut ? undefined : server.data} serverError={server.error !== null} />
+
+      {board.isPending && (
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label={t('console.loading')}>
+          {BOARD_COLUMNS.map((col) => (
+            <div key={col} className="space-y-2 rounded-xl border border-line bg-surface p-3">
+              <SkeletonBlock className="h-6 w-1/2" />
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {board.data && <PolicySwitches policies={board.data.policies} />}
 
@@ -106,7 +124,7 @@ export function DispatchPage() {
       )}
 
       {cards.length > 0 && (
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className={`mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4 transition-opacity ${cut ? 'opacity-60' : ''}`} aria-busy={cut}>
           {BOARD_COLUMNS.map((col) => (
             <section
               key={col}
@@ -140,17 +158,18 @@ export function DispatchPage() {
 
 // ───────────────────────── right-now bar ─────────────────────────
 
-function RightNowBar({ now, server, serverError }: { now: ReturnType<typeof rightNow>; server: ServerRightNow | undefined; serverError: boolean }) {
+function RightNowBar({ now, known, server, serverError }: { now: ReturnType<typeof rightNow>; known: boolean; server: ServerRightNow | undefined; serverError: boolean }) {
   const health = server ? outboxHealth(server.outbox) : 'ok';
+  const v = (value: string | number) => (known ? value : '—');
   const items: [string, string | number, boolean?][] = [
     ...serverNowTiles(server).map((tile): [string, string, boolean] => [t(NOW_TILE_KEY[tile.key]), tile.value, tile.alert]),
-    [t('console.now_searching'), now.searching],
-    [t('console.now_offered'), now.offered],
-    [t('console.now_assigned'), now.assigned],
-    [t('console.now_needs'), now.needsDispatcher, now.needsDispatcher > 0],
-    [t('console.now_red'), now.red, now.red > 0],
-    [t('console.now_avg_wait'), formatCountdown(now.avgWaitSec)],
-    [t('console.now_compensated'), now.compensated],
+    [t('console.now_searching'), v(now.searching)],
+    [t('console.now_offered'), v(now.offered)],
+    [t('console.now_assigned'), v(now.assigned)],
+    [t('console.now_needs'), v(now.needsDispatcher), known && now.needsDispatcher > 0],
+    [t('console.now_red'), v(now.red), known && now.red > 0],
+    [t('console.now_avg_wait'), v(formatCountdown(now.avgWaitSec))],
+    [t('console.now_compensated'), v(now.compensated)],
   ];
   return (
     <section aria-label={t('console.now_bar')} className="rounded-xl border border-line bg-surface p-3">
@@ -229,7 +248,7 @@ function PolicySwitches({ policies }: { policies: BoardPolicy[] }) {
         })}
       </ul>
       <p role="status" className="mt-2 min-h-[1.25rem] text-xs">
-        {setPolicy.error ? <span className="text-bad">{setPolicy.error.message}</span> : <span className="text-muted">{notice}</span>}
+        {setPolicy.error ? <span className="text-bad">{errorText(setPolicy.error)}</span> : <span className="text-muted">{notice}</span>}
       </p>
     </Card>
   );
@@ -438,7 +457,7 @@ function OverrideDialog({ target, knownDrivers, onClose }: { target: { card: Boa
                 {override.data.warnings.length > 0 && <span className="block text-accent">{t('console.override_warnings', { list: override.data.warnings.join('، ') })}</span>}
               </p>
             )}
-            {override.error && <p className="text-bad">{override.error.message}</p>}
+            {override.error && <p className="text-bad">{errorText(override.error)}</p>}
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">

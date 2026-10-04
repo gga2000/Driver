@@ -6,6 +6,7 @@ import { formatDayClock, formatIqd, shortId } from '@/lib/format';
 import { channelLabel, settleModeLabel } from '@/lib/labels';
 import { queryRetry } from '@/lib/live';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { Card, Chip, Mono, primaryBtn, QueryError, Row } from './ui';
 
 /**
@@ -82,7 +83,7 @@ export function MerchantBalanceCard({ merchantId }: { merchantId: string }) {
                 </span>
               </p>
             )}
-            {request.error && <p className="text-bad">{request.error.message}</p>}
+            {request.error && <p className="text-bad">{errorText(request.error)}</p>}
           </div>
         </>
       )}

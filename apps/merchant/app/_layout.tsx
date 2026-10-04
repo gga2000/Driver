@@ -1,10 +1,11 @@
 import { router, Stack, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { Platform, useWindowDimensions, View } from 'react-native';
+import { Linking, Platform, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { getNetwork, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
 import { Wordmark } from '@/components/Wordmark';
 import { PrePromptGate, usePushRegistration } from '@/features/notify/Push';
@@ -14,7 +15,9 @@ import { useBoard } from '@/features/board/queries';
 import { useCurrentStore } from '@/features/store/queries';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
+import { SUPPORT_PHONE } from '@/lib/env';
 import { useAppFonts } from '@/lib/fonts';
+import { useLocale, useT } from '@/lib/i18n';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
 import { WIDE_MIN_WIDTH } from '@/lib/layout';
@@ -127,6 +130,40 @@ function RootNavigator() {
       {/* A new order must ring with the app closed: ask on the board, once the store is ready. */}
       <PrePromptGate active={signedIn && access === 'ready' && section === 'orders'} />
       {ready ? null : <Splash />}
+      <StartupGate loading={!ready} />
+    </View>
+  );
+}
+
+/**
+ * The splash never waits forever (M-08): if the session, prefs and stores haven't loaded after 8 s
+ * (API down, no network on a cold start), a full-screen state says so with a retry and the support
+ * line instead of a logo that looks like a frozen tablet.
+ */
+function StartupGate({ loading }: { loading: boolean }) {
+  const t = useT();
+  const locale = useLocale();
+  const net = useNetwork();
+  const qc = useQueryClient();
+  const [slow, restart] = useLoadTimeout(loading);
+  if (!slow) return null;
+  return (
+    <View testID="startup-error" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
+      <Wordmark />
+      <RetryState
+        kind={net.state === 'offline' ? 'offline' : 'unreachable'}
+        locale={locale}
+        title={net.state === 'offline' ? t('merchant.startup.offline_title') : t('merchant.startup.title')}
+        body={t('merchant.startup.body')}
+        retryLabel={t('merchant.startup.retry')}
+        onRetry={() => {
+          restart();
+          getNetwork().retryNow();
+          void qc.refetchQueries({ type: 'active' });
+        }}
+        secondary={{ label: t('merchant.startup.call_support'), icon: 'phone', onPress: () => void Linking.openURL(`tel:${SUPPORT_PHONE}`) }}
+        style={{ maxWidth: 480 }}
+      />
     </View>
   );
 }

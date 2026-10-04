@@ -9,6 +9,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
+import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
@@ -127,6 +128,8 @@ function OfferWatcher() {
   const offer = useCurrentOffer(online);
   // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
   useJobPositions(Boolean(status.data?.activeTripId));
+  // Job taps saved offline are replayed in order as soon as the network is back (P-09).
+  useJobQueueRunner(true);
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);

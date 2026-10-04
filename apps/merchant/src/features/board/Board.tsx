@@ -2,13 +2,14 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
-import { SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { agoText, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme, useToast } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { localDayKey } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
 import { useLayout } from '@/lib/layout';
+import { LIVE_MERCHANT_KEY, useLiveMode } from '@/lib/live';
 import { usePrefs } from '@/lib/prefs';
 import { scheduleBanner } from '@/features/hours/logic';
 import { usePrintOrder } from '@/features/print/runtime';
@@ -82,6 +83,13 @@ export function Board() {
   const status = useStoreStatus(storeId);
   const balance = useBalance(storeId, canSeeMoney);
   const online = useOnline();
+  const conn = useConnectionBanner({ live: useLiveMode(LIVE_MERCHANT_KEY), updatedAt: board.dataUpdatedAt || null });
+  /** Offline: accept / reject / ready can't reach the server; say why instead of failing. */
+  const offlineGuard = () => {
+    if (online) return false;
+    toast.show({ message: t('merchant.board.offline_toast'), tone: 'warning' });
+    return true;
+  };
   const { ready } = useOrderActions();
   const { setOpen } = useStoreSwitches();
   const now = useServerNow(board.offset);
@@ -104,17 +112,20 @@ export function Board() {
   const pending = unacknowledged(orders, acked);
 
   const onAccept = (o: BoardOrder) => {
+    if (offlineGuard()) return;
     alarm.acknowledge([o.id]);
     setDetailId(null);
     setAcceptPartial(false);
     setAcceptId(o.id);
   };
   const onReject = (o: BoardOrder) => {
+    if (offlineGuard()) return;
     alarm.acknowledge([o.id]);
     setDetailId(null);
     setRejectId(o.id);
   };
   const onReady = async (o: BoardOrder) => {
+    if (offlineGuard()) return;
     setReadyId(o.id);
     try {
       await ready.mutateAsync({ orderId: o.id });
@@ -186,7 +197,11 @@ export function Board() {
         onCash={() => setSheet('cash')}
       />
       {pending.length > 0 ? <NewOrderBanner count={pending.length} soundBlocked={prefs.soundOn && !soundReady} onSilence={() => alarm.acknowledge(pending)} /> : null}
-      {!online ? <InfoStrip tone="neutral" text={t('merchant.board.offline')} testID="offline-strip" /> : null}
+      {!online ? (
+        <InfoStrip tone="neutral" text={t('merchant.board.offline_actions')} testID="offline-strip" />
+      ) : conn.kind === 'stale' ? (
+        <InfoStrip tone="warning" text={t('merchant.board.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })} testID="stale-strip" />
+      ) : null}
       {s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
       ) : s?.pause ? (

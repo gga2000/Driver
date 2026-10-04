@@ -10,6 +10,7 @@ import {
   type LiveConnection,
   type LiveMode,
 } from '@driver/contracts/live-client';
+import { consoleNetwork } from './network';
 import { useSignedIn } from './session';
 import { liveTokensOf, useTRPC, useTRPCClient } from './trpc';
 
@@ -40,7 +41,7 @@ const subscribeMode = (cb: () => void) => {
   modeListeners.add(cb);
   return () => void modeListeners.delete(cb);
 };
-let shared: { conn: LiveConnection; refs: number; cityId: string } | null = null;
+let shared: { conn: LiveConnection; refs: number; cityId: string; offNet: () => void } | null = null;
 
 type Trpc = ReturnType<typeof useTRPC>;
 
@@ -119,7 +120,15 @@ function useLiveConsoleBoard(): LiveMode {
         isAuthError: isLiveAuthError,
         onAuthError: () => liveTokensOf(client)?.clear(),
       });
-      shared = { conn, refs: 1, cityId: CITY_ID };
+      // The network is back (browser event or a probe answered): reconnect now, not after the backoff.
+      const net = consoleNetwork();
+      let reachable = net.getSnapshot().state === 'online';
+      const offNet = net.subscribe(() => {
+        const now = net.getSnapshot().state === 'online';
+        if (now && !reachable) conn.reconnectNow();
+        reachable = now;
+      });
+      shared = { conn, refs: 1, cityId: CITY_ID, offNet };
       conn.start();
     }
     return () => {
@@ -127,9 +136,19 @@ function useLiveConsoleBoard(): LiveMode {
       shared.refs -= 1;
       if (shared.refs > 0) return;
       shared.conn.stop();
+      shared.offNet();
       shared = null;
     };
   }, [signedIn, trpc, client, qc]);
+  return useSyncExternalStore(
+    subscribeMode,
+    () => mode,
+    () => 'stopped' as LiveMode,
+  );
+}
+
+/** The shared board stream's mode (`stopped` when no board page is open). */
+export function useConsoleLiveMode(): LiveMode {
   return useSyncExternalStore(
     subscribeMode,
     () => mode,

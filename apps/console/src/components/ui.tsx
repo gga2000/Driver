@@ -1,9 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { agoText, connectionBanner, NET_RULES } from '@driver/contracts/net-client';
 import { t } from '@driver/i18n';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { formatClock } from '@/lib/format';
+import { useConsoleLiveMode } from '@/lib/live';
+import { consoleNetwork, errorText, useConsoleNetwork } from '@/lib/network';
 
 /** Shared building blocks for the console pages (dark theme roles from globals.css). */
 
@@ -122,7 +125,7 @@ export function QueryError({ error, onRetry }: { error: TrpcLikeError; onRetry?:
   if (status === 403) return <EmptyState title={t('console.need_role')} />;
   return (
     <div role="alert" className="rounded-xl border border-danger-500 bg-danger-500/10 px-4 py-3 text-sm">
-      <p>{t('console.load_failed', { message: error.message || t('error.generic') })}</p>
+      <p>{t('console.load_failed', { message: errorText(error) })}</p>
       {onRetry && (
         <button type="button" onClick={onRetry} className={`${ghostBtn} mt-2`}>
           {t('console.retry')}
@@ -137,15 +140,81 @@ export function NeedLogin() {
   return <QueryError error={{ message: '', data: { httpStatus: 401 } }} />;
 }
 
-/** "يتحدّث كل 2 ثانية · آخر تحديث 7:05 م" with a pulsing dot while fetching. */
-export function LiveBadge({ seconds, updatedAt, fetching }: { seconds: number; updatedAt?: number; fetching?: boolean }) {
+/** `Date.now()`, re-rendering every `ms`. */
+export function useNow(ms = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), ms);
+    return () => window.clearInterval(id);
+  }, [ms]);
+  return now;
+}
+
+/**
+ * When data on a page counts as stale: well past its own refresh interval (3 polls, at least 45 s);
+ * with the live stream up, past the 60-s safety refetch.
+ */
+export function staleAfterMs(seconds: number, live: boolean): number {
+  return live ? 90_000 : Math.max(NET_RULES.staleAfterMs, seconds * 3_000);
+}
+
+/**
+ * "يتحدّث كل 2 ثانية · آخر تحديث 7:05 م" with a pulsing dot while fetching — and honest when it isn't
+ * (K-06): a red dot and "مقطوع" when the API can't be reached, an amber "البيانات قديمة: آخر تحديث قبل
+ * 40 ثانية" when the data is older than it should be.
+ */
+export function LiveBadge({ seconds, updatedAt, fetching, error }: { seconds: number; updatedAt?: number; fetching?: boolean; error?: boolean }) {
+  const net = useConsoleNetwork();
+  const live = useConsoleLiveMode() === 'live';
+  const now = useNow(1000);
+  const age = updatedAt ? now - updatedAt : null;
+  const down = net.state !== 'online';
+  const stale = !down && (Boolean(error) || (age !== null && age > staleAfterMs(seconds, live)));
+  const ago = age !== null ? agoText(age / 1000, (k, p) => t(k, p)) : null;
+  if (down || stale) {
+    return (
+      <p data-testid="live-badge" data-state={down ? 'down' : 'stale'} className={`flex items-center gap-2 text-xs font-semibold ${down ? 'text-bad' : 'text-accent'}`} role="status">
+        <span aria-hidden className={`inline-block h-2 w-2 rounded-pill ${down ? 'bg-bad' : 'bg-accent'}`} />
+        {down ? t('console.live_down') : t('console.live_stale', { ago: ago ?? '—' })}
+        {down && ago ? <span className="font-normal text-muted">· {t('console.updated_at', { time: ago })}</span> : null}
+      </p>
+    );
+  }
   return (
-    <p className="flex items-center gap-2 text-xs text-muted" aria-live="off">
+    <p data-testid="live-badge" data-state="live" className="flex items-center gap-2 text-xs text-muted" aria-live="off">
       <span aria-hidden className={`inline-block h-2 w-2 rounded-pill bg-ok ${fetching ? 'animate-pulse' : ''}`} />
       {t('console.live_every', { seconds })}
       {updatedAt ? <span>· {t('console.updated_at', { time: formatClock(new Date(updatedAt)) })}</span> : null}
     </p>
   );
+}
+
+/**
+ * The connection strip at the top of every page: "النت مقطوع. نحاول نرجع…" / "ما نگدر نوصل للسيرفر.
+ * نحاول كل 5 ثواني" (with "جرّب مرة ثانية"), then "رجع الاتصال" for a moment.
+ */
+export function NetworkBanner() {
+  const net = useConsoleNetwork();
+  const now = useNow(1000);
+  const kind = connectionBanner({ net, now });
+  if (!kind || kind === 'stale') return null;
+  const tone =
+    kind === 'back' ? 'border-success-500 bg-success-500/15 text-success-100' : 'border-danger-500 bg-danger-500/15 text-danger-100';
+  return (
+    <div role="status" data-testid={`net-banner-${kind}`} className={`mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm font-semibold ${tone}`}>
+      <span>{kind === 'offline' ? t('console.net_offline') : kind === 'unreachable' ? t('console.net_unreachable') : t('console.live_back')}</span>
+      {kind === 'unreachable' ? (
+        <button type="button" className={ghostBtn} onClick={() => consoleNetwork().retryNow()}>
+          {t('console.retry')}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Loading placeholder: a pulsing block sized by `className` (first load only; refetches keep data). */
+export function SkeletonBlock({ className = '' }: { className?: string }) {
+  return <div aria-hidden className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }
 
 /** Seconds since mount, ticking once a second (used to count countdowns down between polls). */

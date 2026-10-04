@@ -23,6 +23,7 @@ import { CITY_ID, queryRetry, SLOW_POLL_MS } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { Card, Chip, dangerBtn, ghostBtn, inputCls, LiveBadge, NeedLogin, PageHeader, primaryBtn, QueryError, Stat } from './ui';
 
 /** What a switch dialog acts on. */
@@ -385,7 +386,7 @@ function BannerCard({ banners, canBanner, className = '' }: { banners: SystemBan
                 {set.isPending ? t('status.loading') : t('console.banner_send')}
               </button>
             </div>
-            {set.error && <p className="text-sm text-bad">{set.error.message}</p>}
+            {set.error && <p className="text-sm text-bad">{errorText(set.error)}</p>}
           </fieldset>
         </form>
         <div>
@@ -562,7 +563,7 @@ export function SwitchDialog({ target, onClose }: { target: SwitchTarget | null;
             </>
           )}
           <div role="status" className="min-h-[1.25rem] text-sm">
-            {save.error && <p className="text-bad">{save.error.message}</p>}
+            {save.error && <p className="text-bad">{errorText(save.error)}</p>}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className={ghostBtn} onClick={() => ref.current?.close()}>
@@ -652,7 +653,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
             <p>«{throttlePreview(eta, mode)}»</p>
           </div>
           <div role="status" className="min-h-[1.25rem] text-sm">
-            {save.error && <p className="text-bad">{save.error.message}</p>}
+            {save.error && <p className="text-bad">{errorText(save.error)}</p>}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className={ghostBtn} onClick={() => ref.current?.close()}>

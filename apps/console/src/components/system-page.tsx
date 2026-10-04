@@ -8,6 +8,7 @@ import { formatClock, formatDayClock, formatIqd, shortId } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { Card, Chip, ghostBtn, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Row } from './ui';
 
 export function SystemPage() {
@@ -215,8 +216,8 @@ function SimulatorCard() {
         </>
       )}
       <div role="status" className="mt-2 text-sm">
-        {start.error && <p className="text-bad">{start.error.message}</p>}
-        {stop.error && <p className="text-bad">{stop.error.message}</p>}
+        {start.error && <p className="text-bad">{errorText(start.error)}</p>}
+        {stop.error && <p className="text-bad">{errorText(stop.error)}</p>}
       </div>
     </Card>
   );

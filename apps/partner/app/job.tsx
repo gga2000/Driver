@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerJob, PartnerJobStop } from '@driver/contracts';
-import { Badge, Button, Icon, IconButton, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
@@ -20,8 +20,10 @@ import {
   VEHICLE_ICON,
   zoneName,
 } from '@/features/work/logic';
+import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
+import { useJobQueue } from '@/features/work/useJobQueue';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
@@ -31,33 +33,63 @@ import { amountParam } from '@/lib/money';
  * On a job: one task at a time with a single advancing button (وصلت للمطعم → استلمت → وصلت للزبون →
  * سلّمت), the stop list, quick contact, open-in-maps, the handover photo + cash confirm at the door,
  * and the unreachable-customer protocol. Everything writes through `trips.*`.
+ *
+ * Offline (P-09): "وصلت" and "سلّمت" are saved on the phone with the tap's device time and sent in
+ * order when the network is back (useJobQueue); the screen moves on with "محفوظ، يندز لما يرجع النت".
+ * Steps that need the server's answer (the unreachable protocol) say they need internet.
  */
 export default function JobScreen() {
   const theme = useTheme();
+  const t = useT();
   const job = useActiveJob();
   const status = useStatus();
-  const [done, setDone] = useState<{ earnedIqd: number; failed: boolean } | null>(null);
+  const queue = useJobQueue();
+  const net = useNetwork();
+  const locale = useLocale();
+  const [done, setDone] = useState<{ earnedIqd: number; failed: boolean; queued?: boolean } | null>(null);
   const goHome = () => router.replace('/');
+  // No endless skeleton: offline with no job cached, say why and offer a retry.
+  const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
+  const view = job.data ? applyQueued(job.data, queue.items) : null;
 
-  if (done) {
+  if (done || view?.allDone) {
+    const queued = done ? Boolean(done.queued) : true;
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={{ flex: 1, width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' }}>
-          <DonePanel earnedIqd={done.earnedIqd} failed={done.failed} onHome={goHome} />
+          {queued ? <QueuedStrip sending={queue.sending} text="partner.done_queued" /> : null}
+          <DonePanel earnedIqd={done?.earnedIqd ?? job.data?.pay.totalIqd ?? 0} failed={done?.failed ?? false} onHome={goHome} />
         </View>
       </SafeAreaView>
     );
   }
-  if (!job.data) {
+  if (!job.data || !view) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg, padding: theme.space[5], gap: theme.space[4] }}>
-        {job.isFetched ? <DonePanel earnedIqd={0} failed onHome={goHome} /> : <Skeleton lines={4} />}
+        {job.isFetched ? (
+          <DonePanel earnedIqd={0} failed onHome={goHome} />
+        ) : slow || job.isError ? (
+          <RetryState
+            kind={retryKindFor({ net, error: job.error, slow })}
+            locale={locale}
+            onRetry={() => {
+              restartSlow();
+              void job.refetch();
+            }}
+            secondary={{ label: t('action.back'), icon: 'chevron-back', onPress: goHome }}
+          />
+        ) : (
+          <Skeleton lines={4} />
+        )}
       </SafeAreaView>
     );
   }
   return (
     <JobView
-      job={job.data}
+      job={view.job}
+      saved={view.saved}
+      queued={queue.items.some((a) => a.tripId === view.job.tripId)}
+      sending={queue.sending}
       self={status.data?.position ?? null}
       vehicle={status.data?.vehicleClass ?? 'bike'}
       topUp={canTopUpOnJob(job.data, status.data?.roles ?? [])}
@@ -68,23 +100,34 @@ export default function JobScreen() {
 
 function JobView({
   job,
+  saved,
+  queued,
+  sending,
   self,
   vehicle,
   topUp,
   onDone,
 }: {
   job: PartnerJob;
+  /** Stops whose state only this phone knows so far (taps waiting for the network). */
+  saved: ReadonlySet<string>;
+  /** Taps of this job are waiting: show "محفوظ، يندز لما يرجع النت". */
+  queued: boolean;
+  sending: boolean;
   self: { lat: number; lng: number } | null;
   vehicle: keyof typeof VEHICLE_ICON;
   /** A courier carrying a live order: the customer may hand him cash for his wallet. */
   topUp: boolean;
-  onDone: (d: { earnedIqd: number; failed: boolean }) => void;
+  onDone: (d: { earnedIqd: number; failed: boolean; queued?: boolean }) => void;
 }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
   const actions = useTripActions();
+  const queue = useJobQueue();
+  const net = useNetwork();
+  const [tapping, setTapping] = useState(false);
   const refresh = useRefreshWork();
   const [panel, setPanel] = useState<'none' | 'handover'>('none');
   const [dismissedUnreachable, setDismissedUnreachable] = useState(false);
@@ -92,7 +135,9 @@ function JobView({
   const stop = job.stops.find((s) => s.stopId === job.currentStopId) ?? null;
   const action = stop ? jobAction(stop, job.vertical) : null;
   const progress = taskProgress(job);
-  const busy = actions.arrive.isPending || actions.complete.isPending || actions.unreachable.isPending || actions.fail.isPending;
+  const busy = tapping || actions.unreachable.isPending || actions.fail.isPending;
+  // The last open stop: completing it ends the job (on the server, or on this phone until it syncs).
+  const lastStop = !!stop && job.stops.every((s) => s.stopId === stop.stopId || s.state === 'completed' || s.state === 'skipped');
   const showUnreachable = !!job.unreachable && !dismissedUnreachable && stop?.type === 'dropoff';
 
   const pins = useMemo<MapPin[]>(
@@ -104,6 +149,16 @@ function JobView({
   );
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+  const savedToast = () => {
+    theme.haptic('warning');
+    toast.show({ message: t('partner.queued'), tone: 'warning', icon: 'clock' });
+  };
+  /** The unreachable protocol runs on the server's clock: it can't be saved for later. */
+  const needsInternet = () => {
+    if (net.online) return false;
+    toast.show({ message: t('net.needs_internet'), tone: 'warning', icon: 'wifi-off' });
+    return true;
+  };
 
   const advance = async () => {
     if (!stop || !action || busy) return;
@@ -111,44 +166,61 @@ function JobView({
       setPanel('handover');
       return;
     }
+    setTapping(true);
     try {
       if (action.kind === 'arrive') {
         // A real fix only: without one the server judges the arrival from his last reported position
         // (a made-up town-centre pin would flag every web/desktop arrival as outside the geofence).
         const fix = await currentFix(4000);
-        const trip = await actions.arrive.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, ...(fix ? { pin: fix } : {}), occurredAt: new Date() });
-        const s = trip.stops.find((x) => x.id === stop.stopId);
+        const res = await queue.run({ kind: 'arrive', tripId: job.tripId, stopId: stop.stopId, ...(fix ? { pin: fix } : {}) });
+        if (res.status === 'queued') return savedToast();
+        const s = res.trip.stops.find((x) => x.id === stop.stopId);
         if (s?.arrivedOutsideGeofence) toast.show({ message: t('partner.arrived_outside'), tone: 'warning' });
       } else {
-        const trip = await actions.complete.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, handover: {}, occurredAt: new Date() });
-        if (trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
+        const res = await queue.run({ kind: 'complete', tripId: job.tripId, stopId: stop.stopId, handover: {} });
+        if (res.status === 'queued') {
+          savedToast();
+          if (lastStop) onDone({ earnedIqd: job.pay.totalIqd, failed: false, queued: true });
+          return;
+        }
+        if (res.trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
       }
       theme.haptic('success');
       await refresh();
     } catch (err) {
       fail(err);
+    } finally {
+      setTapping(false);
     }
   };
 
   const handover = async (photoUri: string | null) => {
     if (!stop) return;
+    setTapping(true);
     try {
-      const trip = await actions.complete.mutateAsync({
+      const res = await queue.run({
+        kind: 'complete',
         tripId: job.tripId,
         stopId: stop.stopId,
         handover: { ...(stop.collectIqd > 0 ? { cashCollectedIqd: stop.collectIqd } : {}), ...(photoUri ? { note: 'handover_photo_on_device' } : {}), recipientConfirmed: true },
-        occurredAt: new Date(),
       });
       setPanel('none');
+      if (res.status === 'queued') {
+        savedToast();
+        if (lastStop) onDone({ earnedIqd: job.pay.totalIqd, failed: false, queued: true });
+        return;
+      }
       await refresh();
-      if (trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
+      if (res.trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
     } catch (err) {
       fail(err);
+    } finally {
+      setTapping(false);
     }
   };
 
   const startUnreachable = async () => {
-    if (!stop) return;
+    if (!stop || needsInternet()) return;
     try {
       await actions.unreachable.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, occurredAt: new Date() });
       setDismissedUnreachable(false);
@@ -160,6 +232,7 @@ function JobView({
   };
 
   const endUnreachable = async () => {
+    if (needsInternet()) return;
     try {
       await actions.fail.mutateAsync({ tripId: job.tripId, reason: 'unreachable' });
       await refresh();
@@ -200,11 +273,12 @@ function JobView({
       <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
         <ScrollView contentContainerStyle={[column, { padding: theme.space[5], gap: theme.space[4] }]}>
           {panel === 'handover' && stop ? (
-            <HandoverPanel collectIqd={stop.collectIqd} busy={actions.complete.isPending} onConfirm={(uri) => void handover(uri)} onClose={() => setPanel('none')} />
+            <HandoverPanel collectIqd={stop.collectIqd} busy={tapping} onConfirm={(uri) => void handover(uri)} onClose={() => setPanel('none')} />
           ) : showUnreachable && job.unreachable ? (
             <UnreachablePanel status={job.unreachable} busy={actions.fail.isPending} onFail={() => void endUnreachable()} onResponded={() => setDismissedUnreachable(true)} />
           ) : stop && action ? (
             <>
+              {queued ? <QueuedStrip sending={sending} text="partner.queued" /> : null}
               <View style={{ gap: 2 }}>
                 <Text variant="caption" color="textMuted" tabular>
                   {t('partner.job_step', { n: progress.n, total: progress.total })}
@@ -257,7 +331,7 @@ function JobView({
 
               {topUp ? <TopUpEntry /> : null}
 
-              <StopList job={job} ride={ride} />
+              <StopList job={job} ride={ride} saved={saved} />
 
               <View style={{ gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -378,7 +452,7 @@ function QuickAction({
 }
 
 /** The run in order: done stops ticked, the current one highlighted. */
-function StopList({ job, ride }: { job: PartnerJob; ride: boolean }) {
+function StopList({ job, ride, saved }: { job: PartnerJob; ride: boolean; saved: ReadonlySet<string> }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -419,7 +493,11 @@ function StopList({ job, ride }: { job: PartnerJob; ride: boolean }) {
                 {zoneName(s.zoneId, locale, t)}
               </Text>
             </View>
-            {doneStop ? (
+            {saved.has(s.stopId) ? (
+              <Text variant="caption" weight={600} color="warningText" testID={`job-stop-saved-${s.stopId}`}>
+                {t('partner.stop_saved')}
+              </Text>
+            ) : doneStop ? (
               <Text variant="caption" color="successText">
                 {t('partner.stop_done')}
               </Text>
@@ -431,6 +509,24 @@ function StopList({ job, ride }: { job: PartnerJob; ride: boolean }) {
           </View>
         );
       })}
+    </View>
+  );
+}
+
+/** "محفوظ، يندز لما يرجع النت" (or "دنرسل الخطوات المحفوظة…" while replaying): taps this phone holds. */
+function QueuedStrip({ sending, text }: { sending: boolean; text: 'partner.queued' | 'partner.done_queued' }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View
+      testID="job-queued"
+      accessibilityLiveRegion="polite"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: sending ? theme.colors.infoTint : theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3], margin: text === 'partner.done_queued' ? theme.space[5] : 0, marginBottom: 0 }}
+    >
+      <Icon name={sending ? 'refresh' : 'clock'} size={18} color={sending ? 'infoText' : 'warningText'} strokeWidth={2} />
+      <Text variant="label" weight={600} color={sending ? 'infoText' : 'warningText'} style={{ flex: 1 }}>
+        {sending ? t('partner.queue_sending') : t(text)}
+      </Text>
     </View>
   );
 }

@@ -4,6 +4,7 @@ import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink } from
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { transformer, type AppRouter } from '@driver/contracts';
 import { createStreamTokenCache, type StreamTokenCache } from '@driver/contracts/live-client';
+import { consoleFetch } from './network';
 import { getAccessToken } from './session';
 
 export const { TRPCProvider, useTRPC, useTRPCClient } = createTRPCContext<AppRouter>();
@@ -21,6 +22,8 @@ export function makeTrpcClient() {
   const batch = httpBatchLink({
     url: API_URL,
     transformer,
+    // Every answer and failure feeds the network monitor (live badge, offline strip, Arabic errors).
+    fetch: consoleFetch,
     // Read per request so signing in or out takes effect without rebuilding the client.
     headers() {
       const token = getAccessToken();

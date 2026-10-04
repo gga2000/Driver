@@ -11,6 +11,7 @@ import { formatDayClock, formatIqd, shortId } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { errorText } from '@/lib/network';
 import { Card, Chip, EmptyState, ghostBtn, inputCls, LiveBadge, Mono, NeedLogin, PageHeader, primaryBtn, QueryError, Stat, useSecondsSince } from './ui';
 
 type StatusFilter = 'active' | 'escalated' | 'resolved' | 'all';
@@ -203,7 +204,7 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
           <textarea id={ids.note} rows={3} maxLength={2000} className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
         <div role="status" className="min-h-[1.25rem] text-sm">
-          {create.error && <p className="text-bad">{create.error.message}</p>}
+          {create.error && <p className="text-bad">{errorText(create.error)}</p>}
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className={ghostBtn} onClick={() => ref.current?.close()}>
