@@ -24,6 +24,8 @@ export * from './routes-io.js';
 export * from './deals.js';
 export * from './catalog-io.js';
 export * from './search.js';
+export * from './zone-geometry.js';
+export * from './zones-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
 export * from './driver-account-io.js';

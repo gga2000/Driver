@@ -18,6 +18,7 @@ import {
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
+import { opsZonesRouter } from './zones.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
 
@@ -66,4 +67,6 @@ export const opsRouter = router({
     .mutation(({ ctx, input }) => ctx.topups.confirm(ctx.actor, input, 'ops_agent')),
   /** Launch control room: kill switches and the zone throttle (Console; admin / dispatcher to change). */
   controls: opsControlsRouter,
+  /** Zone outlines drawn on a real map (Console › المناطق; admin / field ops to change). */
+  zones: opsZonesRouter,
 });

@@ -28,6 +28,7 @@ import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
+import type { ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
 import { transformer } from './transformer.js';
 
@@ -94,6 +95,8 @@ export interface AppContext {
   controlRoom: ControlRoomPort;
   /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
   support: SupportPort;
+  /** Zone outlines drawn in the Console (`modules/zones`). */
+  zones: ZonesPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
