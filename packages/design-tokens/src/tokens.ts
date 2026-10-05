@@ -356,6 +356,8 @@ export const motion = {
     shimmer: 1200,
     /** Price total count-up. */
     countUp: 500,
+    /** Split-flap digit tick on departure times (customer audit d-2). */
+    flap: 180,
   },
   /** CSS cubic-bezier strings (Console, web) — mirrored as control points in `bezier`. */
   easing: {

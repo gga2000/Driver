@@ -74,3 +74,7 @@ export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
 export * from './format';
+
+// Phase 3 · garage board (customer audit d-2): the departure-board time
+export { DepartureTime, type DepartureTimeProps, type DepartureTimeSize, type DepartureTimeTone } from './components/DepartureTime';
+export * from './logic/departure';
