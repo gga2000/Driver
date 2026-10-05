@@ -5,10 +5,10 @@ import type { MessageKey } from '@driver/i18n';
 import {
   Avatar,
   Chip,
+  DriverChip,
   formatClock,
   Icon,
   IconButton,
-  ltr,
   PriceBreakdown,
   StatusPill,
   Text,
@@ -184,53 +184,39 @@ export function CourierCard({
   const t = useT();
   const locale = useLocale();
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
-  const vehicle = [courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null, courier.vehicleLabel].filter(Boolean).join(' · ');
+  // The model and colour say more than the class ("تويوتا كورولا · أبيض"); the class only when that is all we know.
+  const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : '');
   return (
     <View testID="courier-card" style={{ gap: theme.space[3] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        {/* Photo placeholder until profile photos ship: initial on a stable tone, ringed when verified today. */}
-        <Avatar name={name} size={56} ring={Boolean(courier.verifiedTodayAt)} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexWrap: 'wrap' }}>
-            <Text variant="title">{name}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }} accessibilityLabel={courier.rating ? `${courier.rating}` : t('track.rating_new')}>
-              <Icon name="star" size={14} color="accent" filled />
-              <Text variant="caption" weight={600} color="textMuted" tabular>
-                {courier.rating ? t('track.rating_value', { rating: courier.rating.toFixed(1), count: courier.ratingCount }) : t('track.rating_new')}
-              </Text>
-            </View>
-          </View>
-          <Text variant="footnote" color="textMuted" numberOfLines={1}>
-            {vehicle}
-            {courier.plate ? ` · ${ltr(courier.plate)}` : ''}
-          </Text>
-          {courier.verifiedTodayAt ? (
-            <View
-              testID="verified-today"
-              style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: theme.space[2], height: 22, borderRadius: 11, backgroundColor: theme.colors.successTint }}
-            >
-              <Icon name="shield" size={13} color="successText" strokeWidth={2.2} />
-              <Text variant="caption" weight={600} color="successText">
-                {t('trip.verified_today')}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-          {canChat ? (
-            <IconButton
-              icon="chat"
-              variant="tonal"
-              badge={unread > 0 ? unread : undefined}
-              accessibilityLabel={unread > 0 ? `${t(ride ? 'track.message_driver' : 'track.message_courier')} · ${t('chat.unread_label', { count: unread })}` : t(ride ? 'track.message_driver' : 'track.message_courier')}
-              onPress={onChat}
-              testID="chat-courier"
-            />
-          ) : null}
-          {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
-          <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
-        </View>
-      </View>
+      {/* C-19 / C-20: photo (his initial until portraits exist), first name, "متحقق اليوم", the car,
+          and the plate in its own chip on its own line — never cut off by the buttons. */}
+      <DriverChip
+        testID="courier-chip"
+        name={name}
+        unnamed={!courier.firstName}
+        photoUrl={courier.photoUrl}
+        vehicle={[vehicle, courier.rating ? `★ ${t('track.rating_value', { rating: courier.rating.toFixed(1), count: courier.ratingCount })}` : null].filter(Boolean).join(' · ') || null}
+        plate={courier.plate}
+        plateLabel={t('driver.plate')}
+        verifiedLabel={courier.verifiedTodayAt ? t('trip.verified_today') : null}
+        size="lg"
+        trailing={
+          <>
+            {canChat ? (
+              <IconButton
+                icon="chat"
+                variant="tonal"
+                badge={unread > 0 ? unread : undefined}
+                accessibilityLabel={unread > 0 ? `${t(ride ? 'track.message_driver' : 'track.message_courier')} · ${t('chat.unread_label', { count: unread })}` : t(ride ? 'track.message_driver' : 'track.message_courier')}
+                onPress={onChat}
+                testID="chat-courier"
+              />
+            ) : null}
+            {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
+            <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
+          </>
+        }
+      />
       {canChat && quickReplies.length > 0 ? (
         <View style={{ gap: theme.space[2] }}>
           <Text variant="caption" color="textMuted">

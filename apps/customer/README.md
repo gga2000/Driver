@@ -48,6 +48,33 @@ limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, de
 - Home: the search bar opens `/search` (no mic until voice exists); coming-soon tiles (سوق، خطوط، طرود)
   open a sheet with "خبرني لمن تنفتح" (`notify.launchInterest`); favourites only from real orders.
 
+## Phase 2: home, طلباتي, reorder, help, rating recovery, driver chip
+
+- **Home (C-09)**: one-line header (greeting + deliver-to, bell), search, ONE service grid (أكل، تكسي،
+  تكتك، الرجعة; سوق/خطوط/طرود in a quiet "قريباً" strip), then what's in progress (order/ride pill, a
+  booked الرجعة seat) or else ONE card — "اطلب نفس الطلب" (last delivered meal, 30 days) or the
+  الرجعة board (`features/home/context.ts`). Food: cuisine chips (→ `/search?q=`) and the kitchens open
+  now as rows; the first is inside the first screen at 360×740. The dark "وين رايح؟" bar is gone from
+  home (taxi/tuktuk are tiles).
+- **طلباتي (C-15, C-44)**: `orders.history` (restaurant + dishes in one read, `docs/api/customer-history-driver-cards.md`);
+  running orders pinned, then by Baghdad day; one-word status pills (`features/orders/history.ts`).
+- **"اطلبه مرة ثانية"**: `features/orders/reorder.ts` rebuilds the cart from today's `catalog.menu`
+  (prices from the server, nothing guessed: gone/sold-out/off-schedule dishes and lost required
+  choices are left out and named; repriced dishes say was → now). A clean rebuild goes straight to
+  the cart; otherwise `ReorderSheet` explains first (and says when the current cart is replaced).
+- **Help (C-13)**: حسابي → مساعدة (`/help`): recent orders → `/help/[orderId]` "عندي مشكلة"
+  (`orders.openDispute` inside the dispute window; running/closed/cancelled orders get the right
+  pointer), WhatsApp (`EXPO_PUBLIC_SUPPORT_WHATSAPP`, placeholder default), 5 FAQs.
+- **Rating (C-12)**: 1–3 on either score asks what went wrong (rating tags) and offers "افتح شكوى"
+  (dispute first, then the rating — the API keeps a disputed order open). No tip chips: tips exist
+  only at checkout.
+- **Driver chip (C-19, C-20)**: `DriverChip` / `PlateChip` in `@driver/ui` — name (or a person glyph),
+  "متحقق اليوم", model · colour, the plate in its own never-truncated chip. On the ride sheet (first
+  for rides), the الرجعة board, seat sheet and boarding pass ("سايقك", `routes.driverCards`).
+- Demo: `POST /demo/history?personId=…` adds three delivered orders (yesterday, 3 and 9 days ago)
+  and runs حمص out at مشويات الحاج كريم so a reorder shows the explanation sheet. الرجعة demo
+  drivers are named people now.
+
 ## Session and API
 
 - `src/lib/session.ts` keeps the `identity.verifyOtp` token pair in **expo-secure-store** on native

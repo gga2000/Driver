@@ -9,7 +9,9 @@ import {
   type DeliveryPoint,
   type EtaBasis,
   type LatLng,
+  ORDER_HISTORY_LIMIT,
   type Order,
+  type OrderHistoryRow,
   type OrderTracking,
   type TrackingPort,
   type TrackItem,
@@ -32,6 +34,8 @@ export interface TrackingOrdersPort {
     participants: Array<{ personId: string | null }>;
   }>;
   get(orderId: string): Promise<Order>;
+  /** The person's own orders (orderer), any state. */
+  listForPerson(personId: string): Promise<Order[]>;
 }
 export interface TrackingTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -195,6 +199,42 @@ export class TrackingService implements TrackingPort {
     if (!kitchen || !door) return promisedArrival(order, kitchen, acceptedAt, null);
     const ride = await this.eta.minutes(kitchen, door, order.minVehicleClass ?? 'bike');
     return promisedArrival(order, kitchen, acceptedAt, ride.minutes);
+  }
+
+  /**
+   * طلباتي (audit C-15): the actor's orders (as orderer or participant, like `orders.mine`), newest first, each with the restaurant's name and
+   * its dishes, so the list reads "مطعم خالد · لفة تكة، بيبسي" without a read per row. Names are
+   * looked up once per merchant; rides add the zone they went to.
+   */
+  async history(actor: Actor): Promise<OrderHistoryRow[]> {
+    const orders = [...(await this.orders.listForPerson(actor.personId))]
+      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
+      .slice(0, ORDER_HISTORY_LIMIT);
+    const merchantNames = new Map<string, string | null>();
+    const itemIds = new Map<string, Set<string>>();
+    for (const o of orders) {
+      if (!o.merchantOrgId) continue;
+      const ids = itemIds.get(o.merchantOrgId) ?? new Set<string>();
+      for (const l of o.lines) if (l.catalogItemId) ids.add(l.catalogItemId);
+      itemIds.set(o.merchantOrgId, ids);
+    }
+    const names = new Map<string, Map<string, string>>();
+    for (const [orgId, ids] of itemIds) {
+      merchantNames.set(orgId, (await this.merchants.merchant(orgId))?.name ?? null);
+      names.set(orgId, ids.size > 0 ? await this.merchants.itemNames(orgId, [...ids]) : new Map());
+    }
+    const rows: OrderHistoryRow[] = [];
+    for (const o of orders) {
+      const menu = o.merchantOrgId ? names.get(o.merchantOrgId) : undefined;
+      const items = o.lines
+        .filter((l) => l.availability !== 'removed')
+        .map((l) => ({ lineId: l.id, catalogItemId: l.catalogItemId, name: (l.catalogItemId ? menu?.get(l.catalogItemId) : null) ?? l.freeText ?? '', qty: Math.max(1, l.qty) }))
+        .filter((i) => i.name !== '');
+      const trip = o.type === 'ride' || o.type === 'errand' || o.type === 'parcel';
+      const dropoffZoneKey = trip ? ((await this.orders.aggregate(o.id)).order.dropoff?.zoneKey ?? null) : null;
+      rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey });
+    }
+    return rows;
   }
 
   // ───────────────────────── internals ─────────────────────────

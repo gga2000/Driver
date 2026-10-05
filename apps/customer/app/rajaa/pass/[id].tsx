@@ -3,10 +3,11 @@ import { useState } from 'react';
 import { Share, View } from 'react-native';
 import { Button, Card, CountdownRing, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList, vehicleLine } from '@/features/rajaa/labels';
+import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
+import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
-import { garageName, useBoardingPass, useBooking, useCancelSeat, useImHere, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useBoardingPass, useBooking, useCancelSeat, useDriverCards, useImHere, useNetwork } from '@/features/rajaa/queries';
 import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
@@ -49,6 +50,8 @@ export default function BoardingPassScreen() {
   const b = booking.data ?? null;
   const live = !!b && (b.state === 'booked' || b.state === 'checked_in');
   const pass = useBoardingPass(bookingId, live);
+  // سايقك (C-19): his first name and today's check-in, next to the car and plate.
+  const driverCard = useDriverCards(b ? [b.departure.id] : []).data?.get(b?.departure.id ?? '');
   const network = useNetwork();
   const imHere = useImHere();
   const cancel = useCancelSeat();
@@ -177,8 +180,9 @@ export default function BoardingPassScreen() {
           <Field icon="seat" label={t('rajaa.seat_label')} value={seatsList(t, b.seatIds)} />
           <Field icon={atPoint ? 'map-pin' : 'garage'} label={atPoint ? t('rajaa.stop_label') : t('rajaa.garage_label')} value={stopName} />
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
-          <Field icon="car" label={t('rajaa.car_label')} value={vehicleLine(t, b.departure.vehicle)} />
         </View>
+        <Rule kind="dashed" color="borderStrong" />
+        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
         {b.pickup.status === 'pending' ? (
           <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
             <StatusPill tone="warning" icon="clock" label={t('intercity.pickup_pending')} />

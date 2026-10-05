@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RequestPostView, TravellingAs } from '@driver/contracts';
+import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPostView, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
@@ -42,6 +42,23 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
     staleTime: 2_000,
     refetchInterval: opts.poll === false ? false : RAJAA_RULES.pollMs,
     placeholderData: (prev) => prev,
+  });
+}
+
+/**
+ * Who drives each departure (`routes.driverCards`, audit C-19): first name, today's check-in, photo.
+ * One read for a whole board (ids sorted so the key is stable); cards change rarely.
+ */
+export function useDriverCards(departureIds: readonly string[]) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const ids = [...new Set(departureIds)].sort().slice(0, 30);
+  return useQuery({
+    ...api.routes.driverCards.queryOptions({ departureIds: ids.length > 0 ? ids : ['none'] }),
+    enabled: signedIn && ids.length > 0,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+    select: (cards: RajaaDriverCard[]) => new Map(cards.map((c) => [c.departureId, c])),
   });
 }
 

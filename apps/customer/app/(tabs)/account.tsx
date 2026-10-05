@@ -145,6 +145,14 @@ function Account() {
         />
       </View>
 
+      {/* Help (audit C-13): a problem with an order, the WhatsApp line, common questions. */}
+      <View style={{ gap: theme.space[3] }}>
+        <SectionHeader title={t('account.help_section')} />
+        <Card elevation={0} padding={0}>
+          <ListRow testID="account-help" leading="chat" title={t('account.help_row')} subtitle={t('account.help_row_hint')} onPress={() => router.push('/help')} />
+        </Card>
+      </View>
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.language')} />
         <SegmentedControl<AppLocale>

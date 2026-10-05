@@ -165,6 +165,20 @@ export default function OrderLiveScreen() {
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0);
 
+  const courierCard = v?.courier ? (
+    <CourierCard
+      courier={v.courier}
+      ride={ride}
+      quickReplies={courierThread?.status === 'open' ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
+      unread={courierThread?.unread ?? 0}
+      canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
+      onReply={(k) => void reply(k)}
+      onChat={() => openChat('customer_courier')}
+      onCall={call}
+      onShare={() => void share()}
+    />
+  ) : null;
+
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -219,6 +233,8 @@ export default function OrderLiveScreen() {
         {v && timeline ? (
           <ScrollView contentContainerStyle={{ gap: theme.space[5], paddingBottom: theme.space[10] + insets.bottom }} showsVerticalScrollIndicator={false} testID="sheet-body">
             {statusHint ? <Text color="textMuted">{t(statusHint)}</Text> : null}
+            {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
+            {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
             {ride ? <RideRoute view={v} /> : null}
             {searching && canCancel ? (
               <View style={{ gap: theme.space[1] }}>
@@ -230,20 +246,10 @@ export default function OrderLiveScreen() {
             ) : null}
             {ride && phase === 'at_pickup' ? <WaitNote vertical={v.courier?.vehicleClass === 'tuktuk' || v.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi'} /> : null}
             {phase !== 'cancelled' ? <Timeline steps={timeline.steps} current={timeline.current} /> : null}
-            {v.courier && phase !== 'cancelled' ? (
+            {v.courier && phase !== 'cancelled' && !ride ? (
               <>
                 <Rule />
-                <CourierCard
-                  courier={v.courier}
-                  ride={ride}
-                  quickReplies={courierThread?.status === 'open' ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
-                  unread={courierThread?.unread ?? 0}
-                  canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
-                  onReply={(k) => void reply(k)}
-                  onChat={() => openChat('customer_courier')}
-                  onCall={call}
-                  onShare={() => void share()}
-                />
+                {courierCard}
               </>
             ) : null}
             {v.items.length > 0 ? (

@@ -23,7 +23,8 @@ import {
   type SelectRejection,
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { driverLabel, seatsList, TRAVELLING_AS, travellingAsLabel, vehicleLine } from '@/features/rajaa/labels';
+import { seatsList, TRAVELLING_AS, travellingAsLabel } from '@/features/rajaa/labels';
+import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import {
   blockedReason,
   carAvailable,
@@ -39,7 +40,7 @@ import {
   publicPlaceName,
 } from '@/features/rajaa/logic';
 import { OptionCard, Section } from '@/features/rajaa/Option';
-import { garageName, useBoard, useHoldSeat, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useBoard, useDriverCards, useHoldSeat, useNetwork } from '@/features/rajaa/queries';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -77,6 +78,7 @@ export default function BookSeat() {
   const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
   const hold = useHoldSeat();
   const dep = board.data?.departures.find((d) => d.id === id) ?? null;
+  const driverCard = useDriverCards(dep ? [dep.id] : []).data?.get(dep?.id ?? '');
   const garage = network.data?.garages.find((g) => g.id === dep?.garageId) ?? null;
 
   // A refresh (someone else booked) or a new declaration can close seats the rider had picked.
@@ -216,9 +218,7 @@ export default function BookSeat() {
           <Text variant="footnote" color="textMuted">
             {t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })} · {t('intercity.latest_departure', { time: clockLabel(dep.latestDepartureAt) })}
           </Text>
-          <Text variant="footnote" color="textMuted">
-            {driverLabel(t, dep.driverId)} · {vehicleLine(t, dep.vehicle)}
-          </Text>
+          <RajaaDriver dep={dep} card={driverCard} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
           {dep.familyOnly ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="user" size={16} color="infoText" />

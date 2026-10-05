@@ -45,6 +45,7 @@ export { Screen, MAX_CONTENT_WIDTH, type ScreenProps } from './components/Screen
 export { TabBar, type TabBarProps, type TabSpec, type TabBarNavigationProps } from './components/TabBar';
 export { PermissionPrompt, type PermissionPromptProps, type PermissionPromptPoint } from './components/PermissionPrompt';
 export { ChatThread, useMaskedCall, type ChatThreadProps, type ChatThreadQuery, type ChatT, type ChatPhotoResult } from './components/ChatThread';
+export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
@@ -69,4 +70,5 @@ export * from './logic/countdown';
 export * from './logic/sheet';
 export * from './logic/slide';
 export * from './logic/chat';
+export * from './logic/plate';
 export * from './format';

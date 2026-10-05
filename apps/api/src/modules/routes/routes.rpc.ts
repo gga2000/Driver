@@ -14,6 +14,7 @@ import {
   type ImHereOutput,
   type IntercityBoard,
   type IntercityNetwork,
+  type RajaaDriverCard,
   type RequestPostView,
   type RoutesPort,
 } from '@driver/contracts';
@@ -41,6 +42,12 @@ import {
 } from './views.js';
 
 type In<K extends keyof RoutesPort> = Parameters<RoutesPort[K]>[1];
+
+/** Asia/Baghdad is UTC+3 all year: "today" for a driver's check-in. */
+function sameBaghdadDay(a: Date, b: Date): boolean {
+  const day = (d: Date) => Math.floor((d.getTime() + 3 * 3600_000) / 86_400_000);
+  return day(a) === day(b);
+}
 
 /**
  * `ctx.routes`: the routes router's port. Roles are checked by the router (riders: any signed-in
@@ -350,6 +357,34 @@ export class RoutesRpc implements RoutesPort {
       bookingId: b.id,
       riderId: b.riderId,
       firstName: names[b.riderId] ?? null,
+    }));
+  }
+
+  /**
+   * Riders (audit C-19): who drives each departure — first name (vault read, purpose
+   * `intercity_driver_card`, the rider as accessor), today's selfie check-in for this run, and a
+   * photo once public portraits exist. Only departures still on the board, or ones the rider holds
+   * a seat on, are answered; any other id is left out (no error, nothing about it leaks).
+   */
+  async driverCards(actor: Actor, input: In<'driverCards'>): Promise<RajaaDriverCard[]> {
+    const now = this.departures.now();
+    const visible: DepartureRecord[] = [];
+    for (const id of [...new Set(input.departureIds)]) {
+      const dep = await this.repo.getDeparture(id);
+      if (!dep) continue;
+      const onBoard = OPEN_DEPARTURE.includes(dep.state);
+      const mine = !onBoard && (await this.repo.bookingsFor(dep.id)).some((b) => b.riderId === actor.personId && (LIVE.includes(b.state) || b.state === 'completed'));
+      if (onBoard || mine) visible.push(dep);
+    }
+    if (visible.length === 0) return [];
+    const names = this.names ? await this.names.firstNamesFor([...new Set(visible.map((d) => d.driverId))], actor.personId, 'intercity_driver_card') : {};
+    return visible.map((d) => ({
+      departureId: d.id,
+      driverId: d.driverId,
+      firstName: names[d.driverId] ?? null,
+      verifiedTodayAt: d.selfieAt && sameBaghdadDay(d.selfieAt, now) ? d.selfieAt : null,
+      // TODO(identity): a public driver portrait (selfies stay in the vault); the app draws the initial.
+      photoUrl: null,
     }));
   }
 

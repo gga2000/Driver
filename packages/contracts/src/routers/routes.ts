@@ -16,6 +16,7 @@ import {
   DepartureBookingInput,
   DepartureIdInput,
   DepartureRiderName,
+  DriverCardsInput,
   DriverDepartureView,
   DriverPositionInput,
   DriverRequestRide,
@@ -35,6 +36,7 @@ import {
   RequestOfferInput,
   RequestPositionInput,
   RequestPostView,
+  RajaaDriverCard,
   RespondPickupInput,
   SelfieInput,
 } from '../routes-io.js';
@@ -55,6 +57,11 @@ export const routesRouter = router({
   network: protectedProcedure()
     .output(IntercityNetwork)
     .query(({ ctx }) => ctx.routes.network()),
+  /** The driver of each departure (first name, today's selfie check-in, photo): board, seat sheet, boarding pass (C-19). */
+  driverCards: protectedProcedure()
+    .input(DriverCardsInput)
+    .output(z.array(RajaaDriverCard))
+    .query(({ ctx, input }) => ctx.routes.driverCards(ctx.actor, input)),
   /** Live departure board per garage (or corridor + direction), with fill and front-seat status. */
   board: protectedProcedure()
     .input(BoardInput)

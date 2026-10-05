@@ -4,82 +4,105 @@ import type { MessageKey } from '@driver/i18n';
 import { Icon, Text, useTheme, type IconName } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 
-export type ServiceId = 'food' | 'taxi' | 'rajaa' | LaunchService;
+export type ServiceId = 'food' | 'taxi' | 'tuktuk' | 'rajaa' | LaunchService;
 
 export interface ServiceDef {
   id: ServiceId;
   label: MessageKey;
   icon: IconName;
-  /** Not open yet: the tile is muted, badged "قريباً", and opens the "خبرني" sheet (audit C-03). */
+  /** Not open yet: listed in the quiet "قريباً" strip, opens the "خبرني" sheet (audit C-03). */
   soon?: boolean;
 }
 
-/** Live services first (food leads), then the coming-soon ones. */
+/** The live services, food first (spec §1: food-led), then the coming-soon ones. */
 export const SERVICES: readonly ServiceDef[] = [
   { id: 'food', label: 'home.service_food', icon: 'bag' },
   { id: 'taxi', label: 'home.service_taxi', icon: 'car' },
+  { id: 'tuktuk', label: 'home.service_tuktuk', icon: 'tuktuk' },
   { id: 'rajaa', label: 'home.service_rajaa', icon: 'garage' },
   { id: 'grocery', label: 'home.service_grocery', icon: 'cart', soon: true },
   { id: 'khat', label: 'home.service_khat', icon: 'clock', soon: true },
   { id: 'parcel', label: 'home.service_parcel', icon: 'parcel', soon: true },
 ];
 
-/** Compact "all services" row near the top of home (spec §1): six equal tiles, food first. */
+/**
+ * The one service grid on home (audit C-09): four live doors of equal weight — أكل (the lead, in
+ * accent), تكسي, تكتك, الرجعة — so each service has exactly one way in (no second taxi bar), and the
+ * coming-soon ones in a quiet strip under it rather than as dead tiles in the grid.
+ */
 export function ServicesRow({ onPress }: { onPress: (id: ServiceId) => void }) {
   const theme = useTheme();
   const t = useT();
+  const live = SERVICES.filter((s) => !s.soon);
+  const soon = SERVICES.filter((s) => s.soon);
+  const press = (id: ServiceId) => {
+    theme.haptic('selection');
+    onPress(id);
+  };
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: theme.space[2] }}>
-      {SERVICES.map((s, i) => (
-        <Pressable
-          key={s.id}
-          testID={`service-${s.id}`}
-          accessibilityRole="button"
-          accessibilityLabel={s.soon ? t('soon.a11y', { name: t(s.label) }) : t(s.label)}
-          onPress={() => {
-            theme.haptic('selection');
-            onPress(s.id);
-          }}
-          style={({ pressed }) => ({ flex: 1, alignItems: 'center', gap: 6, transform: [{ scale: pressed ? 0.94 : 1 }] })}
-        >
-          <View style={{ width: '100%', maxWidth: 58, aspectRatio: 1 }}>
-            <View
-              style={{
-                flex: 1,
-                borderRadius: theme.radius.lg,
-                backgroundColor: i === 0 ? theme.colors.accent : s.soon ? theme.colors.surfaceSunken : theme.colors.surface,
-                borderWidth: i === 0 || s.soon ? 0 : 1,
-                borderColor: theme.colors.border,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+    <View style={{ gap: theme.space[3] }}>
+      <View testID="home-services" style={{ flexDirection: 'row', gap: theme.space[3] }}>
+        {live.map((s, i) => {
+          const lead = i === 0;
+          return (
+            <Pressable
+              key={s.id}
+              testID={`service-${s.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t(s.label)}
+              onPress={() => press(s.id)}
+              style={({ pressed }) => ({ flex: 1, alignItems: 'center', gap: 6, transform: [{ scale: pressed ? 0.95 : 1 }] })}
             >
-              <Icon name={s.icon} size={26} color={i === 0 ? 'onAccent' : s.soon ? 'textMuted' : 'accentText'} strokeWidth={1.8} />
-            </View>
-            {s.soon ? (
               <View
                 style={{
-                  position: 'absolute',
-                  bottom: -7,
-                  alignSelf: 'center',
-                  paddingHorizontal: 6,
-                  borderRadius: theme.radius.pill,
-                  backgroundColor: theme.colors.surface,
-                  borderWidth: 1,
+                  width: '100%',
+                  height: 60,
+                  borderRadius: theme.radius.lg,
+                  backgroundColor: lead ? theme.colors.accent : theme.colors.surface,
+                  borderWidth: lead ? 0 : 1,
                   borderColor: theme.colors.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <Text variant="caption" weight={600} color="textMuted" style={{ fontSize: 12, lineHeight: 16 }}>
-                  {t('soon.badge')}
-                </Text>
+                <Icon name={s.icon} size={28} color={lead ? 'onAccent' : 'accentText'} strokeWidth={1.8} />
               </View>
-            ) : null}
-          </View>
-          <Text variant="caption" weight={600} color={s.soon ? 'textMuted' : 'text'} numberOfLines={1} style={{ marginTop: 4 }}>
-            {t(s.label)}
-          </Text>
-        </Pressable>
-      ))}
+              <Text variant="label" weight={600} numberOfLines={1}>
+                {t(s.label)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View testID="home-soon" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <Text variant="caption" weight={600} color="textMuted">
+          {t('home.soon_strip')}
+        </Text>
+        {soon.map((s) => (
+          <Pressable
+            key={s.id}
+            testID={`service-${s.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('soon.a11y', { name: t(s.label) })}
+            onPress={() => press(s.id)}
+            hitSlop={{ top: 6, bottom: 6 }}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              height: 32,
+              paddingHorizontal: theme.space[2] + 2,
+              borderRadius: theme.radius.pill,
+              backgroundColor: pressed ? theme.colors.border : theme.colors.surfaceSunken,
+            })}
+          >
+            <Icon name={s.icon} size={15} color="textMuted" strokeWidth={2} />
+            <Text variant="caption" weight={600} color="textMuted" numberOfLines={1}>
+              {t(s.label)}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }

@@ -39,6 +39,13 @@ export function vehicleLine(t: TFn, v: IntercityVehicle): string {
   return [kind, desc || null, plate(v.plate)].filter(Boolean).join(' · ');
 }
 
+/** "صالون · سوناتا بيضاء": the car without its plate (the plate gets its own chip, audit C-20). */
+export function vehicleDesc(t: TFn, v: IntercityVehicle): string {
+  const kind = t(`rajaa.vehicle_${v.kind}` as MessageKey);
+  const desc = [v.model, v.color].filter(Boolean).join(' ');
+  return [kind, desc || null].filter(Boolean).join(' · ');
+}
+
 /** Iraqi plates mix digits and the province name ("12345 بغداد"): shown as written, isolated only when all Latin/digits. */
 export function plate(p: string): string {
   return /^[\x20-\x7E]+$/.test(p) ? ltr(p) : p;

@@ -1,35 +1,23 @@
 import { router } from 'expo-router';
-import { View } from 'react-native';
-import { orderTicketNumber, type Order, type OrderType } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
-import { Card, EmptyState, formatClock, ListRow, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
+import { useMemo, useState } from 'react';
+import { RefreshControl, View } from 'react-native';
+import { Card, EmptyState, Skeleton, Text, useNow, useTheme } from '@driver/ui';
+import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
-import { isActiveOrder, useMyOrders } from '@/features/home/queries';
+import { canReorder, sectionByDay } from '@/features/orders/history';
+import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
+import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
+import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
-import { GuestGate } from '@/components/GuestGate';
 import { useSignedIn } from '@/lib/session';
 
-const TYPE_ICON: Record<OrderType, IconName> = {
-  food: 'bag',
-  grocery_catalog: 'cart',
-  errand: 'bag',
-  parcel: 'parcel',
-  ride: 'car',
-  seat: 'seat',
-  subscription: 'clock',
-};
-
-function tone(o: Order): StatusTone {
-  if (isActiveOrder(o)) return 'accent';
-  if (o.state === 'delivered' || o.state === 'completed' || o.state === 'closed') return 'success';
-  if (o.state === 'disputed') return 'warning';
-  return 'neutral';
-}
-
-/** طلباتي: the person's own orders (`orders.mine`), newest first. Detail opens /order/[id]. */
-/** Guests see what lives here and add their number (audit C-18). */
+/**
+ * طلباتي (audit C-15 / C-44): `orders.history` — what's running now pinned on top, then by day
+ * ("اليوم", "أمس", "الجمعة 2/10"). Each row names the restaurant and the dishes, the time, total and
+ * ticket number, a one-word status; food that reached the door has "اطلبه مرة ثانية". Detail opens
+ * /order/[id]. Guests see what lives here and add their number (audit C-18).
+ */
 export default function OrdersTab() {
   return useSignedIn() ? <Orders /> : <GuestGate kind="orders" />;
 }
@@ -38,56 +26,68 @@ function Orders() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const orders = useMyOrders();
+  const history = useOrderHistory();
+  const me = useMyPersonId();
+  const reorder = useReorderFlow();
+  const tick = useNow(true, 60_000);
+  const now = useMemo(() => new Date(tick), [tick]);
+  const sections = useMemo(() => sectionByDay(history.data ?? [], now), [history.data, now]);
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await history.refetch().catch(() => undefined);
+    setRefreshing(false);
+  };
 
   return (
-    <Screen testID="orders">
+    <Screen testID="orders" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />} contentStyle={{ gap: theme.space[5] }}>
       <Text variant="heading" accessibilityRole="header">
         {t('nav.orders')}
       </Text>
-      {orders.isPending ? (
+      {history.isPending ? (
         <Card elevation={0} padding={0}>
           <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
             {[0, 1, 2].map((i) => (
               <View key={i} style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
-                <Skeleton width={40} height={40} radius={10} />
+                <Skeleton width={48} height={48} radius={theme.radius.lg} />
                 <View style={{ flex: 1, gap: theme.space[2] }}>
-                  <Skeleton height={14} width="60%" />
-                  <Skeleton height={12} width="40%" />
+                  <Skeleton height={14} width="55%" />
+                  <Skeleton height={12} width="75%" />
+                  <Skeleton height={10} width="40%" />
                 </View>
               </View>
             ))}
           </View>
         </Card>
-      ) : orders.isError ? (
-        <EmptyState
-          icon="x"
-          title={apiErrorMessage(orders.error, t('error.network'), locale)}
-          action={{ label: t('action.retry'), onPress: () => void orders.refetch() }}
-        />
-      ) : orders.data.length === 0 ? (
-        <EmptyState
-          icon="receipt"
-          title={t('empty.orders')}
-          body={t('empty.orders_hint')}
-          action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }}
-        />
+      ) : history.isError ? (
+        <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
+      ) : sections.length === 0 ? (
+        <EmptyState icon="receipt" title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
       ) : (
-        <Card elevation={0} padding={0}>
-          {orders.data.map((o, i) => (
-            <ListRow
-              key={o.id}
-              testID={`order-${o.id}`}
-              leading={TYPE_ICON[o.type]}
-              title={`${t(`order.type.${o.type}` as MessageKey)} · ${t('order.number', { id: orderTicketNumber(o.id) })}`}
-              subtitle={`${formatClock(o.placedAt)} · ${iqd(o.totalIqd, { locale })}`}
-              trailing={<StatusPill size="sm" tone={tone(o)} live={isActiveOrder(o)} label={t(`order.status.${o.state}` as MessageKey)} />}
-              divider={i < orders.data.length - 1}
-              onPress={() => router.push({ pathname: '/order/[id]', params: { id: o.id } })}
-            />
-          ))}
-        </Card>
+        sections.map((s) => (
+          <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
+            <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
+              {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
+            </Text>
+            <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
+              {s.rows.map((row, i) => (
+                <OrderRow
+                  key={row.order.id}
+                  row={row}
+                  now={now}
+                  divider={i < s.rows.length - 1}
+                  action={
+                    canReorder(row.order) && (!me || row.order.ordererId === me) ? (
+                      <ReorderButton testID={`reorder-${row.order.id}`} loading={reorder.busyOrderId === row.order.id} onPress={() => void reorder.start(row)} />
+                    ) : undefined
+                  }
+                />
+              ))}
+            </Card>
+          </View>
+        ))
       )}
+      {reorder.sheet}
     </Screen>
   );
 }

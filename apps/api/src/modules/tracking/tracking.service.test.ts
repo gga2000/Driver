@@ -130,6 +130,22 @@ describe('TrackingService — the view', () => {
   });
 });
 
+describe('TrackingService — order history (طلباتي, C-15)', () => {
+  it('lists my orders newest first with the restaurant and dish names, and nobody else’s', async () => {
+    const { h, tracking } = setup();
+    const first = await acceptedOrder(h);
+    h.clock.advance(60_000);
+    const second = await h.orders.place('c1', h.foodInput());
+    await h.orders.place('someone_else', h.foodInput());
+    const rows = await tracking.history(as('c1'));
+    expect(rows.map((r) => r.order.id)).toEqual([second.id, first.id]);
+    expect(rows[0]).toMatchObject({ merchantName: 'مطعم التجربة', dropoffZoneKey: null });
+    expect(rows[0]!.items.length).toBeGreaterThan(0);
+    for (const it of rows[0]!.items) expect(['كباب', 'تكة']).toContain(it.name);
+    expect(await tracking.history(as('nobody'))).toEqual([]);
+  });
+});
+
 describe('TrackingService — courier position window', () => {
   it('is null before accept, visible while he works the job, and null after my drop-off', async () => {
     const { h, tracking } = setup();
@@ -183,6 +199,18 @@ describe('orders.rate — two-tap rating validation', () => {
     expect(rated.rating).toMatchObject({ delivery: 2, food: 5, tags: ['late'], note: 'تأخر شوية' });
     const replay = await h.orders.rate('c1', { orderId: o.id, delivery: 5 });
     expect(replay.rating).toMatchObject({ delivery: 2, food: 5 });
+  });
+
+  it('rates an order under dispute without closing it (low rating → complaint first, C-12)', async () => {
+    const { h } = setup();
+    const o = await acceptedOrder(h);
+    const trip = await h.tripFor(o.id);
+    await h.pickup(trip.id);
+    await h.dropoff(trip.id, { cashCollectedIqd: 16500 });
+    expect((await h.orders.openDispute('c1', { orderId: o.id, kind: 'cold_or_late', note: 'بارد' })).state).toBe('disputed');
+    const rated = await h.orders.rate('c1', { orderId: o.id, delivery: 2, food: 1, tags: ['cold'] });
+    expect(rated.state).toBe('disputed');
+    expect(rated.rating).toMatchObject({ delivery: 2, food: 1, tags: ['cold'] });
   });
 
   it('refuses strangers, early ratings and out-of-range scores', async () => {

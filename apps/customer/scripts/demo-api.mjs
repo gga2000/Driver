@@ -14,6 +14,7 @@
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids.
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
+//   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
 //   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
@@ -354,6 +355,68 @@ app.use('/demo/track', async (req, res) => {
   }
 });
 
+// ───────────────────────── order history (طلباتي, audit C-15) ─────────────────────────
+//
+//   POST /demo/history?personId=<id>   → {orderIds}
+//
+// Three delivered food orders from three kitchens, placed yesterday, three days ago and nine days
+// ago (the in-memory record is back-dated after delivery), one of them rated. Then حمص at
+// مشويات الحاج كريم runs out, so "اطلبه مرة ثانية" on that order shows what can't come back.
+const HISTORY = [
+  { key: 'haj_kareem', daysAgo: 1, lines: [['rice_bamia', 2], ['hummus', 1], ['erbil_laban', 2]] },
+  { key: 'sham', daysAgo: 3, rate: true, lines: [['arabi_shawarma', 1], ['falafel_plate', 1], ['lemon_mint', 2]] },
+  { key: 'khalid', daysAgo: 9, lines: [['liver_plate', 1], ['salad', 1], ['pepsi', 2]] },
+];
+
+async function deliveredOrder(personId, h) {
+  const r = seeded.find((s) => s.seed.key === h.key);
+  const placed = await orders.place(personId, {
+    cityId: 'aziziyah',
+    type: 'food',
+    merchantOrgId: r.orgId,
+    lines: h.lines.map(([k, qty]) => ({ catalogItemId: r.itemIds.get(k), qty })),
+    paymentMethod: 'cash',
+    dropoff: { zoneKey: 'zakur', pin: HOME },
+  });
+  await accept(placed.id);
+  const courierId = await newCourier(r.seed.pin);
+  const tripId = await assign(placed.id, courierId);
+  await orders.markReady('demo-staff', { orderId: placed.id });
+  const pickup = await stopOf(tripId, 'pickup');
+  await trips.arrive(tripId, pickup.id, courierId, { pin: r.seed.pin });
+  await trips.completeStop(tripId, pickup.id, courierId);
+  const drop = await stopOf(tripId, 'dropoff');
+  await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+  const order = await orders.get(placed.id);
+  await trips.completeStop(tripId, drop.id, courierId, { handover: { cashCollectedIqd: order.totalIqd } });
+  if (h.rate) await orders.rate(personId, { orderId: placed.id, delivery: 5, food: 5 });
+  // Back-date (in-memory repository only): the list then shows "أمس" and older days.
+  const rec = orders.repo?.orders?.get?.(placed.id);
+  if (rec) {
+    const shift = h.daysAgo * 86_400_000;
+    for (const f of ['placedAt', 'acceptedAt', 'preparingAt', 'readyAt', 'pickedUpAt', 'deliveredAt', 'closedAt', 'merchantOfferedAt', 'promisedReadyAt']) {
+      if (rec[f] instanceof Date) rec[f] = new Date(rec[f].getTime() - shift);
+    }
+  }
+  return placed.id;
+}
+
+app.use('/demo/history', async (req, res) => {
+  try {
+    const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+    if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/history?personId=…' });
+    const orderIds = [];
+    const haj = seeded.find((s) => s.seed.key === 'haj_kareem');
+    // Back on the menu for the order itself (a second call would otherwise find it sold out).
+    await catalog.setAvailability(haj.orgId, haj.itemIds.get('hummus'), true);
+    for (const h of HISTORY) orderIds.push(await deliveredOrder(personId, h));
+    await catalog.setAvailability(haj.orgId, haj.itemIds.get('hummus'), false);
+    json(res, 200, { orderIds });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
 // ───────────────────────── الرجعة (intercity) demo ─────────────────────────
 // Departures on both sides of both corridors (one nearly full with the front taken and a back
 // middle seat that a woman can't take between two men, a van with a walk-up, a family-only SUV,
@@ -361,6 +424,32 @@ app.use('/demo/track', async (req, res) => {
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
 //   POST /demo/rajaa/offers?personId=…   three drivers offer on that person's open requests
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
+// الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
+// sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
+const DRIVER_NAMES = {
+  drv_1Q7Z: 'حيدر كاظم',
+  drv_2X8P: 'مصطفى جاسم',
+  drv_3C5N: 'عباس فاضل',
+  drv_4M9T: 'كرار عادل',
+  drv_5R1D: 'مرتضى سالم',
+  drv_6J2L: 'سجاد ناصر',
+  drv_7K2Q: 'علي حسن',
+  drv_8T6W: 'حسين عبد الله',
+  drv_9B3H: 'أحمد كريم',
+};
+let driverPhoneSeq = 0;
+const D = {};
+for (const [code, name] of Object.entries(DRIVER_NAMES)) {
+  driverPhoneSeq += 1;
+  const phone = `07719${String(880000 + driverPhoneSeq).padStart(6, '0')}`;
+  await identity.requestOtp({ phone, purpose: 'login' });
+  const { code: otp } = await identity.devLastOtp(phone);
+  const id = (await identity.verifyOtp({ phone, code: otp })).personId;
+  await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'intercity_driver' });
+  await identity.setName({ personId: id, sessionId: 'demo' }, name);
+  D[code] = id;
+}
+
 const rajaa = await (async () => {
   const { DeparturesService, DemandService, RequestBoardService } = await load('modules/routes/index.js');
   const { LedgerService } = await load('modules/ledger/index.js');
@@ -398,45 +487,45 @@ const rajaa = await (async () => {
   const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
 
   // Baghdad side — كراج النهضة → العزيزية.
-  const d1 = await announce('drv_7K2Q', { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: saloon('12345 بغداد', 'كامري', 'بيضاء') });
+  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: saloon('12345 بغداد', 'كامري', 'بيضاء') });
   await seat(d1, ['front'], 'rijal');
   await seat(d1, ['back_left'], 'rijal');
   await seat(d1, ['back_right'], 'rijal');
-  const d2 = await announce('drv_4M9T', { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', model: 'جي إم سي', color: 'رصاصي' } });
+  const d2 = await announce(D.drv_4M9T, { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', model: 'جي إم سي', color: 'رصاصي' } });
   await seat(d2, ['middle_left', 'middle_middle'], 'nisa');
   await seat(d2, ['rear_left'], 'rijal');
-  await deps.markWalkUp('drv_4M9T', d2.id, { seatId: 'rear_right', travellingAs: 'rijal' });
-  await deps.selfie('drv_4M9T', d2.id, 'demo/selfie.jpg');
-  const d3 = await announce('drv_9B3H', { garageId: 'mp_garage_nahdha', inMin: 80, vehicle: { kind: 'suv', layout: 6, plate: '30211 بغداد', model: 'تاهو', color: 'سوداء' }, familyOnly: true });
+  await deps.markWalkUp(D.drv_4M9T, d2.id, { seatId: 'rear_right', travellingAs: 'rijal' });
+  await deps.selfie(D.drv_4M9T, d2.id, 'demo/selfie.jpg');
+  const d3 = await announce(D.drv_9B3H, { garageId: 'mp_garage_nahdha', inMin: 80, vehicle: { kind: 'suv', layout: 6, plate: '30211 بغداد', model: 'تاهو', color: 'سوداء' }, familyOnly: true });
   await seat(d3, ['middle_left', 'middle_right'], 'aila');
-  const d4 = await announce('drv_2X8P', { garageId: 'mp_garage_nahdha', inMin: 130, vehicle: saloon('77821 بغداد', 'سوناتا', 'فضية') });
+  const d4 = await announce(D.drv_2X8P, { garageId: 'mp_garage_nahdha', inMin: 130, vehicle: saloon('77821 بغداد', 'سوناتا', 'فضية') });
   await seat(d4, ['front'], 'rijal');
   // The nearly-full car is past T−30: give it a live position ~1.3 km from the garage.
   const carFrom = { lat: 33.3262, lng: 44.4262 };
   const nahdha = { lat: 33.3344, lng: 44.4165 };
-  await deps.driverPosition('drv_7K2Q', d1.id, carFrom);
+  await deps.driverPosition(D.drv_7K2Q, d1.id, carFrom);
   let step = 0;
   globalThis.setInterval(() => {
     // Creep toward the garage every 10 s (stops short of the 150 m geofence).
     const f = Math.min(++step, 100) / 120;
     void deps
-      .driverPosition('drv_7K2Q', d1.id, { lat: carFrom.lat + (nahdha.lat - carFrom.lat) * f, lng: carFrom.lng + (nahdha.lng - carFrom.lng) * f })
+      .driverPosition(D.drv_7K2Q, d1.id, { lat: carFrom.lat + (nahdha.lat - carFrom.lat) * f, lng: carFrom.lng + (nahdha.lng - carFrom.lng) * f })
       .catch(() => {});
   }, 10_000).unref();
 
   // Aziziyah side — the three gates → بغداد (السوق left empty on purpose).
-  const a1 = await announce('drv_5R1D', { garageId: 'mp_garage_bab1', inMin: 45, vehicle: saloon('51234 واسط', 'كامري', 'بيضاء') });
+  const a1 = await announce(D.drv_5R1D, { garageId: 'mp_garage_bab1', inMin: 45, vehicle: saloon('51234 واسط', 'كامري', 'بيضاء') });
   await seat(a1, ['back_left'], 'nisa');
   await seat(a1, ['back_middle'], 'nisa');
   await seat(a1, ['front'], 'rijal');
-  const a2 = await announce('drv_8T6W', { garageId: 'mp_garage_bab2', inMin: 95, vehicle: { kind: 'van', layout: 7, plate: '62210 واسط', model: 'ستاركس', color: 'بيضاء' } });
+  const a2 = await announce(D.drv_8T6W, { garageId: 'mp_garage_bab2', inMin: 95, vehicle: { kind: 'van', layout: 7, plate: '62210 واسط', model: 'ستاركس', color: 'بيضاء' } });
   await seat(a2, ['rear_left'], 'rijal');
 
   // Kut corridor, both ways.
-  const k1 = await announce('drv_3C5N', { garageId: 'mp_garage_bab1', corridorId: 'aziziyah_kut', inMin: 40, vehicle: saloon('48810 واسط', 'أفانتي', 'سماوي') });
+  const k1 = await announce(D.drv_3C5N, { garageId: 'mp_garage_bab1', corridorId: 'aziziyah_kut', inMin: 40, vehicle: saloon('48810 واسط', 'أفانتي', 'سماوي') });
   await seat(k1, ['front'], 'rijal');
   await seat(k1, ['back_left', 'back_middle'], 'aila');
-  const k2 = await announce('drv_6J2L', { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', inMin: 100, vehicle: saloon('39921 واسط', 'إلنترا', 'حمراء') });
+  const k2 = await announce(D.drv_6J2L, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', inMin: 100, vehicle: saloon('39921 واسط', 'إلنترا', 'حمراء') });
   await seat(k2, ['back_right'], 'nisa');
 
   // Demand: 7 people for the coming hour (the "waiting with you" count) and 9 in a later 2-hour
@@ -492,7 +581,7 @@ const rajaa = await (async () => {
       // The other riders in that window found cars of their own (so the seat goes to this person).
       for (const p of soonPosts) if (p.state === 'open') await demand.cancel(p.riderId, p.id).catch(() => {});
       const departAt = new Date(Math.min(post.windowEnd.getTime() - MIN, Math.max(post.windowStart.getTime(), Date.now()) + 45 * MIN));
-      const dep = await deps.announce('drv_1Q7Z', {
+      const dep = await deps.announce(D.drv_1Q7Z, {
         garageId: post.garageId ?? (post.direction === 'to_aziziyah' ? 'mp_garage_nahdha' : 'mp_garage_bab1'),
         corridorId: post.corridorId,
         departAt,
@@ -512,9 +601,9 @@ const rajaa = await (async () => {
       const open = (await requests.mine(personId ?? '')).filter((r) => r.state === 'open');
       if (req.method !== 'POST' || open.length === 0) return json(res, 400, { error: 'POST with a personId that has an open request' });
       for (const r of open) {
-        await requests.offer('drv_5R1D', r.id, 45_000);
-        await requests.offer('drv_8T6W', r.id, 50_000);
-        await requests.offer('drv_3C5N', r.id, 60_000);
+        await requests.offer(D.drv_5R1D, r.id, 45_000);
+        await requests.offer(D.drv_8T6W, r.id, 50_000);
+        await requests.offer(D.drv_3C5N, r.id, 60_000);
       }
       json(res, 200, { requests: open.map((r) => r.id) });
     } catch (err) {

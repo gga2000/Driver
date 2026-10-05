@@ -1,9 +1,10 @@
 import { View } from 'react-native';
-import type { DepartureCard } from '@driver/contracts';
-import { Avatar, Card, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
+import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
+import { Card, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { driverLabel, seatsLeftLabel, vehicleLine } from './labels';
+import { seatsLeftLabel } from './labels';
+import { RajaaDriver } from './RajaaDriver';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, toSeatMap, type FillTone } from './logic';
 
 const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'accent', last: 'warning', full: 'neutral' };
@@ -27,7 +28,7 @@ export function MiniSeatMap({ dep, scale = 0.78 }: { dep: Pick<DepartureCard, 'v
  * One departure on the garage board: when it leaves (and the hard latest time), how full it is, the
  * car and driver, the seat map, price, front seat and pickup options. Tapping opens seat booking.
  */
-export function DepartureTile({ dep, now, onPress }: { dep: DepartureCard; now: Date; onPress?: () => void }) {
+export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; onPress?: () => void }) {
   const theme = useTheme();
   const t = useT();
   const tone = fillTone(dep.fill);
@@ -68,17 +69,7 @@ export function DepartureTile({ dep, now, onPress }: { dep: DepartureCard; now: 
         <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
           <MiniSeatMap dep={dep} />
           <View style={{ flex: 1, gap: theme.space[2] }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Avatar size={28} icon="user" />
-              <View style={{ flex: 1 }}>
-                <Text variant="label" numberOfLines={1}>
-                  {driverLabel(t, dep.driverId)}
-                </Text>
-                <Text variant="caption" color="textMuted" numberOfLines={2}>
-                  {vehicleLine(t, dep.vehicle)}
-                </Text>
-              </View>
-            </View>
+            <RajaaDriver dep={dep} card={driver} testID={`departure-driver-${dep.id}`} />
             <Text variant="bodyStrong" tabular>
               {t('rajaa.price_per_seat', { amount: amountParam(dep.seatPriceIqd) })}
             </Text>
