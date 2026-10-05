@@ -506,6 +506,33 @@ const rajaa = await (async () => {
     }
   });
 
+  // POST /demo/rajaa/onboard?personId=… — this person is in the car: a seat on a car leaving bab 1
+  // in 10 minutes, booked (cash) and checked in with the PIN. Their boarding pass then carries طوارئ.
+  let onboardSeq = 0;
+  app.use('/demo/rajaa/onboard', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/onboard?personId=…' });
+      const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
+      // A fresh driver each call (a driver cannot announce two overlapping departures).
+      const driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      const dep = await deps.announce(driverId, {
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt,
+        latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
+        vehicle: saloon('58120 واسط', 'كامري', 'بيضاء'),
+        familyOnly: false,
+      });
+      const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await deps.book(personId, held.id, 'cash');
+      await deps.checkIn(driverId, dep.id, booked.pin);
+      json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   app.use('/demo/rajaa/offers', async (req, res) => {
     try {
       const personId = personOf(req);

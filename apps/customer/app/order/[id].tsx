@@ -13,6 +13,7 @@ import { useRideMemo } from '@/features/ride/store';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
+import { SosControl } from '@/features/safety/SosControl';
 import { PrePromptGate } from '@/features/notify/PrePrompt';
 import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
@@ -169,7 +170,11 @@ export default function OrderLiveScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} searching={searching} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
-      <TopBar orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}>
+      <TopBar
+        orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
+        // SOS on a ride with a driver (scoring & safety §3): from the match until a little after arrival.
+        sos={ride && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way' || phase === 'arrived' || phase === 'unreachable') ? <SosControl subject={{ kind: 'order', id }} /> : null}
+      >
         {lostMin !== null ? (
           <DegradedBanner
             testID="signal-lost"
@@ -320,7 +325,7 @@ function hintFor(state: string): MessageKey | null {
 }
 
 /** Back button over the map, the order number, and any degraded-state banners under them. */
-function TopBar({ orderNo, children }: { orderNo?: string; children?: ReactNode }) {
+function TopBar({ orderNo, sos, children }: { orderNo?: string; sos?: ReactNode; children?: ReactNode }) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -342,6 +347,7 @@ function TopBar({ orderNo, children }: { orderNo?: string; children?: ReactNode 
             </Text>
           </View>
         ) : null}
+        {sos ? <View style={{ marginStart: 'auto' }}>{sos}</View> : null}
       </View>
       <View pointerEvents="none" style={{ gap: theme.space[2], maxWidth: 520 }}>
         {children}

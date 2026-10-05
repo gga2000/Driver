@@ -1,8 +1,9 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
 import { Button, Card, CountdownRing, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { SosControl } from '@/features/safety/SosControl';
 import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList, vehicleLine } from '@/features/rajaa/labels';
 import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
@@ -144,6 +145,15 @@ export default function BoardingPassScreen() {
 
   return (
     <Screen testID="rajaa-pass" edges={['bottom']}>
+      {/* SOS once the rider is with the car (scoring & safety §3): boarding at the garage, on the road. */}
+      <Stack.Screen
+        options={{
+          headerRight:
+            b.state === 'checked_in' || (live && (b.departure.state === 'boarding' || b.departure.state === 'departed'))
+              ? () => <SosControl subject={{ kind: 'booking', id: b.id }} style={{ marginEnd: theme.space[3] }} />
+              : undefined,
+        }}
+      />
       {/* The ticket. */}
       <Card padding={0} elevation={2} testID="rajaa-ticket">
         <View style={{ padding: theme.space[5], gap: theme.space[2] }}>

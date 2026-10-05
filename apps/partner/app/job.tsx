@@ -9,6 +9,7 @@ import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
+import { SosControl } from '@/features/safety/SosControl';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
 import {
   canTopUpOnJob,
@@ -265,7 +266,7 @@ function JobView({
           <View style={[column, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
             <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate('/')} />
             <StatusPill label={t(KIND_KEY[job.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} />
-            <IconButton icon="sos" variant="outline" accessibilityLabel="SOS" onPress={() => toast.show({ message: t('partner.stub_toast'), tone: 'info' })} />
+            <SosControl subject={{ kind: 'trip', id: job.tripId }} />
           </View>
         </SafeAreaView>
       </View>

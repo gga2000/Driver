@@ -130,6 +130,8 @@ function RootNavigator() {
         <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
+        {/* SOS: the emergency contact's live-location page (public, signed token). */}
+        <Stack.Screen name="sos/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title') }} />
         <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title') }} />

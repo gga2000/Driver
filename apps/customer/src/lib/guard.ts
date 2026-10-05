@@ -39,8 +39,8 @@ export interface GuardInput {
 export const AUTH_GROUP = '(auth)';
 export const TABS_GROUP = '(tabs)';
 export const SETUP_SCREEN = 'setup';
-/** Top-level segments reachable by anyone, signed in or not, mid-setup or not. */
-export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share']);
+/** Top-level segments reachable by anyone, signed in or not, mid-setup or not (share-trip, the SOS contact page). */
+export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 'sos']);
 /**
  * Top-level segments a guest may browse. The tabs are open too: orders, wallet and account show a
  * "دخّل رقمك" card in place of their content (`GuestGate`).

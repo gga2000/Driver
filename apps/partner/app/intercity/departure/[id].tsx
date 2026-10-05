@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { SosControl } from '@/features/safety/SosControl';
 import { departureTone, SeatStrip, SectionHead } from '@/features/intercity/BoardParts';
 import { DriverSeatMap, PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/DepartureParts';
 import { cityName, countdownLabel, dayAndPeriod, departureState, paymentLabel, pickupLabel, riderName, seatName, statusLabel, travellingAsLabel } from '@/features/intercity/labels';
@@ -238,7 +239,13 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
   return (
     <Screen testID="intercity-departure" edges={['bottom']} footer={footer}>
-      <Stack.Screen options={{ title: t('partner.ic_dep_title', { time: clockLabel(dep.departAt) }) }} />
+      <Stack.Screen
+        options={{
+          title: t('partner.ic_dep_title', { time: clockLabel(dep.departAt) }),
+          // SOS on the live run (scoring & safety §3): from boarding at the garage to arrival.
+          headerRight: open || dep.state === 'departed' ? () => <SosControl subject={{ kind: 'departure', id: dep.id }} style={{ marginEnd: theme.space[3] }} /> : undefined,
+        }}
+      />
 
       {/* Hero: time, route, state, countdown, seats */}
       <Card testID="departure-hero" padding={5}>
