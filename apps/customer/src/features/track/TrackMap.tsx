@@ -28,7 +28,7 @@ export interface TrackMapProps {
   bottomInset: number;
   /** Rides: dispatch is still looking for a driver (radar at the pickup). */
   searching?: boolean;
-  /** Minutes to arrival for the pill on the courier ("8 د"); null hides it. */
+  /** Minutes to arrival for the pill on the courier ("8 دقيقة"); null hides it. */
   minutes?: string | null;
 }
 

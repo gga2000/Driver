@@ -4860,5 +4860,5 @@
   "error.sos_cancel_window_passed": "فات وقت الإلغاء. الديسباتشر يتصل بيك ويتأكد",
   "error.safety_incident_closed": "التنبيه مسكّر",
   "error.safety_no_contact": "ما عنده رقم طوارئ",
-  "track.map_minutes": "{minutes} د"
+  "track.map_minutes": "{minutes} دقيقة"
 }
