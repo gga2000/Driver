@@ -116,9 +116,11 @@ export function buildTimeline(v: OrderTracking, input: TimelineInput, t: TFn, cl
   return v.order.type === 'ride' ? rideTimeline(v, input, t, clock) : deliveryTimeline(v, input, t, clock);
 }
 
-function lateNote(input: TimelineInput, t: TFn, clock: (d: Date) => string): Pick<Step, 'note' | 'late'> {
+function lateNote(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string): Pick<Step, 'note' | 'late'> {
   if (input.lateMin <= 0 || !input.eta) return {};
-  return { note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })} ${t('track.note_late_credit')}`, late: true };
+  // The honest-delay threshold is the server's (MoneyRules.latePromise); no promise, no promise text.
+  const promise = v.latePromise && !v.latePromise.credit ? ` ${t('track.note_late_credit', { minutes: v.latePromise.afterMin })}` : '';
+  return { note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })}${promise}`, late: true };
 }
 
 function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string) {
@@ -171,7 +173,7 @@ function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock:
             ? 'accepted'
             : 'placed';
 
-  const late = lateNote(input, t, clock);
+  const late = lateNote(v, input, t, clock);
   if (late.note) {
     const step = steps.find((s) => s.key === current);
     if (step) Object.assign(step, late);
@@ -206,7 +208,7 @@ function rideTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d:
         : s === 'accepted' || s === 'en_route_to_pickup'
           ? 'matched'
           : 'searching';
-  const late = lateNote(input, t, clock);
+  const late = lateNote(v, input, t, clock);
   if (late.note) {
     const step = steps.find((x) => x.key === current);
     if (step) Object.assign(step, late);

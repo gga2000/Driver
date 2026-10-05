@@ -20,7 +20,7 @@ import {
   type StatusTone,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 
@@ -308,9 +308,42 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
 
 export function PriceSection({ view }: { view: OrderTracking }) {
   const t = useT();
+  const theme = useTheme();
+  const locale = useLocale();
   const ride = view.order.type === 'ride';
   const note = ride ? (view.order.paymentMethod === 'cash' ? t('ride.pay_cash_hint') : t('ride.paid_wallet')) : undefined;
-  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} change={view.order.changeIqd ?? 0} note={note} testID="track-price" />;
+  const credit = view.latePromise?.credit ?? null;
+  return (
+    <View style={{ gap: theme.space[2] }}>
+      <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} change={view.order.changeIqd ?? 0} note={note} testID="track-price" />
+      {/* Audit d-5: the honest-delay credit on the receipt, under the total — money back, not a discount. */}
+      {credit && view.latePromise ? (
+        <View
+          testID="track-price-late-credit"
+          accessible
+          accessibilityLabel={`${t('promise.receipt_line')} ${iqd(credit.amountIqd, { locale, sign: true })}. ${t('promise.receipt_hint', { minutes: view.latePromise.afterMin })}`}
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.md, paddingVertical: theme.space[2], paddingHorizontal: theme.space[3] }}
+        >
+          <View style={{ marginTop: 2 }}>
+            <Icon name="gift" size={18} color="successText" strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2] }}>
+              <Text variant="label" weight={600} color="successText">
+                {t('promise.receipt_line')}
+              </Text>
+              <Text variant="label" weight={700} color="successText" tabular>
+                {amountParam(credit.amountIqd, { sign: true })}
+              </Text>
+            </View>
+            <Text variant="caption" color="textMuted">
+              {t('promise.receipt_hint', { minutes: view.latePromise.afterMin })}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 // ───────────────────────── context actions ─────────────────────────

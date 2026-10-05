@@ -297,6 +297,22 @@ export default function CheckoutScreen() {
                 </Text>
               </View>
             ) : null}
+            {/* Audit d-5: the honest-delay promise, in the server's own terms (threshold and credit). */}
+            {orderQuote.data?.latePromise && !scheduledFor ? (
+              <View testID="checkout-late-promise" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+                <View style={{ marginTop: 3 }}>
+                  <Icon name="shield" size={16} color="successText" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="footnote" weight={600} color="successText">
+                    {t('promise.line', { minutes: orderQuote.data.latePromise.afterMin })}
+                  </Text>
+                  <Text variant="caption" color="textMuted">
+                    {t('promise.checkout_hint', { amount: amountParam(orderQuote.data.latePromise.creditIqd) })}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         </Card>
       </Section>
