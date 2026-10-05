@@ -2,7 +2,7 @@
  * Pure seed data and helpers (no database): tested without Postgres, consumed by seed.ts.
  * Zones come from @driver/contracts so the API config and the database never disagree.
  */
-import { AZIZIYAH_ZONES, type AziziyahZoneSeed } from '@driver/contracts';
+import { AZIZIYAH_ZONES, draftRing, type AziziyahZoneSeed } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS, type SeedRestaurant } from '@driver/contracts/seeds';
 
 export { AZIZIYAH_ZONES };
@@ -27,16 +27,10 @@ export const CITIES: SeedCity[] = [
   { id: 'baghdad', nameAr: 'بغداد', nameEn: 'Baghdad', active: false },
 ];
 
-/** Draft polygon: a hexagon of `radiusM` around the centroid, as WKT (lng lat order). */
+/** Draft polygon: the AI hexagon (`draftRing`, shared with the API's demo store) as WKT (lng lat order). */
 export function hexagonWkt(z: Pick<AziziyahZoneSeed, 'lat' | 'lng' | 'radiusM'>): string {
-  const pts: string[] = [];
-  const dLat = z.radiusM / 111_320;
-  const dLng = z.radiusM / (111_320 * Math.cos((z.lat * Math.PI) / 180));
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i;
-    pts.push(`${(z.lng + dLng * Math.cos(a)).toFixed(6)} ${(z.lat + dLat * Math.sin(a)).toFixed(6)}`);
-  }
-  pts.push(pts[0]!);
+  const ring = draftRing(z);
+  const pts = [...ring, ring[0]!].map((p) => `${p.lng.toFixed(6)} ${p.lat.toFixed(6)}`);
   return `POLYGON((${pts.join(', ')}))`;
 }
 

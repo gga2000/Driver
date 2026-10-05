@@ -84,8 +84,8 @@ async function seedZones(tx: Tx): Promise<Map<string, string>> {
       ON CONFLICT ("city_id", "key") DO UPDATE SET
         "name_ar" = EXCLUDED."name_ar", "name_en" = EXCLUDED."name_en", "tier" = EXCLUDED."tier",
         "ext_id" = EXCLUDED."ext_id", "updated_at" = EXCLUDED."updated_at",
-        -- never overwrite a polygon drivers have verified
-        "polygon" = CASE WHEN "zones"."verified_at" IS NULL THEN EXCLUDED."polygon" ELSE "zones"."polygon" END
+        -- never overwrite an outline someone drew or drivers verified
+        "polygon" = CASE WHEN "zones"."verified_at" IS NULL AND "zones"."placement" = 'draft' THEN EXCLUDED."polygon" ELSE "zones"."polygon" END
       RETURNING "id"`;
     ids.set(z.id, rows[0]!.id);
   }

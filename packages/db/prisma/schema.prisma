@@ -489,7 +489,7 @@ model City {
   @@schema("public")
 }
 
-/// Pricing/dispatch zone. Polygons are AI-drafted centroids until drivers verify them in Partner.
+/// Pricing/dispatch zone. Outlines start as AI-drafted hexagons; Ali / field ops draw the real ones in the Console.
 model Zone {
   id         String                                  @id @default(cuid())
   cityId     String                                  @map("city_id")
@@ -502,6 +502,12 @@ model Zone {
   extId      String?                                 @map("ext_id")
   polygon    Unsupported("geography(Polygon, 4326)")
   verifiedAt DateTime?                               @map("verified_at")
+  /// Centre handle of a drawn outline (label and pin anchor). NULL for AI drafts (seed centre).
+  centre     Unsupported("geography(Point, 4326)")?
+  /// draft (AI hexagon) | placed (drawn in the Console) | confirmed (drivers agreed on the ground).
+  placement  String                                  @default("draft")
+  placedAt   DateTime?                               @map("placed_at")
+  placedById String?                                 @map("placed_by_id")
   /// Edge zones: tuktuks opt in; cars default.
   tuktukOptIn Boolean                                @default(true) @map("tuktuk_opt_in")
   createdAt  DateTime                                @default(now()) @map("created_at")
