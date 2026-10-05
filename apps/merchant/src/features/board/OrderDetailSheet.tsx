@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import type { BoardOrder } from '@driver/contracts';
-import { Badge, Button, Icon, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
+import { Badge, Button, CountdownRing, Icon, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
+import { MIcon } from '@/components/MIcon';
 import { ModalSheet } from '@/components/ModalSheet';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
@@ -10,12 +11,15 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { courierLine } from './logic';
-import { OrderItems } from './OrderCard';
+import { LADDER } from './ladder';
+import { courierLine, hasAllergy } from './logic';
+import { AllergyPill, KitchenNote, OrderItems } from './OrderCard';
 
 export interface OrderDetailSheetProps {
   order: BoardOrder | null;
   now: number;
+  /** Server clock for the accept ring (M-11). */
+  clock?: () => number;
   onClose: () => void;
   onAccept: (o: BoardOrder) => void;
   onReject: (o: BoardOrder) => void;
@@ -38,7 +42,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /** The whole ticket: every line by person, times, money, courier; print and the column's actions. */
-export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onReady, onPrint }: OrderDetailSheetProps) {
+export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint }: OrderDetailSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -51,6 +55,12 @@ export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onRe
       size="lg"
       testID="order-detail"
       title={t('merchant.detail.title', { number: order.number })}
+      // M-11: reading a long ticket is exactly when the 90 s run out — the same ring as the card.
+      aside={
+        order.column === 'new' && order.acceptBy && !order.partial ? (
+          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
+        ) : null
+      }
       subtitle={[t('merchant.detail.placed_at', { time: clock12(order.placedAt) }), order.promisedReadyAt ? t('merchant.detail.ready_by', { time: clock12(order.promisedReadyAt) }) : null].filter(Boolean).join(' · ')}
       footer={
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
@@ -70,9 +80,20 @@ export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onRe
       }
     >
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+        {hasAllergy(order) ? <AllergyPill testID="detail-allergy" /> : null}
         {courier ? <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} /> : <StatusPill tone="neutral" icon="bike" label={t('merchant.courier.none')} />}
         {order.groups.length > 1 ? <StatusPill tone="neutral" icon="user" label={t('merchant.detail.people', { count: order.groups.length })} /> : null}
       </View>
+
+      {/* M-09: the kitchen's note first (an allergy can't be scrolled past), the courier's after the items. */}
+      {order.note ? (
+        <View style={{ gap: theme.space[1] }}>
+          <Text variant="caption" color="textMuted">
+            {t('merchant.detail.kitchen_note')}
+          </Text>
+          <KitchenNote note={order.note} testID="detail-kitchen-note" />
+        </View>
+      ) : null}
 
       <Contact order={order} onLeave={onClose} />
 
@@ -80,12 +101,17 @@ export function OrderDetailSheet({ order, now, onClose, onAccept, onReject, onRe
         <OrderItems order={order} />
       </View>
 
-      {order.note ? (
-        <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[4], gap: 2 }}>
+      {order.courierNote ? (
+        <View testID="detail-courier-note" style={{ gap: theme.space[1] }}>
           <Text variant="caption" color="textMuted">
-            {t('merchant.card.order_note')}
+            {t('merchant.detail.courier_note')}
           </Text>
-          <Text variant="bodyStrong">{order.note}</Text>
+          <View style={{ flexDirection: 'row', gap: theme.space[2], borderRadius: theme.radius.md, padding: theme.space[3], borderWidth: 1, borderColor: theme.colors.border, borderStyle: 'dashed' }}>
+            <MIcon name="bike" size={18} color="textMuted" />
+            <Text variant="label" color="textMuted" style={{ flex: 1 }}>
+              {order.courierNote}
+            </Text>
+          </View>
         </View>
       ) : null}
 

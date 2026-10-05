@@ -1,9 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, Stack } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
+import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
 import { Button, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
 import { useWalletBalance } from '@/features/account/queries';
 import { FarePanel, PayOption, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
@@ -44,6 +45,8 @@ export default function RideChoose() {
   const place = usePlaceRide();
   const [problem, setProblem] = useState<string | null>(null);
   const [details, setDetails] = useState<RideVertical | null>(null);
+  const attemptRef = useRef<PlaceAttempt | null>(null);
+  const inFlight = useRef(false);
 
   const tuktuk = pickup && dropoff ? tuktukAvailability(pickup.zoneId, dropoff.zoneId, d.allowEdgeTuktuk) : { ok: true, edgeZoneId: null };
   // Started from the tuktuk tile but the trip touches an edge zone: the car is the sure choice.
@@ -70,17 +73,24 @@ export default function RideChoose() {
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
 
   const request = async () => {
-    if (!quote) return;
+    if (!quote || inFlight.current) return;
     setProblem(null);
+    // No duplicate rides: one key per request attempt, kept when the answer is lost so a second tap
+    // gets the ride already requested (the server answers a repeated key with it).
+    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}`, () => newRequestKey('ride'));
+    attemptRef.current = attempt;
+    inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note }),
+        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key }),
       );
+      attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title }, dropoff);
       void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       if (router.canDismiss()) router.dismissAll();
       router.push({ pathname: '/order/[id]', params: { id: order.id } });
     } catch (err) {
+      attemptRef.current = afterFailure(attempt, apiErrorCode(err));
       const kind = rideProblem(apiErrorCode(err));
       if (kind === 'price_changed') {
         // Night started, or the city changed a fare, between the quote and the tap: show the new one.
@@ -91,7 +101,10 @@ export default function RideChoose() {
       } else if (kind === 'cash_cap') setProblem(t('ride.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
       else if (kind === 'location') setProblem(t('ride.location_problem'));
       else if (kind === 'wallet') setProblem(t('error.wallet_insufficient'));
+      else if (attemptRef.current) setProblem(t('checkout.lost_answer'));
       else setProblem(apiErrorMessage(err, t('error.network'), locale));
+    } finally {
+      inFlight.current = false;
     }
   };
 

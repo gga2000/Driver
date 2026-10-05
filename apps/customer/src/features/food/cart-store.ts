@@ -13,6 +13,7 @@ import {
   type CartState,
   type NewCartLine,
 } from './cart';
+import type { PlaceAttempt } from './place-attempt';
 
 /**
  * The cart on this device: a tiny external store (same pattern as `lib/profile.ts`) persisted to
@@ -37,6 +38,11 @@ export interface CartStoreState {
   /** The order waiting for the kitchen and the cart it came from. */
   placed: { orderId: string; cart: CartState } | null;
   people: SavedPerson[];
+  /**
+   * The checkout attempt whose answer never came (no duplicate orders): its key is re-sent until the
+   * order is placed or refused. Persisted, so it survives a reload or an app kill mid-request.
+   */
+  pending?: PlaceAttempt | null;
 }
 
 const KEY = 'driver.customer.cart';
@@ -84,6 +90,7 @@ export function createCartStore(store: KeyValueStorage) {
           cart: isCart(parsed.cart) ? parsed.cart : EMPTY_CART,
           placed: parsed.placed && typeof parsed.placed.orderId === 'string' && isCart(parsed.placed.cart) ? parsed.placed : null,
           people: Array.isArray(parsed.people) ? parsed.people.filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string') : [],
+          pending: parsed.pending && typeof parsed.pending.key === 'string' && typeof parsed.pending.signature === 'string' ? { key: parsed.pending.key, signature: parsed.pending.signature, unknownSince: typeof parsed.pending.unknownSince === 'number' ? parsed.pending.unknownSince : null } : null,
         };
         for (const l of listeners) l();
       })();
@@ -122,7 +129,11 @@ export function createCartStore(store: KeyValueStorage) {
     },
     /** The order is placed: the cart moves to `placed` until the kitchen answers. */
     markPlaced(orderId: string) {
-      emit({ ...state, placed: { orderId, cart: state.cart }, cart: EMPTY_CART });
+      emit({ ...state, placed: { orderId, cart: state.cart }, cart: EMPTY_CART, pending: null });
+    },
+    /** The checkout attempt in progress or with an unknown outcome (null: none). */
+    setPending(attempt: PlaceAttempt | null) {
+      emit({ ...state, pending: attempt });
     },
     /** The kitchen accepted (or the person moved on): forget the waiting cart. */
     settlePlaced(orderId: string) {

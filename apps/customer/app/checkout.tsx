@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, minOrderShortfall, reconcile } from '@/features/food/cart';
-import { cartStore, useCart } from '@/features/food/cart-store';
+import { cartStore, useCartStore } from '@/features/food/cart-store';
+import { afterFailure, attemptFor, attemptSignature, shouldReplay } from '@/features/food/place-attempt';
 import {
   NEW_CUSTOMER_CAP_IQD,
   buildPlaceOrderInput,
@@ -40,6 +41,11 @@ const STREET_SAVING_IQD = 250;
  * drop-off, and explains price_changed, sold-out items, a short wallet and the new-customer cash cap in
  * plain Arabic. The restaurant's deal is the server's own line (`orders.quote`); a deal that ended
  * between cart and place refreshes the total (`deal_changed`).
+ *
+ * No duplicate orders: each attempt carries one idempotency key (`place-attempt.ts`). When the answer
+ * is lost (the network dropped mid-request) the key is kept with the cart; the next tap — or the app
+ * itself once the network is back — re-sends it and the server answers with the order it already
+ * placed, which opens. Kitchen and courier notes are separate fields (M-09).
  */
 export default function CheckoutScreen() {
   const theme = useTheme();
@@ -47,7 +53,9 @@ export default function CheckoutScreen() {
   const locale = useLocale();
   const api = useApi();
   const queryClient = useQueryClient();
-  const cart = useCart();
+  const cartState = useCartStore();
+  const cart = cartState.cart;
+  const pending = cartState.pending ?? null;
   const { name: myName } = useProfile();
   const { place, dropoff } = useDeliverTo();
   const [street, setStreet] = useState(false);
@@ -68,6 +76,11 @@ export default function CheckoutScreen() {
   const [slot, setSlot] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
+  const [kitchenNote, setKitchenNote] = useState('');
+  const [courierNote, setCourierNote] = useState('');
+  // One try at a time, whatever the taps (a web double click lands before the button re-renders).
+  const inFlight = useRef(false);
+  const [replaying, setReplaying] = useState(false);
 
   const merchant = cart.merchant;
   const ready = Boolean(quote.data && (orderQuote.data || orderQuote.isError));
@@ -78,6 +91,25 @@ export default function CheckoutScreen() {
   useEffect(() => {
     if (payment === 'wallet' && priced && balance !== null && !walletRow.usable) setPayment('cash');
   }, [payment, priced, balance, walletRow.usable]);
+
+  // After a lost answer, check the order by re-sending its key (it opens if it was placed): once when
+  // the screen can (or the app restarted with it pending), and again each time the network comes back.
+  // Never in a loop: a server that stays unreachable waits for the person's tap.
+  const signature = merchant ? attemptSignature(merchant.id, cart.lines) : '';
+  const onPlaceRef = useRef<(opts?: { replay?: boolean }) => Promise<void>>(async () => {});
+  const canReplay = shouldReplay(pending, { online: net.state === 'online', inFlight: placeOrder.isPending }) && pending?.signature === signature && ready && cart.lines.length > 0;
+  const replay = useCallback(() => void onPlaceRef.current({ replay: true }), []);
+  const prevNet = useRef(net.state);
+  const autoTried = useRef<string | null>(null);
+  useEffect(() => {
+    const cameBack = prevNet.current !== 'online' && net.state === 'online';
+    prevNet.current = net.state;
+    if (!canReplay || !pending) return;
+    if (cameBack || autoTried.current !== pending.key) {
+      autoTried.current = pending.key;
+      replay();
+    }
+  }, [net.state, canReplay, pending, replay]);
 
   if (!merchant || cart.lines.length === 0) {
     return (
@@ -103,8 +135,17 @@ export default function CheckoutScreen() {
   ];
   const recipientName = recipientId === 'me' ? null : recipientId === 'other' ? otherName.trim() || null : (cart.people.find((p) => p.id === recipientId)?.name ?? null);
 
-  // Offline: say so up front and keep the cart, instead of a tap that fails (C-17).
-  const netBlocker = net.state === 'offline' ? t('checkout.offline_blocked') : net.state === 'unreachable' ? t('checkout.unreachable_blocked') : null;
+  // Offline: say so up front and keep the cart, instead of a tap that fails (C-17). After a lost
+  // answer, say that the order will be checked (not placed twice) once the network is back.
+  const lostAnswer = pending?.unknownSince != null && pending.signature === signature;
+  const netBlocker =
+    net.state === 'offline' || net.state === 'unreachable'
+      ? lostAnswer
+        ? t('checkout.lost_answer_offline')
+        : net.state === 'offline'
+          ? t('checkout.offline_blocked')
+          : t('checkout.unreachable_blocked')
+      : null;
   const blocker = netBlocker ?? (!dropoff
     ? t('cart.pick_place')
     : shortfall > 0
@@ -126,11 +167,17 @@ export default function CheckoutScreen() {
     return errors.name || errors.phone || !phone ? null : { kind: 'other', name: otherName.trim(), phone };
   };
 
-  const onPlace = async () => {
-    if (!totals || !dropoff || blocker) return;
+
+  const onPlace = async (opts: { replay?: boolean } = {}) => {
+    if (!totals || !dropoff || blocker || inFlight.current) return;
     const r = recipient();
     if (!r) return;
     setProblem(null);
+    // The same basket re-uses the attempt whose answer was lost: the server places it once.
+    const attempt = attemptFor(cartStore.getSnapshot().pending ?? null, signature);
+    cartStore.setPending(attempt);
+    inFlight.current = true;
+    setReplaying(Boolean(opts.replay || attempt.unknownSince !== null));
     try {
       const order = await placeOrder.mutateAsync(
         buildPlaceOrderInput({
@@ -142,13 +189,25 @@ export default function CheckoutScreen() {
           paymentMethod: payment,
           fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd },
           ...(orderQuote.data ? { discountIqd: totals.discountIqd } : {}),
+          note: kitchenNote,
+          courierNote,
+          clientRequestId: attempt.key,
         }),
       );
       cartStore.markPlaced(order.id);
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       router.replace({ pathname: '/kitchen/[id]', params: { id: order.id } });
     } catch (err) {
-      const kind = placeProblem(apiErrorCode(err));
+      const errCode = apiErrorCode(err);
+      const next = afterFailure(attempt, errCode);
+      cartStore.setPending(next);
+      if (next) {
+        // The answer was lost: the order may exist. Never a second order — the key is kept.
+        // The footer says so from the kept attempt (and says "once the network is back" while offline).
+        setProblem(null);
+        return;
+      }
+      const kind = placeProblem(errCode);
       if (kind === 'deal_changed') {
         // The deal ended, ran out or changed since the cart: show the server's new total, ask again.
         await Promise.all([orderQuote.refetch(), quote.refetch()]);
@@ -174,22 +233,28 @@ export default function CheckoutScreen() {
       } else {
         setProblem(apiErrorMessage(err, t('error.network'), locale));
       }
+    } finally {
+      inFlight.current = false;
+      setReplaying(false);
     }
   };
+  onPlaceRef.current = onPlace;
 
   const buttonLabel = totals
     ? scheduledFor
       ? t('checkout.place_scheduled', { time: clock12(scheduledFor), amount: amountParam(totals.totalIqd) })
       : t('checkout.place_now', { amount: amountParam(totals.totalIqd) })
     : t('checkout.title');
+  // After a lost answer: "tap again, it won't be placed twice" (or, offline, "we'll check once it's back").
+  const notice = blocker ?? (lostAnswer ? t('checkout.lost_answer') : null);
 
   const footer = (
     <View style={{ gap: theme.space[2] }}>
-      {problem || blocker ? (
+      {problem || notice ? (
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }} testID="checkout-problem" accessibilityLiveRegion="polite">
           <Icon name={problem ? 'x' : 'clock'} size={18} color={problem ? 'dangerText' : 'warningText'} />
           <Text variant="footnote" color={problem ? 'dangerText' : 'warningText'} style={{ flex: 1 }}>
-            {problem ?? blocker}
+            {problem ?? notice}
           </Text>
         </View>
       ) : null}
@@ -199,10 +264,11 @@ export default function CheckoutScreen() {
         fullWidth
         label={buttonLabel}
         loading={placeOrder.isPending}
-        loadingLabel={t('checkout.placing')}
+        loadingLabel={replaying ? t('checkout.checking') : t('checkout.placing')}
         disabled={!totals || Boolean(blocker)}
         haptic="success"
         onPress={() => void onPlace()}
+        accessibilityHint={lostAnswer ? t('checkout.lost_answer') : undefined}
       />
     </View>
   );
@@ -297,6 +363,27 @@ export default function CheckoutScreen() {
             onChange={(v) => setSlot(Number(v[0] ?? 0))}
           />
         ) : null}
+      </Section>
+
+      <Section title={t('checkout.notes')}>
+        <TextField
+          testID="checkout-note-kitchen"
+          label={t('checkout.note_kitchen')}
+          placeholder={t('checkout.note_kitchen_placeholder')}
+          value={kitchenNote}
+          onChangeText={setKitchenNote}
+          maxLength={500}
+          multiline
+        />
+        <TextField
+          testID="checkout-note-courier"
+          label={t('checkout.note_courier')}
+          placeholder={t('checkout.note_courier_placeholder')}
+          value={courierNote}
+          onChangeText={setCourierNote}
+          maxLength={300}
+          multiline
+        />
       </Section>
 
       <Section title={t('checkout.payment')}>

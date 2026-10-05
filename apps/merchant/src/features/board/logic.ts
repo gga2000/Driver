@@ -1,4 +1,4 @@
-import { MERCHANT_BUSY_RULES, type BoardColumn, type BoardCourier, type BoardOrder } from '@driver/contracts';
+import { MERCHANT_BUSY_RULES, mentionsAllergy, type BoardColumn, type BoardCourier, type BoardOrder } from '@driver/contracts';
 import type { TKey } from '@/lib/i18n-core';
 import { minutesBetween, minutesLeft } from '@/lib/time';
 
@@ -127,4 +127,86 @@ export function partialValid(selected: ReadonlySet<string>, lineIds: readonly st
 /** Short Arabic/English item count etc. are copy; this is the people count for the detail header. */
 export function peopleCount(o: Pick<BoardOrder, 'groups'>): number {
   return o.groups.length;
+}
+
+// ───────────────────────── rush (M-05, M-06, M-10) ─────────────────────────
+
+/**
+ * M-10: the one "new" number — orders in the جديد column. The column header, the rail/tab badge and
+ * the banner all show this; the banner adds the state ("1 مسكّت", "1 ينتظر الزبون") after it.
+ */
+export function newCount(orders: readonly Pick<BoardOrder, 'column'>[]): number {
+  return orders.filter((o) => o.column === 'new').length;
+}
+
+export interface NewOrderSummary {
+  /** Every order in جديد (= `newCount`). */
+  total: number;
+  /** Quiet under "سكّت 30 ثانية". */
+  snoozed: number;
+  /** A partial accept waiting for the customer's answer. */
+  withCustomer: number;
+}
+
+export function newOrderSummary(orders: readonly Pick<BoardOrder, 'id' | 'column' | 'partial'>[], snoozedIds: readonly string[]): NewOrderSummary {
+  const fresh = orders.filter((o) => o.column === 'new');
+  return {
+    total: fresh.length,
+    snoozed: fresh.filter((o) => o.partial === null && snoozedIds.includes(o.id)).length,
+    withCustomer: fresh.filter((o) => o.partial !== null).length,
+  };
+}
+
+/**
+ * The جديد column in answer order (M-05): least time left first; orders without a running clock
+ * (a partial waiting for the customer, scheduled and not yet offered) after them, oldest first.
+ */
+export function byTimeLeft<T extends Pick<BoardOrder, 'acceptBy' | 'placedAt' | 'partial' | 'id'>>(orders: readonly T[]): T[] {
+  const clock = (o: T) => (o.partial === null && o.acceptBy ? o.acceptBy.getTime() : Number.POSITIVE_INFINITY);
+  return [...orders].sort((a, b) => clock(a) - clock(b) || a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id));
+}
+
+/** Tablet rush (S-M2): more than two orders waiting → the queue strip and compact tickets. */
+export const RUSH_FROM = 3;
+export function isRush(waiting: number): boolean {
+  return waiting >= RUSH_FROM;
+}
+
+/** S-M2 suggestion: at four or more waiting, offer busy mode (unless it is on already). */
+export const BUSY_SUGGEST_FROM = 4;
+export function suggestBusy(waiting: number, busyOn: boolean): boolean {
+  return !busyOn && waiting >= BUSY_SUGGEST_FROM;
+}
+
+/** A ticket that pushes its own Accept below the fold on a phone: a group order or more than three dishes. */
+export function isLongOrder(o: Pick<BoardOrder, 'groups' | 'itemCount'>): boolean {
+  return o.groups.length > 1 || o.itemCount > 3;
+}
+
+/**
+ * The phone's sticky accept bar (M-06): the order to answer next (least time left, still ringing for
+ * the kitchen) when it is long or a group order, or when several wait — so Accept is always one
+ * thumb away. Null when nothing needs it.
+ */
+export function stickyAcceptTarget<T extends Pick<BoardOrder, 'column' | 'acceptBy' | 'placedAt' | 'partial' | 'id' | 'groups' | 'itemCount'>>(orders: readonly T[]): T | null {
+  const waiting = byTimeLeft(orders.filter((o) => o.column === 'new' && o.partial === null));
+  const next = waiting[0];
+  if (!next) return null;
+  return isLongOrder(next) || waiting.length > 1 ? next : null;
+}
+
+/** Every customer note on the order: the order's (kitchen) note, each person's note, each line's. */
+export function kitchenNotes(o: Pick<BoardOrder, 'note' | 'groups'>): string[] {
+  const out: string[] = [];
+  if (o.note) out.push(o.note);
+  for (const g of o.groups) {
+    if (g.note) out.push(g.note);
+    for (const l of g.lines) if (l.note) out.push(l.note);
+  }
+  return out;
+}
+
+/** M-09: any note on the order mentions an allergy → the card shows a "حساسية" pill. Display only. */
+export function hasAllergy(o: Pick<BoardOrder, 'note' | 'groups'>): boolean {
+  return mentionsAllergy(...kitchenNotes(o));
 }

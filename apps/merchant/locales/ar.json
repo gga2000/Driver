@@ -5,7 +5,6 @@
   "merchant.nav.money": "الفلوس",
   "merchant.nav.insights": "الإحصائيات",
   "merchant.nav.more": "المزيد",
-
   "merchant.welcome.badge": "للمطاعم والمحلات",
   "merchant.welcome.title": "مطبخك وطلباتك وفلوسك، بمكان واحد",
   "merchant.welcome.point_orders": "الطلب يوصلك بصوت عالي وينطبع وحده",
@@ -19,20 +18,17 @@
   "merchant.welcome.art_note": "بدون بصل",
   "merchant.welcome.art_person": "أبو حسين",
   "merchant.auth.phone_hint": "نفس الرقم اللي سجّلك بيه صاحب المحل",
-
   "merchant.gate.title": "حسابك بعده ما متفعّل",
   "merchant.gate.body": "هذا الرقم مو مربوط بأي مطعم أو محل. خلي صاحب المحل يضيفك من صفحة الموظفين، أو اتصل بينا ونفعّله.",
   "merchant.gate.call": "اتصل بدرايفر",
   "merchant.gate.retry": "تفعّل؟ حدّث",
   "merchant.gate.other_number": "ادخل برقم ثاني",
-
   "merchant.stores.title": "وين تشتغل اليوم؟",
   "merchant.stores.subtitle": "اختار المحل حتى تشوف طلباته",
   "merchant.stores.role_owner": "صاحب المحل",
   "merchant.stores.role_staff": "موظف",
   "merchant.stores.type_restaurant": "مطعم",
   "merchant.stores.type_grocer": "محل",
-
   "merchant.board.col_new": "جديد",
   "merchant.board.col_preparing": "يتحضّر",
   "merchant.board.col_ready": "جاهز",
@@ -65,7 +61,6 @@
   "merchant.board.closed_banner": "المحل مسدود: ما توصلك طلبات جديدة",
   "merchant.board.paused_banner": "توقف مؤقت ({reason}): الطلبات ترجع الساعة {time}",
   "merchant.board.open_again": "افتح",
-
   "merchant.card.number": "#{number}",
   "merchant.card.just_now": "هسة",
   "merchant.card.since": "من {minutes} دقيقة",
@@ -93,7 +88,6 @@
   "merchant.card.more_items_two": "+صنفين ثانيين",
   "merchant.card.more_items_few": "+{count} أصناف ثانية",
   "merchant.card.accept_seconds": "ث",
-
   "merchant.courier.none": "الدليفري يتعيّن بعد القبول",
   "merchant.courier.searching": "ندوّر دليفري",
   "merchant.courier.on_the_way": "الدليفري بالطريق · {minutes} دقيقة",
@@ -102,7 +96,6 @@
   "merchant.courier.arrived": "الدليفري وصل",
   "merchant.courier.arrived_waiting": "الدليفري ينتظر من {minutes} دقيقة",
   "merchant.courier.picked_up": "الدليفري استلم",
-
   "merchant.accept.title": "اقبل طلب #{number}",
   "merchant.accept.prep_q": "شكد ياخذ وقت؟",
   "merchant.accept.minutes": "{minutes} د",
@@ -145,7 +138,6 @@
   "merchant.missed.sheet_empty": "ما فاتك ولا طلب اليوم. عاشت إيدك",
   "merchant.missed.row_timeout": "محد قبله خلال 90 ثانية",
   "merchant.missed.row_partial": "الزبون ما رد على التعديل",
-
   "merchant.reject.title": "ليش ترفض طلب #{number}؟",
   "merchant.reject.reason_sold_out": "خلص الأكل",
   "merchant.reject.reason_busy": "زحمة",
@@ -158,7 +150,6 @@
   "merchant.reject.confirm": "ارفض الطلب",
   "merchant.reject.score_note": "الرفض ينحسب بنسبة الرفض مالتك",
   "merchant.reject.done": "انرفض الطلب",
-
   "merchant.detail.title": "طلب #{number}",
   "merchant.detail.placed_at": "انطلب الساعة {time}",
   "merchant.detail.people": "{count} شخص",
@@ -178,7 +169,6 @@
   "merchant.detail.receipt": "شوف الوصل",
   "merchant.detail.reject_late": "ارفض بعد القبول",
   "merchant.detail.ready_by": "جاهز الساعة {time}",
-
   "merchant.status.open": "مفتوح",
   "merchant.status.closed": "مسدود",
   "merchant.status.paused": "توقف لحد {time}",
@@ -190,21 +180,18 @@
   "merchant.status.opened": "فتحنا. الطلبات راح توصلك",
   "merchant.status.closed_toast": "سدّينا المحل",
   "merchant.status.store_switch": "بدّل",
-
   "merchant.close_reason.sold_out": "خلص الأكل",
   "merchant.close_reason.too_busy": "زحمة هواي",
   "merchant.close_reason.no_staff": "ماكو عمّال كافي",
   "merchant.close_reason.power_cut": "الكهرباء مطفية",
   "merchant.close_reason.closing_early": "نسد وكت اليوم",
   "merchant.close_reason.other": "غيره",
-
   "merchant.busy.chip_off": "زحمة؟",
   "merchant.busy.chip_on": "زحمة ⁦+10⁩ · {minutes} د",
   "merchant.busy.sheet_body": "نضيف 10 دقايق على كل وقت تحضير لمدة ساعة، وبعدها يرجع وحده للوضع الطبيعي. الزبون يشوف الوقت الجديد.",
   "merchant.busy.turn_on": "شغّل وضع الزحمة",
   "merchant.busy.turn_off": "طفّي وضع الزحمة",
   "merchant.busy.ends_at": "يطفى وحده الساعة {time}",
-
   "merchant.printer.chip_connected": "الطابعة شغّالة",
   "merchant.printer.chip_disconnected": "الطابعة مفصولة",
   "merchant.printer.chip_not_set_up": "ماكو طابعة",
@@ -222,7 +209,6 @@
   "merchant.printer.preview_name": "طابعة المتصفح",
   "merchant.printer.printed": "انطبع الوصل",
   "merchant.printer.failed": "ما انطبع. شيك الطابعة",
-
   "merchant.money.balance": "رصيدك {amount}",
   "merchant.money.balance_label": "رصيد الكاش",
   "merchant.money.owed": "عليك {amount} عمولة",
@@ -237,7 +223,6 @@
   "merchant.money.channel_zaincash": "تنحول على زين كاش",
   "merchant.money.channel_bank": "تنحول عالمصرف",
   "merchant.money.reference": "رقم الوصل ⁦{reference}⁩",
-
   "merchant.date.dow_0": "الأحد",
   "merchant.date.dow_1": "الاثنين",
   "merchant.date.dow_2": "الثلاثاء",
@@ -262,7 +247,6 @@
   "merchant.date.day_month": "{day} {month}",
   "merchant.date.range": "{from} – {to}",
   "merchant.date.at": "{day}، الساعة {time}",
-
   "merchant.time.hour": "{hour} {period}",
   "merchant.time.p_late_night": "بالليل",
   "merchant.time.p_morning": "الصبح",
@@ -270,10 +254,8 @@
   "merchant.time.p_afternoon": "العصر",
   "merchant.time.p_evening": "المغرب",
   "merchant.time.p_night": "بالليل",
-
   "merchant.owner_only.title": "هذي الصفحة لصاحب المحل",
   "merchant.owner_only.body": "الفلوس والموظفين يشوفها المالك بس. إذا تحتاج شي منها احچي وياه.",
-
   "merchant.money.tab_today": "اليوم",
   "merchant.money.tab_statement": "كشف الأسبوع",
   "merchant.money.tab_disputes": "الشكاوى",
@@ -354,7 +336,6 @@
   "merchant.money.receipt_balance_after": "رصيدك بعدها",
   "merchant.money.receipt_amount": "المبلغ المستلم",
   "merchant.money.receipt_whatsapp": "نفس الوصل وصلك على واتساب",
-
   "merchant.statement.prev": "الأسبوع اللي قبله",
   "merchant.statement.next": "الأسبوع اللي بعده",
   "merchant.statement.this_week": "هذا الأسبوع",
@@ -391,7 +372,6 @@
   "merchant.statement.pdf_note": "نسخة PDF توصلك على واتساب كل يوم أحد",
   "merchant.statement.order_ref": "⁦#{ref}⁩",
   "merchant.statement.commission_line": "عمولة {pct}%",
-
   "merchant.disputes.kind_cold_or_late": "الأكل بارد أو متأخر",
   "merchant.disputes.kind_missing_item": "صنف ناقص",
   "merchant.disputes.kind_wrong_item": "صنف غلط",
@@ -439,7 +419,6 @@
   "merchant.disputes.note_required": "اكتب شنو صار حتى نگدر نراجع",
   "merchant.disputes.upload_failed": "ما گدرنا نرفع الصورة، جرّب مرة ثانية",
   "merchant.disputes.your_answer": "ردك",
-
   "merchant.insights.range_7": "7 أيام",
   "merchant.insights.range_30": "30 يوم",
   "merchant.insights.range_90": "90 يوم",
@@ -493,7 +472,6 @@
   "merchant.insights.ratings_none": "ماكو تقييمات بهالفترة",
   "merchant.insights.no_data": "ماكو طلبات كافية بهالفترة",
   "merchant.insights.need_attention": "يحتاج انتباه",
-
   "merchant.staff.subtitle": "{count} بالمحل",
   "merchant.staff.invite": "ضيف موظف",
   "merchant.staff.role_owner": "مالك",
@@ -536,7 +514,6 @@
   "merchant.staff.cancel_invite_body": "هذا الرقم ما يگدر يفتح المحل. تگدر تدعوه مرة ثانية بأي وقت",
   "merchant.staff.cancel_invite_confirm": "إي، الغيها",
   "merchant.staff.invite_cancelled": "انلغت الدعوة",
-
   "merchant.sound.enable": "شغّل صوت الطلبات",
   "merchant.sound.off_chip": "الصوت طافي: اضغط حتى تسمع الطلبات",
   "merchant.sound.on_toast": "الصوت شغّال",
@@ -557,7 +534,6 @@
   "merchant.push.strip": "خلّي التابلت يرن حتى لو التطبيق مسكّر",
   "merchant.push.enable": "شغّلها",
   "merchant.push.later": "بعدين",
-
   "merchant.more.title": "المزيد",
   "merchant.more.staff": "الموظفين",
   "merchant.more.staff_hint": "ضيف موظف برقمه، وحدد شنو يشوف",
@@ -571,7 +547,6 @@
   "merchant.more.switch_store": "بدّل المحل",
   "merchant.more.support": "اتصل بدرايفر",
   "merchant.more.sign_out": "اطلع من الحساب",
-
   "merchant.hours.title": "الدوام والزحمة",
   "merchant.hours.now": "هسة",
   "merchant.hours.prep_default": "وقت التحضير المعتاد: {minutes} دقيقة",
@@ -636,7 +611,6 @@
   "merchant.hours.dow_short_4": "خميس",
   "merchant.hours.dow_short_5": "جمعة",
   "merchant.hours.dow_short_6": "سبت",
-
   "merchant.settings.title": "الإعدادات",
   "merchant.settings.sound": "صوت الطلبات الجديدة",
   "merchant.settings.sound_hint": "صوت عالي يتكرر لحد ما تقبل أو ترفض",
@@ -649,7 +623,6 @@
   "merchant.settings.lang_ar": "عربي",
   "merchant.settings.lang_en": "English",
   "merchant.settings.version": "النسخة {version}",
-
   "merchant.receipt.order": "طلب #{number}",
   "merchant.receipt.placed": "انطلب {time}",
   "merchant.receipt.ready_by": "جاهز {time}",
@@ -665,11 +638,9 @@
   "merchant.receipt.preview_title": "الوصل",
   "merchant.receipt.paper": "ورق 80 ملم",
   "merchant.receipt.print_now": "اطبع",
-
   "merchant.placeholder.title": "هذي الصفحة دا تنبني",
   "merchant.placeholder.body": "توصل بالتحديث الجاي. الطلبات شغّالة هسة.",
   "merchant.placeholder.back": "رجوع للطلبات",
-
   "merchant.common.cancel": "رجوع",
   "merchant.common.close": "سكّر",
   "merchant.common.minutes": "{minutes} دقيقة",
@@ -1007,5 +978,24 @@
   "merchant.deals.sent": "وصل عرضك لدرايفر. نراجعه ونخبرك",
   "merchant.deals.live_now": "العرض انضاف",
   "merchant.deals.back": "رجوع",
-  "merchant.deals.next": "التالي"
+  "merchant.deals.next": "التالي",
+  "merchant.board.alert_waiting_one": "طلب ينتظر",
+  "merchant.board.alert_waiting_two": "طلبين ينتظرون",
+  "merchant.board.alert_waiting": "{count} طلبات تنتظر",
+  "merchant.board.alert_state_snoozed": "{count} مسكّت",
+  "merchant.board.alert_state_customer": "{count} ينتظر الزبون",
+  "merchant.rush.suggest_busy": "{count} طلبات تنتظر. تشغّل وضع الزحمة؟",
+  "merchant.rush.busy_on": "شغّله",
+  "merchant.rush.queue_a11y": "الطلبات الجديدة بالدور، {count} طلبات",
+  "merchant.rush.chip_a11y": "طلب #{number}، {count} صنف. افتحه",
+  "merchant.rush.expand_a11y": "طلب #{number}. افتح التفاصيل",
+  "merchant.card.allergy": "حساسية",
+  "merchant.card.allergy_a11y": "انتبه: بالطلب حساسية، اقرا الملاحظة",
+  "merchant.detail.kitchen_note": "ملاحظة للمطبخ",
+  "merchant.detail.courier_note": "ملاحظة للدليفري (ما تخص المطبخ)",
+  "merchant.header.more": "المحل: الزحمة، الطابعة والفلوس",
+  "merchant.header.switch_store": "بدّل المحل",
+  "merchant.insights.best_title_sales": "الأكثر بيعاً بالفلوس",
+  "merchant.insights.best_by_qty": "بالعدد",
+  "merchant.insights.best_by_sales": "بالفلوس"
 }

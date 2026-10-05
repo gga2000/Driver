@@ -27,6 +27,8 @@ import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
@@ -38,6 +40,7 @@ import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
 import {
+  DuplicateClientRequest,
   ORDERS_REPOSITORY,
   type DiscountMeta,
   type LineUnavailability,
@@ -149,6 +152,8 @@ export class OrdersService implements OnModuleInit {
   }
 
   private readonly promotions: PromotionsPort;
+  /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
+  private readonly placeLock = new KeyedLock();
 
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
@@ -156,8 +161,39 @@ export class OrdersService implements OnModuleInit {
 
   // ───────────────────────── placing ─────────────────────────
 
+  /**
+   * No duplicate orders: with a `clientRequestId` (one per checkout attempt, re-sent on retries) a
+   * repeated call answers with the order the first one placed — the same view, nothing charged,
+   * reserved or offered twice. Concurrent calls are serialised per key in this instance and, across
+   * instances, by an advisory lock in the transaction and the unique (orderer, key) index.
+   */
   async place(ordererId: string, raw: PlaceInput): Promise<Order> {
     const input = PlaceOrderInput.parse(raw);
+    const key = input.clientRequestId;
+    if (!key) return this.placeOnce(ordererId, input);
+    const prior = await this.replay(ordererId, input);
+    if (prior) return prior;
+    try {
+      return await this.placeLock.run(`${ordererId}:${key}`, async () => (await this.replay(ordererId, input)) ?? this.placeOnce(ordererId, input));
+    } catch (err) {
+      if (!(err instanceof DuplicateClientRequest)) throw err;
+      const winner = await this.replay(ordererId, input);
+      if (winner) return winner;
+      throw err.cause ?? err;
+    }
+  }
+
+  /** The order already placed with this request's key, as `place` answered it; null when none. */
+  private async replay(ordererId: string, input: z.output<typeof PlaceOrderInput>, tx?: Tx): Promise<Order | null> {
+    if (!input.clientRequestId) return null;
+    const prior = await this.repo.findByClientRequest(ordererId, input.clientRequestId, tx);
+    if (!prior) return null;
+    // A key belongs to one checkout attempt: re-used for a different order it is a client bug, not a retry.
+    if (prior.order.type !== input.type || prior.order.merchantOrgId !== (input.merchantOrgId ?? null)) throw new DriverError('invalid_input');
+    return this.view(prior.order.id, tx);
+  }
+
+  private async placeOnce(ordererId: string, input: z.output<typeof PlaceOrderInput>): Promise<Order> {
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
@@ -191,6 +227,12 @@ export class OrdersService implements OnModuleInit {
     }
 
     return this.uow.run(async (tx) => {
+      if (input.clientRequestId) {
+        // Another API instance placing with the same key commits (or rolls back) before we look.
+        await advisoryXactLock(tx, `orders.place:${ordererId}:${input.clientRequestId}`);
+        const prior = await this.replay(ordererId, input, tx);
+        if (prior) return prior;
+      }
       // The deal's spend is reserved in this transaction, atomically against its budget cap: two
       // orders can never both spend the last of it (the later one is asked to refresh).
       if (p.discount && p.discount.meta.funder === 'merchant' && discount > 0) {
@@ -214,6 +256,8 @@ export class OrdersService implements OnModuleInit {
           tipIqd: input.tipIqd,
           totalIqd: total,
           note: input.note ?? null,
+          courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
+          clientRequestId: input.clientRequestId ?? null,
           scheduledFor: input.scheduledFor ?? null,
           minVehicleClass: caps?.minVehicleClass ?? null,
           dropoff: input.dropoff ?? null,
@@ -1590,6 +1634,8 @@ export function toOrderView(agg: OrderAggregate): Order {
     cancellationFeeIqd: order.cancellationFeeIqd,
     refundState: order.refundState,
     note: order.note,
+    courierNote: order.courierNote ?? null,
+    clientRequestId: order.clientRequestId ?? null,
     rating: order.rating ?? null,
     discount: discountView(order),
   };

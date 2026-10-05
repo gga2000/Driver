@@ -104,7 +104,19 @@ export const PlaceOrderInput = z.object({
   dropoff: DeliveryPoint.optional(),
   /** Scheduled orders are offered to the merchant at T − prep − 10 min (edge-case review A.12). */
   scheduledFor: z.coerce.date().optional(),
+  /** For the kitchen ("بدون بصل", an allergy): the merchant's card and receipt show it. */
   note: z.string().max(500).optional(),
+  /**
+   * For the courier only ("دگ الجرس مرتين", which door): his drop-off stop and the merchant's detail
+   * sheet show it; the kitchen card does not (UI/UX audit M-09).
+   */
+  courierNote: z.string().max(300).optional(),
+  /**
+   * Idempotency key the app makes once per checkout attempt and re-sends on every retry of it (a lost
+   * response, a double tap). Unique per orderer: a repeated key returns the order it already placed
+   * instead of placing a second one (concurrent calls included). 8–64 characters of [A-Za-z0-9_-].
+   */
+  clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 });
 export type PlaceOrderInput = z.input<typeof PlaceOrderInput>;
 
@@ -198,7 +210,12 @@ export const Order = z.object({
   cancellationReason: z.string().nullable(),
   cancellationFeeIqd: Iqd,
   refundState: RefundState,
+  /** The kitchen note (order-level). */
   note: z.string().nullable(),
+  /** The note for the courier (M-09); null/absent = none. */
+  courierNote: z.string().nullable().optional(),
+  /** The checkout attempt's idempotency key the order was placed with; null/absent = none sent. */
+  clientRequestId: z.string().nullable().optional(),
   /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */
   rating: OrderRating.nullable().optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
@@ -353,4 +370,16 @@ export function parseOrderTicket(text: string): string | null {
   const western = text.replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - (d >= '۰' ? 0x06f0 : 0x0660)) % 10));
   const m = /^\s*#?\s*(\d{4})\s*$/.exec(western);
   return m && m[1]! >= '1000' ? m[1]! : null;
+}
+
+/** Words that mean an allergy in Iraqi Arabic, MSA and English (M-09). */
+const ALLERGY_WORDS = /حساسي[ةه]|حساس(?:ين|ة|ه)?\s+(?:من|على|عل)|allerg/i;
+
+/**
+ * True when a customer note mentions an allergy ("وحدة من البنات عندها حساسية من الفستق",
+ * "حساس من الطماطة", "nut allergy"). Display only (UI/UX audit M-09): the kitchen card flags the
+ * order with a "حساسية" pill so it can't be missed; nothing is refused or changed on the order.
+ */
+export function mentionsAllergy(...notes: ReadonlyArray<string | null | undefined>): boolean {
+  return notes.some((n) => typeof n === 'string' && ALLERGY_WORDS.test(n));
 }

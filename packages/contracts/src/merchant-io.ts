@@ -108,8 +108,10 @@ export const BoardOrder = z.object({
   collectCashIqd: Iqd,
   itemCount: z.number().int(),
   groups: z.array(BoardGroup),
-  /** Order-level note from the customer. */
+  /** Order-level note from the customer for the kitchen (the card shows it). */
   note: z.string().nullable(),
+  /** The customer's note for the courier (M-09): the detail sheet shows it, the kitchen card does not. */
+  courierNote: z.string().nullable().optional(),
   /** Partial accept waiting for the customer (review A.4). */
   partial: z.object({ unavailableLineIds: z.array(z.string()), deadline: z.coerce.date() }).nullable(),
   courier: BoardCourier,

@@ -32,7 +32,12 @@ export interface OrderRecord {
   totalIqd: number;
   receiptTotalIqd: number | null;
   refundState: RefundState;
+  /** The kitchen note. */
   note: string | null;
+  /** M-09: the customer's note for the courier only (`orders.courier_note`); absent/null = none. */
+  courierNote?: string | null;
+  /** The app's idempotency key for the checkout attempt (`orders.client_request_id`, unique per orderer). */
+  clientRequestId?: string | null;
   scheduledFor: Date | null;
   merchantOfferedAt: Date | null;
   promisedReadyAt: Date | null;
@@ -126,8 +131,11 @@ export interface OrderAggregate {
 }
 
 export interface OrdersRepository {
+  /** Throws `DuplicateClientRequest` when the orderer already has an order with `order.clientRequestId`. */
   create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[], tx?: Tx): Promise<OrderAggregate>;
   find(id: string, tx?: Tx): Promise<OrderAggregate | null>;
+  /** The order this orderer placed with this idempotency key, if any. */
+  findByClientRequest(ordererId: string, clientRequestId: string, tx?: Tx): Promise<OrderAggregate | null>;
   update(id: string, patch: OrderPatch, tx?: Tx): Promise<OrderRecord>;
   /** Conditional update (… WHERE state = expect); null when the order moved meanwhile. */
   updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null>;
@@ -164,6 +172,22 @@ export interface OrderSearchFilter {
 
 export const ORDERS_REPOSITORY = Symbol('ORDERS_REPOSITORY');
 
+/**
+ * `create` refused a second order with the same (orderer, client request id): another call with the
+ * same key won the race. The service answers with the order that call placed.
+ */
+export class DuplicateClientRequest extends Error {
+  constructor(readonly ordererId: string, readonly clientRequestId: string, override readonly cause?: unknown) {
+    super(`order already placed for client request ${clientRequestId}`);
+    this.name = 'DuplicateClientRequest';
+  }
+}
+
+/** Prisma's unique-constraint failure (P2002), whatever the driver adapter puts in `meta`. */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
+}
+
 // ───────────────────────── Prisma implementation ─────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Prisma row ↔ record mapping */
@@ -189,6 +213,8 @@ function orderFromRow(r: any): OrderRecord {
     receiptTotalIqd: r.receiptTotalIqd,
     refundState: r.refundState,
     note: r.note,
+    courierNote: r.courierNote ?? null,
+    clientRequestId: r.clientRequestId ?? null,
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
@@ -256,13 +282,22 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[], tx?: Tx): Promise<OrderAggregate> {
     const db = this.db(tx);
     const { discountMeta, ...fields } = order;
-    const row = await db.order.create({
-      data: {
-        ...fields,
-        dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
-        discountMeta: discountMeta ? (discountMeta as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
-      },
-    });
+    let row;
+    try {
+      row = await db.order.create({
+        data: {
+          ...fields,
+          dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+          discountMeta: discountMeta ? (discountMeta as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+        },
+      });
+    } catch (err) {
+      // The (orderer_id, client_request_id) index: a concurrent call with the same key committed first.
+      // (Another unique column — quote_id — can also raise P2002; the service rethrows `cause` when no
+      // order carries the key.)
+      if (order.clientRequestId && isUniqueViolation(err)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId, err);
+      throw err;
+    }
     const byRef = new Map<string, string>();
     for (const p of participants) {
       const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
@@ -290,6 +325,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
     const row = await this.db(tx).order.findUnique({ where: { id }, include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } } });
     if (!row) return null;
     return { order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) };
+  }
+
+  async findByClientRequest(ordererId: string, clientRequestId: string, tx?: Tx): Promise<OrderAggregate | null> {
+    const row = await this.db(tx).order.findUnique({ where: { ordererId_clientRequestId: { ordererId, clientRequestId } }, select: { id: true } });
+    return row ? this.find(row.id, tx) : null;
   }
 
   async update(id: string, patch: OrderPatch, tx?: Tx): Promise<OrderRecord> {
@@ -368,6 +408,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   // Per-order indexes (the simulator reads every live order every tick).
   private readonly linesByOrder = new Map<string, OrderLineRecord[]>();
   private readonly participantsByOrder = new Map<string, ParticipantRecord[]>();
+  /** The unique (orderer, client request id) index. */
+  private readonly byClientRequest = new Map<string, string>();
 
   private id(prefix: string): string {
     this.seq += 1;
@@ -375,6 +417,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   }
 
   async create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[]): Promise<OrderAggregate> {
+    const requestKey = order.clientRequestId ? `${order.ordererId}\u0000${order.clientRequestId}` : null;
+    if (requestKey && this.byClientRequest.has(requestKey)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId!);
     const record: OrderRecord = {
       ...order,
       id: this.id('ord'),
@@ -396,6 +440,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       receiptTotalIqd: null,
     };
     this.orders.set(record.id, record);
+    if (requestKey) this.byClientRequest.set(requestKey, record.id);
     const byRef = new Map<string, string>();
     for (const p of participants) {
       const { ref, ...rest } = p;
@@ -421,6 +466,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       lines: (this.linesByOrder.get(id) ?? []).map((l) => ({ ...l })),
       participants: (this.participantsByOrder.get(id) ?? []).map((p) => ({ ...p })),
     };
+  }
+
+  async findByClientRequest(ordererId: string, clientRequestId: string): Promise<OrderAggregate | null> {
+    const id = this.byClientRequest.get(`${ordererId}\u0000${clientRequestId}`);
+    return id ? this.find(id) : null;
   }
 
   async update(id: string, patch: OrderPatch): Promise<OrderRecord> {

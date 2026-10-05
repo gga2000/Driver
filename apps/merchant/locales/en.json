@@ -5,7 +5,6 @@
   "merchant.nav.money": "Money",
   "merchant.nav.insights": "Insights",
   "merchant.nav.more": "More",
-
   "merchant.welcome.badge": "For restaurants and shops",
   "merchant.welcome.title": "Your kitchen, orders and money in one place",
   "merchant.welcome.point_orders": "Orders ring loud and print themselves",
@@ -19,20 +18,17 @@
   "merchant.welcome.art_note": "No onion",
   "merchant.welcome.art_person": "Abu Hussein",
   "merchant.auth.phone_hint": "The number the store owner added you with",
-
   "merchant.gate.title": "Your account isn’t activated yet",
   "merchant.gate.body": "This number isn’t linked to any restaurant or shop. Ask the owner to add you under Staff, or call us to activate it.",
   "merchant.gate.call": "Call Driver",
   "merchant.gate.retry": "Activated? Refresh",
   "merchant.gate.other_number": "Use another number",
-
   "merchant.stores.title": "Where are you working today?",
   "merchant.stores.subtitle": "Pick the store to see its orders",
   "merchant.stores.role_owner": "Owner",
   "merchant.stores.role_staff": "Staff",
   "merchant.stores.type_restaurant": "Restaurant",
   "merchant.stores.type_grocer": "Shop",
-
   "merchant.board.col_new": "New",
   "merchant.board.col_preparing": "Preparing",
   "merchant.board.col_ready": "Ready",
@@ -65,7 +61,6 @@
   "merchant.board.closed_banner": "Store closed: no new orders",
   "merchant.board.paused_banner": "Paused ({reason}): orders resume at {time}",
   "merchant.board.open_again": "Open",
-
   "merchant.card.number": "#{number}",
   "merchant.card.just_now": "now",
   "merchant.card.since": "{minutes} min ago",
@@ -93,7 +88,6 @@
   "merchant.card.more_items_two": "+2 more items",
   "merchant.card.more_items_few": "+{count} more items",
   "merchant.card.accept_seconds": "s",
-
   "merchant.courier.none": "Courier is assigned after you accept",
   "merchant.courier.searching": "Finding a courier",
   "merchant.courier.on_the_way": "Courier on the way · {minutes} min",
@@ -102,7 +96,6 @@
   "merchant.courier.arrived": "Courier is here",
   "merchant.courier.arrived_waiting": "Courier waiting {minutes} min",
   "merchant.courier.picked_up": "Picked up",
-
   "merchant.accept.title": "Accept order #{number}",
   "merchant.accept.prep_q": "How long will it take?",
   "merchant.accept.minutes": "{minutes} min",
@@ -145,7 +138,6 @@
   "merchant.missed.sheet_empty": "No missed orders today. Well done",
   "merchant.missed.row_timeout": "Nobody accepted it within 90 seconds",
   "merchant.missed.row_partial": "The customer did not answer the change",
-
   "merchant.reject.title": "Why reject order #{number}?",
   "merchant.reject.reason_sold_out": "Sold out",
   "merchant.reject.reason_busy": "Too busy",
@@ -158,7 +150,6 @@
   "merchant.reject.confirm": "Reject order",
   "merchant.reject.score_note": "Rejections count toward your rejection rate",
   "merchant.reject.done": "Order rejected",
-
   "merchant.detail.title": "Order #{number}",
   "merchant.detail.placed_at": "Placed at {time}",
   "merchant.detail.people": "{count} people",
@@ -178,7 +169,6 @@
   "merchant.detail.receipt": "View receipt",
   "merchant.detail.reject_late": "Reject after accepting",
   "merchant.detail.ready_by": "Ready at {time}",
-
   "merchant.status.open": "Open",
   "merchant.status.closed": "Closed",
   "merchant.status.paused": "Paused until {time}",
@@ -190,21 +180,18 @@
   "merchant.status.opened": "Open. Orders will come in",
   "merchant.status.closed_toast": "Store closed",
   "merchant.status.store_switch": "Switch",
-
   "merchant.close_reason.sold_out": "Sold out",
   "merchant.close_reason.too_busy": "Too busy",
   "merchant.close_reason.no_staff": "Short-staffed",
   "merchant.close_reason.power_cut": "Power cut",
   "merchant.close_reason.closing_early": "Closing early today",
   "merchant.close_reason.other": "Other",
-
   "merchant.busy.chip_off": "Busy?",
   "merchant.busy.chip_on": "Busy +10 · {minutes} min",
   "merchant.busy.sheet_body": "We add 10 minutes to every prep time for an hour, then it switches back by itself. Customers see the new time.",
   "merchant.busy.turn_on": "Turn on busy mode",
   "merchant.busy.turn_off": "Turn off busy mode",
   "merchant.busy.ends_at": "Turns off at {time}",
-
   "merchant.printer.chip_connected": "Printer on",
   "merchant.printer.chip_disconnected": "Printer offline",
   "merchant.printer.chip_not_set_up": "No printer",
@@ -222,7 +209,6 @@
   "merchant.printer.preview_name": "Browser printer",
   "merchant.printer.printed": "Receipt printed",
   "merchant.printer.failed": "Didn’t print. Check the printer",
-
   "merchant.money.balance": "Balance {amount}",
   "merchant.money.balance_label": "Cash balance",
   "merchant.money.owed": "You owe {amount} commission",
@@ -237,7 +223,6 @@
   "merchant.money.channel_zaincash": "Sent by ZainCash",
   "merchant.money.channel_bank": "Sent to your bank",
   "merchant.money.reference": "Receipt no. {reference}",
-
   "merchant.date.dow_0": "Sun",
   "merchant.date.dow_1": "Mon",
   "merchant.date.dow_2": "Tue",
@@ -262,7 +247,6 @@
   "merchant.date.day_month": "{month} {day}",
   "merchant.date.range": "{from} – {to}",
   "merchant.date.at": "{day}, {time}",
-
   "merchant.time.hour": "{hour} {period}",
   "merchant.time.p_late_night": "am",
   "merchant.time.p_morning": "am",
@@ -270,10 +254,8 @@
   "merchant.time.p_afternoon": "pm",
   "merchant.time.p_evening": "pm",
   "merchant.time.p_night": "pm",
-
   "merchant.owner_only.title": "For the store owner",
   "merchant.owner_only.body": "Money and staff are for the owner. Ask them if you need something here.",
-
   "merchant.money.tab_today": "Today",
   "merchant.money.tab_statement": "Weekly statement",
   "merchant.money.tab_disputes": "Disputes",
@@ -354,7 +336,6 @@
   "merchant.money.receipt_balance_after": "Your balance after",
   "merchant.money.receipt_amount": "Amount received",
   "merchant.money.receipt_whatsapp": "The same receipt reached you on WhatsApp",
-
   "merchant.statement.prev": "Previous week",
   "merchant.statement.next": "Next week",
   "merchant.statement.this_week": "This week",
@@ -391,7 +372,6 @@
   "merchant.statement.pdf_note": "A PDF copy reaches you on WhatsApp every Sunday",
   "merchant.statement.order_ref": "#{ref}",
   "merchant.statement.commission_line": "{pct}% commission",
-
   "merchant.disputes.kind_cold_or_late": "Cold or late",
   "merchant.disputes.kind_missing_item": "Missing item",
   "merchant.disputes.kind_wrong_item": "Wrong item",
@@ -439,7 +419,6 @@
   "merchant.disputes.note_required": "Write what happened so we can review",
   "merchant.disputes.upload_failed": "Couldn't upload the photo, try again",
   "merchant.disputes.your_answer": "Your answer",
-
   "merchant.insights.range_7": "7 days",
   "merchant.insights.range_30": "30 days",
   "merchant.insights.range_90": "90 days",
@@ -493,7 +472,6 @@
   "merchant.insights.ratings_none": "No ratings in this period",
   "merchant.insights.no_data": "Not enough orders in this period",
   "merchant.insights.need_attention": "Needs attention",
-
   "merchant.staff.subtitle": "{count} at the store",
   "merchant.staff.invite": "Add staff",
   "merchant.staff.role_owner": "Owner",
@@ -536,7 +514,6 @@
   "merchant.staff.cancel_invite_body": "This number can't open the store. You can invite him again any time",
   "merchant.staff.cancel_invite_confirm": "Yes, cancel it",
   "merchant.staff.invite_cancelled": "Invite cancelled",
-
   "merchant.sound.enable": "Turn on order sound",
   "merchant.sound.off_chip": "Sound is off: tap to hear new orders",
   "merchant.sound.on_toast": "Sound is on",
@@ -557,7 +534,6 @@
   "merchant.push.strip": "Let the tablet ring even when the app is closed",
   "merchant.push.enable": "Turn on",
   "merchant.push.later": "Later",
-
   "merchant.more.title": "More",
   "merchant.more.staff": "Staff",
   "merchant.more.staff_hint": "Add staff by phone and choose what they see",
@@ -571,7 +547,6 @@
   "merchant.more.switch_store": "Switch store",
   "merchant.more.support": "Call Driver",
   "merchant.more.sign_out": "Sign out",
-
   "merchant.hours.title": "Hours and busy mode",
   "merchant.hours.now": "Now",
   "merchant.hours.prep_default": "Usual prep time: {minutes} minutes",
@@ -636,7 +611,6 @@
   "merchant.hours.dow_short_4": "Thu",
   "merchant.hours.dow_short_5": "Fri",
   "merchant.hours.dow_short_6": "Sat",
-
   "merchant.settings.title": "Settings",
   "merchant.settings.sound": "New order sound",
   "merchant.settings.sound_hint": "A loud sound that repeats until you accept or reject",
@@ -649,7 +623,6 @@
   "merchant.settings.lang_ar": "عربي",
   "merchant.settings.lang_en": "English",
   "merchant.settings.version": "Version {version}",
-
   "merchant.receipt.order": "Order #{number}",
   "merchant.receipt.placed": "Placed {time}",
   "merchant.receipt.ready_by": "Ready {time}",
@@ -665,11 +638,9 @@
   "merchant.receipt.preview_title": "Receipt",
   "merchant.receipt.paper": "80 mm paper",
   "merchant.receipt.print_now": "Print",
-
   "merchant.placeholder.title": "This page is being built",
   "merchant.placeholder.body": "It arrives with the next update. Orders work now.",
   "merchant.placeholder.back": "Back to orders",
-
   "merchant.common.cancel": "Back",
   "merchant.common.close": "Close",
   "merchant.common.minutes": "{minutes} min",
@@ -1007,5 +978,24 @@
   "merchant.deals.sent": "Your deal reached Driver. We'll review it and let you know",
   "merchant.deals.live_now": "Deal added",
   "merchant.deals.back": "Back",
-  "merchant.deals.next": "Next"
+  "merchant.deals.next": "Next",
+  "merchant.board.alert_waiting_one": "1 order waiting",
+  "merchant.board.alert_waiting_two": "2 orders waiting",
+  "merchant.board.alert_waiting": "{count} orders waiting",
+  "merchant.board.alert_state_snoozed": "{count} snoozed",
+  "merchant.board.alert_state_customer": "{count} waiting on the customer",
+  "merchant.rush.suggest_busy": "{count} orders waiting. Turn on busy mode?",
+  "merchant.rush.busy_on": "Turn on",
+  "merchant.rush.queue_a11y": "New orders in answer order, {count} orders",
+  "merchant.rush.chip_a11y": "Order #{number}, {count} items. Open it",
+  "merchant.rush.expand_a11y": "Order #{number}. Open the details",
+  "merchant.card.allergy": "Allergy",
+  "merchant.card.allergy_a11y": "Careful: this order has an allergy, read the note",
+  "merchant.detail.kitchen_note": "Note for the kitchen",
+  "merchant.detail.courier_note": "Note for the courier (not for the kitchen)",
+  "merchant.header.more": "Store: busy mode, printer and money",
+  "merchant.header.switch_store": "Switch store",
+  "merchant.insights.best_title_sales": "Top sellers by sales",
+  "merchant.insights.best_by_qty": "By count",
+  "merchant.insights.best_by_sales": "By sales"
 }

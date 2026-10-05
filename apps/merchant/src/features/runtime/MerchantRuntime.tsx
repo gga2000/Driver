@@ -8,6 +8,8 @@ import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { usePrefs } from '@/lib/prefs';
 import { alarm, useNewOrderAlarm } from '@/features/board/alarm';
+import { summaryTitle } from '@/features/board/Banners';
+import { newOrderSummary } from '@/features/board/logic';
 import { useBoard, useHeartbeat, useLiveMerchantBoard } from '@/features/board/queries';
 import { usePrinterSync } from '@/features/print/runtime';
 
@@ -68,7 +70,8 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
       >
         <Icon name="bell" size={20} color={hot ? 'onDanger' : 'onAccent'} strokeWidth={2.2} />
         <Text weight={700} style={{ fontSize: 17, lineHeight: 26, color: hot ? theme.colors.onDanger : theme.colors.onAccent }}>
-          {pending.length > 1 ? t('merchant.board.alert_count', { count: pending.length }) : t('merchant.board.alert_new')}
+          {/* M-10: the same number and words as the board's banner and the جديد column. */}
+          {summaryTitle(t, newOrderSummary(board.data?.orders ?? [], plan.snoozed))}
         </Text>
         <Icon name="chevron-forward" size={18} color={hot ? 'onDanger' : 'onAccent'} />
       </Pressable>

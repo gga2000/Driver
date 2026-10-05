@@ -180,7 +180,15 @@ function AcceptRing({
           durationToFull={paused ? undefined : s.remainingMs}
         />
       </View>
-      <Text variant="display" tabular color={s.urgent ? 'dangerText' : 'text'} testID={`${testID}-value`} style={{ lineHeight: 40 }}>
+      {/* Mini rings (a rush queue chip, a sticky bar) scale the number down so it stays inside. */}
+      <Text
+        variant={size >= 56 ? 'display' : size >= 40 ? 'title' : 'label'}
+        weight={size >= 56 ? undefined : 700}
+        tabular
+        color={s.urgent ? 'dangerText' : 'text'}
+        testID={`${testID}-value`}
+        style={{ lineHeight: size >= 56 ? 40 : size >= 40 ? 24 : 18 }}
+      >
         {format === 'clock' ? formatCountdown(s.remainingMs) : seconds}
       </Text>
       {caption ? (

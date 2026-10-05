@@ -7,6 +7,7 @@ import { color } from '@driver/design-tokens';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { useT } from '@/lib/i18n';
 import type { AlarmStage } from './ladder';
+import type { NewOrderSummary } from './logic';
 
 /** A pill button on a coloured strip (40 px tall, 44 px with its hit slop). */
 function StripButton({ label, icon, onPress, testID, tone }: { label: string; icon?: MIconName; onPress: () => void; testID: string; tone: 'ink' | 'soft' | 'light' }) {
@@ -39,6 +40,18 @@ export interface NewOrderBannerProps {
   onUnsnooze: () => void;
   onEnableSound: () => void;
   compact?: boolean;
+  /**
+   * M-10: the one "new" count (every order in جديد) and its state. The title says the same number as
+   * the column and the badge — "3 طلبات تنتظر · 1 مسكّت" — instead of counting only what rings.
+   */
+  summary?: NewOrderSummary;
+}
+
+/** "3 طلبات تنتظر · 1 مسكّت · 1 ينتظر الزبون" (or "طلب جديد!" for a single fresh order). */
+export function summaryTitle(t: ReturnType<typeof useT>, s: NewOrderSummary): string {
+  if (s.total <= 1 && s.snoozed === 0 && s.withCustomer === 0) return t('merchant.board.alert_new');
+  const head = s.total === 1 ? t('merchant.board.alert_waiting_one') : s.total === 2 ? t('merchant.board.alert_waiting_two') : t('merchant.board.alert_waiting', { count: s.total });
+  return [head, s.snoozed > 0 ? t('merchant.board.alert_state_snoozed', { count: s.snoozed }) : null, s.withCustomer > 0 ? t('merchant.board.alert_state_customer', { count: s.withCustomer }) : null].filter(Boolean).join(' · ');
 }
 
 /**
@@ -47,7 +60,7 @@ export interface NewOrderBannerProps {
  * and counts down ("باقي 7 ثواني على #3912"). "سكّت 30 ثانية" snoozes; while snoozed it says when it
  * rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
  */
-export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false }: NewOrderBannerProps) {
+export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary }: NewOrderBannerProps) {
   const theme = useTheme();
   const t = useT();
   const p = useSharedValue(0);
@@ -74,9 +87,11 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         : seconds === 2
           ? t('merchant.board.final_two', { number: mostUrgent.number })
           : t('merchant.board.final_many', { seconds, number: mostUrgent.number })
-      : total > 1
-        ? t('merchant.board.alert_count', { count: total })
-        : t('merchant.board.alert_new');
+      : summary
+        ? summaryTitle(t, summary)
+        : total > 1
+          ? t('merchant.board.alert_count', { count: total })
+          : t('merchant.board.alert_new');
   const sub = !ringing && snoozeSeconds !== null ? t('merchant.board.alert_snoozed', { seconds: Math.max(1, snoozeSeconds) }) : stage === 'urgent' && seconds !== null ? t('merchant.board.alert_left', { seconds }) : null;
 
   const bg = !ringing ? theme.colors.warningTint : hot ? theme.colors.danger : theme.colors.accent;
@@ -101,7 +116,7 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         {ringing ? <Icon name="bell" size={22} color={theme.colors.surface} strokeWidth={2.2} /> : <MIcon name="volume-off" size={20} color={theme.colors.warningText} />}
       </Animated.View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text weight={700} tabular numberOfLines={2} style={{ fontSize: compact ? 18 : 22, lineHeight: compact ? 28 : 34, color: fg }}>
+        <Text weight={700} tabular numberOfLines={compact && stage !== 'final' ? 1 : 2} style={{ fontSize: compact ? 18 : 22, lineHeight: compact ? 28 : 34, color: fg }}>
           {title}
         </Text>
         {sub ? (

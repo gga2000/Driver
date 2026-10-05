@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
@@ -27,12 +27,13 @@ import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, MissedStrip, NewOrderBanner } from './Banners';
 import { stageFor } from './ladder';
-import { COLUMN_LABEL, COLUMNS, oneTapPrep, splitColumns } from './logic';
+import { byTimeLeft, COLUMN_LABEL, COLUMNS, isRush, newOrderSummary, oneTapPrep, splitColumns, stickyAcceptTarget, suggestBusy } from './logic';
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
 import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
 import { RejectSheet } from './RejectSheet';
+import { RushQueue, StickyAcceptBar } from './Rush';
 import { ShiftGate } from './ShiftGate';
 import { shiftGateNeeded, startShift, useShift } from './shift';
 import { useMissedSeen } from './useMissed';
@@ -85,6 +86,11 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
  * ladder's banner (snooze, never silence); "الصوت طافي" whenever sound can't play; missed orders kept
  * in a strip and a "فاتك اليوم" counter; one-tap "اقبل · 15 د" and a one-off "+5 د"; the notification
  * ask only as a strip on a calm board.
+ *
+ * Phase 2 (kitchen rush, M-05/M-06/M-10): جديد is in answer order (least time left first). On a tablet
+ * with three or more waiting, a queue strip shows every one of them and the tickets go compact except
+ * the one being read; from four waiting, busy mode is suggested. On a phone the header is one row and
+ * a sticky accept bar keeps the next order's Accept within reach. One "new" count everywhere.
  */
 export function Board() {
   const theme = useTheme();
@@ -130,7 +136,31 @@ export function Board() {
   const [extendingId, setExtendingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
-  const cols = useMemo(() => splitColumns(orders), [orders]);
+  const cols = useMemo(() => {
+    const c = splitColumns(orders);
+    return { ...c, new: byTimeLeft(c.new) };
+  }, [orders]);
+  // Rush (tablet): which new ticket is open; the most urgent unless the kitchen picked another.
+  const rush = wide && isRush(cols.new.length);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const expandedId = pickedId && cols.new.some((o) => o.id === pickedId) ? pickedId : (cols.new[0]?.id ?? null);
+  const newScroll = useRef<ScrollView>(null);
+  const cardY = useRef(new Map<string, number>());
+  const [scrollTo, setScrollTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!scrollTo) return;
+    // After the picked ticket has expanded and laid out.
+    const id = setTimeout(() => {
+      const y = cardY.current.get(scrollTo);
+      if (y !== undefined) newScroll.current?.scrollTo({ y: Math.max(0, y - 6), animated: !theme.reduceMotion });
+      setScrollTo(null);
+    }, 80);
+    return () => clearTimeout(id);
+  }, [scrollTo, theme.reduceMotion]);
+  const pick = (o: BoardOrder) => {
+    setPickedId(o.id);
+    setScrollTo(o.id);
+  };
   const byId = (id: string | null) => (id ? (orders.find((o) => o.id === id) ?? null) : null);
   const s = status.data;
   const busyOn = s?.busy.on ?? false;
@@ -233,10 +263,16 @@ export function Board() {
 
   const card = (o: BoardOrder) => {
     const ringing = plan.ringing.includes(o.id);
+    const compact = rush && o.column === 'new' && o.id !== expandedId;
     return (
-      <OrderCard
+      <View
         key={o.id}
+        onLayout={o.column === 'new' ? (e) => cardY.current.set(o.id, e.nativeEvent.layout.y) : undefined}
+      >
+      <OrderCard
         order={o}
+        compact={compact}
+        onExpand={() => pick(o)}
         now={now}
         clock={clock}
         ringing={ringing}
@@ -252,6 +288,7 @@ export function Board() {
         busyAccept={acceptingId === o.id}
         busyExtend={extendingId === o.id}
       />
+      </View>
     );
   };
 
@@ -278,6 +315,8 @@ export function Board() {
   ].filter((x) => x !== null);
 
   const urgent = plan.mostUrgent;
+  const summary = newOrderSummary(orders, plan.snoozed);
+  const sticky = !wide && segment === 'new' ? stickyAcceptTarget(cols.new) : null;
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.bg }} testID="board">
       <StoreHeader
@@ -304,6 +343,7 @@ export function Board() {
           onUnsnooze={() => alarm.unsnooze(clock())}
           onEnableSound={() => void soundOn()}
           compact={!wide}
+          summary={summary}
         />
       ) : null}
       <MissedStrip
@@ -330,6 +370,16 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
+      {/* One busy nudge at a time: the missed-orders strip already offers it when it shows its own. */}
+      {suggestBusy(cols.new.length, busyOn) && s?.open && !(missedNew.length > 0 && nudge) ? (
+        <InfoStrip
+          tone="warning"
+          icon="flame"
+          testID="rush-busy-strip"
+          text={t('merchant.rush.suggest_busy', { count: cols.new.length })}
+          action={{ label: t('merchant.rush.busy_on'), onPress: () => setSheet('busy'), testID: 'rush-busy-on' }}
+        />
+      ) : null}
       {push.visible ? (
         <InfoStrip
           tone="neutral"
@@ -358,7 +408,13 @@ export function Board() {
               <View style={{ paddingHorizontal: theme.space[1] }}>
                 <ColumnHeader column={c} count={cols[c].length} />
               </View>
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[4], paddingBottom: theme.space[6], paddingHorizontal: 3, paddingTop: 3 }} showsVerticalScrollIndicator={false}>
+              {c === 'new' && rush ? <RushQueue orders={cols.new} clock={clock} selectedId={expandedId} onPick={pick} /> : null}
+              <ScrollView
+                ref={c === 'new' ? newScroll : undefined}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ gap: c === 'new' && rush ? theme.space[3] : theme.space[4], paddingBottom: theme.space[6], paddingHorizontal: 3, paddingTop: 3 }}
+                showsVerticalScrollIndicator={false}
+              >
                 {loading ? skeleton : cols[c].length === 0 ? <EmptyColumn column={c} /> : cols[c].map(card)}
               </ScrollView>
             </View>
@@ -377,6 +433,17 @@ export function Board() {
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[4], padding: theme.space[4], paddingBottom: theme.space[10] }}>
             {loading ? skeleton : cols[segment].length === 0 ? <EmptyColumn column={segment} /> : cols[segment].map(card)}
           </ScrollView>
+          {sticky ? (
+            <StickyAcceptBar
+              order={sticky}
+              clock={clock}
+              oneTapMinutes={oneTap.shown}
+              busy={acceptingId === sticky.id}
+              onAccept={() => void onAcceptNow(sticky)}
+              onReject={() => onReject(sticky)}
+              onOpen={() => setDetailId(sticky.id)}
+            />
+          ) : null}
         </View>
       )}
 
@@ -405,7 +472,7 @@ export function Board() {
           }
         }}
       />
-      <OrderDetailSheet order={byId(detailId)} now={now} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
+      <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}

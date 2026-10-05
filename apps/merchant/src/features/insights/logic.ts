@@ -106,3 +106,33 @@ export function ratingTone(avg: number): Verdict {
   if (avg < 4.2) return 'watch';
   return 'good';
 }
+
+export type BestSellerMode = 'qty' | 'sales';
+
+export interface BestSellerRow {
+  itemId: string;
+  nameAr: string | null;
+  qty: number;
+  salesIqd: number | null;
+  rank: number;
+  /** Bar length 0…1: this row's value over the largest in the list (the chart's own measure). */
+  share: number;
+}
+
+/** Whether the "بالعدد / بالفلوس" switch can offer sales (every row carries them — owners). */
+export function canRankBySales(list: MerchantInsights['bestSellers']): boolean {
+  return list.length > 0 && list.every((b) => b.salesIqd !== null);
+}
+
+/**
+ * The best-seller list (M-13): ranked by the measure the bars draw and scaled by its largest value,
+ * so a bar never contradicts its number. "بالعدد" ranks and scales by quantity (the title "الأكثر
+ * طلباً"); "بالفلوس" by sales — only when every row has sales, otherwise by quantity.
+ */
+export function bestSellerRows(list: MerchantInsights['bestSellers'], mode: BestSellerMode, limit = 8): BestSellerRow[] {
+  const bySales = mode === 'sales' && canRankBySales(list);
+  const value = (b: MerchantInsights['bestSellers'][number]) => (bySales ? (b.salesIqd ?? 0) : b.qty);
+  const sorted = [...list].sort((a, b) => value(b) - value(a) || b.qty - a.qty || (a.nameAr ?? '').localeCompare(b.nameAr ?? '')).slice(0, limit);
+  const max = Math.max(0, ...sorted.map(value));
+  return sorted.map((b, i) => ({ itemId: b.itemId, nameAr: b.nameAr, qty: b.qty, salesIqd: b.salesIqd, rank: i + 1, share: max > 0 ? value(b) / max : 0 }));
+}
