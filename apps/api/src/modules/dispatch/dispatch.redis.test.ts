@@ -57,7 +57,11 @@ describe.skipIf(!redisUrl)('dispatch on Redis (integration)', () => {
       return tag;
     };
     const driver = `${run}-driver`;
-    expect(await Promise.all([a.withDriverLock(driver, hold('a', 60)), b.withDriverLock(driver, hold('b', 10))])).toEqual(['a', 'b']);
+    const first = a.withDriverLock(driver, hold('a', 60));
+    // b asks only once a holds the lock (each pod's connection opens on its own schedule, so starting
+    // both at once would race for who is first); b must then wait for a to finish.
+    while (!order.includes('a:in')) await new Promise((r) => setTimeout(r, 1));
+    expect(await Promise.all([first, b.withDriverLock(driver, hold('b', 10))])).toEqual(['a', 'b']);
     expect(order).toEqual(['a:in', 'a:out', 'b:in', 'b:out']);
     expect(await connect().exists(driverLockKey(driver))).toBe(0);
   });
