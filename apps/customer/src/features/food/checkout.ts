@@ -3,6 +3,7 @@ import {
   AZIZIYAH_MONEY_RULES,
   cashToHand,
   deliveryFeesOf,
+  tenderProblem,
   type AppliedDiscount,
   type OrderQuote,
   type DeliveryPoint,
@@ -126,6 +127,8 @@ export interface CheckoutChoices {
   courierNote?: string;
   /** The checkout attempt's idempotency key (`place-attempt.ts`): re-sent on every retry. */
   clientRequestId?: string;
+  /** "راح أدفع بـ 25,000": the note he will hand over (cash only; a hint for the courier). */
+  statedTenderIqd?: number | null;
 }
 
 const OTHER_RECIPIENT_REF = 'recipient';
@@ -135,6 +138,16 @@ const OTHER_RECIPIENT_REF = 'recipient';
  * person on the order (diner; the recipient when they receive it), lines tagged by `participantRef`
  * with their own notes, the drop-off, and the fees as expectations.
  */
+/**
+ * "راح أدفع بـ …" ("الخردة علينا"): the note the customer picked, kept only while it still fits his
+ * cash total (≥ total, ≤ total + 50,000, in 250s — the server checks the same) and he pays cash;
+ * otherwise none. The chips come from `tenderOptions(total)`.
+ */
+export function validTender(tenderIqd: number | null, totalIqd: number | null, paymentMethod: 'cash' | 'wallet'): number | null {
+  if (tenderIqd === null || totalIqd === null || paymentMethod !== 'cash') return null;
+  return tenderProblem(tenderIqd, totalIqd) === null ? tenderIqd : null;
+}
+
 export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
   const merchant = c.cart.merchant;
   if (!merchant) throw new Error('empty cart');
@@ -175,6 +188,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.note?.trim() ? { note: c.note.trim().slice(0, 500) } : {}),
     ...(c.courierNote?.trim() ? { courierNote: c.courierNote.trim().slice(0, 300) } : {}),
     ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
+    ...(c.paymentMethod === 'cash' && c.statedTenderIqd ? { statedTenderIqd: c.statedTenderIqd } : {}),
   };
 }
 
@@ -216,7 +230,7 @@ export function clock12(d: Date): string {
 }
 
 /** Errors `orders.place` can answer with that the checkout explains in its own words. */
-export type PlaceProblem = 'price_changed' | 'deal_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'wallet_insufficient' | 'other';
+export type PlaceProblem = 'price_changed' | 'deal_changed' | 'catalog_item_unavailable' | 'modifier_invalid' | 'new_customer_cash_cap' | 'merchant_paused' | 'wallet_insufficient' | 'tender_invalid' | 'other';
 
 /**
  * The wallet row at checkout (C-04): usable when the balance covers the exact price; otherwise shown
@@ -246,6 +260,7 @@ export function placeProblem(code: string | null): PlaceProblem {
     case 'new_customer_cash_cap':
     case 'merchant_paused':
     case 'wallet_insufficient':
+    case 'tender_invalid':
       return code;
     default:
       return 'other';

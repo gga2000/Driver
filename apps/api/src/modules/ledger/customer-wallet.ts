@@ -43,7 +43,7 @@ const PURCHASE_TYPES: ReadonlySet<LedgerEventType> = new Set([
   'parcel_fee',
 ]);
 /** Cash the customer handed over (into his account). */
-const CASH_TYPES: ReadonlySet<LedgerEventType> = new Set(['cash_collected', 'cash_rounding_credit']);
+const CASH_TYPES: ReadonlySet<LedgerEventType> = new Set(['cash_collected', 'cash_rounding_credit', 'cash_change_to_wallet']);
 
 const signedFor = (account: string, e: LedgerEvent): number => (e.toAccount === account ? e.amount : 0) - (e.fromAccount === account ? e.amount : 0);
 
@@ -67,6 +67,8 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
     case 'late_penalty_rider_credit':
     case 'cash_rounding_credit':
       return 'credit';
+    case 'cash_change_to_wallet':
+      return 'change_to_wallet';
     case 'cancellation_fee':
     case 'departure_cancel_fee':
       return 'penalty';
@@ -82,7 +84,9 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
 /**
  * Readable wallet lines for one account (customer spec §9): a whole order is ONE line (what it cost
  * and how it was paid), not its internal splits; when cash and the charge differ, the difference is
- * its own line (change kept as credit, or short cash owed). Credits, refunds and fees stand alone.
+ * its own line (change kept as credit, or short cash owed). The rest of a note the courier had no
+ * change for ("الخردة علينا") is a line of its own too, "باقي الكاش", apart from the rounding change.
+ * Credits, refunds and fees stand alone.
  * Pure: the caller passes the account's ledger events.
  */
 export function moneyLines(account: string, events: readonly LedgerEvent[]): WalletLine[] {
@@ -120,9 +124,11 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         method,
         ...refs,
       });
-      if (method === 'cash' && net !== 0) {
-        const k = net > 0 ? 'cash_change' : 'debt';
-        const d = net > 0 ? 'cash_change' : 'short_cash';
+      const noChange = list.filter((e) => e.toAccount === account && e.type === 'cash_change_to_wallet').reduce((s, e) => s + e.amount, 0);
+      const rest = net - noChange;
+      if (method === 'cash' && rest !== 0) {
+        const k = rest > 0 ? 'cash_change' : 'debt';
+        const d = rest > 0 ? 'cash_change' : 'short_cash';
         out.push({
           id: `${groupId}:balance`,
           occurredAt: first.occurredAt,
@@ -132,7 +138,23 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
           title_en: walletLineTitle(k, 'en'),
           detail_ar: walletLineDetail(d, 'ar-IQ'),
           detail_en: walletLineDetail(d, 'en'),
-          amount: net,
+          amount: rest,
+          unit: 'iqd',
+          method: null,
+          ...refs,
+        });
+      }
+      if (noChange > 0) {
+        out.push({
+          id: `${groupId}:no_change`,
+          occurredAt: first.occurredAt,
+          book: 'money',
+          kind: 'change_to_wallet',
+          title_ar: walletLineTitle('change_to_wallet', 'ar-IQ'),
+          title_en: walletLineTitle('change_to_wallet', 'en'),
+          detail_ar: walletLineDetail('change_to_wallet', 'ar-IQ'),
+          detail_en: walletLineDetail('change_to_wallet', 'en'),
+          amount: noChange,
           unit: 'iqd',
           method: null,
           ...refs,

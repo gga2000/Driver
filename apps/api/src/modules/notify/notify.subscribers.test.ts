@@ -46,6 +46,9 @@ describe('notify subscribers: events → notifications', () => {
     ]);
     expect(await one(event('ops.cash_received', { courierId: 'courier', amountIqd: 60_000, courierCashAfterIqd: -15_000 }))).toEqual([{ template: 'courier_cash_receipt', to: 'courier', params: { amount: '60,000', date: '2026-10-04', balance: '-15,000' } }]);
     expect(await one(event('wallet.topped_up', { customerId: 'cust', amountIqd: 25_000, reference: 'TU-7' }))).toEqual([{ template: 'wallet_topup_receipt', to: 'cust', params: { amount: '25,000', date: '2026-10-04', reference: 'TU-7' } }]);
+    // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.
+    expect(await one(event('order.change_to_wallet', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 7_250, collectedIqd: 25_000, totalIqd: 17_750 }, { orderId: 'ord_1' }))).toEqual([{ template: 'cash_change_credit', to: 'cust', params: { amount: '\u2066+7,250\u2069' } }]);
+    expect(await one(event('order.change_to_wallet', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     expect(await one(event('seat.booked', { bookingId: 'bk_1' }))).toEqual([
       { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30 ص', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
     ]);

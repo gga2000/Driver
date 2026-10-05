@@ -70,7 +70,9 @@ everything feel like one premium product; then the signature moments make it unm
 
 ## Phase 3 — Signature moments (what makes it unmistakably Driver)
 - **"الخردة علينا"** — the cash hand-off as a feature on both sides: the courier's change helper at
-  the door (partner S-2) and the customer's "الباقي رصيد" receipt (customer d-1, C-11).
+  the door (partner S-2) and the customer's "الباقي رصيد" receipt (customer d-1, C-11). Built
+  2026-10-05 (`docs/api/cash-change-to-wallet.md`): checkout "راح أدفع بـ…", the courier's door helper and
+  change to the wallet (cap 25,000) — the rule awaits Ali's final OK (edge-case decisions).
 - **The 2-second offer card** (partner S-1) and **end-of-shift summary** (S-4).
 - **The garage board as the brand's face** + boarding pass on the lock screen (customer d-2, d-8;
   partner S-5 garage mode).

@@ -263,6 +263,8 @@ export class PartnerService implements PartnerPort {
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
+          tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
           // Maps program r4: the code he shows at the counter, while the pickup is still to do.

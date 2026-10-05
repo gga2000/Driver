@@ -377,7 +377,7 @@ function Facts({ o, courierId, zoneKey }: { o: Order; courierId: string | null; 
           <span className="text-muted">{ride ? t('console.order_no_driver') : t('console.order_no_courier')}</span>
         )}
       </Fact>
-      <Fact label={t('console.col_payment')}>
+      <Fact label={t('console.col_payment')} sub={cashChangeWords(o)}>
         <span className="font-semibold">{paymentLabel(o.paymentMethod)}</span>
       </Fact>
       <Fact label={t('console.col_total')} end>
@@ -387,6 +387,17 @@ function Facts({ o, courierId, zoneKey }: { o: Order; courierId: string | null; 
       </Fact>
     </dl>
   );
+}
+
+/**
+ * "الخردة علينا" under the payment: the note the customer said at checkout and, after the door, the
+ * change that went to his wallet because the courier had none. Null when neither.
+ */
+function cashChangeWords(o: Order): string | undefined {
+  if (o.paymentMethod !== 'cash') return undefined;
+  if (o.changeToWalletIqd) return t('cashchange.console_change', { amount: formatIqd(o.changeToWalletIqd) });
+  if (o.statedTenderIqd && o.statedTenderIqd > o.totalIqd) return t('cashchange.console_tender', { amount: formatIqd(o.statedTenderIqd) });
+  return undefined;
 }
 
 function Fact({ label, sub, children, end }: { label: string; sub?: ReactNode; children: ReactNode; end?: boolean }) {
@@ -637,6 +648,12 @@ function OrderMoney({ o }: { o: Order }) {
           </dd>
         </div>
         {paid ? <p className="mt-1 text-dense text-muted">{t('console.order_money_paid', { amount: formatIqd(o.totalIqd), method: paymentLabel(o.paymentMethod) })}</p> : null}
+        {/* "الخردة علينا": no change on the courier — the whole note on him, the rest the customer's credit. */}
+        {o.changeToWalletIqd ? (
+          <p className="num mt-1 text-dense font-medium text-ok" data-testid="order-change-to-wallet">
+            {t('cashchange.console_paid_note', { collected: formatIqd(o.totalIqd + o.changeToWalletIqd), change: formatIqd(o.changeToWalletIqd) })}
+          </p>
+        ) : null}
         {!check.matches ? <p className="mt-1 text-xs text-faint">{t('console.order_sum_mismatch', { sum: formatIqd(check.sumIqd), total: formatIqd(o.totalIqd) })}</p> : null}
       </dl>
 

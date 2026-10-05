@@ -33,9 +33,27 @@ export function gatePhotoFor(dropoff: DeliveryPoint | null, places: ReadonlyArra
  * C-11 / d-1: what the customer hands over at the door. Cash: the order's total (already rounded up
  * to 250 by the server) and the change in it that comes back to his wallet ("الباقي رصيد"). Wallet:
  * nothing to hand over.
+ *
+ * "الخردة علينا": `tender` is the note he said he will pay with and the change the courier brings for
+ * it (null when he said none or the exact amount); `creditedIqd` is what landed in his wallet at the
+ * door because the courier had no change (0 = none), and `paidIqd` the whole note he handed over then.
  */
-export function cashAtDoor(order: Pick<Order, 'paymentMethod' | 'totalIqd' | 'changeIqd'>): { kind: 'cash'; cashIqd: number; priceIqd: number; changeIqd: number } | { kind: 'paid'; amountIqd: number } {
+export function cashAtDoor(
+  order: Pick<Order, 'paymentMethod' | 'totalIqd' | 'changeIqd'> & Partial<Pick<Order, 'statedTenderIqd' | 'changeToWalletIqd'>>,
+):
+  | { kind: 'cash'; cashIqd: number; priceIqd: number; changeIqd: number; tender: { tenderIqd: number; changeIqd: number } | null; creditedIqd: number; paidIqd: number }
+  | { kind: 'paid'; amountIqd: number } {
   if (order.paymentMethod !== 'cash') return { kind: 'paid', amountIqd: order.totalIqd };
   const changeIqd = order.changeIqd ?? 0;
-  return { kind: 'cash', cashIqd: order.totalIqd, priceIqd: order.totalIqd - changeIqd, changeIqd };
+  const t = order.statedTenderIqd ?? null;
+  const creditedIqd = order.changeToWalletIqd ?? 0;
+  return {
+    kind: 'cash',
+    cashIqd: order.totalIqd,
+    priceIqd: order.totalIqd - changeIqd,
+    changeIqd,
+    tender: t !== null && t > order.totalIqd ? { tenderIqd: t, changeIqd: t - order.totalIqd } : null,
+    creditedIqd,
+    paidIqd: order.totalIqd + creditedIqd,
+  };
 }

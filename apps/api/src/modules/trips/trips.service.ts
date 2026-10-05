@@ -25,6 +25,7 @@ import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.
 import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
+import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
 import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
@@ -125,6 +126,14 @@ export class TripsService implements OnModuleInit {
    */
   bindOfferCheck(check: TripOfferCheck): void {
     this.offerCheck = check;
+  }
+
+  /** "الخردة علينا": the orders module's check of a drop-off's cash; until bound, no change-to-wallet passes. */
+  private handoverCheck: TripHandoverCheck = new NoChangeToWallet();
+
+  /** Orders binds its hand-over check here at start-up (orders imports trips, so trips cannot inject it). */
+  bindHandoverCheck(check: TripHandoverCheck): void {
+    this.handoverCheck = check;
   }
 
   private async assertOpenOffer(tripId: string, driverId: string, intent: 'accept' | 'decline'): Promise<void> {
@@ -516,6 +525,12 @@ export class TripsService implements OnModuleInit {
       if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
+      // "الخردة علينا": cash above the order's total is only the customer's change going to his wallet,
+      // checked against the order (cash, recomputed, capped) before anything is written.
+      if (handover.changeToWalletIqd !== undefined || (stop.type === 'dropoff' && handover.cashCollectedIqd !== undefined)) {
+        const problem = await this.handoverCheck.check(stop.type === 'dropoff' ? stop.orderId : null, handover);
+        if (problem) throw new DriverError(problem);
+      }
       // Edge-case §5: the guardian's "arrived" push rides on the tap-out, so a child is only tapped out
       // after being tapped in on this run (when the run picks him up at all).
       if (child.tap === 'out') {
@@ -542,7 +557,16 @@ export class TripsService implements OnModuleInit {
         'stop.completed',
         driverId,
         tripId,
-        { stopId, stopType: stop.type, vertical: trip.vertical, cashCollectedIqd: handover.cashCollectedIqd ?? null, photo: Boolean(handover.photoUrl ?? handover.photoUploadId), pinOk: handover.pinOk ?? null, serverReceivedAt: now.toISOString() },
+        {
+          stopId,
+          stopType: stop.type,
+          vertical: trip.vertical,
+          cashCollectedIqd: handover.cashCollectedIqd ?? null,
+          ...(handover.changeToWalletIqd !== undefined ? { changeToWalletIqd: handover.changeToWalletIqd } : {}),
+          photo: Boolean(handover.photoUrl ?? handover.photoUploadId),
+          pinOk: handover.pinOk ?? null,
+          serverReceivedAt: now.toISOString(),
+        },
         stamp,
       );
       if (child.tap) {

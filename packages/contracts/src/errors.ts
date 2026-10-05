@@ -228,6 +228,11 @@ export const ERROR_TABLE = {
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
+  tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
+  change_to_wallet_mismatch: { retryHint: 'never', status: 'BAD_REQUEST' },
+  change_to_wallet_above_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
   // routes — الرجعة (intercity)
   garage_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   corridor_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

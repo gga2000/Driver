@@ -12,6 +12,7 @@ export * from './participant.js';
 export * from './ledger.js';
 export * from './ledger-rules.js';
 export * from './ledger-io.js';
+export * from './cash-change.js';
 export * from './domain-events.js';
 export * from './event.js';
 export * from './city-config.js';

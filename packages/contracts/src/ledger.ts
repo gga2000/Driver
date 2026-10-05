@@ -35,6 +35,9 @@ export const MONEY_LEDGER_TYPES = [
   'driver_incentive',
   'driver_payout',
   'rounding_residue',
+  // Phase 3 "الخردة علينا" (2026-10-05): the courier had no change, so the rest of the customer's note
+  // went to his wallet ("باقي الكاش"). Kept apart from `cash_rounding_credit` (the 0–249 rounding change).
+  'cash_change_to_wallet',
 ] as const;
 
 /** Points event types (domain §5). Points never create money. */

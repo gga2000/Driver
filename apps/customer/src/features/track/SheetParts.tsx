@@ -21,6 +21,7 @@ import {
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { ChangeReceiptLine } from './ChangeCredited';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 
@@ -310,7 +311,16 @@ export function PriceSection({ view }: { view: OrderTracking }) {
   const t = useT();
   const ride = view.order.type === 'ride';
   const note = ride ? (view.order.paymentMethod === 'cash' ? t('ride.pay_cash_hint') : t('ride.paid_wallet')) : undefined;
-  return <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} change={view.order.changeIqd ?? 0} note={note} testID="track-price" />;
+  const credited = view.order.paymentMethod === 'cash' ? (view.order.changeToWalletIqd ?? 0) : 0;
+  const breakdown = <PriceBreakdown items={priceItems(view, t)} total={view.order.totalIqd} change={view.order.changeIqd ?? 0} note={note} testID="track-price" />;
+  // "الخردة علينا": the rest of his note that went to the wallet at the door, under the bill.
+  if (credited <= 0) return breakdown;
+  return (
+    <View style={{ gap: 12 }}>
+      {breakdown}
+      <ChangeReceiptLine paidIqd={view.order.totalIqd + credited} creditedIqd={credited} />
+    </View>
+  );
 }
 
 // ───────────────────────── context actions ─────────────────────────

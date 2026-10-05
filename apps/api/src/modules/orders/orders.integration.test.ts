@@ -10,6 +10,10 @@ import { RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJo
 import { PrismaTripsRepository } from '../trips/trips.repository.js';
 import { RecordingOrderEvents } from './events.adapter.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
+import { AZIZIYAH_MONEY_RULES, type OrderMoneyPayload } from '@driver/contracts';
+import { LedgerService } from '../ledger/ledger.service.js';
+import { postOrderClosed } from '../ledger/postings.js';
+import { PrismaLedgerRepository, type LedgerEventDelegate } from '../ledger/prisma.repository.js';
 import { PrismaOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrderTimerJob } from './orders.service.js';
 import { HOME, KITCHEN, fakePhoneHash } from './test-harness.js';
@@ -46,6 +50,7 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     { newCustomerCash: async () => ({ allowed: true, requiresArrivingCall: false, priorCashOrders: 3 }) },
     catalog,
   );
+  trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(null)) });
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
   const ids = { customer: '', courier: '', org: '', order: '', trip: '', item: '' };
 
@@ -126,6 +131,45 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect(done.stops[1]!.arrivalDistanceM).toBe(0);
     expect((await orders.get(o.id)).state).toBe('delivered');
     expect(await trips.detachedAt(t.id, o.id)).toBeNull();
+  });
+
+  it('"الخردة علينا" on Postgres: the stated note and the no-change credit persist, and the ledger takes the new line', async () => {
+    const o = await orders.place(ids.customer, { cityId: 'aziziyah', type: 'food', merchantOrgId: ids.org, lines: [{ catalogItemId: ids.item, qty: 2 }], dropoff: { zoneKey: 'zakur' }, statedTenderIqd: 20_000 });
+    expect(o).toMatchObject({ totalIqd: 11500, statedTenderIqd: 20_000 });
+    await orders.merchantAccept('m', { orderId: o.id, prepMinutes: 10 });
+    const t = await trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'food',
+      orders: [{ orderId: o.id, minVehicleClass: 'bike' }],
+      stops: [
+        { orderId: o.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: o.id, type: 'dropoff', zoneKey: 'zakur', target: HOME },
+      ],
+    });
+    await trips.offer(t.id);
+    await trips.accept(t.id, ids.courier, { vehicleClass: 'bike' });
+    const [pickup, drop] = t.stops;
+    await trips.arrive(t.id, pickup!.id, ids.courier, { pin: KITCHEN });
+    await trips.completeStop(t.id, pickup!.id, ids.courier);
+    await tripEvents.deliver();
+    await trips.arrive(t.id, drop!.id, ids.courier, { pin: HOME });
+    await expect(trips.completeStop(t.id, drop!.id, ids.courier, { handover: { cashCollectedIqd: 20_000, changeToWalletIqd: 8_000 } })).rejects.toMatchObject({ code: 'change_to_wallet_mismatch' });
+    await trips.completeStop(t.id, drop!.id, ids.courier, { handover: { cashCollectedIqd: 20_000, changeToWalletIqd: 8_500 } });
+    await tripEvents.deliver();
+    const row = await prisma.prisma.order.findUniqueOrThrow({ where: { id: o.id } });
+    expect(row).toMatchObject({ state: 'delivered', statedTenderIqd: 20_000, changeToWalletIqd: 8_500 });
+    // The enum value exists: the group posts (refs left out so the test rows never pin the order).
+    const fact = [...events.events].reverse().find((e) => e.type === 'order.cash_collected' && e.orderId === o.id)!.payload['order'] as OrderMoneyPayload;
+    const group = postOrderClosed(fact, AZIZIYAH_MONEY_RULES).money;
+    const ledger = new LedgerService(new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate));
+    const res = await ledger.recordAll({ ...group, id: `itest:${o.id}:${Date.now()}`, refs: {} });
+    expect(res.events.find((e) => e.type === 'cash_change_to_wallet')).toMatchObject({ amount: 8_500, memo: 'no_change' });
+    await prisma.prisma.stop.deleteMany({ where: { tripId: t.id } });
+    await prisma.prisma.tripOrder.deleteMany({ where: { tripId: t.id } });
+    await prisma.prisma.$executeRaw`DELETE FROM "public"."trail_points" WHERE trip_id = ${t.id}`;
+    await prisma.prisma.trip.deleteMany({ where: { id: t.id } });
+    await prisma.prisma.orderLine.deleteMany({ where: { orderId: o.id } });
+    await prisma.prisma.order.deleteMany({ where: { id: o.id } });
   });
 
   it('no duplicate orders: one key, simultaneous calls on two API instances → one order, both answered with it', async () => {

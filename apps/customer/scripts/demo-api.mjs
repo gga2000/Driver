@@ -129,6 +129,10 @@ if (KITCHEN_MS > 0) {
 // accept, then drives the real trips service to the scenario. While the courier is on the road a
 // mover reports a position every 2 s along a path through Aziziyah, so the map shows him gliding.
 // Scenarios: preparing · on_the_way · near · unreachable · arrived · late · signal_lost · reassigning.
+// "الخردة علينا": `&tender=25000` places the order with "راح أدفع بـ 25,000" (the next note up when the
+// total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
+// and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
+const { tenderOptions } = await import('@driver/contracts');
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -224,8 +228,8 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }) {
-  const placed = await orders.place(personId, {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null) {
+  const input = {
     cityId: 'aziziyah',
     type: 'food',
     merchantOrgId: khalid.orgId,
@@ -239,7 +243,13 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     ],
     paymentMethod: 'cash',
     dropoff,
-  });
+  };
+  let statedTenderIqd;
+  if (tender) {
+    const { totalIqd } = await orders.quote(personId, input);
+    statedTenderIqd = tender >= totalIqd ? tender : tenderOptions(totalIqd)[1];
+  }
+  const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
@@ -282,7 +292,11 @@ async function advance(orderId, { move = true } = {}) {
   } else if (d.step === 'at_door' || d.step === 'unreachable') {
     const drop = await stopOf(tripId, 'dropoff');
     const order = await orders.get(orderId);
-    await trips.completeStop(tripId, drop.id, courierId, { handover: { cashCollectedIqd: order.totalIqd } });
+    const note = d.noChange ? order.statedTenderIqd : null;
+    const extra = note ? note - order.totalIqd : 0;
+    // No change on him: the whole note, the rest to the customer's wallet (cap 25,000).
+    const handover = extra > 0 && extra <= 25_000 ? { cashCollectedIqd: note, changeToWalletIqd: extra } : { cashCollectedIqd: order.totalIqd };
+    await trips.completeStop(tripId, drop.id, courierId, { handover });
     d.step = 'arrived';
   }
   return d.step;
@@ -295,15 +309,15 @@ async function savedHome(personId) {
   return mine.find((p) => p.label === 'home' && p.photos.length > 0) ?? null;
 }
 
-async function scenario(personId, name) {
+async function scenario(personId, name, cash = {}) {
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
-  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined);
+  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, cash.tender ?? null);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
   const tripId = await assign(orderId, courierId);
-  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null };
+  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(cash.noChange) };
   demos.set(orderId, d);
   if (name === 'preparing' || late) {
     await startMover(tripId, courierId, late ? FAR_TO_KITCHEN : TO_KITCHEN, late ? 22 : 30);
@@ -362,7 +376,9 @@ app.use('/demo/track', async (req, res) => {
       res.end(JSON.stringify({ error: `POST /demo/track?personId=…&scenario=${[...SCENARIOS].join('|')}` }));
       return;
     }
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name)) }));
+    const tender = Number(url.searchParams.get('tender') ?? 0) || null;
+    const noChange = url.searchParams.get('nochange') === '1';
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));

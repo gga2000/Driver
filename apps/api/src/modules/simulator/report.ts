@@ -67,6 +67,9 @@ export interface SimulationReport {
     maxHotWaitMin: number | null;
     merchantHandovers: number;
     merchantHandoverIqd: number;
+    /** "الخردة علينا": drop-offs where the courier had no change and the rest went to the wallet. */
+    noChangeCredits: number;
+    noChangeCreditIqd: number;
   };
   invariants: InvariantResult[];
   violations: Array<{ invariant: string; count: number; examples: string[] }>;
@@ -172,6 +175,8 @@ export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: 
       maxHotWaitMin: hot.length ? Math.max(...hot) : null,
       merchantHandovers: snapshot.handovers.length,
       merchantHandoverIqd: snapshot.handovers.reduce((s, h) => s + h.amountIqd, 0),
+      noChangeCredits: snapshot.ledger.filter((e) => e.type === 'cash_change_to_wallet').length,
+      noChangeCreditIqd: snapshot.ledger.filter((e) => e.type === 'cash_change_to_wallet').reduce((s, e) => s + e.amount, 0),
     },
     invariants,
     violations,
@@ -202,6 +207,7 @@ export function summaryTable(r: SimulationReport): string {
     ['إعادة إرسال', 'Replays dup / fresh / late', `${r.activity.replays.duplicate} / ${r.activity.replays.fresh} / ${r.activity.replays.late}`],
     ['أحداث محجوزة', 'Quarantined late replays', fmt(r.activity.quarantinedEvents)],
     ['تسليم فلوس المطاعم', 'Merchant hand-overs', `${fmt(r.activity.merchantHandovers)} (${fmt(r.activity.merchantHandoverIqd)} IQD)`],
+    ['باقي الكاش للمحفظة', 'No-change credits to wallets', `${fmt(r.activity.noChangeCredits)} (${fmt(r.activity.noChangeCreditIqd)} IQD)`],
     ['الثوابت', 'Invariants passed', `${r.invariants.length - r.violations.length}/${r.invariants.length}`],
   ];
   const w1 = Math.max(...rows.map((x) => x[0].length));

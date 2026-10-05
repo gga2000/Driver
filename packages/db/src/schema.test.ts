@@ -220,6 +220,8 @@ describe('prisma schema — exact enum sets', () => {
       'merchant_paid_by_courier', 'merchant_settlement_requested', 'debt_settled', 'cash_rounding_credit', 'refund_cash_delivered',
       // M2 Step 6 posting-group lines
       'service_fee', 'delivery_fee', 'fare', 'driver_incentive', 'driver_payout', 'rounding_residue',
+      // Phase 3 "الخردة علينا"
+      'cash_change_to_wallet',
       // points (domain §5 + edge-case decisions §1)
       'points_earned', 'points_pending', 'points_claimed', 'points_redeemed', 'points_expired', 'organizer_bonus', 'referral_bonus',
     ]));

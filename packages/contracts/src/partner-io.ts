@@ -225,6 +225,8 @@ export const PartnerJobStop = z.object({
   note: z.string().nullable(),
   /** Cash to take at this stop (dropoffs of cash orders); 0 otherwise. */
   collectIqd: Iqd.min(0),
+  /** "الخردة علينا": the note the customer said he will pay with ("الزبون يدفع بـ 25,000"); null/absent = none. */
+  tenderIqd: Iqd.nullable().optional(),
   arrivedAt: z.coerce.date().nullable(),
   completedAt: z.coerce.date().nullable(),
   /** Pickups not yet done: the 4-digit code he shows at the counter (maps program r4); null otherwise. */

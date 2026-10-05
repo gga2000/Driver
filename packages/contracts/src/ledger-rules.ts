@@ -59,6 +59,13 @@ export const MoneyRules = z.object({
    * ("الباقي رصيد"). Wallet payments pay the exact price. See `cashToHand`.
    */
   rounding: z.object({ stepIqd: Iqd.positive() }),
+  /**
+   * Phase 3 "الخردة علينا" (2026-10-05, awaiting Ali's final OK — edge-case decisions): when the courier
+   * has no change, the rest of the customer's note goes to his wallet. `maxIqd` caps that credit per
+   * order (more must be handed back in cash); `tenderMaxOverIqd` caps the note a customer may say he
+   * will pay with, above his total (a 50,000 note for any order).
+   */
+  changeToWallet: z.object({ maxIqd: Iqd.positive(), tenderMaxOverIqd: Iqd.positive() }).default({ maxIqd: 25_000, tenderMaxOverIqd: 50_000 }),
   points: z.object({
     /** Decisions §2: 1 point per this much platform revenue (service fee + commission) on food/grocery/parcels/errands. */
     revenueIqdPerPoint: Iqd.positive(),
@@ -118,6 +125,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
     parcel_intercity: { rate: 0.15 },
   },
   rounding: { stepIqd: 250 },
+  changeToWallet: { maxIqd: 25_000, tenderMaxOverIqd: 50_000 },
   points: { revenueIqdPerPoint: 100, rideTakeIqdPerPoint: 200, maxPerOrder: 50, organizerBonusRate: 0.1, pointValueIqd: 10 },
   referral: { pointsPerSide: 200, minOrderIqd: 10000, unlockOnQualifyingOrder: 2, monthlyCapPerReferrer: 10 },
   caps: {

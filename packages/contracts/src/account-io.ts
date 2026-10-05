@@ -162,7 +162,7 @@ export const WalletBalanceView = z.object({
 });
 export type WalletBalanceView = z.infer<typeof WalletBalanceView>;
 
-export const WalletLineKind = z.enum(['food', 'grocery', 'errand', 'ride', 'seat', 'subscription', 'parcel', 'purchase', 'topup', 'credit', 'refund', 'penalty', 'cash_change', 'debt', 'adjustment', 'points']);
+export const WalletLineKind = z.enum(['food', 'grocery', 'errand', 'ride', 'seat', 'subscription', 'parcel', 'purchase', 'topup', 'credit', 'refund', 'penalty', 'cash_change', 'change_to_wallet', 'debt', 'adjustment', 'points']);
 export type WalletLineKind = z.infer<typeof WalletLineKind>;
 
 /** One readable line: a whole order (not its internal splits), a credit, or a points movement. */
@@ -223,7 +223,7 @@ export function walletLineTitle(kind: WalletLineKind, locale: Locale = 'ar-IQ'):
 }
 
 /** Wallet line details (`wallet.detail.<key>`). */
-export function walletLineDetail(key: 'cash' | 'wallet' | 'cash_change' | 'short_cash', locale: Locale = 'ar-IQ'): string {
+export function walletLineDetail(key: 'cash' | 'wallet' | 'cash_change' | 'change_to_wallet' | 'short_cash', locale: Locale = 'ar-IQ'): string {
   return t(`wallet.detail.${key}` as MessageKey, undefined, locale);
 }
 

@@ -158,6 +158,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
   });
   orders.onModuleInit();
+  // "الخردة علينا": as OrdersModule binds it at start-up.
+  trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
 
@@ -217,12 +219,17 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  async function dropoff(tripId: string, opts: { cashCollectedIqd?: number; driverId?: string } = {}) {
+  async function dropoff(tripId: string, opts: { cashCollectedIqd?: number; changeToWalletIqd?: number; driverId?: string } = {}) {
     const driverId = opts.driverId ?? 'd1';
     const t = await trips.get(tripId);
     const s = t.stops.find((x) => x.type === 'dropoff')!;
-    await trips.arrive(tripId, s.id, driverId, { pin: HOME });
-    await trips.completeStop(tripId, s.id, driverId, { handover: { ...(opts.cashCollectedIqd !== undefined ? { cashCollectedIqd: opts.cashCollectedIqd } : {}) } });
+    if (s.state === 'pending') await trips.arrive(tripId, s.id, driverId, { pin: HOME });
+    await trips.completeStop(tripId, s.id, driverId, {
+      handover: {
+        ...(opts.cashCollectedIqd !== undefined ? { cashCollectedIqd: opts.cashCollectedIqd } : {}),
+        ...(opts.changeToWalletIqd !== undefined ? { changeToWalletIqd: opts.changeToWalletIqd } : {}),
+      },
+    });
     await deliver();
   }
 

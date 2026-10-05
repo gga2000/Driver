@@ -88,7 +88,26 @@ const CashCollectedCommon = {
   amountIqd: Iqd.nonnegative(),
   expectedIqd: Iqd.nonnegative(),
   discrepancyIqd: Iqd,
+  /** "الخردة علينا": of `amountIqd`, what went to the customer's wallet because the courier had no change (0 = none). */
+  changeToWalletIqd: Iqd.nonnegative().default(0),
 };
+
+/**
+ * `order.change_to_wallet` ("الخردة علينا", 2026-10-05): the courier had no change, took the customer's
+ * whole note and the rest landed in the customer's wallet (ledger `cash_change_to_wallet`). The
+ * customer app shows "+7,250 دينار رصيد (الباقي)" and notify sends the same as a push.
+ */
+export const OrderChangeToWalletPayload = z.object({
+  customerId: z.string().min(1),
+  courierId: z.string().min(1),
+  tripId: z.string().min(1),
+  /** What went to the wallet. */
+  amountIqd: Iqd.positive(),
+  /** The note he handed over and the order's cash total (amount = collected − total). */
+  collectedIqd: Iqd.positive(),
+  totalIqd: Iqd.nonnegative(),
+});
+export type OrderChangeToWalletPayload = z.infer<typeof OrderChangeToWalletPayload>;
 
 /**
  * `order.cash_collected`: cash is in the courier's (or driver's) hand. The ledger posts the money
@@ -211,6 +230,8 @@ export const StopCompletedPayload = z.object({
   vertical: Vertical,
   /** Cash taken at this stop (cash orders) — feeds the merchant cash account (decisions §3). */
   cashCollectedIqd: Iqd.nonnegative().nullable(),
+  /** "الخردة علينا": the part of `cashCollectedIqd` that goes to the customer's wallet (checked by the trips module). */
+  changeToWalletIqd: Iqd.positive().nullable().optional(),
   photo: z.boolean(),
   pinOk: z.boolean().nullable(),
   serverReceivedAt: z.coerce.date(),
@@ -229,6 +250,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'order.auto_accepted': OrderAcceptedPayload,
   'order.courier_unassigned': OrderCourierUnassignedPayload,
   'order.cash_collected': OrderCashCollectedPayload,
+  'order.change_to_wallet': OrderChangeToWalletPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,
   'merchant.payable_accrued': MerchantPayableAccruedPayload,

@@ -14,3 +14,5 @@ export { TRIP_EVENTS, RecordingTripEvents, EventsServiceAdapter as TripEventsAda
 export type { TripEventEmitter, TripDomainEvent } from './events.adapter.js';
 export { DenyAllOfferCheck, ScriptedOfferCheck } from './offer-check.port.js';
 export type { TripOfferCheck, OfferCheckVerdict } from './offer-check.port.js';
+export { NoChangeToWallet } from './handover-check.port.js';
+export type { TripHandoverCheck, HandoverProblem } from './handover-check.port.js';

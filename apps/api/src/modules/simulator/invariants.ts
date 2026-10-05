@@ -1,5 +1,5 @@
 import { TERMINAL_ORDER_STATES, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -25,6 +25,8 @@ export interface SimSnapshot {
   replays: ReplayRecord[];
   hotWaits: HotWaitRecord[];
   handovers: HandoverRecord[];
+  /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
+  doorCash?: DoorCashRecord[];
   merchants: Array<{ merchantId: string; balanceIqd: number }>;
   errors: Array<{ where: string; message: string }>;
 }
@@ -39,6 +41,8 @@ export interface InvariantResult {
 
 export const RULES = {
   cashStepIqd: 250,
+  /** "الخردة علينا": most that may go to a customer's wallet when the courier has no change. */
+  changeToWalletMaxIqd: 25_000,
   maxHotWaitMin: 10,
   pointsCapPerOrder: 50,
 };
@@ -195,24 +199,40 @@ export const INVARIANTS: readonly Definition[] = [
   },
   {
     name: 'customer_cash_rounds_to_250',
-    description: "cash totals (and cash collected) are multiples of 250; what a cash customer hands over above his price (< 250) is change credited to his wallet, never a charge, and he never ends up owing (Ali, 2026-10-04)",
+    description:
+      "cash totals (and cash collected) are multiples of 250; what a cash customer hands over above his price is change credited to his wallet — the rounding (< 250) plus, when the courier had no change, the recorded rest of the note (\"الخردة علينا\": cash orders only, ≤ 25,000, in 250s) — never a charge, he never ends up owing, and the courier's cash on hand is the whole note he recorded (Ali, 2026-10-04 / 2026-10-05)",
     run: (s) => {
       const bad: string[] = [];
       const rows = byOrder(s.ledger);
       const step = RULES.cashStepIqd;
+      const door = new Map((s.doorCash ?? []).map((d) => [d.orderId, d]));
       for (const o of s.orders) {
-        if (o.paymentMethod !== 'cash') continue;
-        if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) cash total ${o.totalIqd}`);
         const r = rows.get(o.id) ?? [];
-        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit');
+        const extra = sum(r, (e) => e.type === 'cash_change_to_wallet');
+        if (o.paymentMethod !== 'cash') {
+          if (extra > 0 || (o.changeToWalletIqd ?? 0) > 0) bad.push(`${o.id} (${o.type}) ${o.paymentMethod} order has change to the wallet ${extra}`);
+          continue;
+        }
+        if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) cash total ${o.totalIqd}`);
+        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet');
         if (collected % step !== 0) bad.push(`${o.id} (${o.type}) collected ${collected}`);
         if (r.some((e) => e.type === 'rounding_residue')) bad.push(`${o.id} (${o.type}) has a rounding_residue line (rounding must be change to the wallet)`);
+        if (extra % step !== 0 || extra > RULES.changeToWalletMaxIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} (must be in ${step}s, ≤ ${RULES.changeToWalletMaxIqd})`);
+        if (extra !== (o.changeToWalletIqd ?? 0)) bad.push(`${o.id} (${o.type}) ledger change to the wallet ${extra} ≠ the order's recorded ${o.changeToWalletIqd ?? 0}`);
+        // Cash on hand == collected: what left the collector's cash account for this order is the note he recorded.
+        const rec = door.get(o.id);
+        if (rec && collected > 0) {
+          const onHand = sum(r, (e) => e.fromAccount.startsWith('cash:') && (e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet'));
+          if (onHand !== rec.collectedIqd) bad.push(`${o.id} (${o.type}) courier cash on hand ${onHand} ≠ the ${rec.collectedIqd} he recorded`);
+          if (extra !== rec.changeToWalletIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} ≠ the ${rec.changeToWalletIqd} he recorded`);
+        }
         if (o.state !== 'closed') continue;
         const groups = new Set(moneyGroupsOf(s.ledger, o.id));
         const payer = `customer:${o.ordererId}`;
         const net = r.filter((e) => e.postingGroupId && groups.has(e.postingGroupId)).reduce((n, e) => n + (e.toAccount === payer ? e.amount : 0) - (e.fromAccount === payer ? e.amount : 0), 0);
-        if (net < 0 || net >= step) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd} (change must be 0–${step - 1})`);
-        if (net !== (o.changeIqd ?? 0)) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0}`);
+        const rounding = net - extra;
+        if (rounding < 0 || rounding >= step) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd} (rounding change must be 0–${step - 1}, plus ${extra} no-change credit)`);
+        if (net !== (o.changeIqd ?? 0) + extra) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0} + recorded no-change credit ${extra}`);
       }
       return { checked: s.orders.length, bad };
     },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots, walletChoice } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots, validTender, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -203,6 +203,27 @@ describe('checkout payload builder', () => {
 
   it('an empty cart cannot be built', () => {
     expect(() => buildPlaceOrderInput({ cart: EMPTY_CART, dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 } })).toThrow();
+  });
+});
+
+describe('"راح أدفع بـ …" ("الخردة علينا")', () => {
+  it('keeps the chosen note only while it fits the cash total, never on a wallet order', () => {
+    expect(validTender(25_000, 17_750, 'cash')).toBe(25_000);
+    expect(validTender(17_750, 17_750, 'cash')).toBe(17_750);
+    expect(validTender(20_000, 21_000, 'cash')).toBeNull();
+    expect(validTender(25_000, 17_750, 'wallet')).toBeNull();
+    expect(validTender(null, 17_750, 'cash')).toBeNull();
+    expect(validTender(25_000, null, 'cash')).toBeNull();
+    expect(placeProblem('tender_invalid')).toBe('tender_invalid');
+  });
+
+  it('sends it with a cash order (a valid place input), never with a wallet one', () => {
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    const cash = buildPlaceOrderInput({ ...base, paymentMethod: 'cash', statedTenderIqd: 25_000 });
+    expect(cash.statedTenderIqd).toBe(25_000);
+    expect(PlaceOrderInput.parse(cash).statedTenderIqd).toBe(25_000);
+    expect(buildPlaceOrderInput({ ...base, paymentMethod: 'wallet', statedTenderIqd: 25_000 }).statedTenderIqd).toBeUndefined();
+    expect(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', statedTenderIqd: null }).statedTenderIqd).toBeUndefined();
   });
 });
 

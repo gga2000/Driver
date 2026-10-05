@@ -41,6 +41,15 @@ export const ORDERS_RULES = {
   maxTipIqd: 10_000,
   /** Domain §10: pending points for non-users expire after 90 days unclaimed. */
   pendingPointsTtlDays: 90,
+  /**
+   * "الخردة علينا" (2026-10-05, awaiting Ali's final OK): the money config's change-to-wallet cap
+   * (25,000 per hand-over), the highest stated note above the total (50,000) and the 250 step.
+   */
+  changeToWallet: {
+    maxIqd: AZIZIYAH_MONEY_RULES.changeToWallet.maxIqd,
+    tenderMaxOverIqd: AZIZIYAH_MONEY_RULES.changeToWallet.tenderMaxOverIqd,
+    stepIqd: AZIZIYAH_MONEY_RULES.rounding.stepIqd,
+  },
 } as const;
 
 /** Review A.16: per-vehicle-class order caps; above the car cap the order is a catering request. */

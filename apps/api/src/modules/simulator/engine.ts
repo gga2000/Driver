@@ -8,6 +8,7 @@ import {
   guarded,
   type DrainableQueue,
   type DriverRun,
+  type DoorCashRecord,
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
@@ -67,6 +68,7 @@ export class Simulation implements SimContext {
   readonly replays: ReplayRecord[] = [];
   readonly hotWaits: HotWaitRecord[] = [];
   readonly handovers: HandoverRecord[] = [];
+  readonly doorCash = new Map<string, DoorCashRecord>();
   readonly offers: ObservedOffer[] = [];
   readonly refusals = new Map<string, number>();
   readonly errors: Array<{ where: string; message: string }> = [];
@@ -410,6 +412,7 @@ export class Simulation implements SimContext {
       replays: [...this.replays],
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],
+      doorCash: [...this.doorCash.values()],
       merchants,
       errors: [...this.errors],
     };

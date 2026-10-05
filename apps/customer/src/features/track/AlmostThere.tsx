@@ -89,7 +89,11 @@ export function AlmostThereCard({ order, top, onClose }: { order: OrderTracking[
           {t('track.near_title')}
         </Text>
         <Text variant="footnote" color="textMuted" testID="almost-there-cash">
-          {pay.kind === 'cash' ? t('track.cash_ready', { amount: amountParam(pay.cashIqd) }) : t('track.near_paid')}
+          {pay.kind === 'cash'
+            ? pay.tender
+              ? `${t('track.cash_ready', { amount: amountParam(pay.cashIqd) })}\n${t('cashchange.door_tender', { tender: amountParam(pay.tender.tenderIqd), change: amountParam(pay.tender.changeIqd) })}`
+              : t('track.cash_ready', { amount: amountParam(pay.cashIqd) })
+            : t('track.near_paid')}
         </Text>
       </View>
       <IconButton icon="x" variant="plain" accessibilityLabel={t('action.close')} onPress={onClose} testID="almost-there-close" />
