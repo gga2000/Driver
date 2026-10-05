@@ -41,6 +41,7 @@ Still in memory with a database (known gaps, not part of this change):
 | `PrismaPlacesRepository` | `places` (`label` NULL) + `place_photos` | Learned places and landmarks; `nearby` uses `ST_DWithin` on the GIST index. |
 | `PrismaUploadRecords` | `uploads` | Owner person id, declared type and size, state, object key. Bytes live in object storage. |
 | `PrismaNotifyRepository` | `push_tokens`, `notify_preferences`, `notify_deliveries` | Migration `20261004220000_notify_delivery`. Push tokens carry the registering session (dropped on `session.signed_out`). One delivery row per message × channel × person; unique (`dedupe_key` = event id + template + person, `channel`) makes an outbox redelivery a no-op. Rows hold the rendered text and params, never a phone number. Support reads them through `notify.log`. |
+| `PrismaSafetyRepository` | `safety_incidents`, `safety_incident_entries`, `safety_incident_fixes` | Migration `20261005140000_safety_incidents` (SOS). Unique (`raiser_id`, `client_id`) makes a retried press the same incident; `escalated_at` / `contact_at` are claimed with a conditional update so two instances never page or message twice. Person, trip, order and departure ids only; names and the emergency contact stay in the vault. The emergency contact's messages are `notify_deliveries` rows with `person_id = ec:<person id>`. |
 
 ## Photo storage (`ObjectStoragePort`)
 

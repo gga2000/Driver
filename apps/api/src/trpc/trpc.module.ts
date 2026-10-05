@@ -30,6 +30,7 @@ import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZonesModule, ZonesService } from '../modules/zones/index.js';
 import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
+import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -74,6 +75,7 @@ export class TrpcService {
     private readonly controlRoom: ControlRoomService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    private readonly safety: SafetyService,
   ) {}
 
   /**
@@ -137,6 +139,7 @@ export class TrpcService {
       controlRoom: this.controlRoom,
       support: this.support,
       zones: this.zones,
+      safety: this.safety,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -161,5 +164,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

@@ -50,6 +50,11 @@ export class RequestBoardService {
     return this.clock.now();
   }
 
+  /** One request by id (the safety module checks who is on a private ride); null when unknown. */
+  get(id: string): Promise<RequestRecord | null> {
+    return this.repo.getRequest(id);
+  }
+
   // ───────────────────────── rider ─────────────────────────
 
   post(riderId: string, input: PostInput): Promise<RequestRecord> {

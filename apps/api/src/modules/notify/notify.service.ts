@@ -48,6 +48,18 @@ export class RecordingTransport implements Transport {
   }
 }
 
+/**
+ * A notification recipient that is a person's emergency contact rather than a person (SOS, scoring &
+ * safety §3): `ec:<personId>`. Notify resolves the number through identity's logged vault read; the
+ * delivery log keeps the recipient as written, so the Console can tell the contact's message apart.
+ */
+export const emergencyContactRecipient = (personId: string): string => `ec:${personId}`;
+
+/** The person whose emergency contact a recipient names, or null for an ordinary person id. */
+export function emergencyContactOwner(recipient: string): string | null {
+  return recipient.startsWith('ec:') && recipient.length > 3 ? recipient.slice(3) : null;
+}
+
 /** Expo push tokens look like `ExponentPushToken[…]` (or `ExpoPushToken[…]`). */
 const EXPO_TOKEN = /^Expo(nent)?PushToken\[[^\]]+\]$/;
 

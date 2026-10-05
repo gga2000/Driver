@@ -71,7 +71,7 @@ import { RoutesWriter } from './writer.js';
     RoutesDeparturesPort,
     RoutesScheduler,
   ],
-  exports: [RoutesRpc, DeparturesService, RoutesDeparturesPort, RoutesScheduler],
+  exports: [RoutesRpc, DeparturesService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
 })
 export class RoutesModule implements OnModuleInit {
   constructor(private readonly controls: ControlsService) {}
