@@ -68,7 +68,13 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
     links: [
       splitLink({
         condition: (op) => op.type === 'subscription',
-        true: httpSubscriptionLink({ url, transformer, EventSource: EventSourceImpl, connectionParams: async () => ({ streamToken: await tokens.get() }) }),
+        true: httpSubscriptionLink({
+          url,
+          transformer,
+          EventSource: EventSourceImpl,
+          // Signed out (a family member on the public share page): no stream token; only public streams open.
+          connectionParams: async (): Promise<Record<string, string>> => ((await store.getAccessToken()) ? { streamToken: await tokens.get() } : {}),
+        }),
         false: [authRetryLink(store), batch],
       }),
     ],

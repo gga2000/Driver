@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
-import type { LatLng } from '@driver/contracts';
+import type { LatLng, NearbyVehicles as NearbyVehiclesData } from '@driver/contracts';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { fitCamera, type Camera, type LngLat, type Size } from '@/features/track/geo';
 import type { Glide } from '@/features/track/motion';
 import { BaseMap } from '@/features/track/map/BaseMap';
 import { PlacePin, RadarPulse, RouteLine } from '@/features/track/map/Overlay';
+import type { VehicleKind } from '@/features/track/map/Vehicle';
+import { NearbyVehicles } from './NearbyVehicles';
 import { color as palette } from '@driver/design-tokens';
 
 const AZIZIYAH: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
@@ -21,7 +23,7 @@ function useCamera(initial: Camera) {
 /**
  * The choose-ride map: pickup (green) and destination (ink) pins, the straight dashed line between
  * them (no road router yet, so it stays honest), framed between the top bar and the panel. Optional
- * radar at the pickup while a driver is being found.
+ * radar at the pickup while a driver is being found, and the free vehicles around it (maps program c10).
  */
 export function RideMap({
   pickup,
@@ -31,6 +33,7 @@ export function RideMap({
   topInset,
   bottomInset,
   radar = false,
+  nearby,
   testID,
 }: {
   pickup: LatLng;
@@ -40,6 +43,8 @@ export function RideMap({
   topInset: number;
   bottomInset: number;
   radar?: boolean;
+  /** Free vehicles of the chosen kind around the pickup (blurred by the server). */
+  nearby?: { data: NearbyVehiclesData | undefined; kind: VehicleKind };
   testID?: string;
 }) {
   const theme = useTheme();
@@ -94,6 +99,7 @@ export function RideMap({
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
           {radar ? <RadarPulse cam={cam} size={sizeSV} at={pickup} testID="ride-radar" /> : null}
+          {nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {dropoff ? <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={start} waypoints={waypoints} color={theme.colors.accent} /> : null}
           <PlacePin cam={cam} size={sizeSV} at={pickup} kind="pickup" label={pickupLabel} testID="pin-pickup" />
           {dropoff ? <PlacePin cam={cam} size={sizeSV} at={dropoff} kind="home" label={dropoffLabel} testID="pin-dropoff" /> : null}

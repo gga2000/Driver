@@ -2,12 +2,14 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  liveChannel,
   positionVisible,
   SHARE_AFTER_COMPLETE_MIN,
   SHARE_MAX_HOURS,
   type Actor,
   type CreateShareLinkInput,
   type Order,
+  type OrderRoute,
   type RevokeShareLinkInput,
   type SharedTrip,
   type SharedTripInput,
@@ -206,10 +208,9 @@ export class ShareLinksService implements TrackingSharePort {
 
   async shared(input: SharedTripInput): Promise<SharedTrip> {
     const now = this.clock.now();
-    const id = this.verify(input.token);
-    const rec = id ? await this.repo.get(id) : null;
-    if (!rec) throw new DriverError('share_link_invalid');
-    await this.repo.addView(rec.id);
+    const rec = await this.link(input.token);
+    // The rider sees page opens, not the page's refreshes or its live stream.
+    if (!input.again) await this.repo.addView(rec.id);
     const ended = (reason: 'expired' | 'revoked' | 'cancelled', expiresAt: Date | null): SharedTrip => ({
       status: 'ended',
       subject: rec.subjectKind,
@@ -219,6 +220,7 @@ export class ShareLinksService implements TrackingSharePort {
       vehicleLabel: null,
       plate: null,
       position: null,
+      target: null,
       eta: null,
       route: null,
       expiresAt,
@@ -239,11 +241,39 @@ export class ShareLinksService implements TrackingSharePort {
       vehicleLabel: state.vehicleLabel,
       plate: state.plate,
       position: state.position ? { ...state.position, ageSec: Math.max(0, Math.round((now.getTime() - state.position.at.getTime()) / 1000)) } : null,
+      target: state.target,
       eta: state.eta,
       route: state.route,
       expiresAt,
       serverNow: now,
     };
+  }
+
+  async sharedRoute(input: SharedTripInput): Promise<OrderRoute> {
+    const now = this.clock.now();
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    const rec = await this.link(input.token);
+    if (rec.revokedAt || rec.subjectKind !== 'ride') return none;
+    const state = await this.rideState(rec.subjectId, now);
+    if (now.getTime() >= expiryOf(rec.createdAt, state.completedAt).getTime()) return none;
+    if (!state.position || !state.target) return none;
+    const from = { lat: state.position.lat, lng: state.position.lng };
+    const r = await this.eta.path([from, { lat: state.target.lat, lng: state.target.lng }]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+  }
+
+  async liveChannels(input: SharedTripInput): Promise<string[]> {
+    const rec = await this.link(input.token);
+    // Intercity positions are not on the bus (the stream re-reads them on its timer).
+    return rec.subjectKind === 'ride' ? [liveChannel.order(rec.subjectId)] : [];
+  }
+
+  /** The link behind a token; `share_link_invalid` for a forged, unknown or malformed one. */
+  private async link(token: string): Promise<ShareLinkRecord> {
+    const id = this.verify(token);
+    const rec = id ? await this.repo.get(id) : null;
+    if (!rec) throw new DriverError('share_link_invalid');
+    return rec;
   }
 
   // ───────────────────────── tokens ─────────────────────────
@@ -290,7 +320,7 @@ export class ShareLinksService implements TrackingSharePort {
       const carried = await this.trips.courierOf(orderId);
       trip = carried ? await this.trips.get(carried.tripId) : null;
     }
-    const base: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, plate: null, position: null, eta: null, route: null };
+    const base: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, plate: null, position: null, target: null, eta: null, route: null };
     if (RIDE_CANCELLED_ORDER.has(order.state) || (trip && RIDE_CANCELLED_TRIP.has(trip.state))) {
       return { ...base, status: 'ended', completedAt: order.cancelledAt ?? trip?.cancelledAt ?? now };
     }
@@ -300,13 +330,17 @@ export class ShareLinksService implements TrackingSharePort {
     const vehicleClass: VehicleClass | null = vehicle?.vehicleClass ?? (trip.vertical === 'tuktuk' ? 'tuktuk' : 'car');
     const status: SharedTripStatus = completed ? 'arrived' : trip.state === 'in_transit' || trip.state === 'arrived_dropoff' ? 'on_trip' : 'to_pickup';
     let position: SubjectState['position'] = null;
+    let target: SubjectState['target'] = null;
     let eta: Date | null = null;
     if (positionVisible(trip.state)) {
+      // Where the car is heading (maps program c9): the rider's pickup until they are in, then the destination.
+      const kind = status === 'on_trip' ? 'dropoff' : 'pickup';
+      const stop = trip.stops.find((s) => s.orderId === orderId && s.type === kind)?.target ?? null;
+      target = stop ? { lat: stop.lat, lng: stop.lng, kind } : null;
       const p = await this.trips.lastPosition(trip.id);
       if (p && p.driverId === trip.courierId) {
-        position = { lat: p.pin.lat, lng: p.pin.lng, at: p.at };
-        const target = trip.stops.find((s) => s.orderId === orderId && s.type === (status === 'on_trip' ? 'dropoff' : 'pickup'))?.target ?? null;
-        if (target) eta = new Date(now.getTime() + (await this.eta.minutes(p.pin, target, vehicleClass ?? 'car')).minutes * MIN_MS);
+        position = { lat: p.pin.lat, lng: p.pin.lng, at: p.at, bearing: p.bearing, speedKmh: p.speedKmh };
+        if (stop) eta = new Date(now.getTime() + (await this.eta.minutes(p.pin, stop, vehicleClass ?? 'car')).minutes * MIN_MS);
       }
     }
     return {
@@ -317,6 +351,7 @@ export class ShareLinksService implements TrackingSharePort {
       vehicleLabel: vehicle?.label ?? null,
       plate: vehicle?.plate ?? null,
       position,
+      target,
       eta,
       route: null,
     };
@@ -333,6 +368,7 @@ export class ShareLinksService implements TrackingSharePort {
       vehicleLabel: [dep.vehicle.model, dep.vehicle.color].filter(Boolean).join(' · ') || null,
       plate: dep.vehicle.plate,
       position: null,
+      target: null,
       eta: null,
       route: { fromCityId: dep.fromCityId, toCityId: dep.toCityId },
     };
@@ -345,7 +381,7 @@ export class ShareLinksService implements TrackingSharePort {
     return {
       ...base,
       status: dep.state === 'departed' ? 'on_trip' : 'waiting',
-      position: sharing && dep.lastPosition ? { lat: dep.lastPosition.lat, lng: dep.lastPosition.lng, at: dep.lastPosition.at } : null,
+      position: sharing && dep.lastPosition ? { lat: dep.lastPosition.lat, lng: dep.lastPosition.lng, at: dep.lastPosition.at, bearing: null, speedKmh: null } : null,
       eta: dep.state === 'departed' && dep.departedAt && travel ? new Date(dep.departedAt.getTime() + travel * MIN_MS) : null,
     };
   }
@@ -358,7 +394,8 @@ interface SubjectState {
   vehicleClass: VehicleClass | null;
   vehicleLabel: string | null;
   plate: string | null;
-  position: { lat: number; lng: number; at: Date } | null;
+  position: { lat: number; lng: number; at: Date; bearing: number | null; speedKmh: number | null } | null;
+  target: SharedTrip['target'];
   eta: Date | null;
   route: { fromCityId: string; toCityId: string } | null;
 }

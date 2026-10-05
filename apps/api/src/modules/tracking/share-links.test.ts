@@ -3,6 +3,7 @@ import { DriverError, SharedTrip, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { InMemoryShareLinksRepository, ShareLinksService, expiryOf, type ShareIntercityPort } from './share-links.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
+import type { Router } from '../routing/routing.port.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
 const MIN = 60_000;
@@ -16,7 +17,7 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
-function setup() {
+function setup(router: Router = new StraightLineRouter()) {
   const h = ordersHarness();
   const vehicles = new InMemoryCourierVehicles();
   vehicles.register('d1', { vehicleClass: 'car', plate: '12345 واسط', label: 'Toyota Corolla · أبيض' });
@@ -48,7 +49,7 @@ function setup() {
     intercity,
     'test-secret',
     h.clock,
-    new EtaService(new StraightLineRouter()),
+    new EtaService(router),
   );
   return { h, share, repo, reads, departures, bookings };
 }
@@ -74,7 +75,7 @@ describe('ShareLinksService — rides', () => {
     expect((await s.share.createShareLink(as('c1'), { orderId: o.id })).token).toBe(a.token);
   });
 
-  it('shows coarse data only: first name, vehicle, plate, live car inside the window, ETA', async () => {
+  it('shows coarse data only: first name, vehicle, plate, live car inside the window, where it is heading, ETA', async () => {
     const s = setup();
     const o = await ride(s);
     const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
@@ -86,13 +87,19 @@ describe('ShareLinksService — rides', () => {
     const coming = await s.share.shared({ token: link.token });
     expect(coming).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', vehicleClass: 'car', plate: '12345 واسط', vehicleLabel: 'Toyota Corolla · أبيض', route: null });
     expect(coming.position).toMatchObject({ lat: 32.905, lng: 45.06, ageSec: 0 });
+    // Heading to the rider first (maps program c9): a pin, never an address.
+    const pickupPin = trip.stops.find((st) => st.type === 'pickup')!.target!;
+    expect(coming.target).toEqual({ lat: pickupPin.lat, lng: pickupPin.lng, kind: 'pickup' });
     expect(coming.eta!.getTime()).toBeGreaterThan(s.h.clock.now().getTime());
-    // Exactly the public shape: no phone, no full name, no address, no rider.
-    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'subject', 'vehicleClass', 'vehicleLabel']);
+    // Exactly the public shape: no phone, no full name, no address in words, no rider.
+    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
     expect(JSON.stringify(coming)).not.toMatch(/\+964|07\d{9}|c1|zakur/);
 
     await s.h.pickup(trip.id);
-    expect((await s.share.shared({ token: link.token })).status).toBe('on_trip');
+    const riding = await s.share.shared({ token: link.token });
+    expect(riding.status).toBe('on_trip');
+    const dropPin = trip.stops.find((st) => st.type === 'dropoff')!.target!;
+    expect(riding.target).toEqual({ lat: dropPin.lat, lng: dropPin.lng, kind: 'dropoff' });
     // The first-name read is logged against the link, once (not once per poll).
     await s.share.shared({ token: link.token });
     expect(s.reads).toEqual([{ personId: 'd1', accessorId: expect.stringMatching(/^share:shr_/), purpose: 'share_trip' }]);
@@ -131,13 +138,48 @@ describe('ShareLinksService — rides', () => {
     expect((await s.share.createShareLink(as('c1'), { orderId: o.id })).token).not.toBe(link.token);
   });
 
-  it('counts views', async () => {
+  it('counts page opens, not the page’s refreshes or its live stream', async () => {
     const s = setup();
     const o = await ride(s);
     const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
     await s.share.shared({ token: link.token });
     await s.share.shared({ token: link.token });
+    for (let i = 0; i < 5; i++) await s.share.shared({ token: link.token, again: true });
     expect((await s.share.createShareLink(as('c1'), { orderId: o.id })).views).toBe(2);
+  });
+
+  it('the road from the car to where it is heading, only while there is both', async () => {
+    const calls: Array<readonly { lat: number; lng: number }[]> = [];
+    const road: Router = {
+      route: async (points) => {
+        calls.push(points);
+        return { distanceM: 900, durationS: 120, polyline6: 'road6', basis: 'road' };
+      },
+      table: async () => ({ durationsS: [], distancesM: [], basis: 'road' }),
+    };
+    const s = setup(road);
+    const o = await ride(s);
+    const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
+    expect(await s.share.sharedRoute({ token: link.token })).toMatchObject({ polyline6: null, from: null });
+    const trip = await s.h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    const car = { lat: 32.905, lng: 45.06 };
+    await s.h.trips.reportPosition('d1', { tripId: trip.id, pin: car, at: s.h.clock.now() });
+    calls.length = 0;
+    const r = await s.share.sharedRoute({ token: link.token });
+    expect(r).toMatchObject({ polyline6: 'road6', basis: 'road', from: car });
+    const pickupPin = trip.stops.find((st) => st.type === 'pickup')!.target!;
+    expect(calls).toContainEqual([car, { lat: pickupPin.lat, lng: pickupPin.lng }]);
+    await s.share.revokeShareLink(as('c1'), { token: link.token });
+    expect(await s.share.sharedRoute({ token: link.token })).toMatchObject({ polyline6: null });
+    expect(await code(s.share.sharedRoute({ token: 'garbage' }))).toBe('share_link_invalid');
+  });
+
+  it('live channels: a ride listens on its order; a forged token is refused', async () => {
+    const s = setup();
+    const o = await ride(s);
+    const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
+    expect(await s.share.liveChannels({ token: link.token })).toEqual([`order:${o.id}`]);
+    expect(await code(s.share.liveChannels({ token: `${link.token.split('.')[0]}.forged` }))).toBe('share_link_invalid');
   });
 });
 
@@ -164,7 +206,9 @@ describe('ShareLinksService — الرجعة', () => {
     expect(await code(s.share.createShareLink(as('c2'), { bookingId: 'b1' }))).toBe('booking_not_found');
     const link = await s.share.createShareLink(as('c1'), { bookingId: 'b1' });
     // Before T−30: the driver and the car, but not where it is.
-    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'waiting', subject: 'intercity', driverFirstName: 'مصطفى', plate: '55123 بغداد', vehicleLabel: 'Hyundai Elantra · فضي', position: null, route: { fromCityId: 'aziziyah', toCityId: 'baghdad' } });
+    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'waiting', subject: 'intercity', driverFirstName: 'مصطفى', plate: '55123 بغداد', vehicleLabel: 'Hyundai Elantra · فضي', position: null, target: null, route: { fromCityId: 'aziziyah', toCityId: 'baghdad' } });
+    // Intercity positions are not on the live bus: the stream re-reads on its timer.
+    expect(await s.share.liveChannels({ token: link.token })).toEqual([]);
     s.h.clock.advance(31 * MIN);
     expect((await s.share.shared({ token: link.token })).position).toMatchObject({ lat: 32.91, lng: 45.07 });
     dep.state = 'departed';

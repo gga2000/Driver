@@ -16,6 +16,8 @@ import { DISPATCH_EVENTS, EventsServiceAdapter } from './events.adapter.js';
 import { DispatchSubscribers } from './events.subscribers.js';
 import { GEO_INDEX, InMemoryGeoIndex, RedisGeoIndex } from './geo-index.js';
 import { DISPATCH_QUEUE, DISPATCH_QUEUE_NAME, OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
+import { RoutingModule } from '../routing/index.js';
+import { NEARBY_SECRET, NearbyService, nearbySecret } from './nearby.service.js';
 import { DispatchOfferCheck } from './offer-check.js';
 import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
@@ -63,7 +65,7 @@ export class DispatchRuntime implements OnModuleDestroy {
  * `dispatch:trip-events` for accept/decline from trips, completion, cancellation and pickup.
  */
 @Module({
-  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule, RoutesModule, ControlsModule],
+  imports: [ConfigModule, EventsModule, TripsModule, LedgerModule, RoutesModule, ControlsModule, RoutingModule],
   providers: [
     ZoneDirectory,
     DriverRanker,
@@ -103,6 +105,8 @@ export class DispatchRuntime implements OnModuleDestroy {
     // Launch kill switches with "hold dispatch" turn new jobs in their scope suggest-only.
     { provide: DISPATCH_HOLDS, useExisting: ControlsService },
     PresenceService,
+    { provide: NEARBY_SECRET, useFactory: nearbySecret },
+    NearbyService,
     OfferOrchestrator,
     DispatchRuntime,
     DispatchService,

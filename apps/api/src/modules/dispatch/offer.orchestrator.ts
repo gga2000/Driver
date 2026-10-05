@@ -859,6 +859,11 @@ export class OfferOrchestrator {
     return this.store.getRequest(tripId);
   }
 
+  /** No job in hand (the customer's "free vehicles nearby" map, maps program c10). Read-only. */
+  async idle(driverId: string): Promise<boolean> {
+    return (await this.store.driverJobs(driverId)).length === 0;
+  }
+
   /**
    * Who is busy on the city's live board (Console map): the trip each driver is assigned to, and
    * the trip each driver holds an unanswered offer for. Read-only.

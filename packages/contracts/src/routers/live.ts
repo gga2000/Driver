@@ -2,6 +2,7 @@ import type { RoleKind, SessionClaims } from '../auth.js';
 import { DriverError } from '../errors.js';
 import type { Actor } from '../identity-io.js';
 import {
+  LIVE_RULES,
   LiveChatInput,
   LiveConsoleBoardInput,
   LiveMerchantBoardInput,
@@ -14,6 +15,7 @@ import {
 } from '../live-io.js';
 import { PARTNER_DRIVING_ROLES } from '../partner-io.js';
 import { SAFETY_DESK_ROLES } from '../safety-io.js';
+import { SHARE_LIVE_RULES, SharedTripInput } from '../share-io.js';
 import {
   protectedProcedure,
   publicProcedure,
@@ -85,6 +87,43 @@ async function* stream(
 }
 
 /**
+ * The public share page's stream (maps program SP5c): `hello`, then the shared trip re-read on every
+ * wake-up — its ride channel moved (≤ every 2 s) or `SHARE_LIVE_RULES` time passed — until it has
+ * ended (expired, revoked, cancelled). The token is the only credential, checked on every read; the
+ * reads never count as page views.
+ */
+async function* shareStream(
+  ctx: Pick<AppContext, 'live' | 'trackingShare'>,
+  input: SharedTripInput,
+  signal: LiveAbortSignal | undefined,
+): AsyncGenerator<LiveEvent, void, unknown> {
+  try {
+    const read = { token: input.token, again: true };
+    const channels = await ctx.trackingShare.liveChannels(read);
+    const everyMs = channels.length > 0 ? SHARE_LIVE_RULES.refreshMs : SHARE_LIVE_RULES.intercityMs;
+    const wakes = ctx.live.watch({ channels, everyMs, minGapMs: LIVE_RULES.positionThrottleMs, signal })[Symbol.asyncIterator]();
+    try {
+      let first = true;
+      while (!(await wakes.next()).done) {
+        const trip = await ctx.trackingShare.shared(read);
+        if (first) {
+          first = false;
+          // No internal channel names on a public stream.
+          yield { type: 'hello', channels: ['share'], serverNow: trip.serverNow };
+        }
+        yield { type: 'share', trip };
+        if (trip.status === 'ended') return;
+      }
+    } finally {
+      // Stops listening on the bus whichever way the stream ends.
+      await wakes.return?.();
+    }
+  } catch (err) {
+    throw toTrpcError(err);
+  }
+}
+
+/**
  * `live.*`: tRPC subscriptions over SSE (`httpSubscriptionLink`). Each stream starts with `hello`
  * and carries compact invalidate/patch events for one scope; the scope check is the one of the
  * matching query, run on connect and re-run by the API every `LIVE_RULES.recheckMs`.
@@ -138,6 +177,10 @@ export const liveRouter = router({
         signal,
       }),
     ),
+  /** Public (no sign-in): the family share page (`tracking.shared` scope: the signed token alone). */
+  share: publicProcedure
+    .input(SharedTripInput)
+    .subscription(({ ctx, input, signal }) => shareStream(ctx, input, signal)),
   /** SOS incidents (dispatchers, support, admins): every page of the Console listens for the red banner. */
   safety: liveProcedure(SAFETY_DESK_ROLES).subscription(({ ctx, signal }) =>
     stream(ctx, {

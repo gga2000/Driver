@@ -11,6 +11,22 @@ export function haversineKm(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/** Degrees clockwise from north, from `a` towards `b`. */
+export function bearingDeg(a: LatLng, b: LatLng): number {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(r(b.lng - a.lng)) * Math.cos(r(b.lat));
+  const x = Math.cos(r(a.lat)) * Math.sin(r(b.lat)) - Math.sin(r(a.lat)) * Math.cos(r(b.lat)) * Math.cos(r(b.lng - a.lng));
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** The point `distanceM` metres from `p` towards `bearing` (flat-earth step: fine at town scale). */
+export function offsetPin(p: LatLng, distanceM: number, bearing: number): LatLng {
+  const r = (bearing * Math.PI) / 180;
+  const dLat = (distanceM * Math.cos(r)) / 111_320;
+  const dLng = (distanceM * Math.sin(r)) / (111_320 * Math.cos((p.lat * Math.PI) / 180));
+  return { lat: p.lat + dLat, lng: p.lng + dLng };
+}
+
 /**
  * Minutes (fractional) for a courier between two points — dispatch's synchronous timing (auto-assign
  * start, batching). The shared straight-line rule from contracts (×1.4 at bike speed), so dispatch and

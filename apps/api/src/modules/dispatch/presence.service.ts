@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { LatLng, VehicleClass, Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { bearingDeg, haversineKm } from './geo.js';
 import { CITY_RADIUS_KM, GEO_INDEX, PRESENCE_TTL_SEC, type DriverPresence, type GeoIndex, type NearbyDriver } from './geo-index.js';
 import { ZoneDirectory } from './zones.js';
 
@@ -35,6 +36,7 @@ export class PresenceService {
     const now = this.clock.now().getTime();
     const zoneId = input.zoneId ?? this.zones.zoneAt(input.cityId, input.at) ?? null;
     const prev = await this.geo.get(driverId);
+    const heading = headingAfter(prev, input.at);
     const p: DriverPresence = {
       driverId,
       cityId: input.cityId,
@@ -47,6 +49,7 @@ export class PresenceService {
       zoneId,
       zoneSince: prev && prev.zoneId === zoneId ? prev.zoneSince : now,
       lastSeenAt: now,
+      heading,
       ...(input.verticals ? { verticals: [...input.verticals] } : {}),
     };
     await this.geo.put(p, PRESENCE_TTL_SEC);
@@ -67,6 +70,7 @@ export class PresenceService {
       zoneSince: zoneId === prev.zoneId ? prev.zoneSince : now,
       edgeOptIn: patch.edgeOptIn ?? prev.edgeOptIn,
       lastSeenAt: now,
+      heading: headingAfter(prev, at),
     };
     await this.geo.put(p, PRESENCE_TTL_SEC);
     return p;
@@ -100,4 +104,14 @@ export class PresenceService {
   minutesInZone(p: DriverPresence): number {
     return Math.max(0, (this.clock.now().getTime() - p.zoneSince) / 60_000);
   }
+}
+
+/** Below this much movement between two updates, a new heading is GPS noise: keep the last one. */
+export const HEADING_MIN_MOVE_M = 15;
+
+/** The heading after a move from `prev` to `at` (null before any real movement). */
+export function headingAfter(prev: Pick<DriverPresence, 'lat' | 'lng' | 'heading'> | null, at: LatLng): number | null {
+  if (!prev) return null;
+  if (haversineKm(prev, at) * 1000 < HEADING_MIN_MOVE_M) return prev.heading ?? null;
+  return Math.round(bearingDeg(prev, at));
 }

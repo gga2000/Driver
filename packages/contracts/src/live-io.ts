@@ -4,6 +4,7 @@ import { ChatThreadKind } from './chat-io.js';
 import { CityId, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { OrderState } from './order.js';
+import { SharedTrip } from './share-io.js';
 import { EtaBasis } from './tracking.js';
 
 /**
@@ -135,6 +136,15 @@ export const LiveChat = z.object({
   seq: z.number().int(),
 });
 
+/**
+ * The public share page's stream (`live.share`, maps program SP5c): the whole shared trip, re-read on
+ * the server — the same coarse data as `tracking.shared`, never a bus event passed through.
+ */
+export const LiveShare = z.object({
+  type: z.literal('share'),
+  trip: SharedTrip,
+});
+
 export const LiveEvent = z.discriminatedUnion('type', [
   LiveHello,
   LiveInvalidate,
@@ -143,10 +153,11 @@ export const LiveEvent = z.discriminatedUnion('type', [
   LiveDriverPin,
   LiveNewOrder,
   LiveChat,
+  LiveShare,
 ]);
 export type LiveEvent = z.infer<typeof LiveEvent>;
-/** What travels on the bus: everything but `hello` (that one is per connection). */
-export type LiveBusEvent = Exclude<LiveEvent, { type: 'hello' }>;
+/** What travels on the bus: everything but `hello` (per connection) and `share` (built per stream). */
+export type LiveBusEvent = Exclude<LiveEvent, { type: 'hello' | 'share' }>;
 
 /** Channel names on the bus (Redis keys are prefixed by the bus). */
 export const liveChannel = {
@@ -199,6 +210,19 @@ export interface LiveStreamRequest {
   signal?: LiveAbortSignal | undefined;
 }
 
+/**
+ * Wake-ups for a public stream (`live.share`): it builds its own payload, so nothing from the bus is
+ * handed over — only "something on these channels moved" or "time to look again".
+ */
+export interface LiveWatchRequest {
+  channels: readonly string[];
+  /** Wake up at least this often even when the channels are quiet. */
+  everyMs: number;
+  /** Events closer together than this are one wake-up. */
+  minGapMs: number;
+  signal?: LiveAbortSignal | undefined;
+}
+
 /** Implemented by the API's `live` module. */
 export interface LivePort {
   /** A stream token for the caller's session (Bearer-authenticated). */
@@ -207,4 +231,6 @@ export interface LivePort {
   authenticate(streamToken: string): Promise<SessionClaims>;
   /** The event stream: `hello`, then bus events of `channels`, until abort, a failed re-check or token expiry. */
   stream(req: LiveStreamRequest): AsyncIterable<LiveEvent>;
+  /** Yields once listening, then once per wake-up (`LiveWatchRequest`), until abort or shutdown. */
+  watch(req: LiveWatchRequest): AsyncIterable<void>;
 }

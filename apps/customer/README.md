@@ -206,8 +206,9 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   wave line + counter while searching (dispatch waves from `config.city`), free-cancel button, route
   card, free/paid wait counter at the pickup, "وصلت؟ خلّص المشوار" (`orders.confirmRideArrived`), one
   fare line with how it is paid, and a ride receipt on the arrival screen.
-- Demo: `POST /demo/ride[?acceptMs=3000]` puts two taxis and two tuktuks online around the centre
-  (the nearest offered driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
+- Demo: `POST /demo/ride[?acceptMs=3000]` puts four taxis and three tuktuks online, cruising small
+  loops around the centre while free (the choose screen's nearby vehicles), (the nearest offered
+  driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
   `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid). `SHOTS=ride` writes
   `ride-*.png`.
 

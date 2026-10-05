@@ -988,7 +988,8 @@ const rajaa = await (async () => {
 // ───────────────────────── city taxi / tuktuk demo ─────────────────────────
 // Booking happens in the app (orders.place type ride → the API builds the trip and broadcasts it).
 // This section only plays the drivers:
-//   POST /demo/ride[?acceptMs=3000]   two taxis and two tuktuks online around the centre (idempotent);
+//   POST /demo/ride[?acceptMs=3000]   four taxis and three tuktuks online, cruising small loops around
+//                                     the centre while free (the booking map's nearby vehicles; idempotent);
 //                                     the nearest one offered a ride accepts after acceptMs
 //                                     (DEMO_RIDE_ACCEPT_MS, default 3000; 0 = hold every offer)
 //   POST /demo/ride/accept?orderId=…  accept that ride's open offer now
@@ -999,7 +1000,33 @@ const rajaa = await (async () => {
     { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', at: { lat: 32.9031, lng: 45.0667 } },
     { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', at: { lat: 32.9112, lng: 45.0618 } },
     { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', at: { lat: 32.9019, lng: 45.0579 } },
+    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', label: 'هيونداي النترا · أسود', at: { lat: 32.9102, lng: 45.0702 } },
+    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', label: 'تويوتا كامري · أبيض', at: { lat: 32.8996, lng: 45.0631 } },
+    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', label: 'باجاج · أخضر', at: { lat: 32.9077, lng: 45.0712 } },
   ];
+  /** Metres per 500 ms tick while free: ≈ 36 km/h for a car, 25 for a tuktuk. */
+  const CRUISE_M = { car: 5, tuktuk: 3.5 };
+  /** A free driver drives a small block (≈ 270 × 260 m) around where he became free. */
+  function cruise(d) {
+    if (!d.loop) {
+      const c = d.pos;
+      d.loop = { pts: [{ lat: c.lat + 0.0024, lng: c.lng }, { lat: c.lat + 0.0024, lng: c.lng + 0.0028 }, { lat: c.lat, lng: c.lng + 0.0028 }, { ...c }], i: 0 };
+    }
+    let left = CRUISE_M[d.def.vehicle] ?? 4;
+    while (left > 0) {
+      const to = d.loop.pts[d.loop.i];
+      const dist = metres(d.pos, to);
+      if (dist <= left) {
+        d.pos = { ...to };
+        d.loop.i = (d.loop.i + 1) % d.loop.pts.length;
+        left -= dist;
+      } else {
+        const k = left / dist;
+        d.pos = { lat: d.pos.lat + (to.lat - d.pos.lat) * k, lng: d.pos.lng + (to.lng - d.pos.lng) * k };
+        left = 0;
+      }
+    }
+  }
   const drivers = []; // { id, def, pos, tripId }
   const rides = new Map(); // orderId → { tripId, driverId, step }
   let acceptMs = Number(process.env.DEMO_RIDE_ACCEPT_MS ?? 3000);
@@ -1030,6 +1057,7 @@ const rajaa = await (async () => {
     const orderId = trip.stops.find((s) => s.orderId)?.orderId;
     const pickup = trip.stops.find((s) => s.type === 'pickup');
     d.tripId = tripId;
+    d.loop = null;
     rides.set(orderId, { tripId, driverId: d.id, step: 'to_pickup', driver: d });
     // He drives to the pickup: a fix every 2 s along a straight-ish line.
     const mid = { lat: (d.pos.lat + pickup.target.lat) / 2 + 0.0006, lng: (d.pos.lng + pickup.target.lng) / 2 - 0.0004 };
@@ -1042,6 +1070,7 @@ const rajaa = await (async () => {
     for (const d of drivers) {
       try {
         if (d.tripId) continue;
+        cruise(d);
         await dispatch.presence.heartbeat(d.id, d.pos).catch(() => undefined);
         const open = await dispatch.openOffer(d.id, 'aziziyah');
         if (!open) continue;

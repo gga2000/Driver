@@ -13,11 +13,11 @@ export const VEHICLE_SIZE = 44;
 /**
  * Our own top-down vehicles (maps program SP5a, x1): a courier motorbike with its delivery box, a
  * tuktuk (narrow nose, wide cabin), a car. Brand body colour, ink outline, a soft ground shadow.
- * `muted` greys it out when his signal is lost.
+ * `muted` greys it out when his signal is lost. `size` scales the drawing (free vehicles nearby are smaller).
  */
-export function Vehicle({ kind, body, ink, glass, shadow, muted }: { kind: VehicleKind; body: string; ink: string; glass: string; shadow: string; muted: boolean }) {
+export function Vehicle({ kind, body, ink, glass, shadow, muted, size = VEHICLE_SIZE }: { kind: VehicleKind; body: string; ink: string; glass: string; shadow: string; muted: boolean; size?: number }) {
   const fill = muted ? glass : body;
-  const s = VEHICLE_SIZE;
+  const s = size;
   return (
     <Svg width={s} height={s} viewBox="0 0 44 44">
       <Ellipse cx={22} cy={24} rx={kind === 'bike' ? 8 : 12} ry={17} fill={shadow} opacity={0.18} />

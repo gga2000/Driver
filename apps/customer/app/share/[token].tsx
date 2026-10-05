@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -7,11 +6,11 @@ import type { MessageKey } from '@driver/i18n';
 import type { SharedTrip, VehicleClass } from '@driver/contracts';
 import { Avatar, EmptyState, formatClock, Icon, ltr, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
+import { useSharedTrip } from '@/features/share/queries';
 import { ShareMap } from '@/features/share/ShareMap';
-import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
+import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 
-const POLL_MS = 5000;
 const STALE_SEC = 90;
 const VEHICLE_KEY: Record<VehicleClass, MessageKey> = { bike: 'track.vehicle.bike', tuktuk: 'track.vehicle.tuktuk', car: 'track.vehicle.car', suv: 'track.vehicle.car', van: 'track.vehicle.car', intercity: 'track.vehicle.car' };
 const STATUS: Record<SharedTrip['status'], { key: MessageKey; tone: StatusTone; live: boolean }> = {
@@ -23,23 +22,18 @@ const STATUS: Record<SharedTrip['status'], { key: MessageKey; tone: StatusTone; 
 };
 
 /**
- * Public share-trip page (`/share/<token>`, no sign-in; scoring & safety §5). What the rider's family
- * sees: the driver's first name, the car and plate, the car on the map inside the sharing window and
- * the ETA. Never a phone number, a full name or an address — the API does not send them.
+ * Public share-trip page (`/share/<token>`, no sign-in; scoring & safety §5; maps program SP5c). What
+ * the rider's family sees, live: the driver's first name, the car and plate, the car moving on the map
+ * inside the sharing window with the road to where it is heading (a pin, never an address in words)
+ * and the ETA. Never a phone number or a full name — the API does not send them.
  */
 export default function SharePage() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const insets = useSafeAreaInsets();
-  const api = useApi();
   const { token = '' } = useLocalSearchParams<{ token: string }>();
-  const q = useQuery({
-    ...api.tracking.shared.queryOptions({ token }),
-    enabled: Boolean(token),
-    retry: false,
-    refetchInterval: (s) => (s.state.data && s.state.data.status !== 'ended' ? POLL_MS : false),
-  });
+  const q = useSharedTrip(token);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 15_000);
@@ -75,7 +69,13 @@ export default function SharePage() {
   return (
     <View testID="share-page" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false, title: t('share.page_title') }} />
-      <View style={{ height: '44%' }}>{trip ? <ShareMap trip={trip} stale={stale} /> : <View style={{ flex: 1, backgroundColor: theme.colors.surfaceSunken }} />}</View>
+      <View style={{ height: '50%' }}>
+        {trip ? (
+          <ShareMap token={token} trip={trip} stale={stale} live={q.live} minutes={trip.position && etaMin !== null && !stale ? t('track.map_minutes', { minutes: etaMin }) : null} />
+        ) : (
+          <View style={{ flex: 1, backgroundColor: theme.colors.surfaceSunken }} />
+        )}
+      </View>
       <View style={{ position: 'absolute', top: insets.top + theme.space[3], start: theme.space[4], paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
         <Wordmark size="md" />
       </View>

@@ -2,7 +2,8 @@ import { TRPCError } from '@trpc/server';
 import { describe, expect, it } from 'vitest';
 import type { RoleKind, SessionClaims } from '../auth.js';
 import { DriverError } from '../errors.js';
-import type { LiveEvent, LiveStreamRequest } from '../live-io.js';
+import { LIVE_RULES, type LiveEvent, type LiveStreamRequest, type LiveWatchRequest } from '../live-io.js';
+import { SHARE_LIVE_RULES, type SharedTrip, type SharedTripInput } from '../share-io.js';
 import { appRouter } from '../router.js';
 import { t, type AppContext } from '../trpc.js';
 
@@ -142,5 +143,87 @@ describe('live.* scoping (same checks as the matching queries)', () => {
     expect(
       await first(caller(['customer'], { via: 'bearer' }).call.live.order({ orderId: 'mine' })),
     ).toMatchObject({ type: 'hello' });
+  });
+});
+
+describe('live.share (public family share page, maps program SP5c)', () => {
+  const trip = (status: SharedTrip['status'], n: number): SharedTrip => ({
+    status,
+    subject: 'ride',
+    endedReason: status === 'ended' ? 'expired' : null,
+    driverFirstName: 'حيدر',
+    vehicleClass: 'car',
+    vehicleLabel: null,
+    plate: null,
+    position: { lat: 32.9 + n / 1000, lng: 45.07, at: new Date(n), ageSec: 0, bearing: null, speedKmh: null },
+    target: { lat: 32.88, lng: 45.07, kind: 'dropoff' },
+    eta: null,
+    route: null,
+    expiresAt: null,
+    serverNow: new Date(1_000 + n),
+  });
+
+  /** No sign-in at all; `ctx.live.watch` wakes `wakes` times; `shared` hands out `script` in order. */
+  function shareCaller(script: SharedTrip['status'][], opts: { channels?: string[]; invalid?: boolean } = {}) {
+    const reads: SharedTripInput[] = [];
+    const watches: LiveWatchRequest[] = [];
+    let n = 0;
+    const ctx = {
+      auth: null,
+      authError: null,
+      liveAuth: null,
+      liveAuthError: null,
+      trackingShare: {
+        liveChannels: async () => {
+          if (opts.invalid) throw new DriverError('share_link_invalid');
+          return opts.channels ?? ['order:o1'];
+        },
+        shared: async (input: SharedTripInput) => {
+          reads.push(input);
+          const s = script[Math.min(n, script.length - 1)]!;
+          n += 1;
+          return trip(s, n);
+        },
+      },
+      live: {
+        async *watch(req: LiveWatchRequest): AsyncGenerator<void> {
+          watches.push(req);
+          for (let i = 0; i < 5; i++) yield;
+        },
+      },
+    } as unknown as AppContext;
+    return { call: t.createCallerFactory(appRouter)(ctx), reads, watches };
+  }
+
+  async function all(p: Promise<AsyncIterable<LiveEvent>>): Promise<LiveEvent[]> {
+    const out: LiveEvent[] = [];
+    for await (const e of await p) out.push(e);
+    return out;
+  }
+
+  it('opens without sign-in: hello (no channel names), then the trip on every wake-up, ending after it ended', async () => {
+    const c = shareCaller(['to_pickup', 'on_trip', 'ended']);
+    const events = await all(c.call.live.share({ token: 'link.sig' }));
+    expect(events.map((e) => e.type)).toEqual(['hello', 'share', 'share', 'share']);
+    expect(events[0]).toMatchObject({ channels: ['share'] });
+    expect(events.slice(1).map((e) => (e.type === 'share' ? e.trip.status : null))).toEqual(['to_pickup', 'on_trip', 'ended']);
+  });
+
+  it('never counts a view (the page counted its own open) and wakes on the ride channel or every 15 s', async () => {
+    const c = shareCaller(['on_trip', 'ended']);
+    await all(c.call.live.share({ token: 'link.sig' }));
+    expect(c.reads.every((r) => r.again === true)).toBe(true);
+    expect(c.watches[0]).toMatchObject({ channels: ['order:o1'], everyMs: SHARE_LIVE_RULES.refreshMs, minGapMs: LIVE_RULES.positionThrottleMs });
+  });
+
+  it('intercity (no channel): re-read on the 5 s timer', async () => {
+    const c = shareCaller(['ended'], { channels: [] });
+    await all(c.call.live.share({ token: 'link.sig' }));
+    expect(c.watches[0]).toMatchObject({ channels: [], everyMs: SHARE_LIVE_RULES.intercityMs });
+  });
+
+  it('a bad token is refused before anything streams', async () => {
+    const c = shareCaller(['on_trip'], { invalid: true });
+    expect(await codeOf(all(c.call.live.share({ token: 'nope' })))).toBe('NOT_FOUND');
   });
 });

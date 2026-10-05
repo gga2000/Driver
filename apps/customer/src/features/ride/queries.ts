@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import type { LatLng, Quote } from '@driver/contracts';
+import { NEARBY_RULES, type LatLng, type NearbyVehicles, type Quote } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { CITY_ID, quoteMinute, rideQuoteRequest, RIDE_VERTICALS, spotPoint, type RideVertical, type Spot } from './logic';
@@ -24,6 +24,23 @@ export function useZoneFor(pin: LatLng | null) {
   const signedIn = useSignedIn();
   const key = pin ? { cityId: CITY_ID, pin: { lat: Math.round(pin.lat * 1e5) / 1e5, lng: Math.round(pin.lng * 1e5) / 1e5 } } : { cityId: CITY_ID, pin: { lat: 0, lng: 0 } };
   return useQuery({ ...api.places.zoneFor.queryOptions(key), enabled: signedIn && pin !== null, placeholderData: keepPreviousData, staleTime: 60_000 });
+}
+
+/**
+ * Free vehicles of one kind around the pickup (`dispatch.nearby`, maps program c10): blurred, no ids,
+ * every 10 s while the choose screen is open. Keeps the last set while a refresh is in flight.
+ */
+export function useNearbyVehicles(pin: LatLng | null, vertical: RideVertical) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const key = { cityId: CITY_ID, pin: pin ? { lat: Math.round(pin.lat * 1e5) / 1e5, lng: Math.round(pin.lng * 1e5) / 1e5 } : { lat: 0, lng: 0 }, vertical };
+  return useQuery({
+    ...api.dispatch.nearby.queryOptions(key),
+    enabled: signedIn && pin !== null,
+    staleTime: NEARBY_RULES.refreshMs,
+    refetchInterval: NEARBY_RULES.refreshMs,
+    placeholderData: (prev: NearbyVehicles | undefined) => prev,
+  });
 }
 
 export type QuoteGrid = Record<RideVertical, { door: Quote | undefined; street: Quote | undefined }>;

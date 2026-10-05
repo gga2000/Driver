@@ -8,6 +8,7 @@ import {
   type LivePort,
   type LiveStreamRequest,
   type LiveToken,
+  type LiveWatchRequest,
   type SessionClaims,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -123,6 +124,68 @@ export class LiveService implements LivePort, OnModuleDestroy {
         }
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, Math.max(1, Math.min(untilCheck, untilExpiry)));
+          timer.unref?.();
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = null;
+      }
+    } finally {
+      this.open -= 1;
+      this.enders.delete(end);
+      req.signal?.removeEventListener('abort', onAbort);
+      for (const s of subs) s.unsubscribe();
+    }
+  }
+
+  /**
+   * Wake-ups for a public stream that builds its own payload (`live.share`): once listening, then
+   * after events on `channels` (a burst inside `minGapMs` is one wake-up) or after `everyMs` of quiet.
+   * No event content leaves here, so there is nothing to scope per event; the caller re-checks its
+   * credential on every read.
+   */
+  async *watch(req: LiveWatchRequest): AsyncGenerator<void, void, unknown> {
+    if (req.signal?.aborted) return;
+    let moved = false;
+    let wake: (() => void) | null = null;
+    const poke = () => {
+      const w = wake;
+      wake = null;
+      w?.();
+    };
+    const subs = req.channels.map((c) =>
+      this.bus.subscribe(c, () => {
+        moved = true;
+        poke();
+      }),
+    );
+    const onAbort = () => poke();
+    req.signal?.addEventListener('abort', onAbort, { once: true });
+    let ended = false;
+    const end = () => {
+      ended = true;
+      poke();
+    };
+    this.enders.add(end);
+    this.open += 1;
+    try {
+      await Promise.all(subs.map((s) => s.ready));
+      yield;
+      let last = Date.now();
+      for (;;) {
+        if (req.signal?.aborted || ended) return;
+        const now = Date.now();
+        const due = moved ? last + req.minGapMs : last + req.everyMs;
+        if (due <= now) {
+          moved = false;
+          last = now;
+          yield;
+          continue;
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, due - now);
           timer.unref?.();
           wake = () => {
             clearTimeout(timer);

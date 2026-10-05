@@ -1,15 +1,17 @@
 import { z } from 'zod';
 import type { Actor } from './identity-io.js';
+import type { OrderRoute } from './tracking.js';
 import { VehicleClass } from './trip.js';
 
 /**
  * Share-trip links (scoring & safety §5 "plate + photo + share-trip before every ride"; customer
  * app spec §2 and §4; edge-case review C-126). A rider shares a signed link to a ride (taxi /
  * tuktuk) or a الرجعة seat. Whoever opens it — no sign-in — sees coarse data only: the driver's
- * first name, the vehicle and plate, the car's live position inside the sharing window, and the
- * ETA. Never a phone, a full name, the rider's name or the pickup / drop-off address. The link
- * expires 30 minutes after the trip completes (24 h after creation at the latest) and the rider
- * can revoke it at any time.
+ * first name, the vehicle and plate, the car's live position inside the sharing window, where a
+ * city ride is heading (a pin and the road to it, never an address in words: maps program c9, Ali's
+ * call) and the ETA. Never a phone, a full name or the rider's name. The page updates live
+ * (`live.share`). The link expires 30 minutes after the trip completes (24 h after creation at the
+ * latest) and the rider can revoke it at any time.
  */
 
 export const ShareSubject = z.enum(['ride', 'intercity']);
@@ -19,6 +21,17 @@ export type ShareSubject = z.infer<typeof ShareSubject>;
 export const SHARE_AFTER_COMPLETE_MIN = 30;
 /** …and never longer than this after it was made. */
 export const SHARE_MAX_HOURS = 24;
+
+/** The live share stream (`live.share`, maps program SP5c). */
+export const SHARE_LIVE_RULES = {
+  /**
+   * A city ride is re-read whenever its live channel moves (≤ every 2 s) and at least this often:
+   * the ETA ages, and a revoke or the expiry ends the stream.
+   */
+  refreshMs: 15_000,
+  /** Intercity positions are not on the live bus: re-read this often, like the page's old poll. */
+  intercityMs: 5_000,
+} as const;
 
 export const CreateShareLinkInput = z
   .object({
@@ -47,7 +60,14 @@ export type ShareLink = z.infer<typeof ShareLink>;
 export const RevokeShareLinkInput = z.object({ token: z.string().min(1).max(200) });
 export type RevokeShareLinkInput = z.infer<typeof RevokeShareLinkInput>;
 
-export const SharedTripInput = z.object({ token: z.string().min(1).max(200) });
+export const SharedTripInput = z.object({
+  token: z.string().min(1).max(200),
+  /**
+   * A refresh by a viewer already counted: the rider's view count is page opens, not refreshes. The
+   * page's first read leaves it out; its later reads and the live stream set it.
+   */
+  again: z.boolean().optional(),
+});
 export type SharedTripInput = z.infer<typeof SharedTripInput>;
 
 /**
@@ -68,11 +88,25 @@ export const SharedTrip = z.object({
   /** "Toyota Corolla · أبيض"; null when unknown. */
   vehicleLabel: z.string().nullable(),
   plate: z.string().nullable(),
-  /** Inside the sharing window only; null before the first fix. */
-  position: z.object({ lat: z.number(), lng: z.number(), at: z.coerce.date(), ageSec: z.number().int().min(0) }).nullable(),
+  /** Inside the sharing window only; null before the first fix. Bearing and speed as the car reported them. */
+  position: z
+    .object({
+      lat: z.number(),
+      lng: z.number(),
+      at: z.coerce.date(),
+      ageSec: z.number().int().min(0),
+      bearing: z.number().nullable(),
+      speedKmh: z.number().nullable(),
+    })
+    .nullable(),
+  /**
+   * City rides inside the sharing window: where the car is heading now — the rider's pickup until
+   * they are in, then the destination. A pin for the map, never an address. Null for intercity.
+   */
+  target: z.object({ lat: z.number(), lng: z.number(), kind: z.enum(['pickup', 'dropoff']) }).nullable(),
   /** Arrival at the destination (ride on trip; intercity after departing); null when not known. */
   eta: z.coerce.date().nullable(),
-  /** Intercity: the two cities (the page says "العزيزية ← بغداد"); null for city rides (no address is ever shown). */
+  /** Intercity: the two cities (the page says "العزيزية ← بغداد"); null for city rides (they show `target`). */
   route: z.object({ fromCityId: z.string(), toCityId: z.string() }).nullable(),
   expiresAt: z.coerce.date().nullable(),
   serverNow: z.coerce.date(),
@@ -85,4 +119,11 @@ export interface TrackingSharePort {
   revokeShareLink(actor: Actor, input: RevokeShareLinkInput): Promise<ShareLink>;
   /** Public: the token is the only credential. */
   shared(input: SharedTripInput): Promise<SharedTrip>;
+  /** Public: the road from the car to `target` (null polyline without a road router, a car or a target). */
+  sharedRoute(input: SharedTripInput): Promise<OrderRoute>;
+  /**
+   * Public: the live channels whose events mean the shared trip may have changed (a city ride: its
+   * order's channel; intercity: none, it is re-read on a timer). Throws `share_link_invalid`.
+   */
+  liveChannels(input: SharedTripInput): Promise<string[]>;
 }

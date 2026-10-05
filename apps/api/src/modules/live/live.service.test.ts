@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DriverError, LIVE_RULES, type LiveEvent, type SessionClaims } from '@driver/contracts';
+import { DriverError, LIVE_RULES, type LiveBusEvent, type LiveEvent, type SessionClaims } from '@driver/contracts';
 import { InMemoryLiveBus } from './live.bus.js';
 import { LIVE_QUEUE_MAX, LiveService } from './live.service.js';
 import { StreamTokens } from './live.tokens.js';
@@ -285,5 +285,66 @@ describe('stream tokens', () => {
     const t = await tokens.issue(claims({ exp: T0.getTime() / 1000 + 10 }));
     vi.setSystemTime(new Date(T0.getTime() + 11_000));
     await expect(tokens.verify(t.token)).rejects.toMatchObject({ code: 'session_expired' });
+  });
+});
+
+describe('LiveService.watch — wake-ups for a public stream (live.share)', () => {
+  /** Counts wake-ups in the background. */
+  function count(it: AsyncIterable<void>) {
+    let n = 0;
+    let done = false;
+    const finished = (async () => {
+      const wakes = it[Symbol.asyncIterator]();
+      while (!(await wakes.next()).done) n += 1;
+      done = true;
+    })();
+    return {
+      finished,
+      get n() {
+        return n;
+      },
+      get done() {
+        return done;
+      },
+    };
+  }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const event: LiveBusEvent = { type: 'invalidate', keys: ['orders.track'], cause: 'order.accepted' };
+
+  it('wakes once listening, then on its channels only — a burst is the first event at once plus one after the gap', async () => {
+    const { bus, live } = harness();
+    const ac = new AbortController();
+    const w = count(live.watch({ channels: ['order:o1'], everyMs: 60_000, minGapMs: 40, signal: ac.signal }));
+    await sleep(5);
+    expect(w.n).toBe(1);
+    await bus.publish('order:o2', event);
+    await sleep(60);
+    expect(w.n).toBe(1);
+    for (let i = 0; i < 5; i++) await bus.publish('order:o1', event);
+    await sleep(80);
+    expect(w.n).toBe(3);
+    ac.abort();
+    await w.finished;
+    expect(w.done).toBe(true);
+    expect(live.openStreams()).toBe(0);
+  });
+
+  it('wakes on its own when the channels stay quiet (intercity has none)', async () => {
+    const { live } = harness();
+    const ac = new AbortController();
+    const w = count(live.watch({ channels: [], everyMs: 30, minGapMs: 10, signal: ac.signal }));
+    await sleep(100);
+    expect(w.n).toBeGreaterThanOrEqual(3);
+    ac.abort();
+    await w.finished;
+  });
+
+  it('ends on shutdown', async () => {
+    const { live } = harness();
+    const w = count(live.watch({ channels: ['order:o1'], everyMs: 60_000, minGapMs: 10 }));
+    await sleep(5);
+    live.onModuleDestroy();
+    await w.finished;
+    expect(w.done).toBe(true);
   });
 });

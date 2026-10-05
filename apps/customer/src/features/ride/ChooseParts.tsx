@@ -89,6 +89,7 @@ export function VehicleCard({
   selected,
   disabledReason,
   minutes,
+  nearMinutes,
   cheaperBy,
   onPress,
   onDetails,
@@ -101,6 +102,8 @@ export function VehicleCard({
   /** Tuktuk to an edge zone: why it is off, with "try anyway". */
   disabledReason: string | null;
   minutes: number | null;
+  /** The nearest free one's minutes to the pickup (maps program c10); null when none is around. */
+  nearMinutes: number | null;
   cheaperBy: number | null;
   onPress: () => void;
   onDetails: () => void;
@@ -155,6 +158,14 @@ export function VehicleCard({
               <Icon name="clock" size={13} color="textMuted" strokeWidth={2.2} />
               <Text variant="caption" weight={600} color="textMuted" tabular testID={`ride-minutes-${vertical}`}>
                 {t('ride.trip_minutes', { minutes })}
+              </Text>
+            </View>
+          ) : null}
+          {nearMinutes && !off ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="location-arrow" size={13} color="successText" strokeWidth={2.2} />
+              <Text variant="caption" weight={600} color="successText" tabular testID={`ride-near-${vertical}`}>
+                {t('ride.near_minutes', { minutes: nearMinutes })}
               </Text>
             </View>
           ) : null}

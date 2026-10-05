@@ -3,6 +3,8 @@ import {
   BoardPolicy,
   DispatchBoard,
   DispatchBoardInput,
+  NearbyVehicles,
+  NearbyVehiclesInput,
   OfferSeenInput,
   OfferSeenOutput,
   OverrideInput,
@@ -47,4 +49,9 @@ export const dispatchRouter = router({
     .input(OfferSeenInput)
     .output(OfferSeenOutput)
     .mutation(({ ctx, input }) => ctx.dispatch.offerSeen(ctx.actor, input)),
+  /** Any signed-in customer about to book a ride: free taxis or tuktuks nearby, blurred (maps program c10). */
+  nearby: protectedProcedure()
+    .input(NearbyVehiclesInput)
+    .output(NearbyVehicles)
+    .query(({ ctx, input }) => ctx.dispatch.nearby(ctx.actor, input)),
 });

@@ -1,4 +1,5 @@
 import { CreateShareLinkInput, RevokeShareLinkInput, SharedTrip, SharedTripInput, ShareLink } from '../share-io.js';
+import { OrderRoute } from '../tracking.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 
 /**
@@ -19,4 +20,9 @@ export const trackingRouter = router({
     .input(SharedTripInput)
     .output(SharedTrip)
     .query(({ ctx, input }) => ctx.trackingShare.shared(input)),
+  /** Public: the road from the shared car to where it is heading (maps program SP5c). */
+  sharedRoute: publicProcedure
+    .input(SharedTripInput)
+    .output(OrderRoute)
+    .query(({ ctx, input }) => ctx.trackingShare.sharedRoute(input)),
 });

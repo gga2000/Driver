@@ -9,7 +9,7 @@ import { Button, Icon, IconButton, SegmentedControl, Text, TextField, useTheme }
 import { useWalletBalance } from '@/features/account/queries';
 import { FarePanel, PayOption, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
 import { buildRidePlaceInput, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
+import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
@@ -40,6 +40,8 @@ export default function RideChoose() {
   const pickup = d.pickup ?? defaultPickup;
   const dropoff = d.dropoff;
   const quotes = useRideQuotes(pickup, dropoff);
+  // Free vehicles around the pickup (maps program c10): the chosen kind on the map, the nearest one's minutes on each card.
+  const nearby = { taxi: useNearbyVehicles(pickup?.pin ?? null, 'taxi'), tuktuk: useNearbyVehicles(pickup?.pin ?? null, 'tuktuk') };
   const city = useCityConfig();
   const wallet = useWalletBalance();
   const place = usePlaceRide();
@@ -115,7 +117,16 @@ export default function RideChoose() {
     <View testID="ride-choose" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={{ height: mapH + theme.space[6] }}>
-        <RideMap pickup={pickup.pin} dropoff={dropoff.pin} pickupLabel={t('ride.pickup_here')} dropoffLabel={dropoff.title} topInset={insets.top} bottomInset={theme.space[6]} testID="ride-map" />
+        <RideMap
+          pickup={pickup.pin}
+          dropoff={dropoff.pin}
+          pickupLabel={t('ride.pickup_here')}
+          dropoffLabel={dropoff.title}
+          topInset={insets.top}
+          bottomInset={theme.space[6]}
+          nearby={{ data: nearby[vertical].data, kind: vertical === 'tuktuk' ? 'tuktuk' : 'car' }}
+          testID="ride-map"
+        />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row' }}>
           <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} style={{ backgroundColor: theme.colors.surface }} testID="ride-choose-back" />
         </View>
@@ -154,6 +165,7 @@ export default function RideChoose() {
                 selected={vertical === v}
                 disabledReason={v === 'tuktuk' ? edgeReason : null}
                 minutes={estimate?.[v].minutes ?? null}
+                nearMinutes={nearby[v].data?.nearestMinutes ?? null}
                 cheaperBy={v === 'tuktuk' ? cheaper : null}
                 onPress={() => rideStore.update({ vertical: v })}
                 onDetails={() => setDetails(v)}

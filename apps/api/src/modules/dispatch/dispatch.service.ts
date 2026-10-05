@@ -6,6 +6,8 @@ import type {
   DispatchConfig,
   DispatchPolicyKind,
   DispatchPort,
+  NearbyVehicles,
+  NearbyVehiclesInput,
   OverrideInput,
   OverrideOutput,
   RespondInput,
@@ -17,6 +19,7 @@ import { ConfigService } from '../config/index.js';
 import type { OfferRecord } from './dispatch.repository.js';
 import type { DispatchRequest } from './dispatch.store.js';
 import { liveDriver, type LiveDriver } from './driver-pins.js';
+import { NearbyService } from './nearby.service.js';
 import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
@@ -57,6 +60,7 @@ export class DispatchService implements DispatchPort {
     @Optional() @Inject(DISPATCH_POLICIES) policies?: Policy[],
     @Optional() private readonly orchestrator?: OfferOrchestrator,
     @Optional() private readonly presenceService?: PresenceService,
+    @Optional() private readonly nearbyService?: NearbyService,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.policies = new Map((policies ?? defaultPolicies()).map((p) => [p.kind, p]));
@@ -133,6 +137,14 @@ export class DispatchService implements DispatchPort {
 
   async offerSeen(actor: Actor, input: { offerId: string; foregroundMs: number }): Promise<{ seen: boolean }> {
     return { seen: await this.o.offerSeen(actor.personId, input.offerId, input.foregroundMs) };
+  }
+
+  // ───────────────────────── Customer reads ─────────────────────────
+
+  /** Free vehicles of one kind near a pickup, blurred (maps program c10). */
+  nearby(_actor: Actor, input: NearbyVehiclesInput): Promise<NearbyVehicles> {
+    if (!this.nearbyService) throw new DispatchError('not_wired', 'nearby vehicles are not wired');
+    return this.nearbyService.nearby(input);
   }
 
   // ───────────────────────── Console reads ─────────────────────────

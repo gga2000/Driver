@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CityId, Iqd, Vertical } from './common.js';
+import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import { DispatchPolicyKind } from './city-config.js';
 import type { Actor } from './identity-io.js';
 
@@ -119,10 +119,51 @@ export const OfferSeenInput = z.object({ offerId: z.string(), foregroundMs: z.nu
 export const OfferSeenOutput = z.object({ seen: z.boolean() });
 
 /** What the dispatch module exposes to the transport. Implemented by apps/api, consumed by the router. */
+/**
+ * Free vehicles around a customer about to book (maps program SP5c, c10). Positions are blurred so
+ * no driver can be followed: each moves 50–100 m in a direction fixed per driver for 10 minutes, and
+ * nothing names him (no id, no plate). Refreshed by the app every 10 s.
+ */
+export const NEARBY_RULES = {
+  radiusM: 3_000,
+  max: 8,
+  jitterMinM: 50,
+  jitterMaxM: 100,
+  /** The blur's direction and size stay the same this long: no jumping between refreshes, no averaging it away. */
+  jitterBucketMin: 10,
+  refreshMs: 10_000,
+} as const;
+
+export const NearbyVehiclesInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  /** Where the customer will be picked up. */
+  pin: LatLng,
+  vertical: z.enum(['taxi', 'tuktuk']),
+});
+export type NearbyVehiclesInput = z.infer<typeof NearbyVehiclesInput>;
+
+export const NearbyVehicles = z.object({
+  /** Nearest first, at most `NEARBY_RULES.max`; blurred positions. */
+  vehicles: z.array(
+    z.object({
+      lat: z.number(),
+      lng: z.number(),
+      /** Degrees clockwise from north, from his own last movement; null when he has not moved. */
+      heading: z.number().nullable(),
+    }),
+  ),
+  /** The nearest free one to the pickup on the one ETA (real position, rounded minutes); null when none. */
+  nearestMinutes: z.number().int().min(1).nullable(),
+  at: z.coerce.date(),
+});
+export type NearbyVehicles = z.infer<typeof NearbyVehicles>;
+
 export interface DispatchPort {
   board(cityId: string): Promise<DispatchBoard>;
   override(actor: Actor, input: OverrideInput): Promise<OverrideOutput>;
   setPolicy(actor: Actor, input: SetPolicyInput): Promise<BoardPolicy>;
   respond(actor: Actor, input: RespondInput): Promise<RespondOutput>;
   offerSeen(actor: Actor, input: z.infer<typeof OfferSeenInput>): Promise<z.infer<typeof OfferSeenOutput>>;
+  /** Signed-in customers: free vehicles of one kind near a pickup, blurred (`NEARBY_RULES`). */
+  nearby(actor: Actor, input: NearbyVehiclesInput): Promise<NearbyVehicles>;
 }
