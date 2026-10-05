@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { contrastRatio, type ThemeColorKey } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
@@ -10,6 +11,7 @@ import {
   Button,
   Card,
   ChipGroup,
+  CountdownButton,
   CountdownRing,
   EmptyState,
   formatAmount,
@@ -19,6 +21,7 @@ import {
   ICON_NAMES,
   IconButton,
   ListRow,
+  ModalSheet,
   PriceBreakdown,
   SearchField,
   SeatLegend,
@@ -26,6 +29,7 @@ import {
   SegmentedControl,
   Sheet,
   Skeleton,
+  SlideToConfirm,
   StatusPill,
   Stepper,
   Text,
@@ -878,6 +882,33 @@ function TimersSection() {
   );
 }
 
+/* ───────────────────────── confirm ───────────────────────── */
+
+/** Accept, slide and hold (partner P-03, P-08) and the one modal sheet (S-12). */
+function ConfirmSection() {
+  const theme = useTheme();
+  const toast = useToast();
+  const [start, setStart] = useState(() => Date.now());
+  const [sheet, setSheet] = useState(false);
+  const done = (what: string) => toast.show({ message: what, tone: 'success', icon: 'check' });
+  return (
+    <Section title="التأكيد" note="القبول ضغطة وحدة والوقت يخلص جوه الزر. استلمت وسلّمت سحب للآخر (بالعربي من اليمين لليسار)؛ إذا الحركة مخففة يصير ضغط وتثبيت. الشيت نافذة مقفولة: الرجوع وEscape والخلفية تسكّرها.">
+      <Panel gap={4}>
+        <CountdownButton key={start} label={t('partner.accept')} startedAt={start} durationMs={15_000} onPress={() => done(t('partner.offer_accepted'))} onExpire={() => setTimeout(() => setStart(Date.now()), 1500)} />
+        <SlideToConfirm label={t('partner.action_picked_up')} onConfirm={() => done(t('partner.action_picked_up'))} mode="slide" testID="gallery-slide" />
+        <SlideToConfirm label={t('partner.ic_depart_cta')} onConfirm={() => done(t('partner.ic_depart_cta'))} mode="hold" testID="gallery-hold" />
+        <Button label="افتح الشيت" variant="secondary" onPress={() => setSheet(true)} />
+        <ModalSheet visible={sheet} onClose={() => setSheet(false)} title={t('partner.handover_title')} footer={<Button label={t('action.close')} fullWidth onPress={() => setSheet(false)} />}>
+          <Text variant="body" color="textMuted">
+            {t('partner.cash_hint')}
+          </Text>
+          <View style={{ height: theme.space[2] }} />
+        </ModalSheet>
+      </Panel>
+    </Section>
+  );
+}
+
 /* ───────────────────────── states ───────────────────────── */
 
 function StatesSection() {
@@ -951,6 +982,7 @@ function Page() {
           <FieldsSection />
           <StatesSection />
           <TimersSection />
+          <ConfirmSection />
           <TypeSection />
           <IconsSection />
         </View>
@@ -962,11 +994,13 @@ function Page() {
 export function Gallery() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider theme="light" direction="rtl">
-        <ToastProvider bottomOffset={32}>
-          <Page />
-        </ToastProvider>
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider theme="light" direction="rtl">
+          <ToastProvider bottomOffset={32}>
+            <Page />
+          </ToastProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

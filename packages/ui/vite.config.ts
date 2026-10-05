@@ -64,6 +64,8 @@ export default defineConfig(({ mode }) => ({
       { find: /^@react-native\/assets-registry\/registry$/, replacement: 'react-native-web/dist/modules/AssetRegistry' },
       // Vitest resolves `main` (CommonJS, untransformed `require('react-native')`); use the ESM build.
       { find: /^react-native-svg$/, replacement: fileURLToPath(new URL('./node_modules/react-native-svg/lib/module/index.js', import.meta.url)) },
+      { find: /^react-native-gesture-handler$/, replacement: fileURLToPath(new URL('./node_modules/react-native-gesture-handler/lib/module/index.js', import.meta.url)) },
+      { find: /^react-native-safe-area-context$/, replacement: fileURLToPath(new URL('./node_modules/react-native-safe-area-context/lib/module/index.js', import.meta.url)) },
     ],
     extensions: webExtensions,
   },
