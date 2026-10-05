@@ -27,6 +27,7 @@ import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
+import { ZonesModule, ZonesService } from '../modules/zones/index.js';
 import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
@@ -72,6 +73,7 @@ export class TrpcService {
     private readonly controls: ControlsService,
     private readonly controlRoom: ControlRoomService,
     private readonly support: SupportService,
+    private readonly zones: ZonesService,
   ) {}
 
   /**
@@ -134,6 +136,7 @@ export class TrpcService {
       controls: this.controls,
       controlRoom: this.controlRoom,
       support: this.support,
+      zones: this.zones,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -158,5 +161,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

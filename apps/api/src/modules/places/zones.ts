@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, type LatLng } from '@driver/contracts';
+import { AZIZIYAH_ZONES, pointInRing, type LatLng } from '@driver/contracts';
 
 /** Haversine distance in km. */
 export function distanceKm(a: LatLng, b: LatLng): number {
@@ -13,17 +13,8 @@ export function distanceKm(a: LatLng, b: LatLng): number {
 
 export const distanceM = (a: LatLng, b: LatLng): number => distanceKm(a, b) * 1000;
 
-/** Ray-casting point-in-polygon; sufficient for city zones until PostGIS takes over. */
-export function pointInRing(p: LatLng, ring: readonly LatLng[]): boolean {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!;
-    const b = ring[j]!;
-    const intersects = a.lat > p.lat !== b.lat > p.lat && p.lng < ((b.lng - a.lng) * (p.lat - a.lat)) / (b.lat - a.lat) + a.lng;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
+/** Shared with the zone outline tool (`@driver/contracts`). */
+export { pointInRing };
 
 export interface ZonePolygon {
   zoneId: string;
