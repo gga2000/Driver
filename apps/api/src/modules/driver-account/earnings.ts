@@ -1,7 +1,7 @@
 import type { DriverLedgerView, EarningsJobLine, EarningsPeriod, EarningsView, MoneyRules, StatementLine } from '@driver/contracts';
 
 /** Earnings lines that are positive pay before take (fares, delivery fees, seat money, fees received). */
-const GROSS_TYPES = new Set([
+export const GROSS_TYPES: ReadonlySet<string> = new Set([
   'fare',
   'delivery_fee',
   'seat_premium',
@@ -15,9 +15,9 @@ const GROSS_TYPES = new Set([
 ]);
 
 /** Settlement lines move money already earned; they are not earnings. */
-const SETTLEMENT_TYPES = new Set(['driver_payout', 'driver_settlement', 'debt_settled']);
+export const SETTLEMENT_TYPES: ReadonlySet<string> = new Set(['driver_payout', 'driver_settlement', 'debt_settled']);
 
-function jobKey(l: StatementLine): string {
+export function jobKey(l: Pick<StatementLine, 'tripId' | 'orderId' | 'id'>): string {
   return l.tripId ?? l.orderId ?? l.id;
 }
 

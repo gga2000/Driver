@@ -115,7 +115,7 @@ function harness(
       get: async () => presence,
       online: async (_id, input) => {
         opts.onOnline?.(input);
-        presence = { cityId: input.cityId, lat: input.at.lat, lng: input.at.lng, vehicle: input.vehicle, tier: input.tier, zoneId: 'street_30' };
+        presence = { cityId: input.cityId, lat: input.at.lat, lng: input.at.lng, vehicle: input.vehicle, tier: input.tier, zoneId: 'street_30', onlineSince: presence?.onlineSince ?? NOW.getTime() - 3 * 3_600_000 };
         return presence;
       },
       offline: async () => {
@@ -189,7 +189,11 @@ describe('PartnerService', () => {
     const svc = harness();
     const on = await svc.goOnline(actor, { cityId: 'aziziyah', at: { lat: 32.9095, lng: 45.0635 } });
     expect(on).toMatchObject({ online: true, zoneId: 'street_30', vehicleClass: 'bike', position: { lat: 32.9095, lng: 45.0635 } });
-    expect((await svc.goOffline(actor)).online).toBe(false);
+    // The shift's start (end-of-shift summary, S-4) comes from presence; offline has none.
+    expect(on.onlineSince?.getTime()).toBe(NOW.getTime() - 3 * 3_600_000);
+    const off = await svc.goOffline(actor);
+    expect(off.online).toBe(false);
+    expect(off.onlineSince).toBeNull();
   });
 
   it.each([

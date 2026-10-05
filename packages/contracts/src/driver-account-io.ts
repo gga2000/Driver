@@ -260,7 +260,139 @@ export type OnlineGate = z.infer<typeof OnlineGate>;
 export const HandoverCode = z.object({ code: z.string().regex(/^\d{4}$/), validUntil: z.coerce.date() });
 export type HandoverCode = z.infer<typeof HandoverCode>;
 
+// ───────────────────────── end of shift (partner S-4) ─────────────────────────
+
+/**
+ * The shift he just ended. `from` is when he went online (`partner.status.onlineSince`), `to` when he
+ * went offline; both default (start of the Baghdad day, now) and are clamped server-side (never in the
+ * future, at most `SHIFT_MAX_HOURS` long). Every number is computed on the server from the ledger.
+ */
+export const SHIFT_MAX_HOURS = 24;
+/** Below this much online time "per hour" would be noise: null. */
+export const SHIFT_PER_HOUR_MIN_MINUTES = 30;
+
+export const ShiftSummaryInput = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
+export type ShiftSummaryInput = z.input<typeof ShiftSummaryInput>;
+
+export const ShiftSummary = z.object({
+  driverId: z.string(),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  onlineMinutes: z.number().int().min(0),
+  jobs: z.number().int().min(0),
+  /** Net for the shift (pay + tips + incentives − take − penalties). */
+  netIqd: Iqd,
+  tipsIqd: Iqd,
+  /** Net per online hour, rounded to 250; null under `SHIFT_PER_HOUR_MIN_MINUTES`. */
+  perHourIqd: Iqd.nullable(),
+  /** The Baghdad clock hour that paid most in the shift; null without jobs. */
+  bestHour: z.object({ from: z.coerce.date(), to: z.coerce.date(), netIqd: Iqd, jobs: z.number().int() }).nullable(),
+  /** The whole Baghdad day so far (he may have had more than one shift). */
+  day: z.object({ netIqd: Iqd, jobs: z.number().int() }),
+  /** Cash right now: what he hands over (`owedIqd`) against his cap. */
+  cash: z.object({ heldIqd: Iqd, owedIqd: Iqd, capIqd: Iqd, overCap: z.boolean() }),
+  /**
+   * Tomorrow's busiest two hours in the city, from the orders placed on the same weekday last week;
+   * null when last week had too few orders to say.
+   */
+  tomorrow: z.object({ from: z.coerce.date(), to: z.coerce.date(), orders: z.number().int() }).nullable(),
+  /** One scorecard nudge at most (the first component under its Silver line), from day 31 only. */
+  nudge: ScoreNudge.nullable(),
+});
+export type ShiftSummary = z.infer<typeof ShiftSummary>;
+
+// ───────────────────────── "why was I paid this" (partner S-7) ─────────────────────────
+
+/**
+ * Why a pay line is what it is. `quote_*` codes read the customer's own quote reasons
+ * (`quote.reason.*`), so the courier sees the same sentence the customer saw; the rest are partner
+ * lines (`partner.receipt_reason_*`).
+ */
+export const ReceiptReasonCode = z.enum([
+  'delivery_full',
+  'night',
+  'rain',
+  'peak',
+  'door_pickup',
+  'wait',
+  'fare',
+  'take',
+  'tip',
+  'batch',
+  'compensation',
+  'guarantee',
+  'incentive',
+  'penalty',
+]);
+export type ReceiptReasonCode = z.infer<typeof ReceiptReasonCode>;
+
+export const JobReceiptInput = z.object({
+  /** `EarningsJobLine.key` (trip id, else order id). */
+  key: z.string().min(1),
+  /** `EarningsJobLine.at`: the job is looked up around it (the ledger is read by time). */
+  at: z.coerce.date(),
+});
+export type JobReceiptInput = z.input<typeof JobReceiptInput>;
+
+export const JobReceiptLine = EarningsComponent.extend({
+  reason: z.object({ code: ReceiptReasonCode, params: z.record(z.string(), z.union([z.string(), z.number()])) }).nullable(),
+});
+export type JobReceiptLine = z.infer<typeof JobReceiptLine>;
+
+export const JobReceipt = z.object({
+  key: z.string(),
+  tripId: z.string().nullable(),
+  orderId: z.string().nullable(),
+  /** "1284": the number the kitchen, the customer and support say (`orderTicketNumber`). */
+  ticket: z.string().nullable(),
+  at: z.coerce.date(),
+  lines: z.array(JobReceiptLine),
+  /** Positive pay before take (fares, delivery fees, extras). */
+  grossIqd: Iqd,
+  /** The platform's take on this job, positive. */
+  takeIqd: Iqd,
+  /** take ÷ the pay it was taken from (0–1); null when nothing was taken. */
+  takeRate: z.number().min(0).max(1).nullable(),
+  tipsIqd: Iqd,
+  netIqd: Iqd,
+  /** Cash he took at the door and where it went; null for a cashless job. */
+  cash: z
+    .object({
+      collectedIqd: Iqd,
+      /** Paid to the restaurant at pickup (PIN-confirmed). */
+      toMerchantIqd: Iqd,
+      /** The rest: the company's, handed over with the daily code. */
+      toCompanyIqd: Iqd,
+    })
+    .nullable(),
+  /** An objection for this job is already with support. */
+  queryOpen: z.boolean(),
+});
+export type JobReceipt = z.infer<typeof JobReceipt>;
+
+/** "عندي اعتراض": a support ticket with the job attached (receipt lines in the note). */
+export const PayQueryInput = z.object({
+  key: z.string().min(1),
+  at: z.coerce.date(),
+  message: z.string().trim().min(3).max(1000),
+});
+export type PayQueryInput = z.input<typeof PayQueryInput>;
+
+export const PayQueryResult = z.object({
+  ticketId: z.string(),
+  openedAt: z.coerce.date(),
+  /** He had already sent one for this job: the same ticket comes back. */
+  alreadyOpen: z.boolean(),
+});
+export type PayQueryResult = z.infer<typeof PayQueryResult>;
+
 export interface DriverAccountPort {
+  shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
+  jobReceipt(actor: Actor, input: z.output<typeof JobReceiptInput>): Promise<JobReceipt>;
+  payQuery(actor: Actor, input: z.output<typeof PayQueryInput>): Promise<PayQueryResult>;
   earnings(actor: Actor, input: z.output<typeof EarningsInput>): Promise<EarningsView>;
   scorecard(actor: Actor, input: z.infer<typeof ScorecardInput>): Promise<ScorecardView>;
   documents(actor: Actor, input: z.infer<typeof DocumentsInput>): Promise<DocumentsView>;

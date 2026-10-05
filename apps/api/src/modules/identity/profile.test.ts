@@ -24,8 +24,8 @@ describe('identity.updateProfile', () => {
     const h = harness();
     const { actor } = await h.login('07712345678');
     const me = await h.service.updateProfile(actor, { emergencyContact: { name: 'أمي', phone: '0780 111 2233' } });
-    expect(me.emergencyContact).toEqual({ name: 'أمي', phoneMasked: '+96478*****33' });
-    expect((await h.repo.readIdentity(actor.personId))?.emergencyContact).toEqual({ name: 'أمي', phoneE164: '+9647801112233' });
+    expect(me.emergencyContact).toEqual({ name: 'أمي', phoneMasked: '+96478*****33', relation: null });
+    expect((await h.repo.readIdentity(actor.personId))?.emergencyContact).toEqual({ name: 'أمي', phoneE164: '+9647801112233', relation: null });
     expect(JSON.stringify(h.events.events)).not.toMatch(/7801112233|أمي/);
     const logs = await h.repo.vaultAccessLogs(actor.personId);
     expect(logs.at(-1)).toMatchObject({ accessorId: actor.personId, purpose: 'self_profile', fieldsRead: ['name', 'phone_e164', 'emergency_contact'] });
@@ -33,6 +33,19 @@ describe('identity.updateProfile', () => {
     // Name untouched by a contact-only update.
     expect((await h.service.updateProfile(actor, { name: 'علي' })).name).toBe('علي');
     expect((await h.service.updateProfile(actor, { emergencyContact: { name: 'أبوي', phone: '0790 000 0001' } })).name).toBe('علي');
+  });
+
+  it("a driver's contact (Partner رقم للطوارئ) keeps who they are; it lives in the vault only", async () => {
+    const h = harness();
+    const { actor } = await h.login('07701110001');
+    const me = await h.service.updateProfile(actor, { emergencyContact: { name: 'أم علي', phone: '0771 234 5678', relation: 'mother' } });
+    expect(me.emergencyContact).toEqual({ name: 'أم علي', phoneMasked: '+96477*****78', relation: 'mother' });
+    expect((await h.repo.readIdentity(actor.personId))?.emergencyContact).toEqual({ name: 'أم علي', phoneE164: '+9647712345678', relation: 'mother' });
+    // The SOS path reads the same record (logged), relation and all.
+    expect(await h.service.emergencyContactOf(actor.personId, 'system:safety', 'sos_raised')).toEqual({ name: 'أم علي', phoneE164: '+9647712345678' });
+    expect(JSON.stringify(h.events.events)).not.toMatch(/7712345678|أم علي|mother/);
+    // Replacing it without a relation clears the old one.
+    expect((await h.service.updateProfile(actor, { emergencyContact: { name: 'كرار', phone: '0780 000 1111' } })).emergencyContact?.relation).toBeNull();
   });
 
   it('a bad contact number is refused before anything is written', async () => {

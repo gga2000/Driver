@@ -35,7 +35,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { GuardianService, guardianView } from './guardian.service.js';
-import { IDENTITY_REPOSITORY, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
+import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
@@ -362,7 +362,9 @@ export class IdentityService implements IdentityPort {
         reverificationRequired: reverify,
         canWithdraw: !reverify,
         lastVerifiedAt: person.lastVerifiedAt,
-        emergencyContact: identity.emergencyContact ? { name: identity.emergencyContact.name, phoneMasked: maskPhone(identity.emergencyContact.phoneE164) } : null,
+        emergencyContact: identity.emergencyContact
+          ? { name: identity.emergencyContact.name, phoneMasked: maskPhone(identity.emergencyContact.phoneE164), relation: identity.emergencyContact.relation ?? null }
+          : null,
       };
     });
   }
@@ -468,12 +470,12 @@ export class IdentityService implements IdentityPort {
   async updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView> {
     const name = input.name?.trim();
     if (input.name !== undefined && (!name || name.length > 60)) throw new DriverError('invalid_input');
-    let emergencyContact: { name: string; phoneE164: string } | null | undefined;
+    let emergencyContact: EmergencyContactRecord | null | undefined;
     if (input.emergencyContact === null) emergencyContact = null;
     else if (input.emergencyContact) {
       const contactName = input.emergencyContact.name.trim();
       if (!contactName) throw new DriverError('invalid_input');
-      emergencyContact = { name: contactName, phoneE164: this.phone(input.emergencyContact.phone).e164 };
+      emergencyContact = { name: contactName, phoneE164: this.phone(input.emergencyContact.phone).e164, relation: input.emergencyContact.relation ?? null };
     }
     await this.uow.run(async (tx) => {
       const now = this.clock.now();

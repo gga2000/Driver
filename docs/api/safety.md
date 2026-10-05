@@ -56,5 +56,6 @@ migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFET
   phone call needs the telephony provider.
 - "On shift" means every live dispatcher and admin role until a staff rota exists.
 - Audio recording on the pressing phone (spec §3) is not built.
-- Drivers cannot set an emergency contact in the Partner app yet (the API takes it through
-  `identity.updateProfile`).
+- Drivers set their emergency contact in the Partner app (الحساب → رقم للطوارئ, 2026-10-05) through
+  the same `identity.updateProfile`; the contact now also keeps `relation` (`mother`, `father`, `spouse`,
+  `sibling`, `child`, `relative`, `friend`, `other`) in the vault. A driver's SOS messages his own contact.

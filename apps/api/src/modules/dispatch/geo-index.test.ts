@@ -43,7 +43,7 @@ function contract(
 
     it('round-trips the driver hash', async () => {
       const { index } = await make();
-      const p = presence(`${prefix}h`, 1, { vehicle: 'tuktuk', tier: 'gold', vetted: true, edgeOptIn: true, zoneId: 'fidaa', zoneSince: 123, lastSeenAt: 456 });
+      const p = presence(`${prefix}h`, 1, { vehicle: 'tuktuk', tier: 'gold', vetted: true, edgeOptIn: true, zoneId: 'fidaa', zoneSince: 123, lastSeenAt: 456, onlineSince: 100 });
       await index.put(p);
       const got = await index.get(`${prefix}h`);
       expect(got).toMatchObject({ ...p, lat: expect.closeTo(p.lat, 5), lng: expect.closeTo(p.lng, 5) });

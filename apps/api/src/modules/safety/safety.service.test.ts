@@ -26,7 +26,7 @@ const POS = { lat: 32.9095, lng: 45.0635, accuracyM: 12, at: new Date('2026-10-0
 const NAMES: Record<string, string> = { p_rider: 'زينب علي', p_driver: 'حيدر كاظم', p_haider: 'حيدر جاسم', p_ali: 'علي أحمد' };
 const PHONES: Record<string, string> = { p_rider: '+9647702223344', p_driver: '+9647701110002', p_haider: '+9647700000002', p_ali: '+9647700000001' };
 
-function harness(opts: { contact?: boolean } = {}) {
+function harness(opts: { contact?: boolean; driverContact?: boolean } = {}) {
   const clock = new FakeClock('2026-10-05T18:00:00Z');
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -34,6 +34,7 @@ function harness(opts: { contact?: boolean } = {}) {
   const identity = {
     emergencyContactOf: async (personId: string, accessorId: string, purpose: string) => {
       vault.push(`${personId}:emergency_contact:${accessorId}:${purpose}`);
+      if (personId === 'p_driver') return opts.driverContact ? { name: 'أم حيدر', phoneE164: '+9647805550000' } : null;
       return personId === 'p_rider' ? contact : null;
     },
     firstNamesFor: async (ids: readonly string[], accessorId: string, purpose: string) => {
@@ -251,6 +252,22 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
     await expect(h.svc.shared({ token: `${v.incidentId}.forged` })).rejects.toMatchObject({ code: 'share_link_invalid' });
     expect((await h.svc.get(HAIDER, { id: v.incidentId })).contact).toMatchObject({ set: true, name: 'أم زينب', status: 'delivered' });
     expect((await h.svc.status(RIDER, {}))!.contactStatus).toBe('sent');
+  });
+
+  it("a driver's SOS reaches the driver's own emergency contact (Partner الحساب → رقم للطوارئ)", async () => {
+    const h = harness({ driverContact: true });
+    const v = await h.svc.sos(DRIVER, { subject: { kind: 'trip', id: h.trip.id }, position: POS, clientId: 'driver-press-2' });
+    expect(v).toMatchObject({ contactName: 'أم حيدر', contactStatus: 'queued' });
+    h.clock.advance(SAFETY_RULES.cancelWindowSec * 1000 + 1);
+    expect((await h.svc.sweep()).contacts).toBe(1);
+    await h.run();
+    const rows = await h.deliveries('ec:p_driver');
+    expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([['sos_emergency_contact', 'whatsapp', 'delivered']]);
+    expect(rows[0]!.payload.body).toContain('حيدر');
+    // The rider's contact is never told about the driver's alert.
+    expect(await h.deliveries('ec:p_rider')).toEqual([]);
+    expect(h.vault).toContain('p_driver:emergency_contact:system:notify:notify:sos_emergency_contact');
+    expect((await h.svc.get(HAIDER, { id: v.incidentId })).contact).toMatchObject({ set: true, name: 'أم حيدر', status: 'delivered' });
   });
 
   it('keeps the position trail while open, throttles a flood, stops when closed', async () => {

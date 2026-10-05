@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { DeviceInfo, OtpPurpose, RoleGrant, RoleKind, TokenPair } from './auth.js';
 
+/** Who the emergency contact is to the person (shown to the safety desk when it calls them). */
+export const EmergencyRelation = z.enum(['mother', 'father', 'spouse', 'sibling', 'child', 'relative', 'friend', 'other']);
+export type EmergencyRelation = z.infer<typeof EmergencyRelation>;
+
 export const MeView = z.object({
   personId: z.string(),
   name: z.string().nullable(),
@@ -15,7 +19,7 @@ export const MeView = z.object({
   canWithdraw: z.boolean(),
   lastVerifiedAt: z.coerce.date().nullable(),
   /** Customer spec §10 safety: who we call in an emergency. Lives in the vault; the phone comes back masked. */
-  emergencyContact: z.object({ name: z.string(), phoneMasked: z.string() }).nullable().optional(),
+  emergencyContact: z.object({ name: z.string(), phoneMasked: z.string(), relation: EmergencyRelation.nullable().optional() }).nullable().optional(),
 });
 export type MeView = z.infer<typeof MeView>;
 
@@ -26,7 +30,7 @@ export type MeView = z.infer<typeof MeView>;
 export const UpdateProfileInput = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
-    emergencyContact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20) }).nullable().optional(),
+    emergencyContact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20), relation: EmergencyRelation.optional() }).nullable().optional(),
   })
   .refine((v) => v.name !== undefined || v.emergencyContact !== undefined, { message: 'nothing to update' });
 export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;

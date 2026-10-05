@@ -14,6 +14,8 @@ export interface PartnerPresence {
   vehicle: VehicleClass;
   tier: 'bronze' | 'silver' | 'gold';
   zoneId: string | null;
+  /** Epoch ms this stretch online began (dispatch presence); absent on older entries. */
+  onlineSince?: number | undefined;
 }
 
 export interface PartnerOfferRecord {

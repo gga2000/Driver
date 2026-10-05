@@ -900,6 +900,19 @@ export class OrdersService implements OnModuleInit {
     return out;
   }
 
+  /**
+   * Orders placed per local clock hour (index 0–23, Baghdad) in `[from, to)`: the Partner app's
+   * "tomorrow's busiest window" reads last week's same weekday through this.
+   */
+  async placedPerHour(cityId: string, from: Date, to: Date, offsetMin = 180): Promise<number[]> {
+    const out = new Array<number>(24).fill(0);
+    for (const o of await this.repo.search({ cityId, from, to, limit: 20_000 })) {
+      const hour = new Date(o.placedAt.getTime() + offsetMin * 60_000).getUTCHours();
+      out[hour] = (out[hour] ?? 0) + 1;
+    }
+    return out;
+  }
+
   /** Right-now bar: orders placed in the last hour, active orders and how many of them are late. */
   async liveStats(cityId: string): Promise<{ ordersLastHour: number; activeOrders: number; lateOrders: number }> {
     const now = this.clock.now();

@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { formatClock, formatWhen } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
@@ -15,11 +16,14 @@ import {
   type EarningsPeriod,
   type EarningsView,
   type HandoverCode,
+  type JobReceipt,
   type LivenessGesture,
   type OnlineGate,
+  type PayQueryResult,
   type ReviewDocumentInput,
   type RoleKind,
   type ScorecardView,
+  type ShiftSummary,
   type SubmitCheckInInput,
   type UploadDocumentInput,
 } from '@driver/contracts';
@@ -27,18 +31,26 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey, localPeriod, nextLocalSunday } from '../../shared/local-time.js';
+import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { LedgerFacade } from '../ledger/index.js';
 import { OrdersService } from '../orders/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { nudgesFor, OBSERVATION_DAYS, reliabilityCard } from '../scoring/index.js';
+import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
 import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, type DriverAccountRepository } from './driver-account.repository.js';
 import { composeEarnings } from './earnings.js';
 import { HANDOVER_SECRET, HandoverCodes } from './handover-code.js';
+import { composeReceipt, receiptNote, type ReceiptContext } from './receipt.js';
+import { bestHour, busiestWindow, clampShift, perHour, tomorrowAndLastWeek } from './shift.js';
 
 const DAY_MS = 86_400_000;
+/** Single-city launch: the city the shift summary and receipts read their rules and orders from. */
+const SHIFT_CITY = 'aziziyah';
+/** A job's ledger lines sit within hours of its first line; the receipt reads this far either side. */
+const RECEIPT_WINDOW_MS = 12 * 3_600_000;
 /** Scoring §2: expiry reminders at 30 days. */
 export const EXPIRY_WARNING_DAYS = 30;
 const CHALLENGE_TTL_MS = 2 * 60_000;
@@ -128,6 +140,10 @@ export class DriverAccountService implements DriverAccountPort {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(HANDOVER_SECRET) secret: string,
+    /** "عندي اعتراض" opens its ticket here (Partner S-7); absent in unit tests that don't need it. */
+    @Optional() private readonly support?: SupportService,
+    /** The city's pricing rules, for the night / wait reasons on a receipt. */
+    @Optional() private readonly config?: ConfigService,
   ) {
     this.codes = new HandoverCodes(secret);
   }
@@ -458,6 +474,100 @@ export class DriverAccountService implements DriverAccountPort {
 
   async handoverCode(actor: Actor): Promise<HandoverCode> {
     return this.codes.code(actor.personId, this.clock.now());
+  }
+
+  // ───────────────────────── end of shift (Partner audit S-4) ─────────────────────────
+
+  /**
+   * The shift he just ended, from the ledger: jobs, net, tips, per online hour, the clock hour that
+   * paid most, the day so far, cash to hand over against his cap, one scorecard nudge at most, and
+   * tomorrow's busiest two hours from the city's orders on the same weekday last week.
+   */
+  async shiftSummary(actor: Actor, input: { from?: Date | undefined; to?: Date | undefined }): Promise<ShiftSummary> {
+    const driverId = actor.personId;
+    const now = this.clock.now();
+    const { from, to } = clampShift(input, now);
+    const day = localPeriod('day', to);
+    // Ledger reads are [from, to): one minute past `to` keeps a job posted in the same instant.
+    const until = new Date(to.getTime() + 60_000);
+    const [shiftView, dayView, card, tomorrow] = await Promise.all([
+      this.ledger.driverLedger({ driverId, from, to: until }),
+      this.ledger.driverLedger({ driverId, from: day.from, to: until }),
+      this.scorecardFor(driverId).catch(() => null),
+      this.busiestTomorrow(now),
+    ]);
+    const shift = composeEarnings(shiftView, 'day', { from, to }, AZIZIYAH_MONEY_RULES);
+    const today = composeEarnings(dayView, 'day', { from: day.from, to }, AZIZIYAH_MONEY_RULES);
+    const onlineMinutes = Math.max(0, Math.floor((to.getTime() - from.getTime()) / 60_000));
+    return {
+      driverId,
+      from,
+      to,
+      onlineMinutes,
+      jobs: shift.totals.jobs,
+      netIqd: shift.totals.netIqd,
+      tipsIqd: shift.totals.tipsIqd,
+      perHourIqd: perHour(shift.totals.netIqd, onlineMinutes),
+      bestHour: bestHour(shift.jobs),
+      day: { netIqd: today.totals.netIqd, jobs: today.totals.jobs },
+      cash: { heldIqd: today.cash.heldIqd, owedIqd: today.cap.owedIqd, capIqd: today.cap.capIqd, overCap: today.cap.overCap },
+      tomorrow,
+      // Shift-end carries a single nudge, never a list (audit S-4); none in the first 30 days.
+      nudge: card && card.visible && !card.observation ? (card.nudges[0] ?? null) : null,
+    };
+  }
+
+  private async busiestTomorrow(now: Date): Promise<ShiftSummary['tomorrow']> {
+    const { tomorrow, lastWeekFrom, lastWeekTo } = tomorrowAndLastWeek(now);
+    try {
+      const counts = await this.orders.placedPerHour(SHIFT_CITY, lastWeekFrom, lastWeekTo);
+      return busiestWindow(counts, tomorrow);
+    } catch {
+      return null;
+    }
+  }
+
+  // ───────────────────────── "why was I paid this" (Partner audit S-7) ─────────────────────────
+
+  /** One of his jobs with every pay line and its reason, the take rate and where the cash went. */
+  async jobReceipt(actor: Actor, input: { key: string; at: Date }): Promise<JobReceipt> {
+    const receipt = await this.receiptFor(actor.personId, input.key, input.at);
+    if (!receipt) throw new DriverError('not_found');
+    return receipt;
+  }
+
+  private async receiptFor(driverId: string, key: string, at: Date): Promise<JobReceipt | null> {
+    const view = await this.ledger.driverLedger({ driverId, from: new Date(at.getTime() - RECEIPT_WINDOW_MS), to: new Date(at.getTime() + RECEIPT_WINDOW_MS) });
+    const queryOpen = this.support ? await this.support.driverPayQueryOpen(driverId, key) : false;
+    return composeReceipt(view, key, this.receiptContext(), { queryOpen });
+  }
+
+  /** Night start and the wait step from the city's pricing rules (the same numbers the quote used). */
+  private receiptContext(): ReceiptContext {
+    const city = this.config?.city(SHIFT_CITY);
+    const rules = city?.verticals.flatMap((v) => v.components) ?? [];
+    const night = rules.find((c) => c.key === 'night' && c.hours)?.hours?.[0] ?? 23;
+    const wait = rules.find((c) => c.key === 'wait' && c.perUnit)?.perUnit ?? 250;
+    return { nightFrom: formatClock(Date.UTC(2026, 0, 1, night - 3, 0), { period: false }), waitAmountIqd: wait };
+  }
+
+  /**
+   * "عندي اعتراض": a support ticket with the job attached — the order (when it is a real order) and
+   * trip, and the receipt as the opening note under his own words. One per job.
+   */
+  async payQuery(actor: Actor, input: { key: string; at: Date; message: string }): Promise<PayQueryResult> {
+    if (!this.support) throw new DriverError('internal');
+    const receipt = await this.receiptFor(actor.personId, input.key, input.at);
+    if (!receipt) throw new DriverError('not_found');
+    const ticket = receipt.ticket ? `#${receipt.ticket}` : `(${input.key.slice(-6)})`;
+    const when = formatWhen(receipt.at, this.clock.now());
+    return this.support.openDriverPayQuery(actor.personId, {
+      key: input.key,
+      orderId: receipt.orderId,
+      tripId: receipt.tripId,
+      subject: `اعتراض سايق على أجرة الطلب ${ticket}`,
+      note: `${input.message}\n\nالطلب ${ticket} · ${when}\n${receiptNote(receipt)}`,
+    });
   }
 
   /** Field ops' check of the code a courier reads out (`ops.recordCashReceipt`). */

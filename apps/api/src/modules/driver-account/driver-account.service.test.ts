@@ -5,7 +5,10 @@ import { harness as identityHarness } from '../identity/test-harness.js';
 import { postDriverIncentive } from '../ledger/postings.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
 import type { OrdersService } from '../orders/index.js';
+import { ConfigService } from '../config/index.js';
+import type { AuditLogService, StaffNames } from '../controls/index.js';
 import { DevBlobStore, type BlobStore } from '../places/index.js';
+import { InMemorySupportRepository, SupportService } from '../support/index.js';
 import type { TripsService } from '../trips/index.js';
 import { InMemoryDriverAccountRepository } from './driver-account.repository.js';
 import { DriverAccountService } from './driver-account.service.js';
@@ -32,20 +35,32 @@ function setup(start = '2026-10-03T09:00:00Z') {
   const trips: Trip[] = [];
   const orders = new Map<string, Order>();
   const tripsFake = { forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId) } as unknown as TripsService;
+  /** Orders placed per Baghdad hour on the day `placedPerHour` is asked about (tomorrow's busy window). */
+  const hourly: { counts: number[]; asked: Array<{ from: Date; to: Date }> } = { counts: new Array<number>(24).fill(0), asked: [] };
   const ordersFake = {
     get: async (orderId: string) => {
       const o = orders.get(orderId);
       if (!o) throw new Error('order not found');
       return o;
     },
+    placedPerHour: async (_city: string, from: Date, to: Date) => {
+      hourly.asked.push({ from, to });
+      return hourly.counts;
+    },
   } as unknown as OrdersService;
-  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret');
+  // The support desk on the same in-memory events and unit of work (only the ticket-opening path is used).
+  const supportRepo = new InMemorySupportRepository();
+  const audits: Array<{ action: string; subjectId: string }> = [];
+  const auditsFake = { record: async (a: { action: string; subjectId: string }) => void audits.push(a) } as unknown as AuditLogService;
+  const none = {} as never;
+  const support = new SupportService(supportRepo, ordersFake, tripsFake, none, none, none, none, id.service, ev.events, auditsFake, {} as StaffNames, ev.uow, clock);
+  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService());
   async function person(phone: string, roles: RoleKind[] = []): Promise<Actor> {
     const { actor } = await id.login(phone);
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
     return actor;
   }
-  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
+  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
 describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
@@ -275,5 +290,111 @@ describe('driverAccount.handoverCode', () => {
     const next = (await h.service.handoverCode(d)).code;
     expect(h.service.verifyHandoverCode(d.personId, next)).toBe(true);
     if (next !== code) expect(h.service.verifyHandoverCode(d.personId, code)).toBe(false);
+  });
+});
+
+describe('driverAccount.shiftSummary (Partner S-4)', () => {
+  it('sums the shift from the ledger: jobs, net, tips, per hour, best hour, the day, cash and tomorrow', async () => {
+    // Saturday 3 Oct, 19:00 Baghdad. He went online at 15:00 Baghdad (12:00Z).
+    const h = setup('2026-10-03T16:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    // Before the shift (10:00 Baghdad): counts for the day, not the shift.
+    await h.ledger.posting.orderMoney(workedExample({ orderId: 'o_morning', courierId: d.personId, occurredAt: new Date('2026-10-03T07:00:00Z') }));
+    // In the shift: two food orders in the 4–5 م hour (one with a tip), a ride with the take at 6:30 م.
+    await h.ledger.posting.orderMoney(workedExample({ orderId: 'o1', courierId: d.personId, occurredAt: new Date('2026-10-03T13:10:00Z'), tipIqd: 1000 }));
+    await h.ledger.posting.orderMoney(workedExample({ orderId: 'o2', courierId: d.personId, occurredAt: new Date('2026-10-03T13:40:00Z') }));
+    await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T15:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
+    // Last Sunday (the weekday tomorrow falls on): orders peaked 1–3 م.
+    h.hourly.counts[13] = 6;
+    h.hourly.counts[14] = 4;
+    h.hourly.counts[20] = 3;
+
+    const s = await h.service.shiftSummary(d, { from: new Date('2026-10-03T12:00:00Z') });
+    expect(s.from.toISOString()).toBe('2026-10-03T12:00:00.000Z');
+    expect(s.to.toISOString()).toBe('2026-10-03T16:00:00.000Z');
+    expect(s.onlineMinutes).toBe(240);
+    expect(s.jobs).toBe(3);
+    expect(s.tipsIqd).toBe(1000);
+    // 1,000 + 1,000 delivery, 1,000 tip, 5,000 fare − 600 take.
+    expect(s.netIqd).toBe(1000 + 1000 + 1000 + 5000 - 600);
+    expect(s.perHourIqd).toBe(1750); // 7,400 over 4 h = 1,850 → 1,750 (250 steps)
+    // The 6–7 م hour (the ride, 4,400 net) beats 4–5 م (3,000).
+    expect(s.bestHour).toMatchObject({ from: new Date('2026-10-03T15:00:00Z'), to: new Date('2026-10-03T16:00:00Z'), netIqd: 4400, jobs: 1 });
+    expect(s.day).toEqual({ netIqd: s.netIqd + 1000, jobs: 4 });
+    expect(s.cash.capIqd).toBe(75_000);
+    expect(s.cash.owedIqd).toBeGreaterThan(0);
+    // Tomorrow is Sunday 4 Oct (Baghdad); last week's Sunday is 27 Sep, read as one Baghdad day.
+    expect(h.hourly.asked[0]).toEqual({ from: new Date('2026-09-26T21:00:00Z'), to: new Date('2026-09-27T21:00:00Z') });
+    expect(s.tomorrow).toEqual({ from: new Date('2026-10-04T10:00:00Z'), to: new Date('2026-10-04T12:00:00Z'), orders: 10 });
+    // Month one: no scorecard nudge.
+    expect(s.nudge).toBeNull();
+  });
+
+  it('defaults to the Baghdad day, says nothing per hour for a short shift and nothing for a quiet last week', async () => {
+    const h = setup('2026-10-03T21:20:00Z'); // 00:20 Sunday Baghdad
+    const d = await h.person('07700000001', ['courier']);
+    const s = await h.service.shiftSummary(d, {});
+    expect(s.from.toISOString()).toBe('2026-10-03T21:00:00.000Z');
+    expect(s.onlineMinutes).toBe(20);
+    expect(s.perHourIqd).toBeNull();
+    expect(s.bestHour).toBeNull();
+    expect(s.jobs).toBe(0);
+    expect(s.tomorrow).toBeNull();
+    // A `to` in the future is pulled back to now.
+    expect((await h.service.shiftSummary(d, { to: new Date('2026-10-04T09:00:00Z') })).to.toISOString()).toBe('2026-10-03T21:20:00.000Z');
+  });
+
+  it('one scorecard nudge at most, from day 31', async () => {
+    const h = setup('2026-10-03T09:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    const at = (daysAgo: number) => new Date(h.clock.now().getTime() - daysAgo * DAY);
+    await h.ev.events.emit(undefined, { actorId: d.personId, type: 'role.used', occurredAt: at(40) }, { name: 'person', id: d.personId });
+    for (const [i, type] of ['trip.accepted', 'trip.declined', 'trip.declined', 'trip.declined', 'trip.timed_out'].entries()) {
+      await h.ev.events.emit(undefined, { actorId: d.personId, type, occurredAt: at(1 + i * 0.1) }, { name: 'trip', id: `t${i}` });
+    }
+    const s = await h.service.shiftSummary(d, {});
+    expect(s.nudge?.key).toBe('acceptance');
+    expect(s.nudge?.message_ar.length).toBeGreaterThan(0);
+  });
+});
+
+describe('driverAccount.jobReceipt and payQuery (Partner S-7)', () => {
+  it('every line with its reason, the take rate, the cash and the ticket; an objection opens one support ticket', async () => {
+    const h = setup('2026-10-03T16:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T15:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
+    const job = (await h.service.earnings(d, { period: 'day' })).jobs.find((j) => j.tripId === 't_ride')!;
+
+    const r = await h.service.jobReceipt(d, { key: job.key, at: job.at });
+    expect(r.lines.map((l) => [l.type, l.reason?.code])).toEqual([
+      ['fare', 'fare'],
+      ['commission_accrued', 'take'],
+    ]);
+    expect(r).toMatchObject({ grossIqd: 5000, takeIqd: 600, takeRate: 0.12, netIqd: 4400, queryOpen: false });
+    expect(r.lines[1]!.reason).toEqual({ code: 'take', params: { rate: 12 } });
+    expect(r.cash).toEqual({ collectedIqd: 5000, toMerchantIqd: 0, toCompanyIqd: 5000 });
+
+    const q = await h.service.payQuery(d, { key: job.key, at: job.at, message: 'العمولة أكثر من المتفق عليه' });
+    expect(q.alreadyOpen).toBe(false);
+    const ticket = h.supportRepo.tickets.get(q.ticketId)!;
+    expect(ticket).toMatchObject({ kind: 'complaint', channel: 'in_app', customerId: null, openedById: d.personId, tripId: r.tripId, status: 'open' });
+    expect(ticket.subject).toContain('اعتراض');
+    expect(h.audits.map((a) => a.action)).toEqual(['ticket.open']);
+    expect((await h.ev.events.forActor(d.personId)).some((e) => e.type === 'support.ticket_opened')).toBe(true);
+
+    // Asking again returns the same ticket; the receipt now says it is with support.
+    const again = await h.service.payQuery(d, { key: job.key, at: job.at, message: 'ثاني مرة' });
+    expect(again).toMatchObject({ ticketId: q.ticketId, alreadyOpen: true });
+    expect((await h.service.jobReceipt(d, { key: job.key, at: job.at })).queryOpen).toBe(true);
+  });
+
+  it("is his own book only: another driver's job is not found", async () => {
+    const h = setup('2026-10-03T16:00:00Z');
+    const a = await h.person('07700000001', ['courier']);
+    const b = await h.person('07700000002', ['courier']);
+    await h.ledger.posting.orderMoney(workedExample({ orderId: 'o1', courierId: a.personId, occurredAt: new Date('2026-10-03T13:10:00Z') }));
+    await expect(h.service.jobReceipt(b, { key: 'o1', at: new Date('2026-10-03T13:10:00Z') })).rejects.toMatchObject({ code: 'not_found' });
+    await expect(h.service.payQuery(b, { key: 'o1', at: new Date('2026-10-03T13:10:00Z'), message: 'مو إلي' })).rejects.toMatchObject({ code: 'not_found' });
+    expect((await h.service.jobReceipt(a, { key: 'o1', at: new Date('2026-10-03T13:10:00Z') })).ticket).toMatch(/^\d{4}$/);
   });
 });

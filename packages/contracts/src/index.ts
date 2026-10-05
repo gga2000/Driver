@@ -69,5 +69,6 @@ export {
   RegisterChildOutput,
   ChildView,
   UpdateProfileInput,
+  EmergencyRelation,
 } from './identity-io.js';
 export type { RequestOrigin } from './identity-io.js';
