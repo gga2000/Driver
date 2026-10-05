@@ -99,6 +99,14 @@ export default {
       await byTestId('day-summary').waitFor({ timeout: 15_000 });
       await shot('day-summary-board', { wait: 1200 });
       await shot('day-summary', { element: byTestId('day-summary') });
+      // "شارك على واتساب" on the web: the drawn 1080×1080 card (a download where Web Share can't take files).
+      if (!phone && process.argv[2]) {
+        const download = page.waitForEvent('download', { timeout: 10_000 });
+        await byTestId('day-share').click();
+        const file = await download;
+        await file.saveAs(`${process.argv[2]}/${viewport}-signature-day-share-image.png`);
+        console.log(`${process.argv[2]}/${viewport}-signature-day-share-image.png`);
+      }
       await post('/demo/board/store?open=1&busy=0');
     });
 
