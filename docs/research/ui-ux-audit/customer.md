@@ -252,6 +252,16 @@ exists). One cash hand-off, points split by person (exists).
 digits, car distance "1.0 كم", and a "أني بالكراج" action. It updates via push when the car is
 boarding. It ends with "وصلت بالسلامة" and the fare. Spec §4 already calls for live activities.
 
+> **2026-10-05 — built (Phase 3, brief C).** d-2: `DepartureTime` in `@driver/ui` (split-flap tiles,
+> ص/م, "باچر", "بعد 52 دقيقة"; compact/card/hero; 180 ms flip, none under reduce motion) on home's
+> الرجعة card, the board tiles, the boarding pass, the food ETA box ("يوصلك") and the partner's
+> departure and khat headers. Seat-map loading mark not done. d-8: Android ongoing notification
+> (`apps/customer/src/features/rajaa/lockscreen/`): scheduled for T−30, sticky while live, updated
+> while the app runs (boarding with the car's distance, on board, on the road), "أني بالكراج"
+> action, dismissible "وصلت بالسلامة" + fare. Follow-ups: a data push that re-posts the card while
+> the app is closed (today it keeps its T−30 words until the app runs), and the iOS Live Activity
+> (needs a native widget extension and an EAS build). The PIN shows on the lock screen by design.
+
 ---
 
 ## (e) Top 15: do next (ranked)

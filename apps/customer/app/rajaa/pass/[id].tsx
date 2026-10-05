@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
-import { Button, Card, CountdownRing, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
@@ -166,11 +166,10 @@ export default function BoardingPassScreen() {
             </Text>
             <StatusPill size="sm" tone={b.state === 'checked_in' ? 'success' : 'accent'} icon="check" label={bookingStateLabel(t, b.state)} />
           </View>
-          <Text variant="display" tabular>
-            {clockLabel(b.departure.departAt)}
-          </Text>
+          {/* The garage-board time (audit d-2): split-flap digits and the countdown to the car. */}
+          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} />
           <Text variant="footnote" color="textMuted">
-            {t('intercity.leaves_at_or_full', { time: clockLabel(b.departure.departAt) })} · {t('intercity.latest_departure', { time: clockLabel(b.departure.latestDepartureAt) })}
+            {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
           </Text>
         </View>
         <Rule kind="dashed" color="borderStrong" />
