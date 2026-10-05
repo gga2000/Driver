@@ -1,7 +1,9 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   MERCHANT_PREP_EXTENSION,
+  latePromiseCreditIqd,
   PlaceOrderInput,
   cashToHand,
   TERMINAL_ORDER_STATES,
@@ -321,6 +323,7 @@ export class OrdersService implements OnModuleInit {
       dealLineSavingsIqd: d ? d.dealLineSavingsIqd : p.newLines.map(() => 0),
       roundingIqd: 0,
       nextDeal: next ? { dealId: next.promotionId, label_ar: next.label_ar, label_en: next.label_en, missingIqd: next.missingIqd } : null,
+      latePromise: latePromiseOf(input.type, p.fees.deliveryFeeIqd, d),
     };
   }
 
@@ -1639,4 +1642,14 @@ export function toOrderView(agg: OrderAggregate): Order {
     rating: order.rating ?? null,
     discount: discountView(order),
   };
+}
+
+/**
+ * Audit d-5: the honest-delay promise checkout shows — deliveries with a promised time (food and
+ * catalog grocery) that carry a delivery fee; the credit is that fee (`latePromiseCreditIqd`).
+ */
+export function latePromiseOf(type: string, deliveryFeeIqd: number, discount: { meta: { target: string }; amountIqd: number } | null | undefined): { afterMin: number; creditIqd: number } | null {
+  if (type !== 'food' && type !== 'grocery_catalog') return null;
+  const creditIqd = latePromiseCreditIqd({ deliveryFeeIqd, discount: discount ? { target: discount.meta.target, amountIqd: discount.amountIqd } : null });
+  return creditIqd > 0 ? { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, creditIqd } : null;
 }

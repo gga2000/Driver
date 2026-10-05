@@ -176,11 +176,33 @@ export const CATALOG_PUBLIC_RATE = { windowMs: 60_000, perIp: 120 } as const;
 /** Who is reading: a signed-in person, or a guest seen only by the client IP (rate limits). */
 export type CatalogReader = { actor: Actor | null; ip?: string | null };
 
+export const CatalogTodayInput = z.object({ cityId: CityId });
+export type CatalogTodayInput = z.input<typeof CatalogTodayInput>;
+
+/**
+ * `catalog.today` (audit d-6): the welcome screen's live proof and its captions, public and
+ * guest-safe (counts and city facts only, nothing personal). Every number is the server's.
+ */
+export const CatalogToday = z.object({
+  /** Kitchens taking orders right now (the same "open" as the restaurant list). */
+  openRestaurants: z.number().int().min(0),
+  /** الرجعة cars still to leave today (Baghdad day), both directions, not cancelled or past their latest time. */
+  rajaaCarsToday: z.number().int().min(0),
+  /** A tuktuk ride inside the town centre right now, from the city's fares; null when it can't be priced. */
+  tuktukFromIqd: Iqd.nullable(),
+  /** The Aziziyah garage of the next car to Baghdad (or the first garage when none is announced). */
+  baghdadGarage: z.object({ id: z.string(), name_ar: z.string(), name_en: z.string() }).nullable(),
+  /** The honest-delay promise: more than this many minutes late and the delivery fee comes back as credit. */
+  latePromiseMin: z.number().int().positive(),
+});
+export type CatalogToday = z.infer<typeof CatalogToday>;
+
 /** What the API supplies to the `catalog` router (implemented by `modules/catalog`). */
 export interface CustomerCatalogPort {
   restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]>;
   menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu>;
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
+  today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
 }
 
 /**

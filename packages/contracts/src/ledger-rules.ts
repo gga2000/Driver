@@ -99,6 +99,13 @@ export const MoneyRules = z.object({
   }),
   /** Nightly close (money §4): 02:00 in the city's zone. */
   nightly: z.object({ hour: z.number().int().min(0).max(23), utcOffsetMin: z.number().int() }),
+  /**
+   * The honest-delay promise (customer spec §4, audit d-5): a delivery that reaches the door more than
+   * `afterMin` minutes after the time we promised gets its delivery fee back as wallet credit, paid by
+   * the platform, once per order (`latePromiseCreditIqd`). Shown at checkout, on the late banner and on
+   * the welcome screen with this number, never a literal in the apps.
+   */
+  latePromise: z.object({ afterMin: z.number().int().positive() }).default({ afterMin: 20 }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -143,6 +150,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
     driverLateToEachRiderPerBlockIqd: 1000,
   },
   nightly: { hour: 2, utcOffsetMin: 180 },
+  latePromise: { afterMin: 20 },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */
@@ -161,4 +169,13 @@ export function cashToHand(priceIqd: number, stepIqd: number = CASH_STEP_IQD): {
   if (!(priceIqd > 0)) return { cashIqd: 0, changeIqd: 0 };
   const cashIqd = Math.ceil(priceIqd / stepIqd) * stepIqd;
   return { cashIqd, changeIqd: cashIqd - priceIqd };
+}
+
+/**
+ * What the honest-delay promise gives back on an order: the delivery fee the customer actually pays
+ * (a free-delivery deal leaves nothing to give back, so no promise is made). 0 = no promise.
+ */
+export function latePromiseCreditIqd(o: { deliveryFeeIqd: number; discount?: { target: string; amountIqd: number } | null }): number {
+  const free = o.discount?.target === 'delivery' ? o.discount.amountIqd : 0;
+  return Math.max(0, o.deliveryFeeIqd - free);
 }

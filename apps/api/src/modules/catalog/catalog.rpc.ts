@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   CATALOG_PUBLIC_RATE,
   CATALOG_SEARCH_LIMITS,
   DriverError,
@@ -11,6 +12,8 @@ import {
   type CatalogSearchDish,
   type CatalogSearchInput,
   type CatalogSearchResult,
+  type CatalogToday,
+  type CatalogTodayInput,
   type CustomerCatalogPort,
   type DealBadge,
   type DeliveryPoint,
@@ -64,6 +67,20 @@ export interface StorefrontMerchants {
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
 
 /**
+ * The rest of the welcome screen's facts (`catalog.today`, audit d-6), bound by the orders module:
+ * الرجعة cars today and the garage of the next car to Baghdad (routes), and the city's late-delivery
+ * promise (money rules). Without it `today` still answers, with no cars and the default promise.
+ */
+export interface StorefrontToday {
+  rajaa(): Promise<{ carsToday: number; baghdadGarage: { id: string; nameAr: string; nameEn: string } | null }>;
+  latePromiseMin(cityId: string): number;
+}
+export const STOREFRONT_TODAY = Symbol('STOREFRONT_TODAY');
+
+/** The zone a "tuktuk from" fare is priced in: a ride inside the town centre. */
+const TODAY_TUKTUK_ZONE = 'centre';
+
+/**
  * The customer catalog read (`catalog.restaurants`, `catalog.menu`, M3). Composes the catalog's
  * storefronts and menus with the merchant's settings from orgs (location, pause windows), busy mode,
  * and a fee preview from the pricing engine split exactly as `orders.place` charges it, so the
@@ -82,6 +99,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() @Inject(CLOCK) clock?: Clock,
     @Optional() @Inject(WINDOW_COUNTER) guests?: WindowCounter,
     @Optional() eta?: EtaService,
+    @Optional() @Inject(STOREFRONT_TODAY) private readonly todayFacts: StorefrontToday | null = null,
   ) {
     this.clock = clock ?? new SystemClock();
     this.guests = guests ?? new InMemoryWindowCounter(this.clock);
@@ -196,6 +214,44 @@ export class CatalogRpc implements CustomerCatalogPort {
    * so a scraper is held back without slowing down people who signed in. No IP (tests, in-process
    * callers) means no limit.
    */
+  /**
+   * `catalog.today` (audit d-6): the welcome screen's live proof — kitchens open now (the list's own
+   * "open"), الرجعة cars still leaving today, a tuktuk ride in the centre priced now by the same
+   * engine as a booking, the garage of the next car to Baghdad, and the late-delivery promise.
+   */
+  async today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday> {
+    await this.admit(reader);
+    const now = this.clock.now();
+    let openRestaurants = 0;
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      if ((await this.card(s, await this.catalog.menu(s.orgId), null, now)).open) openRestaurants += 1;
+    }
+    let tuktukFromIqd: number | null = null;
+    try {
+      tuktukFromIqd = this.pricing.quote(
+        PriceRequest.parse({
+          cityId: input.cityId,
+          vertical: 'tuktuk',
+          stops: [
+            { zoneId: TODAY_TUKTUK_ZONE, type: 'pickup' },
+            { zoneId: TODAY_TUKTUK_ZONE, type: 'dropoff' },
+          ],
+          at: now,
+        }),
+      ).total;
+    } catch {
+      tuktukFromIqd = null;
+    }
+    const rajaa = this.todayFacts ? await this.todayFacts.rajaa() : { carsToday: 0, baghdadGarage: null };
+    return {
+      openRestaurants,
+      rajaaCarsToday: rajaa.carsToday,
+      tuktukFromIqd,
+      baghdadGarage: rajaa.baghdadGarage ? { id: rajaa.baghdadGarage.id, name_ar: rajaa.baghdadGarage.nameAr, name_en: rajaa.baghdadGarage.nameEn } : null,
+      latePromiseMin: this.todayFacts?.latePromiseMin(input.cityId) ?? AZIZIYAH_MONEY_RULES.latePromise.afterMin,
+    };
+  }
+
   private async admit(reader: Actor | CatalogReader): Promise<void> {
     if ('personId' in reader || reader.actor || !reader.ip) return;
     const hit = await this.guests.hit(`catalog:guest:${reader.ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);

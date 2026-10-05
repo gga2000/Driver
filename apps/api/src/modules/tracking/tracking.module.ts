@@ -2,6 +2,7 @@ import { RoutingModule } from '../routing/index.js';
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { Accounts, LedgerModule, LedgerService } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
@@ -19,8 +20,10 @@ import {
   shareSecret,
   type ShareIntercityPort,
 } from './share-links.js';
+import { LatePromiseSubscriber, ledgerLateCredit } from './late-promise.js';
 import {
   TRACKING_IDENTITY,
+  TRACKING_LATE_CREDIT,
   TRACKING_MERCHANTS,
   TRACKING_ORDERS,
   TRACKING_POINTS,
@@ -39,7 +42,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
  * earned). Owns no tables; the vehicle registry read is narrow and read-only.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule, EventsModule],
   providers: [
     { provide: TRACKING_ORDERS, useExisting: OrdersService },
     { provide: TRACKING_TRIPS, useExisting: TripsService },
@@ -75,7 +78,10 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
       useFactory: (prisma: PrismaService): CourierVehicleDirectory => (prisma.configured ? new PrismaCourierVehicles(prisma) : new InMemoryCourierVehicles()),
       inject: [PrismaService],
     },
+    // Audit d-5: the honest-delay credit (delivery fee back as wallet credit past the promise).
+    { provide: TRACKING_LATE_CREDIT, useFactory: (ledger: LedgerService) => ledgerLateCredit(ledger), inject: [LedgerService] },
     TrackingService,
+    LatePromiseSubscriber,
     // Share-trip links (`tracking.createShareLink` / `revokeShareLink` / `shared`).
     {
       provide: SHARE_LINKS_REPOSITORY,

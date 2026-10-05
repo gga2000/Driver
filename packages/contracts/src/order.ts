@@ -248,6 +248,11 @@ export const OrderQuote = z.object({
   roundingIqd: Iqd.min(0).optional(),
   /** The next deal the cart could unlock by adding more (minimum order not met yet), if any. */
   nextDeal: z.object({ dealId: z.string(), label_ar: z.string(), label_en: z.string(), missingIqd: Iqd }).nullable(),
+  /**
+   * The honest-delay promise this order would carry (`MoneyRules.latePromise`): more than `afterMin`
+   * minutes late and `creditIqd` (the delivery fee) comes back as credit. Null without a delivery fee.
+   */
+  latePromise: z.object({ afterMin: z.number().int().positive(), creditIqd: Iqd.positive() }).nullable().optional(),
 });
 export type OrderQuote = z.infer<typeof OrderQuote>;
 

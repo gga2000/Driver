@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CatalogSearchInput, CatalogSearchResult, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
 import type { Actor } from '../identity-io.js';
 import { publicProcedure, router, type AppContext } from '../trpc.js';
 
@@ -32,4 +32,9 @@ export const catalogRouter = router({
     .input(CatalogSearchInput)
     .output(CatalogSearchResult)
     .query(({ ctx, input }) => ctx.catalog.search(readerOf(ctx), input)),
+  /** The welcome screen's live proof (audit d-6): open kitchens, الرجعة cars today, a tuktuk fare, the garage, the delay promise. */
+  today: publicProcedure
+    .input(CatalogTodayInput)
+    .output(CatalogToday)
+    .query(({ ctx, input }) => ctx.catalog.today(readerOf(ctx), input)),
 });
