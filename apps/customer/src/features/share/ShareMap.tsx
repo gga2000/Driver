@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Easing, useSharedValue, withTiming } from 'react-native-reanimated';
-import type { SharedTrip, VehicleClass } from '@driver/contracts';
-import { Text, useTheme, type IconName } from '@driver/ui';
-import { glideAt, nextGlide, type Camera, type Glide, type LngLat, type Size } from '@/features/track/geo';
+import type { SharedTrip } from '@driver/contracts';
+import { Text, useTheme } from '@driver/ui';
+import { type Camera, type LngLat, type Size } from '@/features/track/geo';
+import { vehicleKind } from '@/features/track/map/Vehicle';
+import { glidePos, planGlide, type Glide } from '@/features/track/motion';
 import { BaseMap } from '@/features/track/map/BaseMap';
 import { CourierMarker } from '@/features/track/map/Overlay';
 import { useT } from '@/lib/i18n';
 
-const VEHICLE_ICON: Record<VehicleClass, IconName> = { bike: 'bike', tuktuk: 'tuktuk', car: 'car', suv: 'car', van: 'car', intercity: 'car' };
 const AZIZIYAH: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
 const GLIDE_MS = 4000;
 
@@ -41,10 +42,10 @@ export function ShareMap({ trip, stale }: { trip: SharedTrip; stale: boolean }) 
     const target: LngLat & { bearing: null } = { lat: pos.lat, lng: pos.lng, bearing: null };
     const g = glide.value;
     if (!g) {
-      glide.value = { from: target, to: target, fromHeading: 0, toHeading: 0 };
+      glide.value = { kind: 'line', from: target, to: target, fromHeading: 0, toHeading: 0 };
       progress.value = 1;
     } else {
-      glide.value = nextGlide(glideAt(g, progress.value), target);
+      glide.value = planGlide(null, glidePos(g, null, progress.value), target, GLIDE_MS);
       progress.value = 0;
       progress.value = withTiming(1, { duration: GLIDE_MS, easing: Easing.linear });
     }
@@ -74,7 +75,7 @@ export function ShareMap({ trip, stale }: { trip: SharedTrip; stale: boolean }) 
       {size.w > 0 ? (
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
-          <CourierMarker cam={cam} size={sizeSV} glide={glide} progress={progress} icon={VEHICLE_ICON[trip.vehicleClass ?? 'car']} stale={stale} testID="share-car" />
+          <CourierMarker cam={cam} size={sizeSV} glide={glide} progress={progress} kind={vehicleKind(trip.vehicleClass ?? 'car')} stale={stale} minutes={null} testID="share-car" />
         </>
       ) : null}
       <Text variant="caption" color="textMuted" style={{ position: 'absolute', right: theme.space[3], bottom: theme.space[8], fontSize: 10, lineHeight: 14, opacity: 0.8 }}>

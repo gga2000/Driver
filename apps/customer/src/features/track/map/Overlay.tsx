@@ -2,17 +2,23 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { Icon, Text, useTheme, usePulse, withAlpha, type IconName } from '@driver/ui';
-import { glideAt, pathD, project, type Glide, type LngLat, type Size } from '../geo';
+import { Icon, Text, useTheme, usePulse, withAlpha } from '@driver/ui';
+import { pathD, project, type LngLat, type Size } from '../geo';
+import { glidePos, remainingFrom, type Glide, type Path as RoadPath } from '../motion';
+import { Vehicle, VEHICLE_SIZE, type VehicleKind } from './Vehicle';
 import type { CameraValues } from './types';
 import { color as palette } from '@driver/design-tokens';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-/** The courier's glide on the UI thread: segment + progress (0..1 over one poll interval). */
+/**
+ * The courier's glide on the UI thread: the glide, its progress (0..1 over one poll interval, past 1
+ * the dead-reckoning tail) and the road path it runs on (null: straight glides).
+ */
 export interface GlideValues {
   glide: SharedValue<Glide | null>;
   progress: SharedValue<number>;
+  path?: SharedValue<RoadPath | null>;
 }
 
 interface LayerProps {
@@ -21,75 +27,75 @@ interface LayerProps {
 }
 
 /**
- * The route still to drive: from the courier's gliding position (or the route start before a
- * courier exists) through the remaining waypoints. Straight segments — there is no road router
- * yet, so the line is dashed and honest about it — shortening as he moves.
+ * The route still to drive. With a road path (maps program SP5a): the real streets from the courier's
+ * gliding position to the end, solid, shortening behind him. Without one: dashed straight segments
+ * through the remaining waypoints — honest about being a guess.
  */
-export function RouteLine({ cam, size, glide, progress, start, waypoints, color }: LayerProps & GlideValues & { start: SharedValue<LngLat | null>; waypoints: SharedValue<LngLat[]>; color: string }) {
+export function RouteLine({ cam, size, glide, progress, path, start, waypoints, color, onRoad = false }: LayerProps & GlideValues & { start: SharedValue<LngLat | null>; waypoints: SharedValue<LngLat[]>; color: string; onRoad?: boolean }) {
   const props = useAnimatedProps(() => {
     const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
     const g = glide.value;
-    const head = g ? glideAt(g, progress.value).pos : start.value;
-    const pts = head ? [head, ...waypoints.value] : waypoints.value;
+    const road = path ? path.value : null;
+    let pts: LngLat[];
+    if (road) {
+      if (g) {
+        const m = glidePos(g, road, progress.value);
+        pts = m.d !== null ? remainingFrom(road, m.d) : [m.pos, ...road.pts];
+      } else {
+        pts = road.pts;
+      }
+    } else {
+      const head = g ? glidePos(g, null, progress.value).pos : start.value;
+      pts = head ? [head, ...waypoints.value] : waypoints.value;
+    }
     if (pts.length < 2) return { d: '' };
     return { d: pathD(pts.map((p) => project(p.lat, p.lng, c, size.value))) };
   });
   return (
     <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
-      <AnimatedPath animatedProps={props} stroke={color} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 9" fill="none" />
+      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={onRoad ? 9 : 8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
+      <AnimatedPath animatedProps={props} stroke={color} strokeWidth={onRoad ? 5 : 4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={onRoad ? undefined : '1 9'} fill="none" />
     </Svg>
   );
 }
 
 const MARKER = 60;
 
-/** Gliding, rotating courier marker: upright vehicle glyph in a disc, a heading pointer that turns. */
-export function CourierMarker({ cam, size, glide, progress, icon, stale, testID }: LayerProps & GlideValues & { icon: IconName; stale: boolean; testID?: string }) {
+/**
+ * The courier: our top-down vehicle turning with his heading as he glides along the road, a soft
+ * pulse while live, and the minutes to arrival in a pill above (not rotated). Grey and still when his
+ * signal is lost.
+ */
+export function CourierMarker({ cam, size, glide, progress, path, kind, stale, minutes, testID }: LayerProps & GlideValues & { kind: VehicleKind; stale: boolean; minutes: string | null; testID?: string }) {
   const theme = useTheme();
   const pulse = usePulse(!stale);
   const place = useAnimatedStyle(() => {
     const g = glide.value;
     if (!g) return { opacity: 0, transform: [{ translateX: 0 }, { translateY: 0 }] };
-    const { pos } = glideAt(g, progress.value);
+    const { pos } = glidePos(g, path ? path.value : null, progress.value);
     const p = project(pos.lat, pos.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
     return { opacity: 1, transform: [{ translateX: p.x - MARKER / 2 }, { translateY: p.y - MARKER / 2 }] };
   });
   const turn = useAnimatedStyle(() => {
     const g = glide.value;
-    return { transform: [{ rotate: `${g ? glideAt(g, progress.value).heading : 0}deg` }] };
+    return { transform: [{ rotate: `${g ? glidePos(g, path ? path.value : null, progress.value).heading : 0}deg` }] };
   });
-  const ring = stale ? theme.colors.textMuted : theme.colors.accent;
+  const halo = stale ? theme.colors.textMuted : theme.colors.accent;
   return (
     <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: MARKER, height: MARKER }, place]}>
-      <Animated.View style={[styles.center, { width: MARKER, height: MARKER, borderRadius: MARKER / 2, backgroundColor: withAlpha(ring, 0.22) }, stale ? null : pulse]} />
+      <Animated.View style={[styles.center, { width: MARKER, height: MARKER, borderRadius: MARKER / 2, backgroundColor: withAlpha(halo, 0.2) }, stale ? null : pulse]} />
       <Animated.View style={[StyleSheet.absoluteFill, styles.center, turn]}>
-        {/* Heading pointer at the top edge; the whole ring turns with the bearing. */}
-        <View style={{ position: 'absolute', top: 4, width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 10, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: ring }} />
+        <Vehicle kind={kind} body={theme.colors.accent} ink={theme.colors.text} glass={theme.colors.surface} shadow={palette.neutral[1000]} muted={stale} />
       </Animated.View>
-      <View
-        style={[
-          styles.center,
-          {
-            position: 'absolute',
-            top: (MARKER - 38) / 2,
-            left: (MARKER - 38) / 2,
-            width: 38,
-            height: 38,
-            borderRadius: 19,
-            backgroundColor: theme.colors.surface,
-            borderWidth: 3,
-            borderColor: ring,
-            shadowColor: palette.neutral[1000],
-            shadowOpacity: 0.18,
-            shadowRadius: 6,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 4,
-          },
-        ]}
-      >
-        <Icon name={icon} size={20} color={stale ? 'textMuted' : 'accentText'} strokeWidth={2.2} />
-      </View>
+      {minutes ? (
+        <View style={[styles.pillRow, { top: (MARKER - VEHICLE_SIZE) / 2 - 24 }]}>
+          <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: stale ? theme.colors.textMuted : theme.colors.text }}>
+            <Text variant="caption" weight={700} color="surface" tabular style={{ lineHeight: 16 }}>
+              {minutes}
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -188,4 +194,5 @@ function RadarRing({ delay, color, still }: { delay: number; color: string; stil
 const styles = StyleSheet.create({
   anchor: { position: 'absolute', left: 0, top: 0 },
   center: { alignItems: 'center', justifyContent: 'center' },
+  pillRow: { position: 'absolute', left: -20, right: -20, alignItems: 'center' },
 });

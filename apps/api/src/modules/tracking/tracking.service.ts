@@ -12,6 +12,7 @@ import {
   ORDER_HISTORY_LIMIT,
   type Order,
   type OrderHistoryRow,
+  type OrderRoute,
   type OrderTracking,
   type TrackingPort,
   type TrackItem,
@@ -153,6 +154,33 @@ export class TrackingService implements TrackingPort {
     const ageSec = Math.max(0, Math.round((now.getTime() - p.at.getTime()) / 1000));
     const eta = await this.liveEta(order, trip, p.pin, now);
     return { tripId: trip.id, pin: p.pin, bearing: p.bearing, speedKmh: p.speedKmh, at: p.at, ageSec, etaAt: eta?.at ?? null, etaBasis: eta?.basis ?? null };
+  }
+
+  /**
+   * The road still ahead for this customer (maps program SP5a): from the courier's fix (sharing window)
+   * — or the kitchen before anyone has the order — through this order's remaining stops. Null polyline
+   * when there is no road router or fewer than two points.
+   */
+  async route(actor: Actor, input: { orderId: string }): Promise<OrderRoute> {
+    const agg = await this.assertOwner(actor, input.orderId);
+    const order = await this.orders.get(input.orderId);
+    const now = this.clock.now();
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    if (SETTLED_ORDER_STATES.has(order.state)) return none;
+    const trip = await this.trips.activeForOrder(order.id);
+    const fix = trip?.courierId && positionVisible(trip.state) && trip.acceptedAt ? await this.trips.lastPosition(trip.id) : null;
+    const courier = fix && fix.driverId === trip?.courierId ? fix.pin : null;
+    const mine = (trip?.stops ?? []).filter((s) => s.orderId === order.id && s.target && s.state !== 'completed' && s.state !== 'skipped');
+    const kitchenOrg = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
+    const door = agg.order.dropoff?.pin ?? null;
+    let ahead: LatLng[];
+    if (mine.length > 0) ahead = mine.map((s) => s.target!);
+    else if (order.type !== 'ride' && !order.pickedUpAt && kitchenOrg?.pin && door) ahead = [kitchenOrg.pin, door];
+    else ahead = door ? [door] : [];
+    const points = courier ? [courier, ...ahead] : ahead;
+    if (points.length < 2) return none;
+    const r = await this.eta.path(points);
+    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now };
   }
 
   /**

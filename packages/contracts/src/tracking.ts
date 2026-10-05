@@ -184,6 +184,20 @@ export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bik
 // ───────────────────────── port ─────────────────────────
 
 /** What the API supplies for the customer's live screen (implemented by `modules/tracking`). */
+/**
+ * The road the courier still drives for this customer (maps program SP5a): from his position (or the
+ * kitchen before anyone has the order) through this order's remaining stops. `polyline6` is null when
+ * no road router is configured or there is nothing to draw — the app then draws straight lines.
+ */
+export const OrderRoute = z.object({
+  polyline6: z.string().nullable(),
+  basis: EtaBasis,
+  /** The point the route starts from (his fix when it was computed). */
+  from: LatLng.nullable(),
+  computedAt: z.coerce.date(),
+});
+export type OrderRoute = z.infer<typeof OrderRoute>;
+
 export interface TrackingPort {
   /** The orderer or a participant only. */
   track(actor: Actor, input: { orderId: string }): Promise<OrderTracking>;
@@ -191,4 +205,6 @@ export interface TrackingPort {
   courierPosition(actor: Actor, input: { orderId: string }): Promise<CourierPosition | null>;
   /** The actor's own orders, newest first (at most `ORDER_HISTORY_LIMIT`), with names for the list. */
   history(actor: Actor): Promise<OrderHistoryRow[]>;
+  /** The orderer or a participant only: the road still ahead for this order. */
+  route(actor: Actor, input: { orderId: string }): Promise<OrderRoute>;
 }

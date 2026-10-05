@@ -76,6 +76,8 @@ export default function OrderLiveScreen() {
   const eta = v ? (fix?.etaAt ?? liveEta(v, fix?.pin ?? null, new Date(now))) : null;
   const lateMin = v ? lateMinutes(eta, v.promisedAt) : 0;
   const phase = v ? phaseOf(v) : null;
+  // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
+  const mapMinutes = fix && eta && eta.getTime() > now ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
   const ride = v?.order.type === 'ride';
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
@@ -183,7 +185,7 @@ export default function OrderLiveScreen() {
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} searching={searching} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} searching={searching} minutes={mapMinutes} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
       <TopBar
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}

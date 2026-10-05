@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LIVE_RULES, type CourierPosition, type OrderTracking } from '@driver/contracts';
+import { LIVE_RULES, type CourierPosition, type OrderRoute, type OrderTracking } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
+import { ROUTE_STALE_MS } from './motion';
 import { phaseOf } from './timeline';
 
 /**
@@ -80,6 +82,28 @@ export function useCourierPosition(orderId: string, enabled: boolean) {
     // Keep the last fix while a poll is in flight or fails (signal lost shows its age instead).
     placeholderData: (prev: CourierPosition | null | undefined) => prev,
   });
+}
+
+/**
+ * `orders.route`: the road still ahead for this order (maps program SP5a). Refreshed every two
+ * minutes, whenever `stage` changes (picked up, at the door…) and when the map sees the courier stray
+ * from it (`refetch`). Keeps the last road while a refresh is in flight.
+ */
+export function useOrderRoute(orderId: string, enabled: boolean, stage: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const q = useQuery({
+    ...api.orders.route.queryOptions({ orderId }),
+    enabled: signedIn && enabled,
+    staleTime: ROUTE_STALE_MS,
+    refetchInterval: enabled ? ROUTE_STALE_MS : false,
+    placeholderData: (prev: OrderRoute | undefined) => prev,
+  });
+  const { refetch } = q;
+  useEffect(() => {
+    if (enabled) void refetch();
+  }, [stage, enabled, refetch]);
+  return q;
 }
 
 export function useCancellationPreview(orderId: string, enabled: boolean) {

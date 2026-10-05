@@ -16,7 +16,7 @@ import {
   RateOrderInput,
   RespondPartialInput,
 } from '../order.js';
-import { CourierPosition, OrderHistoryRow, OrderTracking } from '../tracking.js';
+import { CourierPosition, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { EventLog, OrderLedgerLine, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
@@ -51,6 +51,8 @@ export const ordersRouter = router({
     .input(OrderIdInput)
     .output(CourierPosition.nullable())
     .query(({ ctx, input }) => ctx.tracking.courierPosition(ctx.actor, input)),
+  /** The road the courier still drives for this order (refetched when he strays from it). */
+  route: protectedProcedure().input(OrderIdInput).output(OrderRoute).query(({ ctx, input }) => ctx.tracking.route(ctx.actor, input)),
   /** Customer-side ride completion ("وصلت") at the locked quote (edge-case review B.24). */
   confirmRideArrived: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.confirmRideArrived(ctx.actor, input)),
   /** Console history: any state, newest first, keyset-paginated. */

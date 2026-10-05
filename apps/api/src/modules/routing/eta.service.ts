@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ROUTE_VEHICLE_FACTOR, type EtaBasis, type LatLng, type VehicleClass } from '@driver/contracts';
-import { ROUTER, type Router } from './routing.port.js';
+import { ROUTER, type RouteResult, type Router } from './routing.port.js';
 
 export interface EtaMinutes {
   /** Whole minutes, at least one. */
@@ -23,6 +23,11 @@ export class EtaService {
   async minutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<EtaMinutes> {
     const r = await this.router.route([from, to]);
     return { minutes: toMinutes(r.durationS, vehicle), basis: r.basis };
+  }
+
+  /** The road through `points` (two or more): its shape for the map, its length and duration. */
+  path(points: readonly LatLng[]): Promise<RouteResult> {
+    return this.router.route(points);
   }
 
   /** Minutes from each source to one destination (one `table` call): storefront cards, many kitchens to one door. */

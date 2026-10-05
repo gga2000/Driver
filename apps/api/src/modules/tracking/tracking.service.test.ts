@@ -3,7 +3,7 @@ import { DriverError, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { ratingFrom } from '../orders/orders.service.js';
 import { promisedArrival, sameBaghdadDay, TrackingService } from './tracking.service.js';
-import { EtaService, StraightLineRouter } from '../routing/index.js';
+import { EtaService, StraightLineRouter, type Router } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
 const KITCHEN = { lat: 32.9105, lng: 45.0665 };
@@ -20,7 +20,7 @@ const code = async (p: Promise<unknown>) => {
 
 const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` });
 
-function setup() {
+function setup(router: Router = new StraightLineRouter()) {
   const h = ordersHarness();
   const vehicles = new InMemoryCourierVehicles();
   const vaultReads: Array<{ courierId: string; accessorId: string }> = [];
@@ -40,7 +40,7 @@ function setup() {
     { earnedOn: async () => 42 },
     vehicles,
     h.clock,
-    new EtaService(new StraightLineRouter()),
+    new EtaService(router),
   );
   return { h, tracking, vehicles, vaultReads };
 }
@@ -247,5 +247,45 @@ describe('helpers', () => {
     expect(promisedArrival(base, null, ready, 12)).toBeNull();
     expect(promisedArrival(base, KITCHEN, null, 12)).toBeNull();
     expect(promisedArrival(base, KITCHEN, ready, null)).toBeNull();
+  });
+});
+
+describe('TrackingService — the road ahead (maps program SP5a)', () => {
+  /** A road router that records what it was asked and answers with a fixed shape. */
+  function roadRouter(): Router & { asked: Array<Array<{ lat: number; lng: number }>> } {
+    const asked: Array<Array<{ lat: number; lng: number }>> = [];
+    return {
+      asked,
+      route: async (points) => {
+        asked.push([...points]);
+        return { distanceM: 2_000, durationS: 300, polyline6: 'road_shape', basis: 'road' };
+      },
+      table: async () => ({ durationsS: [], distancesM: [], basis: 'road' }),
+    };
+  }
+
+  it('kitchen → door before a courier, courier → kitchen → door on the way, courier → door after pickup', async () => {
+    const router = roadRouter();
+    const { h, tracking } = setup(router);
+    const o = await acceptedOrder(h);
+    const door = (await h.orders.aggregate(o.id)).order.dropoff!.pin!;
+    expect(await tracking.route(as('c1'), { orderId: o.id })).toMatchObject({ polyline6: 'road_shape', basis: 'road', from: KITCHEN });
+    expect(router.asked.at(-1)).toEqual([KITCHEN, door]);
+    const trip = await h.tripFor(o.id);
+    const courierAt = { lat: 32.915, lng: 45.07 };
+    await h.trips.reportPosition('d1', { tripId: trip.id, pin: courierAt, at: h.clock.now() });
+    expect((await tracking.route(as('c1'), { orderId: o.id })).from).toEqual(courierAt);
+    expect(router.asked.at(-1)?.[0]).toEqual(courierAt);
+    expect(router.asked.at(-1)).toHaveLength(3);
+    await h.pickup(trip.id);
+    await tracking.route(as('c1'), { orderId: o.id });
+    expect(router.asked.at(-1)).toHaveLength(2);
+    expect(await code(tracking.route(as('stranger'), { orderId: o.id }))).toBe('forbidden');
+  });
+
+  it('without a road router there is no shape to draw', async () => {
+    const { h, tracking } = setup();
+    const o = await acceptedOrder(h);
+    expect(await tracking.route(as('c1'), { orderId: o.id })).toMatchObject({ polyline6: null, basis: 'estimated' });
   });
 });

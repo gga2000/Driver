@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Order, OrderTracking } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import { lateMinutes, liveEta, signalLostMinutes } from './eta';
-import { bearingDeg, distanceM, fitCamera, glideAt, layerTransform, nearestAngle, nextGlide, project, remainingRoute, unproject } from './geo';
+import { bearingDeg, distanceM, fitCamera, layerTransform, nearestAngle, project, remainingRoute, unproject } from './geo';
+import { glidePos, planGlide, type Glide } from './motion';
 import { buildTimeline, phaseOf, statusLine } from './timeline';
 
 const t = createT('ar-IQ');
@@ -106,18 +107,19 @@ describe('geo — interpolation and bearing', () => {
     expect(nearestAngle(720, 0)).toBe(720);
   });
 
-  it('glides linearly from where the marker is to the new fix, heading from the device or the travel direction', () => {
-    const start = { pos: { lat: 32.9, lng: 45.06 }, heading: 350 };
-    const east = nextGlide(start, { lat: 32.9, lng: 45.061 });
+  it('without a road path: glides linearly to the new fix, heading from the device or the travel direction', () => {
+    const start = { pos: { lat: 32.9, lng: 45.06 }, heading: 350, d: null };
+    const line = (g: Glide) => g as Extract<Glide, { kind: 'line' }>;
+    const east = line(planGlide(null, start, { lat: 32.9, lng: 45.061 }, 2_000));
     expect(east.toHeading).toBeCloseTo(450, 0); // 90° reached by turning +100°, not −260°
-    const mid = glideAt(east, 0.5);
+    const mid = glidePos(east, null, 0.5);
     expect(mid.pos.lng).toBeCloseTo(45.0605, 6);
     expect(mid.heading).toBeCloseTo(400, 0);
-    expect(glideAt(east, 2).pos).toEqual(east.to); // clamped
+    expect(glidePos(east, null, 2).pos).toEqual(east.to); // clamped
     // a reported bearing wins over the travel direction
-    expect(nextGlide(start, { lat: 32.9, lng: 45.061, bearing: 0 }).toHeading).toBe(360);
+    expect(line(planGlide(null, start, { lat: 32.9, lng: 45.061, bearing: 0 }, 2_000)).toHeading).toBe(360);
     // standing still keeps the old heading (no spinning on GPS noise)
-    expect(nextGlide(start, { lat: 32.900001, lng: 45.06 }).toHeading).toBe(350);
+    expect(line(planGlide(null, start, { lat: 32.900001, lng: 45.06 }, 2_000)).toHeading).toBe(350);
   });
 
   it('projects like MapLibre (512-px Web Mercator) and round-trips', () => {

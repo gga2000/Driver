@@ -133,9 +133,12 @@ const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
 const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
+const { EtaService } = await load('modules/routing/index.js');
+const { decodePolyline } = await import('@driver/map');
 const identity = app.get(IdentityService);
 const dispatch = app.get(DispatchService);
 const trips = app.get(TripsService);
+const eta = app.get(EtaService);
 const vehicles = app.get(COURIER_VEHICLES);
 
 const HOME = { lat: 32.887, lng: 45.0765 };
@@ -181,9 +184,15 @@ function stopMover(tripId) {
   movers.delete(tripId);
 }
 
-/** Reports a fix every 2 s, `stepM` metres further along `path` (stops at the end). */
-async function startMover(tripId, courierId, path, stepM = 38) {
+/**
+ * Reports a fix every 2 s, `stepM` metres further along `path` (stops at the end). With road routing on
+ * (OSRM_URL), the courier drives the routed road between the path's ends instead — the same road the
+ * app draws — so the demo shows him following the streets.
+ */
+async function startMover(tripId, courierId, drawn, stepM = 38) {
   stopMover(tripId);
+  const road = await eta.path([drawn[0], drawn[drawn.length - 1]]).catch(() => null);
+  const path = road?.polyline6 ? decodePolyline(road.polyline6) : drawn;
   let seg = 0;
   let pos = { ...path[0] };
   const report = async (at = new Date()) => {

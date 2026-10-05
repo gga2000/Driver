@@ -4859,5 +4859,6 @@
   "error.sos_not_found": "SOS incident not found",
   "error.sos_cancel_window_passed": "The 10-second cancel window has passed",
   "error.safety_incident_closed": "The incident is already closed",
-  "error.safety_no_contact": "No emergency contact on file"
+  "error.safety_no_contact": "No emergency contact on file",
+  "track.map_minutes": "{minutes} min"
 }

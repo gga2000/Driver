@@ -99,37 +99,9 @@ export function distanceM(a: LngLat, b: LngLat): number {
  * back round. The result may leave [0, 360) — rotate by it as-is.
  */
 export function nearestAngle(from: number, to: number): number {
+  'worklet';
   const d = ((((to - from) % 360) + 540) % 360) - 180;
   return from + d;
-}
-
-/** One 2-second glide of the courier marker: where it starts and ends, and the headings. */
-export interface Glide {
-  from: LngLat;
-  to: LngLat;
-  fromHeading: number;
-  toHeading: number;
-}
-
-/** Below this the courier is standing still: keep the heading he had instead of spinning on GPS noise. */
-export const STILL_M = 4;
-
-/**
- * The next glide when a fix arrives. Starts from where the marker is now (mid-glide if a fix came
- * early), heads to the fix, and turns to the device bearing — or, without one, to the direction of
- * travel, unwrapped to the shortest turn.
- */
-export function nextGlide(current: { pos: LngLat; heading: number }, fix: LngLat & { bearing?: number | null }): Glide {
-  const moved = distanceM(current.pos, fix);
-  const raw = fix.bearing ?? (moved >= STILL_M ? bearingDeg(current.pos, fix) : current.heading);
-  return { from: current.pos, to: { lat: fix.lat, lng: fix.lng }, fromHeading: current.heading, toHeading: nearestAngle(current.heading, raw) };
-}
-
-/** Position and heading `t` (0..1) of the way through a glide. */
-export function glideAt(g: Glide, t: number): { pos: LngLat; heading: number } {
-  'worklet';
-  const k = clamp(t, 0, 1);
-  return { pos: { lat: lerp(g.from.lat, g.to.lat, k), lng: lerp(g.from.lng, g.to.lng, k) }, heading: lerp(g.fromHeading, g.toHeading, k) };
 }
 
 /**
