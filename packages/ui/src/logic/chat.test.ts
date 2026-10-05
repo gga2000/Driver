@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage, ChatThreadSummary } from '@driver/contracts';
-import { chatRows, counterpartRole, lastSeqOf, newClientId, pinUrl, roleKey, telUrl, threadOf, unreadOf, type PendingMessage } from './logic';
+import { chatRows, counterpartRole, lastSeqOf, newClientId, pinUrl, roleKey, telUrl, threadOf, unreadOf, type PendingMessage } from './chat';
 
 const msg = (seq: number, at: string, mine = false): ChatMessage => ({
   id: `m${seq}`,

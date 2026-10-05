@@ -16,6 +16,9 @@
 // (skipped by default so it can't swallow the first tap). p.goto(path) and p.reload() wait for "load".
 //
 // SHOTS=core,earnings (comma list of module names, default all) runs only those modules.
+// VIEWPORT=360x740 shoots a small Android phone instead of 390×844.
+// p.slide(id) drags a SlideToConfirm thumb to the end (right → left); p.slideHalf(id) stops half way
+// and holds (call p.release() after the shot).
 // DIST_DIR and DEMO_API override the export folder and the demo API origin.
 // Exits non-zero on console errors or a missing screen.
 import { createServer } from 'node:http';
@@ -27,6 +30,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const dist = resolve(process.env.DIST_DIR ?? join(here, '../dist-web'));
 const outDir = resolve(process.argv[2] ?? join(here, '../web-shots'));
 const apiBase = (process.env.DEMO_API ?? 'http://127.0.0.1:3301').replace(/\/$/, '');
+const [VW, VH] = (process.env.VIEWPORT ?? '390x844').split('x').map(Number);
 mkdirSync(outDir, { recursive: true });
 if (!existsSync(join(dist, 'index.html'))) throw new Error(`No web export at ${dist}; run expo export first`);
 
@@ -64,7 +68,7 @@ async function demoPost(path) {
  * behaviour is unchanged: this only pre-sets the same device record a real "بعدين" tap writes.
  */
 async function openPage(group, { prePrompt = false } = {}) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  const context = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   if (!prePrompt) await context.addInitScript(() => localStorage.setItem('driver.partner.push-preprompt', String(Date.now())));
   const page = await context.newPage();
   page.on('console', (m) => {
@@ -106,14 +110,37 @@ async function openPage(group, { prePrompt = false } = {}) {
           }
           return max;
         });
-        await page.setViewportSize({ width: 390, height: Math.min(Math.max(h, 844), 2400) });
+        await page.setViewportSize({ width: VW, height: Math.min(Math.max(h, VH), 2400) });
         await p.settle(300);
       }
       const file = join(outDir, `${group}-${name}.png`);
       await page.screenshot({ path: file });
-      if (full) await page.setViewportSize({ width: 390, height: 844 });
+      if (full) await page.setViewportSize({ width: VW, height: VH });
       written.push(file);
       console.log(file);
+    },
+    /** Drags a SlideToConfirm thumb from the start edge (right, RTL) to the far end. */
+    async slide(id, share = 1) {
+      const el = p.byTestId(id);
+      await el.scrollIntoViewIfNeeded();
+      const box = await el.boundingBox();
+      if (!box) throw new Error(`${id}: not on screen`);
+      const y = box.y + box.height / 2;
+      const from = box.x + box.width - 36;
+      const to = from - (box.width - 24) * share;
+      await page.mouse.move(from, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 16; i++) {
+        await page.mouse.move(from + ((to - from) * i) / 16, y);
+        await page.waitForTimeout(16);
+      }
+      if (share >= 1) await page.mouse.up();
+    },
+    async slideHalf(id) {
+      await p.slide(id, 0.5);
+    },
+    async release() {
+      await page.mouse.up();
     },
     async close() {
       await context.close();

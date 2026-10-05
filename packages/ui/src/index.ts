@@ -37,6 +37,14 @@ export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSev
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
+export { SlideToConfirm, type SlideToConfirmProps, type SlideTone } from './components/SlideToConfirm';
+export { CountdownButton, type CountdownButtonProps } from './components/CountdownButton';
+export { ModalSheet, MODAL_DIALOG_MIN_WIDTH, type ModalSheetProps } from './components/ModalSheet';
+export { OtpInput, otpValue, type OtpInputProps } from './components/OtpInput';
+export { Screen, MAX_CONTENT_WIDTH, type ScreenProps } from './components/Screen';
+export { TabBar, type TabBarProps, type TabSpec, type TabBarNavigationProps } from './components/TabBar';
+export { PermissionPrompt, type PermissionPromptProps, type PermissionPromptPoint } from './components/PermissionPrompt';
+export { ChatThread, useMaskedCall, type ChatThreadProps, type ChatThreadQuery, type ChatT, type ChatPhotoResult } from './components/ChatThread';
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
@@ -59,4 +67,6 @@ export * from './logic/seats';
 export * from './logic/price';
 export * from './logic/countdown';
 export * from './logic/sheet';
+export * from './logic/slide';
+export * from './logic/chat';
 export * from './format';

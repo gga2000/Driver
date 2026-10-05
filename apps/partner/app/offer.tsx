@@ -1,15 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, ScrollView, View } from 'react-native';
+import { AppState, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerOffer } from '@driver/contracts';
-import { Button, CountdownRing, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { CountdownButton, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
-import { MetaChip, PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
+import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
+import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
 import { startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
@@ -17,11 +18,13 @@ import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 /**
- * The offer (partner spec: full-screen card). Map preview of pickup → dropoff, the ring (15 s
- * food / 20 s rides, from the server's deadline), pay with every component, distance to pickup,
- * the kitchen's state, cash to collect, a batch banner ("طلب ثاني على طريقك +700"), and two big
- * answers. It counts as seen after 3 s in the foreground (`dispatch.offerSeen`); the answer goes
- * through `dispatch.respond`, the only accept path.
+ * The 2-second offer card (partner S-1, P-03, P-04): judged at a glance, answered with one thumb.
+ * Top to bottom: the map (shrinks on short phones), a small "مو هسة" decline in the top-left corner,
+ * far from a right thumb; the pay, huge; one line of total km and minutes with the cash to collect;
+ * pickup → drop-off; the pay components folded under "تفاصيل الأجرة"; and a full-width accept whose
+ * fill is the time left (15 s food / 20 s rides, from the server's deadline). The whole offer fits a
+ * 360×740 phone without scrolling. Seen after 3 s in the foreground (`dispatch.offerSeen`); the
+ * answer goes through `dispatch.respond`, the only accept path.
  */
 export default function OfferScreen() {
   const status = useStatus();
@@ -56,6 +59,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const durationMs = offer.ringSec * 1000;
   const startedAt = offer.expiresAt.getTime() - durationMs;
   const [left, setLeft] = useState(() => secondsLeft(offer.expiresAt, Date.now()));
+  const { height: windowHeight } = useWindowDimensions();
 
   // Alert (P-01): heavy haptic, then the doorbell and the vibration loop until he answers or the
   // offer goes (silent mode included on the phone); the last 5 s add a warning haptic every second.
@@ -141,125 +145,179 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   }, [offer, locale, t]);
   const route = pins.map((p) => p.at);
   const column = { width: '100%' as const, maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' as const };
+  const layout = offerLayout(windowHeight);
+  const sum = offerSummary(offer, vehicle, ride);
+  const [details, setDetails] = useState(() => offerDetailsOpen(layout, { batch: Boolean(offer.batch), components: offer.pay.components.length }, windowHeight));
+  const pickupZone = zoneName(offer.pickup.zoneId, locale, t);
+  const dropoffZone = zoneName(offer.dropoff.zoneId, locale, t);
+  const fromYou = offer.distanceToPickupKm === null ? null : sum.near ? t('partner.offer_near') : t('partner.offer_from_you', { km: km(offer.distanceToPickupKm) });
+  const busy = respond.isPending;
 
   return (
     <View testID="offer" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <View style={{ height: 300 }}>
-        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} topInset={92} bottomInset={70} maxZoom={15.4} testID="offer-map" />
+      <View style={{ height: layout.mapHeight }}>
+        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} topInset={84} bottomInset={44} maxZoom={15.4} testID="offer-map" />
         <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
-          <View style={[column, { flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
-            <StatusPill label={t('partner.new_offer')} tone="accent" live size="md" />
-            <StatusPill label={t(KIND_KEY[offer.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} size="md" />
+          {/* Laid out physically on purpose: decline sits top-left, the far corner from a right thumb (P-03). */}
+          <View pointerEvents="box-none" style={[column, { direction: 'ltr', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
+            <Pressable
+              testID="offer-decline"
+              accessibilityRole="button"
+              accessibilityLabel={t('partner.decline')}
+              disabled={busy}
+              onPress={() => {
+                theme.haptic('light');
+                void answer(false);
+              }}
+              style={({ pressed }) => ({
+                direction: theme.direction,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                minHeight: theme.hitTarget,
+                paddingHorizontal: theme.space[4],
+                borderRadius: theme.radius.pill,
+                borderWidth: 1.5,
+                borderColor: theme.colors.borderStrong,
+                backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+                shadowColor: theme.colors.shadow,
+                shadowOpacity: 0.12,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 3,
+              })}
+            >
+              <Icon name="x" size={18} color="text" strokeWidth={2.2} />
+              <Text variant="label" weight={600}>
+                {t('partner.offer_not_now')}
+              </Text>
+            </Pressable>
+            <View style={{ direction: theme.direction, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <StatusPill label={t('partner.new_offer')} tone="accent" live size="md" />
+              <StatusPill label={t(KIND_KEY[offer.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} size="md" />
+            </View>
           </View>
         </SafeAreaView>
       </View>
 
-      <View style={{ flex: 1, marginTop: -28, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
-        {/* The ring sits on the seam between map and card, end side. */}
-        <View style={{ position: 'absolute', top: -52, end: theme.space[5], width: 104, height: 104, borderRadius: 52, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', zIndex: 2, shadowColor: theme.colors.shadow, shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 }}>
-          <CountdownRing mode="accept" startedAt={startedAt} durationMs={durationMs} size={92} strokeWidth={8} onExpire={onExpire} testID="offer-ring" />
-        </View>
-
-        <ScrollView contentContainerStyle={[column, { padding: theme.space[5], paddingTop: theme.space[5], gap: theme.space[4] }]}>
-          <View style={{ gap: 2, paddingEnd: 110 }}>
-            <Text variant="label" color="textMuted">
-              {t('partner.offer_you_earn')}
-            </Text>
-            <Text testID="offer-pay" tabular weight={700} style={{ fontSize: 44, lineHeight: 60 }}>
+      <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
+        <ScrollView contentContainerStyle={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[5], paddingBottom: theme.space[3], gap: layout.compact ? theme.space[3] : theme.space[4] }]}>
+          {/* 1 · what he earns, huge · 2 · how far and how long, and the cash */}
+          <View style={{ gap: 2 }}>
+            <Text
+              testID="offer-pay"
+              tabular
+              weight={700}
+              accessibilityLabel={`${t('partner.offer_you_earn')}: ${amountParam(offer.pay.totalIqd)} ${t('quote.currency')}`}
+              style={{ fontSize: layout.payFontSize, lineHeight: layout.payLineHeight }}
+            >
               {`${amountParam(offer.pay.totalIqd)} `}
               <Text variant="title" color="textMuted">
                 {t('quote.currency')}
               </Text>
             </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2] }}>
+              {sum.totalKm !== null && sum.minutes !== null ? (
+                <Text testID="offer-summary" variant="title" tabular style={{ flexShrink: 1 }}>
+                  {t('partner.offer_summary', { km: km(sum.totalKm), minutes: sum.minutes })}
+                </Text>
+              ) : null}
+              {sum.collectIqd ? (
+                <View testID="offer-cash" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], minHeight: 32 }}>
+                  <Icon name="wallet" size={16} color="warningText" strokeWidth={2} />
+                  <Text variant="label" weight={700} color="warningText" tabular>
+                    {t('partner.offer_cash_chip', { amount: amountParam(sum.collectIqd) })}
+                  </Text>
+                </View>
+              ) : sum.prepaid ? (
+                <View testID="offer-cash" accessible accessibilityLabel={t('partner.offer_prepaid')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.successTint, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], minHeight: 32 }}>
+                  <Icon name="check" size={16} color="successText" strokeWidth={2.2} />
+                  <Text variant="label" weight={700} color="successText">
+                    {t('partner.offer_prepaid_chip')}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           {offer.batch ? (
             <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-batch" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="plus" size={20} color="onAccent" strokeWidth={2.6} />
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="plus" size={18} color="onAccent" strokeWidth={2.6} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text variant="label" weight={700} color="accentText" tabular>
                   {t('partner.offer_batch_title', { amount: amountParam(offer.batch.extraIqd, { sign: true }) })}
                 </Text>
-                <Text variant="caption" color="textMuted">
+                <Text variant="caption" color="textMuted" numberOfLines={1}>
                   {t('partner.offer_batch_body')}
                 </Text>
               </View>
             </Animated.View>
           ) : null}
 
-          <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-            <PayLines pay={offer.pay} />
-          </View>
-
+          {/* 3 · pickup → drop-off */}
           <RouteNodes
+            gap={layout.compact ? theme.space[3] : theme.space[4]}
             top={
-              <View style={{ gap: theme.space[1] }}>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_pickup_zone', { place: zoneName(offer.pickup.zoneId, locale, t) })}
-                </Text>
-                <Text variant="title" numberOfLines={1}>
-                  {offer.pickup.label ?? (ride ? t('partner.offer_rider') : zoneName(offer.pickup.zoneId, locale, t))}
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
-                  {offer.distanceToPickupKm !== null ? <MetaChip icon="location-arrow" label={t('partner.offer_from_you', { km: km(offer.distanceToPickupKm) })} /> : null}
+              <View testID="offer-pickup">
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                  <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
+                    {offer.pickup.label ?? (ride ? t('partner.offer_rider') : pickupZone)}
+                  </Text>
                   {offer.merchant ? <PrepPill prep={offer.merchant} /> : null}
                 </View>
+                <Text variant="footnote" color="textMuted" numberOfLines={1} tabular>
+                  {[t('partner.offer_pickup_zone', { place: pickupZone }), fromYou].filter(Boolean).join(' · ')}
+                </Text>
               </View>
             }
             bottom={
-              <View style={{ gap: theme.space[1] }}>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_dropoff_zone', { place: zoneName(offer.dropoff.zoneId, locale, t) })}
+              <View testID="offer-dropoff">
+                <Text variant="title" numberOfLines={1}>
+                  {ride ? dropoffZone : t('partner.offer_customer')}
                 </Text>
-                <Text variant="title">{ride ? zoneName(offer.dropoff.zoneId, locale, t) : t('partner.offer_customer')}</Text>
-                {offer.tripKm !== null ? (
-                  <View style={{ flexDirection: 'row' }}>
-                    <MetaChip icon="map-pin" label={t('partner.offer_trip_km', { km: km(offer.tripKm) })} />
-                  </View>
-                ) : null}
+                <Text variant="footnote" color="textMuted" numberOfLines={1} tabular>
+                  {[t('partner.offer_dropoff_zone', { place: dropoffZone }), offer.tripKm !== null ? t('partner.offer_trip_km', { km: km(offer.tripKm) }) : null].filter(Boolean).join(' · ')}
+                </Text>
               </View>
             }
           />
 
-          {!ride || offer.collectIqd ? (
-            <View
-              testID="offer-cash"
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: theme.space[3],
-                borderRadius: theme.radius.lg,
-                padding: theme.space[3],
-                backgroundColor: offer.collectIqd ? theme.colors.warningTint : theme.colors.successTint,
+          {/* 4 · every pay component, folded under "تفاصيل الأجرة" */}
+          <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+            <Pressable
+              testID="offer-details"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: details }}
+              aria-expanded={details}
+              onPress={() => {
+                theme.haptic('selection');
+                setDetails((d) => !d);
               }}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: theme.hitTarget }}
             >
-              <Icon name="wallet" size={22} color={offer.collectIqd ? 'warningText' : 'successText'} />
-              <Text variant="label" weight={600} color={offer.collectIqd ? 'warningText' : 'successText'} style={{ flex: 1 }}>
-                {offer.collectIqd ? t('partner.offer_collect') : t('partner.offer_prepaid')}
+              <Text variant="label" color="textMuted">
+                {t('partner.offer_details')}
               </Text>
-              {offer.collectIqd ? (
-                <Text variant="title" tabular color="warningText">
-                  {`${amountParam(offer.collectIqd)} ${t('quote.currency')}`}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
+              <Icon name="chevron-down" size={18} color="textMuted" style={details ? { transform: [{ rotate: '180deg' }] } : undefined} />
+            </Pressable>
+            {details ? <PayLines pay={offer.pay} /> : null}
+          </View>
         </ScrollView>
 
-        <SafeAreaView edges={['bottom']} style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface }}>
-          <View style={[column, { flexDirection: 'row', gap: theme.space[3], padding: theme.space[4] }]}>
-            <Button testID="offer-decline" label={t('partner.decline')} variant="secondary" size="lg" style={{ flex: 1 }} disabled={respond.isPending} haptic="light" onPress={() => void answer(false)} />
-            <Button
+        {/* 5 · accept: one tap, the countdown drains inside it */}
+        <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.colors.surface }}>
+          <View style={[column, { paddingHorizontal: theme.space[4], paddingTop: theme.space[2], paddingBottom: theme.space[4] }]}>
+            <CountdownButton
               testID="offer-accept"
               label={t('partner.accept')}
-              size="lg"
-              icon="check"
-              style={{ flex: 2 }}
-              loading={respond.isPending && respond.variables?.accept === true}
-              trailing={`${left}`}
-              haptic="medium"
+              startedAt={startedAt}
+              durationMs={durationMs}
+              onExpire={onExpire}
+              loading={busy && respond.variables?.accept === true}
+              disabled={busy}
+              urgentHaptic={false}
               onPress={() => void answer(true)}
             />
           </View>

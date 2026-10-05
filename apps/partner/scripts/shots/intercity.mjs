@@ -58,10 +58,10 @@ export default async function run(s) {
   await p.page.getByText('صعد حسين').first().waitFor({ timeout: 10_000 });
   await p.page.waitForTimeout(1500);
   await p.shot('ready-to-go', { settle: 800 });
-  await p.byTestId('depart').click();
+  await p.slide('depart');
   await p.wait('arrive');
   await p.shot('departed', { settle: 1200 });
-  await p.byTestId('arrive').click();
+  await p.slide('arrive');
   await p.page.getByText('وصلتوا').first().waitFor({ timeout: 10_000 });
   await p.shot('arrived', { settle: 1000 });
 
