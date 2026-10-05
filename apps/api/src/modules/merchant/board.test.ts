@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Order, Trip } from '@driver/contracts';
-import { boardColumn, courierView, groupLines, MISSED_LIST_MAX, missedReason, missedSummary, modifierNames, sortBoard, ticketNumber, toBoardOrder } from './board.js';
+import { boardColumn, courierView, groupLines, MISSED_LIST_MAX, missedReason, missedSummary, modifierNames, radarOf, sortBoard, ticketNumber, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
 const T0 = new Date('2026-10-03T17:00:00Z');
@@ -142,6 +142,24 @@ describe('merchant board — courier state', () => {
     const here = courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null });
     expect(here).toMatchObject({ state: 'arrived', arrivedAt: min(4), etaMinutes: null });
     expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null }).state).toBe('picked_up');
+  });
+
+  it('who is coming (maps program r1/r4): plate always, the pickup code while coming or at the counter, the radar only on the way', () => {
+    const facts = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 45678', pickupCode: '4821', etaMinutes: 3, radar: { distanceM: 820, bearingDeg: 45 } };
+    expect(courierView('ord_1', { trip: { state: 'en_route_to_pickup', courierId: 'd1', stops: stops('pending') }, ...facts })).toMatchObject({ state: 'on_the_way', plate: 'واسط 45678', pickupCode: '4821', distanceM: 820, bearingDeg: 45 });
+    expect(courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, ...facts })).toMatchObject({ state: 'arrived', pickupCode: '4821', distanceM: null, bearingDeg: null });
+    expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, ...facts })).toMatchObject({ state: 'picked_up', pickupCode: null, distanceM: null });
+  });
+
+  it('radarOf: metres and direction from the kitchen, never coordinates', () => {
+    const kitchen = { lat: 32.9085, lng: 45.0655 };
+    const north = radarOf(kitchen, { lat: kitchen.lat + 0.009, lng: kitchen.lng });
+    expect(north.distanceM).toBeGreaterThan(990);
+    expect(north.distanceM).toBeLessThan(1010);
+    expect(north.bearingDeg).toBe(0);
+    expect(radarOf(kitchen, { lat: kitchen.lat, lng: kitchen.lng + 0.01 }).bearingDeg).toBe(90);
+    expect(radarOf(kitchen, { lat: kitchen.lat - 0.005, lng: kitchen.lng }).bearingDeg).toBe(180);
+    expect(Object.keys(north).sort()).toEqual(['bearingDeg', 'distanceM']);
   });
 });
 

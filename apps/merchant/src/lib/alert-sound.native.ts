@@ -13,10 +13,12 @@ import { Vibration } from 'react-native';
 /* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles assets through require() */
 const CHIME = require('../../assets/sounds/new-order.wav') as number;
 const URGENT = require('../../assets/sounds/new-order-urgent.wav') as number;
+const COURIER = require('../../assets/sounds/courier.wav') as number;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 let chimeSound: Audio.Sound | null = null;
 let loopSound: Audio.Sound | null = null;
+let courierSound: Audio.Sound | null = null;
 let looping = false;
 let loading: Promise<void> | null = null;
 
@@ -32,6 +34,7 @@ function ready(): Promise<void> {
     }).catch(() => undefined);
     chimeSound = (await Audio.Sound.createAsync(CHIME, { volume: 1, shouldPlay: false })).sound;
     loopSound = (await Audio.Sound.createAsync(URGENT, { volume: 1, isLooping: true, shouldPlay: false })).sound;
+    courierSound = (await Audio.Sound.createAsync(COURIER, { volume: 0.8, shouldPlay: false })).sound;
   })().catch(() => {
     loading = null; // try again on the next chime
   });
@@ -87,6 +90,13 @@ export async function testChime(): Promise<boolean> {
   const ok = await unlock();
   if (ok) chime(1);
   return ok;
+}
+
+/** A courier is about to walk in (maps program SP7a): two softer notes down, unlike the new-order chime. */
+export function courierChime(): void {
+  void ready().then(async () => {
+    await courierSound?.replayAsync().catch(() => undefined);
+  });
 }
 
 export function playNewOrder(): void {

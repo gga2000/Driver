@@ -9,6 +9,7 @@ import { iqd } from '@/lib/money';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
+import { PickupCode } from './CourierRadar';
 import { canExtendPrep, cardTiming, courierLine, hasAllergy } from './logic';
 
 export interface OrderCardProps {
@@ -385,7 +386,11 @@ export function OrderCard(props: OrderCardProps) {
         {order.partial ? (
           <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} />
         ) : courier ? (
-          <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.space[2] }}>
+            <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} />
+            {/* Maps program r4: hand the food to the courier whose screen shows this code. */}
+            {order.courier.pickupCode && (order.courier.state === 'on_the_way' || order.courier.state === 'arrived') ? <PickupCode code={order.courier.pickupCode} testID={`pickup-code-${order.number}`} /> : null}
+          </View>
         ) : null}
 
         {isNew && !order.partial ? (

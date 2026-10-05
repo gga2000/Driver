@@ -6,6 +6,7 @@ export type { Policy, DispatchJob, DispatchPlan, DriverCandidate, Wave } from '.
 export type { DispatchRequest } from './dispatch.store.js';
 export type { OfferRecord } from './dispatch.repository.js';
 export type { DriverPresence } from './geo-index.js';
+export { bearingDeg, haversineKm } from './geo.js';
 export type { GoOnlineInput } from './presence.service.js';
 export { liveDriver } from './driver-pins.js';
 export type { LiveDriver, LiveJobs, DispatchDriverState } from './driver-pins.js';

@@ -11,6 +11,15 @@ import type { LiveBus } from './live.bus.js';
 
 /** The courier's ETA for one order from a fix (tracking's one-ETA rule); null when it can't be told. */
 export type PositionEta = (orderId: string, trip: Trip, pin: LatLng, now: Date) => Promise<{ at: Date; basis: EtaBasis } | null>;
+/**
+ * The kitchen's radar for one order (maps program SP7a): its store and where the courier is from the
+ * kitchen, while his pickup for that order is still to do; null otherwise.
+ */
+export type PositionRadar = (
+  orderId: string,
+  trip: Trip,
+  pin: LatLng,
+) => Promise<{ merchantOrgId: string; distanceM: number; bearingDeg: number; etaMinutes: number } | null>;
 
 /**
  * Courier positions to the live channel, throttled per driver to at most one every
@@ -32,6 +41,7 @@ export class PositionFanout {
     private readonly nowMs: () => number = Date.now,
     private readonly throttleMs: number = LIVE_RULES.positionThrottleMs,
     private readonly etaFor: PositionEta | null = null,
+    private readonly radarFor: PositionRadar | null = null,
   ) {}
 
   report(r: PositionReport): void {
@@ -102,6 +112,20 @@ export class PositionFanout {
         trip.stops.map((s) => s.orderId).filter((id): id is string => Boolean(id)),
       );
       for (const orderId of orders) {
+        // The kitchen's radar (maps program SP7a): until he has collected this order.
+        const radar = this.radarFor ? await this.radarFor(orderId, trip, pin).catch(() => null) : null;
+        if (radar) {
+          await this.bus
+            .publish(liveChannel.merchant(radar.merchantOrgId), {
+              type: 'courier_radar',
+              orderId,
+              distanceM: radar.distanceM,
+              bearingDeg: radar.bearingDeg,
+              etaMinutes: radar.etaMinutes,
+              at: r.at,
+            })
+            .catch(() => undefined);
+        }
         const myDrop = trip.stops.find((s) => s.orderId === orderId && s.type === 'dropoff');
         if (myDrop && (myDrop.state === 'completed' || myDrop.state === 'skipped')) continue;
         // The ETA rides along (maps program SP4b); if it can't be told the position still goes out.

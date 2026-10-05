@@ -5,6 +5,7 @@ import {
   type BoardGroup,
   type BoardLine,
   type BoardOrder,
+  type LatLng,
   type MissedOrder,
   type MissedReason,
   type MissedSummary,
@@ -12,6 +13,7 @@ import {
   type OrderState,
   type Trip,
 } from '@driver/contracts';
+import { bearingDeg, haversineKm } from '../dispatch/index.js';
 
 /**
  * The kitchen's view of its live orders (Driver Merchant spec): pure, so the column rules, the
@@ -96,6 +98,24 @@ export interface CourierFacts {
   vehicleClass: BoardCourier['vehicleClass'];
   /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
   etaMinutes: number | null;
+  plate?: string | null;
+  /** The code on his screen (`pickupCodeFor(order, courier)`); null without a courier. */
+  pickupCode?: string | null;
+  /** Distance and direction from the kitchen (`radarOf`), when on his way and both points are known. */
+  radar?: CourierRadar | null;
+}
+
+export interface CourierRadar {
+  distanceM: number;
+  bearingDeg: number;
+}
+
+/**
+ * Where a courier is from the kitchen for the radar (maps program r1): straight-line metres and the
+ * direction kitchen → courier (degrees from north). The kitchen never gets his coordinates.
+ */
+export function radarOf(kitchen: LatLng, courier: LatLng): CourierRadar {
+  return { distanceM: Math.round(haversineKm(kitchen, courier) * 1000), bearingDeg: Math.round(bearingDeg(kitchen, courier)) % 360 };
 }
 
 /**
@@ -103,19 +123,19 @@ export interface CourierFacts {
  * to the counter (from his last fix); "الدليفري وصل" with the time he got there; gone once he left.
  */
 export function courierView(orderId: string, f: CourierFacts): BoardCourier {
-  const none: BoardCourier = { state: 'none', firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null };
+  const none: BoardCourier = { state: 'none', firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null, distanceM: null, bearingDeg: null, plate: null, pickupCode: null };
   const t = f.trip;
   if (!t) return none;
   if (!t.courierId || t.state === 'created' || t.state === 'offered' || t.state === 'declined' || t.state === 'timed_out') return { ...none, state: 'searching' };
   const pickup = t.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
-  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass };
+  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null };
   if (pickup?.state === 'completed' || t.state === 'in_transit' || t.state === 'arrived_dropoff' || t.state === 'completed') {
     return { ...none, ...who, state: 'picked_up' };
   }
   if (pickup?.state === 'arrived' || t.state === 'arrived_pickup') {
-    return { ...none, ...who, state: 'arrived', arrivedAt: pickup?.arrivedAt ?? null };
+    return { ...none, ...who, state: 'arrived', arrivedAt: pickup?.arrivedAt ?? null, pickupCode: f.pickupCode ?? null };
   }
-  return { ...none, ...who, state: 'on_the_way', etaMinutes: f.etaMinutes };
+  return { ...none, ...who, state: 'on_the_way', etaMinutes: f.etaMinutes, pickupCode: f.pickupCode ?? null, distanceM: f.radar?.distanceM ?? null, bearingDeg: f.radar?.bearingDeg ?? null };
 }
 
 export interface BoardOrderFacts {

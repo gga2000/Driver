@@ -129,4 +129,19 @@ describe('courier positions on the live channel', () => {
     expect(ev('order:o2')).not.toHaveProperty('etaAt');
     p.close();
   });
+
+  it('the kitchen radar (maps program SP7a): to the store channel while his pickup is still to do', async () => {
+    const bus = new InMemoryLiveBus(true);
+    const t = trip();
+    let now = 0;
+    const radar = vi.fn(async (orderId: string) => (orderId === 'o1' ? { merchantOrgId: 'm1', distanceM: 820, bearingDeg: 45, etaMinutes: 3 } : null));
+    const p = new PositionFanout(bus, { get: async () => t }, () => (now += 10_000), undefined, null, radar);
+    p.report(report(1));
+    await flush();
+    const toStore = bus.published.filter((x) => x.channel === 'merchant:m1').map((x) => x.event);
+    expect(toStore).toEqual([{ type: 'courier_radar', orderId: 'o1', distanceM: 820, bearingDeg: 45, etaMinutes: 3, at }]);
+    // No coordinates go to the kitchen.
+    expect(JSON.stringify(toStore)).not.toContain('lat');
+    p.close();
+  });
 });

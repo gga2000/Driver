@@ -28,11 +28,12 @@ import {
   type VehicleClass,
   type WeeklyWindow,
 } from '@driver/contracts';
+import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
 import type { MerchantSettings, Org } from '../orgs/index.js';
 import { EtaService } from '../routing/index.js';
-import { courierView, missedSummary, sortBoard, toBoardOrder } from './board.js';
+import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
 /**
@@ -54,7 +55,8 @@ export interface MerchantPeoplePort {
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
   /** First name only, read from the vault and logged (purpose `courier_card`). */
   courierFirstName(courierId: string, accessorId: string): Promise<string | null>;
-  courierVehicle(courierId: string, vehicleId: string | null): Promise<VehicleClass | null>;
+  /** His vehicle class and plate (the counter tells couriers apart by it). */
+  courierVehicle(courierId: string, vehicleId: string | null): Promise<{ vehicleClass: VehicleClass; plate: string | null } | null>;
 }
 export interface MerchantStoresPort {
   /** Throws `org_not_found` for an unknown org. */
@@ -324,6 +326,7 @@ export class MerchantService implements MerchantPort {
     if (!trip) return courierView(order.id, { trip: { state: 'created', courierId: null, stops: [] }, ...nobody });
     let firstName: string | null = null;
     let vehicleClass: VehicleClass | null = null;
+    let plate: string | null = null;
     let position: LatLng | null = null;
     if (trip.courierId) {
       const key = `${trip.id}:${trip.courierId}:${readerId}`;
@@ -332,13 +335,18 @@ export class MerchantService implements MerchantPort {
         this.names.set(key, await this.people.courierFirstName(trip.courierId, readerId));
       }
       firstName = this.names.get(key) ?? null;
-      vehicleClass = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
+      const vehicle = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
+      vehicleClass = vehicle?.vehicleClass ?? null;
+      plate = vehicle?.plate ?? null;
       position = (await this.trips.lastPosition(trip.id))?.pin ?? null;
     }
-    const view = courierView(order.id, { trip, firstName, vehicleClass, etaMinutes: null });
+    const facts = { trip, firstName, vehicleClass, plate, etaMinutes: null, pickupCode: trip.courierId ? pickupCodeFor(order.id, trip.courierId) : null };
+    const view = courierView(order.id, facts);
     if (view.state !== 'on_the_way' || !position || !kitchen) return view;
-    // One ETA everywhere (maps program SP4b): the same service the customer's screen uses.
-    return { ...view, etaMinutes: (await this.eta.minutes(position, kitchen, vehicleClass ?? 'bike')).minutes };
+    // One ETA everywhere (maps program SP4b): the same service the customer's screen uses; the radar
+    // (r1) from the same fix.
+    const etaMinutes = (await this.eta.minutes(position, kitchen, vehicleClass ?? 'bike')).minutes;
+    return courierView(order.id, { ...facts, etaMinutes, radar: radarOf(kitchen, position) });
   }
 
   /** The actor works at this store (owner or staff), and it is a restaurant or grocer. */

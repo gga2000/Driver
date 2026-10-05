@@ -124,6 +124,15 @@ export async function testChime(): Promise<boolean> {
   return ok;
 }
 
+/** A courier is about to walk in (maps program SP7a): two softer notes down, unlike the new-order chime. */
+export function courierChime(): void {
+  const c = audioContext();
+  if (!c || c.state !== 'running') return;
+  const now = c.currentTime;
+  tone(c, 1319, now, 0.26, 0.3);
+  tone(c, 988, now + 0.2, 0.48, 0.3);
+}
+
 /** Older call sites: one chime at the calm volume. */
 export function playNewOrder(): void {
   chime(0.75);

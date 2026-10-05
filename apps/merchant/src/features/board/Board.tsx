@@ -26,6 +26,8 @@ import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreShe
 import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, MissedStrip, NewOrderBanner } from './Banners';
+import { CourierRadarStrip } from './CourierRadar';
+import { useCourierArrivals } from './useCourierArrivals';
 import { stageFor } from './ladder';
 import { byTimeLeft, COLUMN_LABEL, COLUMNS, isRush, newOrderSummary, oneTapPrep, splitColumns, stickyAcceptTarget, suggestBusy } from './logic';
 import { missNudge, unseenMissed } from './missed';
@@ -136,6 +138,8 @@ export function Board() {
   const [extendingId, setExtendingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
+  // Maps program SP7a: a chime when a courier is about to walk in.
+  useCourierArrivals(board.data?.orders, prefs.soundOn);
   const cols = useMemo(() => {
     const c = splitColumns(orders);
     return { ...c, new: byTimeLeft(c.new) };
@@ -390,6 +394,8 @@ export function Board() {
           secondary={{ label: t('merchant.push.later'), onPress: push.later, testID: 'push-strip-later' }}
         />
       ) : null}
+
+      <CourierRadarStrip orders={orders} compact={!wide} />
 
       {wide ? (
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], paddingHorizontal: theme.space[5], paddingTop: theme.space[4] }}>

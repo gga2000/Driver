@@ -12,6 +12,9 @@
 //   POST /demo/board/missed?count=2             orders that just timed out (the "طلبات فاتتك" strip)
 //   POST /demo/board/printer?state=connected|disconnected
 //   POST /demo/board/store?open=1&busy=0        reset the store switches
+//   POST /demo/board/courier?metres=900          a ready order whose courier drives in from `metres` away
+//                                               (a fix every 2 s, ≈ 30 km/h) and arrives at the counter:
+//                                               the courier radar, the arriving chime and the pickup code
 export default async function register(ctx) {
   const { orders, orgs, trips, dispatch, identity, ledger, vehicles } = ctx.services;
   const { khalid } = ctx.stores;
@@ -128,7 +131,39 @@ export default async function register(ctx) {
   ]);
   orgs.setMerchantSettings(khalid.orgId, { printer: { state: 'disconnected', name: 'XP-80C', at: new Date() } });
 
+  // ── a courier driving in (maps program SP7a) ──
+  const STEP_M = 16; // per 2-s fix ≈ 30 km/h
+  async function driveIn(metres) {
+    const o = await place([await ctx.line(khalid, 'tikka_wrap', 2, { choose: ['صمون حجري', 'عمبة'] }), await ctx.line(khalid, 'pepsi', 1)]);
+    await accept(o.id, 10);
+    const dir = Math.random() * 2 * Math.PI;
+    const toLat = (m) => m / 111_320;
+    const toLng = (m) => m / (111_320 * Math.cos((kitchen.lat * Math.PI) / 180));
+    let left = metres;
+    const posAt = (m) => ({ lat: kitchen.lat + toLat(m * Math.cos(dir)), lng: kitchen.lng + toLng(m * Math.sin(dir)) });
+    const courierId = await newCourier(posAt(left));
+    const tripId = await assign(o.id, courierId);
+    const heading = ((dir * 180) / Math.PI + 180) % 360;
+    await trips.reportPosition(courierId, { tripId, pin: posAt(left), at: new Date(), bearing: heading, speedKmh: 28 });
+    const timer = setInterval(async () => {
+      try {
+        left = Math.max(0, left - STEP_M);
+        await trips.reportPosition(courierId, { tripId, pin: posAt(left), at: new Date(), bearing: heading, speedKmh: left > 0 ? 28 : 0 });
+        if (left <= 20) {
+          clearInterval(timer);
+          const pickup = (await trips.get(tripId)).stops.find((st) => st.type === 'pickup');
+          await trips.arrive(tripId, pickup.id, courierId, { pin: kitchen });
+        }
+      } catch (err) {
+        clearInterval(timer);
+        console.error('demo courier', err?.message ?? err);
+      }
+    }, 2000);
+    return { orderId: o.id, courierId, tripId };
+  }
+
   // ── hooks ──
+  ctx.route('/demo/board/courier', async (_req, _res, url) => driveIn(Math.max(30, Number(url.searchParams.get('metres') ?? 900))));
   ctx.route('/demo/board/fresh', async () => {
     const live = await orders.listActive({ merchantOrgId: khalid.orgId });
     for (const o of live) if (o.state === 'placed') await orders.merchantReject('demo-staff', { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);

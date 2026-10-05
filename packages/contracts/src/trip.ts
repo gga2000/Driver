@@ -52,6 +52,9 @@ export type StopState = z.infer<typeof StopState>;
 export const VehicleClass = z.enum(['bike', 'tuktuk', 'car', 'suv', 'van', 'intercity']);
 export type VehicleClass = z.infer<typeof VehicleClass>;
 
+/** Digits in the pickup code the courier shows at the kitchen counter (maps program r4). */
+export const PICKUP_CODE_DIGITS = 4;
+
 /** What the courier hands over at a stop: photo, PIN, cash, khat child tap (edge-case §5). */
 export const HandoverProof = z.object({
   photoUrl: z.string().url().optional(),
@@ -62,6 +65,12 @@ export const HandoverProof = z.object({
   childTap: z.enum(['in', 'out']).optional(),
   recipientConfirmed: z.boolean().optional(),
   note: z.string().max(500).optional(),
+  /**
+   * Pickups: the 4-digit code the kitchen read off the courier's screen (maps program r4). Written by
+   * the server when the pickup completes (whatever a client sends is replaced) so support can tell
+   * which courier collected.
+   */
+  pickupCode: z.string().regex(/^\d{4}$/).optional(),
 });
 export type HandoverProof = z.infer<typeof HandoverProof>;
 

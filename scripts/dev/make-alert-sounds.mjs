@@ -3,6 +3,7 @@
 //
 //   apps/merchant/assets/sounds/new-order.wav         one bright three-note chime (G5 B5 E6), ~0.8 s
 //   apps/merchant/assets/sounds/new-order-urgent.wav  1 s seamless loop of fast two-tone beeps (last 10 s)
+//   apps/merchant/assets/sounds/courier.wav           two notes down (E6 B5): a courier about to walk in
 //   apps/partner/assets/sounds/offer-loop.wav         1.6 s seamless loop: doorbell fifth + a short rest
 //   apps/customer/assets/sounds/{accepted,picked-up,near,delivered}.wav
 //                                                     the tracking screen's soft cues (maps program SP5b)
@@ -84,6 +85,15 @@ function save(rel, samples) {
   const buf = new Float32Array(RATE);
   for (let k = 0; k < 4; k++) note(buf, { freq: k % 2 === 0 ? 1319 : 988, at: k * 0.25, dur: 0.17, decay: 3, attack: 0.004 });
   save('apps/merchant/assets/sounds/new-order-urgent.wav', finish(buf));
+}
+
+// Merchant: a courier is about to walk in (maps program SP7a) — two soft notes down (E6 → B5), unlike
+// the rising new-order chime, so the counter knows which is which without looking.
+{
+  const buf = new Float32Array(Math.round(0.66 * RATE));
+  note(buf, { freq: 1319, at: 0, dur: 0.26, decay: 6 });
+  note(buf, { freq: 988, at: 0.2, dur: 0.48, decay: 4.5 });
+  save('apps/merchant/assets/sounds/courier.wav', finish(buf, 0.7));
 }
 
 // Partner: the offer — a doorbell fifth (G5 → D6) then a rest; loops until he answers.

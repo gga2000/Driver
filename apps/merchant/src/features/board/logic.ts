@@ -1,6 +1,7 @@
 import { MERCHANT_BUSY_RULES, mentionsAllergy, type BoardColumn, type BoardCourier, type BoardOrder } from '@driver/contracts';
 import type { TKey } from '@/lib/i18n-core';
 import { minutesBetween, minutesLeft } from '@/lib/time';
+import { arriving } from './radar';
 
 /**
  * Orders board rules, free of React Native so they are unit-tested: columns and counts, the prep
@@ -82,6 +83,8 @@ export function courierLine(c: BoardCourier, now: number): { key: TKey; params?:
     case 'searching':
       return { key: 'merchant.courier.searching', tone: 'neutral', live: true };
     case 'on_the_way':
+      // About to walk in (maps program SP7a): the card turns green with the chime.
+      if (arriving(c)) return c.firstName ? { key: 'merchant.courier.arriving', params: { name: c.firstName }, tone: 'success', live: true } : { key: 'merchant.courier.arriving_anon', tone: 'success', live: true };
       if (c.etaMinutes === null) return { key: 'merchant.courier.on_the_way_no_eta', tone: 'info', live: true };
       return c.firstName
         ? { key: 'merchant.courier.on_the_way_named', params: { name: c.firstName, minutes: c.etaMinutes }, tone: 'info', live: true }

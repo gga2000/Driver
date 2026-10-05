@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { MerchantBoard } from '@driver/contracts';
 import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { clockOffset } from '@/lib/time';
+import { applyRadar } from './radar';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
- * new order rings the moment it arrives (`new_order`, before the board is even re-read); order,
- * courier and store changes re-read the board. The board keeps a slow safety refetch while live and
+ * new order rings the moment it arrives (`new_order`, before the board is even re-read); a courier
+ * on his way moves on the radar with each fix (`courier_radar`, patched in place); order, courier and
+ * store changes re-read the board. The board keeps a slow safety refetch while live and
  * polls every 30 s when SSE does not get through.
  */
 export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (orderId: string) => void) {
@@ -21,6 +24,10 @@ export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (
     subscribe: (client, h) => client.live.merchantBoard.subscribe({ merchantOrgId: merchantOrgId ?? '' }, h),
     resyncKeys: ['merchant.board', 'merchant.storeStatus', 'chat.threads'],
     onEvent: (e, qc, api) => {
+      if (e.type === 'courier_radar') {
+        qc.setQueriesData<MerchantBoard>(api.merchant.board.pathFilter(), (b) => applyRadar(b, e));
+        return;
+      }
       if (e.type !== 'new_order' || e.merchantOrgId !== merchantOrgId) return;
       onNewOrder(e.orderId);
       void qc.invalidateQueries(api.merchant.board.pathFilter());

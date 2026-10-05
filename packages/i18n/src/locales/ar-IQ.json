@@ -4049,6 +4049,8 @@
   "partner.job_unreachable_cta": "الزبون ما يرد؟",
   "partner.job_order_for": "طلب {name}",
   "partner.job_wait_ready": "الطلب بعده يتحضّر. انتظر بالمطعم",
+  "partner.job_pickup_code": "رمز الاستلام",
+  "partner.job_pickup_code_hint": "وريه للمطعم حتى يسلمك الطلب",
   "partner.job_pay_title": "ربحك من هذا الطلب",
   "partner.jobs_one": "طلب واحد",
   "partner.jobs_many": "{n} طلب",

@@ -226,6 +226,8 @@ export const PartnerJobStop = z.object({
   collectIqd: Iqd.min(0),
   arrivedAt: z.coerce.date().nullable(),
   completedAt: z.coerce.date().nullable(),
+  /** Pickups not yet done: the 4-digit code he shows at the counter (maps program r4); null otherwise. */
+  pickupCode: z.string().nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

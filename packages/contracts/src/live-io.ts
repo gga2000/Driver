@@ -137,6 +137,20 @@ export const LiveChat = z.object({
 });
 
 /**
+ * A courier on his way to collect from this store (maps program SP7a, r1): the radar's distance and
+ * direction from the kitchen and his minutes, on the merchant channel with each throttled fix. No
+ * coordinates; the board's `courier` is patched with it.
+ */
+export const LiveCourierRadar = z.object({
+  type: z.literal('courier_radar'),
+  orderId: z.string(),
+  distanceM: z.number().int().min(0),
+  bearingDeg: z.number().min(0).max(360),
+  etaMinutes: z.number().int().min(1),
+  at: z.coerce.date(),
+});
+
+/**
  * The public share page's stream (`live.share`, maps program SP5c): the whole shared trip, re-read on
  * the server — the same coarse data as `tracking.shared`, never a bus event passed through.
  */
@@ -154,6 +168,7 @@ export const LiveEvent = z.discriminatedUnion('type', [
   LiveNewOrder,
   LiveChat,
   LiveShare,
+  LiveCourierRadar,
 ]);
 export type LiveEvent = z.infer<typeof LiveEvent>;
 /** What travels on the bus: everything but `hello` (per connection) and `share` (built per stream). */

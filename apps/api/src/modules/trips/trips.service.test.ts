@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { DriverError } from '@driver/contracts';
 import { offsetNorth } from './geofence.js';
 import { TripsRpc } from './trips.rpc.js';
@@ -125,7 +126,10 @@ describe('TripsService — stops, geofence and arrival', () => {
     const t = await h.acceptedTrip();
     const [pickup, dropoff] = t.stops;
     await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen });
-    expect((await h.trips.completeStop(t.id, pickup!.id, 'd1')).state).toBe('in_transit');
+    const collected = await h.trips.completeStop(t.id, pickup!.id, 'd1', { handover: { pickupCode: '0000' } });
+    expect(collected.state).toBe('in_transit');
+    // Maps program r4: the server writes the code the kitchen read (what the client sends is replaced).
+    expect(collected.stops[0]!.handoverProof).toMatchObject({ pickupCode: pickupCodeFor(pickup!.orderId!, 'd1') });
     expect((await h.trips.arrive(t.id, dropoff!.id, 'd1', { pin: PINS.home })).state).toBe('arrived_dropoff');
     const done = await h.trips.completeStop(t.id, dropoff!.id, 'd1', { handover: { cashCollectedIqd: 16500, photoUrl: 'https://cdn.example/p.jpg' } });
     expect(done.state).toBe('completed');

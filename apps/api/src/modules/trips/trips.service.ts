@@ -14,6 +14,7 @@ import {
   type VehicleClass,
   type Vertical,
 } from '@driver/contracts';
+import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
@@ -489,7 +490,8 @@ export class TripsService implements OnModuleInit {
         {
           state: 'completed',
           completedAt: now,
-          handoverProof: { ...stop.handoverProof, ...handover },
+          // Maps program r4: the code the kitchen read off his screen, written by the server.
+          handoverProof: { ...stop.handoverProof, ...handover, ...(stop.type === 'pickup' && stop.orderId ? { pickupCode: pickupCodeFor(stop.orderId, driverId) } : {}) },
           ...(child.tap === 'in' ? { childTapInAt: now } : {}),
           ...(child.tap === 'out' ? { childTapOutAt: now } : {}),
         },

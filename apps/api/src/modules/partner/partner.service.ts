@@ -16,6 +16,7 @@ import {
   type QuoteComponent,
   type Trip,
 } from '@driver/contracts';
+import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
@@ -194,6 +195,8 @@ export class PartnerService implements PartnerPort {
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
+          // Maps program r4: the code he shows at the counter, while the pickup is still to do.
+          pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };

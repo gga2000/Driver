@@ -12,7 +12,9 @@ import { afterCommit } from '../../shared/db/unit-of-work.js';
 import { EventsModule, EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
-import { TrackingModule, TrackingService } from '../tracking/index.js';
+import { radarOf } from '../merchant/index.js';
+import { EtaService, RoutingModule } from '../routing/index.js';
+import { COURIER_VEHICLES, TrackingModule, TrackingService, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { InMemoryLiveBus, LIVE_BUS, RedisLiveBus, type LiveBus } from './live.bus.js';
 import { fanout, type FanoutLookups } from './live.fanout.js';
@@ -41,8 +43,26 @@ export class LiveFanoutService implements OnModuleInit, OnModuleDestroy {
     private readonly orders: OrdersService,
     private readonly trips: TripsService,
     private readonly tracking: TrackingService,
+    private readonly eta: EtaService,
+    @Inject(COURIER_VEHICLES) private readonly vehicles: CourierVehicleDirectory,
   ) {
-    this.positions = new PositionFanout(bus, trips, Date.now, undefined, async (orderId, trip, pin, now) => this.tracking.liveEta(await this.orders.get(orderId), trip, pin, now));
+    this.positions = new PositionFanout(
+      bus,
+      trips,
+      Date.now,
+      undefined,
+      async (orderId, trip, pin, now) => this.tracking.liveEta(await this.orders.get(orderId), trip, pin, now),
+      async (orderId, trip, pin) => {
+        // The kitchen's radar (maps program SP7a): while he is on his way to collect this order.
+        const order = await this.orders.get(orderId);
+        const pickup = trip.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
+        if (!order.merchantOrgId || !trip.courierId || !pickup?.target || pickup.state !== 'pending') return null;
+        // The same vehicle and ETA the board uses, so the minutes do not flip between a read and a patch.
+        const vehicle = (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass ?? 'bike';
+        const { minutes } = await this.eta.minutes(pin, pickup.target, vehicle);
+        return { merchantOrgId: order.merchantOrgId, ...radarOf(pickup.target, pin), etaMinutes: minutes };
+      },
+    );
     this.lookups = {
       order: async (orderId) => {
         try {
@@ -107,7 +127,7 @@ export class LiveFanoutService implements OnModuleInit, OnModuleDestroy {
  * tokens: LIVE_TOKEN_SECRET, else a key derived from JWT_SECRET.
  */
 @Module({
-  imports: [EventsModule, IdentityModule, OrdersModule, TripsModule, TrackingModule],
+  imports: [EventsModule, IdentityModule, OrdersModule, TripsModule, TrackingModule, RoutingModule],
   providers: [
     {
       provide: LIVE_BUS,

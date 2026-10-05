@@ -73,14 +73,30 @@ export const BoardGroup = z.object({
 });
 export type BoardGroup = z.infer<typeof BoardGroup>;
 
+/** The courier radar around the kitchen (maps program SP7a, r1/r2): "about to walk in" inside this. */
+export const RADAR_NEAR_M = 250;
+/** The radar's rings, metres from the kitchen. */
+export const RADAR_RINGS_M = [250, 1_000, 3_000] as const;
+
 export const BoardCourier = z.object({
   state: BoardCourierState,
   firstName: z.string().nullable(),
   vehicleClass: VehicleClass.nullable(),
-  /** Minutes to the counter while `on_the_way` (from his last fix at town speed). */
+  /** Minutes to the counter while `on_the_way` (the one ETA, from his last fix). */
   etaMinutes: z.number().int().nullable(),
   /** When he reached the counter (`arrived`): the kitchen sees how long he has waited. */
   arrivedAt: z.coerce.date().nullable(),
+  /** Straight-line metres from the kitchen while `on_the_way` (the radar); never his coordinates. */
+  distanceM: z.number().int().min(0).nullable().optional(),
+  /** Degrees clockwise from north, kitchen → courier, while `on_the_way`. */
+  bearingDeg: z.number().min(0).max(360).nullable().optional(),
+  /** His plate ("واسط 45678") so the counter can tell couriers apart; null when unknown. */
+  plate: z.string().nullable().optional(),
+  /**
+   * The 4-digit code on the courier's screen (maps program r4) while he is coming or at the counter:
+   * the kitchen hands the food to the courier whose code matches.
+   */
+  pickupCode: z.string().nullable().optional(),
 });
 export type BoardCourier = z.infer<typeof BoardCourier>;
 

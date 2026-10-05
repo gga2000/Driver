@@ -305,6 +305,23 @@ function JobView({
                 {stop.type === 'dropoff' && stop.collectIqd > 0 ? <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" /> : null}
               </View>
 
+              {/* Maps program r4: the code the kitchen matches before handing over the food. */}
+              {stop.type === 'pickup' && stop.pickupCode ? (
+                <View testID="job-pickup-code" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.text, padding: theme.space[3] }}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text variant="label" weight={700}>
+                      {t('partner.job_pickup_code')}
+                    </Text>
+                    <Text variant="caption" color="textMuted">
+                      {t('partner.job_pickup_code_hint')}
+                    </Text>
+                  </View>
+                  <Text variant="amount" tabular style={{ letterSpacing: 6 }} accessibilityLabel={stop.pickupCode.split('').join(' ')}>
+                    {stop.pickupCode}
+                  </Text>
+                </View>
+              ) : null}
+
               {stop.type === 'pickup' && stop.state === 'arrived' && job.merchant?.state === 'preparing' ? (
                 <View testID="job-wait-ready" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
                   <Icon name="clock" size={18} color="warningText" />

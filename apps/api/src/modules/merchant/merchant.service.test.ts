@@ -48,7 +48,7 @@ async function setup() {
       nameReads.push(courierId);
       return 'حيدر';
     },
-    courierVehicle: async () => 'bike',
+    courierVehicle: async () => ({ vehicleClass: 'bike', plate: 'واسط 45678' }),
   };
   const recorded: Array<{ type: string; payload: Record<string, unknown> }> = [];
   const events: MerchantEventsPort = {
