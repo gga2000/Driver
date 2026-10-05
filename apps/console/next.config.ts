@@ -24,7 +24,9 @@ const nextConfig: NextConfig = {
             ? [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' http://localhost:4000" }]
             : [{ key: 'X-Frame-Options', value: 'DENY' }]),
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'same-origin' },
+          // Cross-origin requests carry the bare origin (never the path, so no order/person ids leak):
+          // the OSM tile servers refuse map tiles requested with no Referer at all ("Access blocked").
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
