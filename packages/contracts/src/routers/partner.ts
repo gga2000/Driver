@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerStatus } from '../partner-io.js';
+import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -28,6 +29,15 @@ export const partnerRouter = router({
   activeJob: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerJob.nullable())
     .query(({ ctx }) => ctx.partner.activeJob(ctx.actor)),
+  /** The road to the open offer's kitchen (rides and doors: none until accepted). */
+  offerRoute: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .input(PartnerOfferRouteInput)
+    .output(OrderRoute)
+    .query(({ ctx, input }) => ctx.partner.offerRoute(ctx.actor, input)),
+  /** The road through his job's remaining stops. */
+  jobRoute: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .output(OrderRoute)
+    .query(({ ctx }) => ctx.partner.jobRoute(ctx.actor)),
   /** Courier path of the cash top-up: only for a customer whose order he is carrying now. */
   topUpLookup: protectedProcedure(['courier'])
     .input(TopUpLookupInput)

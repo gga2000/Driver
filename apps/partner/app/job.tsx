@@ -11,6 +11,9 @@ import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
+import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
+import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
+import { useAutoArrive } from '@/features/work/useAutoArrive';
 import {
   canTopUpOnJob,
   isRide,
@@ -23,7 +26,7 @@ import {
 } from '@/features/work/logic';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
-import { useActiveJob, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
+import { useActiveJob, useJobRoute, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
 import { useJobQueue } from '@/features/work/useJobQueue';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
@@ -140,6 +143,11 @@ function JobView({
   // The last open stop: completing it ends the job (on the server, or on this phone until it syncs).
   const lastStop = !!stop && job.stops.every((s) => s.stopId === stop.stopId || s.state === 'completed' || s.state === 'skipped');
   const showUnreachable = !!job.unreachable && !dismissedUnreachable && stop?.type === 'dropoff';
+  // Maps program d2: the road through what is left; d4: "وصلت؟" once he stands at the stop.
+  const road = useJobRoute(true, `${stop?.stopId ?? 'none'}:${stop?.state ?? ''}`);
+  const arrival = useAutoArrive(stop?.stopId ?? null, stop?.state === 'pending' && action?.kind === 'arrive' && !saved.has(stop.stopId));
+  const nav = useNavApp();
+  const [choosingNav, setChoosingNav] = useState(false);
 
   const pins = useMemo<MapPin[]>(
     () =>
@@ -253,15 +261,43 @@ function JobView({
   const kitchenCall = useMaskedCall(orderId, 'merchant_courier', ride);
   const call = () => void (atKitchen ? kitchenCall.call() : customerCall.call());
   const openChat = (kind: 'customer_courier' | 'merchant_courier') => router.push({ pathname: '/chat/[orderId]', params: { orderId, kind } });
+  // Maps program d3: his navigation app; the first time, he picks it.
+  const navigate = (app: NavApp) => {
+    if (stop?.pin) void openNav(app, stop.pin).catch(() => void Linking.openURL(mapsUrl(stop.pin!)).catch(() => undefined));
+  };
   const openMaps = () => {
-    if (stop?.pin) void Linking.openURL(mapsUrl(stop.pin)).catch(() => undefined);
+    if (!stop?.pin) return;
+    if (nav.app) navigate(nav.app);
+    else setChoosingNav(true);
   };
   const column = { width: '100%' as const, maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' as const };
 
   return (
     <View testID="job" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <ArriveSheet visible={arrival.ask && panel === 'none'} place={stop ? placeTitle(stop, ride, t, locale) : ''} busy={tapping} onArrive={() => void advance()} onNotYet={arrival.notYet} />
+      <NavChooser
+        visible={choosingNav}
+        current={nav.app}
+        onClose={() => setChoosingNav(false)}
+        onPick={(app) => {
+          setChoosingNav(false);
+          void setNavApp(app);
+          navigate(app);
+        }}
+      />
       <View style={{ height: '38%' }}>
-        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...pins.map((p) => p.at)] : pins.map((p) => p.at)} topInset={92} bottomInset={64} maxZoom={15.4} testID="job-map" />
+        <DriverMap
+          self={self}
+          vehicleIcon={VEHICLE_ICON[vehicle]}
+          online
+          pins={pins}
+          route={self ? [self, ...pins.map((p) => p.at)] : pins.map((p) => p.at)}
+          road={road.data?.polyline6 ?? null}
+          topInset={92}
+          bottomInset={64}
+          maxZoom={15.4}
+          testID="job-map"
+        />
         <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
           <View style={[column, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
             <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate('/')} />

@@ -3,6 +3,7 @@ import { POSITION_RULES } from '@driver/contracts';
 import { apiErrorCode } from '@/lib/api-links';
 import { useApiClient } from '@/lib/api';
 import { currentFix, type Fix } from '@/lib/location';
+import { reportArmed } from './arrive';
 import { FixBuffer, toDeviceFix, worthSending } from './position-report';
 
 /** How often a driver on a job reports his position (the live map moves at most every 2 s). */
@@ -34,8 +35,14 @@ export function useJobPositions(onJob: boolean): void {
       sending = true;
       const batch = buffer.current.peek(POSITION_RULES.batchMax);
       try {
-        await client.trips.reportPositions.mutate({ fixes: batch });
+        const out = await client.trips.reportPositions.mutate({ fixes: batch });
         buffer.current.drop(batch.length);
+        // Maps program d4: the stops whose 60 m he is inside, for the "وصلت؟" question.
+        reportArmed(
+          out.armed.map((a) => a.stopId),
+          prev.current?.speedKmh ?? null,
+          Date.now(),
+        );
       } catch (err) {
         // The server answered (refused the batch): resending would fail the same way, so let it go.
         // No answer (offline, timeout): keep it for the next tick.

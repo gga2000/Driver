@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
+import { decodePolyline } from '@driver/map';
 import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { BaseMap } from './base/BaseMap';
 import type { CameraValues } from './base/types';
@@ -24,8 +25,10 @@ export interface DriverMapProps {
   /** Online: accent puck with a radar pulse. Offline: muted puck, no pulse. */
   online: boolean;
   pins?: readonly MapPin[];
-  /** Dashed line through these points (no road router yet: straight and honest). */
+  /** Dashed line through these points: straight and honest when there is no road shape. */
   route?: readonly LngLat[];
+  /** The road shape (polyline, precision 6; maps program d2): drawn solid instead of the dashed line. */
+  road?: string | null;
   /** Space covered by overlays at the top and bottom; the camera frames what's between. */
   topInset?: number;
   bottomInset?: number;
@@ -41,7 +44,8 @@ export interface DriverMapProps {
  * plus the driver's puck, job pins and a dashed route, all projected from one camera held in
  * shared values so overlays never drift from the tiles.
  */
-export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, testID = 'driver-map' }: DriverMapProps) {
+export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, testID = 'driver-map' }: DriverMapProps) {
+  const roadPoints = useMemo(() => (road ? decodePolyline(road) : null), [road]);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const sizeSV = useSharedValue<Size>({ w: 1, h: 1 });
   const lng = useSharedValue(AZIZIYAH.lng);
@@ -92,7 +96,7 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], to
       {size.w > 0 ? (
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
-          {route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
+          {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* The puck under the pins: a pin's label must never hide behind him. */}
           {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} /> : null}
           {pins.map((p) => (
@@ -109,7 +113,7 @@ interface LayerProps {
   size: SharedValue<Size>;
 }
 
-function RouteLine({ cam, size, points }: LayerProps & { points: readonly LngLat[] }) {
+function RouteLine({ cam, size, points, solid = false }: LayerProps & { points: readonly LngLat[]; solid?: boolean }) {
   const theme = useTheme();
   const props = useAnimatedProps(() => {
     const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
@@ -118,7 +122,12 @@ function RouteLine({ cam, size, points }: LayerProps & { points: readonly LngLat
   return (
     <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
       <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.95} />
-      <AnimatedPath animatedProps={props} stroke={theme.colors.text} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 9" fill="none" />
+      {solid ? (
+        // The real road (maps program d2): a solid line on a white casing.
+        <AnimatedPath animatedProps={props} stroke={theme.colors.accent} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      ) : (
+        <AnimatedPath animatedProps={props} stroke={theme.colors.text} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 9" fill="none" />
+      )}
     </Svg>
   );
 }

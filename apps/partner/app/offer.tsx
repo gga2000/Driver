@@ -11,7 +11,7 @@ import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
-import { useCurrentOffer, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
+import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
 import { startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -144,6 +144,8 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     return out;
   }, [offer, locale, t]);
   const route = pins.map((p) => p.at);
+  // Maps program d2: the road to the kitchen (a person's door never shapes an offer's road).
+  const road = useOfferRoute(offer.offerId);
   const column = { width: '100%' as const, maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' as const };
   const layout = offerLayout(windowHeight);
   const sum = offerSummary(offer, vehicle, ride);
@@ -156,7 +158,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   return (
     <View testID="offer" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <View style={{ height: layout.mapHeight }}>
-        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} topInset={84} bottomInset={44} maxZoom={15.4} testID="offer-map" />
+        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} topInset={84} bottomInset={44} maxZoom={15.4} testID="offer-map" />
         <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
           {/* Laid out physically on purpose: decline sits top-left, the far corner from a right thumb (P-03). */}
           <View pointerEvents="box-none" style={[column, { direction: 'ltr', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>

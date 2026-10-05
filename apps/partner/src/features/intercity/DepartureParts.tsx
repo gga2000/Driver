@@ -1,4 +1,5 @@
 import { Linking, Pressable, View } from 'react-native';
+import { openNav, useNavApp } from '@/features/work/nav';
 import Svg, { Path } from 'react-native-svg';
 import type { DriverBookingRow, IntercitySeatId, IntercitySeatLayout } from '@driver/contracts';
 import { Avatar, Button, Icon, SEAT_ROWS, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
@@ -340,6 +341,8 @@ export function RiderRow({
 export function PickupRoute({ stops, garageName, names }: { stops: readonly PickupStop[]; garageName: string; names: Map<string, string | null> }) {
   const theme = useTheme();
   const t = useT();
+  // Maps program d3: his navigation app when he has chosen one, Google Maps on the web otherwise.
+  const navApp = useNavApp().app;
   return (
     <View testID="pickup-route" style={{ gap: 0 }}>
       {stops.map((s, i) => {
@@ -367,7 +370,7 @@ export function PickupRoute({ stops, garageName, names }: { stops: readonly Pick
                   </Text>
                 ) : null}
                 {s.kind !== 'garage' ? (
-                  <Pressable hitSlop={8} accessibilityRole="link" onPress={() => void Linking.openURL(mapsUrl(s.at))} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, height: 28, borderRadius: 14, backgroundColor: withAlpha(theme.colors.info, 0.1) }}>
+                  <Pressable hitSlop={8} accessibilityRole="link" onPress={() => void (navApp ? openNav(navApp, s.at) : Linking.openURL(mapsUrl(s.at))).catch(() => undefined)} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, height: 28, borderRadius: 14, backgroundColor: withAlpha(theme.colors.info, 0.1) }}>
                     <Icon name="location-arrow" size={13} color="infoText" />
                     <Text variant="caption" weight={600} color="infoText">
                       {t('partner.ic_route_open')}

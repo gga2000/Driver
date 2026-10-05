@@ -6,11 +6,13 @@ import {
   partnerModesOf,
   type Actor,
   type Order,
+  type OrderRoute,
   type PartnerGoOnlineInput,
   type PartnerJob,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerOffer,
+  type PartnerOfferRouteInput,
   type PartnerPort,
   type PartnerStatus,
   type QuoteComponent,
@@ -166,10 +168,45 @@ export class PartnerService implements PartnerPort {
     };
   }
 
+  async offerRoute(actor: Actor, input: PartnerOfferRouteInput): Promise<OrderRoute> {
+    const now = this.clock.now();
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    const presence = await this.deps.presence.get(actor.personId);
+    const found = await this.deps.dispatch.openOffer(actor.personId, presence?.cityId ?? DEFAULT_CITY);
+    if (!found || found.offer.id !== input.offerId || !presence || !this.deps.roads) return none;
+    // Only a kitchen shapes an offer's road: a person's door stays off what every driver in the wave sees.
+    const orders = await this.ordersOf(await this.deps.trips.get(found.request.tripId));
+    if (!orders[0]?.merchantOrgId) return none;
+    const from = { lat: presence.lat, lng: presence.lng };
+    const r = await this.deps.roads.path([from, found.request.pickup]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+  }
+
+  async jobRoute(actor: Actor): Promise<OrderRoute> {
+    const now = this.clock.now();
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    const trip = await this.jobTrip(actor.personId);
+    if (!trip || !this.deps.roads) return none;
+    const ahead = [...trip.stops]
+      .sort((a, b) => a.seq - b.seq)
+      .filter((s) => s.state !== 'completed' && s.state !== 'skipped' && s.target)
+      .map((s) => s.target!);
+    const fix = await this.deps.trips.lastPosition?.(trip.id);
+    const presence = fix && fix.driverId === actor.personId ? null : await this.deps.presence.get(actor.personId);
+    const from = fix && fix.driverId === actor.personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
+    if (!from || ahead.length === 0) return none;
+    const r = await this.deps.roads.path([from, ...ahead]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+  }
+
+  /** The job on screen: the trip he accepted first (a batch shows its second order as more stops). */
+  private async jobTrip(driverId: string): Promise<Trip | null> {
+    const trips = await this.deps.trips.forDriver(driverId);
+    return [...trips].sort((a, b) => (a.acceptedAt?.getTime() ?? 0) - (b.acceptedAt?.getTime() ?? 0))[0] ?? null;
+  }
+
   async activeJob(actor: Actor): Promise<PartnerJob | null> {
-    const trips = await this.deps.trips.forDriver(actor.personId);
-    // The job on screen: the one he accepted first (a batch shows its second order as more stops).
-    const trip = [...trips].sort((a, b) => (a.acceptedAt?.getTime() ?? 0) - (b.acceptedAt?.getTime() ?? 0))[0];
+    const trip = await this.jobTrip(actor.personId);
     if (!trip) return null;
     const now = this.clock.now();
     const orders = await this.ordersOf(trip);

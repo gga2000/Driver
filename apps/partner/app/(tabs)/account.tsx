@@ -1,4 +1,5 @@
 import { router, type Href } from 'expo-router';
+import { useState } from 'react';
 import { View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
 import { Avatar, Button, Card, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
@@ -7,6 +8,8 @@ import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
 import { unregisterPush } from '@/features/notify/Push';
+import { navAppName, NavChooser } from '@/features/work/JobSheets';
+import { setNavApp, useNavApp } from '@/features/work/nav';
 import { useMe, useStatus } from '@/features/work/queries';
 import { playTestSound } from '@/lib/alert';
 import { useApiClient } from '@/lib/api';
@@ -30,6 +33,8 @@ interface HubRow {
  */
 export default function Account() {
   const theme = useTheme();
+  const nav = useNavApp();
+  const [choosingNav, setChoosingNav] = useState(false);
   const t = useT();
   const me = useMe().data;
   const s = useStatus().data;
@@ -106,9 +111,21 @@ export default function Account() {
             onPress={() => void testSound()}
             chevron={false}
             trailing={<Button testID="test-sound-play" label={t('partner.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void testSound()} />}
+            divider
           />
+          {/* Maps program d3: Google Maps or Waze for "الخريطة". */}
+          <ListRow testID="nav-app" leading="map-pin" title={t('partner.nav_setting')} subtitle={nav.app ? t(navAppName(nav.app)) : t('partner.nav_setting_none')} onPress={() => setChoosingNav(true)} />
         </Card>
       </View>
+      <NavChooser
+        visible={choosingNav}
+        current={nav.app}
+        onClose={() => setChoosingNav(false)}
+        onPick={(app) => {
+          setChoosingNav(false);
+          void setNavApp(app);
+        }}
+      />
 
       <Button testID="sign-out" label={t('partner.sign_out')} variant="ghost" fullWidth onPress={() => void signOut()} />
     </Screen>

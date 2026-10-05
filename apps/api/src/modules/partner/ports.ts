@@ -1,4 +1,4 @@
-import type { LatLng, Order, PartnerOnlineGate, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { EtaBasis, LatLng, Order, PartnerOnlineGate, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -70,7 +70,11 @@ export interface PartnerDeps {
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;
     get(tripId: string): Promise<Trip>;
+    /** His last stored fix on a trip (the job's road starts there). Optional for fakes. */
+    lastPosition?(tripId: string): Promise<{ pin: LatLng; driverId: string } | null>;
   };
+  /** The road router (maps program d2); absent in fakes = straight lines on the app. */
+  roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis }> };
   orders: { get(orderId: string): Promise<Order | null> };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };

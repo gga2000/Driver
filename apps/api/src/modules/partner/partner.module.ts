@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EtaService, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
 import { DispatchModule, DispatchService } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
@@ -29,7 +30,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
  * presence, through dispatch.
  */
 @Module({
-  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule],
+  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule, RoutingModule],
   providers: [
     {
       provide: PARTNER_DEPS,
@@ -45,7 +46,9 @@ function takeFor(vertical: Vertical): TakeRule | null {
         vehicles: CourierVehicleDirectory,
         account: DriverAccountService,
         fleet: FleetService,
+        eta: EtaService,
       ): PartnerDeps => ({
+        roads: { path: (points) => eta.path(points) },
         presence: {
           get: (id) => dispatch.presence.get(id),
           online: (id, input) => dispatch.presence.online(id, input),
@@ -62,7 +65,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
             }
           },
         },
-        trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId) },
+        trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId) },
         orders: { get: (orderId) => orders.get(orderId).catch(() => null) },
         merchants: {
           name: async (orgId) => (await orgs.find(orgId))?.name ?? null,
@@ -88,7 +91,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService],
     },
     PartnerService,
   ],

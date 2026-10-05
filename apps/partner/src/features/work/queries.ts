@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { isPartner } from '@driver/contracts';
+import { isPartner, type OrderRoute } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
 import { LIVE_PARTNER_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
@@ -59,6 +60,37 @@ export function useActiveJob(enabled = true) {
   const signedIn = useSignedIn();
   const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
   return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
+}
+
+/** A road keeps for two minutes; the job's road is also re-read when the stop changes. */
+const ROUTE_STALE_MS = 120_000;
+
+/** The road to an offer's kitchen (maps program d2): read once per offer. */
+export function useOfferRoute(offerId: string | null) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.partner.offerRoute.queryOptions({ offerId: offerId ?? '' }), enabled: signedIn && Boolean(offerId), staleTime: Infinity, retry: false });
+}
+
+/**
+ * The road through the job's remaining stops (maps program d2): every two minutes and whenever the
+ * current stop changes (`stage`). Keeps the last road while a refresh is in flight.
+ */
+export function useJobRoute(enabled: boolean, stage: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const q = useQuery({
+    ...api.partner.jobRoute.queryOptions(),
+    enabled: signedIn && enabled,
+    staleTime: ROUTE_STALE_MS,
+    refetchInterval: enabled ? ROUTE_STALE_MS : false,
+    placeholderData: (prev: OrderRoute | undefined) => prev,
+  });
+  const { refetch } = q;
+  useEffect(() => {
+    if (enabled) void refetch();
+  }, [stage, enabled, refetch]);
+  return q;
 }
 
 /** Invalidates everything the home and job screens read after a state change. */

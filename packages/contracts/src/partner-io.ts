@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RoleKind } from './auth.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
+import type { OrderRoute } from './tracking.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass } from './trip.js';
 
 /**
@@ -257,4 +258,14 @@ export interface PartnerPort {
   goOffline(actor: Actor): Promise<PartnerStatus>;
   currentOffer(actor: Actor): Promise<PartnerOffer | null>;
   activeJob(actor: Actor): Promise<PartnerJob | null>;
+  /**
+   * The road from him to the offer's pickup (maps program d2) — only a kitchen's: every driver in the
+   * wave sees an offer, so a person's door (a ride's pickup, any drop-off) never shapes its road.
+   */
+  offerRoute(actor: Actor, input: PartnerOfferRouteInput): Promise<OrderRoute>;
+  /** The road from his last fix through the job's remaining stops, in order (maps program d2). */
+  jobRoute(actor: Actor): Promise<OrderRoute>;
 }
+
+export const PartnerOfferRouteInput = z.object({ offerId: z.string().min(1) });
+export type PartnerOfferRouteInput = z.infer<typeof PartnerOfferRouteInput>;

@@ -106,6 +106,9 @@ function harness(
     now?: Date;
     registered?: VehicleClass | null;
     onOnline?: (input: { vehicle: VehicleClass; verticals?: readonly Vertical[] | undefined }) => void;
+    roads?: Array<readonly { lat: number; lng: number }[]>;
+    lastFix?: { lat: number; lng: number } | null;
+    rideOrder?: boolean;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -136,8 +139,19 @@ function harness(
     trips: {
       forDriver: async () => opts.trips ?? [],
       get: async (id) => [...(opts.trips ?? []), ...(offerTrip ? [offerTrip] : [])].find((t) => t.id === id)!,
+      lastPosition: async () => (opts.lastFix ? { pin: opts.lastFix, driverId: actor.personId } : null),
     },
-    orders: { get: async (id) => (id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()) },
+    ...(opts.roads
+      ? {
+          roads: {
+            path: async (points: readonly { lat: number; lng: number }[]) => {
+              opts.roads!.push(points);
+              return { polyline6: 'road6', basis: 'road' as const };
+            },
+          },
+        }
+      : {}),
+    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()) },
     merchants: { name: (id) => (id === 'm1' ? 'مطعم خالد' : null) },
     quotes: { quote: () => null },
     money: {
@@ -224,6 +238,26 @@ describe('PartnerService', () => {
       await expect(svc.goOnline(actor, { cityId: 'aziziyah', at: KITCHEN })).rejects.toMatchObject({ code: gate === LOCKED ? 'checkin_locked' : 'online_document_expired' });
       expect((await svc.status(actor)).online).toBe(false);
     }
+  });
+
+  it('offerRoute (maps program d2): his position to the kitchen only; a ride (a person’s door) gets none', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
+    const roads: Array<readonly { lat: number; lng: number }[]> = [];
+    const r = await harness({ online: true, offerTrip: t, roads }).offerRoute(actor, { offerId: 'do_1' });
+    expect(r).toMatchObject({ polyline6: 'road6', basis: 'road', from: { lat: 32.905, lng: 45.06 } });
+    expect(roads).toEqual([[{ lat: 32.905, lng: 45.06 }, KITCHEN]]);
+    expect(await harness({ online: true, offerTrip: t, roads: [] }).offerRoute(actor, { offerId: 'other' })).toMatchObject({ polyline6: null });
+    expect(await harness({ online: true, offerTrip: t, roads: [], rideOrder: true }).offerRoute(actor, { offerId: 'do_1' })).toMatchObject({ polyline6: null });
+  });
+
+  it('jobRoute (maps program d2): from his last fix through the stops still to do, in order', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'completed'), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'in_transit' });
+    const roads: Array<readonly { lat: number; lng: number }[]> = [];
+    const fix = { lat: 32.9, lng: 45.07 };
+    const r = await harness({ trips: [t], roads, lastFix: fix }).jobRoute(actor);
+    expect(r).toMatchObject({ polyline6: 'road6', from: fix });
+    expect(roads).toEqual([[fix, HOME]]);
+    expect(await harness({ trips: [], roads: [] }).jobRoute(actor)).toMatchObject({ polyline6: null });
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {
