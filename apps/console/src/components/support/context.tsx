@@ -6,7 +6,9 @@ import { t, type MessageKey } from '@driver/i18n';
 import { useMemo, useState } from 'react';
 import { formatClock, formatDayClock, formatIqd, formatMoney, formatMonthYear } from '@/lib/format';
 import { orderStateLabel, orderTypeLabel, paymentLabel } from '@/lib/labels';
+import { fileUrl } from '@/lib/control-room';
 import { eventTimeline } from '@/lib/orders';
+import { API_URL } from '@/lib/trpc';
 import { AccountName, OrderRef, OrgName, PersonName } from '../named';
 import {
   Avatar,
@@ -354,6 +356,16 @@ function OrderSection({ data }: { data: TicketCase }) {
             <span className="num">{formatMoney(o.totalIqd)}</span>
           </li>
         </ul>
+      ) : null}
+      {o.handoverPhotoUrl ? (
+        // Maps program f11: the courier's delivery photo, the first evidence in "I never got it".
+        <figure className="mt-3" data-testid="sup-handover-photo">
+          <a href={fileUrl(o.handoverPhotoUrl, API_URL)} target="_blank" rel="noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element -- signed API URLs, not static assets */}
+            <img src={fileUrl(o.handoverPhotoUrl, API_URL)} alt={t('console.sup_handover_photo')} className="aspect-[4/3] w-full rounded-lg border border-line object-cover" />
+          </a>
+          <figcaption className="mt-1 text-xs text-muted">{t('console.sup_handover_photo_note')}</figcaption>
+        </figure>
       ) : null}
       {events.length > 0 ? (
         <>

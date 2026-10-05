@@ -71,6 +71,13 @@ export const HandoverProof = z.object({
    * which courier collected.
    */
   pickupCode: z.string().regex(/^\d{4}$/).optional(),
+  /**
+   * The delivery photo (maps program f11): an upload of this courier (`places.photoUpload`), checked
+   * by the server. Support sees it on a dispute; it is deleted after `HANDOVER_PHOTO_RETENTION_DAYS`.
+   */
+  photoUploadId: z.string().min(1).max(100).optional(),
+  /** Set by the server when the photo was deleted at the end of retention. */
+  photoPurgedAt: z.coerce.date().optional(),
 });
 export type HandoverProof = z.infer<typeof HandoverProof>;
 
@@ -193,6 +200,8 @@ export const NEAR_DROPOFF_M = 500;
 
 /** Raw driver trails are kept this long; after that the trip row is the summary (decision D6). */
 export const TRAIL_RETENTION_DAYS = 30;
+/** Delivery photos are kept as long as trails (maps program f11, decision D6), then deleted. */
+export const HANDOVER_PHOTO_RETENTION_DAYS = 30;
 
 /** Why a fix was refused. */
 export const PositionRejectReason = z.enum(['mocked', 'inaccurate', 'out_of_order']);

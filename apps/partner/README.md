@@ -179,7 +179,6 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
   `partner.goOnline` every 30 s while the app is open.
 - SOS is a stub button (decision 3 in docs/research/ui-ux-audit/README.md: built before launch).
   (Call and chat are live: see "Chat and masked calls" below.)
-- The handover photo stays on the device (upload + `handover.photoUrl` in wave 2).
 - Offers, the job, gate and cash are pushed over `live.partner`; queries keep a 60-s safety refetch
   (30-s polling when SSE does not get through). الرجعة, خطوط, fleet and ops screens still poll.
 - The customer's first name is not on the job card (no vault read for drivers yet).

@@ -10,6 +10,7 @@ import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
+import { uploadPhoto, type PickedPhoto } from '@/features/account/photo';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
 import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
@@ -28,7 +29,7 @@ import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useJobRoute, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
 import { useJobQueue } from '@/features/work/useJobQueue';
-import { apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
@@ -129,6 +130,7 @@ function JobView({
   const locale = useLocale();
   const toast = useToast();
   const actions = useTripActions();
+  const client = useApiClient();
   const queue = useJobQueue();
   const net = useNetwork();
   const [tapping, setTapping] = useState(false);
@@ -203,15 +205,23 @@ function JobView({
     }
   };
 
-  const handover = async (photoUri: string | null) => {
+  const handover = async (photo: PickedPhoto | null) => {
     if (!stop) return;
     setTapping(true);
     try {
+      // Maps program f11: the photo goes up first; with no network it stays on the phone (noted) and
+      // the delivery itself is still saved for later.
+      let photoUploadId: string | null = null;
+      if (photo) photoUploadId = await uploadPhoto(photo, (input) => client.places.photoUpload.mutate(input)).catch(() => null);
       const res = await queue.run({
         kind: 'complete',
         tripId: job.tripId,
         stopId: stop.stopId,
-        handover: { ...(stop.collectIqd > 0 ? { cashCollectedIqd: stop.collectIqd } : {}), ...(photoUri ? { note: 'handover_photo_on_device' } : {}), recipientConfirmed: true },
+        handover: {
+          ...(stop.collectIqd > 0 ? { cashCollectedIqd: stop.collectIqd } : {}),
+          ...(photoUploadId ? { photoUploadId } : photo ? { note: 'handover_photo_on_device' } : {}),
+          recipientConfirmed: true,
+        },
       });
       setPanel('none');
       if (res.status === 'queued') {

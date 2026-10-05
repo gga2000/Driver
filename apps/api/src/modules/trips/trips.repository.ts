@@ -155,6 +155,8 @@ export interface TripsRepository extends TripOrderLookup {
    * 30 days, then the trip row is the summary). Returns how many went; a short count means done.
    */
   purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number>;
+  /** Up to `limit` completed stops before `cutoff` that still hold a delivery photo (maps program f11). */
+  handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>>;
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
@@ -406,6 +408,14 @@ export class PrismaTripsRepository implements TripsRepository {
       DELETE FROM "public"."trail_points" t USING doomed d WHERE t."id" = d."id" AND t."at" = d."at"`;
   }
 
+  async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {
+    const rows = await this.db().$queryRaw<Array<{ id: string; proof: Record<string, unknown> }>>`
+      SELECT "id", "handover_proof" AS proof FROM "public"."stops"
+      WHERE "completed_at" < ${cutoff} AND jsonb_exists("handover_proof", 'photoUploadId')
+      LIMIT ${limit}`;
+    return rows.flatMap((r) => (typeof r.proof['photoUploadId'] === 'string' ? [{ stopId: r.id, uploadId: r.proof['photoUploadId'], proof: r.proof }] : []));
+  }
+
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
     const latest = await this.db().tripOrder.findFirst({ where: { tripId, orderId }, orderBy: { attachedAt: 'desc' } });
     return latest?.detachedAt ?? null;
@@ -588,6 +598,13 @@ export class InMemoryTripsRepository implements TripsRepository {
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }) {
     const last = filter.tripId ? this.lastByTrip.get(filter.tripId) : filter.driverId !== undefined ? this.lastByDriver.get(filter.driverId) : undefined;
     return last ? { ...last } : null;
+  }
+
+  async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {
+    return [...this.stops.values()]
+      .filter((s) => s.completedAt && s.completedAt.getTime() < cutoff.getTime() && typeof s.handoverProof['photoUploadId'] === 'string')
+      .slice(0, limit)
+      .map((s) => ({ stopId: s.id, uploadId: s.handoverProof['photoUploadId'] as string, proof: { ...s.handoverProof } }));
   }
 
   async purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {

@@ -442,6 +442,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       placedAt: order.placedAt,
       deliveredAt: order.deliveredAt,
       courierId: courier?.courierId ?? null,
+      handoverPhotoUrl: await this.trips.handoverPhotoUrl(order.id).catch(() => null),
       lines: order.lines.filter((l) => l.availability !== 'removed').map((l) => ({ name: (l.catalogItemId ? nameOf.get(l.catalogItemId) : null) ?? l.freeText ?? 'غرض', qty: l.qty, totalIqd: l.unitPriceIqd * l.qty })),
     };
   }

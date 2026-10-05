@@ -1,4 +1,4 @@
-import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
   NEAR_DROPOFF_M,
@@ -14,6 +14,7 @@ import {
   type VehicleClass,
   type Vertical,
 } from '@driver/contracts';
+import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
@@ -108,6 +109,7 @@ export class TripsService implements OnModuleInit {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
+    @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
   ) {}
 
   /** Dispatch's open-offer check (M2 review follow-up); fail closed until dispatch binds it. */
@@ -360,6 +362,35 @@ export class TripsService implements OnModuleInit {
   }
 
   /** One retention batch (decision D6): trail points older than `cutoff`, except `keepTripIds`'. */
+  /**
+   * The delivery photo of an order (maps program f11), as a short-lived signed URL for support; null
+   * without one, after retention, or when photos are not wired.
+   */
+  async handoverPhotoUrl(orderId: string): Promise<string | null> {
+    if (!this.photos) return null;
+    for (const link of await this.repo.linksForOrder(orderId)) {
+      const drop = (await this.repo.stopsOf(link.tripId)).find((s) => s.orderId === orderId && s.type === 'dropoff' && typeof s.handoverProof['photoUploadId'] === 'string');
+      if (drop) return this.photos.readUrl(drop.handoverProof['photoUploadId'] as string);
+    }
+    return null;
+  }
+
+  /**
+   * Deletes up to `batch` delivery photos of stops completed before `cutoff` (decision D6, 30 days):
+   * the blob goes, the stop keeps `photoPurgedAt`. Returns how many went.
+   */
+  async purgeHandoverPhotos(cutoff: Date, batch: number): Promise<number> {
+    if (!this.photos) return 0;
+    const due = await this.repo.handoverPhotosBefore(cutoff, batch);
+    const now = this.clock.now();
+    for (const d of due) {
+      await this.photos.remove(d.uploadId);
+      const rest = Object.fromEntries(Object.entries(d.proof).filter(([k]) => k !== 'photoUploadId'));
+      await this.repo.updateStop(d.stopId, { handoverProof: { ...rest, photoPurgedAt: now.toISOString() } }, now);
+    }
+    return due.length;
+  }
+
   purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {
     return this.repo.purgeTrail(cutoff, keepTripIds, batch);
   }
@@ -468,7 +499,7 @@ export class TripsService implements OnModuleInit {
           stopType: stop.type,
           vertical: trip.vertical,
           cashCollectedIqd: handover.cashCollectedIqd ?? null,
-          photo: Boolean(handover.photoUrl),
+          photo: Boolean(handover.photoUrl ?? handover.photoUploadId),
           pinOk: handover.pinOk ?? null,
           serverReceivedAt: this.clock.now().toISOString(),
         }))
@@ -476,6 +507,8 @@ export class TripsService implements OnModuleInit {
         return this.view(tripId, tx);
       }
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
+      // Maps program f11: a delivery photo is this courier's own stored upload.
+      if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
       // Edge-case §5: the guardian's "arrived" push rides on the tap-out, so a child is only tapped out
@@ -504,7 +537,7 @@ export class TripsService implements OnModuleInit {
         'stop.completed',
         driverId,
         tripId,
-        { stopId, stopType: stop.type, vertical: trip.vertical, cashCollectedIqd: handover.cashCollectedIqd ?? null, photo: Boolean(handover.photoUrl), pinOk: handover.pinOk ?? null, serverReceivedAt: now.toISOString() },
+        { stopId, stopType: stop.type, vertical: trip.vertical, cashCollectedIqd: handover.cashCollectedIqd ?? null, photo: Boolean(handover.photoUrl ?? handover.photoUploadId), pinOk: handover.pinOk ?? null, serverReceivedAt: now.toISOString() },
         stamp,
       );
       if (child.tap) {

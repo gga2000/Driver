@@ -124,6 +124,8 @@ export const TicketOrderView = z.object({
   deliveredAt: z.coerce.date().nullable(),
   courierId: z.string().nullable(),
   lines: z.array(z.object({ name: z.string(), qty: z.number().int(), totalIqd: Iqd })),
+  /** The courier's delivery photo (signed, short-lived URL; maps program f11); null without one or after 30 days. */
+  handoverPhotoUrl: z.string().nullable().optional(),
 });
 export type TicketOrderView = z.infer<typeof TicketOrderView>;
 

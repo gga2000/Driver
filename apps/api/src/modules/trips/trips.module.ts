@@ -4,7 +4,9 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { EventsServiceAdapter, TRIP_EVENTS } from './events.adapter.js';
+import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { TRIP_ORDER_LOOKUP } from './trip-order.lookup.js';
 import { InMemoryTripsRepository, PrismaTripsRepository, TRIPS_REPOSITORY, type TripsRepository } from './trips.repository.js';
 import { TRIPS_CHILD_NAMES, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
@@ -20,8 +22,21 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * `trips.timers` queue; the repository doubles as the events module's `TripOrderLookup`.
  */
 @Module({
-  imports: [EventsModule, IdentityModule],
+  imports: [EventsModule, IdentityModule, PlacesModule],
   providers: [
+    {
+      // Maps program f11: delivery photos are uploads in the places module's blob store.
+      provide: HANDOVER_PHOTOS,
+      useFactory: (blobs: BlobStore): HandoverPhotos => ({
+        owns: async (id, personId) => {
+          const rec = await blobs.get(id);
+          return rec !== null && rec.ownerId === personId && rec.state === 'stored';
+        },
+        readUrl: (id) => blobs.readUrl(id),
+        remove: (id) => blobs.remove(id),
+      }),
+      inject: [BLOB_STORE],
+    },
     {
       provide: TRIPS_REPOSITORY,
       useFactory: (prisma: PrismaService): TripsRepository => (prisma.configured ? new PrismaTripsRepository(prisma) : new InMemoryTripsRepository()),

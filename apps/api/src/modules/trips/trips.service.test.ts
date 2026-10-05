@@ -448,3 +448,39 @@ describe('TripsService — rides', () => {
     expect((await h.trips.get(t.id)).state).toBe('in_transit');
   });
 });
+
+describe('delivery photos (maps program f11)', () => {
+  async function delivered(photoUploadId?: string, owner = 'd1') {
+    const h = tripsHarness();
+    if (photoUploadId) h.photos.stored.set(photoUploadId, owner);
+    const t = await h.acceptedTrip();
+    const [pickup, dropoff] = t.stops;
+    await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen });
+    await h.trips.completeStop(t.id, pickup!.id, 'd1');
+    await h.trips.arrive(t.id, dropoff!.id, 'd1', { pin: PINS.home });
+    return { h, t, dropoff: dropoff! };
+  }
+
+  it('only his own stored upload is a delivery photo', async () => {
+    const mine = await delivered('up_mine');
+    await mine.h.trips.completeStop(mine.t.id, mine.dropoff.id, 'd1', { handover: { photoUploadId: 'up_mine', cashCollectedIqd: 16500 } });
+    expect(await mine.h.trips.handoverPhotoUrl(mine.dropoff.orderId!)).toBe('https://api.test/files/up_mine?sig=x');
+
+    const theirs = await delivered('up_other', 'someone_else');
+    expect(await code(theirs.h.trips.completeStop(theirs.t.id, theirs.dropoff.id, 'd1', { handover: { photoUploadId: 'up_other' } }))).toBe('handover_photo_invalid');
+  });
+
+  it('30 days on, the photo is deleted and the stop keeps when it went', async () => {
+    const { h, t, dropoff } = await delivered('up_mine');
+    await h.trips.completeStop(t.id, dropoff.id, 'd1', { handover: { photoUploadId: 'up_mine', cashCollectedIqd: 16500 } });
+    const cutoff = (days: number) => new Date(h.clock.now().getTime() - days * 86_400_000);
+    expect(await h.trips.purgeHandoverPhotos(cutoff(30), 10)).toBe(0);
+    h.clock.advance(31 * 86_400_000);
+    expect(await h.trips.purgeHandoverPhotos(cutoff(30), 10)).toBe(1);
+    expect(h.photos.removed).toEqual(['up_mine']);
+    const stop = (await h.trips.get(t.id)).stops.find((s) => s.id === dropoff.id)!;
+    expect(stop.handoverProof).not.toHaveProperty('photoUploadId');
+    expect(stop.handoverProof).toHaveProperty('photoPurgedAt');
+    expect(await h.trips.handoverPhotoUrl(dropoff.orderId!)).toBeNull();
+  });
+});

@@ -1,10 +1,10 @@
-import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import type { PartnerCash, UnreachableStatus } from '@driver/contracts';
 import { Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
 import { CashMeter } from '@/features/account/CashMeter';
+import { pickPhoto, type PickedPhoto } from '@/features/account/photo';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { cashTruth } from '@/features/account/logic';
 import { useT } from '@/lib/i18n';
@@ -13,25 +13,24 @@ import { clock, unreachablePhase } from './logic';
 
 /**
  * Handover at the door: the photo (protects him in a dispute) and, for cash orders, the amount
- * owed and "استلمت ___ دينار". Confirming writes `trips.completeStop` with the cash collected.
- * TODO(upload): the photo is kept on the device for now; wave 2 uploads it (signed PUT like the
- * customer gate photo) and sends `handover.photoUrl`.
+ * owed and "استلمت ___ دينار". Confirming writes `trips.completeStop` with the cash collected and
+ * the photo, uploaded first (maps program f11; support sees it on a dispute, deleted after 30 days).
  */
-export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collectIqd: number; busy: boolean; onConfirm: (photoUri: string | null) => void; onClose: () => void }) {
+export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collectIqd: number; busy: boolean; onConfirm: (photo: PickedPhoto | null) => void; onClose: () => void }) {
   const theme = useTheme();
   const t = useT();
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [picked, setPicked] = useState<PickedPhoto | null>(null);
+  const photo = picked?.uri ?? null;
   const cash = collectIqd > 0;
 
   const take = async () => {
-    try {
-      const res = await ImagePicker.launchCameraAsync({ quality: 0.6, allowsEditing: false }).catch(() => ImagePicker.launchImageLibraryAsync({ quality: 0.6 }));
-      if (!res.canceled && res.assets[0]) {
-        setPhoto(res.assets[0].uri);
-        theme.haptic('success');
-      }
-    } catch {
-      /* camera unavailable: he can still confirm without a photo */
+    // The camera; where there is none (a desktop browser), the photo library. Without either he can
+    // still confirm without a photo.
+    const shot = await pickPhoto('camera').catch(() => null);
+    const got = shot && shot !== 'denied' ? shot : await pickPhoto('library').catch(() => null);
+    if (got && got !== 'denied') {
+      setPicked(got);
+      theme.haptic('success');
     }
   };
 
@@ -95,7 +94,7 @@ export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collec
       </Pressable>
 
       {/* Handing over (and taking the cash) can't be undone: a slide, never a pocket tap (P-08). */}
-      <SlideToConfirm testID="handover-confirm" label={cash ? t('partner.cash_confirm', { amount: amountParam(collectIqd) }) : t('partner.action_delivered')} loading={busy} onConfirm={() => onConfirm(photo)} />
+      <SlideToConfirm testID="handover-confirm" label={cash ? t('partner.cash_confirm', { amount: amountParam(collectIqd) }) : t('partner.action_delivered')} loading={busy} onConfirm={() => onConfirm(picked)} />
     </Animated.View>
   );
 }

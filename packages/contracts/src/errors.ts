@@ -187,6 +187,8 @@ export const ERROR_TABLE = {
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },
   share_link_invalid: { retryHint: 'never', status: 'NOT_FOUND' },
+  /** The delivery photo is not an upload of this courier (or never arrived). */
+  handover_photo_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   share_not_shareable: { retryHint: 'never', status: 'BAD_REQUEST' },
   share_trip_over: { retryHint: 'never', status: 'CONFLICT' },
 

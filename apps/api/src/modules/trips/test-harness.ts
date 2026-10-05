@@ -45,7 +45,18 @@ export function tripsHarness(start = '2026-10-03T09:00:00Z') {
   const { runner, log } = fakeRunner();
   const uow = new UnitOfWork(runner);
   const queue = new InMemoryQueue<TripTimerJob>('trips.timers', () => clock.now());
-  const trips = new TripsService(repo, events, uow, clock, queue);
+  // Delivery photos (maps program f11): uploads by owner; `photos.stored` is what the blob store holds.
+  const photos = {
+    stored: new Map<string, string>(),
+    removed: [] as string[],
+    owns: async (id: string, personId: string) => photos.stored.get(id) === personId,
+    readUrl: (id: string) => `https://api.test/files/${id}?sig=x`,
+    remove: async (id: string) => {
+      photos.stored.delete(id);
+      photos.removed.push(id);
+    },
+  };
+  const trips = new TripsService(repo, events, uow, clock, queue, photos);
   trips.onModuleInit();
   // Stands in for dispatch's open-offer check (dispatch is not in this harness): everything passes
   // unless a test scripts a verdict.
@@ -76,5 +87,5 @@ export function tripsHarness(start = '2026-10-03T09:00:00Z') {
     return trips.accept(t.id, driverId, { vehicleClass: opts.vehicleClass ?? 'bike' });
   }
 
-  return { clock, repo, events, uow, log, queue, trips, offerCheck, advance, deliveryStops, foodTrip, acceptedTrip, near: offsetNorth };
+  return { clock, repo, events, uow, log, queue, trips, offerCheck, advance, deliveryStops, foodTrip, acceptedTrip, near: offsetNorth, photos };
 }
