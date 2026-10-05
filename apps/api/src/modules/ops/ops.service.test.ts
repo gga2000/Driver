@@ -4,6 +4,7 @@ import { HandoverCodes } from '../driver-account/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
+import { roundCollections } from '../control-room/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { DevBlobStore, PlacesService, type BlobStore } from '../places/index.js';
 import { InMemoryOpsRepository } from './ops.repository.js';
@@ -34,6 +35,18 @@ async function setup() {
   const staff = (await id.login('07700000001')).actor;
   return { id, clock, lh, ev, blobs, codes, accounts, orgs, repo, ops, staff, places };
 }
+
+describe('ops.recordCashReceipt on the Console round (S-K5)', () => {
+  it("a receipt taken from the Console's \"استلمت\" is tonight's collection on the finance desk", async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const code = h.codes.code('k1', h.clock.now()).code;
+    const r = await h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 10000, code, idempotencyKey: 'console-round-k1' });
+    const from = new Date(h.clock.now().getTime() - 3_600_000);
+    const got = roundCollections(await h.lh.ledger.eventsOfTypes(['driver_settlement'], from, new Date(h.clock.now().getTime() + 1)));
+    expect(got.get('k1')).toMatchObject({ amountIqd: 10000, reference: r.reference });
+  });
+});
 
 describe('ops.recordCashReceipt', () => {
   it("takes cash against the courier's daily code, posts driver_settlement and frees his cap", async () => {

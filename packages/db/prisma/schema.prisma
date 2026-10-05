@@ -979,6 +979,7 @@ model Order {
   promisedReadyAt    DateTime?     @map("promised_ready_at")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.
   prepExtendedAt     DateTime?     @map("prep_extended_at")
+  handedOverAt       DateTime?     @map("handed_over_at")
   /// Step 4 (edge-case review A.16): smallest vehicle class that may carry the order.
   minVehicleClass    VehicleClass? @map("min_vehicle_class")
   /// M2 wiring: the customer's delivery point {zoneKey, pin?}; dispatch builds the courier trip's drop-off stop from it.

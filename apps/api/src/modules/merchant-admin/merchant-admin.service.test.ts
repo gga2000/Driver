@@ -274,8 +274,10 @@ describe('merchantAdmin.money', () => {
       { orderId: 'o1', at: expect.any(Date), payment: 'cash', itemsIqd: 15000, commissionTier: 'featured', commissionPct: 15, commissionIqd: 2250, discountIqd: 0, discountFunder: null, dealIqd: 0, roundingIqd: 0, feesIqd: 0, netIqd: 12750 },
     ]);
     expect(s.settlements).toEqual([{ at: expect.any(Date), kind: 'courier_handover', amountIqd: 12750, reference: null }]);
-    expect(s.totals).toMatchObject({ orders: 1, netIqd: 12750, settledIqd: 12750 });
+    expect(s.totals).toMatchObject({ orders: 1, netIqd: 12750, settledIqd: 12750, adjustmentsIqd: 0 });
     expect(s.closingIqd).toBe(0);
+    // M-17 bridge: opening + net − received + adjustments = closing, on screen.
+    expect(s.openingIqd + s.totals.netIqd - s.totals.settledIqd + s.totals.adjustmentsIqd).toBe(s.closingIqd);
   });
 
   it('disputes show evidence and the default outcome; the owner answers once (re-answer replaces)', async () => {
@@ -326,6 +328,8 @@ describe('merchantAdmin.money.cash', () => {
     const before = await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId });
     expect(before).toMatchObject({ balanceIqd: 25500, exposureCapIqd: 300000, overExposure: false, mode: 'nightly_courier', heldByPlatformIqd: 12750, request: null, handovers: [] });
     expect(before.holders).toEqual([{ courierId: courier.personId, name: 'حيدر', amountIqd: 12750 }]);
+    // S-M5: the pill in one line — owed, and how it reaches him (nightly mode: tonight with the courier).
+    expect(before.headline).toEqual({ kind: 'owed', amountIqd: 25500, arrives: 'tonight_courier', by: null });
 
     // Requested → assigned to the courier holding the cash (events recorded on the merchant aggregate).
     const at = h.clock.now();
@@ -336,6 +340,8 @@ describe('merchantAdmin.money.cash', () => {
     await h.ev.events.emit(undefined, { actorId: 'system:ledger', type: 'merchant.settlement_assigned', occurredAt: at, payload: { reference: 'M-AAAA-BBBB', channel: 'courier', courierId: courier.personId, targetBy: targetBy.toISOString() } }, merchant);
     const onTheWay = (await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId })).request;
     expect(onTheWay).toMatchObject({ state: 'on_the_way', channel: 'courier', courierName: 'حيدر', targetBy, handover: null });
+    // S-M5: asked for → "فلوسك جاية قبل …" with the promised time.
+    expect((await h.svc.moneyCash(h.owner, { merchantOrgId: h.orgId })).headline).toEqual({ kind: 'requested', amountIqd: 25500, arrives: null, by: targetBy });
 
     // The courier hands it over with the PIN.
     h.clock.advance(20 * MIN);
@@ -350,6 +356,30 @@ describe('merchantAdmin.money.cash', () => {
     expect(after.handovers).toEqual([{ handoverId: 'hv1', at: expect.any(Date), courierId: courier.personId, courierName: 'حيدر', amountIqd: 12750, balanceAfterIqd: 12750, confirmedBy: 'pin' }]);
     expect(after.request).toMatchObject({ state: 'handed_over', handover: { handoverId: 'hv1', confirmedBy: 'pin' } });
     expect(after).toMatchObject({ balanceIqd: 12750, holders: [], heldByPlatformIqd: 12750 });
+    // Handed over: back to the balance in words.
+    expect(after.headline).toMatchObject({ kind: 'owed', amountIqd: 12750 });
+  });
+});
+
+describe('merchantAdmin.daySummary (S-M6)', () => {
+  it('the day in one card: orders taken, misses, on-time share, the owner\'s net, one advice line and the WhatsApp text', async () => {
+    const h = await setup('2026-10-03T21:30:00Z'); // 00:30 Baghdad, 4 Oct: the 3rd has ended
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', merchantId: h.orgId, courierId: 'k1' }));
+    const at = (iso: string) => new Date(iso);
+    h.orders.push(
+      order({ id: 'o1', placedAt: at('2026-10-03T11:30:00Z'), acceptedAt: at('2026-10-03T11:31:00Z'), promisedReadyAt: at('2026-10-03T11:46:00Z'), readyAt: at('2026-10-03T11:45:00Z') }),
+      order({ id: 'o2', placedAt: at('2026-10-03T12:30:00Z'), acceptedAt: at('2026-10-03T12:31:00Z'), promisedReadyAt: at('2026-10-03T12:46:00Z'), readyAt: at('2026-10-03T12:58:00Z') }),
+      order({ id: 'o3', state: 'merchant_rejected', cancellationReason: 'merchant_timeout', placedAt: at('2026-10-03T13:00:00Z'), cancelledAt: at('2026-10-03T13:01:30Z') }),
+    );
+    const owner = await h.svc.daySummary(h.owner, { merchantOrgId: h.orgId });
+    expect(owner).toMatchObject({ localDate: '2026-10-03', due: true, reason: 'day_end', orders: 2, missed: 1, onTimeShare: 0.5, onTimeSamples: 2, netIqd: 12750, advice: { kind: 'missed' } });
+    expect(owner.share_ar).toBe(['مطعم الريف · ملخص السبت 3/10', 'طلبين · فاتك 1 · وقتك مضبوط 50%', 'الصافي 12,750 دينار', 'عن طريق درايفر للمطاعم'].join('\n'));
+    // Staff see the same day without the money.
+    const staff = await h.svc.daySummary(h.staff, { merchantOrgId: h.orgId });
+    expect(staff.netIqd).toBeNull();
+    expect(staff.share_ar).not.toContain('دينار');
+    // An earlier day on request is not "due" (the card is for the day that just ended).
+    expect((await h.svc.daySummary(h.owner, { merchantOrgId: h.orgId, date: '2026-10-02' })).due).toBe(false);
   });
 });
 

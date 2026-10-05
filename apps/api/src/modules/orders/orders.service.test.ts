@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_MONEY_RULES, DriverError, type OrderMoneyPayload } from '@driver/contracts';
 import { postOrderClosed } from '../ledger/postings.js';
-import { ordersHarness } from './test-harness.js';
+import { KITCHEN, ordersHarness } from './test-harness.js';
 
 const code = async (p: Promise<unknown>) => {
   try {
@@ -514,5 +514,60 @@ describe('OrdersService — "+5 د" after accepting (M-12, Ali 2026-10-04)', () 
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(1);
     await h.advance(5 * MIN);
     expect(h.events.last('order.courier_released')!.payload).toMatchObject({ tripId: t.id, chargedTo: 'merchant' });
+  });
+});
+
+describe('OrdersService — "سلّمته" at the pass (UI/UX audit S-M4)', () => {
+  async function readyWithCourier() {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 10 });
+    const t = await h.tripFor(o.id);
+    await h.orders.markReady('m1', { orderId: o.id });
+    const pickupStop = t.stops.find((s) => s.type === 'pickup')!;
+    const arrive = async () => {
+      await h.trips.arrive(t.id, pickupStop.id, 'd1', { pin: KITCHEN });
+      await h.deliver();
+    };
+    return { h, o, t, arrive };
+  }
+
+  it('records the hand-over once the courier is at the counter: the time and order.handed_over with how long he waited', async () => {
+    const { h, o, t, arrive } = await readyWithCourier();
+    await arrive();
+    await h.advance(4 * MIN);
+    const after = await h.orders.merchantHandOver('m1', { orderId: o.id });
+    expect(after.handedOverAt).toEqual(h.clock.now());
+    expect(after.state).toBe('ready');
+    const e = h.events.last('order.handed_over')!;
+    expect(e.actorId).toBe('m1');
+    expect(e.payload).toMatchObject({ merchantOrgId: 'rest_1', courierId: 'd1', tripId: t.id, waitedSec: 240 });
+  });
+
+  it('is idempotent: a second tap returns the first record and emits nothing new', async () => {
+    const { h, o, arrive } = await readyWithCourier();
+    await arrive();
+    const first = await h.orders.merchantHandOver('m1', { orderId: o.id });
+    await h.advance(MIN);
+    const second = await h.orders.merchantHandOver('m1', { orderId: o.id });
+    expect(second.handedOverAt).toEqual(first.handedOverAt);
+    expect(h.events.ofType('order.handed_over')).toHaveLength(1);
+  });
+
+  it('refuses while the courier is still on his way, and before the order is ready', async () => {
+    const { h, o } = await readyWithCourier();
+    expect(await code(h.orders.merchantHandOver('m1', { orderId: o.id }))).toBe('order_state_conflict');
+    const placed = await h.orders.place('c1', h.foodInput());
+    expect(await code(h.orders.merchantHandOver('m1', { orderId: placed.id }))).toBe('order_state_conflict');
+    expect(h.events.ofType('order.handed_over')).toHaveLength(0);
+  });
+
+  it('still records it when the courier already confirmed the pickup himself', async () => {
+    const { h, o, t } = await readyWithCourier();
+    await h.pickup(t.id);
+    expect((await h.orders.get(o.id)).state).toBe('picked_up');
+    const after = await h.orders.merchantHandOver('m1', { orderId: o.id });
+    expect(after.handedOverAt).not.toBeNull();
+    expect(after.state).toBe('picked_up');
   });
 });

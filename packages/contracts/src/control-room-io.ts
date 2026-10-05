@@ -276,12 +276,29 @@ export const HandoverRow = z.object({
 });
 export type HandoverRow = z.infer<typeof HandoverRow>;
 
+/** S-K5: a courier ticked off on tonight's round ("استلمت", confirmed with his daily code). */
+export const RoundCollection = z.object({ amountIqd: Iqd, at: z.coerce.date(), reference: z.string().nullable() });
+export type RoundCollection = z.infer<typeof RoundCollection>;
+
 export const RoundStop = z.object({
   seq: z.number().int(),
   zoneKey: z.string(),
   zone_ar: z.string(),
-  couriers: z.array(z.object({ driverId: z.string(), name: z.string().nullable(), heldIqd: Iqd, overCap: z.boolean() })),
+  couriers: z.array(
+    z.object({
+      driverId: z.string(),
+      name: z.string().nullable(),
+      /** Still in his hand. */
+      heldIqd: Iqd,
+      overCap: z.boolean(),
+      /** What field ops took from him on tonight's round (sum), the last time and reference; null = not yet. */
+      collected: RoundCollection.nullable().optional(),
+    }),
+  ),
+  /** Still to collect at this stop. */
   totalIqd: Iqd,
+  /** Already collected at this stop tonight. */
+  collectedIqd: Iqd.optional(),
 });
 export type RoundStop = z.infer<typeof RoundStop>;
 
@@ -305,7 +322,18 @@ export const FinanceDeskView = z.object({
   merchants: z.array(MerchantPayableRow),
   handovers: z.array(HandoverRow),
   /** The 23:00 collection round: stops ordered as a route through the zones, from the centre. */
-  round: z.object({ at: z.coerce.date(), stops: z.array(RoundStop), totalIqd: Iqd }),
+  round: z.object({
+    at: z.coerce.date(),
+    stops: z.array(RoundStop),
+    /** Still to collect. */
+    totalIqd: Iqd,
+    /** S-K5: collected on tonight's round so far ("جمعنا 612,000 من 746,710 دينار"). */
+    collectedIqd: Iqd.optional(),
+    /** collected + still to collect. */
+    targetIqd: Iqd.optional(),
+    /** Tonight's round window (receipts from `from` count as collected on this round). */
+    from: z.coerce.date().optional(),
+  }),
   nightly: NightlyCheck,
   totals: z.object({ cashInFieldIqd: Iqd, merchantsPayableIqd: z.number().int(), collectedTodayIqd: Iqd, couriersOverCap: z.number().int() }),
 });
@@ -333,6 +361,10 @@ export const LaunchMetric = z.object({
   /** Meets the playbook target. null = not enough data yet. */
   ok: z.boolean().nullable(),
   hint_ar: z.string().nullable(),
+  /** S-K6: the same tile 24 hours ago (trend arrow vs yesterday); null when it can't be known. */
+  previous: z.number().nullable().optional(),
+  /** Which way is better for this tile: up (acceptance, orders) or down (minutes, open disputes). */
+  better: z.enum(['up', 'down']).optional(),
 });
 export type LaunchMetric = z.infer<typeof LaunchMetric>;
 

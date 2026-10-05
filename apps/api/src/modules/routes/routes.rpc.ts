@@ -66,11 +66,11 @@ export class RoutesRpc implements RoutesPort {
   ) {}
 
   /** Seats booked (held seats that were booked, any later state but cancelled) since `since` — launch wall. */
-  async seatsBookedSince(since: Date): Promise<number> {
+  async seatsBookedSince(since: Date, to?: Date): Promise<number> {
     let seats = 0;
     for (const d of await this.repo.listDepartures({ from: new Date(since.getTime() - 86_400_000) })) {
       for (const b of await this.repo.bookingsFor(d.id)) {
-        if (b.bookedAt && b.bookedAt.getTime() >= since.getTime() && !['cancelled', 'cancelled_by_rider', 'expired'].includes(b.state)) seats += b.seatIds.length;
+        if (b.bookedAt && b.bookedAt.getTime() >= since.getTime() && (!to || b.bookedAt.getTime() < to.getTime()) && !['cancelled', 'cancelled_by_rider', 'expired'].includes(b.state)) seats += b.seatIds.length;
       }
     }
     return seats;

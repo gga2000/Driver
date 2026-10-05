@@ -41,6 +41,7 @@ import {
         hasRole: (personId, kind, orgId) => identity.hasRole(personId, kind, orgId),
         courierFirstName: async (courierId, accessorId) => (await identity.courierCard(courierId, accessorId)).firstName,
         courierVehicle: async (courierId, vehicleId) => (await vehicles.forCourier(courierId, vehicleId))?.vehicleClass ?? null,
+        courierPlate: async (courierId, vehicleId) => (await vehicles.forCourier(courierId, vehicleId))?.plate ?? null,
       }),
       inject: [IdentityService, COURIER_VEHICLES],
     },

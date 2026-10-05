@@ -143,6 +143,19 @@ describe('merchant board — courier state', () => {
     expect(here).toMatchObject({ state: 'arrived', arrivedAt: min(4), etaMinutes: null });
     expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null }).state).toBe('picked_up');
   });
+
+  it('S-M4: carries his plate once he has the trip, so the counter knows whom to hand it to', () => {
+    const here = courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null, plate: 'واسط 45671' });
+    expect(here).toMatchObject({ state: 'arrived', firstName: 'حيدر', plate: 'واسط 45671' });
+    expect(courierView('ord_1', { trip: { state: 'offered', courierId: null, stops: [] }, firstName: null, vehicleClass: null, etaMinutes: null, plate: 'x' }).plate).toBeNull();
+  });
+
+  it('S-M4: a ready card says when the kitchen handed it over ("سلّمته")', () => {
+    const ready = order({ state: 'ready', acceptedAt: min(1), promisedReadyAt: min(11), readyAt: min(10) });
+    const nobody = { state: 'none' as const, firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null };
+    expect(toBoardOrder({ order: ready, itemNames: NAMES, courier: nobody, acceptWindowSec: 90, now: min(12) })!.handedOverAt).toBeNull();
+    expect(toBoardOrder({ order: { ...ready, handedOverAt: min(13) }, itemNames: NAMES, courier: nobody, acceptWindowSec: 90, now: min(14) })!.handedOverAt).toEqual(min(13));
+  });
 });
 
 describe('merchant store status', () => {

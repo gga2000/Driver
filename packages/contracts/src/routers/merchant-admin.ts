@@ -8,12 +8,14 @@ import {
   DealView,
   ImportFromPhotosInput,
   ImportJobInput,
+  DaySummaryInput,
   InsightsInput,
   InviteStaffInput,
   MenuImportJob,
   MenuItemIdInput,
   MerchantCashAccount,
   MerchantDispute,
+  MerchantDaySummary,
   MerchantInsights,
   MerchantScope,
   MoneyToday,
@@ -89,6 +91,8 @@ export const merchantAdminRouter = router({
     respondDispute: p.input(RespondDisputeInput).output(MerchantDispute).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyRespondDispute(ctx.actor, input)),
   }),
   insights: p.input(InsightsInput).output(MerchantInsights).query(({ ctx, input }) => ctx.merchantAdmin.insights(ctx.actor, input)),
+  /** S-M6: the day's summary card (at close, or from 00:30 for the day before); owner and staff. */
+  daySummary: p.input(DaySummaryInput).output(MerchantDaySummary).query(({ ctx, input }) => ctx.merchantAdmin.daySummary(ctx.actor, input)),
   staff: router({
     list: p.input(MerchantScope).output(z.array(StaffMember)).query(({ ctx, input }) => ctx.merchantAdmin.staffList(ctx.actor, input)),
     invite: p.input(InviteStaffInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffInvite(ctx.actor, input)),

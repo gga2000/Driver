@@ -81,6 +81,8 @@ export const BoardCourier = z.object({
   etaMinutes: z.number().int().nullable(),
   /** When he reached the counter (`arrived`): the kitchen sees how long he has waited. */
   arrivedAt: z.coerce.date().nullable(),
+  /** His number plate ("واسط 45671") once he has the trip, so the counter knows whom to hand it to (S-M4). */
+  plate: z.string().nullable().optional(),
 });
 export type BoardCourier = z.infer<typeof BoardCourier>;
 
@@ -120,6 +122,8 @@ export const BoardOrder = z.object({
   catering: z.boolean(),
   /** The kitchen already used its one "+5 د" on this order (MERCHANT_PREP_EXTENSION). */
   prepExtended: z.boolean().optional(),
+  /** S-M4: when the kitchen tapped "سلّمته" (handed the bag to the courier at the pass); null = not yet. */
+  handedOverAt: z.coerce.date().nullable().optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
 

@@ -55,6 +55,8 @@ export interface MerchantPeoplePort {
   /** First name only, read from the vault and logged (purpose `courier_card`). */
   courierFirstName(courierId: string, accessorId: string): Promise<string | null>;
   courierVehicle(courierId: string, vehicleId: string | null): Promise<VehicleClass | null>;
+  /** His number plate (S-M4: the kitchen knows whom to hand the bag to); optional for fakes. */
+  courierPlate?(courierId: string, vehicleId: string | null): Promise<string | null>;
 }
 export interface MerchantStoresPort {
   /** Throws `org_not_found` for an unknown org. */
@@ -316,7 +318,7 @@ export class MerchantService implements MerchantPort {
   }
 
   private async courierOf(order: Order, kitchen: LatLng | null, readerId: string): Promise<BoardCourier> {
-    const nobody = { firstName: null, vehicleClass: null, etaMinutes: null };
+    const nobody = { firstName: null, vehicleClass: null, etaMinutes: null, plate: null };
     // Only accepted orders get a courier (dispatch starts on `order.accepted`).
     if (order.state === 'placed') return courierView(order.id, { trip: null, ...nobody });
     const trip = await this.trips.activeForOrder(order.id);
@@ -324,6 +326,7 @@ export class MerchantService implements MerchantPort {
     if (!trip) return courierView(order.id, { trip: { state: 'created', courierId: null, stops: [] }, ...nobody });
     let firstName: string | null = null;
     let vehicleClass: VehicleClass | null = null;
+    let plate: string | null = null;
     let position: LatLng | null = null;
     if (trip.courierId) {
       const key = `${trip.id}:${trip.courierId}:${readerId}`;
@@ -333,9 +336,10 @@ export class MerchantService implements MerchantPort {
       }
       firstName = this.names.get(key) ?? null;
       vehicleClass = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
+      plate = (await this.people.courierPlate?.(trip.courierId, trip.vehicleId ?? null)) ?? null;
       position = (await this.trips.lastPosition(trip.id))?.pin ?? null;
     }
-    const view = courierView(order.id, { trip, firstName, vehicleClass, etaMinutes: null });
+    const view = courierView(order.id, { trip, firstName, vehicleClass, etaMinutes: null, plate });
     if (view.state !== 'on_the_way' || !position || !kitchen) return view;
     // One ETA everywhere (maps program SP4b): the same service the customer's screen uses.
     return { ...view, etaMinutes: (await this.eta.minutes(position, kitchen, vehicleClass ?? 'bike')).minutes };

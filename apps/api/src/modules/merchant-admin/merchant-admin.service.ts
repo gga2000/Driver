@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
@@ -11,6 +11,7 @@ import {
   type MenuImportJob,
   type MerchantAdminPort,
   type MerchantCashAccount,
+  type MerchantDaySummary,
   type MerchantDispute,
   type MerchantInsights,
   type MerchantScope,
@@ -26,16 +27,18 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { localDateKey, localPeriod } from '../../shared/local-time.js';
+import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
 import { CatalogService, itemOnSale, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { Accounts, LedgerFacade, LedgerService } from '../ledger/index.js';
-import { OrdersService } from '../orders/index.js';
+import { MerchantService } from '../merchant/index.js';
+import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
+import { composeDaySummary, summaryDay } from './day-summary.js';
 import { composeInsights, defaultOutcome, disputeKindOf, staffInsights } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
@@ -71,6 +74,7 @@ export class MerchantAdminService implements MerchantAdminPort {
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() private readonly merchant?: MerchantService,
   ) {}
 
   // ───────────────────────── access ─────────────────────────
@@ -498,6 +502,41 @@ export class MerchantAdminService implements MerchantAdminPort {
     // Review 2026-10-04 #10: money views are owner-only. Staff keep prep honesty, rejections, ratings,
     // peaks and what sells — ranked by quantity, without what each item brought in.
     return role === 'merchant_owner' ? insights : staffInsights(insights);
+  }
+
+  // ───────────────────────── end of day (S-M6) ─────────────────────────
+
+  /**
+   * The day's summary card: orders, misses, on-time share, net (owner only) and one advice line, for
+   * a Baghdad local day. Without `date`: the day the card is about now — today once the store is
+   * closed for the day, or the day before from 00:30 to 05:00 (`due` says whether to show it).
+   */
+  async daySummary(actor: Actor, input: { merchantOrgId: string; date?: string | undefined }): Promise<MerchantDaySummary> {
+    const role = await this.roleAt(actor, input.merchantOrgId);
+    const now = this.clock.now();
+    const status = this.merchant ? await this.merchant.storeStatus(actor, { merchantOrgId: input.merchantOrgId }) : null;
+    const closedNow = Boolean(status && (status.closed !== null || status.schedule?.inHours === false));
+    const auto = summaryDay(now, closedNow);
+    const day = input.date ? { localDate: input.date, due: input.date === auto.localDate && auto.due, reason: input.date === auto.localDate ? auto.reason : null } : auto;
+    const from = startOfLocalDay(new Date(`${day.localDate}T12:00:00+03:00`));
+    const range = { from, to: new Date(from.getTime() + DAY_MS) };
+    const org = await this.orgs.get(input.merchantOrgId);
+    const settings = await this.orgs.merchantSettings(input.merchantOrgId);
+    const pauses = settings.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
+    const ordersById = await this.ordersIn(input.merchantOrgId, range);
+    let netIqd: number | null = null;
+    if (role === 'merchant_owner') {
+      const [statement, balance] = await Promise.all([this.ledger.statement(Accounts.merchantCash(input.merchantOrgId), range), this.ledgerFacade.merchantBalance(input.merchantOrgId)]);
+      netIqd = composeMoneyToday({ merchantOrgId: input.merchantOrgId, localDate: day.localDate, statement, orders: ordersById, balance, rules: AZIZIYAH_MONEY_RULES }).netIqd;
+    }
+    return composeDaySummary({
+      merchantOrgId: input.merchantOrgId,
+      storeName: org.name,
+      day,
+      orders: [...ordersById.values()],
+      inPause: (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null,
+      netIqd,
+    });
   }
 
   // ───────────────────────── staff ─────────────────────────

@@ -19,6 +19,27 @@ export const WEEK_ONE_TARGETS = {
 
 const DAY_MS = 86_400_000;
 
+/**
+ * The tiles as they stood 24 hours ago (S-K6 trend arrows): the week's median and acceptance cut at
+ * now − 24 h, yesterday's orders up to this clock time, seats booked by then. null = unknowable
+ * (the launch week had not started, or no sample).
+ */
+export function yesterdayValues(input: {
+  durations: readonly number[] | null;
+  offers: { accepted: number; declined: number; timedOut: number } | null;
+  ordersByNow: number;
+  seats: number | null;
+}): { median_delivery: number | null; acceptance: number | null; orders_day: number; rajaa_seats: number | null } {
+  const med = input.durations ? median(input.durations) : null;
+  const answered = input.offers ? input.offers.accepted + input.offers.declined + input.offers.timedOut : 0;
+  return {
+    median_delivery: med === null ? null : Math.round(med * 10) / 10,
+    acceptance: input.offers && answered > 0 ? input.offers.accepted / answered : null,
+    orders_day: input.ordersByNow,
+    rajaa_seats: input.seats,
+  };
+}
+
 export function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const s = [...values].sort((a, b) => a - b);
@@ -46,14 +67,22 @@ export class LaunchMetricsService {
     const now = this.clock.now();
     const since = input.since ?? new Date(startOfLocalDay(now).getTime() - 6 * DAY_MS);
     const day = Math.max(1, Math.floor((startOfLocalDay(now).getTime() - startOfLocalDay(since).getTime()) / DAY_MS) + 1);
-    const [durations, offers, tickets, perDay, seats, nightly] = await Promise.all([
+    // S-K6: each tile as it stood 24 hours ago (same window, cut at now − 24 h), for the trend arrow.
+    const dayAgo = new Date(now.getTime() - DAY_MS);
+    const hadYesterday = dayAgo.getTime() > since.getTime();
+    const [durations, offers, tickets, perDay, seats, nightly, prevDurations, prevOffers, prevPerDay, prevSeats] = await Promise.all([
       this.orders.deliveryDurations(input.cityId, since, now),
       this.dispatch.offerOutcomes(since),
       this.support.overdue(input.cityId),
       this.orders.placedPerDay(input.cityId, since, now),
       this.routes.seatsBookedSince(since),
       this.finance.nightly(),
+      hadYesterday ? this.orders.deliveryDurations(input.cityId, since, dayAgo) : Promise.resolve(null),
+      hadYesterday ? this.dispatch.offerOutcomes(since, dayAgo) : Promise.resolve(null),
+      this.orders.placedPerDay(input.cityId, startOfLocalDay(dayAgo), dayAgo),
+      hadYesterday ? this.routes.seatsBookedSince(since, dayAgo) : Promise.resolve(null),
     ]);
+    const prev = yesterdayValues({ durations: prevDurations, offers: prevOffers, ordersByNow: [...prevPerDay.values()].reduce((a, n) => a + n, 0), seats: prevSeats });
     const med = median(durations);
     const answered = offers.accepted + offers.declined + offers.timedOut;
     const acceptance = answered > 0 ? offers.accepted / answered : null;
@@ -70,10 +99,12 @@ export class LaunchMetricsService {
         key: 'median_delivery',
         label_ar: 'وسيط وقت التوصيل',
         value: med === null ? null : Math.round(med * 10) / 10,
-        display: med === null ? '—' : `${Math.round(med)} د`,
+        display: med === null ? '—' : `${Math.round(med)} دقيقة`,
         target_ar: `أقل من ${WEEK_ONE_TARGETS.medianDeliveryMin} دقيقة`,
         ok: med === null ? null : med < WEEK_ONE_TARGETS.medianDeliveryMin,
         hint_ar: durations.length > 0 ? `${durations.length} طلب موصول` : 'ماكو طلبات موصولة بعد',
+        previous: prev.median_delivery,
+        better: 'down',
       },
       {
         key: 'acceptance',
@@ -83,6 +114,8 @@ export class LaunchMetricsService {
         target_ar: `أكثر من ${Math.round(WEEK_ONE_TARGETS.acceptanceRate * 100)}%`,
         ok: acceptance === null ? null : acceptance > WEEK_ONE_TARGETS.acceptanceRate,
         hint_ar: `${offers.accepted} مقبول من ${answered} عرض`,
+        previous: prev.acceptance,
+        better: 'up',
       },
       {
         key: 'disputes_24h',
@@ -92,6 +125,9 @@ export class LaunchMetricsService {
         target_ar: 'صفر',
         ok: tickets.overdue24h <= WEEK_ONE_TARGETS.disputesOver24h,
         hint_ar: `${tickets.open} تذكرة مفتوحة`,
+        // Tickets closed since then are gone from the open list: yesterday's count can't be rebuilt.
+        previous: null,
+        better: 'down',
       },
       {
         key: 'orders_day',
@@ -101,6 +137,8 @@ export class LaunchMetricsService {
         target_ar: `${WEEK_ONE_TARGETS.ordersPerDayByDay7}+ باليوم السابع`,
         ok: byDay7(today >= WEEK_ONE_TARGETS.ordersPerDayByDay7),
         hint_ar: `اليوم ${day} من الأسبوع الأول`,
+        previous: prev.orders_day,
+        better: 'up',
       },
       {
         key: 'rajaa_seats',
@@ -110,6 +148,8 @@ export class LaunchMetricsService {
         target_ar: `${WEEK_ONE_TARGETS.rajaaSeats}+ بالأسبوع`,
         ok: byDay7(seats >= WEEK_ONE_TARGETS.rajaaSeats),
         hint_ar: 'من بداية الأسبوع',
+        previous: prev.rajaa_seats,
+        better: 'up',
       },
       {
         key: 'ledger',

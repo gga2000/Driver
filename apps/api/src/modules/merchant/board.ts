@@ -96,6 +96,8 @@ export interface CourierFacts {
   vehicleClass: BoardCourier['vehicleClass'];
   /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
   etaMinutes: number | null;
+  /** His number plate (S-M4); absent/null when the registry has none. */
+  plate?: string | null;
 }
 
 /**
@@ -103,12 +105,12 @@ export interface CourierFacts {
  * to the counter (from his last fix); "الدليفري وصل" with the time he got there; gone once he left.
  */
 export function courierView(orderId: string, f: CourierFacts): BoardCourier {
-  const none: BoardCourier = { state: 'none', firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null };
+  const none: BoardCourier = { state: 'none', firstName: null, vehicleClass: null, etaMinutes: null, arrivedAt: null, plate: null };
   const t = f.trip;
   if (!t) return none;
   if (!t.courierId || t.state === 'created' || t.state === 'offered' || t.state === 'declined' || t.state === 'timed_out') return { ...none, state: 'searching' };
   const pickup = t.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
-  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass };
+  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null };
   if (pickup?.state === 'completed' || t.state === 'in_transit' || t.state === 'arrived_dropoff' || t.state === 'completed') {
     return { ...none, ...who, state: 'picked_up' };
   }
@@ -161,6 +163,7 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     late: column === 'preparing' && o.promisedReadyAt !== null && now.getTime() > o.promisedReadyAt.getTime(),
     catering: o.cateringRequest,
     prepExtended: o.prepExtendedAt != null,
+    handedOverAt: o.handedOverAt ?? null,
   };
 }
 

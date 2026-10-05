@@ -8,12 +8,12 @@ import {
   type HandoverRow,
   type MerchantPayableRow,
   type NightlyCheck,
-  type RoundStop,
+  type RoundCollection,
   type SettlementExport,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import { BAGHDAD_OFFSET_MIN, localDateKey, startOfLocalDay } from '../../shared/local-time.js';
+import { BAGHDAD_OFFSET_MIN, localDateKey, localHour, startOfLocalDay } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { ConsoleReadService } from '../console/index.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
@@ -24,7 +24,36 @@ import { OrgsService } from '../orgs/index.js';
 
 /** The week-one cash collection round (launch playbook §4): 23:00 local. */
 export const ROUND_HOUR_LOCAL = 23;
+/** Receipts from 18:00 Baghdad count towards tonight's round ("جمعنا … من …", S-K5)… */
+export const ROUND_WINDOW_FROM_HOUR = 18;
+/** …and the night runs until 06:00, so a round that goes past midnight stays one round. */
+export const ROUND_WINDOW_UNTIL_HOUR = 6;
 const UNKNOWN_ZONE = 'unknown';
+const HOUR_MS = 3_600_000;
+
+/** Tonight's round window start: 18:00 today, or 18:00 yesterday while it is still before 06:00. */
+export function roundWindowStart(now: Date): Date {
+  const today = startOfLocalDay(now);
+  const day = localHour(now) < ROUND_WINDOW_UNTIL_HOUR ? new Date(today.getTime() - 24 * HOUR_MS) : today;
+  return new Date(day.getTime() + ROUND_WINDOW_FROM_HOUR * HOUR_MS);
+}
+
+/** One courier's ops-round receipts in the window, summed, with the latest time and reference. */
+export function roundCollections(lines: ReadonlyArray<{ type: string; toAccount: string; amount: number; memo?: string | null | undefined; occurredAt: Date }>): Map<string, RoundCollection> {
+  const out = new Map<string, RoundCollection>();
+  for (const e of lines) {
+    if (e.type !== 'driver_settlement' || !e.memo?.startsWith('ops_round') || !e.toAccount.startsWith('cash:')) continue;
+    const courierId = e.toAccount.slice('cash:'.length);
+    const prev = out.get(courierId);
+    const reference = e.memo.includes(':') ? e.memo.slice(e.memo.indexOf(':') + 1) : null;
+    out.set(courierId, {
+      amountIqd: (prev?.amountIqd ?? 0) + e.amount,
+      at: prev && prev.at > e.occurredAt ? prev.at : e.occurredAt,
+      reference: prev && prev.at > e.occurredAt ? prev.reference : reference,
+    });
+  }
+  return out;
+}
 
 /** Great-circle-free distance for ordering stops inside a ~10 km town (equirectangular, km). */
 function km(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -160,24 +189,52 @@ export class FinanceDeskService {
     return rows.sort((a, b) => b.at.getTime() - a.at.getTime());
   }
 
-  private round(couriers: CourierCashRow[], cityId: string, at: Date): { at: Date; stops: RoundStop[]; totalIqd: number } {
-    const byZone = new Map<string, CourierCashRow[]>();
+  /**
+   * The round as a route through the zones. Couriers ticked off tonight stay on their stop with what
+   * was taken ("استلمت"), even when they now hold nothing, so the round reads as progress.
+   */
+  private round(
+    couriers: CourierCashRow[],
+    cityId: string,
+    at: Date,
+    tonight: { from: Date; collected: ReadonlyMap<string, RoundCollection>; collectedOnly: ReadonlyArray<{ driverId: string; name: string | null; zoneKey: string | null }> } = { from: at, collected: new Map(), collectedOnly: [] },
+  ): FinanceDeskView['round'] {
+    const byZone = new Map<string, Array<Pick<CourierCashRow, 'driverId' | 'name' | 'heldIqd' | 'overCap'>>>();
     for (const c of couriers) {
       const z = c.zoneKey ?? UNKNOWN_ZONE;
       byZone.set(z, [...(byZone.get(z) ?? []), c]);
     }
+    for (const c of tonight.collectedOnly) {
+      const z = c.zoneKey ?? UNKNOWN_ZONE;
+      byZone.set(z, [...(byZone.get(z) ?? []), { driverId: c.driverId, name: c.name, heldIqd: 0, overCap: false }]);
+    }
     const centroids = new Map(cityId === 'aziziyah' ? AZIZIYAH_ZONES.map((z) => [z.id, { lat: z.lat, lng: z.lng }] as const) : []);
     const stops = roundOrder([...byZone.keys()], centroids).map((zoneKey, i) => {
       const list = (byZone.get(zoneKey) ?? []).sort((a, b) => Number(b.overCap) - Number(a.overCap) || b.heldIqd - a.heldIqd);
+      const collected = list.map((c) => tonight.collected.get(c.driverId) ?? null);
       return {
         seq: i + 1,
         zoneKey,
         zone_ar: zoneKey === UNKNOWN_ZONE ? 'غير متصلين (اتصل بيهم)' : (this.zoneName(cityId, zoneKey) ?? zoneKey),
-        couriers: list.map((c) => ({ driverId: c.driverId, name: c.name, heldIqd: c.heldIqd, overCap: c.overCap })),
+        couriers: list.map((c, j) => ({ driverId: c.driverId, name: c.name, heldIqd: c.heldIqd, overCap: c.overCap, collected: collected[j] ?? null })),
         totalIqd: list.reduce((a, c) => a + c.heldIqd, 0),
+        collectedIqd: collected.reduce((a, c) => a + (c?.amountIqd ?? 0), 0),
       };
     });
-    return { at, stops, totalIqd: stops.reduce((a, s) => a + s.totalIqd, 0) };
+    const totalIqd = stops.reduce((a, s) => a + s.totalIqd, 0);
+    const collectedIqd = stops.reduce((a, s) => a + (s.collectedIqd ?? 0), 0);
+    return { at, stops, totalIqd, collectedIqd, targetIqd: totalIqd + collectedIqd, from: tonight.from };
+  }
+
+  /** Tonight's ops-round receipts, and the couriers who were emptied by them (no longer cash holders). */
+  private async tonight(actor: Actor, cityId: string, now: Date, couriers: CourierCashRow[]) {
+    const from = roundWindowStart(now);
+    const collected = roundCollections(await this.ledger.eventsOfTypes(['driver_settlement'], from, new Date(now.getTime() + 1)));
+    const holders = new Set(couriers.map((c) => c.driverId));
+    const emptied = [...collected.keys()].filter((id) => !holders.has(id));
+    const names = emptied.length ? await this.names.of(emptied, actor.personId, 'finance_cash_desk') : {};
+    const live = emptied.length ? new Map((await this.dispatch.liveDrivers(cityId, now)).map((d) => [d.presence.driverId, d.presence.zoneId ?? null])) : new Map<string, string | null>();
+    return { from, collected, collectedOnly: emptied.map((driverId) => ({ driverId, name: names[driverId] ?? null, zoneKey: live.get(driverId) ?? null })) };
   }
 
   /** The live invariant ("الدفتر متوازن") and the latest 02:00 close on file. */
@@ -219,7 +276,7 @@ export class FinanceDeskService {
       couriers,
       merchants,
       handovers,
-      round: this.round(couriers, cityId, this.roundAt(now)),
+      round: this.round(couriers, cityId, this.roundAt(now), await this.tonight(actor, cityId, now, couriers)),
       nightly,
       totals: {
         cashInFieldIqd: couriers.reduce((a, c) => a + c.heldIqd, 0),
@@ -259,8 +316,8 @@ export class FinanceDeskService {
         break;
       case 'round':
         csv = toCsv(
-          ['stop', 'zone', 'driver_id', 'courier', 'held_iqd', 'over_cap'],
-          desk.round.stops.flatMap((s) => s.couriers.map((c) => [s.seq, s.zone_ar, c.driverId, c.name, c.heldIqd, c.overCap ? 'yes' : 'no'])),
+          ['stop', 'zone', 'driver_id', 'courier', 'held_iqd', 'over_cap', 'collected_iqd', 'collected_ref'],
+          desk.round.stops.flatMap((s) => s.couriers.map((c) => [s.seq, s.zone_ar, c.driverId, c.name, c.heldIqd, c.overCap ? 'yes' : 'no', c.collected?.amountIqd ?? 0, c.collected?.reference ?? ''])),
         );
         rows = desk.round.stops.reduce((a, s) => a + s.couriers.length, 0);
         break;

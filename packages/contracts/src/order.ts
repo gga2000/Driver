@@ -199,6 +199,8 @@ export const Order = z.object({
   promisedReadyAt: z.coerce.date().nullable(),
   /** When the kitchen used its one "+5 د" (MERCHANT_PREP_EXTENSION); null/absent = not used. */
   prepExtendedAt: z.coerce.date().nullable().optional(),
+  /** S-M4: when the kitchen recorded handing the order to the courier ("سلّمته"); null/absent = not yet. */
+  handedOverAt: z.coerce.date().nullable().optional(),
   placedAt: z.coerce.date(),
   acceptedAt: z.coerce.date().nullable(),
   preparingAt: z.coerce.date().nullable(),
@@ -320,6 +322,14 @@ export const MERCHANT_PREP_EXTENSION = { minutes: 5, perOrder: 1 } as const;
 export const MerchantExtendPrepInput = z.object({ orderId: z.string().min(1) });
 export type MerchantExtendPrepInput = z.infer<typeof MerchantExtendPrepInput>;
 
+/**
+ * "سلّمته" (UI/UX audit S-M4): the kitchen records handing the order to the courier at the pass. Only
+ * once the courier is at the counter (or has already confirmed pickup); idempotent — a second tap
+ * returns the first record. It changes no state and no money: the courier's own pickup does that.
+ */
+export const MerchantHandOverInput = z.object({ orderId: z.string().min(1) });
+export type MerchantHandOverInput = z.infer<typeof MerchantHandOverInput>;
+
 /** What the API supplies to the orders router (implemented by `modules/orders`). */
 export interface OrdersPort {
   place(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<Order>;
@@ -342,6 +352,8 @@ export interface OrdersPort {
   merchantHeartbeat(actor: Actor, input: { merchantOrgId: string }): Promise<{ ok: true }>;
   /** "+5 د": once per accepted order (MERCHANT_PREP_EXTENSION); `prep_already_extended` after that. */
   merchantExtendPrep(actor: Actor, input: MerchantExtendPrepInput): Promise<Order>;
+  /** "سلّمته" (S-M4): records the hand-over at the pass (event + order history); idempotent. */
+  merchantHandOver(actor: Actor, input: MerchantHandOverInput): Promise<Order>;
 }
 
 /**

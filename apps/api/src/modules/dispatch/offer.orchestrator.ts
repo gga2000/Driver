@@ -903,8 +903,9 @@ export class OfferOrchestrator {
 
   /** Offers accepted since `since` and the mean seconds from send to accept (Console right-now bar). */
   /** Offers sent since `since`, by outcome (launch wall: acceptance rate = accepted / answered). */
-  async offerOutcomes(since: Date): Promise<{ accepted: number; declined: number; timedOut: number; open: number }> {
-    const rows = await this.repo.sentSince(since);
+  /** Offers sent in `[since, to)` by how they ended (`to` defaults to now: the wall's "vs yesterday" passes now − 24 h). */
+  async offerOutcomes(since: Date, to?: Date): Promise<{ accepted: number; declined: number; timedOut: number; open: number }> {
+    const rows = (await this.repo.sentSince(since)).filter((o) => !to || o.sentAt.getTime() < to.getTime());
     const n = (st: string) => rows.filter((o) => o.state === st).length;
     return { accepted: n('accepted'), declined: n('declined'), timedOut: n('timed_out'), open: n('sent') + n('seen') };
   }
