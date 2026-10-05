@@ -25,6 +25,8 @@ import {
   SeatMap,
   SegmentedControl,
   Sheet,
+  SosButton,
+  SosSheet,
   Skeleton,
   StatusPill,
   Stepper,
@@ -878,6 +880,36 @@ function TimersSection() {
   );
 }
 
+/* ───────────────────────── SOS ───────────────────────── */
+
+function SosSection() {
+  const theme = useTheme();
+  const toast = useToast();
+  const [start] = useState(() => Date.now());
+  const frozen = useMemo(() => () => start, [start]);
+  return (
+    <Section title="الطوارئ" note="اضغط 3 ثواني: الحلقة تتعبى بالأحمر وكل ثانية هزة. إذا شلت إصبعك قبلها ما ينرسل شي. بعد ما يوصل، 10 ثواني تگدر تكنسل.">
+      <Panel row gap={6}>
+        <View style={{ alignItems: 'center', gap: theme.space[2] }}>
+          <SosButton onTrigger={() => toast.show({ message: t('safety.sos_sent'), tone: 'danger', icon: 'sos' })} onRelease={() => toast.show({ message: t('sos.released'), tone: 'info' })} />
+          <Caption>بالهيدر</Caption>
+        </View>
+        <View style={{ alignItems: 'center', gap: theme.space[2] }}>
+          <SosButton variant="round" onTrigger={() => toast.show({ message: t('safety.sos_sent'), tone: 'danger', icon: 'sos' })} />
+          <Caption>دائري</Caption>
+        </View>
+        <View style={{ alignItems: 'center', gap: theme.space[2] }}>
+          <SosButton active onTrigger={() => undefined} onPressActive={() => undefined} />
+          <Caption>التنبيه شغّال</Caption>
+        </View>
+      </Panel>
+      <View style={{ height: 470, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+        <SosSheet phase="open" cancelUntil={start + 8_000} clock={frozen} contactName="أم زينب" onCancel={() => undefined} onClose={() => undefined} onCallPolice={() => undefined} />
+      </View>
+    </Section>
+  );
+}
+
 /* ───────────────────────── states ───────────────────────── */
 
 function StatesSection() {
@@ -951,6 +983,7 @@ function Page() {
           <FieldsSection />
           <StatesSection />
           <TimersSection />
+          <SosSection />
           <TypeSection />
           <IconsSection />
         </View>
