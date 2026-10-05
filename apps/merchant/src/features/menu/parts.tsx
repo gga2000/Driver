@@ -3,6 +3,7 @@ import { Image, Pressable, Switch, View, type StyleProp, type ViewStyle } from '
 import { Text, useTheme, type StatusTone } from '@driver/ui';
 import { Glyph, type GlyphName } from './Glyph';
 import { absoluteUrl } from './photo';
+import { color as palette } from '@driver/design-tokens';
 
 /**
  * Small building blocks shared by the menu and deals screens: a big kitchen switch, round glyph
@@ -22,8 +23,8 @@ export function Toggle({ value, onChange, testID, label, disabled }: { value: bo
         onChange(v);
       }}
       trackColor={{ true: theme.colors.success, false: theme.colors.borderStrong }}
-      thumbColor="#FFFFFF"
-      {...({ activeThumbColor: '#FFFFFF' } as object)}
+      thumbColor={palette.neutral[0]}
+      {...({ activeThumbColor: palette.neutral[0] } as object)}
     />
   );
 }

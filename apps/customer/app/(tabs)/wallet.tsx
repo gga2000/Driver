@@ -105,7 +105,7 @@ function Wallet() {
               testID="wallet-topup-pending"
               accessibilityRole="button"
               onPress={() => router.push('/topup')}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: 'rgba(255,255,255,0.10)' }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: withAlpha(color.neutral[0], 0.1) }}
             >
               <Icon name="clock" size={18} color={theme.colors.accentTint} />
               <Text variant="footnote" color={theme.colors.bg} style={{ flex: 1 }}>

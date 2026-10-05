@@ -403,14 +403,14 @@ function Meta({ mine, time, state, t }: { mine: boolean; time: Date; state: 'sen
   const tone = state === 'failed' ? 'dangerText' : state === 'read' ? 'successText' : 'textMuted';
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: mine ? 'flex-start' : 'flex-end', paddingHorizontal: theme.space[1] }}>
-      <Text variant="caption" color="textMuted" tabular style={{ fontSize: 11, lineHeight: 16 }}>
+      <Text variant="caption" color="textMuted" tabular style={{ lineHeight: 18 }}>
         {formatClock(time)}
       </Text>
       {state ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }} accessibilityLabel={t(`chat.${state}` as const)}>
           <Icon name={state === 'read' ? 'check-double' : state === 'failed' ? 'x' : state === 'sending' ? 'clock' : 'check'} size={13} color={tone} strokeWidth={2.2} />
           {state === 'failed' || state === 'read' ? (
-            <Text variant="caption" color={tone} weight={600} style={{ fontSize: 11, lineHeight: 16 }}>
+            <Text variant="caption" color={tone} weight={600} style={{ lineHeight: 18 }}>
               {t(`chat.${state}` as const)}
             </Text>
           ) : null}

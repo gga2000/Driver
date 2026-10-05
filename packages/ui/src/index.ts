@@ -74,3 +74,6 @@ export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
 export * from './format';
+
+// Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
+export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';

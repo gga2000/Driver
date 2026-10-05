@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { FleetInvite } from '@driver/contracts';
-import { Avatar, Button, Card, Icon, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Avatar, Button, Card, Icon, MAX_CONTENT_WIDTH, ModalSheet, Text, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Glyph } from '@/features/account/Glyph';
-import { ModalSheet } from '@/features/account/ModalSheet';
 import { baghdadDate } from '@/features/ops/logic';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -216,7 +215,7 @@ export function FleetInviteBanner({ invite }: { invite: FleetInvite }) {
         </View>
         <Icon name="chevron-forward" size={20} color="accentText" strokeWidth={2.4} />
       </Pressable>
-      <ModalSheet visible={open} onClose={() => setOpen(false)} testID="fleet-invite-sheet">
+      <ModalSheet layout="sheet" sheetMaxWidth={MAX_CONTENT_WIDTH} closeButton={false} visible={open} onClose={() => setOpen(false)} testID="fleet-invite-sheet">
         <FleetInviteCard invite={invite} flat onAnswered={() => setOpen(false)} />
       </ModalSheet>
     </>
@@ -276,6 +275,9 @@ export function FleetMemberCard({ invite }: { invite: FleetInvite }) {
         />
       </View>
       <ModalSheet
+        layout="sheet"
+        sheetMaxWidth={MAX_CONTENT_WIDTH}
+        closeButton={false}
         visible={confirm}
         onClose={() => setConfirm(false)}
         title={t('partner.fleet_member_leave_title', { fleet })}

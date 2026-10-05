@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import type { MenuImportJob } from '@driver/contracts';
-import { Button, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -13,6 +13,7 @@ import { categoryNames, checkImport, emptyRow, rowProblems, type ImportRow } fro
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
 import { GlyphButton, Panel, Pill } from './parts';
 import { useImportActions, useImportJob, useMenu, usePhotoUpload } from './queries';
+import { color } from '@driver/design-tokens';
 
 type Stage = 'photos' | 'reading' | 'review' | 'done';
 const STAGES: readonly Stage[] = ['photos', 'reading', 'review', 'done'];
@@ -142,8 +143,8 @@ export function ImportScreen() {
               {picked.map((p, i) => (
                 <View key={`${p.uri}-${i}`} style={{ width: wide ? 148 : 100, aspectRatio: 3 / 4, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
                   <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                  <View style={{ position: 'absolute', top: 6, start: 6, paddingHorizontal: 8, height: 24, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(31,26,20,0.7)' }}>
-                    <Text variant="caption" weight={700} style={{ color: '#FFFFFF' }} tabular>
+                  <View style={{ position: 'absolute', top: 6, start: 6, paddingHorizontal: 8, height: 24, borderRadius: 12, justifyContent: 'center', backgroundColor: withAlpha(color.neutral[900], 0.7) }}>
+                    <Text variant="caption" weight={700} style={{ color: color.neutral[0] }} tabular>
                       {i + 1}
                     </Text>
                   </View>

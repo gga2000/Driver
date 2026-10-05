@@ -1,14 +1,14 @@
 import { Platform, View } from 'react-native';
 import { useSyncExternalStore } from 'react';
-import { Button, Text, useTheme } from '@driver/ui';
-import { ModalSheet } from '@/components/ModalSheet';
+import { Button, ModalSheet, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { printInBrowser } from '@/print/printer';
 import { previewQueue } from '@/print/preview-queue';
 import type { Receipt, ReceiptLine } from '@/print/receipt';
+import { color } from '@driver/design-tokens';
 
-const INK = '#111111';
-const PAPER = '#FFFFFF';
+const INK = color.neutral[1000];
+const PAPER = color.neutral[0];
 
 /** One line of the ticket drawn like thermal print: black on white, bold notes, dashed rules. */
 function PaperLine({ line }: { line: ReceiptLine }) {

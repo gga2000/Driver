@@ -10,6 +10,7 @@ import { useRequestTopUp, useTopUpStatus } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { color } from '@driver/design-tokens';
 
 const PRESETS = [10_000, 25_000, 50_000, 100_000];
 
@@ -188,7 +189,7 @@ function CodeView({ v, onChange, onNew }: { v: TopUpView; onChange: () => void; 
           <Text testID="topup-code-digits" variant="numeralMd" style={{ letterSpacing: 6 }} accessibilityLabel={v.code.split('').join(' ')}>
             {spacedCode(v.code)}
           </Text>
-          <View style={{ padding: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: theme.colors.border }}>
+          <View style={{ padding: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: color.neutral[0], borderWidth: 1, borderColor: theme.colors.border }}>
             <QrCode value={v.qrPayload} size={172} testID="topup-qr" />
           </View>
           <Text variant="footnote" color="textMuted">

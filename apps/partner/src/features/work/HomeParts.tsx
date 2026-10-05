@@ -167,7 +167,7 @@ export function ActiveJobBanner() {
       <Text variant="label" weight={600} color="surface" style={{ flex: 1 }}>
         {t('partner.active_job')}
       </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: withAlpha('#FFFFFF', 0.14), borderRadius: theme.radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: withAlpha(color.neutral[0], 0.14), borderRadius: theme.radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
         <Text variant="label" weight={600} color="surface">
           {t('partner.active_job_open')}
         </Text>

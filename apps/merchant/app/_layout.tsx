@@ -1,11 +1,11 @@
 import { router, Stack, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { Linking, Platform, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { getNetwork, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
+import { getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
@@ -67,14 +67,23 @@ export default function RootLayout() {
             <ApiProvider>
               <StatusBar style="dark" />
               {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SystemBanner />
-              <RootNavigator />
+              <SheetDefaults>
+                <SystemBanner />
+                <RootNavigator />
+              </SheetDefaults>
             </ApiProvider>
           </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+/** Every kitchen sheet closes with "سكّر" and is a bottom sheet on a phone, a dialog on the tablet. */
+function SheetDefaults({ children }: { children: ReactNode }) {
+  const t = useT();
+  const value = useMemo(() => ({ closeLabel: t('merchant.common.close'), layout: 'auto' as const }), [t]);
+  return <ModalSheetDefaultsProvider value={value}>{children}</ModalSheetDefaultsProvider>;
 }
 
 function RootNavigator() {

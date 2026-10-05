@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import type { MenuItem, MenuModifierGroup } from '@driver/contracts';
-import { Button, Card, Chip, ChipGroup, Icon, IconButton, Rule, Sheet, StatusPill, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, ChipGroup, Icon, ModalSheet, Rule, StatusPill, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
@@ -21,7 +22,7 @@ export interface ItemSheetProps {
 }
 
 /**
- * The dish bottom sheet (spec §3): variants first, modifier chips with required/min/max and price
+ * The dish sheet (spec §3) on the shared `ModalSheet` (focus kept inside, back/Escape close it): variants first, modifier chips with required/min/max and price
  * deltas, quantity, "لمن؟" (أنا / saved people / + new person with name and phone), a note for the
  * kitchen (per person when it's someone else's), and the live line price on the add button.
  */
@@ -97,116 +98,106 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   const missing = problems.find((p) => p.problem === 'too_few');
 
   return (
-    <View style={StyleSheet.absoluteFill} testID="item-sheet">
-      <Pressable accessibilityRole="button" accessibilityLabel={t('action.close')} onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.scrim }]} />
-      <Sheet
-        snapPoints={[0.9]}
-        header={
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-            <View style={{ width: 64, height: 64, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
-              <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text variant="title" accessibilityRole="header">
-                {item.name}
-              </Text>
-              {item.description ? (
-                <Text variant="footnote" color="textMuted">
-                  {item.description}
-                </Text>
-              ) : null}
-            </View>
-            <IconButton icon="x" variant="tonal" size={36} accessibilityLabel={t('action.close')} onPress={onClose} testID="item-sheet-close" />
-          </View>
-        }
-      >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], paddingBottom: theme.space[4] }} keyboardShouldPersistTaps="handled">
-            {item.modifierGroups.map((g) => (
-              <ModifierGroupBlock key={g.id} group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} />
-            ))}
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text variant="bodyStrong">{t('item.qty')}</Text>
-              <Stepper value={qty} min={1} max={20} onChange={setQty} accessibilityLabel={t('item.qty')} />
-            </View>
-
-            <Rule />
-
-            <View style={{ gap: theme.space[3] }} testID="item-for-whom">
-              <Text variant="bodyStrong">{t('item.for_whom')}</Text>
-              <ChipGroup
-                items={personItems}
-                value={[personId]}
-                required
-                onChange={(next) => setPersonId(next[0] ?? ME)}
-                accessibilityLabel={t('item.for_whom')}
-                action={{ label: t('item.add_person'), icon: 'plus', onPress: () => setAdding((a) => !a) }}
-              />
-              {adding ? (
-                <Card elevation={0} tone="sunken" padding={3} testID="item-new-person">
-                  <View style={{ gap: theme.space[2] }}>
-                    <TextField testID="item-person-name" value={newName} onChangeText={setNewName} placeholder={t('item.person_name_placeholder')} error={nameError ?? undefined} />
-                    <TextField
-                      testID="item-person-phone"
-                      value={newPhone}
-                      onChangeText={(v) => setNewPhone(formatPhoneInput(v))}
-                      placeholder={t('item.person_phone_placeholder')}
-                      keyboardType="phone-pad"
-                      error={phoneError ?? undefined}
-                    />
-                    <Button size="sm" label={t('item.save_person')} icon="plus" onPress={savePerson} testID="item-person-save" />
-                  </View>
-                </Card>
-              ) : null}
-              {person ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                  <Icon name="gift" size={16} color="successText" />
-                  <Text variant="footnote" color="successText">
-                    {t('item.points_go_to', { name: person.name })}
-                  </Text>
+    <ModalSheet
+      visible
+      onClose={onClose}
+      title={item.name}
+      subtitle={item.description ?? undefined}
+      leading={
+        <View style={{ width: 64, height: 64, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
+          <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
+        </View>
+      }
+      layout="sheet"
+      sheetMaxWidth={MAX_CONTENT_WIDTH}
+      closeLabel={t('action.close')}
+      testID="item-sheet"
+      footer={
+        <>
+          {conflict ? (
+            <Card elevation={0} tone="tint" padding={3} testID="item-conflict">
+              <View style={{ gap: theme.space[2] }}>
+                <Text variant="label">{t('cart.different_restaurant')}</Text>
+                <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                  <Button size="sm" label={t('cart.start_new')} onPress={() => add(true)} testID="item-conflict-replace" />
+                  <Button size="sm" variant="secondary" label={t('cart.keep_current')} onPress={onClose} />
                 </View>
-              ) : null}
-            </View>
+              </View>
+            </Card>
+          ) : missing ? (
+            <Text variant="footnote" color="textMuted" align="center">
+              {t('item.missing_choice', { group: missing.name })}
+            </Text>
+          ) : null}
+          <Button
+            testID="item-add"
+            size="lg"
+            fullWidth
+            disabled={disabled || problems.length > 0 || !item.available}
+            label={item.available ? t('item.add_to_cart', { amount: amountParam(price) }) : t('item.sold_out')}
+            onPress={() => add(false)}
+          />
+        </>
+      }
+    >
+      <View style={{ gap: theme.space[5], paddingTop: theme.space[1] }}>
+        {item.modifierGroups.map((g) => (
+          <ModifierGroupBlock key={g.id} group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} />
+        ))}
 
-            <TextField
-              testID="item-note"
-              label={person ? t('item.person_note', { name: person.name }) : t('cart.note_restaurant')}
-              value={note}
-              onChangeText={setNote}
-              placeholder={t('item.note_placeholder')}
-              maxLength={300}
-            />
-          </ScrollView>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="bodyStrong">{t('item.qty')}</Text>
+          <Stepper value={qty} min={1} max={20} onChange={setQty} accessibilityLabel={t('item.qty')} />
+        </View>
 
-          <View style={{ paddingTop: theme.space[3], paddingBottom: theme.space[4], gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-            {conflict ? (
-              <Card elevation={0} tone="tint" padding={3} testID="item-conflict">
-                <View style={{ gap: theme.space[2] }}>
-                  <Text variant="label">{t('cart.different_restaurant')}</Text>
-                  <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-                    <Button size="sm" label={t('cart.start_new')} onPress={() => add(true)} testID="item-conflict-replace" />
-                    <Button size="sm" variant="secondary" label={t('cart.keep_current')} onPress={onClose} />
-                  </View>
-                </View>
-              </Card>
-            ) : missing ? (
-              <Text variant="footnote" color="textMuted" align="center">
-                {t('item.missing_choice', { group: missing.name })}
+        <Rule />
+
+        <View style={{ gap: theme.space[3] }} testID="item-for-whom">
+          <Text variant="bodyStrong">{t('item.for_whom')}</Text>
+          <ChipGroup
+            items={personItems}
+            value={[personId]}
+            required
+            onChange={(next) => setPersonId(next[0] ?? ME)}
+            accessibilityLabel={t('item.for_whom')}
+            action={{ label: t('item.add_person'), icon: 'plus', onPress: () => setAdding((a) => !a) }}
+          />
+          {adding ? (
+            <Card elevation={0} tone="sunken" padding={3} testID="item-new-person">
+              <View style={{ gap: theme.space[2] }}>
+                <TextField testID="item-person-name" value={newName} onChangeText={setNewName} placeholder={t('item.person_name_placeholder')} error={nameError ?? undefined} />
+                <TextField
+                  testID="item-person-phone"
+                  value={newPhone}
+                  onChangeText={(v) => setNewPhone(formatPhoneInput(v))}
+                  placeholder={t('item.person_phone_placeholder')}
+                  keyboardType="phone-pad"
+                  error={phoneError ?? undefined}
+                />
+                <Button size="sm" label={t('item.save_person')} icon="plus" onPress={savePerson} testID="item-person-save" />
+              </View>
+            </Card>
+          ) : null}
+          {person ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Icon name="gift" size={16} color="successText" />
+              <Text variant="footnote" color="successText">
+                {t('item.points_go_to', { name: person.name })}
               </Text>
-            ) : null}
-            <Button
-              testID="item-add"
-              size="lg"
-              fullWidth
-              disabled={disabled || problems.length > 0 || !item.available}
-              label={item.available ? t('item.add_to_cart', { amount: amountParam(price) }) : t('item.sold_out')}
-              onPress={() => add(false)}
-            />
-          </View>
-        </KeyboardAvoidingView>
-      </Sheet>
-    </View>
+            </View>
+          ) : null}
+        </View>
+
+        <TextField
+          testID="item-note"
+          label={person ? t('item.person_note', { name: person.name }) : t('cart.note_restaurant')}
+          value={note}
+          onChangeText={setNote}
+          placeholder={t('item.note_placeholder')}
+          maxLength={300}
+        />
+      </View>
+    </ModalSheet>
   );
 }
 

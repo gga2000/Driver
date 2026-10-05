@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { MerchantDispute } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
+import { Button, EmptyState, ModalSheet, Skeleton, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
-import { ModalSheet } from '@/components/ModalSheet';
 import { Panel, Tag } from '@/components/Panel';
 import { apiErrorMessage } from '@/lib/api';
 import { useDates } from '@/lib/dates';
