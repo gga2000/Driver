@@ -1252,8 +1252,10 @@ describe('zone editor', () => {
     expect(s.ring[0]).toEqual({ lat: 1, lng: 2 });
   });
   it('a corner edit that leaves the centre outside pulls the centre back in', () => {
-    const s = editorReducer(open, { type: 'removeVertex', index: 3 });
-    expect(s.centre).not.toEqual({ lat: 1, lng: 1 });
+    const nearCorner = editorReducer(closedEditor, { type: 'open', key: 'centre', ring: RING, centre: { lat: 1.8, lng: 1.8 } });
+    const s = editorReducer(nearCorner, { type: 'removeVertex', index: 2 });
+    expect(s.centre).not.toEqual({ lat: 1.8, lng: 1.8 });
+    expect(s.centre.lat + s.centre.lng).toBeLessThan(2);
   });
   it('midpoints sit between each corner and the next', () => {
     expect(midpoints(RING)[0]).toEqual({ lat: 0, lng: 1 });

@@ -114,6 +114,12 @@ export const IconSystem = make(
     <path d="M6 5.75h.01M6 14.25h.01" strokeWidth={2.2} />
   </>,
 );
+export const IconZones = make(
+  <>
+    <path d="M4 6.5 9 3l6.5 2.5L17 11l-4 5.5-7-1L3 11z" />
+    <circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none" />
+  </>,
+);
 export const IconSearch = make(
   <>
     <circle cx="9" cy="9" r="5.5" />

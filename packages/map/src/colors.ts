@@ -15,6 +15,8 @@ export const MAP_COLORS = {
   accentStrong: '#ffb81f',
   line: '#5e5a52',
   muted: '#a39e94',
+  /** Invalid outline in the zone editor (brand Danger, lifted for dark). */
+  danger: '#e07a66',
 } as const;
 
 /**
@@ -32,6 +34,7 @@ export const MAP_COLORS_LIGHT: Readonly<Record<keyof typeof MAP_COLORS, string>>
   accentStrong: '#c77700',
   line: '#d8ccbb',
   muted: '#8a7f73',
+  danger: '#c2412d',
 };
 
 /**

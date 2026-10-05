@@ -81,11 +81,12 @@ describe('visibleNav (K-08)', () => {
     expect(hrefs).not.toContain('/dispatch');
     expect(hrefs).not.toContain('/finance');
   });
-  it('field ops sees approvals and the cash round only; empty groups disappear', () => {
+  it('field ops sees approvals, the cash round and the zone outlines only; empty groups disappear', () => {
     const groups = visibleNav(new Set(['field_ops']), true);
     expect(groups.flatMap((g) => g.items.map((i) => i.href)).sort()).toEqual([
       '/approvals',
       '/finance',
+      '/zones',
     ]);
     expect(groups.every((g) => g.items.length > 0)).toBe(true);
   });

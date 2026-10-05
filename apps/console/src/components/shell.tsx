@@ -28,7 +28,8 @@ export function Shell({ children }: { children: ReactNode }) {
     pathname === '/support' ||
     pathname.startsWith('/support/') ||
     pathname === '/dispatch' ||
-    pathname === '/map';
+    pathname === '/map' ||
+    pathname === '/zones';
 
   const jumps = Object.fromEntries(
     NAV.filter((i) => i.jump).map((i) => [`g ${i.jump}`, () => router.push(i.href)]),

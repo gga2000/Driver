@@ -1,4 +1,4 @@
-import type { RoleKind } from '@driver/contracts';
+import { ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -24,6 +24,7 @@ export type IconName =
   | 'pricing'
   | 'controls'
   | 'wall'
+  | 'zones'
   | 'system';
 
 export interface NavItem {
@@ -81,6 +82,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { href: '/controls', key: 'console.nav_controls', icon: 'controls', roles: READ, jump: 'c' },
       { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
+      { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
       { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
     ],
   },

@@ -27,6 +27,8 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const PORT = Number(process.env.PORT ?? 3395);
 const SIM_SECONDS = Number(process.env.DEMO_SIM_SECONDS ?? 45);
 
+// Outlines drawn in the demo Console (Zones page) are written here so they survive restarts.
+process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-placements.json', import.meta.url));
 const { createApp } = await load('bootstrap.js');
 const { IdentityService } = await load('modules/identity/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
