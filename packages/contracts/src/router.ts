@@ -23,6 +23,7 @@ import { liveRouter } from './routers/live.js';
 import { notifyRouter } from './routers/notify.js';
 import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter } from './routers/control-room.js';
 import { supportRouter } from './routers/support.js';
+import { safetyRouter } from './routers/safety.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -80,6 +81,8 @@ export const appRouter = router({
   // Launch control room (kill switches live under `ops.controls`).
   approvals: approvalsRouter,
   support: supportRouter,
+  // SOS (scoring & safety §3): the person's alert and the Console's incident desk.
+  safety: safetyRouter,
   finance: financeRouter,
   metrics: metricsRouter,
 });

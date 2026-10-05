@@ -1817,6 +1817,99 @@ model Incident {
   @@schema("public")
 }
 
+/// SOS (scoring & safety §3): one alert, held 3 s by a driver or a customer on an active trip. Owned by
+/// the safety module; people, trips, orders, departures and requests are referenced by id only (no
+/// foreign keys across modules). Names and numbers never live here: they are read from the vault and
+/// every read is logged. `client_id` makes a retried press return the same incident.
+model SafetyIncident {
+  id               String    @id @default(cuid())
+  cityId           String    @map("city_id")
+  raiserId         String    @map("raiser_id")
+  /// driver | customer
+  raiserRole       String    @map("raiser_role")
+  /// trip | order | departure | booking | request
+  subjectKind      String    @map("subject_kind")
+  subjectId        String    @map("subject_id")
+  tripId           String?   @map("trip_id")
+  orderId          String?   @map("order_id")
+  departureId      String?   @map("departure_id")
+  /// The other side of the trip (the driver for a customer, one customer for a driver), when known.
+  counterpartId    String?   @map("counterpart_id")
+  /// open | acknowledged | resolved | cancelled
+  state            String    @default("open")
+  category         String?
+  clientId         String    @map("client_id")
+  /// The `sos.raised` event: the notify deliveries (dispatchers, emergency contact) carry its id.
+  raiseEventId     String?   @map("raise_event_id")
+  /// Whether the person had an emergency contact when they pressed (the number stays in the vault).
+  contactSet       Boolean   @default(false) @map("contact_set")
+  /// When the emergency contact's message was handed to notify (after the 10-s cancel window).
+  contactAt        DateTime? @map("contact_at")
+  /// Arabic one-liner of what they were on ("مشوار تكتك #1290"), kept for the record.
+  subjectLabel     String    @default("") @map("subject_label")
+  vehicleLabel     String?   @map("vehicle_label")
+  pressedAt        DateTime? @map("pressed_at")
+  raisedAt         DateTime  @map("raised_at")
+  cancelUntil      DateTime  @map("cancel_until")
+  lastLat          Float?    @map("last_lat")
+  lastLng          Float?    @map("last_lng")
+  lastAccuracyM    Float?    @map("last_accuracy_m")
+  lastDeviceAt     DateTime? @map("last_device_at")
+  lastAt           DateTime? @map("last_at")
+  acknowledgedAt   DateTime? @map("acknowledged_at")
+  acknowledgedById String?   @map("acknowledged_by_id")
+  escalatedAt      DateTime? @map("escalated_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+  resolvedAt       DateTime? @map("resolved_at")
+  resolvedById     String?   @map("resolved_by_id")
+  /// safe | false_alarm | emergency | escalated
+  outcome          String?
+  resolution       String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([raiserId, clientId])
+  @@index([state, raisedAt])
+  @@index([raiserId, raisedAt])
+  @@map("safety_incidents")
+  @@schema("public")
+}
+
+/// The incident's timeline: raised, paged, contact, acknowledged, calls, notes, escalated, resolved.
+/// Append-only.
+model SafetyIncidentEntry {
+  id         String   @id @default(cuid())
+  incidentId String   @map("incident_id")
+  kind       String
+  at         DateTime
+  byId       String?  @map("by_id")
+  note       String?
+  data       Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([incidentId, at])
+  @@map("safety_incident_entries")
+  @@schema("public")
+}
+
+/// Every position the pressing phone sent while the incident was open (the evidence trail).
+model SafetyIncidentFix {
+  id         String   @id @default(cuid())
+  incidentId String   @map("incident_id")
+  lat        Float
+  lng        Float
+  accuracyM  Float?   @map("accuracy_m")
+  deviceAt   DateTime @map("device_at")
+  at         DateTime
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([incidentId, at])
+  @@map("safety_incident_fixes")
+  @@schema("public")
+}
+
 // ═════════════════════════════ Chat & share-trip (notifications & support §2, safety §5) ═════════════════════════════
 
 /// One conversation per order and pair of parties (customer_courier, merchant_courier, customer_merchant).

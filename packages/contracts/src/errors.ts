@@ -181,6 +181,15 @@ export const ERROR_TABLE = {
   share_not_shareable: { message_ar: 'بس المشاوير والرجعة تنشارك', message_en: 'Only rides and intercity seats can be shared', retryHint: 'never', status: 'BAD_REQUEST' },
   share_trip_over: { message_ar: 'المشوار خلص، ما يحتاج تشاركه', message_en: 'The trip is over; nothing to share', retryHint: 'never', status: 'CONFLICT' },
 
+  // SOS (scoring & safety §3)
+  sos_not_party: { message_ar: 'ما لگينا مشوار شغّال إلك بهذا الرقم. إذا الخطر قريب اتصل بالشرطة 104', message_en: 'No active trip of yours to raise an SOS on', retryHint: 'never', status: 'FORBIDDEN' },
+  sos_trip_over: { message_ar: 'المشوار خلص من زمان. إذا الخطر قريب اتصل بالشرطة 104', message_en: 'The trip ended too long ago for an SOS', retryHint: 'never', status: 'CONFLICT' },
+  sos_rate_limited: { message_ar: 'دزّيت تنبيهات هواي هالساعة. الديسباتشر شايفها ويتصل بيك', message_en: 'Too many SOS alerts this hour', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
+  sos_not_found: { message_ar: 'ما لگينا التنبيه', message_en: 'SOS incident not found', retryHint: 'never', status: 'NOT_FOUND' },
+  sos_cancel_window_passed: { message_ar: 'فات وقت الإلغاء. الديسباتشر يتصل بيك ويتأكد', message_en: 'The 10-second cancel window has passed', retryHint: 'never', status: 'CONFLICT' },
+  safety_incident_closed: { message_ar: 'التنبيه مسكّر', message_en: 'The incident is already closed', retryHint: 'never', status: 'CONFLICT' },
+  safety_no_contact: { message_ar: 'ما عنده رقم طوارئ', message_en: 'No emergency contact on file', retryHint: 'never', status: 'NOT_FOUND' },
+
   // trips
   trip_not_found: { message_ar: 'ما لگينا المشوار', message_en: 'Trip not found', retryHint: 'never', status: 'NOT_FOUND' },
   stop_not_found: { message_ar: 'ما لگينا الوقفة', message_en: 'Stop not found', retryHint: 'never', status: 'NOT_FOUND' },

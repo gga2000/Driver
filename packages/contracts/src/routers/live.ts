@@ -13,6 +13,7 @@ import {
   type LiveEvent,
 } from '../live-io.js';
 import { PARTNER_DRIVING_ROLES } from '../partner-io.js';
+import { SAFETY_DESK_ROLES } from '../safety-io.js';
 import {
   protectedProcedure,
   publicProcedure,
@@ -137,6 +138,14 @@ export const liveRouter = router({
         signal,
       }),
     ),
+  /** SOS incidents (dispatchers, support, admins): every page of the Console listens for the red banner. */
+  safety: liveProcedure(SAFETY_DESK_ROLES).subscription(({ ctx, signal }) =>
+    stream(ctx, {
+      channels: [liveChannel.safety()],
+      check: requireRoles(ctx, ctx.actor.personId, SAFETY_DESK_ROLES),
+      signal,
+    }),
+  ),
   /** The Console dispatch board for a city (back-office read roles): requests, trips, orders, driver pins. */
   consoleBoard: liveProcedure(CONSOLE_READ_ROLES)
     .input(LiveConsoleBoardInput)

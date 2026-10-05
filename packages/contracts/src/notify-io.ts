@@ -110,6 +110,8 @@ export const NotifyTemplateId = z.enum([
   'wallet_topup_receipt',
   'rajaa_boarding_pass',
   'khat_child_arrived',
+  'sos_dispatch_alert',
+  'sos_emergency_contact',
   'chat_message',
   'marketing_offer',
 ]);
@@ -279,6 +281,27 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('khat_child_arrived', 'wa.khat_dropped', ['child', 'place', 'time'], ['زينب', 'مدرسة الرافدين', '7:40']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // SOS (scoring & safety §3): every on-shift dispatcher and admin, loud, on every channel.
+  sos_dispatch_alert: {
+    id: 'sos_dispatch_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.sos_dispatch.title', body: 'push.sos_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
+    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.driver.iq/safety/sos_123']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
+  sos_emergency_contact: {
+    id: 'sos_emergency_contact',
+    category: 'safety',
+    app: 'customer',
+    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://driver.iq/sos/abc.def']),
+    primary: ['whatsapp'],
+    smsTwinAfterSec: 30,
     quietHours: 'send',
   },
   chat_message: {
