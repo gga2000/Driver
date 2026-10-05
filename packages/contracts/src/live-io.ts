@@ -4,6 +4,7 @@ import { ChatThreadKind } from './chat-io.js';
 import { CityId, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { OrderState } from './order.js';
+import { EtaBasis } from './tracking.js';
 
 /**
  * The real-time channel (tRPC v11 subscriptions over SSE, `live.*`). It replaces the apps' fast
@@ -105,6 +106,9 @@ export const LivePosition = z.object({
   bearing: z.number().nullable(),
   speedKmh: z.number().nullable(),
   at: z.coerce.date(),
+  /** The server's ETA for this customer's next step (maps program SP4b); absent from older servers. */
+  etaAt: z.coerce.date().nullable().optional(),
+  etaBasis: EtaBasis.nullable().optional(),
 });
 /** A driver pin moved (Console board). */
 export const LiveDriverPin = z.object({

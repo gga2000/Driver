@@ -4,6 +4,10 @@ import type { Actor } from './identity-io.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 
+/** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
+export const EtaBasis = z.enum(['road', 'estimated']);
+export type EtaBasis = z.infer<typeof EtaBasis>;
+
 /**
  * Customer-side reads of the live order/ride screen (customer app spec §4). Narrow on purpose: the
  * customer sees their own order, the courier's first name, vehicle and plate, and the courier's
@@ -103,6 +107,10 @@ export const CourierPosition = z.object({
   at: z.coerce.date(),
   /** Seconds between the fix and the server's read: the app shows "آخر موقع قبل…" past ~30 s. */
   ageSec: z.number().int().min(0),
+  /** When the courier reaches this customer's next step, from the server's ETA service (one ETA everywhere). */
+  etaAt: z.coerce.date().nullable().default(null),
+  /** `road`: routed on real streets; `estimated`: the straight-line fallback. */
+  etaBasis: EtaBasis.nullable().default(null),
 });
 export type CourierPosition = z.infer<typeof CourierPosition>;
 
@@ -118,6 +126,15 @@ export function positionVisible(tripState: TripStateT): boolean {
 /** Town speeds (simulator and dispatch ETA): bike 25, tuktuk 30, car 35 km/h; road ≈ 1.4 × straight line. */
 export const TOWN_SPEED_KMH: Readonly<Record<VehicleClass, number>> = { bike: 25, tuktuk: 30, car: 35, suv: 35, van: 30, intercity: 80 };
 export const ROAD_FACTOR = 1.4;
+
+/**
+ * Routed durations come from OSRM's car profile; other vehicles take this multiple of it in town
+ * (drafts until trails calibrate them: tuktuks are slower on main roads, vans slower in alleys).
+ */
+export const ROUTE_VEHICLE_FACTOR: Readonly<Record<VehicleClass, number>> = { bike: 1, tuktuk: 1.15, car: 1, suv: 1, van: 1.1, intercity: 1 };
+
+/** A batched courier's other drop before mine costs about this much (dispatch spec §3: ≤ 4 min). */
+export const MIN_PER_EARLIER_DROP = 4;
 
 export function haversineM(a: LatLng, b: LatLng): number {
   const R = 6_371_000;
