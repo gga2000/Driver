@@ -1,33 +1,128 @@
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { AbsenceReason, KhatRunTrip, KhatStopView, SubstituteOffer } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Avatar, Button, Chip, Icon, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
+import { Avatar, Button, Chip, DepartureTime, Icon, IconButton, SlideToConfirm, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { childrenCount } from '@/features/intercity/labels';
 import { clockLabel } from '@/features/intercity/logic';
 import { zoneName } from '@/features/work/logic';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { canReportAbsent, childAction, deliveredShare, type KhatPlace } from './logic';
+import { canReportAbsent, childAction, deliveredShare, runChips, type KhatPlace } from './logic';
 
 export const ABSENCE_REASONS: readonly AbsenceReason[] = ['guardian_notice', 'not_at_stop', 'sick', 'other'];
 
-/** Header of the run: delivered of travelling, on board, absent, with a progress bar. */
-export function RunProgress({ trip }: { trip: KhatRunTrip }) {
+/** One big header tile: the number on top (tabular, bold), the word under it ("2" / "بالسيارة"). */
+function RunChip({ testID, icon, value, word, spoken, bg, fg }: { testID: string; icon: IconName; value: string; word: string; spoken: string; bg: string; fg: 'accentText' | 'successText' | 'textMuted' | 'text' }) {
+  const theme = useTheme();
+  return (
+    <View testID={testID} accessible accessibilityLabel={spoken} style={{ flex: 1, alignItems: 'center', gap: 0, paddingVertical: theme.space[2], paddingHorizontal: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: bg }}>
+      <Text variant="heading" weight={700} color={fg} tabular compact numberOfLines={1}>
+        {value}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <Icon name={icon} size={14} color={fg} strokeWidth={2.2} />
+        <Text variant="footnote" weight={600} color={fg} compact numberOfLines={1}>
+          {word}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Header of the run (partner S-6): the next stop's time on the garage-board tiles, then big tabular
+ * chips "بالسيارة 2 · وصلوا 0 من 5 · غايب 1" and the progress bar.
+ */
+export function RunProgress({ trip, nextAt, now }: { trip: KhatRunTrip; nextAt: Date | null; now: number }) {
   const theme = useTheme();
   const t = useT();
   const share = deliveredShare(trip);
+  const c = runChips(trip);
   return (
-    <View testID="khat-progress" style={{ gap: theme.space[2] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2], flexWrap: 'wrap' }}>
-        <Text variant="title" tabular>
-          {t('partner.kh_progress', { delivered: trip.delivered, total: trip.childrenTotal - trip.absent })}
-        </Text>
-        {trip.onBoard > 0 ? <StatusPill label={t('partner.kh_on_board', { n: trip.onBoard })} tone="accent" size="sm" icon="car" /> : null}
-        {trip.absent > 0 ? <StatusPill label={t('partner.kh_absent_count', { n: trip.absent })} tone="neutral" size="sm" /> : null}
+    <View testID="khat-progress" style={{ gap: theme.space[3] }}>
+      {nextAt ? (
+        <DepartureTime
+          testID="khat-next-time"
+          at={nextAt}
+          now={now}
+          size="card"
+          label={t('partner.kh2_next_stop')}
+          // At (or past) the stop's window: it is the stop he is at, not a late warning.
+          note={nextAt.getTime() <= now ? t('partner.kh_stop_now') : undefined}
+          pastWarning={false}
+        />
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+        <RunChip testID="khat-chip-onboard" icon="car" value={String(c.onBoard)} word={t('partner.kh2_tile_onboard')} spoken={t('partner.kh2_chip_onboard', { n: c.onBoard })} bg={c.onBoard > 0 ? theme.colors.accentTint : theme.colors.surfaceSunken} fg={c.onBoard > 0 ? 'accentText' : 'textMuted'} />
+        <RunChip testID="khat-chip-delivered" icon="check" value={t('partner.kh2_of', { n: c.delivered, total: c.total })} word={t('partner.kh2_tile_delivered')} spoken={t('partner.kh2_chip_delivered', { delivered: c.delivered, total: c.total })} bg={theme.colors.successTint} fg="successText" />
+        <RunChip testID="khat-chip-absent" icon="x" value={String(c.absent)} word={t('partner.kh2_tile_absent')} spoken={t('partner.kh2_chip_absent', { n: c.absent })} bg={theme.colors.surfaceSunken} fg="textMuted" />
       </View>
       <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden' }}>
         {share > 0 ? <View style={{ height: 8, borderRadius: 4, width: `${Math.max(share * 100, 3)}%`, backgroundColor: theme.colors.success }} /> : null}
       </View>
+    </View>
+  );
+}
+
+/** The back seats, seen from the front (tokens only): three seat backs, the cushion, the floor under it, and a torch beam. */
+function BackSeatsArt() {
+  const theme = useTheme();
+  const t = useT();
+  const c = theme.colors;
+  return (
+    <View accessible accessibilityRole="image" accessibilityLabel={t('partner.kh2_seats_art')} style={{ alignItems: 'center' }}>
+      <Svg width={280} height={150} viewBox="0 0 280 150">
+        {/* The car's rear: roof line and window. */}
+        <Path d="M20 60 Q140 0 260 60" stroke={c.borderStrong} strokeWidth={2} fill="none" strokeLinecap="round" />
+        <Path d="M60 50 Q140 18 220 50" stroke={c.border} strokeWidth={2} fill="none" strokeLinecap="round" />
+        {/* Three seat backs. */}
+        {[0, 1, 2].map((i) => (
+          <Rect key={i} x={46 + i * 64} y={56} width={56} height={52} rx={14} fill={c.surfaceSunken} stroke={c.borderStrong} strokeWidth={1.5} />
+        ))}
+        {/* The cushion and the floor under it, where a sleeping child is missed. */}
+        <Rect x={40} y={104} width={200} height={16} rx={8} fill={c.surfaceSunken} stroke={c.borderStrong} strokeWidth={1.5} />
+        <Rect x={50} y={124} width={180} height={18} rx={6} fill="none" stroke={c.accentBorder} strokeWidth={1.5} strokeDasharray="5 4" />
+        {/* The torch beam sweeping the seats. */}
+        <Path d="M140 150 L60 70 L220 70 Z" fill={c.accent} opacity={0.12} />
+        <Circle cx={140} cy={146} r={4} fill={c.accent} />
+      </Svg>
+    </View>
+  );
+}
+
+/**
+ * The end-of-run sweep (partner S-6): two steps before "خلص خط اليوم". First he gets out and looks at
+ * the back seats and under them (the illustration); then he slides "تأكدت، السيارة فاضية". The
+ * confirmation is logged on the server for ops with its time.
+ */
+export function SweepCard({ onConfirm, busy }: { onConfirm: () => void; busy: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const [step, setStep] = useState<1 | 2>(1);
+  return (
+    <View testID="khat-sweep" style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 2, borderColor: theme.colors.accent, padding: theme.space[5], gap: theme.space[4] }}>
+      <View style={{ gap: theme.space[1] }}>
+        <Text variant="caption" weight={700} color="accentText" tabular>
+          {t('partner.kh2_sweep_step', { n: step })}
+        </Text>
+        <Text variant="heading">{t('partner.kh2_sweep_title')}</Text>
+        <Text variant="body" color="textMuted">
+          {t('partner.kh2_sweep_body')}
+        </Text>
+      </View>
+      <BackSeatsArt />
+      {step === 1 ? (
+        <Button testID="khat-sweep-looked" label={t('partner.kh2_sweep_looked')} size="lg" variant="secondary" fullWidth icon="check" onPress={() => setStep(2)} />
+      ) : (
+        <View style={{ gap: theme.space[2] }}>
+          <SlideToConfirm testID="khat-sweep-slide" label={t('partner.kh2_sweep_slide')} confirmHaptic="success" loading={busy} onConfirm={onConfirm} />
+          <Text variant="caption" color="textMuted" align="center">
+            {t('partner.kh2_sweep_note')}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -46,6 +141,8 @@ export function PlaceCard({
   onAskAbsence,
   onAbsence,
   onCancelAbsence,
+  onCallGuardian,
+  callingRef,
 }: {
   place: KhatPlace;
   index: number;
@@ -56,6 +153,9 @@ export function PlaceCard({
   onAskAbsence: (childRef: string) => void;
   onAbsence: (childRef: string, reason: AbsenceReason) => void;
   onCancelAbsence: () => void;
+  /** The guardian call on the child's row (null when the run is over). */
+  onCallGuardian: ((stop: KhatStopView) => void) | null;
+  callingRef: string | null;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -110,6 +210,8 @@ export function PlaceCard({
             onAskAbsence={() => onAskAbsence(s.child!.childRef)}
             onAbsence={(r) => onAbsence(s.child!.childRef, r)}
             onCancelAbsence={onCancelAbsence}
+            onCall={onCallGuardian && !s.absent ? () => onCallGuardian(s) : null}
+            calling={callingRef === s.child!.childRef}
           />
         ))}
     </View>
@@ -126,6 +228,8 @@ function ChildRow({
   onAskAbsence,
   onAbsence,
   onCancelAbsence,
+  onCall,
+  calling,
 }: {
   trip: KhatRunTrip;
   stop: KhatStopView;
@@ -136,6 +240,8 @@ function ChildRow({
   onAskAbsence: () => void;
   onAbsence: (r: AbsenceReason) => void;
   onCancelAbsence: () => void;
+  onCall: (() => void) | null;
+  calling: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -151,7 +257,8 @@ function ChildRow({
   return (
     <View testID={`khat-child-${stop.stopId}`} style={{ gap: theme.space[2] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <Avatar name={name} size={44} />
+        {/* The child's photo when the guardian added one (none in the vault yet: the initial). */}
+        <Avatar name={name} size={48} />
         <View style={{ flex: 1 }}>
           <Text variant="bodyStrong" color={action === 'absent' ? 'textMuted' : 'text'}>
             {name}
@@ -170,6 +277,9 @@ function ChildRow({
             </Pressable>
           ) : null}
         </View>
+        {onCall ? (
+          <IconButton testID={`khat-call-${stop.stopId}`} icon="phone" variant="tonal" size={44} accessibilityLabel={t('partner.kh2_call_guardian', { name })} onPress={onCall} disabled={calling} />
+        ) : null}
         {action === 'tap_in' || action === 'tap_out' ? (
           <TapButton kind={action} emphasise={emphasise} busy={busy} onPress={onTap} testID={`khat-tap-${stop.stopId}`} />
         ) : action === 'not_on_board' ? (
@@ -215,7 +325,7 @@ function TapButton({ kind, emphasise, busy, onPress, testID }: { kind: 'tap_in' 
       }}
       style={({ pressed }) => ({
         minWidth: 104,
-        height: 52,
+        height: 56,
         paddingHorizontal: theme.space[4],
         borderRadius: theme.radius.lg,
         alignItems: 'center',

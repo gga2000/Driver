@@ -7,35 +7,44 @@ import { Button, Card, EmptyState, Icon, SegmentedControl, Skeleton, Text, useTh
 import { Screen } from '@/components/Screen';
 import { SosControl } from '@/features/safety/SosControl';
 import { SectionHead } from '@/features/intercity/BoardParts';
-import { clockBare, dayPeriod } from '@/features/intercity/logic';
+import { clockBare, clockLabel, dayPeriod } from '@/features/intercity/logic';
 import { useNow } from '@/features/intercity/useNow';
-import { PlaceCard, RunProgress, SubstituteCard } from '@/features/khat/KhatParts';
-import { activeRunIndex, groupPlaces, runFinished, runStart } from '@/features/khat/logic';
+import { useRunCall } from '@/features/intercity/useRunCall';
+import { PlaceCard, RunProgress, SubstituteCard, SweepCard } from '@/features/khat/KhatParts';
+import { activeRunIndex, groupPlaces, needsSweep, nextStopAt, runFinished, runStart, runUnderway } from '@/features/khat/logic';
 import { useKhatActions, useSubstituteOffers, useTodayRun } from '@/features/khat/queries';
-import { apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 
 /**
- * خطك اليوم — today's khat run: the stops in order, and at each stop the children by first name with
- * big "صعد" / "نزل" buttons (the guardian's "arrived" push fires on the school tap-out), absences
- * (reported by him, or already by the guardian), runs that need a substitute today, and the summary.
+ * خطك اليوم — today's khat run, child-safe (partner audit S-6): the next stop's time and big chips
+ * "بالسيارة 2 · وصلوا 0 من 5 · غايب 1"; at each stop the children by first name with a guardian call
+ * and a 56 px "صعد" / "نزل" (the guardian's "arrived" message fires on the school tap-out); absences
+ * until a child boards. Substitute offers stay out of sight while a run is under way. The run ends
+ * with a two-step sweep ("تأكد ما بقى طفل بالسيارة" → slide "تأكدت، السيارة فاضية"), logged for ops.
  */
 export default function KhatRun() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
+  const client = useApiClient();
   const run = useTodayRun();
   const subs = useSubstituteOffers();
   const actions = useKhatActions();
+  const caller = useRunCall();
   const now = useNow(1_000);
-  // khat.todayRun lists runs still in progress; the run he just finished is kept from the last tap's
-  // answer so the summary stays on screen instead of an empty day.
+  // The run he just finished is kept from the last answer so the sweep and the summary stay on
+  // screen even if today's list moves on.
   const [finishedRun, setFinishedRun] = useState<KhatRunTrip | null>(null);
   const trips = useMemo(() => {
     const live = run.data?.trips ?? [];
-    return finishedRun && !live.some((x) => x.tripId === finishedRun.tripId) ? [...live, finishedRun] : live;
+    if (!finishedRun) return live;
+    const fresh = live.find((x) => x.tripId === finishedRun.tripId);
+    if (!fresh) return [...live, finishedRun];
+    // Keep the newer of the two answers (the sweep's own answer may land before the poll).
+    return live.map((x) => (x.tripId === finishedRun.tripId && finishedRun.emptyCarCheckedAt && !x.emptyCarCheckedAt ? finishedRun : x));
   }, [run.data, finishedRun]);
   const [tab, setTab] = useState<string | null>(null);
   const [busyStop, setBusyStop] = useState<string | null>(null);
@@ -54,6 +63,8 @@ export default function KhatRun() {
   const trip = trips.find((x) => x.tripId === tab) ?? null;
   const places = useMemo(() => (trip ? groupPlaces(trip) : []), [trip]);
   const offers = (subs.data ?? []).filter((o) => o.expiresInSec - (now.getTime() - fetchedAt) / 1000 > 0);
+  // He is driving children: no offer cards (with their timers) until every run is swept (audit P-15).
+  const underway = trips.some(runUnderway);
 
   const fail = (err: unknown) => {
     theme.haptic('error');
@@ -89,6 +100,23 @@ export default function KhatRun() {
     }
   };
 
+  const callGuardian = (trip: KhatRunTrip, stop: KhatStopView) => {
+    const child = stop.child;
+    if (!child) return;
+    void caller.call(child.childRef, t('partner.kh2_guardian_of', { name: child.firstName }), () => client.khat.callGuardian.mutate({ tripId: trip.tripId, childRef: child.childRef }));
+  };
+
+  const confirmEmpty = async (trip: KhatRunTrip) => {
+    try {
+      const after = await actions.confirmEmptyCar.mutateAsync({ tripId: trip.tripId });
+      setFinishedRun(after);
+      theme.haptic('success');
+      toast.show({ message: t('partner.kh2_sweep_saved'), tone: 'success', icon: 'check' });
+    } catch (err) {
+      fail(err);
+    }
+  };
+
   const accept = async (offerId: string) => {
     try {
       const res = await actions.acceptSubstitute.mutateAsync({ offerId });
@@ -103,12 +131,13 @@ export default function KhatRun() {
   };
 
   const finished = trip ? runFinished(trip) : false;
+  const sweep = trip ? needsSweep(trip) : false;
 
   return (
     <Screen testID="khat-run" edges={['bottom']} refreshControl={<RefreshControl refreshing={run.isRefetching} onRefresh={() => void Promise.all([run.refetch(), subs.refetch()])} />}>
       <Stack.Screen options={{ title: t('partner.khat_card_title'), headerRight: trip && !finished ? () => <SosControl subject={{ kind: 'trip', id: trip.tripId }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
 
-      {offers.length > 0 ? (
+      {offers.length > 0 && !underway ? (
         <View style={{ gap: theme.space[3] }}>
           <SectionHead title={t('partner.kh_subs_title')} />
           {offers.map((o) => (
@@ -118,11 +147,15 @@ export default function KhatRun() {
       ) : null}
 
       {!run.data ? (
-        <View style={{ gap: theme.space[4] }}>
-          <Skeleton height={90} radius={20} />
-          <Skeleton height={180} radius={20} />
-          <Skeleton height={180} radius={20} />
-        </View>
+        run.isError ? (
+          <EmptyState icon="seat" title={t('error.network')} action={{ label: t('action.retry'), onPress: () => void run.refetch() }} />
+        ) : (
+          <View style={{ gap: theme.space[4] }}>
+            <Skeleton height={150} radius={20} />
+            <Skeleton height={180} radius={20} />
+            <Skeleton height={180} radius={20} />
+          </View>
+        )
       ) : trips.length === 0 || !trip ? (
         <EmptyState icon="seat" title={t('partner.kh_empty_title')} body={t('partner.kh_empty_body')} />
       ) : (
@@ -142,10 +175,21 @@ export default function KhatRun() {
           ) : null}
 
           <Card padding={5}>
-            <RunProgress trip={trip} />
+            <RunProgress trip={trip} nextAt={finished ? null : nextStopAt(places)} now={now.getTime()} />
           </Card>
 
-          {finished ? (
+          {offers.length > 0 && underway ? (
+            <View testID="khat-subs-later" style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center', paddingHorizontal: theme.space[1] }}>
+              <Icon name="bell" size={16} color="textMuted" />
+              <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+                {t('partner.kh2_subs_later')}
+              </Text>
+            </View>
+          ) : null}
+
+          {sweep ? (
+            <SweepCard onConfirm={() => void confirmEmpty(trip)} busy={actions.confirmEmptyCar.isPending} />
+          ) : finished ? (
             <Card testID="khat-done" padding={5} tone="tint">
               <View style={{ alignItems: 'center', gap: theme.space[2] }}>
                 <View style={{ width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.success }}>
@@ -157,6 +201,11 @@ export default function KhatRun() {
                 <Text variant="body" color="textMuted" align="center" tabular>
                   {t('partner.kh_done_body', { delivered: trip.delivered, absent: trip.absent })}
                 </Text>
+                {trip.emptyCarCheckedAt ? (
+                  <Text testID="khat-swept" variant="label" weight={600} color="successText" align="center" tabular>
+                    {t('partner.kh2_swept_at', { time: clockLabel(trip.emptyCarCheckedAt) })}
+                  </Text>
+                ) : null}
                 <Button label={t('partner.kh_done_back')} variant="secondary" onPress={() => router.replace('/')} style={{ marginTop: theme.space[2] }} />
               </View>
             </Card>
@@ -182,6 +231,8 @@ export default function KhatRun() {
                 onAskAbsence={setAbsenceFor}
                 onAbsence={(ref, reason) => void reportAbsence(trip, ref, reason)}
                 onCancelAbsence={() => setAbsenceFor(null)}
+                onCallGuardian={finished && !sweep ? null : (s) => callGuardian(trip, s)}
+                callingRef={caller.busyKey}
               />
             ))}
           </View>
