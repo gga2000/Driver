@@ -160,7 +160,7 @@ function Account() {
         <span className="hidden text-start leading-tight md:block">
           <span className="block text-dense font-semibold text-text">{name.split(' ')[0]}</span>
           {role ? (
-            <span className="block text-[11px] text-muted">
+            <span className="block text-xs text-muted">
               {t(`console.staff_role_${role}` as MessageKey)}
             </span>
           ) : null}
@@ -177,7 +177,7 @@ function Account() {
               {ROLE_ORDER.filter((r) => roles.has(r)).map((r) => (
                 <span
                   key={r}
-                  className="rounded-pill bg-surface-3 px-2 py-px text-[11px] text-muted"
+                  className="rounded-pill bg-surface-3 px-2 py-px text-xs text-muted"
                 >
                   {t(`console.staff_role_${r}` as MessageKey)}
                 </span>

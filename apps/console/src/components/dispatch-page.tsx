@@ -379,7 +379,7 @@ function MapLegend({ theme }: { theme: 'light' | 'dark' }) {
           </li>
         ))}
         <li className="flex items-center gap-1.5 whitespace-nowrap">
-          <span aria-hidden className="inline-flex h-[18px] items-center rounded-pill border-[1.5px] border-bad-solid bg-bad-tint px-1 text-[10px] font-semibold leading-none text-bad">
+          <span aria-hidden className="inline-flex h-[18px] items-center rounded-pill border-[1.5px] border-bad-solid bg-bad-tint px-1 text-xs font-semibold leading-none text-bad">
             #
           </span>
           {t('console.legend_waiting')}

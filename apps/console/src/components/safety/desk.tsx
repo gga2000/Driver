@@ -361,7 +361,7 @@ function PositionCard({ data, now }: { data: SafetyIncidentCase; now: number }) 
               <polyline points={path.points} fill="none" stroke="rgb(var(--c-line-strong))" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {path.first ? <circle cx={path.first.x} cy={path.first.y} r={4} fill="rgb(var(--c-surface))" stroke="rgb(var(--c-muted))" strokeWidth={1.5} /> : null}
               {path.last ? <circle cx={path.last.x} cy={path.last.y} r={6} fill="rgb(var(--c-bad-solid))" stroke="rgb(var(--c-surface))" strokeWidth={2} /> : null}
-              <text x={W - 8} y={H - 8} textAnchor="end" direction="ltr" className="num" fontSize={11} fill="rgb(var(--c-muted))">
+              <text x={W - 8} y={H - 8} textAnchor="end" direction="ltr" className="num" fontSize={12} fill="rgb(var(--c-muted))">
                 {`${path.spanM} m`}
               </text>
             </svg>

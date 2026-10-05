@@ -134,7 +134,7 @@ export function OrdersPage() {
           className={cx('-mx-1 inline-flex items-center gap-1 rounded px-1 hover:text-text', effectiveSort === 'late' && 'font-semibold text-text')}
         >
           {t('console.col_late')}
-          <span aria-hidden className="text-[10px]">
+          <span aria-hidden className="text-xs">
             {effectiveSort === 'late' ? '▼' : '↕'}
           </span>
         </button>

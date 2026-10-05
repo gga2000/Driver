@@ -729,7 +729,7 @@ function ZoneMatrix({
             <IconStop size={13} className="text-bad" /> {t('console.ctl_legend_off')}
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="rounded-[4px] bg-surface-3 px-1 text-[11px]">
+            <span className="rounded-[4px] bg-surface-3 px-1 text-xs">
               {t('console.ctl_cell_city')}
             </span>{' '}
             {t('console.ctl_legend_city')}
@@ -1385,7 +1385,7 @@ export function BannerPreview({
       </span>
       <span
         className={cx(
-          'line-clamp-3 text-[11px] leading-[17px]',
+          'line-clamp-3 text-xs leading-[17px]',
           severity === 'critical' ? 'font-bold' : 'font-semibold',
         )}
       >
@@ -1424,7 +1424,7 @@ function AppPreview({
         )}
       >
         <div className="flex items-center justify-between bg-surface px-2 py-1.5">
-          <span className="text-[11px] font-bold">{t(APP_TITLE[app])}</span>
+          <span className="text-xs font-bold">{t(APP_TITLE[app])}</span>
           <span className="h-3.5 w-3.5 rounded-pill bg-accent" />
         </div>
         {on && <BannerPreview severity={severity} message={message} />}
@@ -1437,7 +1437,7 @@ function AppPreview({
       </div>
       <figcaption className={cx('mt-1.5 text-center text-xs', on ? 'text-text' : 'text-muted')}>
         {t(`console.banner_app_${app}` as MessageKey)}
-        {!on && <span className="block text-[11px]">{t('console.banner_not_here')}</span>}
+        {!on && <span className="block text-xs">{t('console.banner_not_here')}</span>}
       </figcaption>
     </figure>
   );

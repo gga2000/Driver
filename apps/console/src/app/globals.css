@@ -180,7 +180,7 @@ select {
   border-radius: 999px;
   background: rgb(var(--c-inverse));
   color: rgb(var(--c-on-inverse));
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 17px;
   text-align: center;

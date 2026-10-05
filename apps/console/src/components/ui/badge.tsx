@@ -42,7 +42,7 @@ export function Chip({
       title={title}
       className={cx(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill font-medium',
-        size === 'sm' ? 'h-5 px-1.5 text-[11px] leading-5' : 'h-6 px-2 text-xs',
+        size === 'sm' ? 'h-5 px-1.5 text-xs leading-5' : 'h-6 px-2 text-xs',
         TONE[tone].chip,
         className,
       )}
@@ -72,7 +72,7 @@ export function CountBadge({
   return (
     <span
       className={cx(
-        'num inline-flex h-5 min-w-5 items-center justify-center rounded-pill px-1.5 text-[11px] font-semibold leading-none',
+        'num inline-flex h-5 min-w-5 items-center justify-center rounded-pill px-1.5 text-xs font-semibold leading-none',
         alert ? 'bg-bad-solid text-on-bad' : 'bg-surface-3 text-muted',
         className,
       )}
