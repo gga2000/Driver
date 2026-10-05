@@ -3,15 +3,22 @@ import type { PartnerStatus } from '@driver/contracts';
 import { useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { currentFix, FALLBACK_FIX, type Fix } from '@/lib/location';
+import { DEV_TOOLS } from '@/lib/env';
+import { currentFix, DEMO_FIX, lastRealFix } from '@/lib/location';
 import { useGoOffline, useGoOnline } from './queries';
 
 /** Presence lives 90 s in the dispatch index; the app refreshes it well inside that. */
 export const HEARTBEAT_MS = 30_000;
 
-/** Best position we have: GPS, else where the server last saw him, else the town centre. */
-export async function bestFix(status: PartnerStatus | undefined): Promise<Fix> {
-  return (await currentFix(4000)) ?? status?.position ?? FALLBACK_FIX;
+/**
+ * The position to go online with: a fresh GPS fix, else the last real one this session (a heartbeat
+ * re-sends it rather than inventing one). Only dev/demo web builds (`DEV_TOOLS`, desktop browsers
+ * without GPS) fall back to the demo position; production never does (maps program SP4a).
+ */
+export async function bestFix(): Promise<{ lat: number; lng: number } | null> {
+  const fix = (await currentFix(4000)) ?? lastRealFix();
+  if (fix) return { lat: fix.lat, lng: fix.lng };
+  return DEV_TOOLS ? { ...DEMO_FIX } : null;
 }
 
 /**
@@ -33,7 +40,8 @@ export function usePresence(status: PartnerStatus | undefined) {
     if (!online) return;
     const id = setInterval(() => {
       const s = statusRef.current;
-      void bestFix(s).then((at) => on.mutateAsync({ at, ...(s?.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }).catch(() => undefined));
+      // No fix at all: skip this beat rather than report a made-up place (presence lapses after 90 s).
+      void bestFix().then((at) => (at ? on.mutateAsync({ at, ...(s?.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }) : undefined)).catch(() => undefined);
     }, HEARTBEAT_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -41,7 +49,11 @@ export function usePresence(status: PartnerStatus | undefined) {
 
   const goOnline = async () => {
     try {
-      const at = await bestFix(status);
+      const at = await bestFix();
+      if (!at) {
+        toast.show({ message: t('partner.location_needed'), tone: 'warning' });
+        return;
+      }
       await on.mutateAsync({ at, ...(status?.vehicleClass ? { vehicleClass: status.vehicleClass } : {}) });
       toast.show({ message: t('partner.went_online'), tone: 'success', icon: 'check' });
     } catch (err) {

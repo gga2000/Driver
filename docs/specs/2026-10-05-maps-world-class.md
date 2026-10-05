@@ -192,11 +192,14 @@ Ideas are referenced by their board ids. Sizes: S days · M 1–2 weeks · L 3�
 - **Honest GPS (f5)**, client: send the fix's own timestamp, `accuracyM`, device speed and heading; drop
   fixes with accuracy > 50 m; never send `FALLBACK_FIX` — presence without a fix marks the driver
   "location unknown" (excluded from automatic dispatch, shown hollow in Console).
-- **Intake guards**, server: ≤ 1 fix/s per driver (batch accepted), reject `at` > now + 5 s, store fixes
-  older than 2 min as trail only (never live), reject implied speed > `MAX_PLAUSIBLE_SPEED_KMH` (named
-  constant) between consecutive fixes, accuracy gate. All thresholds in one constants file with tests.
-- **Fake GPS (o8)**: Android `mocked` flag from expo-location, teleport counter, repeated identical fixes →
-  `driver_flags` row and a Console review queue. Flags never auto-penalise.
+- **Intake guards**, server (built 2026-10-05, `trips/position-guard.ts`): refuse mock-location fixes,
+  accuracy worse than 75 m and fixes not newer than the driver's last stored one; clamp a device clock
+  running more than 5 s ahead; store fixes older than 2 min as trail only (never live). Impossible jumps
+  (> 160 km/h over > 300 m) are **flagged, not refused** — refusing froze tracking after a single GPS
+  glitch. All thresholds in `POSITION_RULES` (contracts) with tests. The simulator and demo seeds use the
+  trusted internal path.
+- **Fake GPS (o8)**: Android `mocked` flag from expo-location (at once) and jumps (5 in a day) raise
+  `driver.position_suspect`; support opens one incident per driver/day/reason. Flags never auto-penalise.
 - **Routing (D3)**: OSRM (Docker `osrm-backend`, MLD) on Fly, profiles `car`, `motorbike`, `tuktuk` (custom
   Lua: tuktuk max 40 km/h, avoids motorway; motorbike allowed on narrow tracks). API module `routing` with a
   port: `route(points, vehicle) → {polyline6, distanceM, durationS}` and `table(sources, dests, vehicle)`,

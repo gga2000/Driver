@@ -1,53 +1,54 @@
 import { useEffect, useRef } from 'react';
+import { POSITION_RULES } from '@driver/contracts';
+import { apiErrorCode } from '@/lib/api-links';
 import { useApiClient } from '@/lib/api';
-import { currentFix } from '@/lib/location';
+import { currentFix, type Fix } from '@/lib/location';
+import { FixBuffer, toDeviceFix, worthSending } from './position-report';
 
-/** How often a driver on a job reports his position (the customer's map polls every 2 s). */
+/** How often a driver on a job reports his position (the live map moves at most every 2 s). */
 export const JOB_POSITION_MS = 5_000;
 
 /**
- * While he works a trip, report his GPS fix with `trips.reportPosition` (every active trip of his):
- * the customer's live map, the kitchen's "الدليفري جاي بعد 4 د" and the stop geofences all read the
- * trip's trail, which nothing else feeds. No fix (desktop browser, permission refused): nothing is
- * sent — never a made-up position. Mounted app-wide so it keeps going on the home tab.
- * TODO(background-location): a TaskManager task takes this over when the app is backgrounded.
+ * While he works a trip, report his GPS fixes with `trips.reportPositions` (maps program SP4a): each
+ * fix with its own time, accuracy and heading. Fixes wait in a buffer while the network is down and go
+ * out together when it returns (the API keeps late ones out of live tracking). No fix: nothing is sent —
+ * never a made-up position. Mounted app-wide so it keeps going on the home tab. Background reporting
+ * when the app is closed is SP1.
  */
 export function useJobPositions(onJob: boolean): void {
   const client = useApiClient();
-  const last = useRef<{ lat: number; lng: number; at: number } | null>(null);
+  const buffer = useRef(new FixBuffer());
+  const prev = useRef<Fix | null>(null);
   useEffect(() => {
     if (!onJob) return;
     let alive = true;
-    const send = async () => {
+    let sending = false;
+    const tick = async () => {
       const fix = await currentFix(4000);
-      if (!alive || !fix) return;
-      const at = Date.now();
-      const prev = last.current;
-      const speedKmh = prev && at > prev.at ? Math.min(120, (metres(prev, fix) / ((at - prev.at) / 1000)) * 3.6) : undefined;
-      const bearing = prev && metres(prev, fix) > 5 ? bearingOf(prev, fix) : undefined;
-      last.current = { ...fix, at };
-      await client.trips.reportPosition
-        .mutate({ pin: fix, at: new Date(at), ...(speedKmh !== undefined ? { speedKmh } : {}), ...(bearing !== undefined ? { bearing } : {}) })
-        .catch(() => undefined);
+      if (!alive) return;
+      if (fix && worthSending(fix)) {
+        buffer.current.push(toDeviceFix(fix, prev.current));
+        prev.current = fix;
+      }
+      if (sending || buffer.current.size === 0) return;
+      sending = true;
+      const batch = buffer.current.peek(POSITION_RULES.batchMax);
+      try {
+        await client.trips.reportPositions.mutate({ fixes: batch });
+        buffer.current.drop(batch.length);
+      } catch (err) {
+        // The server answered (refused the batch): resending would fail the same way, so let it go.
+        // No answer (offline, timeout): keep it for the next tick.
+        if (apiErrorCode(err) !== null) buffer.current.drop(batch.length);
+      } finally {
+        sending = false;
+      }
     };
-    void send();
-    const id = setInterval(() => void send(), JOB_POSITION_MS);
+    void tick();
+    const id = setInterval(() => void tick(), JOB_POSITION_MS);
     return () => {
       alive = false;
       clearInterval(id);
     };
   }, [client, onJob]);
-}
-
-function metres(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const k = 111_320;
-  return Math.hypot((b.lng - a.lng) * k * Math.cos((a.lat * Math.PI) / 180), (b.lat - a.lat) * k);
-}
-
-/** Degrees clockwise from north, 0–360. */
-export function bearingOf(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const r = (d: number) => (d * Math.PI) / 180;
-  const y = Math.sin(r(b.lng - a.lng)) * Math.cos(r(b.lat));
-  const x = Math.cos(r(a.lat)) * Math.sin(r(b.lat)) - Math.sin(r(a.lat)) * Math.cos(r(b.lat)) * Math.cos(r(b.lng - a.lng));
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }

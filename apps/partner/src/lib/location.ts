@@ -1,17 +1,9 @@
 /**
- * The driver's position (web build). Going online needs a fix; the browser asks once. When the
- * browser refuses or has no GPS (desktop QA, headless screenshots) the caller falls back to the
- * last position the server knows, then to the town centre — the app never blocks on GPS.
- * Native: `location.native.ts` (expo-location).
+ * The driver's position (web build), through the browser's geolocation. Native: `location.native.ts`.
  */
+import { fixFrom, MAX_FIX_AGE_MS, type Fix } from './location-fix';
 
-export interface Fix {
-  lat: number;
-  lng: number;
-}
-
-/** Aziziyah centre (شارع 30): the fallback when no fix is available. */
-export const FALLBACK_FIX: Fix = { lat: 32.9095, lng: 45.0635 };
+export { DEMO_FIX, lastRealFix, type Fix } from './location-fix';
 
 export function currentFix(timeoutMs = 6000): Promise<Fix | null> {
   const geo = typeof navigator !== 'undefined' ? navigator.geolocation : undefined;
@@ -21,13 +13,13 @@ export function currentFix(timeoutMs = 6000): Promise<Fix | null> {
     geo.getCurrentPosition(
       (p) => {
         clearTimeout(timer);
-        resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
+        resolve(fixFrom(p.coords, p.timestamp));
       },
       () => {
         clearTimeout(timer);
         resolve(null);
       },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30_000 },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: MAX_FIX_AGE_MS },
     );
   });
 }
