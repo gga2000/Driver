@@ -153,20 +153,63 @@ const DeviceStamp = {
 // through `dispatch.respond` (offer id + accept), the single path that checks his open offer, cap,
 // current job and the first-accept lock; dispatch then drives the trip internally.
 
-export const ReportPositionInput = z.object({
-  /** Omitted: applies to every active trip of the driver. */
-  tripId: z.string().optional(),
+/**
+ * What the API accepts from a driver's phone (maps program SP4a). Shared by the Partner app (it filters
+ * before sending) and the API (it decides). Jumps are flagged, never refused: one GPS glitch must not
+ * freeze tracking.
+ */
+export const POSITION_RULES = {
+  /** Worse than this (metres) is noise: refused. */
+  maxAccuracyM: 75,
+  /** A device clock ahead of the server by more than this is clamped to server time. */
+  maxAheadMs: 5_000,
+  /** Older fixes (offline replays) are stored in the trail but never drive live tracking or geofences. */
+  liveMaxAgeMs: 120_000,
+  /** Implied speed above this between two fixes, over more than `jumpMinM`, counts as a jump. */
+  jumpKmh: 160,
+  jumpMinM: 300,
+  /** Jumps in one day before support is asked to look (a fake-GPS fix flags at once). */
+  jumpsBeforeFlag: 5,
+  /** Fixes per `trips.reportPositions` call. */
+  batchMax: 60,
+  /** Fixes the app keeps while offline (20 min at one every 5 s). */
+  clientBufferMax: 240,
+} as const;
+
+/** Raw driver trails are kept this long; after that the trip row is the summary (decision D6). */
+export const TRAIL_RETENTION_DAYS = 30;
+
+/** Why a fix was refused. */
+export const PositionRejectReason = z.enum(['mocked', 'inaccurate', 'out_of_order']);
+export type PositionRejectReason = z.infer<typeof PositionRejectReason>;
+
+/** One fix as the phone measured it: its own timestamp, accuracy and (when known) speed and heading. */
+export const DeviceFix = z.object({
   pin: LatLng,
   at: z.coerce.date(),
   speedKmh: z.number().min(0).optional(),
   bearing: z.number().min(0).max(360).optional(),
   accuracyM: z.number().min(0).optional(),
+  /** Android: the OS says a mock-location app produced this fix. */
+  mocked: z.boolean().optional(),
+});
+export type DeviceFix = z.infer<typeof DeviceFix>;
+
+export const ReportPositionInput = DeviceFix.extend({
+  /** Omitted: applies to every active trip of the driver. */
+  tripId: z.string().optional(),
 });
 export type ReportPositionInput = z.infer<typeof ReportPositionInput>;
+
+/** Several fixes at once, oldest first: the app's offline buffer and its regular reports. */
+export const ReportPositionsInput = z.object({ fixes: z.array(DeviceFix).min(1).max(POSITION_RULES.batchMax) });
+export type ReportPositionsInput = z.infer<typeof ReportPositionsInput>;
 
 export const ReportPositionOutput = z.object({
   /** Stops whose 60 m geofence the driver is inside: the "وصلت" button is armed for these. */
   armed: z.array(z.object({ tripId: z.string(), stopId: z.string(), distanceM: z.number().int() })),
+  /** Fixes the API refused (index into the reported fixes). */
+  rejected: z.array(z.object({ index: z.number().int(), reason: PositionRejectReason })).optional(),
 });
 export type ReportPositionOutput = z.infer<typeof ReportPositionOutput>;
 
@@ -217,6 +260,7 @@ export interface TripsPort {
   board(actor: Actor, input: { cityId: string }): Promise<Trip[]>;
   runSheet(actor: Actor, input: { tripId: string }): Promise<RunSheet>;
   reportPosition(actor: Actor, input: ReportPositionInput): Promise<ReportPositionOutput>;
+  reportPositions(actor: Actor, input: ReportPositionsInput): Promise<ReportPositionOutput>;
   arrive(actor: Actor, input: ArriveStopInput): Promise<Trip>;
   completeStop(actor: Actor, input: CompleteStopInput): Promise<Trip>;
   skipStop(actor: Actor, input: SkipStopInput): Promise<Trip>;

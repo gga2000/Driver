@@ -147,6 +147,11 @@ export interface TripsRepository extends TripOrderLookup {
 
   addTrailPoint(point: TrailPointRecord, tx?: Tx): Promise<void>;
   lastTrailPoint(filter: { tripId?: string; driverId?: string }, tx?: Tx): Promise<TrailPointRecord | null>;
+  /**
+   * Deletes up to `batch` trail points older than `cutoff`, except those of `keepTripIds` (decision D6:
+   * 30 days, then the trip row is the summary). Returns how many went; a short count means done.
+   */
+  purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number>;
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
@@ -387,6 +392,16 @@ export class PrismaTripsRepository implements TripsRepository {
     return { tripId: r.trip_id, driverId: r.driver_id, at: r.at, pin: { lat: Number(r.lat), lng: Number(r.lng) }, speedKmh: r.speed_kmh, bearing: r.bearing, accuracyM: r.accuracy_m };
   }
 
+  async purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {
+    return this.db().$executeRaw`
+      WITH doomed AS (
+        SELECT "id", "at" FROM "public"."trail_points"
+        WHERE "at" < ${cutoff} AND ("trip_id" IS NULL OR NOT ("trip_id" = ANY(${[...keepTripIds]}::text[])))
+        LIMIT ${batch}
+      )
+      DELETE FROM "public"."trail_points" t USING doomed d WHERE t."id" = d."id" AND t."at" = d."at"`;
+  }
+
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
     const latest = await this.db().tripOrder.findFirst({ where: { tripId, orderId }, orderBy: { attachedAt: 'desc' } });
     return latest?.detachedAt ?? null;
@@ -568,6 +583,17 @@ export class InMemoryTripsRepository implements TripsRepository {
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }) {
     const last = filter.tripId ? this.lastByTrip.get(filter.tripId) : filter.driverId !== undefined ? this.lastByDriver.get(filter.driverId) : undefined;
     return last ? { ...last } : null;
+  }
+
+  async purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {
+    const keep = new Set(keepTripIds);
+    const doomed = new Set(this.trail.filter((p) => p.at.getTime() < cutoff.getTime() && !(p.tripId && keep.has(p.tripId))).slice(0, batch));
+    if (doomed.size === 0) return 0;
+    const kept = this.trail.filter((p) => !doomed.has(p));
+    this.trail.splice(0, this.trail.length, ...kept);
+    for (const [k, p] of [...this.lastByTrip]) if (doomed.has(p)) this.lastByTrip.delete(k);
+    for (const [k, p] of [...this.lastByDriver]) if (doomed.has(p)) this.lastByDriver.delete(k);
+    return doomed.size;
   }
 
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {

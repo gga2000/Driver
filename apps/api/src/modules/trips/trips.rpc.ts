@@ -7,6 +7,7 @@ import {
   type CompleteStopInput,
   type FailTripInput,
   type ReportPositionInput,
+  type ReportPositionsInput,
   type ReportPositionOutput,
   type RoleKind,
   type RunSheet,
@@ -76,7 +77,11 @@ export class TripsRpc implements TripsPort {
   }
 
   reportPosition(actor: Actor, input: ReportPositionInput): Promise<ReportPositionOutput> {
-    return this.trips.reportPosition(actor.personId, input);
+    return this.trips.reportDevicePositions(actor.personId, [input], input.tripId);
+  }
+
+  reportPositions(actor: Actor, input: ReportPositionsInput): Promise<ReportPositionOutput> {
+    return this.trips.reportDevicePositions(actor.personId, input.fixes);
   }
 
   arrive(actor: Actor, input: ArriveStopInput): Promise<Trip> {

@@ -66,6 +66,8 @@ const SLA_MIN_MS = 2 * HOUR_MS;
 const SLA_DUE_SOON_MS = HOUR_MS;
 const NAME_TTL_MS = 5 * 60_000;
 const ACTIVE: readonly TicketStatus[] = ['open', 'waiting', 'escalated'];
+/** Unresolved tickets read when listing trips whose trail must be kept (a busy week stays far below it). */
+const OPEN_INCIDENTS_SCAN = 1_000;
 
 /** Same-day rule (launch playbook §4: every complaint answered the day it came): local midnight, ≥ 2 h, ≤ 24 h. */
 export function slaDueAt(openedAt: Date): Date {
@@ -160,6 +162,8 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     this.unsubscribe.push(this.events.subscribe('support:disputes', ['order.disputed'], (e, ctx) => this.onDispute(e, ctx.tx)));
     // Offline contradictions open an incident for a human (quarantined late replays included).
     this.unsubscribe.push(this.events.subscribe('support:contradictions', ['dispute.opened'], (e, ctx) => this.onContradiction(e, ctx.tx), { quarantined: true }));
+    // Fake GPS or impossible jumps (maps program SP4a): a human looks before anything happens to the driver.
+    this.unsubscribe.push(this.events.subscribe('support:position_suspect', ['driver.position_suspect'], (e, ctx) => this.onPositionSuspect(e, ctx.tx)));
   }
 
   onModuleDestroy(): void {
@@ -239,6 +243,31 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     );
   }
 
+  private async onPositionSuspect(e: PublishedEvent, tx: Tx): Promise<void> {
+    const driverId = String(e.payload['driverId'] ?? e.actorId);
+    const reason = e.payload['reason'] === 'mocked' ? 'mocked' : 'jump';
+    const key = `position_suspect:${driverId}:${String(e.payload['day'] ?? '')}:${reason}`;
+    if (await this.repo.bySourceKey(key, tx)) return;
+    await this.create(
+      {
+        cityId: 'aziziyah',
+        kind: 'incident',
+        channel: 'system',
+        subject: 'موقع السايق مشكوك بيه',
+        note:
+          reason === 'mocked'
+            ? 'التلفون يگول الموقع جاي من برنامج تزوير موقع. راجع ويا السايق قبل أي إجراء.'
+            : 'الموقع قفز مسافات مستحيلة أكثر من 5 مرات اليوم. ممكن خلل بالـ GPS أو تزوير. راجع قبل أي إجراء.',
+        orderId: null,
+        tripId: null,
+        customerId: null,
+        openedById: driverId,
+        sourceKey: key,
+      },
+      tx,
+    );
+  }
+
   private async onContradiction(e: PublishedEvent, tx: Tx): Promise<void> {
     const key = `contradiction:${e.id}`;
     if (await this.repo.bySourceKey(key, tx)) return;
@@ -286,6 +315,12 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   }
 
   /** Incidents keep a trip's safety data while open (scoring & safety retention). */
+  /** Trips whose trail must outlive the 30-day retention: an unresolved incident still needs it. */
+  async openIncidentTripIds(cityId: string): Promise<string[]> {
+    const open = await this.repo.list({ cityId, statuses: ACTIVE, limit: OPEN_INCIDENTS_SCAN });
+    return [...new Set(open.flatMap((t) => (t.kind === 'incident' && t.tripId ? [t.tripId] : [])))];
+  }
+
   async hasOpenIncident(tripId: string): Promise<boolean> {
     return (await this.repo.forTrip(tripId)).some((t) => t.kind === 'incident' && t.status !== 'resolved');
   }

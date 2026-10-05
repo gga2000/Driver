@@ -1253,7 +1253,8 @@ model Stop {
   @@schema("public")
 }
 
-/// Raw position stream (`position.reported`), monthly-partitioned by `at` in the migration; kept forever.
+/// Raw position stream (`position.reported`), monthly-partitioned by `at` in the migration; deleted after 30 days
+/// (decision D6, `modules/retention`) unless the trip has an open incident — the trip row is the summary.
 /// Composite key because Postgres partition keys must be part of the primary key.
 model TrailPoint {
   id        String                                @default(cuid())

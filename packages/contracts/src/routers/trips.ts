@@ -7,6 +7,7 @@ import {
   CompleteStopInput,
   FailTripInput,
   ReportPositionInput,
+  ReportPositionsInput,
   ReportPositionOutput,
   RunSheet,
   SkipStopInput,
@@ -37,6 +38,10 @@ export const tripsRouter = router({
     .input(ReportPositionInput)
     .output(ReportPositionOutput)
     .mutation(({ ctx, input }) => ctx.trips.reportPosition(ctx.actor, input)),
+  reportPositions: protectedProcedure(DRIVING_ROLES)
+    .input(ReportPositionsInput)
+    .output(ReportPositionOutput)
+    .mutation(({ ctx, input }) => ctx.trips.reportPositions(ctx.actor, input)),
   arrive: protectedProcedure(DRIVING_ROLES).input(ArriveStopInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.arrive(ctx.actor, input)),
   completeStop: protectedProcedure(DRIVING_ROLES).input(CompleteStopInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.completeStop(ctx.actor, input)),
   skipStop: protectedProcedure(DRIVING_ROLES).input(SkipStopInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.skipStop(ctx.actor, input)),

@@ -3,6 +3,7 @@ import {
   DriverError,
   encodeDomainEvent,
   isDomainEventType,
+  type DeviceFix,
   type HandoverProof,
   type LatLng,
   type ReportPositionOutput,
@@ -14,9 +15,12 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
+import { assessFix } from './position-guard.js';
+import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
@@ -93,6 +97,8 @@ export interface DeviceStamp {
 @Injectable()
 export class TripsService implements OnModuleInit {
   private readonly positionListeners = new Set<(report: PositionReport) => void>();
+  /** Fake-GPS and jump counts per driver per day (maps program SP4a). */
+  private readonly suspicion = new SuspicionCounter();
 
   constructor(
     @Inject(TRIPS_REPOSITORY) private readonly repo: TripsRepository,
@@ -295,6 +301,65 @@ export class TripsService implements OnModuleInit {
       }
     }
     return out;
+  }
+
+  /**
+   * The device path (`trips.reportPosition` / `trips.reportPositions`, maps program SP4a): each fix is
+   * judged by `assessFix` against the driver's last stored fix, oldest first. Refused fixes come back by
+   * index; live ones go through `reportPosition` (geofences, auto-complete, live map); late replays are
+   * stored as trail only. Fake GPS and impossible jumps are counted and, past the threshold, raised to
+   * support as `driver.position_suspect` — never a penalty. The simulator and demo seeds call
+   * `reportPosition` directly and are not judged.
+   */
+  async reportDevicePositions(driverId: string, fixes: readonly DeviceFix[], tripId?: string): Promise<ReportPositionOutput> {
+    const ordered = fixes.map((fix, index) => ({ fix, index })).sort((a, b) => a.fix.at.getTime() - b.fix.at.getTime());
+    const rejected: NonNullable<ReportPositionOutput['rejected']> = [];
+    let armed: ReportPositionOutput['armed'] = [];
+    const stored = await this.repo.lastTrailPoint({ driverId });
+    let last: { at: Date; pin: LatLng } | null = stored ? { at: stored.at, pin: stored.pin } : null;
+    for (const { fix, index } of ordered) {
+      const now = this.clock.now();
+      const verdict = assessFix(fix, last, now);
+      if (verdict.kind === 'reject') {
+        rejected.push({ index, reason: verdict.reason });
+        if (verdict.reason === 'mocked') await this.noteSuspicion(driverId, 'mocked', fix.pin, now);
+        continue;
+      }
+      const input = { tripId, pin: fix.pin, at: verdict.at, speedKmh: fix.speedKmh, bearing: fix.bearing, accuracyM: fix.accuracyM };
+      if (verdict.live) armed = (await this.reportPosition(driverId, input)).armed;
+      else await this.storeTrailOnly(driverId, input);
+      if (verdict.jump) await this.noteSuspicion(driverId, 'jump', fix.pin, now);
+      last = { at: verdict.at, pin: fix.pin };
+    }
+    rejected.sort((a, b) => a.index - b.index);
+    return rejected.length > 0 ? { armed, rejected } : { armed };
+  }
+
+  /** A late replay (offline buffer): kept in the trail for history, never arms a geofence or reaches the live map. */
+  private async storeTrailOnly(driverId: string, input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined }): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const trips = input.tripId ? [await this.load(input.tripId, tx)] : await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx);
+      const point = { driverId, at: input.at, pin: input.pin, speedKmh: input.speedKmh ?? null, bearing: input.bearing ?? null, accuracyM: input.accuracyM ?? null };
+      if (trips.length === 0) {
+        await this.repo.addTrailPoint({ tripId: null, ...point }, tx);
+        return;
+      }
+      for (const trip of trips) {
+        if (trip.courierId !== driverId) throw new DriverError('not_trip_courier');
+        await this.repo.addTrailPoint({ tripId: trip.id, ...point }, tx);
+      }
+    });
+  }
+
+  private async noteSuspicion(driverId: string, reason: SuspicionReason, pin: LatLng, now: Date): Promise<void> {
+    const day = localDateKey(now);
+    if (!this.suspicion.note(driverId, reason, day)) return;
+    await this.events.emit(undefined, { type: 'driver.position_suspect', actorId: driverId, occurredAt: now, location: pin, payload: { driverId, reason, day } }, { name: 'driver', id: driverId });
+  }
+
+  /** One retention batch (decision D6): trail points older than `cutoff`, except `keepTripIds`'. */
+  purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {
+    return this.repo.purgeTrail(cutoff, keepTripIds, batch);
   }
 
   /** Observes committed position reports (the live channel's courier positions and Console pins). */
