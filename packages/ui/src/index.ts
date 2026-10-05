@@ -74,3 +74,7 @@ export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
 export * from './format';
+
+// Phase 3 — Partner money moments (end of job, shift summary)
+export { SegmentRing, type SegmentRingProps } from './components/SegmentRing';
+export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';

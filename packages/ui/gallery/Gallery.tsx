@@ -26,6 +26,7 @@ import {
   SearchField,
   SeatLegend,
   SeatMap,
+  SegmentRing,
   SegmentedControl,
   Sheet,
   SosButton,
@@ -878,6 +879,12 @@ function TimersSection() {
         <View style={{ alignItems: 'center', gap: theme.space[2] }}>
           <CountdownRing mode="late" startedAt={start - 14 * 60_000} config={LATE} />
           <Caption>متأخر 11 دقيقة: 2,000 دينار</Caption>
+        </View>
+        <View style={{ alignItems: 'center', gap: theme.space[2] }}>
+          <SegmentRing count={7} size={112} strokeWidth={7}>
+            <Icon name="check" size={36} color="successText" strokeWidth={2.6} />
+          </SegmentRing>
+          <Caption>خلصت الطلب: حلقة طلبات اليوم (7)</Caption>
         </View>
       </Panel>
     </Section>

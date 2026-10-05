@@ -117,6 +117,8 @@ export const ICONS = {
   wifi: [{ d: 'M2.5 9a14 14 0 0 1 19 0' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 13 0' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
   'wifi-off': [{ d: 'M3 3l18 18' }, { d: 'M2.5 9a14 14 0 0 1 4.6-3' }, { d: 'M11 5.5a14 14 0 0 1 10.5 3.5' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 4-2.3' }, { d: 'M15.5 10.8a9.5 9.5 0 0 1 3 1.7' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
   refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
+  // Phase 3 (Partner readiness row): the phone's battery.
+  battery: [{ rect: [2.5, 7, 16.5, 10, 2] }, { d: 'M21.5 10.5v3' }],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;
