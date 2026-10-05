@@ -10,7 +10,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { amountParam } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
-import { cashAtDoor, gatePhotoFor } from './arrival';
+import { cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { BottomPanel } from './Panels';
 import { useRateOrder } from './queries';
 
