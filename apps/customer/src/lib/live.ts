@@ -56,6 +56,8 @@ export function liveFilter(api: Api, key: LiveKey) {
       return api.trips.board.pathFilter();
     case 'console.rightNow':
       return api.console.rightNow.pathFilter();
+    case 'safety.open':
+      return api.safety.list.pathFilter();
   }
 }
 

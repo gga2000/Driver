@@ -69,6 +69,8 @@ export const LiveKey = z.enum([
   'dispatch.drivers',
   'trips.board',
   'console.rightNow',
+  /** SOS incidents (`safety.list` / `safety.get`): the Console's red banner and incident desk. */
+  'safety.open',
 ]);
 export type LiveKey = z.infer<typeof LiveKey>;
 
@@ -155,6 +157,8 @@ export const liveChannel = {
   city: (cityId: string) => `city:${cityId}`,
   /** Events whose city the fan-out cannot tell (an idle driver's pin); every Console board listens. */
   anyCity: () => 'city:*',
+  /** SOS incidents of every city: the Console's red banner listens on every page. */
+  safety: () => 'safety',
 } as const;
 
 // ───────────────────────── inputs / outputs ─────────────────────────

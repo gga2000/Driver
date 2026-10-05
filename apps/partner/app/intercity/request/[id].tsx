@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import type { DriverRequestRide, RequestPostView } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { SosControl } from '@/features/safety/SosControl';
 import { rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
 import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, suggestedOffer } from '@/features/intercity/logic';
 import { useMyRides, useOpenRequests, useRequestActions } from '@/features/intercity/queries';
@@ -248,7 +249,7 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
 
   return (
     <Screen testID="request-ride" edges={['bottom']} footer={footer}>
-      <Stack.Screen options={{ title: t('partner.ic_ride_title') }} />
+      <Stack.Screen options={{ title: t('partner.ic_ride_title'), headerRight: live ? () => <SosControl subject={{ kind: 'request', id: ride.id }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <StatusPill label={rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
       </View>

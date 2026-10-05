@@ -711,6 +711,23 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * SOS (scoring & safety §3): the person's emergency contact — name and E.164 number — for the
+   * safety module (whether one is set, the contact's first name on the pressing phone) and for notify
+   * (the WhatsApp / SMS to that number). Every read is a VaultAccessLog row against the person
+   * (`fieldsRead: emergency_contact`, the caller as accessor, its purpose). Null when none is set or
+   * the person is unknown or deleted.
+   */
+  async emergencyContactOf(personId: string, accessorId: string, purpose: string): Promise<{ name: string; phoneE164: string } | null> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return null;
+      const identity = await this.repo.readIdentity(personId, tx);
+      await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['emergency_contact'], now: this.clock.now() }, tx);
+      return identity?.emergencyContact ? { name: identity.emergencyContact.name, phoneE164: identity.emergencyContact.phoneE164 } : null;
+    });
+  }
+
+  /**
    * خطوط guardian notice (domain §8 "child dropped"): the child's guardian and first name for the
    * "{child} وصل {place} بالسلامة" message. Logged as a vault read against the guardian.
    */

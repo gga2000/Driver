@@ -5,6 +5,7 @@ import type { AbsenceReason, KhatRunTrip, KhatStopView } from '@driver/contracts
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { SosControl } from '@/features/safety/SosControl';
 import { SectionHead } from '@/features/intercity/BoardParts';
 import { clockBare, dayPeriod } from '@/features/intercity/logic';
 import { useNow } from '@/features/intercity/useNow';
@@ -105,7 +106,7 @@ export default function KhatRun() {
 
   return (
     <Screen testID="khat-run" edges={['bottom']} refreshControl={<RefreshControl refreshing={run.isRefetching} onRefresh={() => void Promise.all([run.refetch(), subs.refetch()])} />}>
-      <Stack.Screen options={{ title: t('partner.khat_card_title') }} />
+      <Stack.Screen options={{ title: t('partner.khat_card_title'), headerRight: trip && !finished ? () => <SosControl subject={{ kind: 'trip', id: trip.tripId }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
 
       {offers.length > 0 ? (
         <View style={{ gap: theme.space[3] }}>

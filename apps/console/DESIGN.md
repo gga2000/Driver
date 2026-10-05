@@ -292,6 +292,22 @@ order), `lib/ledger.ts` (balances and lines in words), `lib/plural.ts` (Arabic c
   seeds Saif's statement over three hours, a licence that runs out in 9 days and a chat on the
   WhatsApp ticket's order.
 
+### Emergencies: the SOS banner and desk
+
+`components/safety/banner.tsx` (in the shell, every page), `components/safety/desk.tsx` (`/safety`),
+`lib/safety.ts` (pure), `lib/safety-live.ts` (the `live.safety` stream, a 5-s poll, the alarm).
+
+- **Banner**: while any alert is open or taken but not closed, a red bar sits above the top bar:
+  "طوارئ هسة: حيدر ك. (سايق) · مشوار تكسي #3006 · من 40 ث", then "ما أحد استلمه من 2 د" once nobody
+  took it for a minute. It rings (three square-wave beeps every 2.5 s) while an alert nobody took is
+  open; "سكّت الصوت" mutes the alerts on screen, a new one rings again. Its height is `--sos-h`, and
+  full-height pages subtract it. Bad-solid with on-bad text while one is untaken, bad-tint after.
+- **Desk** (support desk shape): alerts on the start side (untaken first, a red dot, the age, the
+  overdue chip), the incident beside it: who and role, the trip and vehicle, the last fix (coordinates,
+  accuracy, device time, a north-up trail sketch, "افتح بالخريطة"; no map component), both people with
+  masked numbers and calls, the emergency contact with the message status, notes, the timeline in
+  words. A takes it, E closes it (outcome + a note of at least 5 characters). J/K move.
+
 ## Wave 2
 
 - **/dispatch, /map**: done (above). Still open: S-K1's sticky triage strip on every other page,

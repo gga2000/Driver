@@ -23,6 +23,7 @@ import { ScoringModule } from './modules/scoring/index.js';
 import { SimulatorModule } from './modules/simulator/index.js';
 import { SupportModule } from './modules/support/index.js';
 import { RetentionModule } from './modules/retention/index.js';
+import { SafetyModule } from './modules/safety/index.js';
 import { ControlsModule } from './modules/controls/index.js';
 import { ControlRoomModule } from './modules/control-room/index.js';
 import { TripsModule } from './modules/trips/index.js';
@@ -55,6 +56,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     NotifyModule,
     SupportModule,
     RetentionModule,
+    SafetyModule,
     ControlsModule,
     ControlRoomModule,
     EventsModule,

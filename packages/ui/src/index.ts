@@ -46,6 +46,7 @@ export { TabBar, type TabBarProps, type TabSpec, type TabBarNavigationProps } fr
 export { PermissionPrompt, type PermissionPromptProps, type PermissionPromptPoint } from './components/PermissionPrompt';
 export { ChatThread, useMaskedCall, type ChatThreadProps, type ChatThreadQuery, type ChatT, type ChatPhotoResult } from './components/ChatThread';
 export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
+export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosSheetPhase } from './components/SosButton';
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
@@ -71,4 +72,5 @@ export * from './logic/sheet';
 export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
+export * from './logic/sos';
 export * from './format';

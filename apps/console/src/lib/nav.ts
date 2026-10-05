@@ -1,4 +1,4 @@
-import { ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -25,6 +25,7 @@ export type IconName =
   | 'controls'
   | 'wall'
   | 'zones'
+  | 'safety'
   | 'system';
 
 export interface NavItem {
@@ -60,6 +61,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     key: 'console.navg_service',
     items: [
+      // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
+      { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
       {
         href: '/approvals',

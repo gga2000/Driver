@@ -14,7 +14,7 @@ import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
-import { NOTIFY_ENGINE, NotifyService } from './notify.service.js';
+import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService } from './notify.service.js';
 import { registerNotifySubscribers } from './notify.subscribers.js';
 import { pushPortsFromEnv } from './providers/push.js';
 import { whatsAppPortFromEnv } from './providers/whatsapp.js';
@@ -122,7 +122,17 @@ function envInt(name: string, fallback: number): number {
     {
       provide: NOTIFY_ENGINE,
       useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService) => {
-        const contacts: NotifyContacts = { contact: (personId, opts) => identity.notifyContact(personId, opts) };
+        const contacts: NotifyContacts = {
+          contact: async (to, opts) => {
+            // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
+            // (logged vault read against the person, accessor system:notify).
+            const owner = emergencyContactOwner(to);
+            if (!owner) return identity.notifyContact(to, opts);
+            if (!opts.phone) return { locale: 'ar-IQ', phoneE164: null };
+            const ec = await identity.emergencyContactOf(owner, 'system:notify', opts.purpose);
+            return ec ? { locale: 'ar-IQ', phoneE164: ec.phoneE164 } : null;
+          },
+        };
         return new NotifyEngine(repo, { push: pushPortsFromEnv(), sms: smsPortFromEnv(), whatsapp: whatsAppPortFromEnv() }, contacts, queue, clock, {
           retryBaseMs: envInt('NOTIFY_RETRY_BASE_MS', DEFAULT_ENGINE_OPTIONS.retryBaseMs),
           maxAttempts: envInt('NOTIFY_MAX_ATTEMPTS', DEFAULT_ENGINE_OPTIONS.maxAttempts),
