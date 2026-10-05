@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
@@ -38,17 +38,20 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   return (
     <Animated.View
       testID="arrival"
-      entering={FadeIn.duration(220)}
-      exiting={FadeOut.duration(200)}
+      entering={theme.reduceMotion ? undefined : FadeIn.duration(220)}
+      exiting={theme.reduceMotion ? undefined : FadeOut.duration(200)}
       style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space[8], paddingBottom: Math.max(insets.bottom, theme.space[6]), paddingHorizontal: theme.space[6] }]}
     >
       <View style={{ flex: 1, alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
-        <Animated.View
-          entering={ZoomIn.springify().damping(11)}
-          style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
-        >
-          <Icon name="check" size={48} color="onAccent" strokeWidth={3} />
-        </Animated.View>
+        <View style={{ width: 88, height: 88, alignItems: 'center', justifyContent: 'center' }}>
+          {theme.reduceMotion ? null : <Burst />}
+          <Animated.View
+            entering={theme.reduceMotion ? undefined : ZoomIn.springify().damping(11)}
+            style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
+          >
+            <Icon name="check" size={48} color="onAccent" strokeWidth={3} />
+          </Animated.View>
+        </View>
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
           <Text variant="display" style={{ fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center">
             {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
@@ -85,6 +88,35 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
       </View>
     </Animated.View>
   );
+}
+
+/** The burst behind the check (maps program SP5b, c7): one short spray of brand dots, 900 ms, once. */
+const BURST_MS = 900;
+const BURST_DOTS = 14;
+const BURST_REACH = 92;
+
+function Burst() {
+  const theme = useTheme();
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.value = withTiming(1, { duration: BURST_MS, easing: Easing.out(Easing.cubic) });
+  }, [p]);
+  const tones = [theme.colors.accent, theme.colors.success, theme.colors.info, theme.colors.warning];
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+      {Array.from({ length: BURST_DOTS }, (_, i) => (
+        <BurstDot key={i} p={p} angle={(i / BURST_DOTS) * Math.PI * 2 + (i % 2) * 0.18} reach={BURST_REACH * (i % 3 === 0 ? 1 : 0.78)} size={i % 3 === 0 ? 10 : 7} color={tones[i % tones.length]!} />
+      ))}
+    </View>
+  );
+}
+
+function BurstDot({ p, angle, reach, size, color }: { p: SharedValue<number>; angle: number; reach: number; size: number; color: string }) {
+  const style = useAnimatedStyle(() => ({
+    opacity: p.value < 0.6 ? 1 : 1 - (p.value - 0.6) / 0.4,
+    transform: [{ translateX: Math.cos(angle) * reach * p.value }, { translateY: Math.sin(angle) * reach * p.value }, { scale: 1.2 - 0.6 * p.value }],
+  }));
+  return <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: color }, style]} />;
 }
 
 /** "جهّز 18,000 دينار للدليفري" and, when rounded, "الطلب 17,800 دينار، والـ200 الباقية ترجعلك رصيد بمحفظتك". */

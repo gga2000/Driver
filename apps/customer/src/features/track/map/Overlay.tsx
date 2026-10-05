@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { Icon, Text, useTheme, usePulse, withAlpha } from '@driver/ui';
 import { pathD, project, type LngLat, type Size } from '../geo';
 import { glidePos, remainingFrom, type Glide, type Path as RoadPath } from '../motion';
@@ -147,6 +147,42 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
         <View style={{ width: 2, height: 10, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
         <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: -3, backgroundColor: home ? theme.colors.accent : pickup ? theme.colors.success : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
       </View>
+    </Animated.View>
+  );
+}
+
+const RING = 72;
+const RING_R = 30;
+
+/**
+ * The kitchen's cooking ring (maps program SP5b, c4): an arc around the kitchen that fills as the
+ * promised prep time runs, with a soft breathing halo while it cooks (still under reduce-motion).
+ */
+export function PrepRing({ cam, size, at, progress, testID }: LayerProps & { at: LngLat; progress: number; testID?: string }) {
+  const theme = useTheme();
+  const pulse = usePulse(!theme.reduceMotion);
+  const place = useAnimatedStyle(() => {
+    const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
+    return { transform: [{ translateX: p.x - RING / 2 }, { translateY: p.y - RING / 2 }] };
+  }, [at.lat, at.lng]);
+  const c = 2 * Math.PI * RING_R;
+  return (
+    <Animated.View testID={testID} pointerEvents="none" accessibilityElementsHidden style={[styles.anchor, { width: RING, height: RING }, place]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: RING / 2, backgroundColor: withAlpha(theme.colors.accent, 0.14) }, pulse]} />
+      <Svg width={RING} height={RING} style={StyleSheet.absoluteFill}>
+        <Circle cx={RING / 2} cy={RING / 2} r={RING_R} stroke={withAlpha(theme.colors.accent, 0.25)} strokeWidth={5} fill="none" />
+        <Circle
+          cx={RING / 2}
+          cy={RING / 2}
+          r={RING_R}
+          stroke={theme.colors.accent}
+          strokeWidth={5}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={`${c * progress} ${c}`}
+          transform={`rotate(-90 ${RING / 2} ${RING / 2})`}
+        />
+      </Svg>
     </Animated.View>
   );
 }

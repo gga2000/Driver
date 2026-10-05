@@ -4860,5 +4860,10 @@
   "error.sos_cancel_window_passed": "فات وقت الإلغاء. الديسباتشر يتصل بيك ويتأكد",
   "error.safety_incident_closed": "التنبيه مسكّر",
   "error.safety_no_contact": "ما عنده رقم طوارئ",
-  "track.map_minutes": "{minutes} دقيقة"
+  "track.map_minutes": "{minutes} دقيقة",
+  "track.near_title": "الدليفري قريب",
+  "track.near_paid": "الطلب مدفوع، بس استعد للباب",
+  "notify.settings.section_in_app": "داخل التطبيق",
+  "notify.settings.tracking_sounds": "أصوات التتبع",
+  "notify.settings.tracking_sounds_hint": "صوت خفيف لمن المطعم يقبل طلبك، ولمن الدليفري يطلع ويقرب ويوصل"
 }

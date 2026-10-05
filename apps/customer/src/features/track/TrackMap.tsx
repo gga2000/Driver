@@ -5,14 +5,18 @@ import type { CourierPosition, OrderTracking } from '@driver/contracts';
 import { decodePolyline } from '@driver/map';
 import { Chip, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
-import { fitCamera, mercX, mercY, project, type Camera, type LngLat, type Size } from './geo';
+import { distanceM, fitCamera, mercX, mercY, project, type Camera, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
-import { CourierMarker, PlacePin, RadarPulse, RouteLine } from './map/Overlay';
+import { CourierMarker, PlacePin, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { vehicleKind } from './map/Vehicle';
 import { buildPath, glidePos, planGlide, projectOnPath, REROUTE_OFF_M, tailSpan, type Glide, type Path } from './motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from './queries';
+import { storyShot } from './story';
+import { phaseOf } from './timeline';
 import { color } from '@driver/design-tokens';
 
+/** The cooking ring moves this often (prep is minutes long). */
+const PREP_TICK_MS = 5_000;
 /** Ask for a new road at most this often when he keeps straying from it. */
 const REROUTE_MIN_GAP_MS = 15_000;
 const AZIZIYAH: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
@@ -63,6 +67,18 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
   const ridePickupStop = view.order.type === 'ride' ? view.trip?.stops.find((s) => s.mine && s.type === 'pickup') : undefined;
   const ridePickup = ridePickupStop && !ridePickupStop.completedAt ? ridePickupStop.target : null;
   const route = useMemo(() => routeWaypoints(view), [view]);
+
+  // ── the kitchen's cooking ring (maps program SP5b): how far the promised prep time has run ──
+  const accepted = view.order.acceptedAt?.getTime() ?? null;
+  const promisedReady = view.order.promisedReadyAt?.getTime() ?? null;
+  const cooking = view.order.type !== 'ride' && !pickedUp && accepted !== null && promisedReady !== null && promisedReady > accepted && !view.order.readyAt;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!cooking) return;
+    const id = setInterval(() => setClock(Date.now()), PREP_TICK_MS);
+    return () => clearInterval(id);
+  }, [cooking]);
+  const prepProgress = cooking ? Math.min(1, Math.max(0, (clock - accepted) / (promisedReady - accepted))) : null;
 
   // ── the road ahead (maps program SP5a) ──
   const stage = `${view.order.state}:${view.trip?.state ?? 'none'}:${pickedUp}`;
@@ -142,21 +158,30 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
   const [follow, setFollow] = useState(true);
   const placed = useRef(false);
 
-  const focus = useMemo(() => {
-    const pts: LngLat[] = [];
-    if (fix) pts.push(fix.pin);
-    pts.push(...route.waypoints.slice(0, pickedUp ? 1 : 2));
-    if (!fix && route.start) pts.push(route.start);
-    if (pts.length === 0 && home) pts.push(home);
-    return pts;
-  }, [fix, route, pickedUp, home]);
+  // The story the camera tells (maps program SP5b): kitchen while it cooks, courier + kitchen, courier +
+  // door (tighter when he is close), the door once delivered.
+  const phase = phaseOf(view);
+  const shot = useMemo(
+    () =>
+      storyShot({
+        phase,
+        ride: view.order.type === 'ride',
+        courier: fix?.pin ?? null,
+        kitchen,
+        door: home,
+        ahead: route.start ? [route.start, ...route.waypoints] : route.waypoints,
+        toDoorM: fix && home ? distanceM(fix.pin, home) : null,
+      }),
+    [phase, view.order.type, fix, kitchen, home, route],
+  );
+  const focus = shot.points;
   const focusKey = focus.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
 
   const frame = useCallback(
     (force: boolean) => {
       if (size.w === 0 || focus.length === 0) return;
       const pad = { top: topInset + 40, bottom: bottomInset + (searching ? 120 : 40), left: 48, right: 48 };
-      const target = fitCamera(focus, size, pad, [12.5, 16.5]);
+      const target = fitCamera(focus, size, pad, shot.zoom);
       if (!placed.current) {
         placed.current = true;
         lng.value = target.lng;
@@ -184,7 +209,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [size, focusKey, topInset, bottomInset, searching],
+    [size, focusKey, shot.zoom[0], shot.zoom[1], topInset, bottomInset, searching],
   );
 
   useEffect(() => {
@@ -213,6 +238,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
           <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} path={pathSV} onRoad={path !== null} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} />
           {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
           {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} testID="pin-pickup" /> : null}
+          {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
           {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={glide} progress={progress} path={pathSV} kind={vehicle} stale={stale} minutes={minutes} testID="courier-marker" />

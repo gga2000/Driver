@@ -1,3 +1,4 @@
+import { color as palette } from '@driver/design-tokens';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking, type QuickReplyKey, type VehicleClass } from '@driver/contracts';
@@ -338,5 +339,68 @@ export function ActionRow({ icon, label, hint, tone = 'text', onPress, testID }:
       </View>
       <Icon name="chevron-forward" size={18} color="textMuted" />
     </Pressable>
+  );
+}
+
+/** Height the floating courier card takes over the map (the camera keeps the courier above it). */
+export const COURIER_FLOAT_H = 76;
+
+/**
+ * Who is coming, over the map (maps program SP5b, c6): his photo (or initial), first name, vehicle,
+ * and chat / call — visible with the sheet collapsed. The full card with the plate and quick replies
+ * stays in the sheet.
+ */
+export function CourierFloat({ courier, ride, unread, canChat, onChat, onCall, bottom }: { courier: CourierCardData; ride: boolean; unread: number; canChat: boolean; onChat: () => void; onCall: () => void; bottom: number }) {
+  const theme = useTheme();
+  const t = useT();
+  const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
+  const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null);
+  return (
+    <View
+      testID="courier-float"
+      style={{
+        position: 'absolute',
+        bottom,
+        left: theme.space[4],
+        right: theme.space[4],
+        minHeight: COURIER_FLOAT_H - theme.space[2],
+        justifyContent: 'center',
+        paddingHorizontal: theme.space[3],
+        paddingVertical: theme.space[2],
+        borderRadius: theme.radius.xl,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        shadowColor: palette.neutral[1000],
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 4,
+      }}
+    >
+      <DriverChip
+        name={name}
+        unnamed={!courier.firstName}
+        photoUrl={courier.photoUrl}
+        vehicle={vehicle}
+        plateLabel={t('driver.plate')}
+        verifiedLabel={courier.verifiedTodayAt ? t('trip.verified_today') : null}
+        trailing={
+          canChat ? (
+            <>
+              <IconButton
+                icon="chat"
+                variant="tonal"
+                badge={unread > 0 ? unread : undefined}
+                accessibilityLabel={t(ride ? 'track.message_driver' : 'track.message_courier')}
+                onPress={onChat}
+                testID="float-chat"
+              />
+              <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" />
+            </>
+          ) : null
+        }
+      />
+    </View>
   );
 }

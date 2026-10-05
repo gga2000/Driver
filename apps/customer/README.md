@@ -223,7 +223,7 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   shared values (`geo.ts`: 512-px Web Mercator, same as MapLibre).
 - Pure logic with tests: `geo.ts` (projection, glide, bearing, route), `timeline.ts` (status →
   steps), `eta.ts` (live ETA, lateness, signal lost).
-- Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|unreachable|arrived|late|signal_lost|reassigning`
+- Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|near|unreachable|arrived|late|signal_lost|reassigning`
   and `POST /demo/track/advance?orderId=…`; `SHOTS=track node scripts/web-shots.mjs` writes `track-*.png`.
   `?sheet=1|2` opens the sheet at a detent.
 

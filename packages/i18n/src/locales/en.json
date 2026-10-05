@@ -4860,5 +4860,10 @@
   "error.sos_cancel_window_passed": "The 10-second cancel window has passed",
   "error.safety_incident_closed": "The incident is already closed",
   "error.safety_no_contact": "No emergency contact on file",
-  "track.map_minutes": "{minutes} min"
+  "track.map_minutes": "{minutes} min",
+  "track.near_title": "Your courier is almost there",
+  "track.near_paid": "Already paid, just be ready at the door",
+  "notify.settings.section_in_app": "In the app",
+  "notify.settings.tracking_sounds": "Tracking sounds",
+  "notify.settings.tracking_sounds_hint": "A soft sound when the kitchen accepts, and when the courier leaves, gets close and arrives"
 }

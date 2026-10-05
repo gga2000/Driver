@@ -4,6 +4,8 @@
 //   apps/merchant/assets/sounds/new-order.wav         one bright three-note chime (G5 B5 E6), ~0.8 s
 //   apps/merchant/assets/sounds/new-order-urgent.wav  1 s seamless loop of fast two-tone beeps (last 10 s)
 //   apps/partner/assets/sounds/offer-loop.wav         1.6 s seamless loop: doorbell fifth + a short rest
+//   apps/customer/assets/sounds/{accepted,picked-up,near,delivered}.wav
+//                                                     the tracking screen's soft cues (maps program SP5b)
 //
 // The existing `offer.wav` (push notification channel sound) is left alone.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -92,4 +94,33 @@ function save(rel, samples) {
   note(buf, { freq: 784, at: 0.75, dur: 0.24, decay: 6 });
   note(buf, { freq: 1175, at: 0.93, dur: 0.6, decay: 4 });
   save('apps/partner/assets/sounds/offer-loop.wav', finish(buf));
+}
+
+// Customer: soft, short cues on the tracking screen (maps program SP5b) — quieter and rounder than the
+// kitchen and courier alerts (a gentle peak, slow decays), each well under 30 KB.
+{
+  const soft = (dur) => new Float32Array(Math.round(dur * RATE));
+  // Kitchen accepted: two notes up (E5 → A5).
+  const accepted = soft(0.55);
+  note(accepted, { freq: 659, at: 0, dur: 0.22, decay: 8 });
+  note(accepted, { freq: 880, at: 0.14, dur: 0.38, decay: 6 });
+  save('apps/customer/assets/sounds/accepted.wav', finish(accepted, 0.55));
+  // On the way: three notes up (C5 E5 G5).
+  const picked = soft(0.65);
+  note(picked, { freq: 523, at: 0, dur: 0.2, decay: 8 });
+  note(picked, { freq: 659, at: 0.12, dur: 0.2, decay: 8 });
+  note(picked, { freq: 784, at: 0.24, dur: 0.4, decay: 5.5 });
+  save('apps/customer/assets/sounds/picked-up.wav', finish(picked, 0.55));
+  // Almost there: a two-tone doorbell (A5 → F#5), a little brighter so it is heard from the kitchen.
+  const near = soft(0.65);
+  note(near, { freq: 880, at: 0, dur: 0.3, decay: 5 });
+  note(near, { freq: 740, at: 0.24, dur: 0.41, decay: 5 });
+  save('apps/customer/assets/sounds/near.wav', finish(near, 0.7));
+  // Delivered: a warm major arpeggio that rings out (C5 E5 G5 C6).
+  const delivered = soft(0.68);
+  note(delivered, { freq: 523, at: 0, dur: 0.3, decay: 6 });
+  note(delivered, { freq: 659, at: 0.1, dur: 0.3, decay: 6 });
+  note(delivered, { freq: 784, at: 0.2, dur: 0.35, decay: 5 });
+  note(delivered, { freq: 1047, at: 0.3, dur: 0.38, decay: 5 });
+  save('apps/customer/assets/sounds/delivered.wav', finish(delivered, 0.6));
 }

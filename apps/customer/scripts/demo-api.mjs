@@ -128,7 +128,7 @@ if (KITCHEN_MS > 0) {
 // courier (online, named, verified today, with a plate) through the dispatcher override + his
 // accept, then drives the real trips service to the scenario. While the courier is on the road a
 // mover reports a position every 2 s along a path through Aziziyah, so the map shows him gliding.
-// Scenarios: preparing · on_the_way · unreachable · arrived · late · signal_lost · reassigning.
+// Scenarios: preparing · on_the_way · near · unreachable · arrived · late · signal_lost · reassigning.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -323,6 +323,11 @@ async function scenario(personId, name) {
   }
   await advance(orderId); // picked up, mover on the way home
   if (name === 'on_the_way') return { orderId, tripId, courierId };
+  if (name === 'near') {
+    // A few streets from the door: he crosses the "almost there" line within seconds.
+    await startMover(tripId, courierId, TO_HOME.slice(3), 30);
+    return { orderId, tripId, courierId };
+  }
   await advance(orderId); // at the door
   if (name === 'unreachable') {
     const drop = await stopOf(tripId, 'dropoff');
@@ -334,7 +339,7 @@ async function scenario(personId, name) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'unreachable', 'arrived', 'late', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'unreachable', 'arrived', 'late', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

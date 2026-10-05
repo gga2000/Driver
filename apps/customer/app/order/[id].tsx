@@ -19,8 +19,9 @@ import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
-import { ActionRow, CourierCard, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
+import { ActionRow, COURIER_FLOAT_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
+import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -76,6 +77,10 @@ export default function OrderLiveScreen() {
   const eta = v ? (fix?.etaAt ?? liveEta(v, fix?.pin ?? null, new Date(now))) : null;
   const lateMin = v ? lateMinutes(eta, v.promisedAt) : 0;
   const phase = v ? phaseOf(v) : null;
+  // The courier over the map while he is coming (maps program SP5b, c6); the camera keeps clear of it.
+  const showFloat = Boolean(v?.courier && fix && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way'));
+  // Moments (maps program SP5b): a buzz and a soft sound at each step; the "almost there" card.
+  const moments = useTrackingMoments(v, phase, fix?.pin ?? null);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
   const mapMinutes = fix && eta && eta.getTime() > now ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
   const ride = v?.order.type === 'ride';
@@ -167,6 +172,7 @@ export default function OrderLiveScreen() {
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0);
+  const mapBottom = collapsed + (showFloat ? COURIER_FLOAT_H : 0);
 
   const courierCard = v?.courier ? (
     <CourierCard
@@ -185,7 +191,7 @@ export default function OrderLiveScreen() {
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={collapsed} searching={searching} minutes={mapMinutes} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
       <TopBar
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
@@ -212,6 +218,18 @@ export default function OrderLiveScreen() {
           />
         ) : null}
       </TopBar>
+      {v?.courier && showFloat ? (
+        <CourierFloat
+          courier={v.courier}
+          ride={ride}
+          unread={courierThread?.unread ?? 0}
+          canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
+          onChat={() => openChat('customer_courier')}
+          onCall={call}
+          bottom={collapsed + 8}
+        />
+      ) : null}
+      {v && moments.near ? <AlmostThereCard order={v.order} top={insets.top + TOP_BAR + banners * BANNER_H + 8} onClose={moments.closeNear} /> : null}
 
       <Sheet
         snapPoints={[collapsed, 0.62, 0.9]}

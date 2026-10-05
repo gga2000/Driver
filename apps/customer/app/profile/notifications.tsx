@@ -8,6 +8,7 @@ import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
+import { useTrackingSounds } from '@/lib/sound';
 
 type PrefKey = keyof NotifyPreferences;
 
@@ -30,6 +31,7 @@ const CHANNEL_ROWS: ReadonlyArray<{ key: PrefKey; icon: 'receipt' | 'phone'; tit
  */
 export default function NotificationSettings() {
   const theme = useTheme();
+  const [sounds, setSounds] = useTrackingSounds();
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
@@ -113,6 +115,28 @@ export default function NotificationSettings() {
         <SectionHeader title={t('notify.settings.section_channels')} />
         <Card elevation={0} padding={0}>
           {CHANNEL_ROWS.map((r, i) => row(r, i < CHANNEL_ROWS.length - 1))}
+        </Card>
+      </View>
+
+      <View style={{ gap: theme.space[3] }}>
+        <SectionHeader title={t('notify.settings.section_in_app')} />
+        <Card elevation={0} padding={0}>
+          <ListRow
+            testID="pref-tracking-sounds"
+            leading="volume"
+            title={t('notify.settings.tracking_sounds')}
+            subtitle={t('notify.settings.tracking_sounds_hint')}
+            chevron={false}
+            trailing={
+              <Switch
+                accessibilityLabel={t('notify.settings.tracking_sounds')}
+                value={sounds}
+                onValueChange={setSounds}
+                trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+                {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
+              />
+            }
+          />
         </Card>
       </View>
 
