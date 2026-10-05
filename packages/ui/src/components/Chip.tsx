@@ -28,7 +28,8 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
   const soft = !!avatar;
   const bg = selected ? (soft ? theme.colors.accentTint : theme.colors.accent) : theme.colors.surface;
   const fg = selected && !soft ? theme.colors.onAccent : theme.colors.text;
-  const border = selected ? theme.colors.accent : theme.colors.border;
+  // Selected is never colour alone (audit S-04): a darker outline plus a check mark.
+  const border = selected ? theme.colors.accentBorder : theme.colors.border;
   const height = soft ? 44 : 36;
 
   return (
@@ -39,22 +40,23 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
       aria-checked={role === 'button' ? undefined : selected}
       aria-disabled={!!disabled}
       disabled={disabled}
-      hitSlop={soft ? undefined : { top: 4, bottom: 4 }}
+      // The pill stays 36 px to the eye; the press target is 44 (audit S-14, web has no hitSlop).
+      style={[press.style, { opacity: disabled ? theme.state.disabledOpacity : 1, minHeight: theme.hitTarget, justifyContent: 'center', borderRadius: theme.radius.pill }, style]}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       onPress={() => {
         theme.haptic('selection');
         onPress?.();
       }}
-      style={[press.style, { opacity: disabled ? theme.state.disabledOpacity : 1 }, style]}
     >
       <Animated.View
         style={[
           {
-            height,
+            // Grows with large text instead of clipping (audit S-11).
+            minHeight: height,
             borderRadius: height / 2,
             backgroundColor: bg,
-            borderWidth: selected && soft ? 1.5 : 1,
+            borderWidth: selected ? 1.5 : 1,
             borderColor: border,
             flexDirection: 'row',
             alignItems: 'center',
@@ -66,8 +68,12 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
         ]}
       >
         {avatar ? <Avatar name={avatar.name ?? label} icon={avatar.icon} tone={avatar.tone} size={34} /> : null}
-        {icon && !avatar ? <Icon name={icon} size={16} color={fg} strokeWidth={2} /> : null}
-        <Text variant="label" weight={selected ? 600 : 500} color={fg} numberOfLines={1}>
+        {selected && !soft && role !== 'button' ? (
+          <Icon name="check" size={16} color={fg} strokeWidth={2.4} />
+        ) : icon && !avatar ? (
+          <Icon name={icon} size={16} color={fg} strokeWidth={2} />
+        ) : null}
+        <Text variant="label" weight={selected ? 600 : 500} color={fg} numberOfLines={1} compact>
           {label}
         </Text>
         {selected && soft ? (

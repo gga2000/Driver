@@ -76,12 +76,20 @@ export function ListRow({ title, subtitle, leading, value, trailing, chevron, on
         ) : null}
       </View>
       {trailing ? <View>{trailing}</View> : value ? <Text variant="label" color="textMuted" tabular>{value}</Text> : null}
-      {showChevron ? <Icon name="chevron-forward" size={18} color="textMuted" /> : null}
+      {/* Selected is marked by a check, not only the pale fill (audit S-04: tint vs white is 1.17:1). */}
+      {selected ? <Icon name="check" size={20} color="accentText" strokeWidth={2.4} /> : null}
+      {showChevron && !selected ? <Icon name="chevron-forward" size={18} color="textMuted" /> : null}
     </View>
   );
   if (!onPress) return <View testID={testID}>{content(false)}</View>;
   return (
-    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={subtitle ? `${title}، ${subtitle}` : title} onPress={onPress}>
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={subtitle ? `${title}، ${subtitle}` : title}
+      accessibilityState={selected !== undefined ? { selected } : undefined}
+      onPress={onPress}
+    >
       {({ pressed }) => content(pressed)}
     </Pressable>
   );

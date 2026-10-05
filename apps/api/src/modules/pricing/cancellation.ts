@@ -97,13 +97,13 @@ function orderFee(o: OrderCancellationSubject, r: CancellationRules): Cancellati
   }
 
   // errands and parcels (no merchant acceptance)
-  if (!o.courierAssigned) return free('قبل ما يقبل المندوب', 'Before a courier accepted');
+  if (!o.courierAssigned) return free('قبل ما يقبل الدليفري', 'Before a courier accepted');
   if (o.receiptTotalIqd !== null && o.receiptTotalIqd > 0) {
     return fee(Number.MAX_SAFE_INTEGER, r, 'customer', [
       { to: 'courier', amountIqd: o.receiptTotalIqd + o.deliveryFeeIqd },
-    ], 'إلغاء بعد الشراء', 'Cancelled after purchase', 'المندوب اشترى الغراض، تدفع الوصل والأجرة');
+    ], 'إلغاء بعد الشراء', 'Cancelled after purchase', 'الشاري اشترى الغراض، تدفع الوصل والأجرة');
   }
-  return fee(o.totalIqd || Number.MAX_SAFE_INTEGER, r, 'customer', [{ to: 'courier', amountIqd: r.errandBeforePurchaseIqd }], 'إلغاء بعد قبول المندوب', 'Cancelled after the courier accepted', 'المندوب تحرك على طلبك');
+  return fee(o.totalIqd || Number.MAX_SAFE_INTEGER, r, 'customer', [{ to: 'courier', amountIqd: r.errandBeforePurchaseIqd }], 'إلغاء بعد قبول الدليفري', 'Cancelled after the courier accepted', 'الدليفري تحرك على طلبك');
 }
 
 function tripFee(t: TripCancellationSubject, at: Date, r: CancellationRules): CancellationFee {

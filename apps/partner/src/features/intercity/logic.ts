@@ -7,6 +7,7 @@
  * Times: the backend runs on Baghdad wall time (UTC+3 all year), so clock labels take the offset
  * instead of trusting the device's time zone.
  */
+import { formatClock } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
   type DemandBucket,
@@ -62,11 +63,14 @@ function local(at: Date, offsetMin = IRAQ_UTC_OFFSET_MIN): Date {
   return new Date(at.getTime() + offsetMin * MIN);
 }
 
-/** "7:30" (12-hour, Baghdad time, Western digits). */
+/** "7:30 م": the city's one clock with the part of day (packages/i18n `formatClock`). */
 export function clockLabel(at: Date, offsetMin = IRAQ_UTC_OFFSET_MIN): string {
-  const l = local(at, offsetMin);
-  const h = l.getUTCHours() % 12 || 12;
-  return `${h}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
+  return formatClock(at, { offsetMin });
+}
+
+/** "7:30" without ص/م, for labels that say the part of day in words ("7:30 الصبح"). */
+export function clockBare(at: Date, offsetMin = IRAQ_UTC_OFFSET_MIN): string {
+  return formatClock(at, { offsetMin, period: false });
 }
 
 /** Part of the day the time falls in, so "7:30" never reads as morning or evening by guesswork. */
@@ -81,9 +85,10 @@ export function dayPeriod(at: Date, offsetMin = IRAQ_UTC_OFFSET_MIN): DayPeriod 
   return 'night';
 }
 
-/** "7:00–8:00" (the window the demand board counts). */
+/** "7:00–8:00 م" (the window the demand board counts); the start says its own ص/م when it differs. */
 export function windowLabel(start: Date, end: Date, offsetMin = IRAQ_UTC_OFFSET_MIN): string {
-  return `${clockLabel(start, offsetMin)}–${clockLabel(end, offsetMin)}`;
+  const samePeriod = local(start, offsetMin).getUTCHours() < 12 === local(end, offsetMin).getUTCHours() < 12;
+  return `${samePeriod ? clockBare(start, offsetMin) : clockLabel(start, offsetMin)}–${clockLabel(end, offsetMin)}`;
 }
 
 /** Whole minutes from `now` to `at` (negative when past). */

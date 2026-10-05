@@ -189,7 +189,7 @@ describe('documents', () => {
   it('says the days left and what to do', () => {
     expect(expiryText(12, t)).toBe('باقي 12 يوم');
     expect(expiryText(1, t)).toBe('باقي يوم واحد');
-    expect(expiryText(-3, t)).toBe('انتهى قبل 3 يوم');
+    expect(expiryText(-3, t)).toBe('انتهى قبل 3 أيام');
     expect(expiryText(null, t)).toBeNull();
     expect(docAction('rejected')).toBe('partner.docs_reupload');
     expect(docAction('expired')).toBe('partner.docs_renew');

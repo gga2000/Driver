@@ -7,7 +7,7 @@ import { Card, Icon, StatusPill, Text, useTheme, type StatusTone } from '@driver
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { cityName, countdownLabel, demandLine, departureState, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from './labels';
-import { clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
+import { clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
 
 /** Section title with an optional one-line explainer. */
 export function SectionHead({ title, sub, trailing }: { title: string; sub?: string; trailing?: ReactNode }) {
@@ -90,7 +90,7 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
           <View style={{ flex: 1, gap: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
               <Text variant="amount" tabular>
-                {clockLabel(dep.departAt)}
+                {clockBare(dep.departAt)}
               </Text>
               <Text variant="label" color="textMuted">
                 {t(`partner.ic_period_${dayPeriod(dep.departAt)}` as MessageKey)}

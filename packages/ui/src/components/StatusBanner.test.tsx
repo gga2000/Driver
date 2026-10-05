@@ -12,7 +12,7 @@ describe('StatusBanner', () => {
     expect(banner.textContent).toContain('الشبكة بطيئة');
     fireEvent.click(screen.getByTestId('status-banner-dismiss'));
     expect(onDismiss).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('status-banner-dismiss').getAttribute('aria-label')).toBe('إغلاق');
+    expect(screen.getByTestId('status-banner-dismiss').getAttribute('aria-label')).toBe('سكّر');
   });
 
   it('a critical banner stays until the Console clears it (no close button) and speaks up', () => {

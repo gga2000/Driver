@@ -1,3 +1,4 @@
+import { formatClock } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
   cashToHand,
@@ -202,10 +203,9 @@ export function scheduleSlots(now: Date, count = 6, leadMin = 45): Date[] {
   return Array.from({ length: count }, (_, i) => new Date(first.getTime() + i * 30 * 60_000));
 }
 
-/** 12-hour "7:30" for a slot (voice guide §5). */
+/** "7:30 م" for a slot: the city's one clock (packages/i18n), whatever the phone's time zone. */
 export function clock12(d: Date): string {
-  const h = d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return formatClock(d);
 }
 
 /** Errors `orders.place` can answer with that the checkout explains in its own words. */

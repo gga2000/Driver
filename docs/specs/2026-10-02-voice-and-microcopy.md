@@ -69,7 +69,8 @@ Four audiences, one voice:
 - **Western-Arabic digits (0–9)** everywhere, including inside Arabic strings. Thousands separator is a comma: `1,000 دينار`. No Eastern-Arabic digits (٠–٩).
 - Currency is always `دينار` after the number; never "د.ع" or "IQD" in customer-facing Arabic. English uses `IQD`.
 - Amounts are inserted via `{amount}` placeholders already formatted by the client. Cash totals are rounded up to 250 and the remainder is shown as "الباقي رصيد" (change to the wallet), never as a "تقريب +" line.
-- Time: 12-hour, `الساعة {time}` with the client formatting `7:30`. Durations: `{n} دقيقة` for singular/plural alike (Iraqi speech uses `دقيقة` after numbers above 10 and `دقايق` for 3–10; we use `دقايق` only in fixed phrases such as "5 دقايق", "أول 3 دقايق").
+- Time: one clock for every app and the API (`formatClock` / `formatWhen` in `@driver/i18n`): Asia/Baghdad whatever the phone's zone, 12-hour with the part of day (`الساعة {time}` → "الساعة 7:30 م"), and the day when it isn't today ("باچر 7:30 ص", "الخميس 9:00 م", "3/10 9:00 م"). Durations are durations, never a clock (`formatDuration`): "45 دقيقة", "ساعة و20 دقيقة", short "1 س 20 د" only where a chip has no room. Minutes: `{n} دقيقة` for singular/plural alike (Iraqi speech uses `دقيقة` after numbers above 10 and `دقايق` for 3–10; we use `دقايق` only in fixed phrases such as "5 دقايق", "أول 3 دقايق"); never the bare "د", which also starts "دينار".
+- Counted nouns agree with the number (`_one`, `_two`, `_few` keys beside the base, which is the 11+ form; `t()` picks the form): "طلب واحد", "طلبين", "3 طلبات", "11 طلب".
 - Countdowns use `{minutes}:{seconds}`.
 - Distances: `{n} كم`.
 
@@ -85,7 +86,7 @@ Four audiences, one voice:
 - Passive bureaucratic phrasing (`تم رفض الطلب` → `المطعم ما گدر يستلم طلبك`).
 - Apologising without a next step. Every "نعتذر" is followed by a time, a credit, or an action.
 - Threats. Consequences are stated as facts with a date ("التغيير يصير يوم الأحد الجاي").
-- Emojis in strings. The only symbol is `✓` on the verified badge.
+- Emojis in strings. IBM Plex Sans Arabic has no `✓`: a tick is the check icon, never a character.
 - Religious formulas as filler. "الحمد لله على السلامة" is fine on arrival; do not sprinkle "إن شاء الله" into ETAs, which read as doubt.
 - Gendered guesswork, honorifics (`أستاذ`, `حجي`), and "عزيزي".
 - English loanwords where an Iraqi word exists. Accepted loanwords because that is what people say: `دليفري`, `منيو`, `كاش`, `واتساب`, `زين كاش`, `ديسباتشر`, `GPS`, `PDF`.
@@ -115,7 +116,7 @@ Four audiences, one voice:
 | 15 | `trip.rebroadcast` | زدنا {amount} دينار للسايق حتى يجيك أسرع، ما يتغير سعرك | We added {amount} IQD for the driver so one comes faster. Your price doesn’t change |
 | 16 | `unreachable.customer_body` | رد على الاتصال أو اطلع له. عندك {minutes} دقايق | Answer the call or step out. You have {minutes} min |
 | 17 | `unreachable.driver_mark_failed` | الزبون ما رد، أنهي الطلب | No answer. End the order |
-| 18 | `dispute.resolved_q` | هل انحلت مشكلتك؟ | Was your problem solved? |
+| 18 | `dispute.resolved_q` | انحلت مشكلتك؟ | Was your problem solved? |
 | 19 | `intercity.late_meter_rider` | تأخرت: {amount} دينار كل 10 دقايق للسايق والركاب. بعد 20 دقيقة السيارة تمشي ويروح مقعدك | You’re late: {amount} IQD per 10 min to the driver and riders. After 20 min the car leaves and your seat is forfeited |
 | 20 | `intercity.cancelled_low_fill` | انلغت الرحلة لقلة الركاب. نقلناك لأقرب رحلة بنفس المقعد، والفرق يرجعلك | Cancelled for low fill. We moved you to the next departure, same seat class, difference refunded |
 | 21 | `khat.guardian_dropped_school` | {child} وصل {place} بالسلامة الساعة {time} | {child} arrived at {place} safely at {time} |
@@ -136,5 +137,6 @@ Four audiences, one voice:
 - [ ] Money: amount, recipient, timing all present.
 - [ ] Apology → next step.
 - [ ] Digits 0–9, `دينار` after the number.
+- [ ] Glossary words only (`voiceProblems` in `@driver/i18n` fails CI on مندوب، الموزّع، رحلة for a taxi, "{minutes} د", هسه …).
 - [ ] Placeholders identical between `ar-IQ` and `en` (the i18n test enforces key parity; a script in review checks placeholder parity).
 - [ ] Key follows `<screen>.<thing>` and the `push.*` / `wa.*` / `quote.reason.*` conventions.

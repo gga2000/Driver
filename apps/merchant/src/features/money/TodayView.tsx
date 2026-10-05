@@ -118,7 +118,7 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
             <Text variant="label" color="textMuted">
               {t('merchant.money.cash_caption')}
             </Text>
-            <Text testID="cash-balance" weight={700} tabular style={{ fontSize: 44, lineHeight: 58, letterSpacing: -0.5 }}>
+            <Text testID="cash-balance" variant="numeralMd" style={{ letterSpacing: -0.5 }}>
               {iqd(account.balanceIqd, { locale })}
             </Text>
           </View>
@@ -476,7 +476,7 @@ function ReceiptSheet({ handover, onClose, now }: { handover: CashHandover | nul
           <Text variant="label" color="successText">
             {t('merchant.money.receipt_amount')}
           </Text>
-          <Text weight={700} tabular color="successText" style={{ fontSize: 36, lineHeight: 48 }}>
+          <Text variant="numeralSm" color="successText">
             {iqd(handover.amountIqd, { locale })}
           </Text>
         </View>

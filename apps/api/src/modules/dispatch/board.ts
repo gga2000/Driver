@@ -7,8 +7,8 @@ export const STATUS_AR: Record<DispatchStatus, string> = {
   scheduled: 'مجدول',
   searching: 'دا ندوّر سايق',
   rebroadcast: 'إعادة بث',
-  awaiting_dispatcher: 'بانتظار قرار الموزّع',
-  needs_dispatcher: 'يحتاج الموزّع',
+  awaiting_dispatcher: 'ينتظر قرار الديسباتشر',
+  needs_dispatcher: 'يحتاج الديسباتشر',
   assigned: 'تعيّن السايق',
   cancelled: 'ملغي',
 };

@@ -1,10 +1,11 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 import { I18nManager, Platform, View, type TextStyle } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
   elevation,
   fontFace,
   fontFamily,
+  fontScale,
   hitTarget,
   motion,
   radius,
@@ -39,6 +40,8 @@ export interface Theme {
   elevation: typeof elevation;
   state: typeof state;
   hitTarget: number;
+  /** Large-text caps for compact controls (`fontScale.compact`). */
+  fontScale: typeof fontScale;
   direction: Direction;
   isRTL: boolean;
   fonts: FontMode;
@@ -76,6 +79,7 @@ export function createTheme(
     elevation,
     state,
     hitTarget,
+    fontScale,
     direction,
     isRTL: direction === 'rtl',
     fonts,
@@ -99,6 +103,33 @@ export interface ThemeProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Web keyboard focus (audit S-13): every focusable control (react-native-web renders Pressables with
+ * a tabindex) gets a 2 px ink ring, 2 px off the control so the screen shows between them, only for
+ * keyboard focus (`:focus-visible`), never on a tap. Text fields draw their own focused border.
+ */
+export function focusRingCss(color: string, width: number = state.focusRingWidth, offset: number = state.focusRingOffset): string {
+  return [
+    `[tabindex]:focus-visible,button:focus-visible,a:focus-visible{outline:${width}px solid ${color} !important;outline-offset:${offset}px !important}`,
+    `[tabindex]:focus:not(:focus-visible){outline:none}`,
+  ].join('\n');
+}
+
+const FOCUS_STYLE_ID = 'driver-focus-ring';
+
+function useWebFocusRing(color: string) {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    let el = document.getElementById(FOCUS_STYLE_ID) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement('style');
+      el.id = FOCUS_STYLE_ID;
+      document.head.appendChild(el);
+    }
+    el.textContent = focusRingCss(color);
+  }, [color]);
+}
+
 export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, children }: ThemeProviderProps) {
   const osReduceMotion = useReducedMotion();
   const dir: Direction = direction ?? (Platform.OS === 'web' || I18nManager.isRTL ? 'rtl' : 'ltr');
@@ -106,6 +137,7 @@ export function ThemeProvider({ theme = 'light', direction, fonts, haptics, redu
     () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion }),
     [theme, dir, fonts, haptics, reduceMotion, osReduceMotion],
   );
+  useWebFocusRing(value.colors.focusRing);
   return (
     <ThemeContext.Provider value={value}>
       {/* On web the direction must be set on the DOM; on native I18nManager already flips layout. */}

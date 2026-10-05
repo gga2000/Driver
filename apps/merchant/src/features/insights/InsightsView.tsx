@@ -148,7 +148,7 @@ function RejectionPanel({ data }: { data: MerchantInsights }) {
   return (
     <Panel title={t('merchant.insights.reject_title')} caption={t('merchant.insights.reject_count', { rejected: r.rejected, offered: r.offered })} icon="x" style={fill} testID="insights-reject">
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[3] }}>
-        <Text weight={700} tabular color={VERDICT[v].fg} style={{ fontSize: 44, lineHeight: 56 }} testID="reject-rate">
+        <Text variant="numeralMd" color={VERDICT[v].fg} testID="reject-rate">
           {r.rate === null ? '—' : `${percent(r.rate)}%`}
         </Text>
         {trend ? (

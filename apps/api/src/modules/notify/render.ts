@@ -1,5 +1,5 @@
 import { NOTIFY_TEMPLATES, type NotifyTemplateDef, type NotifyTemplateId } from '@driver/contracts';
-import { locales, t, type Locale, type MessageKey } from '@driver/i18n';
+import { formatClock, locales, t, type Locale, type MessageKey } from '@driver/i18n';
 import { BAGHDAD_OFFSET_MIN } from '../../shared/local-time.js';
 
 export type Params = Record<string, string>;
@@ -66,9 +66,7 @@ export function localDate(at: Date): string {
   return local(at).toISOString().slice(0, 10);
 }
 
-/** `7:30`, 12-hour, Baghdad local. */
+/** `7:30 م`: the city's one clock with the part of day (`formatClock` in packages/i18n). */
 export function localTime(at: Date): string {
-  const d = local(at);
-  const h = d.getUTCHours() % 12 || 12;
-  return `${h}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  return formatClock(at);
 }

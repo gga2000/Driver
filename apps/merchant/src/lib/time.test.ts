@@ -3,9 +3,9 @@ import { clock12, clockOffset, minutesBetween, minutesLeft, secondsLeft } from '
 
 describe('kitchen time', () => {
   it('12-hour Baghdad clock with Western digits', () => {
-    expect(clock12(new Date('2026-10-03T16:42:00Z'))).toBe('7:42');
-    expect(clock12(new Date('2026-10-03T09:05:00Z'))).toBe('12:05');
-    expect(clock12(new Date('2026-10-03T21:00:00Z'))).toBe('12:00');
+    expect(clock12(new Date('2026-10-03T16:42:00Z'))).toBe('7:42 م');
+    expect(clock12(new Date('2026-10-03T09:05:00Z'))).toBe('12:05 م');
+    expect(clock12(new Date('2026-10-03T21:00:00Z'))).toBe('12:00 ص');
   });
   it('minutes since (floored) and left (ceiled), never negative', () => {
     const t = Date.parse('2026-10-03T17:00:00Z');

@@ -1,7 +1,11 @@
 /**
  * Number and time formatting per the voice spec §5: Western digits, comma thousands, "دينار"
- * after the amount, U+2212 minus for discounts, 12-hour clock without AM/PM words.
+ * after the amount, U+2212 minus for discounts. Time comes from the one clock in @driver/i18n
+ * (Asia/Baghdad, ص/م, days and durations; audit S-06), re-exported here for the apps.
  */
+import { formatClock as cityClock, formatCountdown as cityCountdown } from '@driver/i18n';
+
+export { formatDay, formatDuration, formatMinutes, formatWhen, cityDayDiff, cityParts } from '@driver/i18n';
 
 export const MINUS = '\u2212';
 /** Left-to-right isolate: keeps "−1,500" in one piece inside an Arabic sentence. */
@@ -37,16 +41,12 @@ export function roundToStep(n: number, step = 250): number {
   return Math.round(n / step) * step;
 }
 
-/** `7:05` style 12-hour clock. */
-export function formatClock(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
+/** "7:05 م" on the city's clock, whatever the phone's time zone. */
+export function formatClock(d: Date | number, opts: { period?: boolean; locale?: 'ar-IQ' | 'en' } = {}): string {
+  return cityClock(d, opts);
 }
 
-/** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`). */
+/** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`), `h:mm:ss` from an hour up. */
 export function formatCountdown(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return cityCountdown(ms);
 }

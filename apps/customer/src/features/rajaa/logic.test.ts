@@ -318,7 +318,7 @@ describe('demand windows', () => {
     expect(hourLabel(at(240))).toBe('4');
     expect(hourLabel(at(270))).toBe('4:30');
     expect(hourLabel(at(720))).toBe('12');
-    expect(clockLabel(at(-5 * 60 + 5))).toBe('7:05');
+    expect(clockLabel(at(-5 * 60 + 5))).toBe('7:05 ص');
     expect(labelWindow(at(3), at(62))).toEqual({ start: at(0), end: at(65) });
   });
 });

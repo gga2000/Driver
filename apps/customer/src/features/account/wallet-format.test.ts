@@ -25,9 +25,10 @@ describe('wallet formatting', () => {
   });
 
   it('today / yesterday / date', () => {
-    const now = new Date(2026, 9, 3, 18, 0);
-    expect(lineWhen(new Date(2026, 9, 3, 7, 5), now, t)).toBe('اليوم 7:05');
-    expect(lineWhen(new Date(2026, 9, 2, 21, 30), now, t)).toBe('أمس 9:30');
-    expect(lineWhen(new Date(2026, 8, 28, 12, 0), now, t)).toBe('28/9');
+    // Baghdad is UTC+3 whatever the test machine's zone: 15:00Z is 6 in the evening there.
+    const now = new Date('2026-10-03T15:00:00Z');
+    expect(lineWhen(new Date('2026-10-03T04:05:00Z'), now, t)).toBe('اليوم 7:05 ص');
+    expect(lineWhen(new Date('2026-10-02T18:30:00Z'), now, t)).toBe('أمس 9:30 م');
+    expect(lineWhen(new Date('2026-09-28T09:00:00Z'), now, t)).toBe('28/9');
   });
 });

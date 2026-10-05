@@ -9,6 +9,7 @@ import { cityName, dayAndPeriod, timeWithPeriod } from '@/features/intercity/lab
 import {
   ANNOUNCE_RULES,
   clampDepart,
+  clockBare,
   clockLabel,
   CORRIDOR_SWITCH,
   destinationCity,
@@ -161,7 +162,7 @@ export default function Announce() {
             <IconButton icon="minus" variant="tonal" size={52} accessibilityLabel={t('partner.ic_announce_earlier')} onPress={() => shift(-ANNOUNCE_RULES.stepMin)} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text variant="display" tabular testID="announce-clock">
-                {clockLabel(at)}
+                {clockBare(at)}
               </Text>
               <Text variant="label" color="textMuted">
                 {dayAndPeriod(t, at, now)}
@@ -301,7 +302,7 @@ function VehicleTile({ option, selected, onPress }: { option: VehicleOption; sel
       <Text variant="caption" weight={600} numberOfLines={1}>
         {t(`partner.ic_vehicle_${option.key}`)}
       </Text>
-      <Text variant="caption" color="textMuted" numberOfLines={1} style={{ fontSize: 11, lineHeight: 16 }}>
+      <Text variant="caption" color="textMuted" numberOfLines={1}>
         {disabled ? t('partner.ic_vehicle_soon') : t('partner.ic_vehicle_seats', { n: option.seats })}
       </Text>
     </Pressable>

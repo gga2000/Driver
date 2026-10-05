@@ -231,7 +231,7 @@ describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)
     expect(h.events.types()).toContain('dispatch.free_cancel_available');
     expect((await h.offers('t1')).filter((o) => o.state === 'sent' || o.state === 'seen')).toEqual([]);
     const card = (await h.service.board('aziziyah')).cards[0]!;
-    expect(card).toMatchObject({ customerMayCancelFree: true, status_ar: 'يحتاج الموزّع' });
+    expect(card).toMatchObject({ customerMayCancelFree: true, status_ar: 'يحتاج الديسباتشر' });
   });
 });
 
@@ -476,7 +476,7 @@ describe('suggest-only and runtime policy overrides', () => {
     expect(await h.offers('t1')).toEqual([]);
     expect(h.events.types()).not.toContain('dispatch.wave_sent');
     const card = (await h.service.board('aziziyah')).cards[0]!;
-    expect(card).toMatchObject({ status: 'awaiting_dispatcher', status_ar: 'بانتظار قرار الموزّع' });
+    expect(card).toMatchObject({ status: 'awaiting_dispatcher', status_ar: 'ينتظر قرار الديسباتشر' });
     expect(card.suggestion.slice(0, 3)).toEqual(['a1', 'a2', 'a3']);
     // The dispatcher picks one: exactly one offer goes out.
     await h.online('b2', 1.8); // back online after the 200 s

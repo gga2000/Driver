@@ -338,7 +338,7 @@ describe('ChatService — masked calls', () => {
     const o1 = await acceptedOrder(none.h);
     await none.h.tripFor(o1.id);
     expect(await code(none.chat.requestCall(as('c1'), { orderId: o1.id, kind: 'customer_courier' }))).toBe('call_unavailable');
-    expect(new DriverError('call_unavailable').envelope.message_ar).toBe('اتصل من خلال التطبيق غير متوفر');
+    expect(new DriverError('call_unavailable').envelope.message_ar).toBe('الاتصال من التطبيق ما يشتغل هسة. دز رسالة بالمحادثة');
     expect(none.vaultReads.filter((r) => r.purpose === 'masked_call_dev')).toEqual([]);
 
     const proxy = setup({ bridge: new ProxyCallBridge('+9647800000000') });

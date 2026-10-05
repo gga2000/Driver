@@ -1,5 +1,5 @@
 import { AZIZIYAH_ZONES, type PartnerJob, type PartnerJobStop, type PartnerPayKey, type VehicleClass, type Vertical } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
+import { pluralCategory, type MessageKey } from '@driver/i18n';
 import { toWesternDigits } from '@/lib/phone';
 
 /**
@@ -22,13 +22,16 @@ export function inZone(zoneId: string, t: T, locale: Locale = 'ar-IQ'): string {
   return t('partner.in_zone', { zone: zoneName(zoneId, locale, t) });
 }
 
-/** Iraqi number agreement for counted nouns: واحد · 2–10 plural · 11+ singular ("14 طلب"). */
+/**
+ * Iraqi number agreement for counted nouns: واحد · 2–10 plural · 11+ singular ("14 طلب"), on the
+ * shared Arabic categories (packages/i18n `pluralCategory`). These key families have no `_two`
+ * form, so 2 reads as few; 100+ reads as many ("100 طلب").
+ */
 export type PluralForm = 'zero' | 'one' | 'few' | 'many';
 export function pluralForm(n: number): PluralForm {
   if (n <= 0) return 'zero';
-  if (n === 1) return 'one';
-  if (n <= 10) return 'few';
-  return 'many';
+  const c = pluralCategory(n);
+  return c === 'two' ? 'few' : c === 'other' || c === 'zero' ? 'many' : c;
 }
 
 /** "12,500 · 6 طلبات" with Iraqi number agreement (طلب واحد · 3–10 طلبات · 11+ طلب). */

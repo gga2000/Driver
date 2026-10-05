@@ -217,8 +217,10 @@ describe('checkout rules and helpers', () => {
   it('schedule slots: half hours at least 45 minutes ahead; 12-hour labels', () => {
     const now = new Date(2026, 9, 3, 18, 12);
     const slots = scheduleSlots(now, 3);
-    expect(slots.map(clock12)).toEqual(['7:00', '7:30', '8:00']);
-    expect(clock12(new Date(2026, 9, 3, 0, 5))).toBe('12:05');
+    expect(slots.map((d) => d.getMinutes())).toEqual([0, 30, 0]);
+    // Labels are on the city's clock (UTC+3) with ص/م, whatever the phone's zone.
+    expect(clock12(new Date('2026-10-03T16:00:00Z'))).toBe('7:00 م');
+    expect(clock12(new Date('2026-10-02T21:05:00Z'))).toBe('12:05 ص');
   });
 
   it('similar open kitchens: shared tags first, never the one that said no', () => {

@@ -1,3 +1,4 @@
+import { cityParts, formatClock } from '@driver/i18n';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -17,10 +18,10 @@ function spacedCode(code: string): string {
   return `⁦${code.slice(0, 3)} ${code.slice(3)}⁩`;
 }
 
-/** "12:30 · 5/10" (12-hour clock, voice guide §5) for the code's expiry, device local time. */
+/** "12:30 م · 5/10" for the code's expiry, on the city's one clock (packages/i18n). */
 function untilLabel(d: Date): string {
-  const h = d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
-  return `⁦${h}:${String(d.getMinutes()).padStart(2, '0')} · ${d.getDate()}/${d.getMonth() + 1}⁩`;
+  const p = cityParts(d);
+  return `${formatClock(d)} · ${p.day}/${p.month}`;
 }
 
 /**
@@ -184,7 +185,7 @@ function CodeView({ v, onChange, onNew }: { v: TopUpView; onChange: () => void; 
           </Text>
         </View>
         <View style={{ alignItems: 'center', gap: theme.space[3], padding: theme.space[5] }}>
-          <Text testID="topup-code-digits" variant="display" tabular style={{ fontSize: 44, lineHeight: 56, letterSpacing: 6 }} accessibilityLabel={v.code.split('').join(' ')}>
+          <Text testID="topup-code-digits" variant="numeralMd" style={{ letterSpacing: 6 }} accessibilityLabel={v.code.split('').join(' ')}>
             {spacedCode(v.code)}
           </Text>
           <View style={{ padding: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: theme.colors.border }}>

@@ -27,7 +27,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
 ) {
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
-  const borderColor = error ? theme.colors.danger : focused ? theme.colors.accent : 'transparent';
+  // A field you can see at rest (audit S-04: 3.3–3.9:1, not 1.1:1), ink when focused, red on error.
+  const borderColor = error ? theme.colors.danger : focused ? theme.colors.focusRing : theme.colors.borderStrong;
+  const borderWidth = focused || error ? 2 : 1.5;
   return (
     <View style={[{ gap: theme.space[1] }, style]}>
       {label ? (
@@ -45,8 +47,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           paddingEnd: trailing ? theme.space[1] : theme.space[4],
           borderRadius: pill ? theme.radius.pill : theme.radius.md,
           backgroundColor: theme.colors.surfaceSunken,
-          borderWidth: 2,
+          borderWidth,
           borderColor,
+          // Keep the content still when the border thickens on focus.
+          margin: borderWidth === 2 ? 0 : 0.5,
           opacity: editable || !dimWhenReadOnly ? 1 : theme.state.disabledOpacity,
         }}
       >
@@ -79,7 +83,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               paddingVertical: 0,
               ...theme.font(400),
             },
-            // Web: drop the UA focus outline; the field draws its own accent border.
+            // Web: drop the UA focus outline; the field draws its own ink border on focus.
             { outlineStyle: 'none' } as object,
           ]}
           {...input}

@@ -158,7 +158,7 @@ function Hero() {
             </Text>
           </View>
           <Text variant="title" weight={500} color="textMuted" style={{ maxWidth: 560 }}>
-            نظام التصميم المشترك لتطبيق الزبون، درايفر بارتنر، ودرايفر ماركت. كل مكوّن يشتغل من اليمين لليسار أول، وبالعراقي.
+            نظام التصميم المشترك لتطبيق الزبون، درايفر بارتنر، ودرايفر للمطاعم. كل مكوّن يشتغل من اليمين لليسار أول، وبالعراقي.
           </Text>
         </View>
         <View style={{ gap: theme.space[2], minWidth: wide ? 360 : undefined, alignSelf: wide ? 'auto' : 'stretch' }}>
@@ -863,7 +863,7 @@ function TimersSection() {
         </View>
         <View style={{ alignItems: 'center', gap: theme.space[2] }}>
           <LoopingAcceptRing durationMs={90000} offsetMs={31000} size={96} strokeWidth={7} />
-          <Caption>قبول الماركت: 90 ثانية</Caption>
+          <Caption>قبول المطعم: 90 ثانية</Caption>
         </View>
         <View style={{ alignItems: 'center', gap: theme.space[2] }}>
           <CountdownRing mode="late" startedAt={start - 60_000} config={LATE} />
@@ -900,7 +900,7 @@ function StatesSection() {
         </Panel>
         <View style={{ gap: theme.space[2] }}>
           <Toast message={t('intercity.booked')} tone="success" />
-          <Toast message={t('error.network')} tone="danger" action={{ label: t('action.retry'), onPress: () => {} }} />
+          <Toast message={t('error.network')} tone="danger" action={{ label: t('action.retry'), onPress: () => {} }} onDismiss={() => {}} />
           <Toast message={t('trip.rebroadcast', { amount: '500' })} tone="info" icon="car" />
           <Button
             label="جرّب التنبيه"

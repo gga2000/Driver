@@ -89,7 +89,7 @@ export function StatementView({
             <Text variant="label" color="textMuted">
               {t('merchant.statement.net')}
             </Text>
-            <Text weight={700} tabular color="successText" style={{ fontSize: 40, lineHeight: 54 }} testID="statement-net">
+            <Text variant="numeralMd" color="successText" testID="statement-net">
               {iqd(tot.netIqd, { locale })}
             </Text>
             <Text variant="footnote" color="textMuted" tabular>

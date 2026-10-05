@@ -149,7 +149,7 @@ export function EarningsHero({
           {t('partner.earn_net_label')}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-          <Text testID="earnings-total" tabular weight={700} color={CREAM} style={{ fontSize: 46, lineHeight: 60, letterSpacing: -0.5 }}>
+          <Text testID="earnings-total" variant="numeralLg" color={CREAM} style={{ letterSpacing: -0.5 }}>
             {amountParam(shown)}
           </Text>
           <Text variant="title" color={muted}>
@@ -446,7 +446,7 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
           {job.cashCollectedIqd > 0 ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.colors.warningTint, borderRadius: 6, paddingHorizontal: 6 }}>
               <Icon name="wallet" size={11} color="warningText" strokeWidth={2.2} />
-              <Text variant="caption" color="warningText" tabular style={{ fontSize: 11, lineHeight: 18 }}>
+              <Text variant="caption" color="warningText" tabular style={{ lineHeight: 18 }}>
                 {amountParam(job.cashCollectedIqd)}
               </Text>
             </View>

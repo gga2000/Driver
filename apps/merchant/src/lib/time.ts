@@ -1,16 +1,14 @@
 /**
- * Kitchen time on screen (voice guide §5): 12-hour clock in Baghdad time ("7:30"), whole minutes
- * since/until ("من 4 د"), and a server-synced "now" so card timers don't drift with the tablet clock.
+ * Kitchen time on screen (voice guide §5): 12-hour clock in Baghdad time ("7:30 م"), whole minutes
+ * since/until ("من 4 دقيقة"), and a server-synced "now" so card timers don't drift with the tablet clock.
  * Pure (no React Native), tested.
  */
 
-const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3 all year, no DST
+import { formatClock } from '@driver/i18n';
 
-/** "7:30" (12-hour, no am/pm, Western digits) in Baghdad time. */
+/** "7:30 م" in Baghdad time: the one clock in packages/i18n (ص/م, Western digits). */
 export function clock12(at: Date | number): string {
-  const d = new Date((typeof at === 'number' ? at : at.getTime()) + BAGHDAD_OFFSET_MS);
-  const h = d.getUTCHours() % 12 || 12;
-  return `${h}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  return formatClock(at);
 }
 
 /** Whole minutes from `from` to `to` (floored, never negative). */

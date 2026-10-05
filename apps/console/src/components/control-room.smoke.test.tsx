@@ -165,7 +165,7 @@ describe('control room pages render', () => {
         onDecided={() => undefined}
       />,
     );
-    for (const text of ['إجازة السياقة', 'قيد المراجعة', 'للمقارنة', 'الهوية الوطنية (موافق عليه)', 'وافق على المستمسك', 'ارفض', 'معلم جديد: يم الجامع', 'يخصّك', 'قبل 1 س']) expect(html).toContain(text);
+    for (const text of ['إجازة السياقة', 'بالمراجعة', 'للمقارنة', 'الهوية الوطنية (موافق عليه)', 'وافق على المستمسك', 'ارفض', 'معلم جديد: يم الجامع', 'يخصّك', 'قبل 1 س']) expect(html).toContain(text);
     expect(html).toContain('http://localhost:3000/files/up_1');
   });
 

@@ -77,7 +77,7 @@ export function HourBars({ hours, highlight, height = 150 }: { hours: readonly n
           })}
           {shown.map((h, i) =>
             i % labelEvery === 0 ? (
-              <SvgText key={`l${h}`} x={x(i) + barW / 2} y={height - 4} fontSize={11} fill={theme.colors.textMuted} textAnchor="middle" fontFamily="IBM Plex Sans Arabic, system-ui">
+              <SvgText key={`l${h}`} x={x(i) + barW / 2} y={height - 4} fontSize={12} fill={theme.colors.textMuted} textAnchor="middle" fontFamily={theme.font(400).fontFamily}>
                 {dates.hour(h)}
               </SvgText>
             ) : null,
@@ -115,7 +115,7 @@ export function Heatmap({ grid, hours }: { grid: readonly (readonly number[])[];
         <View style={{ width: 64 }} />
         <View style={{ flex: 1, flexDirection: 'row', gap: 4 }}>
           {shown.map((h, i) => (
-            <Text key={h} variant="caption" color="textMuted" align="center" numberOfLines={1} style={{ flex: 1, fontSize: 10 }}>
+            <Text key={h} variant="caption" color="textMuted" align="center" numberOfLines={1} style={{ flex: 1 }}>
               {i % labelEvery === 0 ? dates.hour(h) : ''}
             </Text>
           ))}
@@ -160,12 +160,12 @@ export function TrendBars({ values, labels, tone, height = 110 }: { values: read
             );
           })}
           {values.map((v, i) => (
-            <SvgText key={`v${i}`} x={x(i) + barW / 2} y={top + plotH - (v === null ? 0 : Math.max(2, (v / max) * plotH)) - 6} fontSize={11} fontWeight="600" fill={i === values.length - 1 ? theme.colors.text : theme.colors.textMuted} textAnchor="middle" fontFamily="IBM Plex Sans Arabic, system-ui">
+            <SvgText key={`v${i}`} x={x(i) + barW / 2} y={top + plotH - (v === null ? 0 : Math.max(2, (v / max) * plotH)) - 6} fontSize={12} fill={i === values.length - 1 ? theme.colors.text : theme.colors.textMuted} textAnchor="middle" {...theme.font(600)}>
               {v === null ? '–' : `${(Math.round(v * 1000) / 10).toString()}%`}
             </SvgText>
           ))}
           {labels.map((l, i) => (
-            <SvgText key={`l${i}`} x={x(i) + barW / 2} y={height - 4} fontSize={10} fill={theme.colors.textMuted} textAnchor="middle" fontFamily="IBM Plex Sans Arabic, system-ui">
+            <SvgText key={`l${i}`} x={x(i) + barW / 2} y={height - 4} fontSize={12} fill={theme.colors.textMuted} textAnchor="middle" fontFamily={theme.font(400).fontFamily}>
               {l}
             </SvgText>
           ))}

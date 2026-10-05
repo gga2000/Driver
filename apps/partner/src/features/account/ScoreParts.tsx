@@ -56,7 +56,7 @@ export function ScoreHero({ card }: { card: ScorecardView }) {
     <Card testID="score-hero" elevation={2} padding={5}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[5] }}>
         <Gauge share={shown / 100} color={color} track={theme.colors.surfaceSunken}>
-          <Text testID="score-index" tabular weight={700} style={{ fontSize: 40, lineHeight: 48 }}>
+          <Text testID="score-index" variant="numeralMd">
             {shown}
           </Text>
           <Text variant="caption" color="textMuted">
@@ -115,7 +115,7 @@ function TierLadder({ tier, index }: { tier: Tier; index: number }) {
             <Text variant="caption" weight={s.tier === tier ? 700 : 500} color={s.tier === tier ? 'text' : 'textMuted'} numberOfLines={1}>
               {t(`partner.tier_${s.tier}`)}
             </Text>
-            <Text variant="caption" color="textMuted" tabular numberOfLines={1} style={{ fontSize: 11, lineHeight: 16 }}>
+            <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
               {amountParam(caps[s.tier])}
             </Text>
           </View>
@@ -227,7 +227,7 @@ export function ObservationCard({ card }: { card: ScorecardView }) {
           <Text variant="caption" color="textMuted">
             {t('partner.score_day_word')}
           </Text>
-          <Text testID="score-day" tabular weight={700} style={{ fontSize: 44, lineHeight: 52 }}>
+          <Text testID="score-day" variant="numeralMd">
             {shown}
           </Text>
           <Text variant="caption" color="textMuted" tabular>

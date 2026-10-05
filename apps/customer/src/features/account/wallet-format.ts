@@ -1,4 +1,5 @@
 import type { WalletLine } from '@driver/contracts';
+import { cityDayDiff, cityParts, formatClock } from '@driver/i18n';
 import type { MessageKey } from '@driver/i18n';
 import { amountParam, iqd, type MoneyLocale } from '@/lib/money';
 
@@ -9,19 +10,13 @@ export function pointsWorthText(points: number, pointValueIqd: number, t: T): st
   return t('wallet.points_worth', { points: amountParam(points), amount: amountParam(points * pointValueIqd) });
 }
 
-/** 12-hour clock, no AM/PM words (voice spec §5). */
-function clock(d: Date): string {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-/** "اليوم 7:05", "أمس 9:30", else "3/10" (day/month, Western digits). */
+/** "اليوم 7:05 م", "أمس 9:30 ص", else "3/10" (day/month): the city's one clock and calendar. */
 export function lineWhen(at: Date, now: Date, t: T): string {
-  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diff = Math.round((day(now) - day(at)) / 86_400_000);
-  if (diff === 0) return t('wallet.when_today', { time: clock(at) });
-  if (diff === 1) return t('wallet.when_yesterday', { time: clock(at) });
-  return `${at.getDate()}/${at.getMonth() + 1}`;
+  const diff = -cityDayDiff(at, now);
+  if (diff === 0) return t('wallet.when_today', { time: formatClock(at) });
+  if (diff === 1) return t('wallet.when_yesterday', { time: formatClock(at) });
+  const p = cityParts(at);
+  return `${p.day}/${p.month}`;
 }
 
 /** Signed amount: "+20,000 دينار", "−16,500 دينار", "+27 نقطة". */
