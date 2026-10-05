@@ -4913,5 +4913,14 @@
   "console.wall_most_urgent": "Most urgent now",
   "console.fin_round_progress_aria": "Cash round progress",
   "console.wall_minutes": "{n} min",
-  "console.wall_trend_a11y": "{label}: {direction}, yesterday by now {value}"
+  "console.wall_trend_a11y": "{label}: {direction}, yesterday by now {value}",
+  "console.triage_global": "{count} orders need a dispatcher · oldest waiting {time}",
+  "console.triage_global_one": "1 order needs a dispatcher · waiting {time}",
+  "console.triage_global_two": "2 orders need a dispatcher · oldest waiting {time}",
+  "console.triage_global_few": "{count} orders need a dispatcher · oldest waiting {time}",
+  "console.triage_global_short": "{count} orders need a dispatcher",
+  "console.triage_global_short_one": "1 order needs a dispatcher",
+  "console.triage_global_short_two": "2 orders need a dispatcher",
+  "console.triage_global_short_few": "{count} orders need a dispatcher",
+  "console.triage_go": "Go to dispatch"
 }

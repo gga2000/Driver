@@ -4913,5 +4913,14 @@
   "console.wall_most_urgent": "أهم شي هسة",
   "console.fin_round_progress_aria": "تقدّم جولة الكاش",
   "console.wall_minutes": "{n} دقيقة",
-  "console.wall_trend_a11y": "{label}: {direction}، أمس بهالوقت {value}"
+  "console.wall_trend_a11y": "{label}: {direction}، أمس بهالوقت {value}",
+  "console.triage_global": "{count} طلب يحتاج ديسباتشر · أقدم واحد من {time}",
+  "console.triage_global_one": "طلب يحتاج ديسباتشر · ينتظر من {time}",
+  "console.triage_global_two": "طلبين يحتاجون ديسباتشر · أقدم واحد من {time}",
+  "console.triage_global_few": "{count} طلبات تحتاج ديسباتشر · أقدم واحد من {time}",
+  "console.triage_global_short": "{count} طلب يحتاج ديسباتشر",
+  "console.triage_global_short_one": "طلب يحتاج ديسباتشر",
+  "console.triage_global_short_two": "طلبين يحتاجون ديسباتشر",
+  "console.triage_global_short_few": "{count} طلبات تحتاج ديسباتشر",
+  "console.triage_go": "روح للتوزيع"
 }
