@@ -53,6 +53,19 @@ app.use('/demo/seed', (_req, res) => {
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify({ people }));
 });
+// POST /demo/sos (registered before listen; the seeding below fills in `raiseDemoSos`).
+let raiseDemoSos = null;
+app.use('/demo/sos', async (req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!raiseDemoSos) throw new Error('still seeding');
+    const who = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('who') ?? 'driver';
+    res.end(JSON.stringify(await raiseDemoSos(who)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
 await app.listen(PORT);
 const origin = `http://127.0.0.1:${PORT}`;
 const get = (cls) => app.get(cls);
@@ -377,5 +390,35 @@ const keepOnline = async () => {
 };
 await keepOnline();
 setInterval(() => void keepOnline(), 20_000).unref?.();
+
+// ───────────────────────── SOS ─────────────────────────
+// POST /demo/sos[?who=driver|customer] — someone on a live trip holds طوارئ: the red banner rings on
+// every page and /safety opens the incident. The person gets an emergency contact first, and their
+// phone keeps sending a fix every 5 s for two minutes (a short walk), so the trail and the contact's
+// message show. Also run once at start-up when DEMO_SOS=1.
+const { SafetyService } = await load('modules/safety/index.js');
+const { TripsService } = await load('modules/trips/index.js');
+const safety = get(SafetyService);
+const trips = get(TripsService);
+raiseDemoSos = async function raiseDemoSos(who = 'driver') {
+  const live = (await trips.active('aziziyah')).filter((t) => t.courierId && t.stops.some((s) => s.orderId));
+  const trip = live.find((t) => t.vertical === 'tuktuk' || t.vertical === 'taxi') ?? live[0];
+  if (!trip) throw new Error('no live trip yet');
+  const orderId = trip.stops.find((s) => s.orderId)?.orderId;
+  const order = await get(OrdersService).get(orderId);
+  const personId = who === 'customer' ? order.ordererId : trip.courierId;
+  await identity.updateProfile(actor(personId), { emergencyContact: { name: who === 'customer' ? 'أم زينب' : 'أبو علي', phone: '07809990000' } });
+  const fix = (await trips.lastPosition(trip.id))?.pin ?? { lat: 32.9095, lng: 45.0635 };
+  const view = await safety.sos(actor(personId), { subject: { kind: 'trip', id: trip.id }, position: { ...fix, accuracyM: 9, at: new Date() }, clientId: `demo-sos-${Date.now()}`, pressedAt: new Date(Date.now() - 1200) });
+  let i = 0;
+  const walk = setInterval(() => {
+    i += 1;
+    if (i > 24) return clearInterval(walk);
+    void safety.position(actor(personId), { incidentId: view.incidentId, position: { lat: fix.lat + i * 0.00011, lng: fix.lng - i * 0.00007 + (i % 3) * 0.00003, accuracyM: 6 + (i % 4), at: new Date() } }).catch(() => undefined);
+  }, 5_000);
+  walk.unref?.();
+  return { incidentId: view.incidentId, personId, tripId: trip.id };
+};
+if (process.env.DEMO_SOS === '1') await raiseDemoSos().catch((err) => console.warn('demo sos skipped:', err?.message ?? err));
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

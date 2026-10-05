@@ -316,3 +316,23 @@ export const IconZoom = make(
 export const IconDot = ({ className = '' }: { className?: string }) => (
   <span aria-hidden className={`inline-block h-2 w-2 shrink-0 rounded-pill ${className}`} />
 );
+/** SOS: a siren (the red banner, the emergencies page). */
+export const IconSiren = make(
+  <>
+    <path d="M5.5 15v-4.5a4.5 4.5 0 0 1 9 0V15" />
+    <path d="M3.5 15h13v2.5h-13z" />
+    <path d="M10 2.5V4M3.6 5.2l1 1M16.4 5.2l-1 1M10 10.5v2" />
+  </>,
+);
+export const IconVolume = make(
+  <>
+    <path d="M3.5 8h3l4-3v10l-4-3h-3V8Z" />
+    <path d="M13.5 7.5a3.5 3.5 0 0 1 0 5" />
+  </>,
+);
+export const IconMute = make(
+  <>
+    <path d="M3.5 8h3l4-3v10l-4-3h-3V8Z" />
+    <path d="m13.5 8 4 4m0-4-4 4" />
+  </>,
+);

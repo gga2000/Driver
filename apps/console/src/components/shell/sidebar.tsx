@@ -31,6 +31,7 @@ import {
   IconSupport,
   IconSystem,
   IconWall,
+  IconSiren,
   IconZones,
   Kbd,
   type IconProps,
@@ -49,6 +50,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   controls: IconControls,
   wall: IconWall,
   zones: IconZones,
+  safety: IconSiren,
   system: IconSystem,
 };
 
