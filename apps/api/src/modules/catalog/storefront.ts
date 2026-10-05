@@ -11,9 +11,6 @@ export const STOREFRONT_RULES = {
   busyBufferMin: 10,
   /** Width of the prep and ETA ranges shown on cards. */
   rangeMin: 10,
-  /** Courier speed in town and the road-over-straight-line factor (draft until trails calibrate it). */
-  courierKmh: 20,
-  roadFactor: 1.35,
   /** Pickup at the counter + hand-over at the door. */
   handoverMin: 5,
   defaultPrepMin: 20,
@@ -102,28 +99,11 @@ export function prepRange(base: number, busy: boolean): { min: number; max: numb
   return { min, max: min + STOREFRONT_RULES.rangeMin };
 }
 
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(b.lat - a.lat);
-  const dLng = rad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6371 * Math.asin(Math.sqrt(h));
-}
-
 /** A point's pin, else its zone's centroid (Aziziyah seed). */
 export function pinOf(p: DeliveryPoint): { lat: number; lng: number } | null {
   if (p.pin) return p.pin;
   const z = AZIZIYAH_ZONES.find((x) => x.id === p.zoneKey);
   return z ? { lat: z.lat, lng: z.lng } : null;
-}
-
-/** Courier minutes from kitchen to door: straight line × road factor at town speed, plus hand-over. */
-export function rideMinutes(from: DeliveryPoint, to: DeliveryPoint): number | null {
-  const a = pinOf(from);
-  const b = pinOf(to);
-  if (!a || !b) return null;
-  const km = haversineKm(a, b) * STOREFRONT_RULES.roadFactor;
-  return Math.round((km / STOREFRONT_RULES.courierKmh) * 60) + STOREFRONT_RULES.handoverMin;
 }
 
 /** Prep + ride, the low end rounded up to 5 minutes; the range is as wide as the prep range. */

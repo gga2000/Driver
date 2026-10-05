@@ -1,0 +1,16 @@
+# OSRM road routing for the Driver API on a private Fly machine in Frankfurt (docs/deploy/hosting.md,
+# "Road routing"). Not exposed to the internet: no [http_service]; the API reaches it at
+# driver-osrm.internal:5000 over Fly's private network. Once:
+#   flyctl apps create driver-osrm
+#   flyctl deploy . --config deploy/fly/osrm.toml --dockerfile deploy/fly/osrm/Dockerfile --remote-only
+# Then on the API: flyctl secrets set --config deploy/fly/api.toml OSRM_URL=http://driver-osrm.internal:5000
+# Redeploy monthly (same command) to pick up newer OpenStreetMap data.
+
+app = "driver-osrm"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = 10
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

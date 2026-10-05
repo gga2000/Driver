@@ -71,7 +71,8 @@ export default function OrderLiveScreen() {
 
   const ageSec = fix ? fix.ageSec + Math.max(0, (tick - pos.dataUpdatedAt) / 1000) : null;
   const lostMin = signalLostMinutes(ageSec);
-  const eta = v ? liveEta(v, fix?.pin ?? null, new Date(now)) : null;
+  // The server's ETA (one ETA everywhere, routed on real roads when available); the local estimate if it has none.
+  const eta = v ? (fix?.etaAt ?? liveEta(v, fix?.pin ?? null, new Date(now))) : null;
   const lateMin = v ? lateMinutes(eta, v.promisedAt) : 0;
   const phase = v ? phaseOf(v) : null;
   const ride = v?.order.type === 'ride';

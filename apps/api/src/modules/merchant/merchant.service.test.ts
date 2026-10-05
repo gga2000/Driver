@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EtaService, StraightLineRouter } from '../routing/index.js';
 import { DriverError, type RoleKind } from '@driver/contracts';
 import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
 import { OrdersStorefrontMerchants } from '../orders/storefront.port.js';
@@ -56,7 +57,7 @@ async function setup() {
     },
   };
   const names = new Map(HARNESS_MENU.map((m) => [m.id, m.nameAr]));
-  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock);
+  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()));
   const staff = { personId: 's1', sessionId: 'x' };
   const owner = { personId: 'o1', sessionId: 'y' };
   return { h, orgs, svc, khalid, other, staff, owner, recorded, nameReads };
@@ -288,6 +289,7 @@ describe('MerchantService — opening hours', () => {
       catalog,
       events,
       base.h.clock,
+      new EtaService(new StraightLineRouter()),
     );
     return { ...base, svc, fronts };
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basePrepMin, etaRange, foldArabic, nextOpening, openState, prepRange, rideMinutes, twelveHour } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, nextOpening, openState, pinOf, prepRange, twelveHour } from './storefront.js';
 
 const TZ = 'Asia/Baghdad';
 const every = (start: string, end: string) => [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start, end }));
@@ -34,12 +34,10 @@ describe('storefront helpers', () => {
     expect(prepRange(20, true)).toEqual({ min: 30, max: 40 });
   });
 
-  it('ride minutes grow with distance; ETA rounds the low end up to 5', () => {
-    const near = rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'street_30' })!;
-    const far = rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'khamas' })!;
-    expect(near).toBeGreaterThanOrEqual(5);
-    expect(far).toBeGreaterThan(near);
-    expect(rideMinutes({ zoneKey: 'centre' }, { zoneKey: 'nowhere' })).toBeNull();
+  it('a point without a pin uses its zone centre; ETA rounds the low end up to 5', () => {
+    expect(pinOf({ zoneKey: 'centre', pin: { lat: 1, lng: 2 } })).toEqual({ lat: 1, lng: 2 });
+    expect(pinOf({ zoneKey: 'centre' })).toEqual({ lat: 32.905, lng: 45.06 });
+    expect(pinOf({ zoneKey: 'nowhere' })).toBeNull();
     expect(etaRange({ min: 20, max: 30 }, 7)).toEqual({ min: 30, max: 40 });
     expect(etaRange({ min: 20, max: 30 }, null)).toBeNull();
   });

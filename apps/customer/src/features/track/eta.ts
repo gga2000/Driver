@@ -1,8 +1,6 @@
-import { travelMinutes, type OrderTracking, type VehicleClass } from '@driver/contracts';
+import { MIN_PER_EARLIER_DROP, travelMinutes, type OrderTracking, type VehicleClass } from '@driver/contracts';
 import type { LngLat } from './geo';
 
-/** A batched courier's other drop before mine costs about this much (dispatch spec §3: ≤ 4 min). */
-export const MIN_PER_EARLIER_DROP = 4;
 /** Late enough to say so: the live ETA beyond the promise by more than this. */
 export const LATE_AFTER_MIN = 5;
 /** Delivery fee comes back as credit past the promise + 20 min (domain §9 "cold / late"). */

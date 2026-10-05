@@ -1,12 +1,10 @@
 import {
   orderTicketNumber,
-  travelMinutes,
   type BoardColumn,
   type BoardCourier,
   type BoardGroup,
   type BoardLine,
   type BoardOrder,
-  type LatLng,
   type MissedOrder,
   type MissedReason,
   type MissedSummary,
@@ -94,11 +92,10 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
 
 export interface CourierFacts {
   trip: Pick<Trip, 'state' | 'courierId' | 'stops'> | null;
-  /** The courier's last fix, when on his way to the counter. */
-  position: LatLng | null;
-  kitchen: LatLng | null;
   firstName: string | null;
   vehicleClass: BoardCourier['vehicleClass'];
+  /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
+  etaMinutes: number | null;
 }
 
 /**
@@ -118,8 +115,7 @@ export function courierView(orderId: string, f: CourierFacts): BoardCourier {
   if (pickup?.state === 'arrived' || t.state === 'arrived_pickup') {
     return { ...none, ...who, state: 'arrived', arrivedAt: pickup?.arrivedAt ?? null };
   }
-  const eta = f.position && f.kitchen ? travelMinutes(f.position, f.kitchen, f.vehicleClass ?? 'bike') : null;
-  return { ...none, ...who, state: 'on_the_way', etaMinutes: eta };
+  return { ...none, ...who, state: 'on_the_way', etaMinutes: f.etaMinutes };
 }
 
 export interface BoardOrderFacts {

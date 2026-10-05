@@ -1,3 +1,4 @@
+import { RoutingModule } from '../routing/index.js';
 import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
@@ -34,7 +35,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,

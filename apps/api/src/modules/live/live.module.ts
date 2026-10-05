@@ -12,6 +12,7 @@ import { afterCommit } from '../../shared/db/unit-of-work.js';
 import { EventsModule, EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
+import { TrackingModule, TrackingService } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { InMemoryLiveBus, LIVE_BUS, RedisLiveBus, type LiveBus } from './live.bus.js';
 import { fanout, type FanoutLookups } from './live.fanout.js';
@@ -39,8 +40,9 @@ export class LiveFanoutService implements OnModuleInit, OnModuleDestroy {
     private readonly events: EventsService,
     private readonly orders: OrdersService,
     private readonly trips: TripsService,
+    private readonly tracking: TrackingService,
   ) {
-    this.positions = new PositionFanout(bus, trips);
+    this.positions = new PositionFanout(bus, trips, Date.now, undefined, async (orderId, trip, pin, now) => this.tracking.liveEta(await this.orders.get(orderId), trip, pin, now));
     this.lookups = {
       order: async (orderId) => {
         try {
@@ -105,7 +107,7 @@ export class LiveFanoutService implements OnModuleInit, OnModuleDestroy {
  * tokens: LIVE_TOKEN_SECRET, else a key derived from JWT_SECRET.
  */
 @Module({
-  imports: [EventsModule, IdentityModule, OrdersModule, TripsModule],
+  imports: [EventsModule, IdentityModule, OrdersModule, TripsModule, TrackingModule],
   providers: [
     {
       provide: LIVE_BUS,

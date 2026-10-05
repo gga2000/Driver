@@ -3,6 +3,7 @@ import { DriverError, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { ratingFrom } from '../orders/orders.service.js';
 import { promisedArrival, sameBaghdadDay, TrackingService } from './tracking.service.js';
+import { EtaService, StraightLineRouter } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
 const KITCHEN = { lat: 32.9105, lng: 45.0665 };
@@ -39,6 +40,7 @@ function setup() {
     { earnedOn: async () => 42 },
     vehicles,
     h.clock,
+    new EtaService(new StraightLineRouter()),
   );
   return { h, tracking, vehicles, vaultReads };
 }
@@ -147,6 +149,28 @@ describe('TrackingService — courier position window', () => {
   });
 });
 
+describe('TrackingService — one ETA (maps program SP4b)', () => {
+  it('before pickup: to the kitchen, waits for the food, then to the door; after pickup: straight to the door', async () => {
+    const { h, tracking } = setup();
+    const o = await acceptedOrder(h);
+    const trip = await h.tripFor(o.id);
+    const order = await h.orders.get(o.id);
+    await h.trips.reportPosition('d1', { tripId: trip.id, pin: KITCHEN, at: h.clock.now() });
+    const atKitchen = await tracking.courierPosition(as('c1'), { orderId: o.id });
+    const promised = (await tracking.track(as('c1'), { orderId: o.id })).promisedAt!;
+    // He is at the counter: the food decides, so the live ETA is the promise.
+    expect(atKitchen).toMatchObject({ etaBasis: 'estimated' });
+    expect(atKitchen!.etaAt!.getTime()).toBe(promised.getTime());
+    expect(promised.getTime()).toBeGreaterThan(order.promisedReadyAt!.getTime());
+    await h.pickup(trip.id);
+    h.clock.advance(60_000);
+    await h.trips.reportPosition('d1', { tripId: trip.id, pin: KITCHEN, at: h.clock.now() });
+    const onTheWay = await tracking.courierPosition(as('c1'), { orderId: o.id });
+    const rideMs = promised.getTime() - order.promisedReadyAt!.getTime();
+    expect(onTheWay!.etaAt!.getTime()).toBe(h.clock.now().getTime() + rideMs);
+  });
+});
+
 describe('orders.rate — two-tap rating validation', () => {
   it('stores delivery and food separately and closes the order; the first rating stands', async () => {
     const { h } = setup();
@@ -190,10 +214,10 @@ describe('helpers', () => {
   it('promises kitchen orders only, from the ready time plus the ride', () => {
     const ready = new Date('2026-10-03T10:00:00Z');
     const base = { type: 'food' as const, promisedReadyAt: ready, dropoff: { zoneKey: 'z', pin: { lat: 32.9185, lng: 45.0712 } }, minVehicleClass: null };
-    const at = promisedArrival(base, KITCHEN, ready)!;
-    expect(at.getTime()).toBeGreaterThan(ready.getTime());
-    expect(promisedArrival({ ...base, type: 'ride' }, KITCHEN, ready)).toBeNull();
-    expect(promisedArrival(base, null, ready)).toBeNull();
-    expect(promisedArrival(base, KITCHEN, null)).toBeNull();
+    expect(promisedArrival(base, KITCHEN, ready, 12)).toEqual(new Date(ready.getTime() + 12 * 60_000));
+    expect(promisedArrival({ ...base, type: 'ride' }, KITCHEN, ready, 12)).toBeNull();
+    expect(promisedArrival(base, null, ready, 12)).toBeNull();
+    expect(promisedArrival(base, KITCHEN, null, 12)).toBeNull();
+    expect(promisedArrival(base, KITCHEN, ready, null)).toBeNull();
   });
 });

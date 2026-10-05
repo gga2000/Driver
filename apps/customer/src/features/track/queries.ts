@@ -34,7 +34,17 @@ export function useLiveOrder(orderId: string, enabled = true) {
     resyncKeys: ['orders.track', 'orders.courierPosition', 'chat.threads'],
     onEvent: (e, qc, api) => {
       if (e.type === 'position' && e.orderId === orderId) {
-        const fix: CourierPosition = { tripId: e.tripId, pin: e.pin, bearing: e.bearing, speedKmh: e.speedKmh, at: e.at, ageSec: Math.max(0, Math.round((Date.now() - new Date(e.at).getTime()) / 1000)) };
+        const fix: CourierPosition = {
+          tripId: e.tripId,
+          pin: e.pin,
+          bearing: e.bearing,
+          speedKmh: e.speedKmh,
+          at: e.at,
+          ageSec: Math.max(0, Math.round((Date.now() - new Date(e.at).getTime()) / 1000)),
+          // The server's one ETA (maps program SP4b); older servers send none and the screen estimates.
+          etaAt: e.etaAt ?? null,
+          etaBasis: e.etaBasis ?? null,
+        };
         qc.setQueryData(api.orders.courierPosition.queryKey({ orderId }), fix);
       } else if (e.type === 'order_state' && e.orderId === orderId) {
         // The new state shows at once; the invalidation that follows re-reads the full view.

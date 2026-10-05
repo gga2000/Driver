@@ -2,11 +2,15 @@ import {
   LIVE_RULES,
   liveChannel,
   positionVisible,
+  type EtaBasis,
   type LatLng,
   type Trip,
 } from '@driver/contracts';
 import type { PositionReport } from '../trips/index.js';
 import type { LiveBus } from './live.bus.js';
+
+/** The courier's ETA for one order from a fix (tracking's one-ETA rule); null when it can't be told. */
+export type PositionEta = (orderId: string, trip: Trip, pin: LatLng, now: Date) => Promise<{ at: Date; basis: EtaBasis } | null>;
 
 /**
  * Courier positions to the live channel, throttled per driver to at most one every
@@ -27,6 +31,7 @@ export class PositionFanout {
     private readonly trips: { get(tripId: string): Promise<Trip> },
     private readonly nowMs: () => number = Date.now,
     private readonly throttleMs: number = LIVE_RULES.positionThrottleMs,
+    private readonly etaFor: PositionEta | null = null,
   ) {}
 
   report(r: PositionReport): void {
@@ -99,6 +104,8 @@ export class PositionFanout {
       for (const orderId of orders) {
         const myDrop = trip.stops.find((s) => s.orderId === orderId && s.type === 'dropoff');
         if (myDrop && (myDrop.state === 'completed' || myDrop.state === 'skipped')) continue;
+        // The ETA rides along (maps program SP4b); if it can't be told the position still goes out.
+        const eta = this.etaFor ? await this.etaFor(orderId, trip, pin, new Date(this.nowMs())).catch(() => null) : null;
         await this.bus
           .publish(liveChannel.order(orderId), {
             type: 'position',
@@ -108,6 +115,7 @@ export class PositionFanout {
             bearing: r.bearing,
             speedKmh: r.speedKmh,
             at: r.at,
+            ...(eta ? { etaAt: eta.at, etaBasis: eta.basis } : {}),
           })
           .catch(() => undefined);
       }

@@ -1,3 +1,4 @@
+import { RoutingModule } from '../routing/index.js';
 import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
@@ -28,7 +29,7 @@ import {
  * orders module reads for busy mode (+10 min prep) and early close.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule, RoutingModule],
   providers: [
     { provide: MERCHANT_ORDERS, useExisting: OrdersService },
     { provide: MERCHANT_TRIPS, useExisting: TripsService },

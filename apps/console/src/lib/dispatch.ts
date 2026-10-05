@@ -1,4 +1,4 @@
-import type { BoardCard, DriverPin, DriverPinState, Order, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import { ROAD_FACTOR, TOWN_SPEED_KMH, type BoardCard, type DriverPin, type DriverPinState, type Order, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { columnOf, compareCards, isRedCard, type BoardColumn } from './board';
 import { stepIndex } from './hotkeys';
 
@@ -101,18 +101,14 @@ export function distanceKm(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Town streets are not straight lines: crow-flies × 1.3 is close to the road distance in Aziziyah. */
-export const ROAD_FACTOR = 1.3;
-const SPEED_KMH: Record<VehicleClass, number> = { bike: 24, tuktuk: 20, car: 28, suv: 28, van: 24, intercity: 32 };
-
-/** Road km for a crow-flies distance. */
+/** Road km for a crow-flies distance: the shared rule from contracts (×1.4), so the Console agrees with every app. */
 export function roadKm(km: number): number {
   return km * ROAD_FACTOR;
 }
 
 /** Minutes to cover `km` (crow-flies) in town by this vehicle; at least 1. */
 export function etaMinutes(km: number, vehicle: VehicleClass): number {
-  return Math.max(1, Math.round((roadKm(km) / SPEED_KMH[vehicle]) * 60));
+  return Math.max(1, Math.round((roadKm(km) / TOWN_SPEED_KMH[vehicle]) * 60));
 }
 
 /** Where the driver has to go first: the first pickup stop with a pin, else the first pinned stop. */

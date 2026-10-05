@@ -1,3 +1,4 @@
+import { RoutingModule } from '../routing/index.js';
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
@@ -38,7 +39,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
  * earned). Owns no tables; the vehicle registry read is narrow and read-only.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule],
   providers: [
     { provide: TRACKING_ORDERS, useExisting: OrdersService },
     { provide: TRACKING_TRIPS, useExisting: TripsService },

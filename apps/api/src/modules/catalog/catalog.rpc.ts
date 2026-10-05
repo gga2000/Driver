@@ -24,9 +24,10 @@ import type { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { PricingService } from '../pricing/index.js';
+import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
-import { basePrepMin, etaRange, foldArabic, menuItemView, menuSections, openState, prepRange, rideMinutes } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, menuItemView, menuSections, openState, pinOf, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The quote engine the fee preview uses: the same one `orders.place` locks fees with. */
 export interface StorefrontPricing {
@@ -72,6 +73,7 @@ export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
 export class CatalogRpc implements CustomerCatalogPort {
   private readonly clock: Clock;
   private readonly guests: WindowCounter;
+  private readonly eta: EtaService;
 
   constructor(
     private readonly catalog: CatalogService,
@@ -79,9 +81,11 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Inject(PricingService) private readonly pricing: StorefrontPricing,
     @Optional() @Inject(CLOCK) clock?: Clock,
     @Optional() @Inject(WINDOW_COUNTER) guests?: WindowCounter,
+    @Optional() eta?: EtaService,
   ) {
     this.clock = clock ?? new SystemClock();
     this.guests = guests ?? new InMemoryWindowCounter(this.clock);
+    this.eta = eta ?? new EtaService(new StraightLineRouter());
   }
 
   async restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]> {
@@ -206,11 +210,19 @@ export class CatalogRpc implements CustomerCatalogPort {
     });
   }
 
+  /** Kitchen → door courier minutes from the one ETA service, plus pickup and hand-over; null without pins. */
+  private async rideMinutes(from: DeliveryPoint, to: DeliveryPoint): Promise<number | null> {
+    const a = pinOf(from);
+    const b = pinOf(to);
+    if (!a || !b) return null;
+    return (await this.eta.minutes(a, b, 'bike')).minutes + STOREFRONT_RULES.handoverMin;
+  }
+
   private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {
     const { location, pauseWindows: pauses, busy: merchantBusy, closed, holiday } = await this.merchants.profile(s.orgId, s.cityId, now);
     const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
-    const eta = location && dropoff ? etaRange(prep, rideMinutes(location, dropoff)) : null;
+    const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff) : null);
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
     const state = holiday
       ? { open: false, closedReason: 'hours' as const, opensAt: null }

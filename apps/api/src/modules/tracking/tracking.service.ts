@@ -1,12 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  MIN_PER_EARLIER_DROP,
   positionVisible,
-  travelMinutes,
   type Actor,
   type CourierCard,
   type CourierPosition,
   type DeliveryPoint,
+  type EtaBasis,
   type LatLng,
   type Order,
   type OrderTracking,
@@ -17,6 +18,7 @@ import {
   type VehicleClass,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { EtaService, type EtaMinutes } from '../routing/index.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
 /**
@@ -98,6 +100,7 @@ export class TrackingService implements TrackingPort {
     @Inject(TRACKING_POINTS) private readonly points: TrackingPointsPort,
     @Inject(COURIER_VEHICLES) private readonly vehicles: CourierVehicleDirectory,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly eta: EtaService,
   ) {}
 
   async track(actor: Actor, input: { orderId: string }): Promise<OrderTracking> {
@@ -123,7 +126,7 @@ export class TrackingService implements TrackingPort {
       trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? this.tripView(trip, order.id) : null,
       courier,
       reassigning,
-      promisedAt: promisedArrival(agg.order, merchant?.pin ?? null, order.acceptedAt),
+      promisedAt: await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt),
       pointsEarned: order.state === 'closed' ? await this.points.earnedOn(actor.personId, order.id) : null,
       serverNow: now,
     };
@@ -142,8 +145,56 @@ export class TrackingService implements TrackingPort {
     // trip's last point is his; its device time may be old (queued offline) — the age says so.
     const p = await this.trips.lastPosition(trip.id);
     if (!p || p.driverId !== trip.courierId) return null;
-    const ageSec = Math.max(0, Math.round((this.clock.now().getTime() - p.at.getTime()) / 1000));
-    return { tripId: trip.id, pin: p.pin, bearing: p.bearing, speedKmh: p.speedKmh, at: p.at, ageSec };
+    const now = this.clock.now();
+    const ageSec = Math.max(0, Math.round((now.getTime() - p.at.getTime()) / 1000));
+    const eta = await this.liveEta(order, trip, p.pin, now);
+    return { tripId: trip.id, pin: p.pin, bearing: p.bearing, speedKmh: p.speedKmh, at: p.at, ageSec, etaAt: eta?.at ?? null, etaBasis: eta?.basis ?? null };
+  }
+
+  /**
+   * When the courier at `pin` reaches this customer's next step — the one ETA every screen shows (maps
+   * program SP4b). Ride: to the pickup, then to the drop-off. Delivery: to the kitchen, waiting for the
+   * food if it isn't ready, then to the door, plus a few minutes per batched drop before this one.
+   * Used by `courierPosition` and the live channel's position events.
+   */
+  async liveEta(order: Order, trip: Trip, pin: LatLng, now: Date): Promise<{ at: Date; basis: EtaBasis } | null> {
+    const agg = await this.orders.aggregate(order.id);
+    const stop = (type: 'pickup' | 'dropoff'): LatLng | null => trip.stops.find((s) => s.orderId === order.id && (s.type === type || (type === 'pickup' && s.type === 'shop')))?.target ?? null;
+    const vehicle: VehicleClass = (trip.courierId ? (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass : undefined) ?? order.minVehicleClass ?? (order.type === 'ride' ? 'car' : 'bike');
+    const legs: EtaMinutes[] = [];
+    const leg = async (a: LatLng, b: LatLng): Promise<number> => {
+      const m = await this.eta.minutes(a, b, vehicle);
+      legs.push(m);
+      return m.minutes;
+    };
+    const done = (atMs: number) => ({ at: new Date(atMs), basis: legs.every((l) => l.basis === 'road') ? ('road' as const) : ('estimated' as const) });
+    const MIN = 60_000;
+
+    if (order.type === 'ride') {
+      if (trip.state === 'completed') return null;
+      if (trip.state === 'arrived_pickup') return done(now.getTime());
+      const target = trip.state === 'in_transit' || trip.state === 'arrived_dropoff' ? stop('dropoff') : stop('pickup');
+      return target ? done(now.getTime() + (await leg(pin, target)) * MIN) : null;
+    }
+    if (order.state === 'delivered' || order.state === 'closed' || order.deliveredAt) return null;
+    const door = agg.order.dropoff?.pin ?? stop('dropoff');
+    if (!door) return null;
+    const kitchenOrg = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
+    const kitchen = kitchenOrg?.pin ?? stop('pickup');
+    const extra = (this.tripView(trip, order.id)?.dropsBeforeMine ?? 0) * MIN_PER_EARLIER_DROP;
+    if (order.pickedUpAt || order.state === 'picked_up') return done(now.getTime() + ((await leg(pin, door)) + extra) * MIN);
+    if (!kitchen) return null;
+    const atKitchen = now.getTime() + (await leg(pin, kitchen)) * MIN;
+    const ready = (order.readyAt ?? order.promisedReadyAt)?.getTime() ?? now.getTime();
+    return done(Math.max(atKitchen, ready, now.getTime()) + ((await leg(kitchen, door)) + extra) * MIN);
+  }
+
+  /** The promised arrival: the kitchen's promised ready time plus the kitchen → door ride. */
+  private async promise(order: Parameters<typeof promisedArrival>[0], kitchen: LatLng | null, acceptedAt: Date | null): Promise<Date | null> {
+    const door = order.dropoff?.pin ?? null;
+    if (!kitchen || !door) return promisedArrival(order, kitchen, acceptedAt, null);
+    const ride = await this.eta.minutes(kitchen, door, order.minVehicleClass ?? 'bike');
+    return promisedArrival(order, kitchen, acceptedAt, ride.minutes);
   }
 
   // ───────────────────────── internals ─────────────────────────
@@ -232,10 +283,12 @@ export function promisedArrival(
   order: { type: Order['type']; promisedReadyAt: Date | null; dropoff: DeliveryPoint | null; minVehicleClass: VehicleClass | null },
   kitchen: LatLng | null,
   acceptedAt: Date | null,
+  /** Kitchen → door minutes from the ETA service; null when unknown. */
+  rideMin: number | null,
 ): Date | null {
   if (order.type !== 'food' && order.type !== 'grocery_catalog') return null;
   const ready = order.promisedReadyAt ?? null;
   const door = order.dropoff?.pin ?? null;
-  if (!ready || !acceptedAt || !kitchen || !door) return null;
-  return new Date(ready.getTime() + travelMinutes(kitchen, door, order.minVehicleClass ?? 'bike') * 60_000);
+  if (!ready || !acceptedAt || !kitchen || !door || rideMin === null) return null;
+  return new Date(ready.getTime() + rideMin * 60_000);
 }

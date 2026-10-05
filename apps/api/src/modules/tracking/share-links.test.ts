@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, SharedTrip, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { InMemoryShareLinksRepository, ShareLinksService, expiryOf, type ShareIntercityPort } from './share-links.js';
+import { EtaService, StraightLineRouter } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
 const MIN = 60_000;
@@ -47,6 +48,7 @@ function setup() {
     intercity,
     'test-secret',
     h.clock,
+    new EtaService(new StraightLineRouter()),
   );
   return { h, share, repo, reads, departures, bookings };
 }

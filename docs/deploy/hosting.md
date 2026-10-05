@@ -130,6 +130,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `CALL_PROXY_NUMBER` | no | the platform number for masked calls (unset: calling is off) |
 | `LOG_FORMAT`, `LOG_LEVEL` | no | `json` (toml); `LOG_LEVEL=debug` temporarily for more |
 | `SENTRY_DSN` | yes-ish | optional error reporting (below) |
+| `OSRM_URL` | no | road routing (below): `http://driver-osrm.internal:5000`. Unset: arrival times use the straight-line estimate |
+| `OSRM_TIMEOUT_MS` | no | default 1500; slower answers fall back to the straight-line estimate |
 | `APP_RELEASE` | no | set by the deploy workflow (`v1.2.3@abc1234`) |
 | `SHUTDOWN_TIMEOUT_MS` | no | default 25000 (under `kill_timeout = 30`) |
 
@@ -166,6 +168,27 @@ working.) `PHONE_HASH_PEPPER` is never rotated.
   taking requests, finishes the ones in flight, delivers the outbox rows still due, lets the BullMQ
   workers finish their current job, closes Redis and Postgres, and exits. Anything left is retried by
   the new machine (outbox rows stay `pending`; BullMQ re-queues a stalled job). Nothing is lost.
+
+## Road routing (OSRM)
+
+Arrival times and route lines come from our own OSRM server (maps program decision D3). Without it the
+API uses one shared straight-line estimate (×1.4 at town speeds), so nothing breaks — times are just
+less accurate around the river.
+
+`deploy/fly/osrm.toml` runs it on a private Fly machine (no public address, 1 GB, ≈ $6–10 a month).
+The image build downloads the latest Iraq map from Geofabrik, keeps Baghdad – Aziziyah – Kut, and
+prepares the road graph (a few minutes on Fly's builder):
+
+```bash
+fly apps create driver-osrm
+fly deploy . --config deploy/fly/osrm.toml --dockerfile deploy/fly/osrm/Dockerfile --remote-only
+fly secrets set --config deploy/fly/api.toml OSRM_URL=http://driver-osrm.internal:5000
+```
+
+Check from the API machine: `fly ssh console --config deploy/fly/api.toml -C "wget -qO- 'http://driver-osrm.internal:5000/route/v1/driving/45.0612,32.9062;45.0709,32.8961?overview=false'"`
+must answer `"code":"Ok"`. Monthly: run the `fly deploy` line again for fresh map data (streets added in
+OpenStreetMap appear after the next deploy). If OSRM stops answering, the API notices within seconds,
+uses the straight-line estimate for a minute, then tries again — customers never see an error.
 
 ## Redis: own machine or Upstash
 

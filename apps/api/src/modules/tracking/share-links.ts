@@ -5,10 +5,8 @@ import {
   positionVisible,
   SHARE_AFTER_COMPLETE_MIN,
   SHARE_MAX_HOURS,
-  travelMinutes,
   type Actor,
   type CreateShareLinkInput,
-  type LatLng,
   type Order,
   type RevokeShareLinkInput,
   type SharedTrip,
@@ -23,6 +21,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
+import { EtaService } from '../routing/index.js';
 import { TRACKING_ORDERS, TRACKING_TRIPS, type TrackingOrdersPort, type TrackingTripsPort } from './tracking.service.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -164,6 +163,7 @@ export class ShareLinksService implements TrackingSharePort {
     @Inject(SHARE_INTERCITY) private readonly intercity: ShareIntercityPort,
     @Inject(SHARE_SECRET) private readonly secret: string,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly eta: EtaService,
   ) {}
 
   async createShareLink(actor: Actor, input: CreateShareLinkInput): Promise<ShareLink> {
@@ -306,7 +306,7 @@ export class ShareLinksService implements TrackingSharePort {
       if (p && p.driverId === trip.courierId) {
         position = { lat: p.pin.lat, lng: p.pin.lng, at: p.at };
         const target = trip.stops.find((s) => s.orderId === orderId && s.type === (status === 'on_trip' ? 'dropoff' : 'pickup'))?.target ?? null;
-        if (target) eta = new Date(now.getTime() + travelMinutes(p.pin as LatLng, target, vehicleClass ?? 'car') * MIN_MS);
+        if (target) eta = new Date(now.getTime() + (await this.eta.minutes(p.pin, target, vehicleClass ?? 'car')).minutes * MIN_MS);
       }
     }
     return {

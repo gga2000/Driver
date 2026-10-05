@@ -1,4 +1,4 @@
-import type { LatLng } from '@driver/contracts';
+import { ROAD_FACTOR, TOWN_SPEED_KMH, type LatLng } from '@driver/contracts';
 
 /** Haversine distance in km. */
 export function haversineKm(a: LatLng, b: LatLng): number {
@@ -11,11 +11,11 @@ export function haversineKm(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-/** Road factor and speed for ETAs until OSRM is hosted (plan Step 5, decision 4). */
-export const ROAD_FACTOR = 1.4;
-export const CITY_SPEED_KMH = 25;
-
-/** Minutes to drive between two points: haversine × 1.4 at 25 km/h. */
+/**
+ * Minutes (fractional) for a courier between two points — dispatch's synchronous timing (auto-assign
+ * start, batching). The shared straight-line rule from contracts (×1.4 at bike speed), so dispatch and
+ * every app agree; road-time dispatch through the routing module is SP4b-2.
+ */
 export function etaMin(a: LatLng, b: LatLng): number {
-  return (haversineKm(a, b) * ROAD_FACTOR * 60) / CITY_SPEED_KMH;
+  return (haversineKm(a, b) * ROAD_FACTOR * 60) / TOWN_SPEED_KMH.bike;
 }

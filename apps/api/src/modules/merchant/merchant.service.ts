@@ -31,6 +31,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
 import type { MerchantSettings, Org } from '../orgs/index.js';
+import { EtaService } from '../routing/index.js';
 import { courierView, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
@@ -101,6 +102,7 @@ export class MerchantService implements MerchantPort {
     @Inject(MERCHANT_CATALOG) private readonly catalog: MerchantCatalogPort,
     @Inject(MERCHANT_EVENTS) private readonly events: MerchantEventsPort,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly eta: EtaService,
   ) {}
 
   async myStores(actor: Actor): Promise<MerchantStore[]> {
@@ -314,7 +316,7 @@ export class MerchantService implements MerchantPort {
   }
 
   private async courierOf(order: Order, kitchen: LatLng | null, readerId: string): Promise<BoardCourier> {
-    const nobody = { position: null, kitchen, firstName: null, vehicleClass: null };
+    const nobody = { firstName: null, vehicleClass: null, etaMinutes: null };
     // Only accepted orders get a courier (dispatch starts on `order.accepted`).
     if (order.state === 'placed') return courierView(order.id, { trip: null, ...nobody });
     const trip = await this.trips.activeForOrder(order.id);
@@ -333,7 +335,10 @@ export class MerchantService implements MerchantPort {
       vehicleClass = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
       position = (await this.trips.lastPosition(trip.id))?.pin ?? null;
     }
-    return courierView(order.id, { trip, position, kitchen, firstName, vehicleClass });
+    const view = courierView(order.id, { trip, firstName, vehicleClass, etaMinutes: null });
+    if (view.state !== 'on_the_way' || !position || !kitchen) return view;
+    // One ETA everywhere (maps program SP4b): the same service the customer's screen uses.
+    return { ...view, etaMinutes: (await this.eta.minutes(position, kitchen, vehicleClass ?? 'bike')).minutes };
   }
 
   /** The actor works at this store (owner or staff), and it is a restaurant or grocer. */

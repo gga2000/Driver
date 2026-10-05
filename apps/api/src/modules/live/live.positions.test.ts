@@ -112,4 +112,21 @@ describe('courier positions on the live channel', () => {
     await flush();
     expect(bus.published.map((x) => [x.channel, x.event.type])).toEqual([['city:*', 'driver_pin']]);
   });
+
+  it('carries each order’s ETA; a failing ETA never holds the position back', async () => {
+    const bus = new InMemoryLiveBus(true);
+    const t = trip();
+    const eta = new Date('2026-10-04T09:12:00Z');
+    const p = new PositionFanout(bus, { get: async () => t }, () => at.getTime(), 2_000, async (orderId) => {
+      if (orderId === 'o2') throw new Error('no route');
+      return { at: eta, basis: 'road' };
+    });
+    p.report(report(1));
+    await flush();
+    const ev = (channel: string) => bus.published.find((x) => x.channel === channel)?.event as Record<string, unknown> | undefined;
+    expect(ev('order:o1')).toMatchObject({ type: 'position', etaAt: eta, etaBasis: 'road' });
+    expect(ev('order:o2')).toMatchObject({ type: 'position' });
+    expect(ev('order:o2')).not.toHaveProperty('etaAt');
+    p.close();
+  });
 });

@@ -131,20 +131,17 @@ describe('merchant board — cards', () => {
 });
 
 describe('merchant board — courier state', () => {
-  const kitchen = { lat: 32.9095, lng: 45.0635 };
   const stops = (pickupState: 'pending' | 'arrived' | 'completed') =>
     [{ id: 's1', orderId: 'ord_1', type: 'pickup', state: pickupState, arrivedAt: pickupState === 'pending' ? null : min(4) }] as unknown as Trip['stops'];
 
-  it('searching → on the way (minutes from the last fix) → arrived → picked up', () => {
-    expect(courierView('ord_1', { trip: null, position: null, kitchen, firstName: null, vehicleClass: null }).state).toBe('none');
-    expect(courierView('ord_1', { trip: { state: 'offered', courierId: null, stops: [] }, position: null, kitchen, firstName: null, vehicleClass: null }).state).toBe('searching');
-    const coming = courierView('ord_1', { trip: { state: 'en_route_to_pickup', courierId: 'd1', stops: stops('pending') }, position: { lat: 32.9215, lng: 45.0598 }, kitchen, firstName: 'حيدر', vehicleClass: 'bike' });
-    expect(coming).toMatchObject({ state: 'on_the_way', firstName: 'حيدر', vehicleClass: 'bike' });
-    expect(coming.etaMinutes).toBeGreaterThanOrEqual(1);
-    expect(coming.etaMinutes).toBeLessThan(10);
-    const here = courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, position: kitchen, kitchen, firstName: 'حيدر', vehicleClass: 'bike' });
+  it('searching → on the way (minutes from the ETA service) → arrived → picked up', () => {
+    expect(courierView('ord_1', { trip: null, firstName: null, vehicleClass: null, etaMinutes: null }).state).toBe('none');
+    expect(courierView('ord_1', { trip: { state: 'offered', courierId: null, stops: [] }, firstName: null, vehicleClass: null, etaMinutes: null }).state).toBe('searching');
+    const coming = courierView('ord_1', { trip: { state: 'en_route_to_pickup', courierId: 'd1', stops: stops('pending') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: 4 });
+    expect(coming).toMatchObject({ state: 'on_the_way', firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: 4 });
+    const here = courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null });
     expect(here).toMatchObject({ state: 'arrived', arrivedAt: min(4), etaMinutes: null });
-    expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, position: null, kitchen, firstName: 'حيدر', vehicleClass: 'bike' }).state).toBe('picked_up');
+    expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null }).state).toBe('picked_up');
   });
 });
 
