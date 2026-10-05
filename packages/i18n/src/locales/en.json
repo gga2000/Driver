@@ -4852,5 +4852,12 @@
   "push.sos_dispatch.title": "SOS! {name}",
   "push.sos_dispatch.body": "{role} pressed SOS · {what}. Open the Console and take it",
   "wa.sos_contact": "Emergency alert from Driver: {{1}} pressed SOS. Our team is following up and calling now. Live location: {{2}}",
-  "wa.sos_dispatch": "SOS on Driver: {{1}} ({{2}}) pressed SOS · {{3}}. Open the Console and take it now: {{4}}"
+  "wa.sos_dispatch": "SOS on Driver: {{1}} ({{2}}) pressed SOS · {{3}}. Open the Console and take it now: {{4}}",
+  "error.sos_not_party": "No active trip of yours to raise an SOS on",
+  "error.sos_trip_over": "The trip ended too long ago for an SOS",
+  "error.sos_rate_limited": "Too many SOS alerts this hour",
+  "error.sos_not_found": "SOS incident not found",
+  "error.sos_cancel_window_passed": "The 10-second cancel window has passed",
+  "error.safety_incident_closed": "The incident is already closed",
+  "error.safety_no_contact": "No emergency contact on file"
 }

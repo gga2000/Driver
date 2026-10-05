@@ -4849,8 +4849,15 @@
   "console.safety.list_all": "الكل",
   "console.safety.raised_at": "ضغط الساعة {time}",
   "console.safety.device_time": "وقت جهازه {time}",
-  "push.sos_dispatch.title": "طوارئ! {name}",
+  "push.sos_dispatch.title": "طوارئ · {name}",
   "push.sos_dispatch.body": "{role} ضغط طوارئ · {what}. افتح الكونسول واستلمه",
   "wa.sos_contact": "تنبيه طوارئ من درايفر: وصلنا تنبيه من {{1}}. فريقنا يتابع هسة. الموقع المباشر: {{2}}",
-  "wa.sos_dispatch": "طوارئ بدرايفر: {{1}} ({{2}}) ضغط زر الطوارئ · {{3}}. افتح الكونسول واستلمه هسة: {{4}}"
+  "wa.sos_dispatch": "طوارئ بدرايفر: {{1}} ({{2}}) ضغط زر الطوارئ · {{3}}. افتح الكونسول واستلمه هسة: {{4}}",
+  "error.sos_not_party": "ما لگينا مشوار شغّال إلك بهذا الرقم. إذا الخطر قريب اتصل بالشرطة 104",
+  "error.sos_trip_over": "المشوار خلص من زمان. إذا الخطر قريب اتصل بالشرطة 104",
+  "error.sos_rate_limited": "دزّيت تنبيهات هواي هالساعة. الديسباتشر شايفها ويتصل بيك",
+  "error.sos_not_found": "ما لگينا التنبيه",
+  "error.sos_cancel_window_passed": "فات وقت الإلغاء. الديسباتشر يتصل بيك ويتأكد",
+  "error.safety_incident_closed": "التنبيه مسكّر",
+  "error.safety_no_contact": "ما عنده رقم طوارئ"
 }
