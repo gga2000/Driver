@@ -61,6 +61,40 @@ export function useRefreshAccount() {
     ]);
 }
 
+// ── Phase 3 money moments (audit S-4, S-7) and the emergency contact ──
+
+/** The shift he just ended (`from` = when it started, from `partner.status.onlineSince`). */
+export function useShiftSummary(from: Date | null) {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.shiftSummary.queryOptions(from ? { from } : {}), enabled: useEnabled(), staleTime: 60_000 });
+}
+
+/** One job's receipt: every line with its reason, the take, the cash. */
+export function useJobReceipt(key: string, at: Date | null) {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.jobReceipt.queryOptions({ key, at: at ?? new Date(0) }), enabled: useEnabled() && Boolean(key) && at !== null, staleTime: 60_000, retry: 1 });
+}
+
+/** "عندي اعتراض": opens the support ticket, then the receipt re-reads (it now says it is with support). */
+export function usePayQuery() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.driverAccount.payQuery.mutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: api.driverAccount.jobReceipt.queryKey() }),
+  });
+}
+
+/** Name, relation and number of the emergency contact → the identity vault (`identity.updateProfile`). */
+export function useUpdateEmergencyContact() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.identity.updateProfile.mutationOptions(),
+    onSuccess: (me) => qc.setQueryData(api.identity.me.queryKey(), me),
+  });
+}
+
 export function useAccountMutations() {
   const api = useApi();
   return {

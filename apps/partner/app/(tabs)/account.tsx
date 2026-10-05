@@ -38,11 +38,14 @@ export default function Account() {
   const modes = s?.modes ?? [];
   const tier = s?.tier ?? 'bronze';
   const invites = splitInvites(useFleetInvites(s?.canDrive ?? false).data ?? []);
+  const contact = me?.emergencyContact ?? null;
 
   const work: HubRow[] = [
     { key: 'checkin', icon: 'shield', title: t('partner.hub_checkin'), subtitle: t('partner.hub_checkin_sub'), href: '/checkin' },
     { key: 'documents', icon: 'receipt', title: t('partner.hub_documents'), subtitle: t('partner.hub_documents_sub'), href: '/documents' },
     { key: 'scorecard', icon: 'star', title: t('partner.hub_scorecard'), subtitle: t('partner.hub_scorecard_sub'), href: '/scorecard' },
+    // The SOS button messages this person (scoring & safety §3); shows who it is once set.
+    { key: 'emergency', icon: 'sos', title: t('partner.ec_row'), subtitle: contact ? `${contact.name} · \u2066${contact.phoneMasked}\u2069` : t('partner.ec_row_hint'), href: '/emergency' },
   ];
   const more: HubRow[] = [
     { key: 'intercity', icon: 'garage', title: t('partner.hub_intercity'), subtitle: t('partner.hub_intercity_sub'), href: '/intercity', mode: 'intercity' },

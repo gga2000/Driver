@@ -19,6 +19,13 @@ const OFFER_LOOP = require('../../assets/sounds/offer-loop.wav') as number;
 let sound: Audio.Sound | null = null;
 let loading: Promise<void> | null = null;
 let wanted = false;
+type SoundState = 'ready' | 'blocked' | 'unknown';
+let loaded: SoundState = 'unknown';
+const listeners = new Set<(s: SoundState) => void>();
+function setLoaded(s: SoundState) {
+  loaded = s;
+  for (const cb of listeners) cb(s);
+}
 
 function ready(): Promise<void> {
   loading ??= (async () => {
@@ -31,8 +38,10 @@ function ready(): Promise<void> {
       playThroughEarpieceAndroid: false,
     }).catch(() => undefined);
     sound = (await Audio.Sound.createAsync(OFFER_LOOP, { volume: 1, isLooping: true, shouldPlay: false })).sound;
+    setLoaded('ready');
   })().catch(() => {
     loading = null;
+    setLoaded('blocked');
   });
   return loading;
 }
@@ -71,4 +80,14 @@ export async function playTestSound(): Promise<boolean> {
   await sound.setIsLoopingAsync(false).catch(() => undefined);
   await sound.replayAsync().catch(() => undefined);
   return true;
+}
+
+/** The bundled offer sound loaded and can play (readiness row, audit S-8); `unknown` while loading. */
+export function soundState(): SoundState {
+  return loaded;
+}
+
+export function onSoundState(cb: (s: SoundState) => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
 }

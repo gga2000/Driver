@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import type { PartnerStatus } from '@driver/contracts';
 import { useToast } from '@driver/ui';
@@ -61,10 +62,19 @@ export function usePresence(status: PartnerStatus | undefined) {
     }
   };
 
+  /**
+   * Ends the shift, then opens its summary (audit S-4) from when it started — read before going
+   * offline, since presence (and `onlineSince`) goes with it.
+   */
   const goOffline = async () => {
+    const since = statusRef.current?.onlineSince ?? null;
     try {
       await off.mutateAsync({});
-      toast.show({ message: t('partner.went_offline'), tone: 'neutral' });
+      if (statusRef.current?.canDrive === false) {
+        toast.show({ message: t('partner.went_offline'), tone: 'neutral' });
+        return;
+      }
+      router.push(since ? { pathname: '/shift', params: { from: new Date(since).toISOString() } } : '/shift');
     } catch (err) {
       toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
     }

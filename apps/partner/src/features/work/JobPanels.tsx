@@ -9,6 +9,7 @@ import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { cashTruth } from '@/features/account/logic';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { JobEndFrame, JobEndHero, JobEndNext, type JobEndDay, type JobEndDemand } from './JobEnd';
 import { clock, unreachablePhase } from './logic';
 
 /**
@@ -168,13 +169,29 @@ export function UnreachablePanel({ status, busy, onFail, onResponded }: { status
 export const DONE_AUTO_HOME_SEC = 4;
 
 /**
- * End of a job (P-06, P-39, partner S-3): the check and what he earned, then where his cash stands —
+ * End of a job (P-06, P-39, partner S-3): the check lands inside the ring of today's jobs and what he
+ * earned counts up, then the day so far, then where his cash stands —
  * the same "لازم تسلّم" meter as home — so he learns here, not from silence, that offers are about to
  * stop or have stopped. Near or over the cap: a card that says when offers stop and a "سلّم الفلوس"
  * button (the hand-over sheet with the amount). Over the cap that card replaces the auto-return;
  * otherwise it counts down home in 4 s ("نرجعك للطلبات…") with a "خليني هنا" escape.
  */
-export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: number; failed: boolean; onHome: () => void; cash?: PartnerCash | null }) {
+export function DonePanel({
+  earnedIqd,
+  failed,
+  onHome,
+  cash,
+  today,
+  demand = null,
+}: {
+  earnedIqd: number;
+  failed: boolean;
+  onHome: () => void;
+  cash?: PartnerCash | null;
+  /** Today so far, re-read after this job: null while it is being re-read, absent = no day line. */
+  today?: JobEndDay | null | undefined;
+  demand?: JobEndDemand | null;
+}) {
   const theme = useTheme();
   const t = useT();
   const [handover, setHandover] = useState(false);
@@ -196,25 +213,15 @@ export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: numb
     return () => clearTimeout(id);
   }, [counting, left]);
   return (
-    <View testID="job-done" style={{ flex: 1, justifyContent: 'center', gap: theme.space[5], padding: theme.space[6] }}>
-      <View style={{ alignItems: 'center', gap: theme.space[4] }}>
+    <JobEndFrame testID="job-done">
+      <JobEndHero earnedIqd={earnedIqd} failed={failed} today={today}>
         <Animated.View
           entering={theme.reduceMotion ? undefined : ZoomIn.springify().damping(12)}
-          style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: failed ? theme.colors.surfaceSunken : theme.colors.success, alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 112, height: 112, borderRadius: 56, backgroundColor: failed ? theme.colors.surfaceSunken : theme.colors.success, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Icon name={failed ? 'clock' : 'check'} size={48} color={failed ? 'textMuted' : 'surface'} strokeWidth={2.6} />
+          <Icon name={failed ? 'clock' : 'check'} size={56} color={failed ? 'textMuted' : 'surface'} strokeWidth={2.6} />
         </Animated.View>
-        <View style={{ alignItems: 'center', gap: theme.space[1] }}>
-          <Text variant="heading" align="center">
-            {failed ? t('partner.job_failed_title') : t('partner.job_done_title')}
-          </Text>
-          {!failed && earnedIqd > 0 ? (
-            <Text variant="title" color="successText" tabular testID="job-done-earned">
-              {t('partner.job_done_earned', { amount: amountParam(earnedIqd, { sign: true }) })}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+      </JobEndHero>
       {cash && truth ? (
         <View
           testID="done-cash"
@@ -231,6 +238,8 @@ export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: numb
           {urgent ? <Button testID="done-settle" label={t('partner.handover_cta')} icon="wallet" fullWidth onPress={() => setHandover(true)} /> : null}
         </View>
       ) : null}
+      {/* Where the jobs are, only when he can take them: not while the cash card asks him to settle. */}
+      {autoHome && !urgent ? <JobEndNext demand={demand} /> : null}
       <View style={{ gap: theme.space[2] }}>
         <Button testID="job-done-home" label={t('partner.job_done_cta')} size="lg" variant={urgent ? 'secondary' : 'primary'} fullWidth onPress={onHome} />
         {counting ? (
@@ -243,6 +252,6 @@ export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: numb
         ) : null}
       </View>
       {cash ? <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={cash.heldIqd} owedIqd={cash.owedIqd} /> : null}
-    </View>
+    </JobEndFrame>
   );
 }

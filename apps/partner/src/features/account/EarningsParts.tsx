@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { Easing, FadeIn, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -391,7 +392,8 @@ function CashRow({ label, amount }: { label: string; amount: number }) {
 
 /**
  * One job of the period: when, what it paid (net, signed), the components in one line, the cash he
- * took; tap to open every component with its amount and the cash note.
+ * took; tap a job to open its receipt (every line with its reason, audit S-7), an adjustment to open
+ * its line in place.
  */
 export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bike' }: { job: EarningsJobLine; withDay: boolean; expanded: boolean; onToggle: () => void; divider: boolean; icon?: IconName }) {
   const theme = useTheme();
@@ -421,10 +423,14 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
     <View testID={`job-line-${shortRef(job.key)}`} style={{ borderBottomWidth: divider ? 1 : 0, borderBottomColor: theme.colors.border }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ expanded }}
+        accessibilityState={real ? undefined : { expanded }}
+        accessibilityHint={real ? t('partner.receipt_open_a11y') : undefined}
         onPress={() => {
           theme.haptic('selection');
-          onToggle();
+          // A job opens its receipt (audit S-7: every line with its reason, the take, the cash, "عندي اعتراض");
+          // an adjustment has only its own line and opens in place.
+          if (real) router.push({ pathname: '/earnings/receipt', params: { key: job.key, at: job.at.toISOString() } });
+          else onToggle();
         }}
         style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[3], paddingHorizontal: theme.space[4], backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent' })}
       >
@@ -452,11 +458,15 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
             </View>
           ) : null}
         </View>
-        <Animated.View style={chevron}>
-          <Icon name="chevron-down" size={18} color="textMuted" strokeWidth={2.2} />
-        </Animated.View>
+        {real ? (
+          <Icon name="chevron-forward" size={18} color="textMuted" strokeWidth={2.2} />
+        ) : (
+          <Animated.View style={chevron}>
+            <Icon name="chevron-down" size={18} color="textMuted" strokeWidth={2.2} />
+          </Animated.View>
+        )}
       </Pressable>
-      {expanded ? (
+      {expanded && !real ? (
         <Animated.View entering={theme.reduceMotion ? undefined : FadeIn.duration(180)} style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[4], gap: theme.space[2] }}>
           <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
             {job.components.map((c, i) => (
