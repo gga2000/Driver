@@ -45,6 +45,12 @@ export default async function run(s) {
     await c.goto('/job');
     await c.wait('job-action');
     await c.shot(`job-${step.replace('_', '-')}`, { settle: 1500 });
+    if (step === 'at_pickup') {
+      // "استلمت الطلب" is a slide (P-08): the thumb half way across, then let go (it springs back).
+      await c.slideHalf('job-action');
+      await c.shot('job-at-pickup-sliding', { settle: 200 });
+      await c.release();
+    }
   }
 
   await s.demoPost('/demo/job?who=courier&step=at_dropoff');
@@ -54,7 +60,7 @@ export default async function run(s) {
   await c.byTestId('job-action').click();
   await c.wait('handover-panel');
   await c.shot('job-cash', { settle: 900 });
-  await c.byTestId('handover-confirm').click();
+  await c.slide('handover-confirm');
   await c.wait('job-done');
   await c.shot('job-done', { settle: 1200 });
 

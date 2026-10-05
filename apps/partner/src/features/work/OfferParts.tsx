@@ -61,7 +61,7 @@ export function PrepPill({ prep }: { prep: PartnerMerchantPrep }) {
  * Pickup → dropoff as two connected nodes. `top`/`bottom` are the nodes' content; the rail and the
  * dots are drawn here so offer and job screens read the same way.
  */
-export function RouteNodes({ top, bottom }: { top: ReactNode; bottom: ReactNode }) {
+export function RouteNodes({ top, bottom, gap }: { top: ReactNode; bottom: ReactNode; /** Space between the two nodes (default 16). */ gap?: number }) {
   const theme = useTheme();
   return (
     <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
@@ -70,7 +70,7 @@ export function RouteNodes({ top, bottom }: { top: ReactNode; bottom: ReactNode 
         <View style={{ flex: 1, width: 2, backgroundColor: theme.colors.border, marginVertical: 4 }} />
         <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: theme.colors.accent }} />
       </View>
-      <View style={{ flex: 1, gap: theme.space[4] }}>
+      <View style={{ flex: 1, gap: gap ?? theme.space[4] }}>
         {top}
         {bottom}
       </View>

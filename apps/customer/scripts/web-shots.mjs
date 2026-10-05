@@ -621,6 +621,12 @@ async function chatShots(personId) {
   await byTestId('courier-card').waitFor({ timeout: 20_000 });
   await byTestId('chat-courier').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(5500); // the threads poll brings the unread badge
+  // The first order screen asks about notifications (our pre-prompt, a modal): shoot it, then "بعدين".
+  if (await byTestId('push-preprompt').isVisible().catch(() => false)) {
+    await shot('chat-push-preprompt');
+    await byTestId('push-preprompt-later').click();
+    await page.waitForTimeout(600);
+  }
   await shot('chat-order-buttons');
 
   // The courier thread: bubbles, quick replies, the masked number, a location pin, receipts.

@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
-import { Button, Card, Chip, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, EmptyState, Icon, Rule, Skeleton, SlideToConfirm, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { departureTone, SeatStrip, SectionHead } from '@/features/intercity/BoardParts';
 import { DriverSeatMap, PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/DepartureParts';
@@ -228,10 +228,11 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
           {readiness.tooEarly ? <Blocker text={t('partner.ic_block_early', { time: clockLabel(dep.departAt) })} /> : null}
         </View>
       ) : null}
-      <Button testID="depart" label={t('partner.ic_depart_cta')} icon="car" size="lg" fullWidth disabled={!readiness.canDepart} loading={actions.depart.isPending} onPress={() => void depart()} />
+      {/* Departing and arriving move every rider's booking: a slide, never a pocket tap (P-08). */}
+      <SlideToConfirm testID="depart" label={t('partner.ic_depart_cta')} confirmHaptic="medium" disabled={!readiness.canDepart} loading={actions.depart.isPending} onConfirm={() => void depart()} />
     </View>
   ) : dep.state === 'departed' ? (
-    <Button testID="arrive" label={t('partner.ic_arrive_cta')} icon="map-pin" size="lg" fullWidth loading={actions.arrive.isPending} onPress={() => void arrive()} />
+    <SlideToConfirm testID="arrive" label={t('partner.ic_arrive_cta')} confirmHaptic="medium" loading={actions.arrive.isPending} onConfirm={() => void arrive()} />
   ) : (
     <Button label={t('partner.ic_back_board')} variant="secondary" size="lg" fullWidth onPress={() => (router.canGoBack() ? router.back() : router.replace('/intercity'))} />
   );

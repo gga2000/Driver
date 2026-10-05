@@ -26,6 +26,8 @@ export interface CountdownButtonProps {
   /** Last stretch that turns the fill danger with a `warning` haptic (default 5 s). */
   urgentMs?: number;
   haptic?: HapticKind | false;
+  /** One `warning` haptic when the last stretch starts (off when the screen ticks every second itself). */
+  urgentHaptic?: boolean;
   /** Injected clock (tests). */
   clock?: () => number;
   style?: StyleProp<ViewStyle>;
@@ -48,6 +50,7 @@ export function CountdownButton({
   disabled = false,
   urgentMs,
   haptic = 'medium',
+  urgentHaptic = true,
   clock = Date.now,
   style,
   testID = 'countdown-button',
@@ -89,13 +92,13 @@ export function CountdownButton({
   useEffect(() => {
     if (s.urgent && !urgentRef.current) {
       urgentRef.current = true;
-      theme.haptic('warning');
+      if (urgentHaptic) theme.haptic('warning');
     }
     if (s.expired && !expired && !loading) {
       setExpired(true);
       onExpire?.();
     }
-  }, [s.urgent, s.expired, expired, loading, onExpire, theme]);
+  }, [s.urgent, s.expired, expired, loading, onExpire, theme, urgentHaptic]);
 
   const urgent = s.urgent || s.expired;
   const inactive = disabled || loading || expired;

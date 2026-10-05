@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerJob, PartnerJobStop } from '@driver/contracts';
-import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
+import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
@@ -355,7 +355,19 @@ function JobView({
         {panel === 'none' && !showUnreachable && action ? (
           <SafeAreaView edges={['bottom']} style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface }}>
             <View style={[column, { padding: theme.space[4] }]}>
-              <Button testID="job-action" label={t(action.label)} size="lg" fullWidth icon={action.kind === 'arrive' ? 'map-pin' : 'check'} loading={busy} haptic="medium" onPress={() => void advance()} />
+              {/* "وصلت" stays a tap; what can't be taken back (picked up, rider in, ride ended) is a slide (P-08). */}
+              {action.kind === 'complete' && !(stop?.type === 'dropoff' && !ride) ? (
+                <SlideToConfirm
+                  testID="job-action"
+                  label={t(action.label)}
+                  note={stop?.type === 'pickup' && !ride && job.merchant?.state === 'preparing' ? t('partner.slide_kitchen_preparing') : undefined}
+                  loading={busy}
+                  confirmHaptic="medium"
+                  onConfirm={() => void advance()}
+                />
+              ) : (
+                <Button testID="job-action" label={t(action.label)} size="lg" fullWidth icon={action.kind === 'arrive' ? 'map-pin' : 'check'} loading={busy} haptic="medium" onPress={() => void advance()} />
+              )}
             </View>
           </SafeAreaView>
         ) : null}

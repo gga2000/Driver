@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import type { PartnerCash, UnreachableStatus } from '@driver/contracts';
-import { Button, Icon, Text, useTheme, withAlpha } from '@driver/ui';
+import { Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
 import { CashMeter } from '@/features/account/CashMeter';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { cashTruth } from '@/features/account/logic';
@@ -94,16 +94,8 @@ export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collec
         </View>
       </Pressable>
 
-      <Button
-        testID="handover-confirm"
-        label={cash ? t('partner.cash_confirm', { amount: amountParam(collectIqd) }) : t('partner.action_delivered')}
-        icon="check"
-        size="lg"
-        fullWidth
-        haptic="success"
-        loading={busy}
-        onPress={() => onConfirm(photo)}
-      />
+      {/* Handing over (and taking the cash) can't be undone: a slide, never a pocket tap (P-08). */}
+      <SlideToConfirm testID="handover-confirm" label={cash ? t('partner.cash_confirm', { amount: amountParam(collectIqd) }) : t('partner.action_delivered')} loading={busy} onConfirm={() => onConfirm(photo)} />
     </Animated.View>
   );
 }

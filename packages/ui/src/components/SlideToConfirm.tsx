@@ -130,13 +130,6 @@ export function SlideToConfirm({
     return () => clearTimeout(id);
   }, [confirmed, loading, reset]);
 
-  // A new action in the same place starts from the beginning.
-  useEffect(() => {
-    done.current = false;
-    setConfirmed(false);
-    progress.value = 0;
-  }, [label, progress]);
-
   useEffect(
     () => () => {
       if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -199,11 +192,22 @@ export function SlideToConfirm({
   };
 
   const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slideOffset(progress.value, travel, rtl) }] }), [travel, rtl]);
-  const fillStyle = useAnimatedStyle(() => ({ width: kind === 'hold' ? `${progress.value * 100}%` : SLIDE_INSET + SLIDE_THUMB_SIZE + progress.value * travel }), [travel, kind]);
+  // The wash runs from the start edge to the thumb's centre, so the thumb hides its end; it fades in
+  // with the first few pixels of travel so the resting track is clean.
+  const fillStyle = useAnimatedStyle(
+    () =>
+      kind === 'hold'
+        ? { width: `${progress.value * 100}%`, opacity: 1 }
+        : { width: SLIDE_INSET + SLIDE_THUMB_SIZE / 2 + progress.value * travel, opacity: Math.min(1, progress.value * 6) },
+    [travel, kind],
+  );
   const labelStyle = useAnimatedStyle(() => ({ opacity: kind === 'hold' ? 1 : slideLabelOpacity(progress.value) }), [kind]);
 
   const shownLabel = kind === 'hold' ? (holding ? t('ui.slide_holding') : label) : label;
   const hint = accessibilityHint ?? (kind === 'hold' ? t('ui.slide_hold_hint') : t('ui.slide_hint'));
+  // Under the label: "اسحب للآخر" after a stray tap, the caller's note, or — holding being invisible
+  // as an affordance — "اضغط وثبّت حتى تأكد" in the reduced-motion mode.
+  const subline = nudged && kind === 'slide' && !tapToConfirm ? t('ui.slide_nudge') : (note ?? (kind === 'hold' && !tapToConfirm && !holding ? t('ui.slide_hold_hint') : undefined));
 
   const body = (
     <View
@@ -223,9 +227,9 @@ export function SlideToConfirm({
         <Text variant="button" weight={700} color={fg} numberOfLines={1} testID={`${testID}-label`}>
           {shownLabel}
         </Text>
-        {note || (nudged && kind === 'slide' && !tapToConfirm) ? (
+        {subline ? (
           <Text variant="caption" weight={600} color={fg} numberOfLines={1} style={{ opacity: 0.85 }}>
-            {nudged && kind === 'slide' && !tapToConfirm ? t('ui.slide_nudge') : note}
+            {subline}
           </Text>
         ) : null}
       </Animated.View>
@@ -243,8 +247,8 @@ export function SlideToConfirm({
               alignItems: 'center',
               justifyContent: 'center',
               shadowColor: theme.colors.shadow,
-              shadowOpacity: 0.18,
-              shadowRadius: 6,
+              shadowOpacity: 0.14,
+              shadowRadius: 4,
               shadowOffset: { width: 0, height: 2 },
               elevation: 3,
             },

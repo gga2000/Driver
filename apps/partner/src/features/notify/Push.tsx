@@ -1,8 +1,7 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
-import { Button, Icon, Text, useTheme } from '@driver/ui';
+import { PermissionPrompt } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
@@ -58,7 +57,6 @@ export async function unregisterPush(client: ReturnType<typeof useApiClient>): P
 
 /** "لا يفوتك طلب": the pre-prompt on the work home, then the OS prompt. */
 export function PrePromptGate({ active }: { active: boolean }) {
-  const theme = useTheme();
   const t = useT();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,23 +88,16 @@ export function PrePromptGate({ active }: { active: boolean }) {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
-      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable accessibilityLabel={t('notify.preprompt.later')} onPress={close} style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: 'rgba(15, 18, 22, 0.5)' }} />
-        <View testID="push-preprompt" style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, padding: theme.space[5], paddingBottom: theme.space[8], gap: theme.space[4] }}>
-          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }}>
-            <Icon name="bell" size={30} color="accentText" />
-          </View>
-          <Text variant="heading" align="center" accessibilityRole="header">
-            {t('notify.preprompt.partner_title')}
-          </Text>
-          <Text variant="body" color="textMuted" align="center">
-            {t('notify.preprompt.partner_body')}
-          </Text>
-          <Button testID="push-preprompt-allow" label={t('notify.preprompt.allow')} size="lg" fullWidth loading={busy} onPress={() => void allow()} />
-          <Button testID="push-preprompt-later" label={t('notify.preprompt.later')} variant="ghost" size="lg" fullWidth onPress={close} />
-        </View>
-      </View>
-    </Modal>
+    <PermissionPrompt
+      visible={visible}
+      icon="bell"
+      title={t('notify.preprompt.partner_title')}
+      body={t('notify.preprompt.partner_body')}
+      allowLabel={t('notify.preprompt.allow')}
+      laterLabel={t('notify.preprompt.later')}
+      busy={busy}
+      onAllow={() => void allow()}
+      onLater={close}
+    />
   );
 }
