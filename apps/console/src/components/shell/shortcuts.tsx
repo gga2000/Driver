@@ -54,6 +54,14 @@ export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () =
       ],
     },
     {
+      title: t('console.kb_group_lists'),
+      rows: [
+        [['J'], t('console.kb_next')],
+        [['K'], t('console.kb_prev')],
+        [['↵'], t('console.kb_row_open')],
+      ],
+    },
+    {
       title: t('console.kb_group_approvals'),
       rows: [
         [['A'], t('console.kb_approve')],

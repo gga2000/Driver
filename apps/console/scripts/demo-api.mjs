@@ -132,10 +132,69 @@ Object.assign(people, { ali: { phone: '07700000001', id: ali }, haider: { phone:
 
 // ───────────────────────── the live evening (simulator) ─────────────────────────
 
+// The warm-up runs the evening at 60×, so its finished orders happened seconds apart. Afterwards
+// their history is stretched back to real minutes ("انطلب 10:08 م · وصل 10:52 م" on /orders/[id]):
+// each finished order's own times, its event log, its trips' logs and its ledger lines move to
+// `now − (now − t) × 60`. Only finished orders move (nothing live depends on their clocks); the
+// app keeps the wall clock, so dispatch timers stay honest. DEMO_HISTORY=0 skips the stretch.
+const SIM_SPEED = 60;
+const t0 = Date.now();
 const sim = get(SimulatorService);
-await sim.start({ cityId: 'aziziyah', drivers: 24, ordersPerHour: 70, seed: 7, speed: 60 });
+await sim.start({ cityId: 'aziziyah', drivers: 24, ordersPerHour: 70, seed: 7, speed: SIM_SPEED });
 console.log(`simulator running ${SIM_SECONDS}s…`);
 await new Promise((r) => setTimeout(r, SIM_SECONDS * 1000));
+if (process.env.DEMO_HISTORY !== '0') {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const ordersRepo = get(ORDERS_REPOSITORY);
+  const events = get(EventsService);
+  const ledgerSvc = get(LedgerService);
+  const now = Date.now();
+  const at = (v) => (v instanceof Date && v.getTime() >= t0 && v.getTime() <= now ? new Date(now - (now - v.getTime()) * SIM_SPEED) : v);
+  // Stored rows may be frozen: each moved row is a stretched copy, swapped into its repository's
+  // arrays and maps in place of the original.
+  const copy = (rec) => Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, at(v)]));
+  const frozenCopy = (rec) => (Object.isFrozen(rec) ? Object.freeze(copy(rec)) : copy(rec));
+  const swapIn = (repo, swaps) => {
+    if (!repo || swaps.size === 0) return;
+    const fix = (list) => {
+      for (let i = 0; i < list.length; i += 1) if (swaps.has(list[i])) list[i] = swaps.get(list[i]);
+    };
+    for (const key of Object.getOwnPropertyNames(repo)) {
+      const v = repo[key];
+      if (Array.isArray(v)) fix(v);
+      else if (v instanceof Map) for (const [k, x] of v) Array.isArray(x) ? fix(x) : swaps.has(x) && v.set(k, swaps.get(x));
+    }
+  };
+  const FINISHED = new Set(['delivered', 'completed', 'closed', 'customer_cancelled', 'merchant_rejected', 'platform_cancelled', 'failed', 'refunded']);
+  const eventSwaps = new Map();
+  const ledgerSwaps = new Map();
+  const orderSwaps = new Map();
+  let moved = 0;
+  for (const o of [...(ordersRepo.orders?.values?.() ?? [])]) {
+    if (!FINISHED.has(o.state)) continue;
+    const moved_ = copy(o);
+    // The kitchen's promise was set in wall minutes after the acceptance: it moves with it.
+    if (o.promisedReadyAt && o.acceptedAt && moved_.acceptedAt) moved_.promisedReadyAt = new Date(moved_.acceptedAt.getTime() + (o.promisedReadyAt.getTime() - o.acceptedAt.getTime()));
+    orderSwaps.set(o, Object.isFrozen(o) ? Object.freeze(moved_) : moved_);
+    moved += 1;
+    const trips = new Set();
+    for (const e of await events.forOrder(o.id)) {
+      if (!eventSwaps.has(e)) eventSwaps.set(e, frozenCopy(e));
+      if (e.tripId) trips.add(e.tripId);
+    }
+    for (const tripId of trips) for (const e of await events.forTrip(tripId)) if (!eventSwaps.has(e)) eventSwaps.set(e, frozenCopy(e));
+    for (const l of await ledgerSvc.eventsForOrder(o.id)) if (!ledgerSwaps.has(l)) ledgerSwaps.set(l, frozenCopy(l));
+  }
+  swapIn(ordersRepo, orderSwaps);
+  swapIn(events.repo, eventSwaps);
+  swapIn(ledgerSvc.repo, ledgerSwaps);
+  console.log(`stretched ${moved} finished orders back to real minutes`);
+}
+// DEMO_LIVE_SPEED=1 carries on the same evening in real time (orders arrive about one a minute and
+// read like real minutes on /orders); the default keeps the 60× traffic that makes the map glide.
+// DEMO_LIVE=0 stops the simulator here instead.
+if (process.env.DEMO_LIVE === '0') await sim.stop();
+else if (process.env.DEMO_LIVE_SPEED && sim.live) sim.live.speed = Number(process.env.DEMO_LIVE_SPEED);
 
 // ───────────────────────── restaurants, orders and zone caps ─────────────────────────
 
@@ -217,6 +276,17 @@ await get(MerchantAdminService).dealsPropose(actor(khalidOwner), {
   budgetCapIqd: 150_000,
   minOrderIqd: 10_000,
 });
+// A chat on the order behind the WhatsApp ticket, read-only on /orders/[id] and the desk.
+try {
+  const { ChatService } = await load('modules/chat/index.js');
+  const chat = get(ChatService);
+  const say = (who, text, i) => chat.send(actor(who), { orderId: placed[9].id, kind: 'customer_merchant', clientId: `demo-chat-${i}`, text });
+  await say(customers[9], 'شكد يتأخر الطلب؟ صارلي ساعة أنتظر', 1);
+  await say(khalidOwner, 'هلا بيك، هسة يطلع من المطبخ والدليفري جاي ياخذه', 2);
+  await say(customers[9], 'زين، بس المرة اللي فاتت ما رجّعولي الباقي', 3);
+} catch (err) {
+  console.warn('demo chat skipped:', err?.message ?? err);
+}
 const fleetOwner = await person('07750000001', 'أبو حسنين');
 const fleetOrg = await orgs.create({ type: 'fleet', name: 'تكاتك الربيعي', cityId: 'aziziyah', ownerId: fleetOwner });
 await identity.grantRole(SYSTEM, { personId: fleetOwner, kind: 'fleet_owner', orgId: fleetOrg.id });
@@ -261,8 +331,24 @@ for (const c of deskCouriers) {
   const id = await person(c.phone, c.name, ['courier']);
   c.id = id;
   n += 1;
+  if (n === 1) {
+    // Saif's evening reads like a statement on his ledger page: five cash orders over three hours
+    // and the 21:30 round in the middle (same totals as one line, so /finance is unchanged).
+    const ago = (min) => new Date(Date.now() - min * 60_000);
+    const runs = [[200, 12_500], [170, 9_750], [125, 18_250], [55, 14_000], [20, 27_000]];
+    for (const [i, [min, amount]] of runs.entries())
+      await ledger.record({ type: 'cash_collected', amount, fromAccount: `cash:${id}`, toAccount: `customer:${customers[(i + 2) % customers.length]}`, occurredAt: ago(min), idempotencyKey: `demo:cash:${id}:${i}` });
+    await ledger.record({ type: 'driver_settlement', amount: c.settled, fromAccount: 'bank', toAccount: `cash:${id}`, occurredAt: ago(90), memo: `ops_round:D-DEMO-${n}`, idempotencyKey: `demo:settle:${id}` });
+    continue;
+  }
   await ledger.record({ type: 'cash_collected', amount: c.held + c.settled, fromAccount: `cash:${id}`, toAccount: `customer:${customers[n]}`, occurredAt: new Date(), idempotencyKey: `demo:cash:${id}` });
   if (c.settled) await ledger.record({ type: 'driver_settlement', amount: c.settled, fromAccount: 'bank', toAccount: `cash:${id}`, occurredAt: new Date(), memo: `ops_round:D-DEMO-${n}`, idempotencyKey: `demo:settle:${id}` });
+}
+// Muntadhar's licence runs out in 9 days: /drivers shows it under "أوراقه تنتهي".
+{
+  const m = deskCouriers[2];
+  const doc = await accounts.uploadDocument(actor(m.id), { kind: 'licence', uploadId: await upload(m.id, await render(idCard('إجازة السياقة', m.name, '#7a9a5b'))), expiresAt: new Date(Date.now() + 9 * 86_400_000) });
+  await accounts.reviewDocument(actor(haider), { documentId: doc.id, decision: 'approve', expiresAt: new Date(Date.now() + 9 * 86_400_000) });
 }
 const kareem = stores.find((s) => s.seed.key === 'haj_kareem') ?? stores[1];
 await ledger.record({ type: 'merchant_payable', amount: 148_000, fromAccount: 'platform', toAccount: `merchant_cash:${khalid.orgId}`, occurredAt: new Date(), idempotencyKey: 'demo:payable:khalid' });

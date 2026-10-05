@@ -237,14 +237,68 @@ Exception: the `/design` reference page hard-codes sample content as fixtures. I
   hover a marker for name, vehicle and plate, job and cash; click opens the drawer; F follows a
   driver until you drag the map or press Esc.
 
+### Orders, the order page, drivers and the driver ledger (wave 2)
+
+`orders-page.tsx`, `order-detail.tsx`, `order-status.tsx`, `drivers-page.tsx`, `driver-ledger.tsx`,
+`cash-cap.tsx`, `period-picker.tsx`. Pure parts: `lib/orders.ts` (views, stages, the story, money
+in words), `lib/periods.ts` (the city's days and periods), `lib/roster.ts` (filters, problems-first
+order), `lib/ledger.ts` (balances and lines in words), `lib/plural.ts` (Arabic counts),
+`lib/row-keys.ts` (j/k + Enter on a table).
+
+- **One clock**: every day and time is Asia/Baghdad. Stamps read "10:08 م", "أمس 10:08 م" or "1
+  تشرين الأول · 10:08 ص", never "1/10". Periods are presets (اليوم، أمس، آخر 7 أيام، هالشهر، كل
+  الوقت) plus "أيام معيّنة", which picks days by name (`PeriodPicker`). Counts say what people say:
+  "طلبين"، "5 طلبات"، "12 طلب" (`countText` with `_0/_1/_2/_few/_many` keys).
+- **/orders**: `DataTable` under saved views as tabs (الكل، شغّالة، متأخرة with its live count،
+  ملغية، نزاعات; the view is in the URL, `?view=late`), the period on the same rule, then search
+  ("#1284", a name) and four narrowing selects (service, restaurant, customer's zone, payment) that
+  turn rust-washed when set, with "امسح الفلاتر". The status is a chip with the stage's icon
+  (waiting clock, kitchen, bike on the road, check, cross, alert: `ORDER_PHASE`), the state in words
+  and the stage's tone. "التأخير" is minutes behind the promise (red, clock icon) and sorts the
+  latest first; the late and active views open sorted that way. Money is end-aligned, tabular, with
+  "(دينار)" in the header. J/K move a highlight, Enter opens, a click opens. The late view ignores
+  the period (late is now); an order number looks over today and yesterday.
+- **/orders/[id]**: the header is "#1284", the status, the late chip and one calm group of actions
+  (راسل الزبون, افتح تذكرة, غيّر/عيّن الدليفري; when a ticket is already open on the order the group
+  says "روح للتذكرة" and names it instead of opening a second one). Then one card: the facts row
+  (المطعم · الزبون and area · الدليفري with avatar, vehicle, plate and his book · الدفع · المجموع),
+  the story ("انطلب 1:32 · قبله المطعم 1:33 · طلع الدليفري 1:54 · وصل 2:02", minutes on the joins,
+  "من الطلب للباب 30 د"; an open order ends on a dashed "ننتظر: …"), one line for dispatch
+  ("عرضناه على سايقين · واحد ما قبل · قبله حيدر ك. بعد 40 ثانية") and "كل الأحداث (26)" to expand
+  the full log. Below, tabs: the items, the bill and **وين راحت الفلوس** (each ledger line as where
+  it ends up: للمطعم، عمولة درايفر، للدليفري، على الدليفري، للزبون; no minus signs), or the order's
+  chats, read only. Other facts (note, promise, vehicle, refund) sit in a side card only when there
+  are any. Support can't call from the Console (masked calls are for the parties), so contacting
+  the customer opens a WhatsApp or phone ticket and the message is written on the desk.
+- **/drivers**: name search (the API's logged vault match on the display name; a pasted "p_103"
+  goes to the id filter), presence as a segmented control with the online count, service and tier
+  selects, and "أوراقه تنتهي" with its count. Rows: avatar initial, name, vehicle · plate · roles;
+  the state as the map draws it (`StateGlyph`: dot, ring, square, cross, dashed) with the zone;
+  today's earnings and jobs; cash against the cap (`CashCapBar`: "600 من 75,000", ticks at 70 and
+  90 %, amber then red, the % and an alert icon from amber up); tier as one to three pips with the
+  score. Problems sort first (`sortRoster`): over the cap, at its edge, papers expired, near the
+  cap, then working, then offline. J/K + Enter open the ledger.
+- **Driver ledger**: a bank statement in words. The hero says "بيده 35,500 دينار", what part is his
+  earnings, "لازم يسلّم …" and the cap bar; beside it his earnings ("له 5,400 دينار") and the payout.
+  The statement (الكاش / الأرباح tabs with counts, a period picker) opens with أول الفترة · استلم ·
+  سلّم · آخر الفترة, then days as group rows ("اليوم · 6 حركات"), each line with the time, what it
+  was and from or to whom, the amount under استلم or سلّم (له or عليه for earnings) and the running
+  balance in words. Hand-overs (the round, a restaurant, a debt) are green rows with a check and
+  say "سلّم 20,000 دينار للشركة"; the round's reference reads "جولة الاستلام D-118" and machine
+  memos stay on hover.
+- **Demo**: `scripts/demo-api.mjs` warms the evening at 60× and then stretches the finished orders
+  (their times, event logs, trips and ledger lines) back to real minutes, so stories read like a
+  real evening; `DEMO_HISTORY=0` skips it and `DEMO_LIVE_SPEED=1` carries on in real time. It also
+  seeds Saif's statement over three hours, a licence that runs out in 9 days and a chat on the
+  WhatsApp ticket's order.
+
 ## Wave 2
 
 - **/dispatch, /map**: done (above). Still open: S-K1's sticky triage strip on every other page,
   the alert repeating until someone takes the card, and a plate for bikes (the registry has none).
-- **/orders, /orders/[id]**: Arabic date ranges (K-15), status tones by phase plus a "late" column
-  (K-17), the event log collapsed into a story (K-22). Move to `DataTable`.
-- **/drivers, ledger**: name search (needs a names-aware roster read), and words instead of signs
-  (K-16).
+- **/orders, /orders/[id], /drivers, ledger**: done (above): K-15, K-16, K-17, K-22, the name
+  search. Still open: a phone layout for the order page's facts row (it stacks two by two), and
+  calling a party from the Console (needs a support role on the masked-call bridge).
 - **/controls, /approvals, /finance, /wall**: done (see "The control room" above): K-13, K-14 (the
   dispatch modes now live on /controls; /dispatch should drop its copy), K-15 on these pages, K-16,
   K-20, K-21.
