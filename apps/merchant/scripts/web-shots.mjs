@@ -95,9 +95,9 @@ function makeHelpers(page, viewport, list) {
     }
   };
   const signIn = async (phone, { keepGate = false } = {}) => {
-    await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
+    await page.goto(`${origin}/`, { waitUntil: 'load' });
     await page.evaluate(() => localStorage.clear());
-    await page.goto(`${origin}/welcome`, { waitUntil: 'networkidle' });
+    await page.goto(`${origin}/welcome`, { waitUntil: 'load' });
     await byTestId('welcome-start').waitFor({ timeout: 20_000 });
     await byTestId('welcome-start').click();
     await page.locator('[data-testid="phone-input"]').fill(phone);

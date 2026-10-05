@@ -1,4 +1,5 @@
-import { orderTicketNumber, type MerchantCashAccount, type MerchantDispute, type SettlementRequestView, type StatementOrderLine } from '@driver/contracts';
+import { orderTicketNumber, type MerchantCashAccount, type MerchantDispute, type MoneyHeadline, type SettlementRequestView, type StatementOrderLine, type WeeklyStatement } from '@driver/contracts';
+import type { TKey } from '@/lib/i18n-core';
 import { localDayKey, startOfLocalWeek } from '@/lib/calendar';
 
 /**
@@ -145,4 +146,66 @@ export function lateMinutes(promisedReadyAt: Date | null, readyAt: Date | null):
 export function canSendAnswer(decision: 'accept_default' | 'contest' | null, note: string): boolean {
   if (decision === 'accept_default') return true;
   return decision === 'contest' && note.trim().length >= 3;
+}
+
+/**
+ * S-M5 · the money pill in one line, from the server's headline: what to say, in which tone, and
+ * what a tap does. "إلك 87,500 دينار · توصلك الليلة ويا الدليفري" (with "اطلب فلوسك"), "عليك 4,250
+ * دينار عمولة · تنخصم من الجاية" (a tap opens the Money screen that explains), "فلوسك جاية قبل 9:40 م".
+ */
+export interface MoneyPill {
+  tone: 'neutral' | 'warning' | 'success';
+  /** The bold part: the amount, or the promise. */
+  main: { key: TKey; amountIqd?: number; time?: Date };
+  /** The rest of the line after " · ", or null. */
+  sub: TKey | null;
+  /** owed → "اطلب فلوسك" beside it; otherwise a tap opens the Money screen. */
+  action: 'request' | 'open_money';
+}
+
+const ARRIVES_KEY: Record<NonNullable<MoneyHeadline['arrives']>, TKey> = {
+  tonight_courier: 'merchant.moneypill.arrives_tonight_courier',
+  on_request: 'merchant.moneypill.arrives_on_request',
+  zaincash_daily: 'merchant.moneypill.arrives_zaincash_daily',
+  bank_weekly: 'merchant.moneypill.arrives_bank_weekly',
+};
+
+export function moneyPill(h: MoneyHeadline): MoneyPill {
+  switch (h.kind) {
+    case 'owed':
+      return { tone: 'neutral', main: { key: 'merchant.moneypill.owed', amountIqd: h.amountIqd }, sub: h.arrives ? ARRIVES_KEY[h.arrives] : null, action: 'request' };
+    case 'owe':
+      return { tone: 'warning', main: { key: 'merchant.moneypill.owe', amountIqd: h.amountIqd }, sub: 'merchant.moneypill.owe_when', action: 'open_money' };
+    case 'requested':
+      return h.by
+        ? { tone: 'success', main: { key: 'merchant.moneypill.requested', time: h.by }, sub: null, action: 'open_money' }
+        : { tone: 'success', main: { key: 'merchant.moneypill.requested_pending' }, sub: null, action: 'open_money' };
+    case 'zero':
+      return { tone: 'neutral', main: { key: 'merchant.money.pill_zero' }, sub: null, action: 'open_money' };
+  }
+}
+
+/**
+ * M-17 · the bridge row under the weekly totals: "رصيد أول الأسبوع + الصافي − اللي استلمته ±
+ * تعديلات = رصيد آخر الأسبوع". The server sends the adjustments; this lays the terms out and says
+ * whether they add up (they always should: a false here is a bug worth seeing in a test).
+ */
+export interface BridgeTerm {
+  key: 'opening' | 'net' | 'settled' | 'adjustments' | 'closing';
+  label: TKey;
+  amountIqd: number;
+  /** The sign shown before the term ('' for the first). */
+  op: '' | '+' | '−' | '=';
+}
+
+export function statementBridge(s: Pick<WeeklyStatement, 'openingIqd' | 'closingIqd' | 'totals'>): { terms: BridgeTerm[]; adds: boolean } {
+  const adj = s.totals.adjustmentsIqd ?? 0;
+  const terms: BridgeTerm[] = [
+    { key: 'opening', label: 'merchant.bridge.opening', amountIqd: s.openingIqd, op: '' },
+    { key: 'net', label: 'merchant.bridge.net', amountIqd: s.totals.netIqd, op: '+' },
+    { key: 'settled', label: 'merchant.bridge.settled', amountIqd: s.totals.settledIqd, op: '−' },
+  ];
+  if (adj !== 0) terms.push({ key: 'adjustments', label: 'merchant.bridge.adjustments', amountIqd: adj, op: '+' });
+  terms.push({ key: 'closing', label: 'merchant.bridge.closing', amountIqd: s.closingIqd, op: '=' });
+  return { terms, adds: s.openingIqd + s.totals.netIqd - s.totals.settledIqd + adj === s.closingIqd };
 }

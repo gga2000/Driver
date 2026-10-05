@@ -130,7 +130,7 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
   );
 }
 
-export type InfoTone = 'danger' | 'warning' | 'neutral';
+export type InfoTone = 'danger' | 'warning' | 'success' | 'neutral';
 
 /** Store closed / paused / offline / missed orders: a calm strip with the next step. */
 export function InfoStrip({
@@ -155,8 +155,8 @@ export function InfoStrip({
   testID?: string;
 }) {
   const theme = useTheme();
-  const bg = tone === 'danger' ? theme.colors.dangerTint : tone === 'warning' ? theme.colors.warningTint : theme.colors.surfaceSunken;
-  const fg = tone === 'danger' ? 'dangerText' : tone === 'warning' ? 'warningText' : 'text';
+  const bg = tone === 'danger' ? theme.colors.dangerTint : tone === 'warning' ? theme.colors.warningTint : tone === 'success' ? theme.colors.successTint : theme.colors.surfaceSunken;
+  const fg = tone === 'danger' ? 'dangerText' : tone === 'warning' ? 'warningText' : tone === 'success' ? 'successText' : 'text';
   const button = (b: { label: string; onPress: () => void; testID?: string }, solid: boolean) => (
     <Pressable
       key={b.label}

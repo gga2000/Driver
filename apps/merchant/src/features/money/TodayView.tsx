@@ -12,7 +12,7 @@ import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { balanceState, exposure, holderRows, requestBlocker, requestProgress } from './logic';
+import { balanceState, exposure, holderRows, moneyPill, requestBlocker, requestProgress } from './logic';
 import { useRequestMoney } from './queries';
 
 const TONE_COLOR = { success: 'success', warning: 'warning', danger: 'danger', neutral: 'textMuted' } as const;
@@ -67,6 +67,15 @@ export function TodayView({
 
 // ───────────────────────── cash account ─────────────────────────
 
+/** S-M5 under the title: when the money comes (the server's headline), else the settlement mode. */
+function heroWhen(account: MerchantCashAccount, t: (k: TKey, p?: Record<string, string | number>) => string): string {
+  const h = account.headline;
+  if (!h) return t(`merchant.money.mode_${account.mode}` as TKey);
+  const p = moneyPill(h);
+  if (h.kind === 'requested') return t(p.main.key, p.main.time ? { time: clock12(p.main.time) } : {});
+  return p.sub && h.kind === 'owed' ? t(p.sub) : t(`merchant.money.mode_${account.mode}` as TKey);
+}
+
 function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCashAccount; merchantOrgId: string; onReceipt: (h: CashHandover) => void }) {
   const theme = useTheme();
   const t = useT();
@@ -107,8 +116,8 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="title">{t('merchant.money.cash_title')}</Text>
-            <Text variant="footnote" color="textMuted" numberOfLines={1}>
-              {t(`merchant.money.mode_${account.mode}` as TKey)}
+            <Text variant="footnote" color="textMuted" numberOfLines={1} testID="cash-when">
+              {heroWhen(account, t)}
             </Text>
           </View>
         </View>

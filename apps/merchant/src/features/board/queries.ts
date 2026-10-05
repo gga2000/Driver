@@ -67,6 +67,8 @@ export function useOrderActions() {
     ready: useMutation({ ...api.orders.merchant.ready.mutationOptions(), onSettled: refresh }),
     /** "+5 د" once per order (M-12): moves the promised time; the customer is told. */
     extend: useMutation({ ...api.orders.merchant.extendPrep.mutationOptions(), onSettled: refresh }),
+    /** "سلّمته" (S-M4): the bag went to the courier at the pass; idempotent on the server. */
+    handOver: useMutation({ ...api.orders.merchant.handOver.mutationOptions(), onSettled: refresh }),
   };
 }
 

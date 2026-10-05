@@ -1,13 +1,15 @@
-import { Share, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, Share, View } from 'react-native';
 import type { StatementOrderLine, WeeklyStatement } from '@driver/contracts';
 import { Button, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
+import { ModalSheet } from '@/components/ModalSheet';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
 import { useDates } from '@/lib/dates';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { statementDays, ticketNumber } from './logic';
+import { statementBridge, statementDays, ticketNumber, type BridgeTerm } from './logic';
 
 const PAY_TONE = { cash: 'warning', wallet: 'info', prepaid: 'info' } as const;
 
@@ -103,6 +105,7 @@ export function StatementView({
             <Cell label={t('merchant.statement.closing')} value={iqd(statement.closingIqd, { locale })} strong />
           </View>
         </View>
+        <Bridge statement={statement} wide={wide} now={now} />
         <View style={{ flexDirection: wide ? 'row' : 'column', alignItems: wide ? 'center' : 'stretch', gap: theme.space[3], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <MIcon name="chat" size={16} color="textMuted" />
@@ -333,6 +336,86 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
           {iqd(days.reduce((s, d) => s + d.netIqd, 0), { locale })}
         </Text>
       </View>
+    </View>
+  );
+}
+
+/**
+ * M-17 · the bridge: "رصيد أول الأسبوع + الصافي − اللي استلمته (+ تعديلات) = رصيد آخر الأسبوع", the
+ * four numbers that never added up on screen now reconcile in one row. "اللي استلمته" opens its lines.
+ */
+function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: boolean; now: number }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const dates = useDates();
+  const [open, setOpen] = useState(false);
+  const { terms } = statementBridge(statement);
+  const byKey = Object.fromEntries(terms.map((x) => [x.key, iqd(x.amountIqd, { locale })]));
+  const cell = (term: BridgeTerm) => {
+    const last = term.key === 'closing';
+    const body = (
+      <View style={{ gap: 2, alignItems: 'flex-start' }}>
+        <Text variant="caption" color="textMuted" numberOfLines={1}>
+          {t(term.label)}
+        </Text>
+        <Text variant={last ? 'bodyStrong' : 'label'} weight={last ? 700 : 600} tabular color={term.key === 'settled' ? 'accentText' : 'text'} numberOfLines={1}>
+          {iqd(term.amountIqd, { locale })}
+        </Text>
+      </View>
+    );
+    return (
+      <View key={term.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
+        {term.op ? (
+          <Text variant="title" weight={700} color="textMuted" accessibilityElementsHidden importantForAccessibility="no">
+            {term.op}
+          </Text>
+        ) : null}
+        {term.key === 'settled' ? (
+          <Pressable testID="bridge-settled" accessibilityRole="button" accessibilityLabel={`${t(term.label)} ${iqd(term.amountIqd, { locale })}`} onPress={() => setOpen(true)} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint })}>
+            {body}
+          </Pressable>
+        ) : (
+          <View style={{ minHeight: 44, justifyContent: 'center' }}>{body}</View>
+        )}
+      </View>
+    );
+  };
+  return (
+    <View
+      testID="statement-bridge"
+      accessible={false}
+      accessibilityLabel={t('merchant.bridge.a11y', { opening: byKey['opening'] ?? '', net: byKey['net'] ?? '', settled: byKey['settled'] ?? '', closing: byKey['closing'] ?? '' })}
+      style={{ gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}
+    >
+      <Text variant="label" weight={700}>
+        {t('merchant.bridge.title')}
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: wide ? theme.space[4] : theme.space[3], rowGap: theme.space[2] }}>{terms.map(cell)}</View>
+      <ModalSheet visible={open} onClose={() => setOpen(false)} title={t('merchant.bridge.settled_sheet')} testID="bridge-settled-sheet">
+        {statement.settlements.length === 0 ? (
+          <Text variant="body" color="textMuted">
+            {t('merchant.bridge.settled_empty')}
+          </Text>
+        ) : (
+          statement.settlements.map((x, i) => (
+            <View key={`${x.at.getTime()}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 56, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.colors.border }}>
+              <MIcon name={x.kind === 'courier_handover' ? 'cash' : 'swap'} size={20} color="textMuted" />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="label" weight={600}>
+                  {t(x.kind === 'courier_handover' ? 'merchant.bridge.settled_row_handover' : 'merchant.bridge.settled_row_payout')}
+                </Text>
+                <Text variant="caption" color="textMuted" tabular>
+                  {`${dates.day(x.at, now)} · ${clock12(x.at)}${x.reference ? ` · ${x.reference}` : ''}`}
+                </Text>
+              </View>
+              <Text variant="label" weight={700} tabular>
+                {iqd(x.amountIqd, { locale })}
+              </Text>
+            </View>
+          ))
+        )}
+      </ModalSheet>
     </View>
   );
 }

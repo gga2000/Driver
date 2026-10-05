@@ -1,13 +1,13 @@
 import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import type { MerchantBalanceView, StoreStatusView } from '@driver/contracts';
+import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
 import { Button, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { ModalSheet } from '@/components/ModalSheet';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { balanceState } from '@/features/money/logic';
+import { balanceState, moneyPill } from '@/features/money/logic';
 import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 
@@ -15,6 +15,8 @@ export interface StoreHeaderProps {
   storeName: string;
   status: StoreStatusView | undefined;
   balance: MerchantBalanceView | undefined;
+  /** S-M5: the server's one-line money pill (owners); falls back to `balance` while it loads. */
+  headline?: MoneyHeadline | undefined;
   canSeeMoney: boolean;
   now: number;
   wide: boolean;
@@ -118,7 +120,54 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
  * The board's status bar: store name, open/closed, busy mode (with countdown), printer marker, and —
  * for owners — the live cash balance with "اطلب فلوسك". One row on a tablet; two on a phone.
  */
-export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
+/**
+ * S-M5 · money you can read in one line: "إلك 87,500 دينار · توصلك الليلة ويا الدليفري" with "اطلب
+ * فلوسك"; "عليك 4,250 دينار عمولة · تنخصم من الجاية" on the warning tint; "فلوسك جاية قبل 9:40 م".
+ * Amounts and times are the server's; a tap on anything but the button opens the Money screen.
+ */
+export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: MoneyHeadline; wide: boolean; onRequest: () => void; onOpen: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const p = moneyPill(headline);
+  const bg = p.tone === 'warning' ? theme.colors.warningTint : p.tone === 'success' ? theme.colors.successTint : theme.colors.surface;
+  const edge = p.tone === 'warning' ? theme.colors.warning : p.tone === 'success' ? theme.colors.success : theme.colors.border;
+  const fg = p.tone === 'warning' ? 'warningText' : p.tone === 'success' ? 'successText' : 'text';
+  const main = t(p.main.key, {
+    ...(p.main.amountIqd !== undefined ? { amount: amountParam(p.main.amountIqd) } : {}),
+    ...(p.main.time ? { time: clock12(p.main.time) } : {}),
+  });
+  const sub = p.sub ? t(p.sub) : null;
+  return (
+    <View
+      testID="cash-balance"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, paddingStart: theme.space[4], paddingEnd: p.action === 'request' ? 4 : theme.space[4], borderRadius: theme.radius.pill, backgroundColor: bg, borderWidth: 1, borderColor: edge, flexShrink: 1 }}
+    >
+      <Pressable
+        testID="money-line"
+        accessibilityRole="button"
+        accessibilityLabel={sub ? `${main} · ${sub}` : main}
+        accessibilityHint={t('merchant.moneypill.open_a11y')}
+        onPress={onOpen}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, flexShrink: 1 }}
+      >
+        <MIcon name={p.tone === 'success' ? 'clock' : 'cash'} size={20} color={p.tone === 'neutral' ? 'successText' : fg} />
+        <Text variant="label" tabular numberOfLines={wide ? 1 : 2} style={{ flexShrink: 1, lineHeight: 20 }}>
+          <Text variant="label" weight={700} tabular color={fg}>
+            {main}
+          </Text>
+          {sub ? (
+            <Text variant="label" weight={500} color={p.tone === 'neutral' ? 'textMuted' : fg}>
+              {` · ${sub}`}
+            </Text>
+          ) : null}
+        </Text>
+      </Pressable>
+      {p.action === 'request' ? <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onRequest} /> : null}
+    </View>
+  );
+}
+
+export function StoreHeader({ storeName, status, balance, headline, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -172,8 +221,14 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
   // Negative: "عليك 4,250 دينار عمولة · تنخصم من فلوسك الجاية" on the warning tint, no dead button (tap
   // opens the Money screen that explains it). Zero: says so, no button.
   const state = balance ? balanceState(balance.balanceIqd) : null;
+  const openMoney = () => {
+    setMenu(false);
+    router.push('/money');
+  };
   const money =
-    canSeeMoney && balance && state ? (
+    canSeeMoney && headline ? (
+      <MoneyLine headline={headline} wide={wide} onRequest={cashPress} onOpen={openMoney} />
+    ) : canSeeMoney && balance && state ? (
       state.kind === 'owed' ? (
         <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 48, paddingStart: theme.space[4], paddingEnd: 4, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
           <MIcon name="cash" size={20} color="successText" />
