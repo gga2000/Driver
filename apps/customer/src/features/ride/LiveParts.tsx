@@ -167,7 +167,7 @@ export function RideArrivalSummary({ view }: { view: OrderTracking }) {
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <Icon name={tuktuk ? 'tuktuk' : 'car'} size={18} color="textMuted" strokeWidth={2} />
-        <Text variant="footnote" color="textMuted" numberOfLines={1} style={{ flex: 1 }}>
+        <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
           {t('ride.arrived_with', { name, vehicle: [vehicle, view.courier?.plate ? ltr(view.courier.plate) : null].filter(Boolean).join(' · ') })}
         </Text>
       </View>

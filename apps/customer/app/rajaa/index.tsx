@@ -9,7 +9,7 @@ import { CorridorPicker, DemandBanner, TripPill } from '@/features/rajaa/BoardPa
 import { DepartureTile } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
-import { garageName, useActiveBooking, useBoard, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useActiveBooking, useBoard, useDriverCards, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -34,6 +34,8 @@ export default function RajaaBoard() {
 
   const network = useNetwork();
   const board = useBoard({ corridorId, direction });
+  // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
+  const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -152,6 +154,7 @@ export default function RajaaBoard() {
                     key={d.id}
                     dep={d}
                     now={now}
+                    driver={drivers.data?.get(d.id)}
                     onPress={() => router.push({ pathname: '/rajaa/departure/[id]', params: { id: d.id, corridor: corridorId, direction } })}
                   />
                 ))

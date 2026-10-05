@@ -201,6 +201,27 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     expect(await codeOf(as(h, 'd2', ['intercity_driver']).driver.riders({ departureId: dep.id }))).toBe('FORBIDDEN');
   });
 
+  it('driverCards: a rider sees the driver of a board departure by first name, with today\'s check-in (C-19)', async () => {
+    const h = routesHarness();
+    const rider = as(h, 'r1', ['customer']);
+    const driver = as(h, 'd1', ['intercity_driver']);
+    h.riderNames.set('d1', 'حيدر كاظم جواد');
+    const dep = await h.announce();
+    expect(await rider.driverCards({ departureIds: [dep.id, 'dep_missing'] })).toEqual([
+      { departureId: dep.id, driverId: 'd1', firstName: 'حيدر', verifiedTodayAt: null, photoUrl: null },
+    ]);
+    await driver.driver.selfie({ departureId: dep.id, selfieRef: 'blob/selfie' });
+    const [card] = await rider.driverCards({ departureIds: [dep.id] });
+    expect(card!.verifiedTodayAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(card)).not.toContain('كاظم');
+    expect(h.nameReads.every((r) => r.personId === 'd1' && r.accessorId === 'r1' && r.purpose === 'intercity_driver_card')).toBe(true);
+
+    // Off the board (cancelled): only a rider who held a seat on it still sees who it was.
+    await h.book('r2', dep.id, ['front']);
+    await h.departures.cancelByDriver('d1', dep.id, 'عطل بالسيارة');
+    expect(await rider.driverCards({ departureIds: [dep.id] })).toEqual([]);
+  });
+
   it('requestBoard.myRides: only rides that picked his offer, with price, cash to collect and the no-show time', async () => {
     const h = routesHarness();
     const rider = as(h, 'r1', ['customer']);

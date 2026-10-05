@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { CatalogSearchDish } from '@driver/contracts';
@@ -35,7 +35,9 @@ function useDebounced(value: string, ms: number): string {
 export default function Search() {
   const theme = useTheme();
   const t = useT();
-  const [query, setQuery] = useState('');
+  // Home's cuisine chips open this screen with the term already in (`/search?q=كباب`).
+  const { q } = useLocalSearchParams<{ q?: string }>();
+  const [query, setQuery] = useState(typeof q === 'string' ? q : '');
   const debounced = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const results = useCatalogSearch(debounced);
   const recents = useSearchRecents();

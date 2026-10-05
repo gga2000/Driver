@@ -16,7 +16,7 @@ import {
   RateOrderInput,
   RespondPartialInput,
 } from '../order.js';
-import { CourierPosition, OrderTracking } from '../tracking.js';
+import { CourierPosition, OrderHistoryRow, OrderTracking } from '../tracking.js';
 import { EventLog, OrderLedgerLine, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
@@ -33,6 +33,8 @@ export const ordersRouter = router({
   quote: protectedProcedure().input(PlaceOrderInput).output(OrderQuote).query(({ ctx, input }) => ctx.orders.quote(ctx.actor, input)),
   get: protectedProcedure().input(OrderIdInput).output(Order).query(({ ctx, input }) => ctx.orders.get(ctx.actor, input)),
   mine: protectedProcedure().output(z.array(Order)).query(({ ctx }) => ctx.orders.mine(ctx.actor)),
+  /** طلباتي (audit C-15): own orders newest first with the restaurant's name and the dishes (one read for the list). */
+  history: protectedProcedure().output(z.array(OrderHistoryRow)).query(({ ctx }) => ctx.tracking.history(ctx.actor)),
   cancellationPreview: protectedProcedure()
     .input(OrderIdInput)
     .output(CancellationFee)

@@ -82,7 +82,11 @@ function useInvalidateOrder(orderId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return () =>
-    Promise.all([qc.invalidateQueries({ queryKey: api.orders.track.queryKey({ orderId }) }), qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() })]);
+    Promise.all([
+      qc.invalidateQueries({ queryKey: api.orders.track.queryKey({ orderId }) }),
+      qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() }),
+      qc.invalidateQueries({ queryKey: api.orders.history.queryKey() }),
+    ]);
 }
 
 export function useCancelOrder(orderId: string) {

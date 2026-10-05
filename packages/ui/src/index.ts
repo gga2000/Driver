@@ -37,6 +37,7 @@ export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSev
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
+export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
@@ -59,4 +60,5 @@ export * from './logic/seats';
 export * from './logic/price';
 export * from './logic/countdown';
 export * from './logic/sheet';
+export * from './logic/plate';
 export * from './format';

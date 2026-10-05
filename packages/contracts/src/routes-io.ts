@@ -677,6 +677,26 @@ export const DepartureRiderName = z.object({
 export type DepartureRiderName = z.infer<typeof DepartureRiderName>;
 
 /**
+ * `routes.driverCards` (audit C-19): who drives a departure, as a rider sees him on the board, the
+ * seat sheet and the boarding pass — first name only (identity vault, read logged with purpose
+ * `intercity_driver_card`), whether he did this run's selfie check-in today, and a photo when a
+ * public portrait exists (none today: the app draws his initial). Never a phone or full name.
+ */
+export const RajaaDriverCard = z.object({
+  departureId: z.string(),
+  driverId: z.string(),
+  /** Null when the driver has not set a name yet. */
+  firstName: z.string().nullable(),
+  /** The run's selfie check-in, when it happened today (Baghdad day); null otherwise. */
+  verifiedTodayAt: z.coerce.date().nullable(),
+  photoUrl: z.string().url().nullable(),
+});
+export type RajaaDriverCard = z.infer<typeof RajaaDriverCard>;
+
+export const DriverCardsInput = z.object({ departureIds: z.array(z.string().min(1)).min(1).max(30) });
+export type DriverCardsInput = z.infer<typeof DriverCardsInput>;
+
+/**
  * `routes.requestBoard.myRides`: request-board rides where the rider picked this driver's offer
  * (matched → driver_arrived → completed / rider_no_show), with the timing the driver's buttons need.
  */
@@ -753,6 +773,8 @@ export interface RoutesPort {
   arrive(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;
   cancelDeparture(actor: Actor, input: CancelDepartureInput): Promise<DriverDepartureView>;
   driverRiders(actor: Actor, input: DepartureIdInput): Promise<DepartureRiderName[]>;
+  /** Riders: the driver of each departure that is on the board or that they hold a seat on (others are left out). */
+  driverCards(actor: Actor, input: DriverCardsInput): Promise<RajaaDriverCard[]>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;

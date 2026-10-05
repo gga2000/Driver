@@ -697,11 +697,11 @@ async function chatShots(personId) {
 async function rideShots() {
   await demoPost('/demo/ride?acceptMs=0');
   await page.goto(`${origin}/`, LOADED);
-  await byTestId('home-where-to').waitFor({ timeout: 15_000 });
-  await byTestId('home-where-to').scrollIntoViewIfNeeded();
+  await byTestId('service-taxi').waitFor({ timeout: 15_000 });
+  await byTestId('service-taxi').scrollIntoViewIfNeeded();
   await shot('ride-home');
 
-  await byTestId('home-where-to').click();
+  await byTestId('service-taxi').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid^="ride-spot-landmark:"]').first().waitFor({ timeout: 15_000 });
   await settle(600);
@@ -746,7 +746,7 @@ async function rideShots() {
   // A fresh tuktuk booking from home's shortcut, the destination as a pin on the map: drag the map
   // ~800 m north-west, the zone under the pin resolves (server side).
   await page.goto(`${origin}/`, LOADED);
-  await byTestId('where-to-tuktuk').click();
+  await byTestId('service-tuktuk').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
   await byTestId('ride-on-map').first().click();
   await byTestId('ride-pin').waitFor({ timeout: 15_000 });

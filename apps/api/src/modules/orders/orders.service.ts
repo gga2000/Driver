@@ -672,7 +672,9 @@ export class OrdersService implements OnModuleInit {
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
       const rating = ratingFrom(order, input, this.clock.now());
       if (order.rating) return this.view(order.id, tx);
-      if (order.state === 'closed') {
+      // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
+      // the complaint first, audit C-12) — stored without closing it, the case stays with support.
+      if (order.state === 'closed' || order.state === 'disputed') {
         if (rating) await this.repo.update(order.id, { rating, ratedAt: order.ratedAt ?? rating.ratedAt }, tx);
         return this.view(order.id, tx);
       }
