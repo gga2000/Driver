@@ -2,8 +2,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import type { Map as MlMap, StyleSpecification } from 'maplibre-gl';
-import { buildMapStyle, LAYER, MAP_COLORS_LIGHT } from '@driver/map';
+import type { Map as MlMap } from 'maplibre-gl';
+import { MAP_COLORS_LIGHT } from '@driver/map';
+import { CUSTOMER_MAP_STYLE } from './customerStyle';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
@@ -16,14 +17,6 @@ export function BaseMap(props: BaseMapProps) {
 }
 
 export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
-
-/**
- * Light OSM raster (dev) until the PMTiles basemap ships; zones and the background always draw.
- * The customer map has no use for the Console's garage and live-fleet layers.
- */
-const CONSOLE_ONLY: ReadonlySet<string> = new Set([LAYER.garages, LAYER.tripLines, LAYER.tripStops, LAYER.drivers, LAYER.driverHalo]);
-const LIGHT = buildMapStyle({ theme: 'light' });
-const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l.id)) } as unknown as StyleSpecification;
 
 /**
  * The camera lives in the shared values (`cam`): every frame the map is jumped to them, so the
@@ -49,7 +42,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, onFa
         try {
           map = new maplibregl.Map({
             container: container.current,
-            style: STYLE,
+            style: CUSTOMER_MAP_STYLE,
             center: [cam.lng.value, cam.lat.value],
             zoom: cam.zoom.value,
             attributionControl: false,

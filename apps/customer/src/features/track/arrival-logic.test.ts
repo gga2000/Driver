@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cashAtDoor, gatePhotoFor } from './arrival';
+import { cashAtDoor, gatePhotoFor } from './arrival-logic';
 
 const HOME = { lat: 32.9097, lng: 45.0633 };
 
