@@ -226,6 +226,10 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   steps), `eta.ts` (live ETA, lateness, signal lost).
 - Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|near|unreachable|arrived|late|signal_lost|reassigning`
   and `POST /demo/track/advance?orderId=…`; `SHOTS=track node scripts/web-shots.mjs` writes `track-*.png`.
+  "الخردة علينا" (`docs/api/cash-change-to-wallet.md`): `&tender=25000` places it with "راح أدفع بـ 25,000"
+  (the near and arrival cards say which change comes); `&tender=25000&nochange=1` with `scenario=arrived`
+  has the courier take the whole note with no change — the arrival shows "+… دينار رصيد (الباقي)", the
+  receipt and wallet "باقي الكاش".
   `?sheet=1|2` opens the sheet at a detent.
 
 ## Chat, masked call, share-trip (`src/features/chat/`, `src/features/share/`)

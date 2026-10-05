@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { PartnerJob, PartnerJobStop } from '@driver/contracts';
+import type { HandoverProof, PartnerJob, PartnerJobStop } from '@driver/contracts';
 import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
@@ -21,6 +21,7 @@ import {
   VEHICLE_ICON,
   zoneName,
 } from '@/features/work/logic';
+import { tenderLine } from '@/features/work/cash-door';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
@@ -47,7 +48,7 @@ export default function JobScreen() {
   const queue = useJobQueue();
   const net = useNetwork();
   const locale = useLocale();
-  const [done, setDone] = useState<{ earnedIqd: number; failed: boolean; queued?: boolean } | null>(null);
+  const [done, setDone] = useState<JobDone | null>(null);
   const goHome = () => router.replace('/');
   // No endless skeleton: offline with no job cached, say why and offer a retry.
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
@@ -59,7 +60,14 @@ export default function JobScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={{ flex: 1, width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' }}>
           {queued ? <QueuedStrip sending={queue.sending} text="partner.done_queued" /> : null}
-          <DonePanel earnedIqd={done?.earnedIqd ?? job.data?.pay.totalIqd ?? 0} failed={done?.failed ?? false} onHome={goHome} cash={status.data?.cash ?? null} />
+          <DonePanel
+            earnedIqd={done?.earnedIqd ?? job.data?.pay.totalIqd ?? 0}
+            failed={done?.failed ?? false}
+            onHome={goHome}
+            cash={status.data?.cash ?? null}
+            fromOwedIqd={done?.owedBeforeIqd}
+            changeToWalletIqd={done?.changeToWalletIqd}
+          />
         </View>
       </SafeAreaView>
     );
@@ -94,9 +102,21 @@ export default function JobScreen() {
       self={status.data?.position ?? null}
       vehicle={status.data?.vehicleClass ?? 'bike'}
       topUp={canTopUpOnJob(job.data, status.data?.roles ?? [])}
+      owedIqd={status.data?.cash.owedIqd ?? null}
       onDone={setDone}
     />
   );
+}
+
+/** How the job ended, for the done screen: what he earned, and his cash before the last hand-over. */
+interface JobDone {
+  earnedIqd: number;
+  failed: boolean;
+  queued?: boolean;
+  /** "لازم تسلّم" before the drop-off: the cash bar moves from here to the new amount. */
+  owedBeforeIqd?: number | undefined;
+  /** "الخردة علينا": what went to the customer's wallet at this door. */
+  changeToWalletIqd?: number | undefined;
 }
 
 function JobView({
@@ -107,6 +127,7 @@ function JobView({
   self,
   vehicle,
   topUp,
+  owedIqd,
   onDone,
 }: {
   job: PartnerJob;
@@ -119,7 +140,9 @@ function JobView({
   vehicle: keyof typeof VEHICLE_ICON;
   /** A courier carrying a live order: the customer may hand him cash for his wallet. */
   topUp: boolean;
-  onDone: (d: { earnedIqd: number; failed: boolean; queued?: boolean }) => void;
+  /** "لازم تسلّم" now (null while unknown). */
+  owedIqd: number | null;
+  onDone: (d: JobDone) => void;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -195,24 +218,26 @@ function JobView({
     }
   };
 
-  const handover = async (photoUri: string | null) => {
+  const handover = async (photoUri: string | null, cash: Pick<HandoverProof, 'cashCollectedIqd' | 'changeToWalletIqd'> | null) => {
     if (!stop) return;
     setTapping(true);
+    // The cash bar on the done screen moves from what he owed before this door.
+    const before = { owedBeforeIqd: owedIqd ?? undefined, changeToWalletIqd: cash?.changeToWalletIqd };
     try {
       const res = await queue.run({
         kind: 'complete',
         tripId: job.tripId,
         stopId: stop.stopId,
-        handover: { ...(stop.collectIqd > 0 ? { cashCollectedIqd: stop.collectIqd } : {}), ...(photoUri ? { note: 'handover_photo_on_device' } : {}), recipientConfirmed: true },
+        handover: { ...(stop.collectIqd > 0 && cash ? cash : {}), ...(photoUri ? { note: 'handover_photo_on_device' } : {}), recipientConfirmed: true },
       });
       setPanel('none');
       if (res.status === 'queued') {
         savedToast();
-        if (lastStop) onDone({ earnedIqd: job.pay.totalIqd, failed: false, queued: true });
+        if (lastStop) onDone({ earnedIqd: job.pay.totalIqd, failed: false, queued: true, ...before });
         return;
       }
       await refresh();
-      if (res.trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
+      if (res.trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false, ...before });
     } catch (err) {
       fail(err);
     } finally {
@@ -260,7 +285,8 @@ function JobView({
 
   return (
     <View testID="job" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <View style={{ height: '38%' }}>
+      {/* At the door the cash helper needs the room, not the map: it shrinks to a strip under the top bar. */}
+      <View style={{ height: panel === 'handover' ? '17%' : '38%' }}>
         <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...pins.map((p) => p.at)] : pins.map((p) => p.at)} topInset={92} bottomInset={64} maxZoom={15.4} testID="job-map" />
         <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
           <View style={[column, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
@@ -274,7 +300,7 @@ function JobView({
       <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
         <ScrollView contentContainerStyle={[column, { padding: theme.space[5], gap: theme.space[4] }]}>
           {panel === 'handover' && stop ? (
-            <HandoverPanel collectIqd={stop.collectIqd} busy={tapping} onConfirm={(uri) => void handover(uri)} onClose={() => setPanel('none')} />
+            <HandoverPanel collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} busy={tapping} onConfirm={(uri, cash) => void handover(uri, cash)} onClose={() => setPanel('none')} />
           ) : showUnreachable && job.unreachable ? (
             <UnreachablePanel status={job.unreachable} busy={actions.fail.isPending} onFail={() => void endUnreachable()} onResponded={() => setDismissedUnreachable(true)} />
           ) : stop && action ? (
@@ -304,6 +330,8 @@ function JobView({
                 {stop.type === 'pickup' && job.merchant ? <PrepPill prep={job.merchant} /> : null}
                 {stop.type === 'dropoff' && stop.collectIqd > 0 ? <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" /> : null}
               </View>
+
+              {stop.type === 'dropoff' && stop.collectIqd > 0 ? <TenderNote collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} /> : null}
 
               {stop.type === 'pickup' && stop.state === 'arrived' && job.merchant?.state === 'preparing' ? (
                 <View testID="job-wait-ready" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
@@ -380,6 +408,27 @@ function JobView({
 function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 'en'): string {
   if (s.type === 'dropoff') return ride ? zoneName(s.zoneId, locale, t) : t('partner.offer_customer');
   return s.label ?? (ride ? t('partner.offer_rider') : zoneName(s.zoneId, locale, t));
+}
+
+/**
+ * "الخردة علينا" on the job card: the note the customer said at checkout and the change to bring
+ * ("الزبون يدفع بـ 25,000 · جهّز 7,250 خردة"). Nothing when he said none.
+ */
+function TenderNote({ collectIqd, tenderIqd }: { collectIqd: number; tenderIqd: number | null }) {
+  const theme = useTheme();
+  const t = useT();
+  const line = tenderLine(collectIqd, tenderIqd);
+  if (!line) return null;
+  return (
+    <View testID="job-tender" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Icon name="cash" size={20} color="accentText" strokeWidth={2.2} />
+      <Text variant="label" weight={600} color="accentText" tabular style={{ flex: 1 }}>
+        {line.changeIqd > 0
+          ? t('cashchange.job_tender', { tender: amountParam(line.tenderIqd), change: amountParam(line.changeIqd) })
+          : t('cashchange.job_tender_exact')}
+      </Text>
+    </View>
+  );
 }
 
 /** "الزبون يريد يشحن محفظته" — opens the top-up desk (code pad → amount → confirm; counts on his cap). */

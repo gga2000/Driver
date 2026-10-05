@@ -138,7 +138,8 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       const customerId = str(p['customerId']);
       const amount = num(p['amountIqd']);
       if (!customerId || amount === null || amount <= 0) return [];
-      return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: iqd(amount) } }];
+      // Signed and isolated (\u2066+7,250\u2069) so the plus stays left of the digits in Arabic.
+      return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
     }
     case 'seat.booked': {
       const bookingId = str(p['bookingId']);

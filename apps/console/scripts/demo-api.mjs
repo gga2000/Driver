@@ -15,7 +15,8 @@
 //   0770 000 0001  علي     admin + dispatcher + support + finance (sees and changes everything)
 //   0770 000 0002  حيدر    field ops (took the photos, drafted the merchant: those are his own items)
 //   0770 000 0003  زينب    support agent (10,000 a day refund limit)
-// GET /demo/seed lists them.
+// GET /demo/seed lists them. POST /demo/cash-change → the latest order where the courier had no change
+// and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -63,6 +64,27 @@ app.use('/demo/sos', async (req, res) => {
     res.end(JSON.stringify(await raiseDemoSos(who)));
   } catch (err) {
     res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/cash-change → {orderId, courierId}: the latest order where the courier had no change and
+// the rest of the customer's note went to his wallet ("الخردة علينا"; the simulator does it on about one
+// cash drop-off in eight), for the order detail and the courier's ledger.
+app.use('/demo/cash-change', async (_req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    const ledger = app.get(LedgerService);
+    let found = null;
+    for (const account of await ledger.accounts()) {
+      if (!account.startsWith('cash:')) continue;
+      for (const e of await ledger.eventsFor(account)) {
+        if (e.type === 'cash_change_to_wallet' && e.orderId && (!found || e.occurredAt > found.occurredAt)) found = e;
+      }
+    }
+    if (!found) throw new Error('no change-to-wallet hand-over yet (the simulator is still warming up)');
+    res.end(JSON.stringify({ orderId: found.orderId, courierId: found.fromAccount.slice('cash:'.length), amountIqd: found.amount }));
+  } catch (err) {
+    res.statusCode = 404;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
   }
 });

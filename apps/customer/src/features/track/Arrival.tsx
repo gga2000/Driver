@@ -12,6 +12,7 @@ import { amountParam } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
 import { cashAtDoor, gatePhotoFor } from './arrival-logic';
+import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
@@ -133,6 +134,17 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
       </View>
     );
   }
+  // "الخردة علينا": the courier had no change and the rest of the note is in the wallet now.
+  if (pay.creditedIqd > 0) {
+    return (
+      <View style={{ width: '100%', gap: theme.space[3] }}>
+        <ChangeCreditStrip amountIqd={pay.creditedIqd} />
+        <Text variant="footnote" color="textMuted" align="center" tabular testID="arrival-paid-note">
+          {t('cashchange.receipt_paid', { amount: amountParam(pay.paidIqd) })}
+        </Text>
+      </View>
+    );
+  }
   return (
     <View testID="arrival-cash" style={{ width: '100%', backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4], gap: theme.space[3] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
@@ -157,11 +169,21 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
             </Text>
           </View>
         </View>
-      ) : (
+      ) : pay.tender ? null : (
         <Text variant="footnote" color="textMuted">
           {t('track.cash_exact_note')}
         </Text>
       )}
+      {pay.tender ? (
+        <View testID="arrival-tender" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+          <View style={{ marginTop: 2 }}>
+            <Icon name="cash" size={16} color="accentText" strokeWidth={2.2} />
+          </View>
+          <Text variant="footnote" color="text" tabular style={{ flex: 1 }}>
+            {t('cashchange.door_tender', { tender: amountParam(pay.tender.tenderIqd), change: amountParam(pay.tender.changeIqd) })}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

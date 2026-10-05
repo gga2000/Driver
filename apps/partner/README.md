@@ -217,3 +217,17 @@ conversation: bubbles, the courier's quick replies (`QUICK_REPLIES` in contracts
 30 min after delivery. The screen is the customer app's, kept in step (`ChatScreen.tsx`); new
 messages are pushed over `live.chat`. Demo: `POST /demo/chat?who=courier[&step=…]`
 (`scripts/demo/60-chat.mjs`); shots: `SHOTS=partner-chat` (`scripts/shots/60-chat.mjs`).
+
+## Cash at the door — "الخردة علينا" (Phase 3, partner S-2)
+
+The job card shows the note the customer said at checkout ("الزبون يدفع بـ 25,000 · جهّز 11,000 خردة",
+`PartnerJobStop.tenderIqd`). At the door (`HandoverPanel` in `src/features/work/JobPanels.tsx`, rules in
+`cash-door.ts`): the amount to collect, "الزبون دفع:" note chips (his stated note first, the exact amount,
+the notes above it, "غير" on the shared `AmountPad`), the live "رجّعله 11,000 دينار", and — with no change
+on him — "ما عندي خردة · حطها رصيد بمحفظته": the whole note is recorded and the rest goes to the
+customer's wallet (`handover.changeToWalletIqd`; cash orders, ≤ 25,000, in 250s; the server checks it,
+`docs/api/cash-change-to-wallet.md`). The slide says "استلمت 25,000 دينار"; the done screen's cash bar
+counts from what he owed before to the new amount and says what went to the customer's wallet. The map
+shrinks to a strip while the helper is open. Cash rides use the same server path; the ride end screen
+does not show the helper yet. Demo: `POST /demo/job?who=courier&step=to_dropoff|at_dropoff&tender=25000`;
+shots: `SHOTS=cash` (`scripts/shots/90-cash-change.mjs`).

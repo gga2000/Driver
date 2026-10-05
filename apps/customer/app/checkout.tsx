@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
+import { changeDue, tenderOptions } from '@driver/contracts';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, minOrderShortfall, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -16,6 +17,7 @@ import {
   placeProblem,
   priorCashOrders,
   scheduleSlots,
+  validTender,
   walletChoice,
   type Recipient,
 } from '@/features/food/checkout';
@@ -67,6 +69,8 @@ export default function CheckoutScreen() {
   const net = useNetwork();
   const wallet = useWalletBalance();
   const [payment, setPayment] = useState<'cash' | 'wallet'>('cash');
+  // "راح أدفع بـ …" ("الخردة علينا"): optional; kept only while it fits the cash total.
+  const [tenderPick, setTenderPick] = useState<number | null>(null);
 
   const [recipientId, setRecipientId] = useState<string>('me');
   const [otherName, setOtherName] = useState('');
@@ -121,6 +125,7 @@ export default function CheckoutScreen() {
 
   // The server's deal (orders.quote) is part of the total; place sends it back as an expectation.
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
+  const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
   const restaurant = menu.data?.restaurant;
   const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
   const { groups } = groupByPerson(cart);
@@ -192,6 +197,7 @@ export default function CheckoutScreen() {
           note: kitchenNote,
           courierNote,
           clientRequestId: attempt.key,
+          statedTenderIqd: tender,
         }),
       );
       cartStore.markPlaced(order.id);
@@ -226,6 +232,10 @@ export default function CheckoutScreen() {
         setProblem(t('checkout.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
       } else if (kind === 'merchant_paused') {
         setProblem(t('checkout.paused'));
+      } else if (kind === 'tender_invalid') {
+        // The note no longer fits the total (it moved): drop it, he can pick again.
+        setTenderPick(null);
+        setProblem(apiErrorMessage(err, t('error.network'), locale));
       } else if (kind === 'wallet_insufficient') {
         await wallet.refetch();
         setPayment('cash');
@@ -397,7 +407,6 @@ export default function CheckoutScreen() {
             onPress={() => setPayment('cash')}
             chevron={false}
             divider
-            trailing={payment === 'cash' ? <Icon name="check" size={20} color="accentText" strokeWidth={2.4} /> : undefined}
           />
           <ListRow
             testID="checkout-pay-wallet"
@@ -414,14 +423,13 @@ export default function CheckoutScreen() {
             onPress={walletRow.usable ? () => setPayment('wallet') : undefined}
             chevron={false}
             trailing={
-              payment === 'wallet' ? (
-                <Icon name="check" size={20} color="accentText" strokeWidth={2.4} />
-              ) : balance !== null && !walletRow.usable ? (
+              payment === 'wallet' ? undefined : balance !== null && !walletRow.usable ? (
                 <Button size="sm" variant="secondary" icon="plus" label={t('checkout.wallet_topup')} onPress={() => router.push('/topup')} testID="checkout-wallet-topup" />
               ) : undefined
             }
           />
         </Card>
+        {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd} value={tender} onChange={setTenderPick} /> : null}
       </Section>
 
       <Section title={t('checkout.price_breakdown')}>
@@ -436,6 +444,46 @@ export default function CheckoutScreen() {
         )}
       </Section>
     </Screen>
+  );
+}
+
+/**
+ * "راح أدفع بـ …" ("الخردة علينا", customer d-1): optional chips — the exact amount and the next notes
+ * above the total — so the courier brings the change. Tapping the chosen one again clears it. The
+ * courier sees "الزبون يدفع بـ 25,000 · جهّز 7,250 خردة"; without change on him the rest goes to the
+ * wallet.
+ */
+function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: number | null; onChange: (v: number | null) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const options = tenderOptions(totalIqd);
+  if (options.length === 0) return null;
+  const change = value !== null ? changeDue(value, totalIqd) : 0;
+  return (
+    <View testID="checkout-pay-with" style={{ gap: theme.space[2] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2], flexWrap: 'wrap' }}>
+        <Text variant="label" weight={600}>
+          {t('cashchange.pay_with_title')}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {t('cashchange.pay_with_hint')}
+        </Text>
+      </View>
+      <ChipGroup
+        accessibilityLabel={t('cashchange.pay_with_title')}
+        items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${amountParam(n)} ${t('cashchange.pay_with_exact')}` : amountParam(n) }))}
+        value={value !== null ? [`tender-${value}`] : []}
+        onChange={(next) => onChange(next[0] ? Number(next[0].slice('tender-'.length)) : null)}
+      />
+      {value !== null ? (
+        <View testID="checkout-pay-with-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} accessibilityLiveRegion="polite">
+          <Icon name={change > 0 ? 'cash' : 'check'} size={16} color="successText" strokeWidth={2.2} />
+          <Text variant="footnote" color="successText" tabular style={{ flex: 1 }}>
+            {change > 0 ? t('cashchange.pay_with_change', { amount: amountParam(change) }) : t('cashchange.pay_with_exact_note')}
+          </Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 

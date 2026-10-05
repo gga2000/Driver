@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { CAP_WARN_SHARE } from '@driver/contracts';
-import { Icon, Text, useTheme } from '@driver/ui';
+import { Icon, Text, useCountUp, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { Glyph } from './Glyph';
@@ -14,12 +14,16 @@ import { cashTruth, type CashTruth } from './logic';
  * against the cap (amber from 70 %, red from 90 % or over the cap — design tokens only); what he holds
  * is a secondary line that explains the difference (his own pay stays with him); the note says when
  * offers stop. `hero` is the earnings card's large figure, `compact` the home sheet and done screen.
+ * `fromOwedIqd` (the done screen after a cash door, partner S-2): the number counts and the bar grows
+ * from what he owed before to the new amount, turning amber / red as it crosses the lines; reduce
+ * motion shows the new amount at once.
  */
 export function CashMeter({
   owedIqd,
   heldIqd,
   capIqd,
   overCap,
+  fromOwedIqd,
   size = 'compact',
   note = true,
   testID = 'cash-meter',
@@ -28,16 +32,29 @@ export function CashMeter({
   heldIqd: number;
   capIqd: number;
   overCap: boolean;
+  /** Animate from this "لازم تسلّم" (the amount before the last cash door). */
+  fromOwedIqd?: number | undefined;
   size?: 'compact' | 'hero';
   note?: boolean;
   testID?: string;
 }) {
   const theme = useTheme();
   const t = useT();
-  const c = cashTruth({ owedIqd, heldIqd, capIqd, overCap });
+  // From the old amount: a beat on it, then count to the new one (the bar follows the number).
+  const [target, setTarget] = useState(fromOwedIqd !== undefined && !theme.reduceMotion ? fromOwedIqd : owedIqd);
+  useEffect(() => {
+    if (target === owedIqd) return;
+    const id = setTimeout(() => setTarget(owedIqd), theme.reduceMotion ? 0 : 450);
+    return () => clearTimeout(id);
+  }, [owedIqd, target, theme.reduceMotion]);
+  const shown = useCountUp(target);
+  const moving = shown !== owedIqd;
+  const c = cashTruth({ owedIqd: moving ? shown : owedIqd, heldIqd, capIqd, overCap: moving ? shown > capIqd : overCap });
+  // What he holds against what he owes is said for the final amounts, never a counting one.
+  const held = cashTruth({ owedIqd, heldIqd, capIqd, overCap }).heldNote;
   const fill = theme.colors[c.tone];
   const amountColor = c.tone === 'danger' ? 'dangerText' : c.tone === 'warning' ? 'warningText' : 'text';
-  const grow = useSharedValue(theme.reduceMotion ? c.share : 0);
+  const grow = useSharedValue(theme.reduceMotion || fromOwedIqd !== undefined ? c.share : 0);
   useEffect(() => {
     grow.value = theme.reduceMotion ? c.share : withTiming(c.share, { duration: 700, easing: Easing.out(Easing.cubic) });
   }, [c.share, grow, theme.reduceMotion]);
@@ -53,7 +70,7 @@ export function CashMeter({
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
             <Text testID={`${testID}-owed`} variant={hero ? 'amount' : 'title'} weight={700} tabular color={amountColor}>
-              {amountParam(owedIqd)}
+              {amountParam(shown)}
             </Text>
             <Text variant="label" color="textMuted">
               {t('quote.currency')}
@@ -73,11 +90,11 @@ export function CashMeter({
         {/* Where the warning starts (70 %): the courier sees how close the amber zone is. */}
         <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: `${CAP_WARN_SHARE * 100}%`, width: 2, backgroundColor: theme.colors.surface }} />
       </View>
-      {c.heldNote ? (
+      {held ? (
         <Text testID={`${testID}-held`} variant="caption" color="textMuted" tabular>
-          {c.heldNote.kind === 'own'
-            ? t('partner.held_split', { held: amountParam(heldIqd), own: amountParam(c.heldNote.amountIqd) })
-            : t('partner.held_more', { held: amountParam(heldIqd), extra: amountParam(c.heldNote.amountIqd) })}
+          {held.kind === 'own'
+            ? t('partner.held_split', { held: amountParam(heldIqd), own: amountParam(held.amountIqd) })
+            : t('partner.held_more', { held: amountParam(heldIqd), extra: amountParam(held.amountIqd) })}
         </Text>
       ) : null}
       {note ? <CashNote truth={c} testID={`${testID}-note`} /> : null}

@@ -1,27 +1,58 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
-import type { PartnerCash, UnreachableStatus } from '@driver/contracts';
-import { Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
+import type { HandoverProof, PartnerCash, UnreachableStatus } from '@driver/contracts';
+import { AmountPad, Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
 import { CashMeter } from '@/features/account/CashMeter';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { cashTruth } from '@/features/account/logic';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { doorChips, doorHandover, doorState, WALLET_CAP_IQD } from './cash-door';
 import { clock, unreachablePhase } from './logic';
 
 /**
- * Handover at the door: the photo (protects him in a dispute) and, for cash orders, the amount
- * owed and "استلمت ___ دينار". Confirming writes `trips.completeStop` with the cash collected.
+ * Handover at the door: the photo (protects him in a dispute) and, for cash orders, the cash helper
+ * ("الخردة علينا", partner S-2): the amount to collect at display size, "الزبون دفع:" chips (the note
+ * the customer said at checkout first, then the exact amount and the notes above it, then "غير" on a
+ * number pad), the live "رجّعله 6,000 دينار", and — when he has no change — "ما عندي خردة · حطها رصيد
+ * بمحفظته", which records the whole note and puts the rest in the customer's wallet (cash orders, up to
+ * 25,000, in 250s; the server checks it again). Confirming is a slide ("استلمت 25,000 دينار") that
+ * writes `trips.completeStop`.
  * TODO(upload): the photo is kept on the device for now; wave 2 uploads it (signed PUT like the
  * customer gate photo) and sends `handover.photoUrl`.
  */
-export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collectIqd: number; busy: boolean; onConfirm: (photoUri: string | null) => void; onClose: () => void }) {
+export function HandoverPanel({
+  collectIqd,
+  tenderIqd,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  collectIqd: number;
+  /** The note the customer said he will pay with; null/absent = none. */
+  tenderIqd?: number | null;
+  busy: boolean;
+  onConfirm: (photoUri: string | null, cash: Pick<HandoverProof, 'cashCollectedIqd' | 'changeToWalletIqd'> | null) => void;
+  onClose: () => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const [photo, setPhoto] = useState<string | null>(null);
   const cash = collectIqd > 0;
+  const chips = useMemo(() => doorChips(collectIqd, tenderIqd), [collectIqd, tenderIqd]);
+  // The customer's own word is the likeliest note; the exact amount otherwise.
+  const [paid, setPaid] = useState(tenderIqd && tenderIqd >= collectIqd ? tenderIqd : collectIqd);
+  const [noChange, setNoChange] = useState(false);
+  const [pad, setPad] = useState<string | null>(null);
+  const door = doorState(collectIqd, paid);
+  const other = !chips.some((c) => c.amountIqd === paid);
+
+  const pick = (amountIqd: number) => {
+    setPaid(amountIqd);
+    setNoChange(false);
+  };
 
   const take = async () => {
     try {
@@ -35,6 +66,9 @@ export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collec
     }
   };
 
+  const typed = pad === null ? 0 : Number(pad || '0');
+  const padShort = typed < collectIqd;
+
   return (
     <Animated.View entering={theme.reduceMotion ? undefined : FadeIn.duration(180)} testID="handover-panel" style={{ gap: theme.space[4] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -44,7 +78,7 @@ export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collec
         </Pressable>
       </View>
 
-      {cash ? (
+      {cash && pad === null ? (
         <View testID="cash-owed" style={{ alignItems: 'center', gap: 2, backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.xl, paddingVertical: theme.space[4] }}>
           <Text variant="label" color="warningText">
             {t('partner.cash_owed')}
@@ -61,42 +95,197 @@ export function HandoverPanel({ collectIqd, busy, onConfirm, onClose }: { collec
         </View>
       ) : null}
 
-      <Pressable
-        testID="handover-photo"
-        accessibilityRole="button"
-        onPress={() => void take()}
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: theme.space[3],
-          padding: theme.space[3],
-          borderRadius: theme.radius.lg,
-          borderWidth: 1.5,
-          borderStyle: photo ? 'solid' : 'dashed',
-          borderColor: photo ? theme.colors.success : theme.colors.borderStrong,
-          backgroundColor: photo ? theme.colors.successTint : theme.colors.surface,
-        }}
-      >
-        {photo ? (
-          <Image source={{ uri: photo }} style={{ width: 56, height: 56, borderRadius: 12 }} />
-        ) : (
-          <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="plus" size={24} color="textMuted" />
+      {cash && pad !== null ? (
+        <View testID="tender-pad" style={{ gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text variant="label" weight={600}>
+              {t('cashchange.pad_title')}
+            </Text>
+            <Pressable testID="tender-pad-close" accessibilityRole="button" accessibilityLabel={t('action.close')} onPress={() => setPad(null)} hitSlop={12}>
+              <Icon name="x" size={20} color="textMuted" />
+            </Pressable>
           </View>
-        )}
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="label" weight={600} color={photo ? 'successText' : 'text'}>
-            {photo ? t('partner.photo_saved') : t('partner.handover_photo')}
-          </Text>
-          <Text variant="caption" color="textMuted">
-            {photo ? t('partner.photo_retake') : t('partner.photo_hint')}
-          </Text>
+          <View style={{ alignItems: 'center', gap: 2 }}>
+            <Text variant="numeralSm" tabular testID="tender-pad-value" color={pad ? 'text' : 'textMuted'}>
+              {`${amountParam(typed)} `}
+              <Text variant="label" color="textMuted">
+                {t('quote.currency')}
+              </Text>
+            </Text>
+            <Text variant="caption" color={pad && padShort ? 'warningText' : 'textMuted'} tabular>
+              {t('cashchange.pad_min', { amount: amountParam(collectIqd) })}
+            </Text>
+          </View>
+          <AmountPad value={pad} onChange={setPad} deleteLabel={t('cashchange.pad_delete')} testID="tender-pad-keys" />
+          <Button
+            testID="tender-pad-done"
+            label={t('cashchange.pad_done')}
+            size="lg"
+            fullWidth
+            disabled={padShort}
+            onPress={() => {
+              pick(typed);
+              setPad(null);
+            }}
+          />
         </View>
-      </Pressable>
+      ) : cash ? (
+        <View style={{ gap: theme.space[3] }}>
+          <Text variant="label" color="textMuted">
+            {t('cashchange.door_paid_label')}
+          </Text>
+          <View accessibilityRole="radiogroup" accessibilityLabel={t('cashchange.door_paid_label')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {chips.map((c) => (
+              <NoteChip
+                key={c.amountIqd}
+                testID={`tender-chip-${c.amountIqd}`}
+                amount={amountParam(c.amountIqd)}
+                tag={c.stated ? t('cashchange.door_said') : c.exact ? t('cashchange.pay_with_exact') : null}
+                label={t('cashchange.door_chip_a11y', { amount: amountParam(c.amountIqd) })}
+                selected={paid === c.amountIqd}
+                onPress={() => pick(c.amountIqd)}
+              />
+            ))}
+            <NoteChip
+              testID="tender-chip-other"
+              amount={other ? amountParam(paid) : t('cashchange.door_other')}
+              tag={other ? t('cashchange.door_other') : null}
+              label={t('cashchange.door_other')}
+              selected={other}
+              onPress={() => setPad('')}
+            />
+          </View>
 
-      {/* Handing over (and taking the cash) can't be undone: a slide, never a pocket tap (P-08). */}
-      <SlideToConfirm testID="handover-confirm" label={cash ? t('partner.cash_confirm', { amount: amountParam(collectIqd) }) : t('partner.action_delivered')} loading={busy} onConfirm={() => onConfirm(photo)} />
+          {door.changeIqd > 0 ? (
+            noChange && door.walletAllowed ? (
+              <Animated.View
+                testID="door-no-change-on"
+                entering={theme.reduceMotion ? undefined : FadeIn.duration(theme.motion.duration.base)}
+                style={{ gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+                  <View style={{ marginTop: 3 }}>
+                    <Icon name="wallet" size={20} color="successText" strokeWidth={2.2} />
+                  </View>
+                  <Text variant="bodyStrong" color="successText" style={{ flex: 1 }} accessibilityLiveRegion="polite">
+                    {t('cashchange.door_no_change_on', { amount: amountParam(door.changeIqd) })}
+                  </Text>
+                </View>
+                <Button testID="door-have-change" label={t('cashchange.door_have_change')} variant="ghost" size="sm" onPress={() => setNoChange(false)} />
+              </Animated.View>
+            ) : (
+              <View style={{ gap: theme.space[2] }}>
+                <View testID="door-give-back" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
+                  <Icon name="cash" size={22} color="successText" strokeWidth={2.2} />
+                  <Text variant="title" weight={700} color="successText" tabular style={{ flex: 1 }} accessibilityLiveRegion="polite">
+                    {t('cashchange.door_give_back', { amount: amountParam(door.changeIqd) })}
+                  </Text>
+                </View>
+                {door.walletAllowed ? (
+                  <Button testID="door-no-change" label={t('cashchange.door_no_change')} variant="secondary" icon="wallet" fullWidth onPress={() => setNoChange(true)} />
+                ) : door.walletBlock === 'above_cap' ? (
+                  <Text testID="door-over-cap" variant="footnote" color="warningText" tabular>
+                    {t('cashchange.door_over_cap', { amount: amountParam(WALLET_CAP_IQD) })}
+                  </Text>
+                ) : null}
+              </View>
+            )
+          ) : (
+            <Text testID="door-exact" variant="footnote" color="textMuted">
+              {t('cashchange.door_exact')}
+            </Text>
+          )}
+        </View>
+      ) : null}
+
+      {pad === null ? (
+        <>
+          <Pressable
+            testID="handover-photo"
+            accessibilityRole="button"
+            onPress={() => void take()}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: theme.space[3],
+              padding: theme.space[3],
+              borderRadius: theme.radius.lg,
+              borderWidth: 1.5,
+              borderStyle: photo ? 'solid' : 'dashed',
+              borderColor: photo ? theme.colors.success : theme.colors.borderStrong,
+              backgroundColor: photo ? theme.colors.successTint : theme.colors.surface,
+            }}
+          >
+            {photo ? (
+              <Image source={{ uri: photo }} style={{ width: 56, height: 56, borderRadius: 12 }} />
+            ) : (
+              <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="plus" size={24} color="textMuted" />
+              </View>
+            )}
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="label" weight={600} color={photo ? 'successText' : 'text'}>
+                {photo ? t('partner.photo_saved') : t('partner.handover_photo')}
+              </Text>
+              <Text variant="caption" color="textMuted">
+                {photo ? t('partner.photo_retake') : t('partner.photo_hint')}
+              </Text>
+            </View>
+          </Pressable>
+
+          {/* Handing over (and taking the cash) can't be undone: a slide, never a pocket tap (P-08). */}
+          <SlideToConfirm
+            testID="handover-confirm"
+            label={cash ? t('partner.cash_confirm', { amount: amountParam(paid) }) : t('partner.action_delivered')}
+            loading={busy}
+            onConfirm={() => onConfirm(photo, cash ? doorHandover(collectIqd, paid, noChange) : null)}
+          />
+        </>
+      ) : null}
     </Animated.View>
+  );
+}
+
+/** One note the customer may have handed over: a big tabular amount, a small tag ("گال", "بالضبط"). */
+function NoteChip({ amount, tag, label, selected, onPress, testID }: { amount: string; tag: string | null; label: string; selected: boolean; onPress: () => void; testID: string }) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      aria-checked={selected}
+      onPress={() => {
+        theme.haptic('selection');
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        minHeight: 52,
+        minWidth: 92,
+        flexGrow: 1,
+        paddingHorizontal: theme.space[3],
+        paddingVertical: theme.space[1],
+        borderRadius: theme.radius.lg,
+        borderWidth: selected ? 2 : 1,
+        borderColor: selected ? theme.colors.accentBorder : theme.colors.border,
+        backgroundColor: selected ? theme.colors.accent : pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        {selected ? <Icon name="check" size={16} color="onAccent" strokeWidth={2.6} /> : null}
+        <Text variant="title" weight={700} tabular color={selected ? 'onAccent' : 'text'} compact>
+          {amount}
+        </Text>
+      </View>
+      {tag ? (
+        <Text variant="caption" weight={600} color={selected ? 'onAccent' : 'accentText'} compact>
+          {tag}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -174,7 +363,23 @@ export const DONE_AUTO_HOME_SEC = 4;
  * button (the hand-over sheet with the amount). Over the cap that card replaces the auto-return;
  * otherwise it counts down home in 4 s ("نرجعك للطلبات…") with a "خليني هنا" escape.
  */
-export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: number; failed: boolean; onHome: () => void; cash?: PartnerCash | null }) {
+export function DonePanel({
+  earnedIqd,
+  failed,
+  onHome,
+  cash,
+  fromOwedIqd,
+  changeToWalletIqd,
+}: {
+  earnedIqd: number;
+  failed: boolean;
+  onHome: () => void;
+  cash?: PartnerCash | null;
+  /** "لازم تسلّم" before this job's last door: the bar and the number move from it to the new amount. */
+  fromOwedIqd?: number | undefined;
+  /** "الخردة علينا": what went to the customer's wallet at this door (the whole note is on him). */
+  changeToWalletIqd?: number | undefined;
+}) {
   const theme = useTheme();
   const t = useT();
   const [handover, setHandover] = useState(false);
@@ -227,7 +432,15 @@ export function DonePanel({ earnedIqd, failed, onHome, cash }: { earnedIqd: numb
             borderColor: urgent ? withAlpha(theme.colors[truth.tone], 0.35) : theme.colors.border,
           }}
         >
-          <CashMeter owedIqd={cash.owedIqd} heldIqd={cash.heldIqd} capIqd={cash.capIqd} overCap={cash.overCap} testID="done-meter" />
+          <CashMeter owedIqd={cash.owedIqd} heldIqd={cash.heldIqd} capIqd={cash.capIqd} overCap={cash.overCap} fromOwedIqd={fromOwedIqd} testID="done-meter" />
+          {changeToWalletIqd ? (
+            <View testID="done-wallet-change" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Icon name="wallet" size={16} color="successText" strokeWidth={2.2} />
+              <Text variant="footnote" color="successText" tabular style={{ flex: 1 }}>
+                {t('cashchange.done_wallet', { amount: amountParam(changeToWalletIqd) })}
+              </Text>
+            </View>
+          ) : null}
           {urgent ? <Button testID="done-settle" label={t('partner.handover_cta')} icon="wallet" fullWidth onPress={() => setHandover(true)} /> : null}
         </View>
       ) : null}

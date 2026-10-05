@@ -74,3 +74,6 @@ export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
 export * from './format';
+
+// Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.
+export { AmountPad, amountPadNext, AMOUNT_PAD_KEYS, type AmountPadProps, type AmountPadKey } from './components/AmountPad';
