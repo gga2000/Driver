@@ -48,3 +48,26 @@ describe('TripsService — the device path (maps program SP4a)', () => {
     expect(h.events.ofType('driver.position_suspect')).toHaveLength(0);
   });
 });
+
+describe('TripsService — almost there (maps program SP5b)', () => {
+  it('a food drop-off says "near" once, only after the food is picked up', async () => {
+    const h = tripsHarness();
+    const t = await h.acceptedTrip();
+    const [pickup, dropoff] = t.stops as [typeof t.stops[number], typeof t.stops[number]];
+    // Passing near the door on the way to the kitchen: not yet.
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 300), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near')).toHaveLength(0);
+    await h.trips.arrive(t.id, pickup.id, 'd1', { pin: PINS.kitchen });
+    await h.trips.completeStop(t.id, pickup.id, 'd1');
+    h.clock.advanceSeconds(60);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 700), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near')).toHaveLength(0);
+    h.clock.advanceSeconds(30);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 450), at: h.clock.now() });
+    h.clock.advanceSeconds(10);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 200), at: h.clock.now() });
+    const near = h.events.ofType('stop.courier_near');
+    expect(near).toHaveLength(1);
+    expect(near[0]).toMatchObject({ orderId: 'ord_1', payload: { stopId: dropoff.id, distanceM: 450 } });
+  });
+});

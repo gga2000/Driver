@@ -36,6 +36,11 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ord_1' }))).toEqual([]);
+    // Maps program SP5b: "الدليفري يوصل بعد دقيقتين" with the cash to have ready; rides never get it.
+    expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 480 }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([
+      { template: 'courier_arriving', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', amount: '12,500', orderId: 'ord_1' } },
+    ]);
+    expect(await one(event('stop.courier_near', { stopId: 's2' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
     expect(await one(event('merchant.paid_by_courier', { handoverId: 'MH-1', merchantId: 'org_k', courierId: 'courier', amountIqd: 45_000, merchantBalanceIqd: 5_000 }))).toEqual([
       { template: 'merchant_cash_handover', to: 'owner', params: { store: 'مطعم خالد', amount: '45,000', courier: 'كرار', date: '2026-10-04', balance: '5,000', reference: 'MH-1' } },
     ]);

@@ -176,6 +176,12 @@ export const POSITION_RULES = {
   clientBufferMax: 240,
 } as const;
 
+/**
+ * "Almost there" (maps program SP5b): a live fix this close (straight line) to a food drop-off — about
+ * 700 m of road, two minutes in town — tells the customer to get the cash and the door ready.
+ */
+export const NEAR_DROPOFF_M = 500;
+
 /** Raw driver trails are kept this long; after that the trip row is the summary (decision D6). */
 export const TRAIL_RETENTION_DAYS = 30;
 

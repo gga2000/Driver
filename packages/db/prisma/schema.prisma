@@ -1231,6 +1231,8 @@ model Stop {
   windowStart           DateTime?                              @map("window_start")
   windowEnd              DateTime?                              @map("window_end")
   geofenceEnteredAt      DateTime?                              @map("geofence_entered_at")
+  /// First live fix within NEAR_DROPOFF_M of a drop-off ("almost there", sent once).
+  courierNearAt          DateTime?                              @map("courier_near_at")
   arrivedAt              DateTime?                              @map("arrived_at")
   /// Tap outside the 60 m geofence: recorded and flagged, never blocked.
   arrivedOutsideGeofence Boolean                                @default(false) @map("arrived_outside_geofence")

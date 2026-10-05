@@ -49,6 +49,8 @@ export interface StopRecord {
   windowStart: Date | null;
   windowEnd: Date | null;
   geofenceEnteredAt: Date | null;
+  /** First live fix within `NEAR_DROPOFF_M` of a drop-off (the "almost there" moment). */
+  courierNearAt: Date | null;
   arrivedAt: Date | null;
   arrivedOutsideGeofence: boolean;
   arrivalPin: LatLng | null;
@@ -110,6 +112,7 @@ export type StopPatch = Partial<
     StopRecord,
     | 'state'
     | 'geofenceEnteredAt'
+    | 'courierNearAt'
     | 'arrivedAt'
     | 'arrivedOutsideGeofence'
     | 'arrivalPin'
@@ -197,6 +200,7 @@ interface StopRow {
   windowStart: Date | null;
   windowEnd: Date | null;
   geofenceEnteredAt: Date | null;
+  courierNearAt: Date | null;
   arrivedAt: Date | null;
   arrivedOutsideGeofence: boolean;
   arrivalDistanceM: number | null;
@@ -511,6 +515,7 @@ export class InMemoryTripsRepository implements TripsRepository {
         windowStart: s.windowStart ?? null,
         windowEnd: s.windowEnd ?? null,
         geofenceEnteredAt: null,
+        courierNearAt: null,
         arrivedAt: null,
         arrivedOutsideGeofence: false,
         arrivalPin: null,

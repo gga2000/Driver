@@ -27,6 +27,7 @@ export const NOTIFY_EVENT_TYPES = [
   'order.prep_extended',
   'order.offered_to_merchant',
   'order.delivered',
+  'stop.courier_near',
   'order.completed',
   'merchant.paid_by_courier',
   'ops.cash_received',
@@ -64,6 +65,26 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!order || order.type === 'ride') return [];
       const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? '') : '';
       return [{ ...base, template: 'order_accepted', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'stop.courier_near': {
+      // "الدليفري يوصل بعد دقيقتين" (maps program SP5b): the template was defined with no producer until now.
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type === 'ride') return [];
+      const [name, courier, merchant] = await Promise.all([
+        L.firstName(order.customerId, 'notify_courier_arriving'),
+        L.firstName(e.actorId, 'notify_courier_arriving'),
+        order.merchantOrgId ? L.storeName(order.merchantOrgId) : Promise.resolve(null),
+      ]);
+      return [
+        {
+          ...base,
+          template: 'courier_arriving',
+          to: order.customerId,
+          orderId: order.id,
+          params: { name: name ?? '', courier: courier ?? 'الدليفري', merchant: merchant ?? 'درايفر', amount: iqd(order.totalIqd), orderId: order.id },
+          data: { orderId: order.id },
+        },
+      ];
     }
     case 'order.prep_extended': {
       // M-12: the kitchen's one "+5 د" — "المطعم زاد 5 دقايق" to the customer.

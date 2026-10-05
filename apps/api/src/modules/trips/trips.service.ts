@@ -1,6 +1,7 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
+  NEAR_DROPOFF_M,
   encodeDomainEvent,
   isDomainEventType,
   type DeviceFix,
@@ -389,6 +390,11 @@ export class TripsService implements OnModuleInit {
         for (const s of stops) {
           if (isStopFinished(s.state) || !s.target) continue;
           const d = haversineMeters(input.pin, s.target);
+          // "Almost there" (maps program SP5b): once per food drop-off, after its food is picked up.
+          if (s.type === 'dropoff' && !s.courierNearAt && d <= NEAR_DROPOFF_M && !RIDE_VERTICALS.includes(trip.vertical) && pickedUpFor(stops, s.orderId)) {
+            await this.repo.updateStop(s.id, { courierNearAt: input.at }, now, tx);
+            await this.emit(tx, 'stop.courier_near', driverId, trip.id, { stopId: s.id, distanceM: Math.round(d) }, { orderId: s.orderId ?? undefined, occurredAt: input.at, location: input.pin });
+          }
           if (d > GEOFENCE_RADIUS_M) continue;
           armed.push({ tripId: trip.id, stopId: s.id, distanceM: Math.round(d) });
           if (!s.geofenceEnteredAt) {
@@ -937,4 +943,9 @@ function toStopView(s: StopRecord): Stop {
     childTapInAt: s.childTapInAt,
     childTapOutAt: s.childTapOutAt,
   };
+}
+
+/** The order's food has left the kitchen: its pickup (or shop) stop on this trip is completed. */
+function pickedUpFor(stops: readonly StopRecord[], orderId: string | null): boolean {
+  return orderId !== null && stops.some((p) => p.orderId === orderId && (p.type === 'pickup' || p.type === 'shop') && p.state === 'completed');
 }
