@@ -11,6 +11,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { ReceiptPreview } from '@/features/print/ReceiptPreview';
 import { MerchantRuntime } from '@/features/runtime/MerchantRuntime';
+import { newCount as countNew } from '@/features/board/logic';
 import { useBoard } from '@/features/board/queries';
 import { useCurrentStore } from '@/features/store/queries';
 import { ApiProvider } from '@/lib/api';
@@ -103,7 +104,8 @@ function RootNavigator() {
   const showNav = signedIn && access === 'ready' && section !== null;
   const items = NAV_ITEMS.filter((i) => i.section !== 'money' || canSeeMoney);
   const board = useBoard(showNav && store ? store.orgId : null);
-  const newCount = board.data?.orders.filter((o) => o.column === 'new').length ?? 0;
+  // M-10: the same number as the جديد column and the banner.
+  const newCount = countNew(board.data?.orders ?? []);
   const navigate = (item: NavItem) => {
     if (section === item.section && isSectionRoot(segments)) return;
     router.navigate(item.href as Href);

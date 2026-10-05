@@ -191,6 +191,16 @@ describe('checkout payload builder', () => {
     ]);
   });
 
+  it('kitchen and courier notes go apart (M-09); the attempt key rides along (no duplicate orders)', () => {
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, paymentMethod: 'cash' as const, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    const parsed = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, note: ' حار شوية ', courierNote: ' دگ الجرس مرتين ', clientRequestId: 'chk_abc_123456' }));
+    expect(parsed).toMatchObject({ note: 'حار شوية', courierNote: 'دگ الجرس مرتين', clientRequestId: 'chk_abc_123456' });
+    const bare = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, note: '  ', courierNote: '' }));
+    expect(bare.note).toBeUndefined();
+    expect(bare.courierNote).toBeUndefined();
+    expect(bare.clientRequestId).toBeUndefined();
+  });
+
   it('an empty cart cannot be built', () => {
     expect(() => buildPlaceOrderInput({ cart: EMPTY_CART, dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 } })).toThrow();
   });

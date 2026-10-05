@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { orderTicketNumber, parseOrderTicket } from './order.js';
+import { mentionsAllergy, orderTicketNumber, parseOrderTicket } from './order.js';
+
+describe('mentionsAllergy (M-09)', () => {
+  it('flags allergies however they are written', () => {
+    for (const s of ['وحدة من البنات عندها حساسية', 'حساس من الفستق', 'حساسه من الحليب', 'عندي حساسيه', 'nut ALLERGY', 'allergic to peanuts']) expect(mentionsAllergy(s), s).toBe(true);
+  });
+
+  it('ignores ordinary notes, empty and missing ones, and looks across several', () => {
+    for (const s of ['بدون بصل', 'دگ الجرس مرتين', 'الشاي حساس للحرارة', '', null, undefined]) expect(mentionsAllergy(s), String(s)).toBe(false);
+    expect(mentionsAllergy(null, 'بدون بصل', 'عنده حساسية')).toBe(true);
+  });
+});
 
 describe('orderTicketNumber / parseOrderTicket', () => {
   it('the ticket is four digits, stable per id', () => {

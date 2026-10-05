@@ -302,6 +302,8 @@ export interface RidePlaceArgs {
   paymentMethod: Extract<PaymentMethod, 'cash' | 'wallet'>;
   note?: string;
   cityId?: string;
+  /** The request attempt's idempotency key (`features/food/place-attempt.ts`): re-sent on a retry. */
+  clientRequestId?: string;
 }
 
 /** The exact `orders.place` payload for a ride (what scripts/e2e/three-apps.mjs sends, plus options). */
@@ -318,6 +320,7 @@ export function buildRidePlaceInput(a: RidePlaceArgs): PlaceOrderInput {
     pickup: spotPoint(a.pickup),
     dropoff: spotPoint(a.dropoff),
     ...(note ? { note: note.slice(0, 500) } : {}),
+    ...(a.clientRequestId ? { clientRequestId: a.clientRequestId } : {}),
   };
 }
 

@@ -78,6 +78,27 @@ describe('seat state machine: held (10 min) → booked → checked_in → comple
     expect(h.events.types()).toEqual(expect.arrayContaining(['seat.held', 'seat.hold_expired']));
   });
 
+  it('no duplicate bookings: a retried hold or book answers with what the first call made', async () => {
+    const h = routesHarness();
+    const dep = await h.announce();
+    // Double tap / lost answer on "احجز": the same seats give the same hold, simultaneous calls included.
+    const [a, b] = await Promise.all([h.hold('r1', dep.id, ['back_left']), h.hold('r1', dep.id, ['back_left'])]);
+    expect(b.id).toBe(a.id);
+    expect((await h.hold('r1', dep.id, ['back_left'])).id).toBe(a.id);
+    expect(h.events.types().filter((t) => t === 'seat.held')).toHaveLength(1);
+    // Other seats while holding are still a conflict.
+    expect(await code(h.hold('r1', dep.id, ['back_right']))).toBe('booking_state_conflict');
+    // Retried "ثبّت" with the same payment: the booking, no second seat.booked.
+    const [x, y] = await Promise.all([h.departures.book('r1', a.id, 'cash'), h.departures.book('r1', a.id, 'cash')]);
+    expect(y).toMatchObject({ id: x.id, state: 'booked', payment: 'cash' });
+    expect((await h.departures.book('r1', a.id, 'cash')).state).toBe('booked');
+    expect(h.events.types().filter((t) => t === 'seat.booked')).toHaveLength(1);
+    // A different payment on a booked seat is not a retry.
+    expect(await code(h.departures.book('r1', a.id, 'wallet'))).toBe('booking_state_conflict');
+    // Once booked, holding the same seats again is not a retry either.
+    expect(await code(h.hold('r1', dep.id, ['back_left']))).toBe('booking_state_conflict');
+  });
+
   it('wallet prepay needs the balance not already held by other prepaid seats', async () => {
     const h = routesHarness();
     const a = await h.announce();

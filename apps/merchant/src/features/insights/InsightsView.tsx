@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 import type { MerchantInsights } from '@driver/contracts';
-import { Icon, Skeleton, Text, useTheme } from '@driver/ui';
+import { Icon, SegmentedControl, Skeleton, Text, useTheme } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Meter, Panel, PanelRow, Tag } from '@/components/Panel';
 import { useDates } from '@/lib/dates';
@@ -9,7 +9,7 @@ import { useLayout } from '@/lib/layout';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { HourBars, Heatmap, Ring, TrendBars } from './Charts';
-import { busiestWindow, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict, type Verdict } from './logic';
+import { bestSellerRows, busiestWindow, canRankBySales, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict, type BestSellerMode, type Verdict } from './logic';
 
 const VERDICT: Record<Verdict, { fg: 'successText' | 'warningText' | 'dangerText' | 'textMuted'; bg: 'successTint' | 'warningTint' | 'dangerTint' | 'surfaceSunken'; dot: 'success' | 'warning' | 'danger' | 'textMuted'; icon: MIconName }> = {
   good: { fg: 'successText', bg: 'successTint', dot: 'success', icon: 'check' },
@@ -198,16 +198,32 @@ function BestSellersPanel({ data }: { data: MerchantInsights }) {
   const t = useT();
   const fill = useLayout().wide ? { flex: 1 } : undefined;
   const locale = useLocale();
-  const top = data.bestSellers[0]?.qty ?? 1;
+  // M-13: the rank and the bar use the same measure — count by default, money for owners who switch.
+  const [mode, setMode] = useState<BestSellerMode>('qty');
+  const bySales = canRankBySales(data.bestSellers);
+  const rows = bestSellerRows(data.bestSellers, bySales ? mode : 'qty');
   return (
-    <Panel title={t('merchant.insights.best_title')} icon="utensils" flush style={fill} testID="insights-best">
-      {data.bestSellers.length === 0 ? (
+    <Panel title={bySales && mode === 'sales' ? t('merchant.insights.best_title_sales') : t('merchant.insights.best_title')} icon="utensils" flush style={fill} testID="insights-best">
+      {bySales ? (
+        <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[2] }}>
+          <SegmentedControl
+            value={mode}
+            onChange={setMode}
+            accessibilityLabel={t('merchant.insights.best_title')}
+            options={[
+              { value: 'qty', label: t('merchant.insights.best_by_qty') },
+              { value: 'sales', label: t('merchant.insights.best_by_sales') },
+            ]}
+          />
+        </View>
+      ) : null}
+      {rows.length === 0 ? (
         <Text variant="body" color="textMuted" style={{ paddingHorizontal: theme.space[5] }}>
           {t('merchant.insights.no_data')}
         </Text>
       ) : (
-        data.bestSellers.slice(0, 8).map((b, i) => (
-          <PanelRow key={b.itemId} first={i === 0}>
+        rows.map((b, i) => (
+          <PanelRow key={b.itemId} first={i === 0 && !bySales}>
             <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: i === 0 ? theme.colors.accent : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
               <Text variant="label" weight={700} color={i === 0 ? 'onAccent' : 'textMuted'} tabular>
                 {String(i + 1)}
@@ -219,13 +235,13 @@ function BestSellersPanel({ data }: { data: MerchantInsights }) {
                   {b.nameAr ?? '—'}
                 </Text>
                 <Text variant="label" weight={600} tabular>
-                  {t('merchant.insights.best_qty', { qty: b.qty })}
+                  {bySales && mode === 'sales' && b.salesIqd !== null ? iqd(b.salesIqd, { locale }) : t('merchant.insights.best_qty', { qty: b.qty })}
                 </Text>
               </View>
-              <Meter value={b.qty / top} color={i === 0 ? theme.colors.accent : theme.colors.warning} height={6} />
+              <Meter value={b.share} color={i === 0 ? theme.colors.accent : theme.colors.warning} height={6} />
               {b.salesIqd !== null ? (
                 <Text variant="caption" color="textMuted" tabular>
-                  {iqd(b.salesIqd, { locale })}
+                  {mode === 'sales' ? t('merchant.insights.best_qty', { qty: b.qty }) : iqd(b.salesIqd, { locale })}
                 </Text>
               ) : null}
             </View>

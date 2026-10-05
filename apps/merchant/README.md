@@ -125,7 +125,9 @@ for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,50
 and a disconnected printer. New orders auto-reject after 90 s as in production:
 `POST /demo/board/fresh` puts 3 fresh ones on the board; `POST /demo/board/missed?count=2` adds orders
 that just timed out (the "طلبات فاتتك" strip, the "فاتك اليوم" chip and the busy/close nudge);
-`/demo/board/printer?state=…` and `/demo/board/store?open=1&busy=0` reset the switches. The board opens
+`/demo/board/printer?state=…` and `/demo/board/store?open=1&busy=0` reset the switches;
+`POST /demo/board/rush?count=10` replaces the new column with a rush (offers spread over the last
+minute, one group order with an allergy and a courier note). Shots: `SHOTS=rush`. The board opens
 behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
 keepGate: true })` keeps it for a shot).
 
@@ -141,6 +143,23 @@ keepGate: true })` keeps it for a shot).
   "ابدأ الشغل" on the web (a chip asks to keep the screen on where the browser has no such API).
 - Printing: `print/printer.native.ts` documents the Bluetooth ESC/POS plan (BLE module in a dev-client
   build, Arabic rasterised to 576 px, status reported with `merchant.setPrinterStatus`).
+
+## Kitchen rush (UI/UX audit phase 2: M-05, M-06, M-09, M-10, M-11, M-13)
+
+- جديد is in answer order: least time left first (`byTimeLeft`). One "new" number everywhere — the
+  column, the rail/tab badge, the banner ("3 طلبات تنتظر · 1 مسكّت") and the off-board pill (`newCount`,
+  `newOrderSummary`).
+- Tablet, three or more waiting (`isRush`): `RushQueue` chips (number, mini ring, dish count) over the
+  column, all visible at once; tickets go compact except the one being read (tap a chip or a compact
+  ticket to open it). Four or more and busy off: "N طلبات تنتظر. تشغّل وضع الزحمة؟".
+- Phone: the header is one 56-pt row (store, open, "…" for busy, printer, cash, switch store); the
+  `StickyAcceptBar` above the tabs answers the next order when it is long or a group order, or when
+  several wait (`stickyAcceptTarget`).
+- Notes (M-09): the card shows the kitchen note only; the detail sheet shows it first and the courier's
+  note after the items. Any kitchen note that mentions an allergy puts a red "حساسية" pill on the card,
+  its queue chip and the detail sheet (`hasAllergy`, display only).
+- The detail sheet carries the 90-s ring for a new order (M-11). Best sellers rank and scale by one
+  measure, with "بالعدد / بالفلوس" for owners (M-13, `bestSellerRows`).
 
 ## Real time (`live.merchantBoard`)
 

@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import type { MerchantBalanceView, StoreStatusView } from '@driver/contracts';
 import { Button, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
+import { ModalSheet } from '@/components/ModalSheet';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { balanceState } from '@/features/money/logic';
@@ -73,7 +74,7 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
 }
 
 /** Open / closed switch: a big pill with a knob — green open, red closed, amber during a pause. */
-function OpenSwitch({ status, onPress }: { status: StoreStatusView; onPress: () => void }) {
+function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusView; onPress: () => void; compact?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const paused = status.pause !== null && status.closed === null;
@@ -92,20 +93,23 @@ function OpenSwitch({ status, onPress }: { status: StoreStatusView; onPress: () 
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[2],
-        height: 40,
+        height: compact ? 44 : 40,
         paddingStart: theme.space[3],
-        paddingEnd: 4,
+        paddingEnd: compact ? theme.space[3] : 4,
         borderRadius: theme.radius.pill,
         backgroundColor: withAlpha(color, 0.12),
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Text variant="label" weight={700} style={{ color }}>
+      {compact ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} /> : null}
+      <Text variant="label" weight={700} style={{ color }} numberOfLines={1}>
         {label}
       </Text>
-      <View style={{ width: 52, height: 32, borderRadius: 16, backgroundColor: color, padding: 3, alignItems: open ? 'flex-start' : 'flex-end' }}>
-        <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF' }} />
-      </View>
+      {compact ? null : (
+        <View style={{ width: 52, height: 32, borderRadius: 16, backgroundColor: color, padding: 3, alignItems: open ? 'flex-start' : 'flex-end' }}>
+          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF' }} />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -118,6 +122,16 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
+  const [menu, setMenu] = useState(false);
+  // On a phone these live in the "…" menu: close it before the busy sheet or "اطلب فلوسك" opens.
+  const busyPress = () => {
+    setMenu(false);
+    onBusy();
+  };
+  const cashPress = () => {
+    setMenu(false);
+    onCash();
+  };
   const printer = usePrinterSnapshot();
   const chip = printerChipState(printer, status?.printer.state);
 
@@ -125,9 +139,9 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
   if (status) {
     chips.push(
       status.busy.on && status.busy.until ? (
-        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="warning" label={t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })} onPress={onBusy} />
+        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="warning" label={t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })} onPress={busyPress} />
       ) : (
-        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" label={t('merchant.busy.chip_off')} onPress={onBusy} />
+        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" label={t('merchant.busy.chip_off')} onPress={busyPress} />
       ),
     );
     chips.push(
@@ -146,7 +160,10 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
                 ? t('merchant.printer.chip_preview')
                 : t('merchant.printer.chip_not_set_up')
         }
-        onPress={() => router.push('/printer')}
+        onPress={() => {
+          setMenu(false);
+          router.push('/printer');
+        }}
       />,
     );
   }
@@ -168,13 +185,16 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
               {iqd(balance.balanceIqd, { locale })}
             </Text>
           </View>
-          <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onCash} />
+          <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={cashPress} />
         </View>
       ) : (
         <Pressable
           testID="cash-balance"
           accessibilityRole="button"
-          onPress={() => router.push('/money')}
+          onPress={() => {
+            setMenu(false);
+            router.push('/money');
+          }}
           style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, paddingHorizontal: theme.space[4], paddingVertical: 4, borderRadius: theme.radius.pill, backgroundColor: state.kind === 'owe' ? theme.colors.warningTint : theme.colors.surface, borderWidth: 1, borderColor: state.kind === 'owe' ? theme.colors.warning : theme.colors.border }}
         >
           <MIcon name="cash" size={20} color={state.kind === 'owe' ? 'warningText' : 'textMuted'} />
@@ -223,16 +243,55 @@ export function StoreHeader({ storeName, status, balance, canSeeMoney, now, wide
       </View>
     );
   }
+  // Phone (M-06): one 56-pt row — the store, open/closed, and "…" for busy mode, the printer and the
+  // cash (which also lives on the Money tab). Alert chips ("الصوت طافي", "فاتك اليوم") get a second row
+  // only while there is something to fix. Busy mode on reads under the store name.
+  const busyOn = Boolean(status?.busy.on && status.busy.until);
+  const needsLook = busyOn || chip === 'disconnected';
   return (
-    <View style={{ gap: theme.space[3], paddingTop: theme.space[2], paddingBottom: theme.space[3], borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4] }}>
-        <View style={{ flex: 1 }}>{name}</View>
-        {status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : null}
+    <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+      <View testID="store-header-row" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 56, paddingHorizontal: theme.space[4] }}>
+        <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
+            <MIcon name="store" size={20} color="accentText" />
+          </View>
+          <View style={{ flexShrink: 1 }}>
+            <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ lineHeight: 24 }}>
+              {storeName}
+            </Text>
+            {busyOn && status?.busy.until ? (
+              <Text variant="caption" color="warningText" weight={600} numberOfLines={1} tabular style={{ lineHeight: 16 }}>
+                {t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })}
+              </Text>
+            ) : status?.closed ? (
+              <Text variant="caption" color="dangerText" numberOfLines={1} style={{ lineHeight: 16 }}>
+                {t(`merchant.close_reason.${status.closed.reason}` as const)}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+        {status ? <OpenSwitch status={status} onPress={onToggleOpen} compact /> : <Skeleton width={84} height={44} radius={22} />}
+        <Pressable
+          testID="header-more"
+          accessibilityRole="button"
+          accessibilityLabel={t('merchant.header.more')}
+          onPress={() => setMenu(true)}
+          style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent' })}
+        >
+          <MIcon name="more" size={24} color="text" strokeWidth={2.4} />
+          {needsLook ? <View style={{ position: 'absolute', top: 8, end: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: chip === 'disconnected' ? theme.colors.danger : theme.colors.warning, borderWidth: 1.5, borderColor: theme.colors.bg }} /> : null}
+        </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], paddingHorizontal: theme.space[4], alignItems: 'center' }}>
-        {chips}
-      </ScrollView>
-      {money ? <View style={{ paddingHorizontal: theme.space[4] }}>{money}</View> : null}
+      {(alerts ?? []).length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[2], alignItems: 'center' }}>
+          {alerts}
+        </ScrollView>
+      ) : null}
+      <ModalSheet visible={menu} onClose={() => setMenu(false)} title={storeName} testID="header-menu">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>{chips.slice((alerts ?? []).length)}</View>
+        {money}
+        <Button testID="header-switch-store" label={t('merchant.header.switch_store')} variant="secondary" icon="refresh" onPress={() => { setMenu(false); router.push('/stores'); }} />
+      </ModalSheet>
     </View>
   );
 }

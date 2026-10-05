@@ -952,7 +952,12 @@ model Order {
   receiptTotalIqd    Int?          @map("receipt_total_iqd")
   receiptPhotoUrl    String?       @map("receipt_photo_url")
   refundState        RefundState   @default(none) @map("refund_state")
+  /// The kitchen note (order-level).
   note               String?
+  /// M-09: the customer's note for the courier only (his drop-off stop; never the kitchen card).
+  courierNote        String?       @map("courier_note")
+  /// No duplicate orders: the app's idempotency key for one checkout attempt, re-sent on every retry.
+  clientRequestId    String?       @map("client_request_id")
   scheduledFor       DateTime?     @map("scheduled_for")
   payerApprovedAt    DateTime?     @map("payer_approved_at")
   placedAt           DateTime      @default(now()) @map("placed_at")
@@ -1002,6 +1007,8 @@ model Order {
   @@index([merchantOrgId, state])
   /// Review 2026-10-04 #11: merchant money / insights / deal projection read one placed-at range.
   @@index([merchantOrgId, placedAt])
+  /// No duplicate orders: one order per orderer and checkout attempt (NULLs — no key sent — never collide).
+  @@unique([ordererId, clientRequestId])
   @@map("orders")
   @@schema("public")
 }

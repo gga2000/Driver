@@ -9,7 +9,7 @@ import { iqd } from '@/lib/money';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
-import { canExtendPrep, cardTiming, courierLine } from './logic';
+import { canExtendPrep, cardTiming, courierLine, hasAllergy } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
@@ -37,6 +37,40 @@ export interface OrderCardProps {
   busyReady?: boolean;
   busyAccept?: boolean;
   busyExtend?: boolean;
+  /**
+   * Rush (M-05): a compact ticket — number, ring, payment, "5 صنف · 3 أشخاص", Accept/Reject. Tapping
+   * it calls `onExpand` (the full ticket) instead of opening the detail sheet.
+   */
+  compact?: boolean;
+  onExpand?: () => void;
+}
+
+/** "حساسية" on the card header when any kitchen note mentions an allergy (M-09): impossible to miss. */
+export function AllergyPill({ testID }: { testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID={testID} accessibilityRole="text" accessibilityLabel={t('merchant.card.allergy_a11y')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.danger }}>
+      <MIcon name="alert" size={16} color={theme.colors.onDanger} strokeWidth={2.2} />
+      <Text variant="footnote" weight={700} style={{ color: theme.colors.onDanger }} numberOfLines={1}>
+        {t('merchant.card.allergy')}
+      </Text>
+    </View>
+  );
+}
+
+/** The kitchen note block: muted, or on the danger tint when it carries an allergy. */
+export function KitchenNote({ note, testID }: { note: string; testID?: string }) {
+  const theme = useTheme();
+  const allergy = hasAllergy({ note, groups: [] });
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', gap: theme.space[2], backgroundColor: allergy ? theme.colors.dangerTint : theme.colors.surfaceSunken, borderRadius: theme.radius.md, padding: theme.space[3] }}>
+      <MIcon name={allergy ? 'alert' : 'note'} size={18} color={allergy ? 'dangerText' : 'textMuted'} />
+      <Text variant="label" weight={700} color={allergy ? 'dangerText' : 'text'} style={{ flex: 1 }}>
+        {note}
+      </Text>
+    </View>
+  );
 }
 
 /** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
@@ -178,10 +212,12 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
   );
 }
 
-export function OrderCard({ order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend }: OrderCardProps) {
+export function OrderCard(props: OrderCardProps) {
+  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand } = props;
   const theme = useTheme();
   const t = useT();
   const isNew = order.column === 'new';
+  const allergy = hasAllergy(order);
   const hot = isNew && (stage === 'urgent' || stage === 'final');
   const pulse = usePulseBorder(ringing && !theme.reduceMotion, hot);
   const breath = useBreath(ringing && hot && !theme.reduceMotion);
@@ -198,26 +234,98 @@ export function OrderCard({ order, now, clock, ringing = false, stage = null, ma
       <StatusPill tone="success" icon="check" label={timing.minutes < 1 ? t('merchant.card.ready_now') : t('merchant.card.ready_since', { minutes: timing.minutes })} />
     ) : null;
 
+  const acceptButtons = (size: 'md' | 'lg') => (
+    <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
+      <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} style={{ flex: 1 }} />
+      {onAcceptNow && oneTapMinutes !== undefined ? (
+        <>
+          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+          <Pressable
+            testID={`accept-more-${order.number}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('merchant.accept.more')}
+            onPress={() => {
+              theme.haptic('light');
+              onAccept();
+            }}
+            style={({ pressed }) => ({ width: size === 'lg' ? 56 : 48, height: size === 'lg' ? 56 : 48, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
+          >
+            <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
+          </Pressable>
+        </>
+      ) : (
+        <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size={size} haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
+      )}
+    </View>
+  );
+
+  const ringFrame = isNew ? (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: 'absolute',
+          top: -3,
+          bottom: -3,
+          start: -3,
+          end: -3,
+          borderRadius: theme.radius.xl + 3,
+          borderWidth: 3,
+          borderColor: hot ? theme.colors.danger : theme.colors.accent,
+        },
+        pulse,
+      ]}
+    />
+  ) : null;
+
+  if (compact && isNew) {
+    // Rush ticket (M-05): everything needed to answer it, nothing to read. Tap → the full ticket.
+    return (
+      <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
+        {ringFrame}
+        <Pressable
+          testID={`compact-${order.number}`}
+          onPress={onExpand ?? onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={t('merchant.rush.expand_a11y', { number: order.number })}
+          style={({ pressed }) => ({
+            backgroundColor: theme.colors.surface,
+            borderRadius: theme.radius.xl,
+            borderWidth: 1,
+            borderColor: hot ? theme.colors.danger : theme.colors.border,
+            padding: theme.space[3],
+            gap: theme.space[2],
+            opacity: pressed ? 0.96 : 1,
+          })}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            {order.acceptBy && !order.partial ? (
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
+            ) : null}
+            <View style={{ flex: 1 }}>
+              <Text weight={700} tabular style={{ fontSize: 24, lineHeight: 32 }}>
+                {t('merchant.card.number', { number: order.number })}
+              </Text>
+              <Text variant="footnote" color="textMuted" tabular numberOfLines={1}>
+                {[t('merchant.card.items', { count: order.itemCount }), order.groups.length > 1 ? t('merchant.detail.people', { count: order.groups.length }) : null].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+            <Icon name="chevron-down" size={20} color="textMuted" strokeWidth={2} />
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
+            <PaymentPill order={order} />
+            {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
+          </View>
+          {order.partial ? <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} /> : acceptButtons('md')}
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
-      {isNew ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            {
-              position: 'absolute',
-              top: -3,
-              bottom: -3,
-              start: -3,
-              end: -3,
-              borderRadius: theme.radius.xl + 3,
-              borderWidth: 3,
-              borderColor: hot ? theme.colors.danger : theme.colors.accent,
-            },
-            pulse,
-          ]}
-        />
-      ) : null}
+      {ringFrame}
       <Pressable
         onPress={onOpen}
         accessibilityRole="button"
@@ -261,6 +369,7 @@ export function OrderCard({ order, now, clock, ringing = false, stage = null, ma
         </View>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+          {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
           <PaymentPill order={order} />
           {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           {order.catering ? <StatusPill tone="info" label={t('merchant.card.catering')} /> : null}
@@ -270,14 +379,8 @@ export function OrderCard({ order, now, clock, ringing = false, stage = null, ma
 
         <OrderItems order={order} maxLines={maxLines} />
 
-        {order.note ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.md, padding: theme.space[3] }}>
-            <MIcon name="note" size={18} color="textMuted" />
-            <Text variant="label" weight={700} style={{ flex: 1 }}>
-              {order.note}
-            </Text>
-          </View>
-        ) : null}
+        {/* M-09: the kitchen's note only; the courier's note stays in the detail sheet. */}
+        {order.note ? <KitchenNote note={order.note} testID={`kitchen-note-${order.number}`} /> : null}
 
         {order.partial ? (
           <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} />
@@ -286,28 +389,7 @@ export function OrderCard({ order, now, clock, ringing = false, stage = null, ma
         ) : null}
 
         {isNew && !order.partial ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-            <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size="lg" onPress={onReject} style={{ flex: 1 }} />
-            {onAcceptNow && oneTapMinutes !== undefined ? (
-              <>
-                <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="lg" haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
-                <Pressable
-                  testID={`accept-more-${order.number}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('merchant.accept.more')}
-                  onPress={() => {
-                    theme.haptic('light');
-                    onAccept();
-                  }}
-                  style={({ pressed }) => ({ width: 56, height: 56, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
-                >
-                  <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
-                </Pressable>
-              </>
-            ) : (
-              <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size="lg" haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
-            )}
-          </View>
+          acceptButtons('lg')
         ) : order.column === 'preparing' ? (
           <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
             {onExtend && canExtendPrep(order) ? (

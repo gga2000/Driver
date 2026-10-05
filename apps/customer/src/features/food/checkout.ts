@@ -119,7 +119,12 @@ export interface CheckoutChoices {
   fees: { deliveryFeeIqd: number; serviceFeeIqd: number };
   /** The discount `orders.quote` showed (0 = none): the server refuses a different one (`deal_changed`). */
   discountIqd?: number;
+  /** For the kitchen (the card and receipt show it). */
   note?: string;
+  /** For the courier only (his drop-off stop; never the kitchen card) — UI/UX audit M-09. */
+  courierNote?: string;
+  /** The checkout attempt's idempotency key (`place-attempt.ts`): re-sent on every retry. */
+  clientRequestId?: string;
 }
 
 const OTHER_RECIPIENT_REF = 'recipient';
@@ -167,6 +172,8 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     dropoff: c.dropoff,
     ...(c.scheduledFor ? { scheduledFor: c.scheduledFor } : {}),
     ...(c.note?.trim() ? { note: c.note.trim().slice(0, 500) } : {}),
+    ...(c.courierNote?.trim() ? { courierNote: c.courierNote.trim().slice(0, 300) } : {}),
+    ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
   };
 }
 

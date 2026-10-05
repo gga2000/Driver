@@ -648,8 +648,12 @@ export class DeparturesService {
     return this.writer.run(async (tx) => {
       const dep = await this.departure(input.departureId, tx);
       const bookings = await this.freshBookings(tx, dep);
-      if (bookings.some((b) => b.riderId === riderId && LIVE.includes(b.state)))
+      const mine = bookings.find((b) => b.riderId === riderId && LIVE.includes(b.state));
+      if (mine) {
+        // A retried "احجز" (the answer was lost, a double tap) gets the hold it already made, not an error.
+        if (mine.state === 'held' && this.occupies(mine) && this.sameSelection(dep, mine, input.selection)) return mine;
         throw new DriverError('booking_state_conflict');
+      }
       const seatIds = this.selectionSeats(dep, input.selection);
       return this.place(tx, dep, bookings, {
         riderId,
@@ -715,6 +719,8 @@ export class DeparturesService {
         throw new DriverError('hold_expired');
       }
       if (b.state === 'expired') throw new DriverError('hold_expired');
+      // A retried "ثبّت" with the same payment answers with the booking it already made (no second event).
+      if (b.state === 'booked' && b.payment === payment) return b;
       if (b.state !== 'held') throw new DriverError('booking_state_conflict');
       this.requireState(dep, OPEN_DEPARTURE);
       const total = bookingTotal(b);
@@ -1211,6 +1217,15 @@ export class DeparturesService {
     );
   }
 
+  /** True when `sel` picks exactly the seats `booking` holds (a retry of the same hold). */
+  private sameSelection(dep: DepartureRecord, booking: BookingRecord, sel: Hold['selection']): boolean {
+    try {
+      return sameSeats(booking.seatIds, this.selectionSeats(dep, sel));
+    } catch {
+      return false;
+    }
+  }
+
   private selectionSeats(dep: DepartureRecord, sel: Hold['selection']): IntercitySeatId[] {
     if (sel.kind === 'car') return seatsOf(dep.layout);
     if (sel.kind === 'row') {
@@ -1516,4 +1531,9 @@ function combinations<T>(xs: readonly T[], k: number): T[][] {
   if (xs.length < k) return [];
   const [head, ...rest] = xs;
   return [...combinations(rest, k - 1).map((c) => [head as T, ...c]), ...combinations(rest, k)];
+}
+
+/** The same seats, in any order. */
+function sameSeats(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && [...a].sort().join(',') === [...b].sort().join(',');
 }

@@ -128,6 +128,36 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect(await trips.detachedAt(t.id, o.id)).toBeNull();
   });
 
+  it('no duplicate orders: one key, simultaneous calls on two API instances → one order, both answered with it', async () => {
+    // A second service = a second API instance (its own in-process lock); only Postgres serialises them.
+    const other = new OrdersService(
+      new PrismaOrdersRepository(prisma),
+      events,
+      uow,
+      clock,
+      new InMemoryQueue<OrderTimerJob>('orders.timers', () => clock.now()),
+      trips,
+      new PricingService(new ConfigService()),
+      merchants,
+      { resolvePhone: async (phone) => ({ personId: null, phoneHash: fakePhoneHash(phone) }) },
+      { newCustomerCash: async () => ({ allowed: true, requiresArrivingCall: false, priorCashOrders: 3 }) },
+      catalog,
+    );
+    const key = `itest_${Date.now().toString(36)}`;
+    const input = { cityId: 'aziziyah', type: 'food' as const, merchantOrgId: ids.org, lines: [{ catalogItemId: ids.item, qty: 1 }], dropoff: { zoneKey: 'zakur' }, clientRequestId: key, courierNote: 'دگ الجرس' };
+    const answers = await Promise.all([orders.place(ids.customer, input), other.place(ids.customer, input), orders.place(ids.customer, input), other.place(ids.customer, input)]);
+    const rows = await prisma.prisma.order.findMany({ where: { ordererId: ids.customer, clientRequestId: key } });
+    expect(rows).toHaveLength(1);
+    expect(new Set(answers.map((a) => a.id))).toEqual(new Set([rows[0]!.id]));
+    expect(answers[0]).toMatchObject({ clientRequestId: key, courierNote: 'دگ الجرس' });
+    // The unique index itself (the last line of defence): a raw second insert with the key is refused.
+    await expect(prisma.prisma.order.create({ data: { cityId: 'aziziyah', type: 'food', ordererId: ids.customer, clientRequestId: key } })).rejects.toMatchObject({ code: 'P2002' });
+    // A replay after the fact is the same order.
+    expect((await other.place(ids.customer, input)).id).toBe(rows[0]!.id);
+    await prisma.prisma.orderLine.deleteMany({ where: { orderId: rows[0]!.id } });
+    await prisma.prisma.order.deleteMany({ where: { id: rows[0]!.id } });
+  });
+
   it("a merchant's orders by placed-at range: one bounded read, the same view as get (review 2026-10-04 #11)", async () => {
     const placedAt = (await orders.get(ids.order)).placedAt;
     const range = { from: new Date(placedAt.getTime() - 3_600_000), to: new Date(placedAt.getTime() + 1) };

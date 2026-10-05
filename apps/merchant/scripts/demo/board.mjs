@@ -6,6 +6,9 @@
 // New orders auto-reject after 90 s like in production, so screenshots call /demo/board/fresh first.
 //
 //   POST /demo/board/fresh                      replace the new column with 3 fresh orders
+//   POST /demo/board/rush?count=10              a rush: replace the new column with `count` orders whose
+//                                               90-s clocks are spread out (some nearly gone), one a group
+//                                               order with an allergy note (M-05, M-06, M-09)
 //   POST /demo/board/missed?count=2             orders that just timed out (the "طلبات فاتتك" strip)
 //   POST /demo/board/printer?state=connected|disconnected
 //   POST /demo/board/store?open=1&busy=0        reset the store switches
@@ -44,7 +47,9 @@ export default async function register(ctx) {
           { ref: 'abu', role: 'diner', label: 'أبو حسين', note: 'حار هواي' },
           { ref: 'minar', role: 'diner', label: 'منار' },
         ],
-        note: 'دگ الجرس مرتين، البيت الثالث بعد الفرن',
+        // M-09: the kitchen's note (with an allergy) and the courier's note are separate.
+        note: 'منار عندها حساسية من الفستق، لا تحطون مكسرات',
+        courierNote: 'دگ الجرس مرتين، البيت الثالث بعد الفرن',
       },
     );
     const cash = await place([await ctx.line(khalid, 'kebab_plate', 1, { choose: ['نفر'] }), await ctx.line(khalid, 'pepsi', 2), await ctx.line(khalid, 'salad', 1)]);
@@ -142,6 +147,58 @@ export default async function register(ctx) {
       const o = await place(lines);
       const offered = await orders.get(o.id);
       await orders.handleTimer(ORDER_JOBS.autoReject, { orderId: o.id, refMs: new Date(offered.merchantOfferedAt).getTime() });
+      ids.push(o.id);
+    }
+    return { orderIds: ids };
+  });
+  // Rush (M-05/M-06): `count` new orders at once, their offers spread over the last minute so the
+  // rings differ (the most urgent has ~15 s left). Their auto-reject still runs at each real deadline.
+  const rushTimers = [];
+  ctx.route('/demo/board/rush', async (_req, _res, url) => {
+    const { ORDER_JOBS } = await ctx.load('modules/orders/index.js');
+    const { ORDERS_REPOSITORY } = await ctx.load('modules/orders/orders.repository.js');
+    const repo = ctx.app.get(ORDERS_REPOSITORY, { strict: false });
+    const count = Math.min(14, Math.max(3, Number(url.searchParams.get('count') ?? 10)));
+    for (const t of rushTimers.splice(0)) globalThis.clearTimeout(t);
+    const live = await orders.listActive({ merchantOrgId: khalid.orgId });
+    for (const o of live) if (o.state === 'placed') await orders.merchantReject('demo-staff', { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
+    const baskets = [
+      async () => [await ctx.line(khalid, 'kebab_plate', 1, { choose: ['نفر'] }), await ctx.line(khalid, 'pepsi', 2), await ctx.line(khalid, 'salad', 1)],
+      async () => [await ctx.line(khalid, 'tikka_wrap', 3, { choose: ['صمون حجري'] }), await ctx.line(khalid, 'pepsi', 3)],
+      async () => [await ctx.line(khalid, 'pacha', 1), await ctx.line(khalid, 'lentil_soup', 2)],
+      async () => [await ctx.line(khalid, 'grill_mix_kilo', 1, { note: 'نص مستوي ونص عادي' }), await ctx.line(khalid, 'torshi', 1), await ctx.line(khalid, 'water', 4)],
+      async () => [await ctx.line(khalid, 'gus_wrap', 2), await ctx.line(khalid, 'liver_wrap', 2, { choose: ['خبز تنور'] })],
+    ];
+    const ids = [];
+    for (let i = 0; i < count; i++) {
+      let o;
+      if (i === 1) {
+        // A group order for three with an allergy: long on a phone (the sticky accept bar), flagged on the card.
+        o = await place(
+          [
+            await ctx.line(khalid, 'tikka_wrap', 2, { choose: ['صمون حجري', 'عمبة'], note: 'بدون بصل' }),
+            await ctx.line(khalid, 'gus_plate', 1, { participantRef: 'abu', note: 'الكص مقرمش' }),
+            await ctx.line(khalid, 'liver_wrap', 1, { participantRef: 'minar', choose: ['خبز تنور'] }),
+            await ctx.line(khalid, 'shenina', 2, { participantRef: 'minar' }),
+            await ctx.line(khalid, 'salad', 1),
+          ],
+          {
+            participants: [
+              { ref: 'abu', role: 'diner', label: 'أبو حسين', note: 'حار هواي' },
+              { ref: 'minar', role: 'diner', label: 'منار', note: 'عندها حساسية من الفستق' },
+            ],
+            note: 'لا تحطون مكسرات بأي شي',
+            courierNote: 'دگ الجرس مرتين، البيت الثالث بعد الفرن',
+          },
+        );
+      } else {
+        o = await place(await baskets[i % baskets.length](), i % 3 === 2 ? { paymentMethod: 'wallet' } : {});
+      }
+      // Spread the offers: the first placed has the least time left (~15 s), the last the most.
+      const offeredAt = new Date(Date.now() - Math.max(0, 75_000 - i * Math.round(70_000 / count)));
+      await repo.update(o.id, { merchantOfferedAt: offeredAt });
+      const refMs = offeredAt.getTime();
+      rushTimers.push(setTimeout(() => void orders.handleTimer(ORDER_JOBS.autoReject, { orderId: o.id, refMs }).catch(() => undefined), Math.max(0, refMs + 90_000 - Date.now())));
       ids.push(o.id);
     }
     return { orderIds: ids };

@@ -188,7 +188,9 @@ export class PartnerService implements PartnerPort {
           pin: s.target,
           label: s.type === 'pickup' && order?.merchantOrgId ? (names.get(order.merchantOrgId) ?? null) : null,
           orderId: s.orderId,
-          note: isDrop ? (order?.note ?? null) : null,
+          // M-09: the courier reads the customer's note for him; an order placed with one note for
+          // everyone (no courier note) keeps showing that one.
+          note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,

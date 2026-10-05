@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeHours, busiestWindow, heatLevel, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict } from './logic';
+import { activeHours, bestSellerRows, busiestWindow, canRankBySales, heatLevel, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict } from './logic';
 
 const hours = (pairs: Record<number, number>) => Array.from({ length: 24 }, (_, i) => pairs[i] ?? 0);
 
@@ -47,5 +47,40 @@ describe('peak hours', () => {
 
   it('heat levels against the busiest cell', () => {
     expect([0, 1, 3, 6, 10].map((c) => heatLevel(c, 10))).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+describe('best sellers (M-13)', () => {
+  // As the API sends them: ranked by sales, where a Pepsi sells far more often than a kilo of grill.
+  const list = [
+    { itemId: 'grill', nameAr: 'مشويات مشكّلة كيلو', qty: 46, orders: 40, salesIqd: 1_012_000 },
+    { itemId: 'tikka', nameAr: 'تكة', qty: 320, orders: 200, salesIqd: 960_000 },
+    { itemId: 'pepsi', nameAr: 'بيبسي', qty: 693, orders: 410, salesIqd: 346_500 },
+  ];
+
+  it('by count: ranked by quantity and scaled by the largest quantity — the bars match the numbers', () => {
+    const rows = bestSellerRows(list, 'qty');
+    expect(rows.map((r) => [r.rank, r.itemId])).toEqual([[1, 'pepsi'], [2, 'tikka'], [3, 'grill']]);
+    expect(rows[0]!.share).toBe(1);
+    expect(rows[2]!.share).toBeCloseTo(46 / 693, 5);
+    // Every bar is no longer than the one above it.
+    for (let i = 1; i < rows.length; i++) expect(rows[i]!.share).toBeLessThanOrEqual(rows[i - 1]!.share);
+  });
+
+  it('by money: ranked and scaled by sales; without sales (staff) it falls back to count', () => {
+    const rows = bestSellerRows(list, 'sales');
+    expect(rows.map((r) => r.itemId)).toEqual(['grill', 'tikka', 'pepsi']);
+    expect(rows[1]!.share).toBeCloseTo(960_000 / 1_012_000, 5);
+    const staff = list.map((b) => ({ ...b, salesIqd: null }));
+    expect(canRankBySales(list)).toBe(true);
+    expect(canRankBySales(staff)).toBe(false);
+    expect(bestSellerRows(staff, 'sales').map((r) => r.itemId)).toEqual(['pepsi', 'tikka', 'grill']);
+  });
+
+  it('keeps the top 8 and handles an empty or all-zero list', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ itemId: `i${i}`, nameAr: null, qty: i, orders: i, salesIqd: null }));
+    expect(bestSellerRows(many, 'qty')).toHaveLength(8);
+    expect(bestSellerRows([], 'qty')).toEqual([]);
+    expect(bestSellerRows([{ itemId: 'x', nameAr: 'x', qty: 0, orders: 0, salesIqd: 0 }], 'qty')[0]!.share).toBe(0);
   });
 });

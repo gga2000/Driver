@@ -159,6 +159,7 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     itemCount,
     groups,
     note: o.note?.trim() ? o.note.trim() : null,
+    courierNote: o.courierNote?.trim() ? o.courierNote.trim() : null,
     partial: o.partial ? { unavailableLineIds: o.partial.unavailableLineIds, deadline: o.partial.deadline } : null,
     courier,
     late: column === 'preparing' && o.promisedReadyAt !== null && now.getTime() > o.promisedReadyAt.getTime(),
