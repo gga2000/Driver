@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ZoneCapacityView } from '@driver/contracts';
 import type { ControlsView, KillSwitchView } from '@driver/contracts';
-import { ageLabel, bullet, cashLevel, dayBars, defaultRefusal, expiryAt, fileUrl, gaugePct, matrixCell, merchantWords, metricTone, nextAfter, owedWords, refundChips, slaClock, sortZones, throttlePreview, waitLabel, wallStale } from './control-room';
+import { ageLabel, bullet, cashLevel, dayBars, defaultRefusal, expiryAt, fileUrl, gaugePct, matrixCell, merchantWords, metricTone, nextAfter, owedWords, refundChips, slaClock, sortZones, throttlePreview, waitLabel, mostUrgentTile, wallStale, wallTrend } from './control-room';
 
 const z = (zoneKey: string, over: Partial<ZoneCapacityView>): ZoneCapacityView => ({
   zoneKey,
@@ -108,5 +108,26 @@ describe('control room helpers (console)', () => {
     expect(nextAfter(items, 'b')?.id).toBe('c');
     expect(nextAfter(items, 'c')?.id).toBe('b');
     expect(nextAfter([{ id: 'a' }], 'a')).toBeNull();
+  });
+});
+
+describe('the wall in TV mode (S-K6)', () => {
+  it('trend arrows against the tile 24 h ago: direction, whether it is the good way, yesterday as shown', () => {
+    expect(wallTrend({ key: 'median_delivery', value: 31, previous: 36, better: 'down' })).toEqual({ dir: 'down', good: true, previous: '36 دقيقة' });
+    expect(wallTrend({ key: 'acceptance', value: 0.61, previous: 0.7, better: 'up' })).toEqual({ dir: 'down', good: false, previous: '70%' });
+    expect(wallTrend({ key: 'orders_day', value: 63, previous: 41, better: 'up' })).toEqual({ dir: 'up', good: true, previous: '41' });
+    expect(wallTrend({ key: 'orders_day', value: 41, previous: 41, better: 'up' })).toEqual({ dir: 'flat', good: null, previous: '41' });
+    // No `better` from an older API: the wall's own targets decide.
+    expect(wallTrend({ key: 'disputes_24h', value: 2, previous: 1 })?.good).toBe(false);
+    expect(wallTrend({ key: 'ledger', value: 0, previous: null })).toBeNull();
+    expect(wallTrend({ key: 'orders_day', value: null, previous: 3 })).toBeNull();
+  });
+
+  it('only the most urgent off-target tile pulses: the books, then disputes, minutes, acceptance, volume', () => {
+    const m = (key: Parameters<typeof mostUrgentTile>[0][number]['key'], ok: boolean | null) => ({ key, ok });
+    expect(mostUrgentTile([m('acceptance', false), m('disputes_24h', false), m('ledger', true)])).toBe('disputes_24h');
+    expect(mostUrgentTile([m('orders_day', false), m('rajaa_seats', false)])).toBe('orders_day');
+    expect(mostUrgentTile([m('ledger', false), m('acceptance', false)])).toBe('ledger');
+    expect(mostUrgentTile([m('median_delivery', true), m('rajaa_seats', null)])).toBeNull();
   });
 });

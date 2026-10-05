@@ -203,6 +203,31 @@ export function wallStale(updatedAt: number, now: number): boolean {
   return updatedAt > 0 && now - updatedAt > WALL_STALE_MS;
 }
 
+/**
+ * S-K6 · the trend arrow against the same tile 24 hours ago: which way it moved, whether that is the
+ * good way for this tile (fewer minutes, more acceptance…), and yesterday's figure as the tile shows
+ * it. null when yesterday can't be known.
+ */
+export function wallTrend(m: Pick<LaunchMetric, 'key' | 'value' | 'previous' | 'better'>): { dir: 'up' | 'down' | 'flat'; good: boolean | null; previous: string } | null {
+  if (m.value === null || m.previous === null || m.previous === undefined) return null;
+  const pct = m.key === 'acceptance';
+  const delta = m.value - m.previous;
+  const flat = pct ? Math.abs(delta) < 0.005 : Math.abs(delta) < 0.5;
+  const dir = flat ? 'flat' : delta > 0 ? 'up' : 'down';
+  const better = m.better ?? (WALL_TARGETS[m.key]?.better === 'lower' ? 'down' : 'up');
+  const previous = pct ? `${Math.round(m.previous * 100)}%` : m.key === 'median_delivery' ? t('console.wall_minutes', { n: Math.round(m.previous) }) : formatIqd(Math.round(m.previous));
+  return { dir, good: dir === 'flat' ? null : dir === better, previous };
+}
+
+/** Off-target tiles by how much they hurt: the books, open disputes, delivery time, acceptance, volume. */
+const URGENCY: readonly LaunchMetric['key'][] = ['ledger', 'disputes_24h', 'median_delivery', 'acceptance', 'orders_day', 'rajaa_seats'];
+
+/** The one tile that pulses once a minute: the most urgent of those off target; null when all are fine. */
+export function mostUrgentTile(metrics: ReadonlyArray<Pick<LaunchMetric, 'key' | 'ok'>>): LaunchMetric['key'] | null {
+  for (const k of URGENCY) if (metrics.some((m) => m.key === k && m.ok === false)) return k;
+  return null;
+}
+
 /** "4 تشرين الأول" (+ the year when asked) for an ISO day: Arabic month names, Western digits (K-15). */
 export function arabicDay(isoDate: string, withYear = false): string {
   return new Intl.DateTimeFormat('ar-IQ-u-nu-latn', { day: 'numeric', month: 'long', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'Asia/Baghdad' }).format(new Date(`${isoDate.slice(0, 10)}T12:00:00+03:00`));

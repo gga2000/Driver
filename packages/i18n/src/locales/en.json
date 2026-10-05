@@ -4910,5 +4910,8 @@
   "console.wall_vs_yesterday_down": "Down on yesterday",
   "console.wall_vs_yesterday_flat": "Same as yesterday",
   "console.wall_vs_yesterday": "Yesterday by now {value}",
-  "console.wall_most_urgent": "Most urgent now"
+  "console.wall_most_urgent": "Most urgent now",
+  "console.fin_round_progress_aria": "Cash round progress",
+  "console.wall_minutes": "{n} min",
+  "console.wall_trend_a11y": "{label}: {direction}, yesterday by now {value}"
 }

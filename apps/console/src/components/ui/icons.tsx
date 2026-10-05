@@ -336,3 +336,11 @@ export const IconMute = make(
     <path d="m13.5 8 4 4m0-4-4 4" />
   </>,
 );
+/** Print (S-K5: the cash round's route on paper / PDF for the field-ops phone). */
+export const IconPrinter = make(
+  <>
+    <path d="M6 7.5V3h8v4.5" />
+    <rect x="3" y="7.5" width="14" height="6.5" rx="1.5" />
+    <path d="M6 12h8v5H6z" />
+  </>,
+);

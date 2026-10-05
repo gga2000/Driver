@@ -4910,5 +4910,8 @@
   "console.wall_vs_yesterday_down": "نازل عن أمس",
   "console.wall_vs_yesterday_flat": "نفس أمس",
   "console.wall_vs_yesterday": "أمس بهالوقت {value}",
-  "console.wall_most_urgent": "أهم شي هسة"
+  "console.wall_most_urgent": "أهم شي هسة",
+  "console.fin_round_progress_aria": "تقدّم جولة الكاش",
+  "console.wall_minutes": "{n} دقيقة",
+  "console.wall_trend_a11y": "{label}: {direction}، أمس بهالوقت {value}"
 }
