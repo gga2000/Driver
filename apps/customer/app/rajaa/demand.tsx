@@ -151,7 +151,7 @@ export default function DemandScreen() {
         <View style={{ alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[4] }}>
           <View style={{ width: 112, height: 112, borderRadius: 56, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
             {others > 0 ? (
-              <Text variant="display" tabular color="accentText" style={{ fontSize: 44, lineHeight: 56 }}>
+              <Text variant="numeralMd" color="accentText">
                 {others}
               </Text>
             ) : (

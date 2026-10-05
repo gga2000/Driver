@@ -6,7 +6,7 @@ import type { MessageKey } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHead } from '@/features/intercity/BoardParts';
-import { clockLabel, dayPeriod } from '@/features/intercity/logic';
+import { clockBare, dayPeriod } from '@/features/intercity/logic';
 import { useNow } from '@/features/intercity/useNow';
 import { PlaceCard, RunProgress, SubstituteCard } from '@/features/khat/KhatParts';
 import { activeRunIndex, groupPlaces, runFinished, runStart } from '@/features/khat/logic';
@@ -130,7 +130,7 @@ export default function KhatRun() {
             <SegmentedControl
               options={trips.map((x, i) => {
                 const start = runStart(x);
-                return { value: x.tripId, label: start ? `${t('partner.kh_run_period', { period: t(`partner.ic_period_${dayPeriod(start)}` as MessageKey) })} · ${clockLabel(start)}` : String(i + 1) };
+                return { value: x.tripId, label: start ? `${t('partner.kh_run_period', { period: t(`partner.ic_period_${dayPeriod(start)}` as MessageKey) })} · ${clockBare(start)}` : String(i + 1) };
               })}
               value={trip.tripId}
               onChange={(v) => {

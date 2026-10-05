@@ -61,7 +61,7 @@ export const DOCUMENT_KIND_AR: Record<DriverDocumentKind, string> = {
 };
 
 const STATUS_AR: Record<DriverDocumentStatus, string> = {
-  pending: 'قيد المراجعة',
+  pending: 'دا نراجعه',
   approved: 'مقبول',
   rejected: 'مرفوض',
   expiring: 'ينتهي قريباً',

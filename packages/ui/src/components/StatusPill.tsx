@@ -44,7 +44,8 @@ export function StatusPill({ label, tone = 'neutral', icon, live, dot, size = 'm
           alignItems: 'center',
           alignSelf: 'flex-start',
           gap: 6,
-          height: size === 'sm' ? 24 : 30,
+          // A floor, not a fixed height: Arabic at large text needs the room (audit S-11).
+          minHeight: size === 'sm' ? 24 : 30,
           paddingHorizontal: size === 'sm' ? theme.space[2] : theme.space[3],
           borderRadius: theme.radius.pill,
           backgroundColor: theme.colors[c.bg],
@@ -61,7 +62,7 @@ export function StatusPill({ label, tone = 'neutral', icon, live, dot, size = 'm
         </View>
       ) : null}
       {icon ? <Icon name={icon} size={size === 'sm' ? 14 : 16} color={c.fg} strokeWidth={2} /> : null}
-      <Text variant={size === 'sm' ? 'caption' : 'footnote'} weight={600} color={c.fg} numberOfLines={1}>
+      <Text variant={size === 'sm' ? 'caption' : 'footnote'} weight={600} color={c.fg} numberOfLines={1} compact>
         {label}
       </Text>
     </View>

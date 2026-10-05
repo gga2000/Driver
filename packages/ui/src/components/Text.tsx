@@ -10,8 +10,13 @@ export interface TextProps extends RNTextProps {
   /** Override the variant's weight. */
   weight?: 400 | 500 | 600 | 700;
   align?: 'start' | 'center' | 'end';
-  /** Tabular digits for prices, timers and plates so columns don't jitter. */
+  /** Tabular digits for prices, timers and plates so columns don't jitter (always on for numerals). */
   tabular?: boolean;
+  /**
+   * Compact control label (chip, pill, badge, tab, segment): stops growing at 1.3× the OS text size
+   * so its box can hold it (audit S-11). Body copy leaves this off and scales freely.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -19,7 +24,7 @@ export interface TextProps extends RNTextProps {
  * on both native and web; `end` is resolved against the theme direction.
  */
 export const Text = forwardRef<RNText, TextProps>(function Text(
-  { variant = 'body', color = 'text', weight, align, tabular, style, ...rest },
+  { variant = 'body', color = 'text', weight, align, tabular, compact, style, ...rest },
   ref,
 ) {
   const theme = useTheme();
@@ -30,9 +35,11 @@ export const Text = forwardRef<RNText, TextProps>(function Text(
   const physical = Platform.OS === 'web' && theme.isRTL;
   const textAlign =
     align === 'center' ? 'center' : align === 'end' ? (physical ? 'left' : 'right') : align === 'start' ? (physical ? 'right' : 'left') : undefined;
+  const numeral = variant.startsWith('numeral') || variant === 'amount';
   return (
     <RNText
       ref={ref}
+      maxFontSizeMultiplier={compact ? theme.fontScale.compact : undefined}
       style={[
         {
           fontSize: t.size,
@@ -42,7 +49,7 @@ export const Text = forwardRef<RNText, TextProps>(function Text(
           ...theme.font(w),
         },
         textAlign ? { textAlign } : null,
-        tabular ? { fontVariant: ['tabular-nums'] } : null,
+        tabular || numeral ? { fontVariant: ['tabular-nums'] } : null,
         style,
       ]}
       {...rest}

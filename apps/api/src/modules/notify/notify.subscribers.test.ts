@@ -42,9 +42,9 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('ops.cash_received', { courierId: 'courier', amountIqd: 60_000, courierCashAfterIqd: -15_000 }))).toEqual([{ template: 'courier_cash_receipt', to: 'courier', params: { amount: '60,000', date: '2026-10-04', balance: '-15,000' } }]);
     expect(await one(event('wallet.topped_up', { customerId: 'cust', amountIqd: 25_000, reference: 'TU-7' }))).toEqual([{ template: 'wallet_topup_receipt', to: 'cust', params: { amount: '25,000', date: '2026-10-04', reference: 'TU-7' } }]);
     expect(await one(event('seat.booked', { bookingId: 'bk_1' }))).toEqual([
-      { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
+      { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30 ص', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
     ]);
-    expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', stopId: 'st1', notifyGuardian: true }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_child_arrived', to: 'guardian', params: { child: 'زينب', place: 'مدرسة الرافدين', time: '12:30' } }]);
+    expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', stopId: 'st1', notifyGuardian: true }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_child_arrived', to: 'guardian', params: { child: 'زينب', place: 'مدرسة الرافدين', time: '12:30 م' } }]);
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', notifyGuardian: false }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
     expect(await one(event('order.accepted', {}, { orderId: 'gone' }))).toEqual([]);

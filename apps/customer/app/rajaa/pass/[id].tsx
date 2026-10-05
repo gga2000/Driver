@@ -165,7 +165,7 @@ export default function BoardingPassScreen() {
           <Text variant="caption" color="accentText" weight={600}>
             {t('rajaa.pin_label')}
           </Text>
-          <Text testID="rajaa-pin" variant="display" tabular style={{ fontSize: 48, lineHeight: 64, letterSpacing: 14, paddingStart: 14 }}>
+          <Text testID="rajaa-pin" variant="numeralLg" style={{ letterSpacing: 14, paddingStart: 14 }}>
             {p?.pin ?? b.pin ?? '····'}
           </Text>
           <Text variant="footnote" color="accentText">

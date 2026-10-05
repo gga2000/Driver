@@ -134,7 +134,7 @@ export function BusySheet({ status, visible, onClose, now }: { status: StoreStat
         <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: on ? theme.colors.warningTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
           <MIcon name="flame" size={40} color={on ? 'warning' : 'textMuted'} />
         </View>
-        <Text weight={700} tabular style={{ fontSize: 36, lineHeight: 48 }} color={on ? 'warningText' : 'text'}>
+        <Text variant="numeralSm" color={on ? 'warningText' : 'text'}>
           {'\u2066+10\u2069'}
         </Text>
         <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 420 }}>
@@ -192,7 +192,7 @@ export function CashSheet({ merchantOrgId, balance, visible, onClose }: { mercha
         <Text variant="label" color="successText">
           {t('merchant.money.balance_label')}
         </Text>
-        <Text weight={700} tabular style={{ fontSize: 40, lineHeight: 54 }} color="successText">
+        <Text variant="numeralMd" color="successText">
           {iqd(amount, { locale })}
         </Text>
       </View>

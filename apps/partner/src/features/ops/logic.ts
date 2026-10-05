@@ -1,3 +1,4 @@
+import { formatClock } from '@driver/i18n';
 import { AZIZIYAH_ZONES, type LatLng, type OpsTaskKind, type SettlementMode } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { groupDigits } from '@/lib/money';
@@ -66,14 +67,9 @@ export function receiptKey(courierId: string, amountIqd: number, nonce: string):
 
 const BAGHDAD_OFFSET_MS = 3 * 3_600_000;
 
-/** Baghdad wall clock "9:42 م" (12-hour, Western digits; ص before noon). */
+/** Baghdad wall clock "9:42 م" (the one clock in packages/i18n). */
 export function baghdadClock(at: Date, locale: 'ar-IQ' | 'en' = 'ar-IQ'): string {
-  const local = new Date(at.getTime() + BAGHDAD_OFFSET_MS);
-  const h24 = local.getUTCHours();
-  const h = h24 % 12 || 12;
-  const m = String(local.getUTCMinutes()).padStart(2, '0');
-  const pm = h24 >= 12;
-  return locale === 'en' ? `${h}:${m} ${pm ? 'PM' : 'AM'}` : `${h}:${m} ${pm ? 'م' : 'ص'}`;
+  return formatClock(at, { locale });
 }
 
 /** Baghdad calendar date "3/10/2026" (day/month/year, as Iraqis write it). */

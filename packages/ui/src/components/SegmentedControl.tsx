@@ -53,6 +53,9 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
               width: segW,
               borderRadius: theme.radius.md,
               backgroundColor: theme.colors.surface,
+              // The chosen segment shows by outline and weight, not only by a 1.2:1 fill (audit S-04).
+              borderWidth: 1.5,
+              borderColor: theme.colors.accentText,
               shadowColor: theme.colors.shadow,
               shadowOpacity: theme.elevation[2].shadowOpacity,
               shadowRadius: 6,
@@ -78,9 +81,9 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
                 onChange(o.value);
               }
             }}
-            style={{ flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[2] }}
+            style={{ flex: 1, minHeight: theme.hitTarget, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[2] }}
           >
-            <Text variant="label" weight={selected ? 600 : 500} color={selected ? 'text' : 'textMuted'} numberOfLines={1}>
+            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'text' : 'textMuted'} numberOfLines={1} compact>
               {o.label}
             </Text>
           </Pressable>

@@ -5,6 +5,7 @@
  * Times: the backend's rules run on Baghdad wall time (UTC+3 all year), so window builders take a
  * `utcOffsetMin` (default 180) instead of trusting the device's time zone.
  */
+import { formatClock } from '@driver/i18n';
 import type {
   BoardSeat,
   BookingState,
@@ -401,11 +402,9 @@ export function hourLabel(at: Date, utcOffsetMin: number = IRAQ_UTC_OFFSET_MIN):
   return m === 0 ? String(h) : `${h}:${String(m).padStart(2, '0')}`;
 }
 
-/** `7:05` on a 12-hour local clock (same shape as @driver/ui formatClock, but on Baghdad time). */
+/** "7:05 م": the city's one clock with the part of day (packages/i18n `formatClock`). */
 export function clockLabel(at: Date, utcOffsetMin: number = IRAQ_UTC_OFFSET_MIN): string {
-  const local = new Date(at.getTime() + utcOffsetMin * MIN);
-  const h = local.getUTCHours() % 12 || 12;
-  return `${h}:${String(local.getUTCMinutes()).padStart(2, '0')}`;
+  return formatClock(at, { offsetMin: utcOffsetMin });
 }
 
 /**

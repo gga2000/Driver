@@ -197,7 +197,7 @@ function HandOver({ courier, onChange }: { courier: OpsCashHolder; onChange: () 
             keyboardType="number-pad"
             inputMode="numeric"
             accessibilityLabel={t('partner.ops_cash_amount')}
-            style={{ flex: 1, fontSize: 34, fontWeight: '700', color: theme.colors.text, fontFamily: 'IBM Plex Sans Arabic', textAlign: 'right', padding: 0, outlineStyle: 'none' } as never}
+            style={{ flex: 1, fontSize: theme.type.numeralSm.size, color: theme.colors.text, ...theme.font(700), fontVariant: ['tabular-nums'], textAlign: 'right', padding: 0, outlineStyle: 'none' } as never}
           />
           <Text variant="title" color="textMuted">
             دينار

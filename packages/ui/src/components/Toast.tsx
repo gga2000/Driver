@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { AccessibilityInfo, Platform, Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { t } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
+import { enqueueToast, remainingAfterPause, toastDuration, yieldsToNext } from '../logic/toast';
 import { useTheme } from '../theme/ThemeProvider';
 import { STATUS_TONES, type StatusTone } from './StatusPill';
 import { Text } from './Text';
@@ -23,16 +24,25 @@ const DEFAULT_ICON: Record<NonNullable<ToastData['tone']>, IconName> = {
   info: 'shield',
 };
 
+/** Never vanish right after a finger lifts or focus leaves: at least this long after a pause. */
+const MIN_AFTER_PAUSE_MS = 2000;
+
 export interface ToastProps extends ToastData {
   onDismiss?: () => void;
+  /** Play the exit (fade and drop, `accelerate`, `fast`) and call `onExited` when done. */
+  leaving?: boolean;
+  onExited?: () => void;
+  /** Touch, hover or keyboard focus on the toast: the provider holds its timer meanwhile. */
+  onHold?: (held: boolean) => void;
   style?: StyleProp<ViewStyle>;
 }
 
 /**
- * Ink-dark toast that springs up from the bottom; tone shows as the icon chip, so the message
- * stays high-contrast whatever the tone.
+ * Ink-dark toast that springs up from the bottom and drops away when it leaves; tone shows as the
+ * icon chip, so the message stays high-contrast whatever the tone. The close button is a full 44 px
+ * target, next to the action when there is one.
  */
-export function Toast({ message, tone = 'neutral', icon, action, onDismiss, style }: ToastProps) {
+export function Toast({ message, tone = 'neutral', icon, action, onDismiss, leaving = false, onExited, onHold, style }: ToastProps) {
   const theme = useTheme();
   const y = useSharedValue(theme.reduceMotion ? 0 : 24);
   const o = useSharedValue(theme.reduceMotion ? 1 : 0);
@@ -40,24 +50,33 @@ export function Toast({ message, tone = 'neutral', icon, action, onDismiss, styl
     y.value = withSpring(0, theme.motion.spring.gentle);
     o.value = withTiming(1, { duration: theme.motion.duration.fast });
   }, [y, o, theme.motion]);
+  useEffect(() => {
+    if (!leaving) return;
+    const done = () => onExited?.();
+    if (theme.reduceMotion) {
+      o.value = 0;
+      done();
+      return;
+    }
+    const [x1, y1, x2, y2] = theme.motion.bezier.accelerate;
+    const timing = { duration: theme.motion.duration.fast, easing: Easing.bezier(x1, y1, x2, y2) };
+    y.value = withTiming(16, timing);
+    o.value = withTiming(0, timing, (finished) => {
+      if (finished) runOnJS(done)();
+    });
+  }, [leaving, onExited, o, y, theme.reduceMotion, theme.motion]);
   const enter = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: y.value }] }));
   const c = STATUS_TONES[tone];
   // Inverted surface: the brand ink on light, cream on dark.
   const bg = theme.name === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
   const fg = theme.name === 'light' ? theme.colors.bg : theme.colors.text;
+  const hold = (held: boolean) => () => onHold?.(held);
   return (
     <Animated.View
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
       style={[
         {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: theme.space[3],
-          minHeight: 56,
-          paddingVertical: theme.space[2],
-          paddingStart: theme.space[2],
-          paddingEnd: theme.space[3],
           borderRadius: theme.radius.lg,
           backgroundColor: bg,
           shadowColor: theme.colors.shadow,
@@ -70,60 +89,152 @@ export function Toast({ message, tone = 'neutral', icon, action, onDismiss, styl
         style,
       ]}
     >
-      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.colors[c.bg], alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name={icon ?? DEFAULT_ICON[tone]} size={20} color={c.fg} strokeWidth={2} />
-      </View>
-      <Text variant="label" color={fg} style={{ flex: 1 }}>
-        {message}
-      </Text>
-      {action ? (
-        <Pressable accessibilityRole="button" onPress={action.onPress} hitSlop={8} style={{ paddingHorizontal: theme.space[2], minHeight: 44, justifyContent: 'center' }}>
-          <Text variant="label" weight={700} color={theme.name === 'light' ? theme.colors.accentTint : theme.colors.accentText}>
-            {action.label}
-          </Text>
-        </Pressable>
-      ) : onDismiss ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={t('ui.dismiss')} onPress={onDismiss} hitSlop={8} style={{ padding: theme.space[1] }}>
-          <Icon name="x" size={18} color={fg} />
-        </Pressable>
-      ) : null}
+      <Pressable
+        accessible={false}
+        focusable={false}
+        onPressIn={hold(true)}
+        onPressOut={hold(false)}
+        onHoverIn={hold(true)}
+        onHoverOut={hold(false)}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[2],
+          minHeight: 56,
+          paddingVertical: theme.space[1],
+          paddingStart: theme.space[2],
+          paddingEnd: theme.space[1],
+        }}
+      >
+        <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.colors[c.bg], alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon ?? DEFAULT_ICON[tone]} size={20} color={c.fg} strokeWidth={2} />
+        </View>
+        <Text variant="label" color={fg} style={{ flex: 1, marginStart: theme.space[1] }}>
+          {message}
+        </Text>
+        {action ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={action.onPress}
+            onFocus={hold(true)}
+            onBlur={hold(false)}
+            style={{ paddingHorizontal: theme.space[2], minHeight: theme.hitTarget, minWidth: theme.hitTarget, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text variant="label" weight={700} color={theme.name === 'light' ? theme.colors.accentTint : theme.colors.accentText}>
+              {action.label}
+            </Text>
+          </Pressable>
+        ) : null}
+        {onDismiss ? (
+          <Pressable
+            testID="toast-dismiss"
+            accessibilityRole="button"
+            accessibilityLabel={t('ui.dismiss')}
+            onPress={onDismiss}
+            onFocus={hold(true)}
+            onBlur={hold(false)}
+            style={{ width: theme.hitTarget, height: theme.hitTarget, alignItems: 'center', justifyContent: 'center', borderRadius: theme.hitTarget / 2 }}
+          >
+            <Icon name="x" size={18} color={fg} />
+          </Pressable>
+        ) : null}
+      </Pressable>
     </Animated.View>
   );
 }
 
 interface ToastApi {
+  /** Queue a toast. `durationMs` overrides the default (4 s, 8 s with an action, ×2 with a screen reader). */
   show: (toast: ToastData, durationMs?: number) => void;
+  /** Send the toast on screen away (it plays its exit, then the next waiting one shows). */
   hide: () => void;
 }
 
 const ToastContext = createContext<ToastApi>({ show: () => {}, hide: () => {} });
 
-/** Hosts one toast at a time at the bottom of the screen. */
+type Live = ToastData & { id: number; durationMs: number };
+
+function useScreenReader(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    // react-native-web always answers true (it can't tell), so only native asks.
+    if (Platform.OS === 'web') return;
+    let alive = true;
+    AccessibilityInfo.isScreenReaderEnabled?.()
+      .then((v) => alive && setOn(!!v))
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener?.('screenReaderChanged', (v: boolean) => setOn(!!v));
+    return () => {
+      alive = false;
+      sub?.remove?.();
+    };
+  }, []);
+  return on;
+}
+
+/**
+ * Hosts toasts at the bottom of the screen, one at a time with a short waiting line (audit S-21):
+ * timers pause while the toast is touched, hovered or focused, and every toast leaves with an exit.
+ */
 export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
   const theme = useTheme();
-  const [toast, setToast] = useState<(ToastData & { id: number }) | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hide = useCallback(() => setToast(null), []);
-  const show = useCallback<ToastApi['show']>(
-    (data, durationMs = 3500) => {
-      if (timer.current) clearTimeout(timer.current);
-      setToast({ ...data, id: Date.now() });
-      if (data.tone === 'danger') theme.haptic('error');
-      timer.current = setTimeout(hide, durationMs);
-    },
-    [hide, theme],
-  );
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
+  const screenReader = useScreenReader();
+  const [current, setCurrent] = useState<Live | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const [held, setHeld] = useState(false);
+  const waiting = useRef<Live[]>([]);
+  const currentRef = useRef<Live | null>(null);
+  currentRef.current = current;
+  const remaining = useRef(0);
+  const nextId = useRef(1);
+
+  const hide = useCallback(() => {
+    if (currentRef.current) setLeaving(true);
   }, []);
+
+  const show = useCallback<ToastApi['show']>(
+    (data, durationMs) => {
+      const item: Live = { ...data, id: nextId.current++, durationMs: toastDuration(data, { screenReader, override: durationMs }) };
+      if (data.tone === 'danger') theme.haptic('error');
+      if (!currentRef.current) {
+        remaining.current = item.durationMs;
+        setCurrent(item);
+        return;
+      }
+      waiting.current = enqueueToast(waiting.current, item);
+      if (yieldsToNext(currentRef.current)) setLeaving(true);
+    },
+    [screenReader, theme],
+  );
+
+  const onExited = useCallback(() => {
+    const next = waiting.current.shift() ?? null;
+    remaining.current = next?.durationMs ?? 0;
+    setHeld(false);
+    setLeaving(false);
+    setCurrent(next);
+  }, []);
+
+  // The timer runs only while the toast is on screen, not leaving and not held.
+  useEffect(() => {
+    if (!current || leaving || held) return;
+    const started = Date.now();
+    const ms = remaining.current;
+    const timer = setTimeout(() => setLeaving(true), ms);
+    return () => {
+      clearTimeout(timer);
+      remaining.current = Math.max(MIN_AFTER_PAUSE_MS, remainingAfterPause(ms, Date.now() - started));
+    };
+  }, [current, leaving, held]);
+
   const api = useMemo(() => ({ show, hide }), [show, hide]);
   return (
     <ToastContext.Provider value={api}>
       {children}
-      {toast ? (
+      {current ? (
         <View pointerEvents="box-none" style={{ position: 'absolute', start: theme.space[4], end: theme.space[4], bottom: bottomOffset, alignItems: 'center' }}>
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>
-            <Toast key={toast.id} {...toast} onDismiss={hide} />
+            <Toast key={current.id} {...current} leaving={leaving} onExited={onExited} onHold={setHeld} onDismiss={hide} />
           </View>
         </View>
       ) : null}

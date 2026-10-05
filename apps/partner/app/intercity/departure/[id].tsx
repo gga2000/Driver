@@ -9,6 +9,7 @@ import { DriverSeatMap, PickupRoute, PinPad, RiderRow, StepRow } from '@/feature
 import { cityName, countdownLabel, dayAndPeriod, departureState, paymentLabel, pickupLabel, riderName, seatName, statusLabel, travellingAsLabel } from '@/features/intercity/labels';
 import {
   ANNOUNCE_RULES,
+  clockBare,
   clockLabel,
   corridorCity,
   departReadiness,
@@ -246,7 +247,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
             <View style={{ flex: 1 }}>
               <Text variant="display" tabular style={{ lineHeight: 40 }}>
-                {clockLabel(dep.departAt)}
+                {clockBare(dep.departAt)}
               </Text>
               <Text variant="label" color="textMuted">
                 {dayAndPeriod(t, dep.departAt, now)}

@@ -96,7 +96,7 @@ function DriverCell({ w, h }: { w: number; h: number }) {
       <Svg width={24} height={24} viewBox="0 0 24 24">
         <Path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3.5 11h17M12 14v6.5M9 11a3 3 0 0 0 6 0" stroke={theme.colors.textMuted} strokeWidth={1.8} fill="none" strokeLinecap="round" />
       </Svg>
-      <Text variant="caption" color="textMuted" style={{ fontSize: 11, lineHeight: 16 }}>
+      <Text variant="caption" color="textMuted">
         {t('seat.driver')}
       </Text>
     </View>
@@ -195,7 +195,7 @@ function SeatCell({ occ, w, h, selected, onPress, editable }: { occ: SeatOccupan
       <Text variant="label" weight={700} numberOfLines={1} color={occ.kind === 'rider' ? 'text' : fg} style={{ lineHeight: 20 }}>
         {title}
       </Text>
-      <Text variant="caption" weight={600} numberOfLines={1} color={fg} tabular style={{ fontSize: 11, lineHeight: 15 }}>
+      <Text variant="caption" weight={600} numberOfLines={1} color={fg} tabular compact style={{ lineHeight: 16 }}>
         {sub}
       </Text>
     </Pressable>

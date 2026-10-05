@@ -1,23 +1,35 @@
 import type { CannedResponse, DisputeKind, TicketKind, TicketStatus } from '@driver/contracts';
+import { t, type MessageKey } from '@driver/i18n';
+
+type Action = CannedResponse['action'];
 
 /**
  * Canned Iraqi-Arabic answers for the top situations (support spec §2), each with its one-tap action.
- * Amounts are the default the agent can change before sending; Western digits per the voice guide.
+ * Amounts are the default the agent can change before sending. The words are
+ * `support.reply.<key>.title` / `.text` in packages/i18n, so they pass the voice test (audit S-08).
  */
-export const CANNED_RESPONSES: readonly CannedResponse[] = [
-  { key: 'late_sorry', title_ar: 'تأخير', text_ar: 'حقّك علينا، الطلب تأخّر عليك. ضفنا لك 1,000 دينار رصيد بالمحفظة، وإن شاء الله ما تتكرر.', action: 'refund', amountIqd: 1000 },
-  { key: 'cold_food', title_ar: 'الأكل بارد', text_ar: 'نعتذر منك، الأكل وصلك بارد. رجّعنالك أجرة التوصيل رصيد بالمحفظة، وراح نتابع ويا المندوب.', action: 'fault_courier', amountIqd: 1000 },
-  { key: 'missing_item', title_ar: 'غرض ناقص', text_ar: 'شفنا طلبك، الغرض الناقص على المطعم. رجّعنالك سعره رصيد بالمحفظة.', action: 'fault_merchant', amountIqd: null },
-  { key: 'wrong_item', title_ar: 'غرض غلط', text_ar: 'نعتذر، المطعم دزّلك غرض غير اللي طلبته. رجّعنالك سعره رصيد وبلّغنا المطعم.', action: 'fault_merchant', amountIqd: null },
-  { key: 'not_delivered', title_ar: 'الطلب ما وصل', text_ar: 'دا نتابع ويا المندوب هسة. نرجعلك خلال ربع ساعة بجواب واضح.', action: 'none', amountIqd: null },
-  { key: 'courier_rude', title_ar: 'تعامل المندوب', text_ar: 'نعتذر منك على هالتصرف. سجّلنا الملاحظة على المندوب وراح نتابعها وياه.', action: 'fault_courier', amountIqd: null },
-  { key: 'ride_fare', title_ar: 'خلاف على الأجرة', text_ar: 'الأجرة اللي شفتها قبل الحجز هي اللي تدفعها. إذا انطلب منك أكثر، رجّعنالك الفرق رصيد بالمحفظة.', action: 'refund', amountIqd: null },
-  { key: 'refund_done', title_ar: 'تم التعويض', text_ar: 'تم، ضفنا التعويض لمحفظتك. تگدر تستخدمه بطلبك الجاي.', action: 'none', amountIqd: null },
-  { key: 'big_refund_cash', title_ar: 'تعويض كاش', text_ar: 'المبلغ راح يوصلك كاش ويا أول مندوب يمرّك، أو تستلمه من وكيل قريب عليك.', action: 'escalate', amountIqd: null },
-  { key: 'escalate_money', title_ar: 'تصعيد', text_ar: 'حوّلنا مشكلتك للمسؤول، وراح نرجعلك اليوم إن شاء الله.', action: 'escalate', amountIqd: null },
-  { key: 'after_hours', title_ar: 'خارج الدوام', text_ar: 'وصلتنا رسالتك. الدعم يرجع الساعة 10 الصبح ونحل مشكلتك أول شي.', action: 'none', amountIqd: null },
-  { key: 'resolve_thanks', title_ar: 'إغلاق', text_ar: 'إن شاء الله انحلّت. إذا بعد تحتاج شي احنا موجودين من 10 الصبح لـ 12 بالليل.', action: 'resolve', amountIqd: null },
+const CANNED: ReadonlyArray<{ key: string; action: Action; amountIqd: number | null }> = [
+  { key: 'late_sorry', action: 'refund', amountIqd: 1000 },
+  { key: 'cold_food', action: 'fault_courier', amountIqd: 1000 },
+  { key: 'missing_item', action: 'fault_merchant', amountIqd: null },
+  { key: 'wrong_item', action: 'fault_merchant', amountIqd: null },
+  { key: 'not_delivered', action: 'none', amountIqd: null },
+  { key: 'courier_rude', action: 'fault_courier', amountIqd: null },
+  { key: 'ride_fare', action: 'refund', amountIqd: null },
+  { key: 'refund_done', action: 'none', amountIqd: null },
+  { key: 'big_refund_cash', action: 'escalate', amountIqd: null },
+  { key: 'escalate_money', action: 'escalate', amountIqd: null },
+  { key: 'after_hours', action: 'none', amountIqd: null },
+  { key: 'resolve_thanks', action: 'resolve', amountIqd: null },
 ];
+
+export const CANNED_RESPONSES: readonly CannedResponse[] = CANNED.map((c) => ({
+  key: c.key,
+  title_ar: t(`support.reply.${c.key}.title` as MessageKey),
+  text_ar: t(`support.reply.${c.key}.text` as MessageKey),
+  action: c.action,
+  amountIqd: c.amountIqd,
+}));
 
 /** The pre-selected answer per dispute kind (support spec §3 "suggested resolution pre-selected"). */
 export const SUGGESTED_BY_DISPUTE: Partial<Record<DisputeKind, { cannedKey: string; reason_ar: string }>> = {

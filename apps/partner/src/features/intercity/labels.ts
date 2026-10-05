@@ -1,10 +1,10 @@
 import type { DriverBookingRow, IntercityDepartureState, IntercitySeatId, RequestState, TravellingAs } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
+import { formatMinutes, type MessageKey } from '@driver/i18n';
 import { ltr } from '@driver/ui';
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
-import { clockLabel, dayOffset, dayPeriod, minutesUntil, windowLabel, type RiderStatus } from './logic';
+import { clockBare, dayOffset, dayPeriod, minutesUntil, windowLabel, type RiderStatus } from './logic';
 
 /** Copy helpers for the intercity screens (every string from @driver/i18n). */
 
@@ -16,7 +16,7 @@ export function cityName(t: TFn, cityId: string): string {
 
 /** "7:30 الصبح". */
 export function timeWithPeriod(t: TFn, at: Date): string {
-  return `${clockLabel(at)} ${t(`partner.ic_period_${dayPeriod(at)}` as MessageKey)}`;
+  return `${clockBare(at)} ${t(`partner.ic_period_${dayPeriod(at)}` as MessageKey)}`;
 }
 
 /** "اليوم · الصبح" / "باچر · المغرب" (under a big clock). */
@@ -32,7 +32,7 @@ function dayName(t: TFn, at: Date, now: Date): string {
 /** "اليوم الساعة 7:30 الصبح" / "باچر الساعة …". */
 export function whenLabel(t: TFn, at: Date, now: Date): string {
   const day = dayName(t, at, now);
-  return t('partner.ic_when', { day, time: clockLabel(at), period: t(`partner.ic_period_${dayPeriod(at)}` as MessageKey) });
+  return t('partner.ic_when', { day, time: clockBare(at), period: t(`partner.ic_period_${dayPeriod(at)}` as MessageKey) });
 }
 
 /** "7:00–8:00", kept in one left-to-right piece inside Arabic. */
@@ -58,7 +58,7 @@ export function countdownLabel(t: TFn, departAt: Date, now: Date): string {
   const m = minutesUntil(departAt, now);
   if (m < 0) return t('partner.ic_dep_late', { n: -m });
   if (m === 0) return t('partner.ic_dep_now');
-  if (m >= 60) return t('partner.ic_dep_in_hours', { h: Math.floor(m / 60), m: m % 60 });
+  if (m >= 60) return t('partner.ic_dep_in_hours', { duration: formatMinutes(m) });
   return t('partner.ic_dep_in', { n: m });
 }
 

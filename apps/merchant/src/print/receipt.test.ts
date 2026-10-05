@@ -61,7 +61,7 @@ describe('kitchen ticket (80 mm)', () => {
     expect(r.lines.slice(0, 4)).toEqual([
       { kind: 'title', text: 'مطعم خالد' },
       { kind: 'number', text: 'طلب #4821' },
-      { kind: 'meta', text: 'انطلب 7:42  ·  جاهز 8:07' },
+      { kind: 'meta', text: 'انطلب 7:42 م  ·  جاهز 8:07 م' },
       { kind: 'payment', text: 'كاش: الدليفري يستلم 26,000 دينار', cash: true },
     ]);
   });

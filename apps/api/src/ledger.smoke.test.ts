@@ -79,13 +79,13 @@ describe('ledger router smoke', () => {
     expect(codeOf(await fin.client.ledger.requestSettlement.mutate({ merchantId: 'smoke-empty' }).catch((e: unknown) => e))).toBe('settlement_nothing_due/409');
   });
 
-  it('runNightly: finance gets "الدفتر متوازن ✓"; a customer is forbidden', async () => {
+  it('runNightly: finance gets "الدفتر متوازن"; a customer is forbidden', async () => {
     const customer = await login('07712345104');
     expect(codeOf(await customer.client.ledger.runNightly.mutate().catch((e: unknown) => e))).toBe('forbidden/403');
     const fin = await login('07712345105', [{ kind: 'finance' }]);
     const report = await fin.client.ledger.runNightly.mutate();
     expect(report.ok).toBe(true);
-    expect(report.message_ar).toBe('الدفتر متوازن ✓');
+    expect(report.message_ar).toBe('الدفتر متوازن');
     expect(report.drivers.length).toBeGreaterThanOrEqual(1);
   });
 });

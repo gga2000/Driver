@@ -22,7 +22,7 @@ describe('nightly close (02:00 Asia/Baghdad)', () => {
     await h.posting.ride({ tripId: 't1', occurredAt: new Date('2026-10-03T12:00:00Z'), customerId: 'c2', payment: 'wallet', driverId: 'd1', takeClass: 'car', fareIqd: 5000 });
     const report = await h.facade.runNightly({ requestedBy: 'fin1' });
     expect(report.ok).toBe(true);
-    expect(report.message_ar).toBe('الدفتر متوازن ✓');
+    expect(report.message_ar).toBe('الدفتر متوازن');
     expect(report.money).toMatchObject({ ok: true, net: 0 });
     expect(report.points).toMatchObject({ ok: true, net: 0, events: 2 });
     expect(report.kindViolations).toBe(0);

@@ -91,8 +91,15 @@ export interface ThemeColors {
   /** Accent-coloured text (links, totals, "+2,000") — the fill is too light to read as text. */
   accentText: string;
   border: string;
-  /** Visible outlines: focused inputs, dashed held seats, unselected chip outline. */
+  /**
+   * Boundaries people must see (WCAG 1.4.11, ≥ 3:1): text fields at rest, secondary button outline,
+   * free and blocked seats. Decorative card borders and dividers use `border`.
+   */
   borderStrong: string;
+  /** Outline of a selected chip, drawn with the check icon so selection never rests on colour alone. */
+  accentBorder: string;
+  /** Keyboard focus ring and focused field border: ink on light, cream on dark. */
+  focusRing: string;
   success: string;
   successTint: string;
   successText: string;
@@ -131,7 +138,9 @@ const light: ThemeColors = {
   accentTint: '#FCEBD3',
   accentText: '#9A5200',
   border: '#EADFCF',
-  borderStrong: '#B3A594',
+  borderStrong: '#8C7F6F',
+  accentBorder: '#C27214',
+  focusRing: '#1F1A14',
   success: '#2F8F5B',
   successTint: '#E3F2E8',
   successText: '#23744A',
@@ -164,7 +173,9 @@ const dark: ThemeColors = {
   accentTint: '#3B2914',
   accentText: '#F5B45E',
   border: '#3A3027',
-  borderStrong: '#6E6154',
+  borderStrong: '#8C7F6F',
+  accentBorder: '#F5B45E',
+  focusRing: '#F6EFE4',
   success: '#4DB27A',
   successTint: '#183224',
   successText: '#7ACF9D',
@@ -225,6 +236,26 @@ export const contrastPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey
   { fg: 'text', bg: 'infoTint', use: 'walk-up seat label' },
   { fg: 'bg', bg: 'text', use: 'toast message (inverted surface, light theme)' },
   { fg: 'accentTint', bg: 'text', use: 'toast action (inverted surface, light theme)' },
+];
+
+/**
+ * Every boundary, focus indicator and selected-state cue `@driver/ui` draws that people need to see
+ * to use a control (WCAG 1.4.11): 3:1 against what sits next to it. Checked in `contrast.test.ts`
+ * for both themes. Decorative borders (cards, dividers) are deliberately not listed.
+ */
+export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey; use: string }> = [
+  { fg: 'borderStrong', bg: 'bg', use: 'text field at rest, secondary button outline on the screen' },
+  { fg: 'borderStrong', bg: 'surface', use: 'text field at rest on a card, free seat outline' },
+  { fg: 'borderStrong', bg: 'surfaceRaised', use: 'text field inside a sheet' },
+  { fg: 'focusRing', bg: 'bg', use: 'keyboard focus ring on the screen' },
+  { fg: 'focusRing', bg: 'surface', use: 'keyboard focus ring on a card' },
+  { fg: 'focusRing', bg: 'surfaceSunken', use: 'focused text field border' },
+  { fg: 'danger', bg: 'surfaceSunken', use: 'text field error border' },
+  { fg: 'accentBorder', bg: 'surface', use: 'selected chip outline on a card' },
+  { fg: 'accentBorder', bg: 'bg', use: 'selected chip outline on the screen' },
+  { fg: 'accentText', bg: 'surface', use: 'selected segment thumb outline, check on a selected row' },
+  { fg: 'accentText', bg: 'accentTint', use: 'check icon on a selected list row' },
+  { fg: 'onAccent', bg: 'accent', use: 'check icon on a selected chip or seat' },
 ];
 
 /** Spacing scale of 4. Keys are multipliers; values are px. */
@@ -295,8 +326,22 @@ export const type = {
   heading: { size: 22, lineHeight: 36, weight: 700 },
   display: { size: 30, lineHeight: 46, weight: 700 },
   amount: { size: 26, lineHeight: 34, weight: 700 },
+  /** Hero numbers (earnings, cash to hand in, PIN, countdowns): tabular digits, bold. */
+  numeralSm: { size: 34, lineHeight: 44, weight: 700 },
+  numeralMd: { size: 44, lineHeight: 56, weight: 700 },
+  numeralLg: { size: 48, lineHeight: 64, weight: 700 },
 } as const;
 export type TypeVariant = keyof typeof type;
+
+/** The smallest text anywhere (audit S-10): Arabic dots and stacked forms blur below 12 px. */
+export const minFontSize = 12;
+
+/**
+ * Large-text policy (audit S-11): body copy scales with the OS setting without limit; compact
+ * controls whose height must hold (chips, pills, badges, tab labels, segment labels) stop growing
+ * at 1.3× and grow in height (`minHeight`) instead of clipping.
+ */
+export const fontScale = { compact: 1.3 } as const;
 
 export const motion = {
   duration: {
@@ -336,6 +381,8 @@ export const motion = {
     /** Toast enter. */
     gentle: { damping: 18, stiffness: 160, mass: 1 },
   },
+  /** Toast timing (audit S-21): longer with an action, longer again with a screen reader. */
+  toast: { plainMs: 4000, actionMs: 8000, screenReaderFactor: 2, queue: 2 },
   /** Scale applied while a pressable is held. */
   pressScale: 0.97,
 } as const;
@@ -375,6 +422,8 @@ export const state = {
   hoverOpacity: 0.04,
   pressedOpacity: 0.08,
   focusRingWidth: 2,
+  /** Gap between a control and its focus ring (the screen shows through). */
+  focusRingOffset: 2,
   disabledOpacity: 0.4,
   /** Overlay colour for state layers, per theme (ink on light, cream on dark). */
   layer: { light: '#1F1A14', dark: '#F6EFE4' },
@@ -395,5 +444,7 @@ export const tokens = {
   elevation,
   state,
   hitTarget,
+  minFontSize,
+  fontScale,
 } as const;
 export type Tokens = typeof tokens;

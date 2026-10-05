@@ -52,7 +52,7 @@ export function HandoverSheet({ visible, onClose, heldIqd, owedIqd }: { visible:
                   elevation: 2,
                 }}
               >
-                <Text tabular weight={700} style={{ fontSize: 40, lineHeight: 52 }}>
+                <Text variant="numeralMd">
                   {d}
                 </Text>
               </View>

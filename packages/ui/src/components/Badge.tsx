@@ -29,10 +29,11 @@ export function Badge({ count, tone = 'accent', style }: BadgeProps) {
       accessibilityLabel={label}
       style={[
         {
-          minWidth: 20,
-          height: 20,
+          // 12 px count (the type floor, audit S-10) in a 22 px bubble that grows with large text.
+          minWidth: 22,
+          minHeight: 22,
           paddingHorizontal: 5,
-          borderRadius: 10,
+          borderRadius: 11,
           backgroundColor: bg,
           alignItems: 'center',
           justifyContent: 'center',
@@ -42,7 +43,7 @@ export function Badge({ count, tone = 'accent', style }: BadgeProps) {
         style,
       ]}
     >
-      <Text variant="caption" weight={700} color={fg} tabular style={{ fontSize: 11, lineHeight: 14 }}>
+      <Text variant="caption" weight={700} color={fg} tabular compact style={{ lineHeight: 16 }}>
         {label}
       </Text>
     </View>

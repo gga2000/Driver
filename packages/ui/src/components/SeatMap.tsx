@@ -119,7 +119,7 @@ function Seat({
       >
         {l.icon ? <Icon name={l.icon} size={size.w < 48 ? 18 : 20} color={l.fg} strokeWidth={selected ? 2.4 : 1.9} /> : null}
         {premium && !selected && size.w >= 48 ? (
-          <Text variant="caption" weight={700} color={l.fg} tabular style={{ fontSize: 11, lineHeight: 14 }}>
+          <Text variant="caption" weight={700} color={l.fg} tabular compact style={{ lineHeight: 16 }}>
             {premium}
           </Text>
         ) : null}

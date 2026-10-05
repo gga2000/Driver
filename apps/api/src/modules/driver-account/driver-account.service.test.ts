@@ -162,7 +162,7 @@ describe('driverAccount.documents', () => {
     const d = await h.person('07700000001', ['driver']);
     const up = await h.upload(d.personId);
     const doc = await h.service.uploadDocument(d, { kind: 'licence', uploadId: up });
-    expect(doc).toMatchObject({ kind: 'licence', status: 'pending', status_ar: 'قيد المراجعة', kind_ar: 'إجازة السوق' });
+    expect(doc).toMatchObject({ kind: 'licence', status: 'pending', status_ar: 'دا نراجعه', kind_ar: 'إجازة السوق' });
     // The ref is in the vault, not in the public row.
     expect(await h.id.repo.vaultRefs(d.personId, 'documentRefs')).toEqual([expect.objectContaining({ ref: up, kind: 'licence', recordId: doc.id })]);
     expect(JSON.stringify(h.repo.documents.get(doc.id))).not.toContain(up);

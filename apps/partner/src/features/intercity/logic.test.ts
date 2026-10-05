@@ -51,10 +51,10 @@ function row(over: Partial<DriverBookingRow> & { bookingId: string }): DriverBoo
 
 describe('clock and windows (Baghdad time)', () => {
   it('labels 12-hour clocks, day parts and windows in Baghdad time', () => {
-    expect(clockLabel(NOW)).toBe('10:00');
+    expect(clockLabel(NOW)).toBe('10:00 م');
     expect(dayPeriod(NOW)).toBe('night');
     expect(dayPeriod(new Date('2026-10-04T04:30:00Z'))).toBe('morning');
-    expect(windowLabel(at(60), at(120))).toBe('11:00–12:00');
+    expect(windowLabel(at(60), at(120))).toBe('11:00 م–12:00 ص');
     expect(dayOffset(at(180), NOW)).toBe(1);
     expect(minutesUntil(at(-12), NOW)).toBe(-12);
   });

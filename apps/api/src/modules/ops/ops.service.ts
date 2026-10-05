@@ -270,7 +270,7 @@ export class OpsService implements OpsPort {
       computed.push({
         taskId: `cash:${h.driverId}`,
         kind: 'cash_collection',
-        title_ar: s.overCap ? `استلم كاش من المندوب — فوگ السقف (${s.owedIqd})` : `استلم كاش من المندوب (${s.owedIqd})`,
+        title_ar: s.overCap ? `استلم كاش من الدليفري — فوگ السقف (${s.owedIqd})` : `استلم كاش من الدليفري (${s.owedIqd})`,
         refId: h.driverId,
         amountIqd: s.owedIqd,
         dueAt: null,

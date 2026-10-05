@@ -701,7 +701,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
 }
 
 function faultAr(f: FaultParty): string {
-  return { none: 'ماكو طرف', courier: 'المندوب', merchant: 'المطعم', platform: 'درايفر', customer: 'الزبون' }[f];
+  return { none: 'ماكو طرف', courier: 'الدليفري', merchant: 'المطعم', platform: 'درايفر', customer: 'الزبون' }[f];
 }
 
 function toLog(e: StoredEvent): EventLogEntry {

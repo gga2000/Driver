@@ -18,6 +18,7 @@ import {
   type ZoneCapacityView,
   type ZoneLoadState,
 } from '@driver/contracts';
+import { formatClock, t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
@@ -69,24 +70,20 @@ export interface OrderGate {
 export type ActiveOrdersByZone = (cityId: string) => Promise<Map<string, number>>;
 
 function quarterHour(etaMin: number): string {
-  if (etaMin === 15) return 'ربع ساعة';
-  if (etaMin === 30) return 'نص ساعة';
-  if (etaMin === 60) return 'ساعة';
-  return `${etaMin} دقيقة`;
+  if (etaMin === 15) return t('console.wait_quarter');
+  if (etaMin === 30) return t('console.wait_half');
+  if (etaMin === 60) return t('console.wait_hour');
+  return t('console.wait_min', { n: etaMin });
 }
 
 /** The honest refusal: "الطلبات هواية هسة بمنطقتك، جرّب بعد ربع ساعة" (queue mode offers the slot). */
 export function throttleMessage(etaMin: number, mode: 'refuse' | 'queue'): string {
-  const base = `الطلبات هواية هسة بمنطقتك، جرّب بعد ${quarterHour(etaMin)}`;
-  return mode === 'queue' ? `${base} أو احجز طلبك لبعد ${quarterHour(etaMin)} ويوصلك بوقته` : base;
+  return t(mode === 'queue' ? 'console.ctl_throttle_queue' : 'console.ctl_throttle_refuse', { wait: quarterHour(etaMin) });
 }
 
-/** "11:30 م" in Baghdad (UTC+3 all year), Western digits, as the voice guide writes a time. */
+/** "11:30 م" on the city's one clock (`formatClock` in packages/i18n). */
 export function baghdadClock(d: Date): string {
-  const local = new Date(d.getTime() + 3 * 3_600_000);
-  const h24 = local.getUTCHours();
-  const h = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${h}:${String(local.getUTCMinutes()).padStart(2, '0')} ${h24 < 12 ? 'ص' : 'م'}`;
+  return formatClock(d);
 }
 
 export function loadState(maxActive: number | null, active: number, killed: boolean): { load: number; state: ZoneLoadState } {
@@ -167,23 +164,24 @@ export class ControlsService implements ControlsPort {
    */
   private async refusalFor(s: KillSwitchRecord, cityId: string): Promise<string> {
     if (s.messageAr) return s.messageAr;
-    const until = s.expiresAt ? ` لحد الساعة ${baghdadClock(s.expiresAt)}` : '';
+    // The same words the Console previews (console.ctl_refusal_*), so the preview is the refusal.
+    const time = s.expiresAt ? baghdadClock(s.expiresAt) : null;
+    const say = (scope: 'vertical' | 'zone' | 'restaurant' | 'corridor', name: string) =>
+      time ? t(`console.ctl_refusal_${scope}_until`, { name, time }) : t(`console.ctl_refusal_${scope}`, { name });
     switch (s.scope) {
       case 'vertical':
-        return until
-          ? `خدمة ${VERTICAL_AR[s.key as Vertical] ?? s.key} موقّفة${until}. جرّب بعدها`
-          : `خدمة ${VERTICAL_AR[s.key as Vertical] ?? s.key} موقّفة هسة. جرّب بعدين`;
+        return say('vertical', VERTICAL_AR[s.key as Vertical] ?? s.key);
       case 'zone':
-        return until ? `ما نگدر نخدم منطقة ${this.zoneName(cityId, s.key)}${until}. جرّب بعدها` : `ما نگدر نخدم منطقة ${this.zoneName(cityId, s.key)} هسة. جرّب بعدين`;
+        return say('zone', this.zoneName(cityId, s.key));
       case 'restaurant': {
         const name = await this.orgs
           .get(s.key)
           .then((o) => o.name)
-          .catch(() => 'المطعم');
-        return until ? `${name} موقّف الطلبات${until}. جرّب مطعم ثاني` : `${name} موقّف الطلبات مؤقتاً. جرّب مطعم ثاني`;
+          .catch(() => t('restaurant.fallback_name'));
+        return say('restaurant', name);
       }
       case 'corridor':
-        return `حجز ${this.corridors.find((c) => c.id === s.key)?.name_ar ?? 'هذا الخط'} موقّف${until || ' مؤقتاً'}`;
+        return say('corridor', this.corridors.find((c) => c.id === s.key)?.name_ar ?? t('rajaa.fallback_corridor'));
     }
   }
 

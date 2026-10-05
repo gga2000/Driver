@@ -205,7 +205,7 @@ const NUDGES: Record<ScoreMetricKey, (m: ScoreMetric) => { ar: string; en: strin
     en: `Your acceptance is ${m.display}, below the Silver line. Accept nearby offers to get back above it.`,
   }),
   completion: () => ({
-    ar: 'عندك إلغاءات بعد القبول. كمّل الطلب أو كلّم الموزّع بدل ما تلغي.',
+    ar: 'عندك إلغاءات بعد القبول. كمّل الطلب أو كلّم الديسباتشر بدل ما تلغي.',
     en: 'You cancelled jobs after accepting. Finish the job or call dispatch instead of cancelling.',
   }),
   on_time: (m) => ({

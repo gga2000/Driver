@@ -1,4 +1,4 @@
-import { t as sharedT, type MessageKey } from '@driver/i18n';
+import { resolvePlural, t as sharedT, type MessageKey } from '@driver/i18n';
 import ar from '../../locales/ar.json';
 import en from '../../locales/en.json';
 
@@ -20,10 +20,20 @@ function interpolate(template: string, params?: Params): string {
   return template.replace(/\{(\w+)\}/g, (_, name: string) => (name in params ? String(params[name]) : `{${name}}`));
 }
 
-/** Local table first (falls back to Arabic), then the shared one; unknown keys render as themselves. */
+const hasLocal = (k: string) => Object.prototype.hasOwnProperty.call(LOCAL['ar-IQ'], k);
+
+/**
+ * Local table first (falls back to Arabic), then the shared one; unknown keys render as themselves.
+ * Counted phrases pick their Arabic plural form ("صنفين", "5 أصناف", "11 صنف") from `_one/_two/_few`
+ * siblings, exactly like the shared `t()`.
+ */
 export function translate(key: TKey, params: Params | undefined, locale: Locale): string {
-  const local = LOCAL[locale][key] ?? LOCAL['ar-IQ'][key];
-  if (local !== undefined) return interpolate(local, params);
+  const base = LOCAL['ar-IQ'][key];
+  if (base !== undefined) {
+    const k = resolvePlural(key, base, params, hasLocal);
+    const local = LOCAL[locale][k] ?? LOCAL['ar-IQ'][k] ?? base;
+    return interpolate(local, params);
+  }
   return sharedT(key as MessageKey, params, locale);
 }
 
