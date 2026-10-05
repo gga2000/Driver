@@ -70,6 +70,8 @@ export interface PartnerDeps {
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;
     get(tripId: string): Promise<Trip>;
+    /** Pickups per zone of trips created in `[from, to)` (the demand forecast). Optional for fakes. */
+    pickupsByZone?(cityId: string, from: Date, to: Date): Promise<Map<string, number>>;
     /** His last stored fix on a trip (the job's road starts there). Optional for fakes. */
     lastPosition?(tripId: string): Promise<{ pin: LatLng; driverId: string } | null>;
   };

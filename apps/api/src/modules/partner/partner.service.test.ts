@@ -260,6 +260,15 @@ describe('PartnerService', () => {
     expect(await harness({ trips: [], roads: [] }).jobRoute(actor)).toMatchObject({ polyline6: null });
   });
 
+  it('demandMap (maps program d5): waiting now, the usual pickups this hour, drivers there', async () => {
+    const m = await harness().demandMap(actor);
+    // The harness: three jobs waiting in the centre, drivers in the centre and zakur, no history.
+    expect(m.zones).toEqual([
+      { zoneId: 'centre', waiting: 3, expected: 0, drivers: 1, level: 'hot' },
+      { zoneId: 'zakur', waiting: 0, expected: 0, drivers: 1, level: 'calm' },
+    ]);
+  });
+
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {
     const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
     const offer = await harness({ online: true, offerTrip: t }).currentOffer(actor);

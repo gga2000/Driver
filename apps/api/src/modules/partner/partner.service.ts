@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  DEMAND_MAP_RULES,
   DriverError,
   PARTNER_DRIVING_ROLES,
   partnerCurrentStop,
@@ -7,6 +8,7 @@ import {
   type Actor,
   type Order,
   type OrderRoute,
+  type PartnerDemandMap,
   type PartnerGoOnlineInput,
   type PartnerJob,
   type PartnerJobStop,
@@ -21,8 +23,11 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
+
+/** The demand forecast is re-read at most this often per city. */
+const FORECAST_CACHE_MS = 5 * 60_000;
 
 /**
  * `ctx.partner`: the Driver Partner app's own reads and presence. Composes dispatch (presence in
@@ -32,6 +37,8 @@ import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } fr
  */
 @Injectable()
 export class PartnerService implements PartnerPort {
+  private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
+
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
     @Inject(CLOCK) private readonly clock: Clock,
@@ -197,6 +204,32 @@ export class PartnerService implements PartnerPort {
     if (!from || ahead.length === 0) return none;
     const r = await this.deps.roads.path([from, ...ahead]);
     return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+  }
+
+  async demandMap(actor: Actor): Promise<PartnerDemandMap> {
+    const now = this.clock.now();
+    const cityId = (await this.deps.presence.get(actor.personId))?.cityId ?? DEFAULT_CITY;
+    const [waiting, drivers, expected] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId), this.expectedPickups(cityId, now)]);
+    return { zones: demandZones(waiting, drivers, expected), at: now };
+  }
+
+  /**
+   * The forecast (pickups this coming hour, same weekday, average of the last weeks), cached per city
+   * for five minutes: every online driver reads the map each minute and history does not move.
+   */
+  private async expectedPickups(cityId: string, now: Date): Promise<Map<string, number>> {
+    const bucket = Math.floor(now.getTime() / FORECAST_CACHE_MS);
+    const hit = this.forecasts.get(cityId);
+    if (hit && hit.bucket === bucket) return hit.byZone;
+    const count = this.deps.trips.pickupsByZone;
+    const byZone = new Map<string, number>();
+    if (count) {
+      for (const w of forecastWindows(now, DEMAND_MAP_RULES.weeks)) {
+        for (const [zone, n] of await count(cityId, w.from, w.to)) byZone.set(zone, (byZone.get(zone) ?? 0) + n / DEMAND_MAP_RULES.weeks);
+      }
+    }
+    this.forecasts.set(cityId, { bucket, byZone });
+    return byZone;
   }
 
   /** The job on screen: the trip he accepted first (a batch shows its second order as more stops). */

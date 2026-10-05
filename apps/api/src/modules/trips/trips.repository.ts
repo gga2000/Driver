@@ -155,6 +155,8 @@ export interface TripsRepository extends TripOrderLookup {
    * 30 days, then the trip row is the summary). Returns how many went; a short count means done.
    */
   purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number>;
+  /** Pickup stops of trips created in `[from, to)` in the city, per zone (maps program d5's forecast). */
+  pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>>;
   /** Up to `limit` completed stops before `cutoff` that still hold a delivery photo (maps program f11). */
   handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>>;
 }
@@ -408,6 +410,11 @@ export class PrismaTripsRepository implements TripsRepository {
       DELETE FROM "public"."trail_points" t USING doomed d WHERE t."id" = d."id" AND t."at" = d."at"`;
   }
 
+  async pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>> {
+    const rows = await this.db().stop.groupBy({ by: ['zoneKey'], where: { type: 'pickup', trip: { cityId, createdAt: { gte: from, lt: to } } }, _count: { _all: true } });
+    return new Map(rows.map((r) => [r.zoneKey, r._count._all]));
+  }
+
   async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {
     const rows = await this.db().$queryRaw<Array<{ id: string; proof: Record<string, unknown> }>>`
       SELECT "id", "handover_proof" AS proof FROM "public"."stops"
@@ -598,6 +605,16 @@ export class InMemoryTripsRepository implements TripsRepository {
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }) {
     const last = filter.tripId ? this.lastByTrip.get(filter.tripId) : filter.driverId !== undefined ? this.lastByDriver.get(filter.driverId) : undefined;
     return last ? { ...last } : null;
+  }
+
+  async pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const s of this.stops.values()) {
+      const trip = this.trips.get(s.tripId);
+      if (s.type !== 'pickup' || !trip || trip.cityId !== cityId || trip.createdAt < from || trip.createdAt >= to) continue;
+      out.set(s.zoneKey, (out.get(s.zoneKey) ?? 0) + 1);
+    }
+    return out;
   }
 
   async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {

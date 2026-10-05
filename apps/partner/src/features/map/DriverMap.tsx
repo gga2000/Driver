@@ -4,7 +4,9 @@ import Animated, { Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, w
 import Svg, { Path } from 'react-native-svg';
 import { decodePolyline } from '@driver/map';
 import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
+import type { DemandLevel } from '@driver/contracts';
 import { BaseMap } from './base/BaseMap';
+import { HeatLayer } from './HeatLayer';
 import type { CameraValues } from './base/types';
 import { fitCamera, pathD, project, type Camera, type LngLat, type Size } from './geo';
 import { color as palette } from '@driver/design-tokens';
@@ -14,8 +16,11 @@ const ease = { duration: 700, easing: Easing.inOut(Easing.cubic) };
 
 export interface MapPin {
   at: LngLat;
-  kind: 'pickup' | 'dropoff';
+  /** `garage` and numbered `stop`s: the الرجعة pickup run (maps program d7). */
+  kind: 'pickup' | 'dropoff' | 'garage' | 'stop';
   label: string;
+  /** The stop's place in the run ("2"), shown instead of an icon. */
+  badge?: string;
 }
 
 export interface DriverMapProps {
@@ -29,6 +34,8 @@ export interface DriverMapProps {
   route?: readonly LngLat[];
   /** The road shape (polyline, precision 6; maps program d2): drawn solid instead of the dashed line. */
   road?: string | null;
+  /** Busy zones (maps program d5), filled under the puck. */
+  heat?: ReadonlyArray<{ zoneId: string; level: DemandLevel }>;
   /** Space covered by overlays at the top and bottom; the camera frames what's between. */
   topInset?: number;
   bottomInset?: number;
@@ -44,7 +51,7 @@ export interface DriverMapProps {
  * plus the driver's puck, job pins and a dashed route, all projected from one camera held in
  * shared values so overlays never drift from the tiles.
  */
-export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, testID = 'driver-map' }: DriverMapProps) {
+export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, testID = 'driver-map' }: DriverMapProps) {
   const roadPoints = useMemo(() => (road ? decodePolyline(road) : null), [road]);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const sizeSV = useSharedValue<Size>({ w: 1, h: 1 });
@@ -96,6 +103,7 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
       {size.w > 0 ? (
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
+          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} /> : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* The puck under the pins: a pin's label must never hide behind him. */}
           {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} /> : null}
@@ -190,10 +198,12 @@ function Pin({ cam, size, pin }: LayerProps & { pin: MapPin }) {
     const p = project(pin.at.lat, pin.at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
     return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: p.y - PIN_H }] };
   }, [pin.at.lat, pin.at.lng]);
-  const pickup = pin.kind === 'pickup';
+  // Light pins (to collect: a kitchen, a garage, a rider on the run); the dark one is the door.
+  const pickup = pin.kind !== 'dropoff';
   const fill = pickup ? theme.colors.surface : theme.colors.text;
+  const icon: IconName = pin.kind === 'garage' ? 'garage' : pin.kind === 'dropoff' ? 'home' : 'bag';
   return (
-    <Animated.View pointerEvents="none" testID={`pin-${pin.kind}`} style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: 'flex-end' }, place]}>
+    <Animated.View pointerEvents="none" testID={`pin-${pin.kind}${pin.badge ? `-${pin.badge}` : ''}`} style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: 'flex-end' }, place]}>
       <View style={{ alignItems: 'center' }}>
         <View
           style={{
@@ -214,7 +224,15 @@ function Pin({ cam, size, pin }: LayerProps & { pin: MapPin }) {
             direction: 'rtl',
           }}
         >
-          <Icon name={pickup ? 'bag' : 'home'} size={15} color={pickup ? 'text' : 'surface'} strokeWidth={2.2} />
+          {pin.badge ? (
+            <View style={{ minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
+              <Text variant="caption" weight={700} color="onAccent" tabular style={{ fontSize: 11, lineHeight: 14 }}>
+                {pin.badge}
+              </Text>
+            </View>
+          ) : (
+            <Icon name={icon} size={15} color={pickup ? 'text' : 'surface'} strokeWidth={2.2} />
+          )}
           <Text variant="caption" weight={600} color={pickup ? 'text' : 'surface'} numberOfLines={1} style={{ maxWidth: PIN_W - 44 }}>
             {pin.label}
           </Text>

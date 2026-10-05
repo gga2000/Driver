@@ -362,6 +362,11 @@ export class TripsService implements OnModuleInit {
   }
 
   /** One retention batch (decision D6): trail points older than `cutoff`, except `keepTripIds`'. */
+  /** Pickups per zone of trips created in `[from, to)` (the driver map's forecast, maps program d5). */
+  pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>> {
+    return this.repo.pickupsByZone(cityId, from, to);
+  }
+
   /**
    * The delivery photo of an order (maps program f11), as a short-lived signed URL for support; null
    * without one, after retention, or when photos are not wired.

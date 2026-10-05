@@ -65,7 +65,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
             }
           },
         },
-        trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId) },
+        trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId), pickupsByZone: (cityId, from, to) => trips.pickupsByZone(cityId, from, to) },
         orders: { get: (orderId) => orders.get(orderId).catch(() => null) },
         merchants: {
           name: async (orgId) => (await orgs.find(orgId))?.name ?? null,

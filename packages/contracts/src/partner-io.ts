@@ -265,7 +265,38 @@ export interface PartnerPort {
   offerRoute(actor: Actor, input: PartnerOfferRouteInput): Promise<OrderRoute>;
   /** The road from his last fix through the job's remaining stops, in order (maps program d2). */
   jobRoute(actor: Actor): Promise<OrderRoute>;
+  /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
+  demandMap(actor: Actor): Promise<PartnerDemandMap>;
 }
+
+/** Where the orders are (maps program d5). */
+export const DEMAND_MAP_RULES = {
+  /** The app re-reads the map this often. */
+  refreshMs: 60_000,
+  /** The forecast: pickups in this hour on the same weekday, averaged over this many weeks. */
+  weeks: 4,
+} as const;
+
+export const DemandLevel = z.enum(['hot', 'warm', 'calm']);
+export type DemandLevel = z.infer<typeof DemandLevel>;
+
+export const PartnerDemandMap = z.object({
+  /** Zones with anything going on; the rest are calm. */
+  zones: z.array(
+    z.object({
+      zoneId: z.string(),
+      /** Jobs waiting for a driver there now. */
+      waiting: z.number().int().min(0),
+      /** Pickups usually started there in the coming hour (average of the last weeks, one decimal). */
+      expected: z.number().min(0),
+      /** Online drivers in the zone. */
+      drivers: z.number().int().min(0),
+      level: DemandLevel,
+    }),
+  ),
+  at: z.coerce.date(),
+});
+export type PartnerDemandMap = z.infer<typeof PartnerDemandMap>;
 
 export const PartnerOfferRouteInput = z.object({ offerId: z.string().min(1) });
 export type PartnerOfferRouteInput = z.infer<typeof PartnerOfferRouteInput>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { QuoteComponent } from '@driver/contracts';
-import { buildPay, demandHint, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
 
 const food = (deliveryFeeIqd: number, tipIqd = 0) => ({ type: 'food' as const, deliveryFeeIqd, tipIqd, totalIqd: 15_000 + deliveryFeeIqd + tipIqd });
 const comp = (key: QuoteComponent['key'], amount: number): QuoteComponent => ({ key, amount, label_ar: key, label_en: key, driverShareRule: 'driver_full', visibility: 'shown' });
@@ -114,5 +114,29 @@ describe('online gate', () => {
     expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required')] }, false, night)).toBe(false);
     expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_locked')] }, true, night)).toBe(false);
     expect(gateAllowsHeartbeat({ canGoOnline: false, reasons: [r('checkin_required'), r('document_expired')] }, true, night)).toBe(false);
+  });
+});
+
+describe('demandZones (maps program d5)', () => {
+  it('waiting now plus the usual pickups this hour, against the drivers there', () => {
+    const zones = demandZones(['centre', 'centre', 'zakur'], ['centre', 'zakur', 'zakur', null], new Map([['centre', 1.25], ['fidaa', 2], ['hashimi', 0.2]]));
+    expect(zones).toEqual([
+      { zoneId: 'centre', waiting: 2, expected: 1.3, drivers: 1, level: 'hot' },
+      { zoneId: 'fidaa', waiting: 0, expected: 2, drivers: 0, level: 'hot' },
+      { zoneId: 'zakur', waiting: 1, expected: 0, drivers: 2, level: 'warm' },
+    ]);
+  });
+
+  it('drivers alone make a calm zone; nothing at all is left out', () => {
+    expect(demandZones([], ['zakur'], new Map())).toEqual([{ zoneId: 'zakur', waiting: 0, expected: 0, drivers: 1, level: 'calm' }]);
+    expect(demandZones([], [], new Map([['zakur', 0.25]]))).toEqual([]);
+  });
+
+  it('forecast windows: this coming hour, one to four weeks back', () => {
+    const now = new Date('2026-10-05T18:00:00Z');
+    const w = forecastWindows(now, 4);
+    expect(w).toHaveLength(4);
+    expect(w[0]).toEqual({ from: new Date('2026-09-28T18:00:00Z'), to: new Date('2026-09-28T19:00:00Z') });
+    expect(w[3]!.from).toEqual(new Date('2026-09-07T18:00:00Z'));
   });
 });

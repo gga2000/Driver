@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, Rule, Skeleton, SlideToConfirm, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
 import { departureTone, SeatStrip, SectionHead } from '@/features/intercity/BoardParts';
 import { DriverSeatMap, PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/DepartureParts';
@@ -95,12 +96,15 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
   // While the run is live and this screen is open, his fixes feed the garage check-in, the meter and
   // the riders' live car. No GPS (desktop browser): nothing is sent — never a made-up position.
+  // His last fix, for the run's map (maps program d7).
+  const [here, setHere] = useState<{ lat: number; lng: number } | null>(null);
   const depRef = useRef(dep);
   depRef.current = dep;
   useEffect(() => {
     if (!(open || dep.state === 'departed')) return;
     const send = async () => {
       const fix = await currentFix(4000);
+      if (fix) setHere({ lat: fix.lat, lng: fix.lng });
       if (fix) await actions.position.mutateAsync({ departureId: depRef.current.id, ...fix }).catch(() => undefined);
     };
     void send();
@@ -212,6 +216,11 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const manifest = manifestOrder(dep.bookings);
   const waitingPin = dep.bookings.some((b) => b.state === 'booked');
   const route = garage ? pickupRoute(garage, dep.bookings) : [];
+  const runPins: MapPin[] = route.map((s, i) =>
+    s.kind === 'garage'
+      ? { at: s.at, kind: 'garage', label: `${garage?.nameAr ?? ''} · ${dep.fill.booked + dep.fill.walkUps}/${dep.fill.seatsTotal}` }
+      : { at: s.at, kind: 'stop', badge: String(i + 1), label: s.kind === 'door' ? riderName(t, names.get(s.bookings[0]!.bookingId)) : (s.nameAr ?? '') },
+  );
   const late = dep.bookings.filter((b) => b.state === 'booked' && b.meterMinutes !== null);
   const meterOff = open && now.getTime() > dep.departAt.getTime() && dep.bookings.some((b) => b.state === 'booked' && b.pickup.kind === 'garage' && b.meterMinutes === null && (b.prepaid || b.prepayRail === 'trusted_cash'));
   const toLowFill = minutesUntil(new Date(dep.departAt.getTime() - ANNOUNCE_RULES.boardingWindowMin * 60_000), now);
@@ -456,6 +465,10 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
       {hasPickupRun(route) && (open || dep.state === 'departed') ? (
         <View style={{ gap: theme.space[3] }}>
           <SectionHead title={t('partner.ic_route_title')} />
+          {/* Maps program d7: the run on the map — the garage with its seats, then each pickup in order. */}
+          <View testID="ic-run-map" style={{ height: 240, borderRadius: theme.radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border }}>
+            <DriverMap self={here} vehicleIcon="car" online pins={runPins} route={route.map((s) => s.at)} topInset={8} bottomInset={8} maxZoom={15} testID="ic-run-driver-map" />
+          </View>
           <Card padding={4}>
             <PickupRoute stops={route} garageName={garage?.nameAr ?? ''} names={names} />
           </Card>

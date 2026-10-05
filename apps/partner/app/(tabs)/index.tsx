@@ -14,7 +14,7 @@ import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip }
 import { VEHICLE_ICON } from '@/features/work/logic';
 import { OnlineSwitch } from '@/features/work/OnlineSwitch';
 import { PrePromptGate } from '@/features/notify/Push';
-import { useStatus } from '@/features/work/queries';
+import { useDemandMap, useStatus } from '@/features/work/queries';
 import { usePresence } from '@/features/work/usePresence';
 import { useT } from '@/lib/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
@@ -38,6 +38,7 @@ export default function Home() {
   const conn = useConnectionBanner({ live: useLiveMode(LIVE_PARTNER_KEY), updatedAt: status.dataUpdatedAt || null });
   const cut = !conn.net.online;
   const pulse = usePulse(online && !cut);
+  const demand = useDemandMap(online && (s?.canDrive ?? false));
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
   // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
@@ -46,7 +47,8 @@ export default function Home() {
 
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <DriverMap self={s?.position ?? null} vehicleIcon={VEHICLE_ICON[vehicle]} online={online} topInset={110} bottomInset={panelH} soloZoom={14.4} />
+      {/* Maps program d5: busy zones under the puck while he is online, a little wider to see them. */}
+      <DriverMap self={s?.position ?? null} vehicleIcon={VEHICLE_ICON[vehicle]} online={online} heat={online ? (demand.data?.zones ?? []) : []} topInset={110} bottomInset={panelH} soloZoom={online ? 13.8 : 14.4} />
 
       <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
         <View pointerEvents="box-none" style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[3], gap: theme.space[3] }}>

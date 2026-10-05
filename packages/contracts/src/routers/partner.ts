@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerDemandMap, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -38,6 +38,10 @@ export const partnerRouter = router({
   jobRoute: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(OrderRoute)
     .query(({ ctx }) => ctx.partner.jobRoute(ctx.actor)),
+  /** Busy zones for the driver's map (refresh every minute). */
+  demandMap: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .output(PartnerDemandMap)
+    .query(({ ctx }) => ctx.partner.demandMap(ctx.actor)),
   /** Courier path of the cash top-up: only for a customer whose order he is carrying now. */
   topUpLookup: protectedProcedure(['courier'])
     .input(TopUpLookupInput)

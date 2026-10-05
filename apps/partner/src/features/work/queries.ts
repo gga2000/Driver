@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { isPartner, type OrderRoute } from '@driver/contracts';
+import { DEMAND_MAP_RULES, isPartner, type OrderRoute } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
 import { LIVE_PARTNER_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
@@ -60,6 +60,13 @@ export function useActiveJob(enabled = true) {
   const signedIn = useSignedIn();
   const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
   return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
+}
+
+/** Busy zones for the home map (maps program d5), every minute while he is online. */
+export function useDemandMap(online: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.partner.demandMap.queryOptions(), enabled: signedIn && online, refetchInterval: online ? DEMAND_MAP_RULES.refreshMs : false, staleTime: DEMAND_MAP_RULES.refreshMs / 2 });
 }
 
 /** A road keeps for two minutes; the job's road is also re-read when the stop changes. */
