@@ -46,6 +46,15 @@ presence path to enforce it.
 
 Errors: `document_not_found`, `checkin_challenge_invalid`, `checkin_locked`, `upload_invalid`, `forbidden`.
 
+## `routes.driver` — الرجعة garage mode additions (partner S-5, 2026-10-05)
+
+| Procedure | Kind | Input | Output |
+|---|---|---|---|
+| `checkIn` | mutation | `{departureId, pin, bookingId?}` — with `bookingId` (the PIN typed on that rider's seat) only that booking can match; another rider's PIN is `pin_invalid` | `DriverDepartureView` |
+| `callRider` | mutation | `{departureId, bookingId}` | `CallSession` (as `chat.requestCall`) — masked call to a booked or boarded rider on his own live run; event `departure.rider_call_requested` (ids only); `not_departure_driver`, `booking_not_found`, `departure_state_conflict`, `call_unavailable` |
+
+The bridge is the chat module's, now in `apps/api/src/shared/call-bridge.ts` (`callBridgeFor`).
+
 ## `khat.*` — خطوط driver side
 
 Role: `khat_driver`. A run is a Trip of vertical `khat`; each stop carries one child's opaque `childRef`.
@@ -58,6 +67,10 @@ Role: `khat_driver`. A run is a Trip of vertical `khat`; each stop carries one c
 | `reportAbsence` | mutation | `{tripId, childRef, reason: guardian_notice\|not_at_stop\|sick\|other, note?}` | `{absenceId, tripId, childRef, reason, skippedStopIds, reportedAt}` — skips the child's unfinished stops, emits `khat.absence_reported`; repeating returns the first report |
 | `substituteOffers` | query | `{cityId}` | `[{offerId, tripId, expiresInSec, stopsCount, childrenCount, firstWindowStart, zones, compensationIqd}]` — this driver's open offers on khat dispatch cards (substitute auction) |
 | `acceptSubstitute` | mutation | `{offerId}` | `{outcome: assigned\|declined, tripId}` (goes through `dispatch.respond`) |
+| `confirmEmptyCar` | mutation | `{tripId}` | `KhatRunTrip` with `emptyCarCheckedAt` — the end-of-run sweep "تأكدت، السيارة فاضية" (partner S-6, 2026-10-05). Every child stop must be settled (`khat_run_not_finished`); logged once per run as the trip event `khat.empty_car_confirmed` `{tripId, driverId, childrenTotal, delivered, absent, lastDropAt, secondsAfterLastDrop}`; repeating returns the first time |
+| `callGuardian` | mutation | `{tripId, childRef}` | `CallSession` (as `chat.requestCall`) — masked call to the child's guardian for the run's own driver; vault read logged (`khat_guardian_call`), event `khat.guardian_call_requested` (no numbers); `call_unavailable` without a bridge |
+
+`KhatRunTrip.emptyCarCheckedAt` (date or null) is read back from that event.
 
 Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,

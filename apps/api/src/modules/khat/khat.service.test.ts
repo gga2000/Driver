@@ -119,6 +119,65 @@ describe('khat.reportAbsence', () => {
   });
 });
 
+describe('khat.confirmEmptyCar (partner S-6 sweep)', () => {
+  it('is refused while a child is still in the car, then logged once for ops with the counts', async () => {
+    const h = await setup();
+    const [p1, p2, d1, d2] = h.trip.stops;
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p2!.id, pin: PINS.home2 });
+    await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school });
+    // علي is still on board: no sweep yet.
+    await expect(h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id })).rejects.toMatchObject({ code: 'khat_run_not_finished' });
+    expect((await h.khat.todayRun(h.driver, {})).trips[0]!.emptyCarCheckedAt).toBeNull();
+    await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d2!.id, pin: PINS.school });
+    h.t.clock.advance(90_000);
+    const done = await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    expect(done.emptyCarCheckedAt).toEqual(h.t.clock.now());
+    // Replaying the slide changes nothing: one event, the first time kept.
+    h.t.clock.advance(60_000);
+    expect((await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id })).emptyCarCheckedAt).toEqual(done.emptyCarCheckedAt);
+    const logged = (await h.ev.events.forTrip(h.trip.id)).filter((e) => e.type === 'khat.empty_car_confirmed');
+    expect(logged).toHaveLength(1);
+    expect(logged[0]!.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, childrenTotal: 2, delivered: 2, absent: 0, secondsAfterLastDrop: 90 });
+    expect(JSON.stringify(logged[0]!.payload)).not.toContain('علي');
+  });
+
+  it('counts an absent child as settled, and only the run’s own driver may confirm', async () => {
+    const h = await setup();
+    const [p1, , d1] = h.trip.stops;
+    await h.khat.reportAbsence(h.driver, { tripId: h.trip.id, childRef: h.ali, reason: 'sick' });
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+    await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school });
+    await expect(h.khat.confirmEmptyCar(h.guardian, { tripId: h.trip.id })).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id })).emptyCarCheckedAt).not.toBeNull();
+  });
+});
+
+describe('khat.callGuardian', () => {
+  it("opens a masked call to the child's guardian, logs the vault read and the call, never a number in the event", async () => {
+    const h = await setup();
+    const opened: Array<{ callerId: string; calleeId: string; orderId: string }> = [];
+    const calls = {
+      open: async (req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date) => {
+        opened.push(req);
+        return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
+      },
+    };
+    const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls);
+    const s = await khat.callGuardian(h.driver, { tripId: h.trip.id, childRef: h.zainab });
+    expect(s).toMatchObject({ mode: 'proxy', dial: '+9647800000000', counterpart: 'customer' });
+    expect(opened).toEqual([expect.objectContaining({ orderId: h.trip.id, callerId: h.driver.personId, calleeId: h.guardian.personId })]);
+    expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.driver.personId && l.purpose === 'khat_guardian_call' && l.childRef === h.zainab)).toBe(true);
+    const ev = (await h.ev.events.forTrip(h.trip.id)).find((e) => e.type === 'khat.guardian_call_requested');
+    expect(ev?.payload).toMatchObject({ childRef: h.zainab, mode: 'proxy' });
+    expect(JSON.stringify(ev?.payload)).not.toContain('+964');
+    // Not his run, not on the run, or no bridge: refused.
+    await expect(khat.callGuardian(h.guardian, { tripId: h.trip.id, childRef: h.zainab })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(khat.callGuardian(h.driver, { tripId: h.trip.id, childRef: 'chref_nope' })).rejects.toMatchObject({ code: 'khat_child_not_on_trip' });
+    await expect(h.khat.callGuardian(h.driver, { tripId: h.trip.id, childRef: h.zainab })).rejects.toMatchObject({ code: 'call_unavailable' });
+  });
+});
+
 describe('khat substitutes', () => {
   it("lists only this driver's open offers on khat cards, and accepting goes through dispatch.respond", async () => {
     const h = await setup();

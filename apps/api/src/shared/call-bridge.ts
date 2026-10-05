@@ -73,3 +73,11 @@ export class ProxyCallBridge implements CallBridgePort {
     return { mode: 'proxy', dial, expiresAt: new Date(now.getTime() + CALL_SESSION_MS) };
   }
 }
+
+/**
+ * The bridge for this process (chat, الرجعة garage mode, خطوط guardian calls): the development
+ * bridge only in development/test unless CALL_BRIDGE=proxy, else the platform number.
+ */
+export function callBridgeFor(phones: CallPhoneReader, env: NodeJS.ProcessEnv = process.env): CallBridgePort {
+  return isDevEnvironment(env['NODE_ENV']) && env['CALL_BRIDGE'] !== 'proxy' ? new DevCallBridge(phones) : new ProxyCallBridge(env['CALL_PROXY_NUMBER']);
+}

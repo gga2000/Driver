@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
+import { CallSession } from '../chat-io.js';
 import {
   AbsenceView,
   AcceptSubstituteInput,
   AcceptSubstituteOutput,
+  CallGuardianInput,
+  ConfirmEmptyCarInput,
   KhatRunTrip,
   KhatTapInput,
   ReportAbsenceInput,
@@ -46,4 +49,14 @@ export const khatRouter = router({
     .input(AcceptSubstituteInput)
     .output(AcceptSubstituteOutput)
     .mutation(({ ctx, input }) => ctx.khat.acceptSubstitute(ctx.actor, input)),
+  /** End-of-run sweep (partner S-6): "تأكدت، السيارة فاضية", logged for ops. Idempotent. */
+  confirmEmptyCar: protectedProcedure(KHAT_DRIVER_ROLES)
+    .input(ConfirmEmptyCarInput)
+    .output(KhatRunTrip)
+    .mutation(({ ctx, input }) => ctx.khat.confirmEmptyCar(ctx.actor, input)),
+  /** The guardian call on each child row: a masked call, never the guardian's number. */
+  callGuardian: protectedProcedure(KHAT_DRIVER_ROLES)
+    .input(CallGuardianInput)
+    .output(CallSession)
+    .mutation(({ ctx, input }) => ctx.khat.callGuardian(ctx.actor, input)),
 });

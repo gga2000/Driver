@@ -1,8 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type AbsenceView,
   type Actor,
+  type CallGuardianInput,
+  type CallSession,
+  type ConfirmEmptyCarInput,
   type KhatPort,
   type KhatRunTrip,
   type KhatTapInput,
@@ -11,6 +15,7 @@ import {
   type TodayRunView,
   type Trip,
 } from '@driver/contracts';
+import type { CallBridgePort } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
@@ -22,13 +27,26 @@ import { KHAT_REPOSITORY, type AbsenceRecord, type KhatRepository } from './khat
 
 const DONE_TRIP_STATES = new Set(['driver_cancelled', 'customer_cancelled', 'platform_cancelled', 'failed']);
 
+/** The masked-call bridge for guardian calls (shared with chat and الرجعة; optional in harnesses). */
+export const KHAT_CALLS = Symbol('KHAT_CALLS');
+
 /** When a khat run happens: its first stop window, else when it was accepted / created. */
 function runAt(t: Trip): Date {
   const windows = t.stops.map((s) => s.windowStart).filter((d): d is Date => d !== null);
   return windows.length > 0 ? new Date(Math.min(...windows.map((d) => d.getTime()))) : (t.acceptedAt ?? t.createdAt);
 }
 
-export function runTripView(trip: Trip, names: Record<string, string>, absences: readonly AbsenceRecord[]): KhatRunTrip {
+/** The sweep's event: one per run (idempotency key), the ops record of "no child left in the car". */
+export const EMPTY_CAR_EVENT = 'khat.empty_car_confirmed';
+
+/** Every child stop on the run is done: dropped, skipped, or the child reported absent. */
+export function runSettled(trip: Trip, absences: readonly AbsenceRecord[]): boolean {
+  const absent = new Set(absences.filter((a) => a.tripId === trip.id).map((a) => a.childRef));
+  const childStops = trip.stops.filter((s) => s.childRef);
+  return childStops.length > 0 && childStops.every((s) => s.state === 'completed' || s.state === 'skipped' || absent.has(s.childRef!));
+}
+
+export function runTripView(trip: Trip, names: Record<string, string>, absences: readonly AbsenceRecord[], emptyCarCheckedAt: Date | null = null): KhatRunTrip {
   const absent = new Set(absences.filter((a) => a.tripId === trip.id).map((a) => a.childRef));
   const children = new Set(trip.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)));
   let onBoard = 0;
@@ -61,6 +79,7 @@ export function runTripView(trip: Trip, names: Record<string, string>, absences:
     onBoard,
     delivered,
     absent: [...absent].filter((r) => children.has(r)).length,
+    emptyCarCheckedAt,
   };
 }
 
@@ -80,6 +99,7 @@ export class KhatService implements KhatPort {
     private readonly events: EventsService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(KHAT_CALLS) private readonly calls: CallBridgePort | null = null,
   ) {}
 
   async todayRun(actor: Actor, input: { date?: Date | undefined }): Promise<TodayRunView> {
@@ -89,7 +109,74 @@ export class KhatService implements KhatPort {
     const refs = trips.flatMap((t) => t.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)));
     const names = refs.length > 0 ? await this.identity.childFirstNamesForRun(actor.personId, refs) : {};
     const absences = await this.repo.absencesForTrips(trips.map((t) => t.id));
-    return { localDate, trips: trips.map((t) => runTripView(t, names, absences)) };
+    const swept = await Promise.all(trips.map((t) => this.emptyCarCheckedAt(t.id)));
+    return { localDate, trips: trips.map((t, i) => runTripView(t, names, absences, swept[i] ?? null)) };
+  }
+
+  /** When the run's sweep was confirmed (its one event in the append-only log), or null. */
+  private async emptyCarCheckedAt(tripId: string): Promise<Date | null> {
+    const e = (await this.events.forTrip(tripId)).find((x) => x.type === EMPTY_CAR_EVENT);
+    return e ? e.occurredAt : null;
+  }
+
+  /**
+   * "تأكدت، السيارة فاضية" (partner S-6): after the last child is dropped (or reported absent), the
+   * driver looks at the back seats and confirms the car is empty. Logged once per run as
+   * `khat.empty_car_confirmed` (trip-scoped, so ops see it on the run's timeline) with the counts
+   * and how long after the last drop it came. Refused while a child stop is still open.
+   */
+  async confirmEmptyCar(actor: Actor, input: ConfirmEmptyCarInput): Promise<KhatRunTrip> {
+    const trip = await this.ownRun(actor, input.tripId);
+    const absences = await this.repo.absencesForTrips([trip.id]);
+    if (!runSettled(trip, absences)) throw new DriverError('khat_run_not_finished');
+    if (!(await this.emptyCarCheckedAt(trip.id))) {
+      const now = this.clock.now();
+      const view = runTripView(trip, {}, absences);
+      const drops = trip.stops.map((s) => s.childTapOutAt).filter((d): d is Date => d !== null);
+      const lastDropAt = drops.length > 0 ? new Date(Math.max(...drops.map((d) => d.getTime()))) : null;
+      await this.events.emit(
+        undefined,
+        {
+          actorId: actor.personId,
+          type: EMPTY_CAR_EVENT,
+          occurredAt: now,
+          tripId: trip.id,
+          idempotencyKey: `khat:empty_car:${trip.id}`,
+          payload: {
+            tripId: trip.id,
+            driverId: actor.personId,
+            childrenTotal: view.childrenTotal,
+            delivered: view.delivered,
+            absent: view.absent,
+            lastDropAt: lastDropAt?.toISOString() ?? null,
+            secondsAfterLastDrop: lastDropAt ? Math.max(0, Math.round((now.getTime() - lastDropAt.getTime()) / 1000)) : null,
+          },
+        },
+        { name: 'trip', id: trip.id },
+      );
+    }
+    return this.view(actor, trip);
+  }
+
+  /**
+   * The call icon on a child's row: a masked call to that child's guardian (the run's own driver,
+   * the child on this run, the run not cancelled). Logged as `khat.guardian_call_requested`.
+   */
+  async callGuardian(actor: Actor, input: CallGuardianInput): Promise<CallSession> {
+    const trip = await this.ownRun(actor, input.tripId);
+    if (DONE_TRIP_STATES.has(trip.state)) throw new DriverError('call_unavailable');
+    if (!trip.stops.some((s) => s.childRef === input.childRef)) throw new DriverError('khat_child_not_on_trip');
+    const guardianId = await this.identity.guardianForCall(actor.personId, input.childRef);
+    if (!guardianId || !this.calls) throw new DriverError('call_unavailable');
+    const now = this.clock.now();
+    const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const session = await this.calls.open({ callId, orderId: trip.id, callerId: actor.personId, calleeId: guardianId }, now);
+    await this.events.emit(
+      undefined,
+      { actorId: actor.personId, type: 'khat.guardian_call_requested', occurredAt: now, tripId: trip.id, payload: { tripId: trip.id, childRef: input.childRef, callId, mode: session.mode } },
+      { name: 'trip', id: trip.id },
+    );
+    return { callId, mode: session.mode, dial: session.dial, counterpart: 'customer', expiresAt: session.expiresAt };
   }
 
   tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip> {
@@ -127,7 +214,7 @@ export class KhatService implements KhatPort {
   private async view(actor: Actor, trip: Trip): Promise<KhatRunTrip> {
     const refs = trip.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r));
     const names = refs.length > 0 ? await this.identity.childFirstNamesForRun(actor.personId, refs) : {};
-    return runTripView(trip, names, await this.repo.absencesForTrips([trip.id]));
+    return runTripView(trip, names, await this.repo.absencesForTrips([trip.id]), await this.emptyCarCheckedAt(trip.id));
   }
 
   /**

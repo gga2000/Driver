@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CityId, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
+import type { CallSession } from './chat-io.js';
 
 /**
  * الرجعة — the intercity system (customer spec §2, domain §2 Departure/Seat, edge-case decisions
@@ -600,6 +601,11 @@ export type MarkWalkUpInput = z.input<typeof MarkWalkUpInput>;
 export const CheckInInput = z.object({
   departureId: z.string().min(1),
   pin: z.string().regex(/^\d{4}$/),
+  /**
+   * Garage mode (partner S-5): the PIN was typed on this rider's seat, so it must be this rider's
+   * PIN (`pin_invalid` otherwise) — a PIN typed on the wrong seat never boards someone else.
+   */
+  bookingId: z.string().min(1).optional(),
 });
 export type CheckInInput = z.infer<typeof CheckInInput>;
 
@@ -767,6 +773,8 @@ export interface RoutesPort {
   driverPosition(actor: Actor, input: DriverPositionInput): Promise<DriverDepartureView>;
   markWalkUp(actor: Actor, input: z.infer<typeof MarkWalkUpInput>): Promise<DriverDepartureView>;
   checkIn(actor: Actor, input: CheckInInput): Promise<DriverDepartureView>;
+  /** Masked call to a rider on his own live departure (garage mode: the late seat's "اتصل"). */
+  callRider(actor: Actor, input: DepartureBookingInput): Promise<CallSession>;
   markNoShow(actor: Actor, input: DepartureBookingInput): Promise<DriverDepartureView>;
   respondPickup(actor: Actor, input: RespondPickupInput): Promise<DriverDepartureView>;
   depart(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;

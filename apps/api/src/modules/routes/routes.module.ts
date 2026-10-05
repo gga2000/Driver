@@ -17,7 +17,8 @@ import { InMemoryRoutesRepository, ROUTES_REPOSITORY } from './routes.repository
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
 import { randomIds, ROUTES_IDS } from './support.js';
-import { CHECKPOINT_WAIVER, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader } from './tokens.js';
+import { callBridgeFor } from '../../shared/call-bridge.js';
+import { CHECKPOINT_WAIVER, ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader, type RoutesCallPort } from './tokens.js';
 import { LedgerWallet, ROUTES_WALLET } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
@@ -63,6 +64,12 @@ import { RoutesWriter } from './writer.js';
     },
     // Launch kill switches: corridor / الرجعة switches refuse new holds and request posts.
     { provide: ROUTES_CONTROLS, useExisting: ControlsService },
+    // Garage mode "اتصل": the same masked-call bridge as in-order chat (dev: the rider's own number, logged).
+    {
+      provide: ROUTES_CALLS,
+      useFactory: (identity: IdentityService): RoutesCallPort => callBridgeFor(identity),
+      inject: [IdentityService],
+    },
     RoutesWriter,
     RequestBoardService,
     DeparturesService,

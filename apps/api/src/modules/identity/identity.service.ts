@@ -740,6 +740,20 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /**
+   * خطوط guardian call (partner S-6): who the run's driver reaches when he taps the call icon on a
+   * child's row. The khat module decides he drives that child today; the read is logged against the
+   * guardian (accessor = driver, purpose khat_guardian_call). Only the person id leaves identity.
+   */
+  async guardianForCall(driverId: string, childRef: string): Promise<string | null> {
+    return this.uow.run(async (tx) => {
+      const [child] = await this.repo.readChildIdentities([childRef], tx);
+      if (!child?.guardianId) return null;
+      await this.repo.logVaultAccess({ personId: child.guardianId, accessorId: driverId, purpose: 'khat_guardian_call', fieldsRead: ['guardian_id'], childRef, now: this.clock.now() }, tx);
+      return child.guardianId;
+    });
+  }
+
   /** Field-ops onboarding: names a person created by phone, only when the vault has no name yet. */
   async nameIfMissing(personId: string, name: string): Promise<void> {
     const trimmed = name.trim();
