@@ -32,6 +32,7 @@ export const NOTIFY_EVENT_TYPES = [
   'merchant.paid_by_courier',
   'ops.cash_received',
   'wallet.topped_up',
+  'order.change_to_wallet',
   'seat.booked',
   'khat.child_tapped_out',
   'dispatch.offer_sent',
@@ -131,6 +132,13 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       const amount = num(p['amountIqd']);
       if (!customerId || amount === null) return [];
       return [{ ...base, template: 'wallet_topup_receipt', to: customerId, params: { amount: iqd(amount), date: localDate(e.occurredAt), reference: str(p['reference']) ?? '' } }];
+    }
+    case 'order.change_to_wallet': {
+      // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" — the courier had no change.
+      const customerId = str(p['customerId']);
+      const amount = num(p['amountIqd']);
+      if (!customerId || amount === null || amount <= 0) return [];
+      return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: iqd(amount) } }];
     }
     case 'seat.booked': {
       const bookingId = str(p['bookingId']);

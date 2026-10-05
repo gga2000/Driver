@@ -958,6 +958,10 @@ model Order {
   courierNote        String?       @map("courier_note")
   /// No duplicate orders: the app's idempotency key for one checkout attempt, re-sent on every retry.
   clientRequestId    String?       @map("client_request_id")
+  /// "الخردة علينا": the note the customer said he will pay with (a hint for the courier, never money); null = none.
+  statedTenderIqd    Int?          @map("stated_tender_iqd")
+  /// "الخردة علينا": what went to the customer's wallet at the door because the courier had no change; null = none.
+  changeToWalletIqd  Int?          @map("change_to_wallet_iqd")
   scheduledFor       DateTime?     @map("scheduled_for")
   payerApprovedAt    DateTime?     @map("payer_approved_at")
   placedAt           DateTime      @default(now()) @map("placed_at")
@@ -2040,6 +2044,8 @@ enum LedgerEventType {
   driver_incentive
   driver_payout
   rounding_residue
+  // money — Phase 3 "الخردة علينا" (migration 20261005170000_cash_change_to_wallet)
+  cash_change_to_wallet
   // points — domain §5
   points_earned
   points_pending

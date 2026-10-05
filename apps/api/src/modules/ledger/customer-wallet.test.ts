@@ -72,6 +72,20 @@ describe('customer wallet: readable lines', () => {
     expect(lines[0]!.orderId).toBe('o1');
   });
 
+  it('"الخردة علينا": the rest of a note the courier had no change for is its own "باقي الكاش" line, apart from the rounding change', async () => {
+    const h = walletHarness();
+    // 16,600 (a 100 tip) → 16,750 cash with 150 rounding change; he handed 20,000 and the courier had no change.
+    const p = postOrderClosed(workedExample({ tipIqd: 100, cashCollectedIqd: 20_000, changeToWalletIqd: 3_250 }), h.rules);
+    await h.ledger.recordAll(p.money);
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar])).toEqual([
+      ['food', -16_600, 'طلب أكل', 'كاش عند الاستلام'],
+      ['cash_change', 150, 'الباقي رصيد', 'صار رصيد إلك'],
+      ['change_to_wallet', 3_250, 'باقي الكاش', 'الدليفري ما عنده خردة، صارت رصيد إلك'],
+    ]);
+    expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(3_400);
+  });
+
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {
     const h = walletHarness();
     await h.ledger.recordAll(group('topup:1', 'money', '2026-10-01T09:00:00Z', [{ type: 'credit_issued', amount: 20_000, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));

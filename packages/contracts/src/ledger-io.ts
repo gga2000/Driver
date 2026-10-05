@@ -24,6 +24,12 @@ const Payer = {
    * debt, more = change credited to the wallet ("الباقي رصيد", `cash_rounding_credit`).
    */
   cashCollectedIqd: Iqd.nonnegative().optional(),
+  /**
+   * "الخردة علينا" (2026-10-05): of `cashCollectedIqd`, what the courier could not give back in change
+   * and goes to the customer's wallet as its own line (`cash_change_to_wallet`, "باقي الكاش"), apart
+   * from the 0–249 rounding change. Cash only; the orders module has already checked it.
+   */
+  changeToWalletIqd: Iqd.positive().optional(),
   /** Points the customer redeems (100 = 1,000 IQD), against the service fee first, delivery second. */
   pointsRedeemed: z.number().int().nonnegative().default(0),
   /** Legacy (G-88 500-step rounding): ignored since the 250 change-to-wallet rule (2026-10-04). */

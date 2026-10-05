@@ -38,6 +38,10 @@ export interface OrderRecord {
   courierNote?: string | null;
   /** The app's idempotency key for the checkout attempt (`orders.client_request_id`, unique per orderer). */
   clientRequestId?: string | null;
+  /** "الخردة علينا": the note the customer said he will pay with (`orders.stated_tender_iqd`); absent/null = none. */
+  statedTenderIqd?: number | null;
+  /** "الخردة علينا": what went to his wallet at the door, no change on the courier (`orders.change_to_wallet_iqd`). */
+  changeToWalletIqd?: number | null;
   scheduledFor: Date | null;
   merchantOfferedAt: Date | null;
   promisedReadyAt: Date | null;
@@ -116,6 +120,7 @@ export type NewOrder = Omit<
   | 'merchantOfferedAt'
   | 'promisedReadyAt'
   | 'prepExtendedAt'
+  | 'changeToWalletIqd'
   | 'refundState'
   | 'receiptTotalIqd'
 >;
@@ -215,6 +220,8 @@ function orderFromRow(r: any): OrderRecord {
     note: r.note,
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
+    statedTenderIqd: r.statedTenderIqd ?? null,
+    changeToWalletIqd: r.changeToWalletIqd ?? null,
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
@@ -436,6 +443,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       merchantOfferedAt: null,
       promisedReadyAt: null,
       prepExtendedAt: null,
+      changeToWalletIqd: null,
       refundState: 'none',
       receiptTotalIqd: null,
     };

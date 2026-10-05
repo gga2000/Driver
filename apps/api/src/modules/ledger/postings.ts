@@ -131,6 +131,7 @@ interface PayerSide {
   householdId?: string | undefined;
   payment: 'cash' | 'wallet';
   cashCollectedIqd?: number | undefined;
+  changeToWalletIqd?: number | undefined;
 }
 
 function payerAccount(p: { customerId: string; householdId?: string | undefined }): string {
@@ -145,17 +146,28 @@ function payerAccount(p: { customerId: string; householdId?: string | undefined 
  * The change is the customer's own money: it sits with the collector until he settles (it counts on
  * a courier's cap) and the platform owes it to the customer as wallet credit — no merchant, deal or
  * platform budget pays for it. Short cash stays on the payer as wallet debt. Returns what he paid.
+ *
+ * "الخردة علينا" (2026-10-05): when the courier had no change he takes the whole note and
+ * `changeToWalletIqd` of it is credited as its own line (`cash_change_to_wallet`, memo `no_change`,
+ * "باقي الكاش") — the collector's cash still counts the whole note. Never on a wallet payment, never
+ * from short cash: what is left after it must still cover the price (the orders module checked it).
  */
 function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd: number, collector: string, rules: MoneyRules): number {
   if (chargedIqd < 0) throw new RangeError(`customer total is negative (${chargedIqd})`);
+  const extra = p.changeToWalletIqd ?? 0;
   if (p.payment === 'wallet') {
+    if (extra > 0) throw new RangeError('change to the wallet on a wallet payment');
     b.control(payer, -chargedIqd);
     return chargedIqd;
   }
   const due = roundCustomerTotal(chargedIqd, rules);
-  const collected = p.cashCollectedIqd ?? due;
-  b.add('cash_collected', Math.min(collected, chargedIqd), collector, payer);
-  if (collected > chargedIqd) b.add('cash_rounding_credit', collected - chargedIqd, collector, payer, 'change_as_credit');
+  const collected = p.cashCollectedIqd ?? due + extra;
+  // What paid for the price (and its rounding change) once the no-change credit is set apart.
+  const kept = collected - extra;
+  if (extra < 0 || (extra > 0 && kept < chargedIqd)) throw new RangeError(`change to the wallet ${extra} leaves ${kept} for a price of ${chargedIqd}`);
+  b.add('cash_collected', Math.min(kept, chargedIqd), collector, payer);
+  if (kept > chargedIqd) b.add('cash_rounding_credit', kept - chargedIqd, collector, payer, 'change_as_credit');
+  b.add('cash_change_to_wallet', extra, collector, payer, 'no_change');
   b.control(payer, collected - chargedIqd);
   return due;
 }

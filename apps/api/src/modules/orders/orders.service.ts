@@ -4,6 +4,8 @@ import {
   MERCHANT_PREP_EXTENSION,
   PlaceOrderInput,
   cashToHand,
+  changeToWalletProblem,
+  tenderProblem,
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
   isDomainEventType,
@@ -13,6 +15,7 @@ import {
   type CancellationFee,
   type DisputeKind,
   type DomainEventInput,
+  type HandoverProof,
   type Order,
   type OrderQuote,
   type OrderRating,
@@ -216,6 +219,11 @@ export class OrdersService implements OnModuleInit {
     const discount = p.discount?.amountIqd ?? 0;
     if (input.discountIqd !== undefined && input.discountIqd !== discount) throw new DriverError(input.promoCode ? 'price_changed' : 'deal_changed');
     const total = p.totalIqd;
+    // "الخردة علينا": the note he says he will pay with is a hint for the courier, checked on the
+    // server's own cash total (≥ total, ≤ total + 50,000, in 250s) and only on a cash order.
+    if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total, ORDERS_RULES.changeToWallet) !== null)) {
+      throw new DriverError('tender_invalid');
+    }
     // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
     // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
@@ -258,6 +266,7 @@ export class OrdersService implements OnModuleInit {
           note: input.note ?? null,
           courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
           clientRequestId: input.clientRequestId ?? null,
+          statedTenderIqd: input.statedTenderIqd ?? null,
           scheduledFor: input.scheduledFor ?? null,
           minVehicleClass: caps?.minVehicleClass ?? null,
           dropoff: input.dropoff ?? null,
@@ -1042,17 +1051,39 @@ export class OrdersService implements OnModuleInit {
   }
 
   private async delivered(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
+    const cash = typeof e.payload['cashCollectedIqd'] === 'number' ? (e.payload['cashCollectedIqd'] as number) : null;
+    const extra = noChangeExtra(order, cash, e.payload['changeToWalletIqd']);
     if (order.type === 'ride') {
-      const cash = typeof e.payload['cashCollectedIqd'] === 'number' ? (e.payload['cashCollectedIqd'] as number) : null;
-      return order.state === 'matched' ? this.completeRide(order, e.actorId, tx, { by: 'driver', tripId: e.tripId }, cash) : undefined;
+      return order.state === 'matched' ? this.completeRide(order, e.actorId, tx, { by: 'driver', tripId: e.tripId }, cash, extra) : undefined;
     }
     if (order.state !== 'picked_up') return;
     const now = this.clock.now();
-    const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now }, { tripId: e.tripId, courierId: e.actorId });
-    const cash = typeof e.payload['cashCollectedIqd'] === 'number' ? (e.payload['cashCollectedIqd'] as number) : null;
-    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? order.totalIqd, tx);
+    const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now, ...(extra > 0 ? { changeToWalletIqd: extra } : {}) }, { tripId: e.tripId, courierId: e.actorId });
+    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? order.totalIqd, tx, extra);
     await this.scheduleClose(next, now);
     return next;
+  }
+
+  /**
+   * "الخردة علينا": the trips module's check of a drop-off hand-over before the stop is completed
+   * (bound at start-up, like dispatch's offer check). A courier with no change may record the
+   * customer's whole note with `changeToWalletIqd` = note − cash total: cash orders only, recomputed
+   * here, > 0, in 250s, at most the cap (25,000). Cash above the total without it is refused, so every
+   * credit beyond the rounding change is named and capped. Null = the hand-over may be recorded.
+   */
+  async handoverProblem(orderId: string, handover: Pick<HandoverProof, 'cashCollectedIqd' | 'changeToWalletIqd'>): Promise<'change_to_wallet_not_cash' | 'change_to_wallet_mismatch' | 'change_to_wallet_above_cap' | null> {
+    const extra = handover.changeToWalletIqd;
+    const collected = handover.cashCollectedIqd;
+    if (extra === undefined && collected === undefined) return null;
+    const agg = await this.repo.find(orderId);
+    if (!agg) return extra === undefined ? null : 'change_to_wallet_not_cash';
+    const order = agg.order;
+    if (extra === undefined) return order.paymentMethod === 'cash' && collected !== undefined && collected > order.totalIqd ? 'change_to_wallet_mismatch' : null;
+    const problem = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: collected ?? Number.NaN, changeToWalletIqd: extra }, ORDERS_RULES.changeToWallet);
+    if (problem === null) return null;
+    if (problem === 'not_cash') return 'change_to_wallet_not_cash';
+    if (problem === 'above_cap') return 'change_to_wallet_above_cap';
+    return 'change_to_wallet_mismatch';
   }
 
   /**
@@ -1060,8 +1091,8 @@ export class OrdersService implements OnModuleInit {
    * the moment the courier collects; the courier now holds the merchant's money until settlement.
    * `order.cash_collected` carries the full money fact, so the ledger posts it at once.
    */
-  private async cashCollected(order: OrderRecord, courier: Courier, amountIqd: number, tx: Tx): Promise<void> {
-    const fact = await this.moneyFact(order, courier, amountIqd, tx);
+  private async cashCollected(order: OrderRecord, courier: Courier, amountIqd: number, tx: Tx, changeToWalletIqd = 0): Promise<void> {
+    const fact = await this.moneyFact(order, courier, amountIqd, tx, changeToWalletIqd);
     const collected: DomainEventInput<'order.cash_collected'> = {
       ...fact,
       tripId: courier.tripId,
@@ -1069,8 +1100,14 @@ export class OrdersService implements OnModuleInit {
       amountIqd,
       expectedIqd: order.totalIqd,
       discrepancyIqd: amountIqd - order.totalIqd,
+      changeToWalletIqd,
     };
     await this.emit(tx, 'order.cash_collected', courier.courierId, order, collected);
+    if (changeToWalletIqd > 0) {
+      // "+7,250 دينار رصيد (الباقي)": the customer app's coin strip and the push (notify).
+      const credited: DomainEventInput<'order.change_to_wallet'> = { customerId: order.ordererId, courierId: courier.courierId, tripId: courier.tripId, amountIqd: changeToWalletIqd, collectedIqd: amountIqd, totalIqd: order.totalIqd };
+      await this.emit(tx, 'order.change_to_wallet', courier.courierId, order, credited);
+    }
     if (!order.merchantOrgId) return;
     const profile = await this.merchants.profile(order.merchantOrgId);
     const tier = profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier;
@@ -1098,13 +1135,14 @@ export class OrdersService implements OnModuleInit {
    * carried it. `cashCollectedIqd` is what the courier actually took (cash collection only).
    * A discount is only ever a resolved promotion (`promotionId`), funded from its budget line.
    */
-  private async moneyFact(order: OrderRecord, courier: Courier | null, cashCollectedIqd: number | undefined, tx: Tx): Promise<MoneyFact> {
+  private async moneyFact(order: OrderRecord, courier: Courier | null, cashCollectedIqd: number | undefined, tx: Tx, changeToWalletIqd = 0): Promise<MoneyFact> {
     const now = this.clock.now();
     const payer = {
       customerId: order.ordererId,
       ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
+      ...(changeToWalletIqd > 0 && order.paymentMethod === 'cash' ? { changeToWalletIqd } : {}),
     };
     if (order.type === 'food' || order.type === 'grocery_catalog') {
       const agg = (await this.repo.find(order.id, tx))!;
@@ -1160,13 +1198,13 @@ export class OrdersService implements OnModuleInit {
     };
   }
 
-  private async completeRide(order: OrderRecord, actorId: string, tx: Tx, payload: Record<string, unknown>, cashCollectedIqd?: number | null): Promise<OrderRecord> {
+  private async completeRide(order: OrderRecord, actorId: string, tx: Tx, payload: Record<string, unknown>, cashCollectedIqd?: number | null, changeToWalletIqd = 0): Promise<OrderRecord> {
     const now = this.clock.now();
-    const next = await this.move(order, 'completed', actorId, tx, { deliveredAt: now }, payload);
+    const next = await this.move(order, 'completed', actorId, tx, { deliveredAt: now, ...(changeToWalletIqd > 0 ? { changeToWalletIqd } : {}) }, payload);
     if (order.paymentMethod === 'cash') {
       // The driver took the fare at the door: his cash cap moves now; the money posts once more, idempotently, on closed.
       const courier = await this.trips.courierOf(order.id);
-      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? order.totalIqd, tx);
+      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? order.totalIqd, tx, changeToWalletIqd);
     }
     await this.scheduleClose(next, now);
     return next;
@@ -1181,7 +1219,10 @@ export class OrdersService implements OnModuleInit {
     const agg = (await this.repo.find(order.id, tx))!;
     const now = this.clock.now();
     // Money settles on closed (domain §2): the ledger posts the fact (a no-op if cash collection already did).
-    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), undefined, tx);
+    // A no-change credit was posted with the cash; the close fact carries the same note so the
+    // posting is identical whichever of the two events the ledger sees first.
+    const extra = agg.order.paymentMethod === 'cash' ? (agg.order.changeToWalletIqd ?? 0) : 0;
+    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), extra > 0 ? agg.order.totalIqd + extra : undefined, tx, extra);
     const closedPayload: DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to'> = { ...fact, reason, totalIqd: agg.order.totalIqd };
     const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, closedPayload);
     const profile = closed.merchantOrgId ? await this.merchants.profile(closed.merchantOrgId) : null;
@@ -1538,6 +1579,17 @@ interface Courier {
 type MoneyFact = DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to' | 'reason' | 'totalIqd'>;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
+/**
+ * The no-change credit a drop-off event carries, re-checked against the order (the trips module
+ * checked it before completing the stop; an event that fails here posts no extra rather than
+ * retrying forever). 0 when none.
+ */
+function noChangeExtra(order: OrderRecord, cash: number | null, raw: unknown): number {
+  if (typeof raw !== 'number' || raw <= 0 || cash === null) return 0;
+  const ok = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: cash, changeToWalletIqd: raw }, ORDERS_RULES.changeToWallet) === null;
+  return ok ? raw : 0;
+}
+
 function verticalOf(e: TripEventEnvelope): Vertical {
   const v = e.payload['vertical'];
   return typeof v === 'string' ? (v as Vertical) : 'food';
@@ -1638,5 +1690,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     clientRequestId: order.clientRequestId ?? null,
     rating: order.rating ?? null,
     discount: discountView(order),
+    statedTenderIqd: order.statedTenderIqd ?? null,
+    changeToWalletIqd: order.changeToWalletIqd ?? null,
   };
 }

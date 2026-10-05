@@ -108,6 +108,7 @@ export const NotifyTemplateId = z.enum([
   'merchant_cash_handover',
   'courier_cash_receipt',
   'wallet_topup_receipt',
+  'cash_change_credit',
   'rajaa_boarding_pass',
   'khat_child_arrived',
   'sos_dispatch_alert',
@@ -251,6 +252,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('courier_cash_receipt', 'wa.partner_settlement_receipt', ['amount', 'date', 'balance'], ['60,000', '2026-10-04', '-15,000']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // "الخردة علينا" (Phase 3): the courier had no change, the rest of the customer's note is in his wallet.
+  cash_change_credit: {
+    id: 'cash_change_credit',
+    category: 'receipts',
+    app: 'customer',
+    push: { title: 'push.cash_change_credit.title', body: 'push.cash_change_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
+    primary: ['push'],
     quietHours: 'send',
   },
   wallet_topup_receipt: {

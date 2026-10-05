@@ -1,4 +1,4 @@
-import type { BoardCard, LatLng, Trip } from '@driver/contracts';
+import { tenderOptions, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
 import type { ActionKind, DriverAction, DriverRun, DriverTrip, ReplayRecord, SimContext } from '../context.js';
 import { CITY } from '../context.js';
@@ -31,6 +31,12 @@ export const DRIVER_BEHAVIOUR = {
   unreachableStartAfterSec: 20,
   /** Haversine × 1.4 is the road distance dispatch assumes: move along the line at speed / 1.4. */
   roadFactor: 1.4,
+  /**
+   * "الخردة علينا": about one cash drop-off in this many, the customer hands over the next note up and
+   * the courier has no change — he takes the whole note and the rest goes to the customer's wallet
+   * (picked by order id, not the driver's random stream, so the rest of the run is unchanged).
+   */
+  noChangeEvery: 8,
 };
 
 const TERMINAL_TRIP = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
@@ -256,13 +262,31 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
     }
   }
   const cash = run && run.plan.payment === 'cash' ? await cashToCollect(ctx, stop.orderId!) : undefined;
-  const ok = await act(ctx, d, trip, 'complete', stop, cash);
+  const ok = await act(ctx, d, trip, 'complete', stop, cash?.cashIqd, cash?.changeToWalletIqd);
   if (ok && stop.orderId) d.bag.delete(stop.orderId);
 }
 
-async function cashToCollect(ctx: SimContext, orderId: string): Promise<number | undefined> {
+/**
+ * What he takes at the door: the cash total, or — for some orders ("الخردة علينا") — the customer's
+ * note (the one he said at checkout, else the next note up) with the rest to the customer's wallet,
+ * when it fits the cap and the 250 step.
+ */
+async function cashToCollect(ctx: SimContext, orderId: string): Promise<{ cashIqd: number; changeToWalletIqd?: number } | undefined> {
   const order = await ctx.call('driver.order', () => ctx.s.orders.get(orderId));
-  return order ? order.totalIqd : undefined;
+  if (!order) return undefined;
+  if (stableBucket(orderId, DRIVER_BEHAVIOUR.noChangeEvery) === 0) {
+    const note = order.statedTenderIqd ?? tenderOptions(order.totalIqd)[1];
+    const extra = note !== undefined ? note - order.totalIqd : 0;
+    if (extra > 0 && extra <= 25_000 && extra % 250 === 0) return { cashIqd: note!, changeToWalletIqd: extra };
+  }
+  return { cashIqd: order.totalIqd };
+}
+
+/** A fixed bucket 0…n−1 for an id (FNV-1a), independent of every random stream. */
+function stableBucket(id: string, n: number): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
+  return h % n;
 }
 
 /**
@@ -292,7 +316,7 @@ function recordDepartures(ctx: SimContext, d: DriverRun): void {
 
 // ───────────────────────── taps: send now, or queue while offline ─────────────────────────
 
-async function act(ctx: SimContext, d: DriverRun, trip: DriverTrip, kind: ActionKind, stop: Trip['stops'][number], cashIqd?: number): Promise<boolean> {
+async function act(ctx: SimContext, d: DriverRun, trip: DriverTrip, kind: ActionKind, stop: Trip['stops'][number], cashIqd?: number, changeToWalletIqd?: number): Promise<boolean> {
   d.seq += 1;
   const a: DriverAction = {
     kind,
@@ -304,6 +328,7 @@ async function act(ctx: SimContext, d: DriverRun, trip: DriverTrip, kind: Action
     uptimeMs: ctx.t - d.bootT,
     pin: { ...d.pos },
     ...(cashIqd !== undefined ? { cashIqd } : {}),
+    ...(changeToWalletIqd !== undefined ? { changeToWalletIqd } : {}),
   };
   if (kind !== 'unreachable') trip.local.set(stop.id, kind === 'arrive' ? 'arrived' : 'completed');
   if (!d.online) {
@@ -327,11 +352,17 @@ async function send(ctx: SimContext, d: DriverRun, a: DriverAction): Promise<boo
       ? await ctx.call('driver.arrive', () => ctx.s.trips.arrive(a.tripId, a.stopId, d.personId, { pin: a.pin, ...stamp }))
       : a.kind === 'complete'
         ? await ctx.call('driver.complete', () =>
-            ctx.s.trips.completeStop(a.tripId, a.stopId, d.personId, { ...(a.cashIqd !== undefined ? { handover: { cashCollectedIqd: a.cashIqd } } : {}), ...stamp }),
+            ctx.s.trips.completeStop(a.tripId, a.stopId, d.personId, {
+              ...(a.cashIqd !== undefined ? { handover: { cashCollectedIqd: a.cashIqd, ...(a.changeToWalletIqd !== undefined ? { changeToWalletIqd: a.changeToWalletIqd } : {}) } } : {}),
+              ...stamp,
+            }),
           )
         : await ctx.call('driver.unreachable', () => ctx.s.trips.startUnreachable(a.tripId, a.stopId, d.personId, stamp));
   const trip = d.trips.get(a.tripId);
   if (res && trip) trip.view = res;
+  if (res && a.kind === 'complete' && a.orderId && a.cashIqd !== undefined && res.stops.find((x) => x.id === a.stopId)?.state === 'completed') {
+    ctx.doorCash.set(a.orderId, { orderId: a.orderId, courierId: d.personId, collectedIqd: a.cashIqd, changeToWalletIqd: a.changeToWalletIqd ?? 0 });
+  }
   return res !== null;
 }
 

@@ -58,6 +58,12 @@ export const HandoverProof = z.object({
   pinOk: z.boolean().optional(),
   /** Cash taken from the customer at this stop (cash orders). Feeds the merchant cash account (edge-case §3). */
   cashCollectedIqd: Iqd.min(0).optional(),
+  /**
+   * "الخردة علينا": the courier had no change, so he took the customer's whole note (`cashCollectedIqd`)
+   * and this much goes to the customer's wallet. Cash orders only; must equal collected − total, a
+   * multiple of 250, at most the cap (25,000) — the server recomputes it and refuses anything else.
+   */
+  changeToWalletIqd: Iqd.positive().optional(),
   /** خطوط: the named child tapped in (pickup) or out (dropoff). Required on khat stops that carry a child. */
   childTap: z.enum(['in', 'out']).optional(),
   recipientConfirmed: z.boolean().optional(),

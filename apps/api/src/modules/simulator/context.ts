@@ -97,6 +97,8 @@ export interface DriverAction {
   uptimeMs: number;
   pin: LatLng;
   cashIqd?: number | undefined;
+  /** "الخردة علينا": no change on him — this much of `cashIqd` goes to the customer's wallet. */
+  changeToWalletIqd?: number | undefined;
 }
 
 export interface DriverTrip {
@@ -184,6 +186,15 @@ export interface HandoverRecord {
   amountIqd: number;
 }
 
+/** What a courier recorded at a cash drop-off ("الخردة علينا": the whole note when he had no change). */
+export interface DoorCashRecord {
+  orderId: string;
+  courierId: string;
+  collectedIqd: number;
+  /** Of `collectedIqd`, what went to the customer's wallet (0 = he gave change). */
+  changeToWalletIqd: number;
+}
+
 /** Shared state actors read and write. */
 export interface SimContext {
   readonly s: SimServices;
@@ -203,6 +214,8 @@ export interface SimContext {
   readonly replays: ReplayRecord[];
   readonly hotWaits: HotWaitRecord[];
   readonly handovers: HandoverRecord[];
+  /** Cash drop-offs the server accepted, by order (replays overwrite with the same figures). */
+  readonly doorCash: Map<string, DoorCashRecord>;
   /** Service calls refused with a DriverError, by code (expected in a busy city). */
   readonly refusals: Map<string, number>;
   /** Anything else a service threw (a bug). */

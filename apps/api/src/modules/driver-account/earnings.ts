@@ -14,6 +14,12 @@ const GROSS_TYPES = new Set([
   'parcel_fee',
 ]);
 
+/**
+ * Cash he took from a customer at a stop: the price, its 0–249 rounding change and, when he had no
+ * change ("الخردة علينا"), the rest of the note that went to the customer's wallet — the whole note.
+ */
+const CASH_IN_TYPES = new Set(['cash_collected', 'cash_rounding_credit', 'cash_change_to_wallet']);
+
 /** Settlement lines move money already earned; they are not earnings. */
 const SETTLEMENT_TYPES = new Set(['driver_payout', 'driver_settlement', 'debt_settled']);
 
@@ -54,7 +60,7 @@ export function composeEarnings(view: DriverLedgerView, period: EarningsPeriod, 
   let toMerchantsIqd = 0;
   let settledIqd = 0;
   for (const l of view.cash.lines) {
-    if (l.type === 'cash_collected') {
+    if (CASH_IN_TYPES.has(l.type)) {
       collectedIqd += Math.abs(l.amountIqd);
       const job = jobs.get(jobKey(l));
       if (job) job.cashCollectedIqd += Math.abs(l.amountIqd);

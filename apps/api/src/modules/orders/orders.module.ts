@@ -91,11 +91,14 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     @Inject(ORDER_EVENTS) private readonly events: EventsServiceAdapter,
     private readonly orders: OrdersService,
     private readonly controls: ControlsService,
+    private readonly trips: TripsService,
   ) {}
 
   onModuleInit(): void {
     // The throttle and the console's zone gauges count active orders here (orders owns them).
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
+    // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
+    this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
     // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
     this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
     const q = this.queue;

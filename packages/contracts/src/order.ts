@@ -117,6 +117,12 @@ export const PlaceOrderInput = z.object({
    * instead of placing a second one (concurrent calls included). 8–64 characters of [A-Za-z0-9_-].
    */
   clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
+  /**
+   * "الخردة علينا" (cash only): the note the customer says he will pay with ("راح أدفع بـ 25,000"), so
+   * the courier brings the change. A hint, never money: ≥ the cash total and ≤ total + 50,000, in 250s
+   * (`tenderProblem`), else `tender_invalid`; sent with a wallet order it is `tender_invalid` too.
+   */
+  statedTenderIqd: Iqd.positive().optional(),
 });
 export type PlaceOrderInput = z.input<typeof PlaceOrderInput>;
 
@@ -220,6 +226,13 @@ export const Order = z.object({
   rating: OrderRating.nullable().optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
+  /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */
+  statedTenderIqd: Iqd.nullable().optional(),
+  /**
+   * "الخردة علينا": what went to the customer's wallet at the door because the courier had no change
+   * ("باقي الكاش"), on top of the rounding `changeIqd`; null/absent = none.
+   */
+  changeToWalletIqd: Iqd.nullable().optional(),
 });
 export type Order = z.infer<typeof Order>;
 
