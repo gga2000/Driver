@@ -71,6 +71,23 @@ describe('OTP login', () => {
     await expect(h.service.requestOtp({ phone: PHONE, purpose: 'login' })).resolves.toBeTruthy();
   });
 
+  it('a resend does not reset the misses: 4 wrong, resend, 1 wrong still locks', async () => {
+    const h = harness();
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    const first = h.sms.lastCodeFor('+9647712345678')!;
+    const wrongFor = (c: string) => (c === '000000' ? '111111' : '000000');
+    for (let i = 0; i < 4; i += 1) await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrongFor(first) }), 'otp_invalid');
+    h.clock.advanceSeconds(31);
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    const second = h.sms.lastCodeFor('+9647712345678')!;
+    await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrongFor(second) }), 'otp_locked');
+    await expectCode(h.service.verifyOtp({ phone: PHONE, code: second }), 'otp_locked');
+    // An old challenge's misses no longer count once a lock-out's worth of time has passed.
+    h.clock.advanceMinutes(16);
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    await expect(h.service.verifyOtp({ phone: PHONE, code: h.sms.lastCodeFor('+9647712345678')! })).resolves.toMatchObject({ isNew: true });
+  });
+
   it('review C1: a miss is counted even though its transaction rolls back (login)', async () => {
     const h = harness();
     await h.service.requestOtp({ phone: PHONE, purpose: 'login' });

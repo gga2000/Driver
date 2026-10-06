@@ -184,7 +184,8 @@ export interface IdentityRepository {
 
   // otp
   latestOtp(phoneHash: string, purpose: OtpPurpose, tx?: Tx): Promise<OtpRecord | null>;
-  createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date }, tx?: Tx): Promise<OtpRecord>;
+  /** `attempts`: misses carried over from the challenge this one replaces (one chain per phone and purpose). */
+  createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date; attempts?: number }, tx?: Tx): Promise<OtpRecord>;
   updateOtp(id: string, patch: Partial<Pick<OtpRecord, 'attempts' | 'verifiedAt' | 'lockedAt'>>, tx?: Tx): Promise<OtpRecord>;
   /**
    * Counts one wrong code (atomic increment) and stamps `lockedAt` once `attempts` reaches
@@ -438,9 +439,9 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return row ? { ...row, purpose } : null;
   }
 
-  async createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date }, tx?: Tx) {
+  async createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date; attempts?: number }, tx?: Tx) {
     const row = await this.db(tx).otpChallenge.create({
-      data: { phoneHash: input.phoneHash, codeHash: input.codeHash, purpose: toDbPurpose(input.purpose), expiresAt: input.expiresAt },
+      data: { phoneHash: input.phoneHash, codeHash: input.codeHash, purpose: toDbPurpose(input.purpose), expiresAt: input.expiresAt, ...(input.attempts ? { attempts: input.attempts } : {}) },
     });
     return { ...row, purpose: input.purpose };
   }
