@@ -84,7 +84,7 @@ describe('driverAccount.earnings', () => {
     // Food order (cash, delivery 1,000 + tip 1,000) and a car ride (5,000, 12 % take) on the same day.
     await h.ledger.posting.orderMoney(workedExample({ orderId: 'o1', courierId: d.personId, tipIqd: 1000 }));
     await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T12:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
-    await h.ledger.ledger.recordAll(postDriverIncentive({ key: 'g1', driverId: d.personId, amountIqd: 2000, reason: 'guarantee:lunch', occurredAt: new Date('2026-10-03T12:45:00Z') })!);
+    await h.ledger.ledger.recordAll(postDriverIncentive({ key: 'g1', driverId: d.personId, amountIqd: 2000, reason: 'guarantee:2026-10-03:day', occurredAt: new Date('2026-10-03T12:45:00Z') })!);
 
     const e = await h.service.earnings(d, { period: 'day' });
     expect(e.period).toBe('day');
@@ -363,15 +363,15 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
 describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
   /** Aziziyah ships it switched off (Ali, 2026-10-06); the reads are tested with the switch on too. */
   const ON: MoneyRules = { ...AZIZIYAH_MONEY_RULES, guarantee: { ...AZIZIYAH_MONEY_RULES.guarantee, enabled: true } };
-  /** A courier on Sunday 4 Oct lunch (12:00–16:00 Baghdad = 09:00Z–13:00Z): 3 accepted and completed jobs, one declined offer. */
-  async function lunch(now: string, roles: RoleKind[] = ['courier'], rules: MoneyRules = ON) {
+  /** A courier in Sunday 4 Oct's day shift (06:00–15:00 Baghdad = 03:00Z–12:00Z): 3 accepted and completed jobs, one declined offer. */
+  async function lunch(now: string, roles: RoleKind[] = ['courier'], rules: MoneyRules = ON, jobs = ['2026-10-04T09:40:00Z', '2026-10-04T10:20:00Z', '2026-10-04T11:00:00Z']) {
     const h = setup('2026-10-04T08:00:00Z', rules);
     const d = await h.person('07700000021', roles);
     if (!roles.includes('courier')) h.ledger.profiles.set(d.personId, { role: 'driver', tier: 'bronze' });
     const emit = (type: string, actorId: string, tripId: string, at: string, payload: Record<string, unknown> = {}) =>
       h.ev.events.emit(undefined, { type, actorId, tripId, occurredAt: new Date(at), payload }, { name: 'trip', id: tripId });
-    await emit('trip.declined', d.personId, 'tz', '2026-10-04T09:05:00Z', { driverId: d.personId });
-    for (const [i, done] of ['2026-10-04T09:40:00Z', '2026-10-04T10:20:00Z', '2026-10-04T11:00:00Z'].entries()) {
+    await emit('trip.declined', d.personId, 'tz', new Date(new Date(jobs[0]!).getTime() - 35 * 60_000).toISOString(), { driverId: d.personId });
+    for (const [i, done] of jobs.entries()) {
       const tripId = `tg${i}`;
       await emit('trip.accepted', d.personId, tripId, new Date(new Date(done).getTime() - 20 * 60_000).toISOString(), { driverId: d.personId });
       await emit('trip.completed', d.personId, tripId, done);
@@ -381,31 +381,43 @@ describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
     return { h, d };
   }
 
-  it('live in a peak shift: the server counts his offers, jobs and earnings and what the rule gives', async () => {
-    const { h, d } = await lunch('2026-10-04T12:00:00Z');
+  it('live in a shift: the server counts his offers, jobs and earnings and what the rule gives', async () => {
+    const { h, d } = await lunch('2026-10-04T11:30:00Z');
     const g = await h.service.guarantee(d);
     expect(g).toMatchObject({ enabled: true, amountIqd: 10_000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, pendingIqd: 0 });
     // 3 of 4 offers accepted (75 %): the jobs are there, the acceptance is not.
-    expect(g.current).toMatchObject({ id: '2026-10-04:lunch', status: 'live', offers: 4, accepted: 3, completedJobs: 3, jobsToGo: 0, earningsIqd: 3000, meets: { acceptance: false, cancels: true, jobs: true }, qualified: false, topUpIqd: 0 });
-    expect(g.week.map((w) => w.id)).toEqual(['2026-10-04:lunch']);
+    expect(g.current).toMatchObject({ id: '2026-10-04:day', status: 'live', offers: 4, accepted: 3, completedJobs: 3, jobsToGo: 0, earningsIqd: 3000, meets: { acceptance: false, cancels: true, jobs: true }, qualified: false, topUpIqd: 0 });
+    expect(g.week.map((w) => w.id)).toEqual(['2026-10-04:day']);
     // The end-of-shift summary carries the same shift.
     const s = await h.service.shiftSummary(d, { from: new Date('2026-10-04T09:00:00Z') });
-    expect(s.guarantee.map((w) => [w.id, w.status, w.completedJobs])).toEqual([['2026-10-04:lunch', 'live', 3]]);
+    expect(s.guarantee.map((w) => [w.id, w.status, w.completedJobs])).toEqual([['2026-10-04:day', 'live', 3]]);
+  });
+
+  it('past midnight: at 01:00 Monday the live shift is Sunday\'s 15:00–02:00, jobs after midnight included', async () => {
+    const { h, d } = await lunch('2026-10-04T22:00:00Z', ['courier'], ON, ['2026-10-04T20:30:00Z', '2026-10-04T21:10:00Z', '2026-10-04T21:40:00Z']); // 23:30, 00:10, 00:40
+    const g = await h.service.guarantee(d);
+    expect(g.current).toMatchObject({ id: '2026-10-04:evening', status: 'live', from: new Date('2026-10-04T12:00:00Z'), to: new Date('2026-10-04T23:00:00Z'), offers: 4, completedJobs: 3 });
+    expect(g.week.map((w) => w.id)).toEqual(['2026-10-04:evening', '2026-10-04:day']);
+    // His work shift began after midnight: its summary still names the evening shift it ran into.
+    const s = await h.service.shiftSummary(d, { from: new Date('2026-10-04T21:05:00Z') });
+    expect(s.guarantee.map((w) => w.id)).toEqual(['2026-10-04:evening']);
   });
 
   it('after the shift a qualified top-up is pending until Sunday', async () => {
     const { h, d } = await lunch('2026-10-04T09:00:00Z');
     // Six more accepted offers that came to nothing (other drivers' jobs re-offered): 9 of 10 accepted.
-    for (let i = 0; i < 6; i++) await h.ev.events.emit(undefined, { type: 'trip.accepted', actorId: d.personId, tripId: `tn${i}`, occurredAt: new Date(`2026-10-04T12:0${i}:00Z`), payload: { driverId: d.personId } }, { name: 'trip', id: `tn${i}` });
+    for (let i = 0; i < 6; i++) await h.ev.events.emit(undefined, { type: 'trip.accepted', actorId: d.personId, tripId: `tn${i}`, occurredAt: new Date(`2026-10-04T11:1${i}:00Z`), payload: { driverId: d.personId } }, { name: 'trip', id: `tn${i}` });
     h.clock.set('2026-10-04T14:00:00Z');
     const g = await h.service.guarantee(d);
-    expect(g.current).toBeNull();
-    expect(g.week[0]).toMatchObject({ id: '2026-10-04:lunch', status: 'ended', accepted: 9, offers: 10, qualified: true, topUpIqd: 7000, paysOn: new Date('2026-10-10T21:00:00Z') });
+    // 17:00: the evening shift is on, with nothing in it yet.
+    expect(g.current).toMatchObject({ id: '2026-10-04:evening', status: 'live', offers: 0, completedJobs: 0 });
+    expect(g.week.map((w) => w.id)).toEqual(['2026-10-04:evening', '2026-10-04:day']);
+    expect(g.week[1]).toMatchObject({ id: '2026-10-04:day', status: 'ended', accepted: 9, offers: 10, qualified: true, topUpIqd: 7000, paysOn: new Date('2026-10-10T21:00:00Z') });
     expect(g.pendingIqd).toBe(7000);
   });
 
   it('switched off (Aziziyah as shipped, Ali 2026-10-06): a covered courier sees nothing, no pending money', async () => {
-    const { h, d } = await lunch('2026-10-04T12:00:00Z', ['courier'], AZIZIYAH_MONEY_RULES);
+    const { h, d } = await lunch('2026-10-04T11:30:00Z', ['courier'], AZIZIYAH_MONEY_RULES);
     expect(await h.service.guarantee(d)).toMatchObject({ enabled: false, current: null, week: [], pendingIqd: 0 });
     expect((await h.service.shiftSummary(d, { from: new Date('2026-10-04T09:00:00Z') })).guarantee).toEqual([]);
     h.clock.set('2026-10-04T14:00:00Z');
@@ -413,7 +425,7 @@ describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
   });
 
   it('not covered (a car driver at launch): nothing to show', async () => {
-    const { h, d } = await lunch('2026-10-04T12:00:00Z', ['driver']);
+    const { h, d } = await lunch('2026-10-04T11:30:00Z', ['driver']);
     expect(await h.service.guarantee(d)).toMatchObject({ enabled: false, current: null, week: [], pendingIqd: 0 });
     expect((await h.service.shiftSummary(d, {})).guarantee).toEqual([]);
   });

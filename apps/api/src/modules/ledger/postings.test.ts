@@ -354,13 +354,13 @@ describe('settlements and incentives', () => {
   });
 
   it('shift guarantee top-up: platform → driver, memo guarantee:<shift>, one group per driver per shift (G-91)', () => {
-    const g = postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: 4000, occurredAt: at })!;
+    const g = postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:evening', amountIqd: 4000, occurredAt: at })!;
     expect(() => validateGroup(g)).not.toThrow();
-    expect(g.id).toBe(guaranteeGroupId('k1', '2026-10-04:lunch'));
-    expect(g.lines).toEqual([{ type: 'driver_incentive', amount: 4000, fromAccount: 'platform', toAccount: 'driver:k1', memo: 'guarantee:2026-10-04:lunch' }]);
+    expect(g.id).toBe(guaranteeGroupId('k1', '2026-10-04:evening'));
+    expect(g.lines).toEqual([{ type: 'driver_incentive', amount: 4000, fromAccount: 'platform', toAccount: 'driver:k1', memo: 'guarantee:2026-10-04:evening' }]);
     expect(nets(g)).toEqual({ platform: -4000, 'driver:k1': 4000 });
-    expect(postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: 0, occurredAt: at })).toBeNull();
-    expect(() => postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: -1, occurredAt: at })).toThrow(RangeError);
+    expect(postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:evening', amountIqd: 0, occurredAt: at })).toBeNull();
+    expect(() => postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:evening', amountIqd: -1, occurredAt: at })).toThrow(RangeError);
   });
 });
 

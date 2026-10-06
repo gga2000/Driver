@@ -21,11 +21,14 @@ export interface GuaranteeLine {
 }
 
 const PEAK_KEY: Record<string, MessageKey> = {
-  lunch: 'partner.guarantee_peak_lunch',
-  dinner: 'partner.guarantee_peak_dinner',
+  day: 'partner.guarantee_peak_day',
+  evening: 'partner.guarantee_peak_evening',
 };
 
-/** "شفت الغدا" / "شفت العشا"; any other configured peak reads "شفت الذروة". */
+/**
+ * Ali's shifts (2026-10-06): "شفت النهار" (06:00–15:00) / "شفت الليل" (15:00–02:00); any other
+ * configured shift reads "الشفت".
+ */
 export function peakName(peak: string, t: T): string {
   return t(PEAK_KEY[peak] ?? 'partner.guarantee_peak_other');
 }
@@ -52,7 +55,7 @@ export function guaranteeLine(w: GuaranteeWindowView, t: T): GuaranteeLine | nul
   return { id: w.id, tone: 'progress', text: t('partner.guarantee_secured', { peak, amount, time: formatClock(w.to) }) };
 }
 
-/** The shift summary's lines: one per peak shift it overlapped that has something to say, oldest first. */
+/** The shift summary's lines: one per guarantee shift it overlapped that has something to say, oldest first. */
 export function guaranteeLines(windows: readonly GuaranteeWindowView[], t: T): GuaranteeLine[] {
   return windows.map((w) => guaranteeLine(w, t)).filter((l): l is GuaranteeLine => l !== null);
 }

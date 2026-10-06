@@ -26,7 +26,7 @@ export type JobEndDemand = PartnerDemand;
  * (saved offline): the ring is then one closed circle.
  *
  * In a peak shift the G-91 guarantee covers, one honest goal-gradient line follows the day: the
- * server's count ("باقي طلبين على ضمان شفت الغدا: 10,000 دينار"), never a target it did not set.
+ * server's count ("باقي طلبين على ضمان شفت النهار: 10,000 دينار"), never a target it did not set.
  */
 export function JobEndHero({
   earnedIqd,

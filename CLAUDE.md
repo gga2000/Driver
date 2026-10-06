@@ -21,9 +21,10 @@ It holds the real WhatsApp support number, SOS on-duty/escalation, calls (Ali: n
 provider, "we carry them"), the parents' WhatsApp messages for خطوط, the brand symbol, accounts and
 store setup, and the gaps that need real phones.
 SOS calls Iraq's national emergency number 911 (Ali, 2026-10-06; `SAFETY_RULES.policeNumber`).
+Shift-guarantee shifts: 06:00–15:00 and 15:00–02:00 (Ali, 2026-10-06); still off; amount for 9–11 h
+shifts, couriers only and a minimum online time are open.
 Being decided/built in another window (2026-10-06): tips after a good rating, public driver photos,
-shift-guarantee hours, and switching the
-guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
+switching the guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of
 `docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
