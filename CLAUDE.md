@@ -20,8 +20,9 @@ them now"). Don't start anything listed there unless Ali asks; update the file w
 It holds the real WhatsApp support number, SOS on-duty/escalation, calls (Ali: no outside masked-call
 provider, "we carry them"), the parents' WhatsApp messages for خطوط, the brand symbol, accounts and
 store setup, and the gaps that need real phones.
+SOS calls Iraq's national emergency number 911 (Ali, 2026-10-06; `SAFETY_RULES.policeNumber`).
 Being decided/built in another window (2026-10-06): tips after a good rating, public driver photos,
-the emergency number (Ali chose 911; main still says 104), shift-guarantee hours, and switching the
+shift-guarantee hours, and switching the
 guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of

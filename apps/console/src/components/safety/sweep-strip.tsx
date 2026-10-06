@@ -1,7 +1,7 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { SAFETY_DESK_ROLES, type KhatSweepAlert, type PinAlertView } from '@driver/contracts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { KHAT_RULES, SAFETY_DESK_ROLES, type KhatSweepAlert, type KhatSweepCloseReason, type PinAlertView } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import { CITY_ID, queryRetry } from '@/lib/live';
@@ -12,7 +12,7 @@ import { pinAlertDetail, pinAlertOrder, pinAlertTitle, pinAttemptLine, pinDriver
 import { sweepDetail, sweepDriverName, sweepOrder, sweepTitle } from '@/lib/sweep';
 import { useTRPC } from '@/lib/trpc';
 import { withBdi } from './bdi';
-import { Button, cx, IconAlert, IconCheckCircle, IconPhone, useNow, useToast } from '../ui';
+import { Button, cx, Dialog, Field, IconAlert, IconCheckCircle, IconPhone, Textarea, useNow, useToast } from '../ui';
 
 const NONE: KhatSweepAlert[] = [];
 const NO_PIN: PinAlertView[] = [];
@@ -42,7 +42,9 @@ export function usePinAlerts() {
  * dispatcher now), in this order:
  * - خطوط "car is empty" (partner S-6; Ali 2026-10-06): a run ended `KHAT_RULES.sweepAlertAfterMin` ago
  *   and the driver has not confirmed nobody is left in the car; it calls him through the masked line
- *   and turns calm when he confirms late ("تأكد متأخر 7 دقيقة"), leaving after `sweepClearedShowMin`;
+ *   and turns calm when he confirms late ("تأكد متأخر 7 دقيقة"), leaving after `sweepClearedShowMin`.
+ *   A dispatcher can close an open one ("سكّر التنبيه") with a reason: it leaves the strip and the
+ *   record keeps who, when and why (Ali, 2026-10-06);
  * - الرجعة seat PINs (Ali 2026-10-06): a rider's PIN typed on another rider's seat, or repeated wrong
  *   PINs on one seat, with the car's PIN history to unfold and the same masked call; each leaves after
  *   `PIN_ATTEMPT_RULES.alertShowMin`.
@@ -110,7 +112,12 @@ function SweepRow({ alert, now }: { alert: KhatSweepAlert; now: number }) {
           {open ? ` · ${t('console.safety.sweep_reminded')}` : ''}
         </p>
       </div>
-      {open ? <SweepCallButton alert={alert} /> : null}
+      {open ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <SweepCallButton alert={alert} />
+          <SweepCloseButton alert={alert} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -143,6 +150,102 @@ function SweepCallButton({ alert }: { alert: KhatSweepAlert }) {
     <Button variant="danger" size="lg" loading={call.isPending} icon={<IconPhone size={16} />} onClick={() => call.mutate({ alertId: alert.alertId })} data-testid={`sweep-call-${alert.alertId}`}>
       {label}
     </Button>
+  );
+}
+
+const CLOSE_REASONS: readonly KhatSweepCloseReason[] = ['driver_called_empty', 'guardian_called', 'other'];
+
+/** "سكّر التنبيه": the reason (and a short note for "غيرها"); audited on the server, idempotent. */
+function SweepCloseButton({ alert }: { alert: KhatSweepAlert }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="secondary" size="lg" icon={<IconCheckCircle size={16} />} onClick={() => setOpen(true)} data-testid={`sweep-close-${alert.alertId}`}>
+        {t('console.safety.sweep_close')}
+      </Button>
+      <SweepCloseDialog alert={alert} open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+function SweepCloseDialog({ alert, open, onClose }: { alert: KhatSweepAlert; open: boolean; onClose: () => void }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const noteId = useId();
+  const [reason, setReason] = useState<KhatSweepCloseReason>('driver_called_empty');
+  const [note, setNote] = useState('');
+  const [tried, setTried] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setReason('driver_called_empty');
+    setNote('');
+    setTried(false);
+  }, [open]);
+  const close = useMutation(
+    trpc.khat.closeSweepAlert.mutationOptions({
+      onSuccess: (a) => {
+        void qc.invalidateQueries(trpc.khat.sweepAlerts.pathFilter());
+        // The driver confirmed first: nothing was closed, nothing is needed.
+        toast(a.closedAt ? { title: t('console.safety.sweep_closed_done'), tone: 'ok' } : { title: t('console.safety.sweep_close_already') });
+        onClose();
+      },
+      onError: (e) => toast({ title: e.message, tone: 'bad' }),
+    }),
+  );
+  const trimmed = note.trim();
+  const short = reason === 'other' && trimmed.length < KHAT_RULES.sweepCloseNoteMin;
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      width="sm"
+      labelledBy={`${noteId}-title`}
+      title={t('console.safety.sweep_close_title', { name: sweepDriverName(alert) })}
+      description={t('console.safety.sweep_close_body')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('console.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            loading={close.isPending}
+            onClick={() => {
+              setTried(true);
+              if (!short) close.mutate({ alertId: alert.alertId, reason, ...(trimmed ? { note: trimmed } : {}) });
+            }}
+            data-testid={`sweep-close-confirm-${alert.alertId}`}
+          >
+            {t('console.safety.sweep_close')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4 text-text">
+        <fieldset className="grid gap-2">
+          <legend className="sr-only">{t('console.safety.sweep_close')}</legend>
+          {CLOSE_REASONS.map((r) => (
+            <label key={r} className={cx('flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm', reason === r ? 'border-accent bg-accent-tint font-semibold' : 'border-line hover:bg-surface-2')}>
+              <input type="radio" name={`sweep-reason-${alert.alertId}`} value={r} checked={reason === r} onChange={() => setReason(r)} className="accent-[rgb(var(--c-accent))]" />
+              {t(`console.safety.sweep_reason_${r}`)}
+            </label>
+          ))}
+        </fieldset>
+        <Field label={t('console.safety.sweep_close_note')} htmlFor={noteId} error={tried && short ? t('console.safety.sweep_close_note_short') : undefined}>
+          <Textarea
+            id={noteId}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={t('console.safety.sweep_close_note_placeholder')}
+            rows={3}
+            maxLength={KHAT_RULES.sweepCloseNoteMax}
+            aria-invalid={tried && short}
+            data-testid={`sweep-close-note-${alert.alertId}`}
+          />
+        </Field>
+      </div>
+    </Dialog>
   );
 }
 

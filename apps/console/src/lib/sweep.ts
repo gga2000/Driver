@@ -10,10 +10,11 @@ import { ageText } from './safety';
  * not confirmed the car is empty; a cleared one says how late he confirmed.
  */
 
-/** Open alerts first (oldest run first), then the late confirms (latest first). */
+/** Open alerts first (oldest run first), then the late confirms (latest first); closed ones are gone. */
 export function sweepOrder(rows: readonly KhatSweepAlert[]): KhatSweepAlert[] {
-  const open = rows.filter((r) => !r.confirmedAt).sort((a, b) => a.runEndedAt.getTime() - b.runEndedAt.getTime());
-  const cleared = rows.filter((r) => r.confirmedAt).sort((a, b) => b.confirmedAt!.getTime() - a.confirmedAt!.getTime());
+  const live = rows.filter((r) => !r.closedAt);
+  const open = live.filter((r) => !r.confirmedAt).sort((a, b) => a.runEndedAt.getTime() - b.runEndedAt.getTime());
+  const cleared = live.filter((r) => r.confirmedAt).sort((a, b) => b.confirmedAt!.getTime() - a.confirmedAt!.getTime());
   return [...open, ...cleared];
 }
 

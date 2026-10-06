@@ -85,7 +85,7 @@ Then, grouped by surface:
 - **Rides**: f4 `matched` / `driver_here` moments (haptic, cue, card with the plate), on-trip actions
   (share first, cancel hidden in transit); f5 driver photo + plate everywhere incl. request board and
   demand claim, no pre-selected cheapest offer; f6 search stages + the 3-minute offer (J-D7); f9 SOS sheet
-  order (police 104 first, car card, «فريق درايفر»).
+  order (emergency 911 first, car card, «فريق درايفر»).
 - **Food**: f10 deal prices on the menu and sheet (server `dealPriceIqd`); f11 minimum-order progress above
   the CTA + gap-closing upsell; the **small-order fee** (J-D6) end to end; f12 night home (first to open,
   «خبرني لمن يفتح»); b3 interim food drawings per dish (no identical neighbours, water bottle, laban glass,

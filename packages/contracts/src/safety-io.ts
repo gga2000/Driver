@@ -31,11 +31,11 @@ export const SAFETY_RULES = {
   /** The emergency contact's live-location link lives this long after the incident closes. */
   linkAfterCloseMin: 30,
   /**
-   * Iraq's police emergency number: the rider's first SOS action and the fallback when the alert
-   * cannot be sent. The one place it lives (every app passes it to `SosSheet`). NEEDS ALI: confirm 104
-   * is the right number for Wasit (CLAUDE.md open decisions).
+   * Iraq's unified national emergency number (Ministry of Interior; police, ambulance and fire, Wasit
+   * included): the rider's first SOS action and the fallback when the alert cannot be sent. The one
+   * place it lives (every app passes it to `SosSheet`). 911, not 104 (Ali, 2026-10-06).
    */
-  policeNumber: '104',
+  policeNumber: '911',
 } as const;
 
 /** What the alert is about. Customers name an order (ride) or a الرجعة booking; drivers a trip, departure or request. */
@@ -133,6 +133,12 @@ export type SosShared = z.infer<typeof SosShared>;
 
 /** Back-office roles that see and answer SOS alerts (the launch rota: dispatchers, support, admin). */
 export const SAFETY_DESK_ROLES = ['dispatcher', 'support', 'admin'] as const;
+
+/**
+ * Roles paged on a phone when a safety alert fires (SOS, the خطوط car nobody checked): "on shift"
+ * means every live dispatcher and admin until a staff rota exists.
+ */
+export const SAFETY_PAGED_ROLES = ['dispatcher', 'admin'] as const;
 
 export const SafetyListInput = z.object({
   /** `open`: open + acknowledged (the banner and the default list); `all`: the last ones of every state. */

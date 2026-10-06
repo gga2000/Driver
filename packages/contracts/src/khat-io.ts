@@ -27,6 +27,9 @@ export const KHAT_RULES = {
   sweepClearedShowMin: 30,
   /** Open sweep alerts older than this drop off the strip (a run's day is over; the record stays). */
   sweepOpenShowHours: 12,
+  /** The dispatcher's note when closing an alert for "غيرها" (required then, optional otherwise). */
+  sweepCloseNoteMin: 2,
+  sweepCloseNoteMax: 300,
 } as const;
 
 const DeviceStamp = {
@@ -78,6 +81,13 @@ export const CallGuardianInput = z.object({ tripId: z.string().min(1), childRef:
 export type CallGuardianInput = z.infer<typeof CallGuardianInput>;
 
 /**
+ * Why a dispatcher closed a sweep alert: "اتصلت بالسايق، السيارة فاضية", "اتصلت بالأهل", or "غيرها"
+ * with a short note.
+ */
+export const KhatSweepCloseReason = z.enum(['driver_called_empty', 'guardian_called', 'other']);
+export type KhatSweepCloseReason = z.infer<typeof KhatSweepCloseReason>;
+
+/**
  * A run that ended without the sweep (Console safety strip). The driver's name and masked number are
  * a logged vault read for the dispatcher asking; never a child's name.
  */
@@ -104,8 +114,26 @@ export const KhatSweepAlert = z.object({
   confirmedAt: z.coerce.date().nullable(),
   /** Whole minutes from the run's end to the late confirm ("تأكد متأخر 7 دقيقة"); null while open. */
   confirmedLateMin: z.number().int().nullable(),
+  /**
+   * A dispatcher closed it from the Console (Ali, 2026-10-06): it leaves the strip; the record keeps
+   * who (staff person id), when and why. A late driver confirm after the close still sets `confirmedAt`.
+   */
+  closedAt: z.coerce.date().nullable(),
+  closedById: z.string().nullable(),
+  closeReason: KhatSweepCloseReason.nullable(),
+  closeNote: z.string().nullable(),
 });
 export type KhatSweepAlert = z.infer<typeof KhatSweepAlert>;
+
+/** "سكّر التنبيه": the reason, and a note (required for "غيرها"). Idempotent: the first close stays. */
+export const KhatSweepCloseInput = z
+  .object({
+    alertId: z.string().min(1).max(80),
+    reason: KhatSweepCloseReason,
+    note: z.string().trim().max(KHAT_RULES.sweepCloseNoteMax).optional(),
+  })
+  .refine((v) => v.reason !== 'other' || (v.note?.length ?? 0) >= KHAT_RULES.sweepCloseNoteMin, { message: 'note required', path: ['note'] });
+export type KhatSweepCloseInput = z.infer<typeof KhatSweepCloseInput>;
 
 /** Open sweep alerts and the ones confirmed late in the last `sweepClearedShowMin`, open first. */
 export const KhatSweepAlertsInput = z.object({ cityId: z.string().min(1) });
@@ -175,4 +203,5 @@ export interface KhatPort {
   callGuardian(actor: Actor, input: CallGuardianInput): Promise<CallSession>;
   sweepAlerts(actor: Actor, input: KhatSweepAlertsInput): Promise<KhatSweepAlert[]>;
   callSweepDriver(actor: Actor, input: KhatSweepCallInput): Promise<SafetyCallSession>;
+  closeSweepAlert(actor: Actor, input: KhatSweepCloseInput): Promise<KhatSweepAlert>;
 }

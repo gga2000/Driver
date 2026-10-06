@@ -90,6 +90,23 @@ describe.skipIf(!url)('wave 2 repositories on Postgres (needs DATABASE_URL)', ()
     expect((await repo.confirmSweepAlert(tripId, new Date(late.getTime() + 60_000)))?.confirmedAt).toEqual(late);
     expect((await repo.sweepAlertsSince('aziziyah', at)).some((a) => a.id === first.alert.id)).toBe(true);
     expect(await repo.sweepAlert(first.alert.id)).toMatchObject({ tripId, lastDropZone: 'centre' });
+    // Confirmed already: a dispatcher's close changes nothing.
+    expect(await repo.closeSweepAlert(first.alert.id, { closedAt: late, closedById: personId, closeReason: 'guardian_called', closeNote: null })).toMatchObject({ closed: false, alert: { closedAt: null } });
+  });
+
+  it('khat sweep alerts: a dispatcher closes an open one once, a late confirm still recorded', async () => {
+    const repo = new PrismaKhatRepository(prisma);
+    const tripId = `trip_swc_${run}`;
+    const { alert } = await repo.raiseSweepAlert({ tripId, cityId: 'aziziyah', driverId: personId, childrenTotal: 1, lastDropAt: at, lastDropZone: null, runEndedAt: at, raisedAt: new Date(at.getTime() + 5 * 60_000) });
+    expect(alert).toMatchObject({ closedAt: null, closedById: null, closeReason: null, closeNote: null });
+    const closedAt = new Date(at.getTime() + 9 * 60_000);
+    const first = await repo.closeSweepAlert(alert.id, { closedAt, closedById: personId, closeReason: 'other', closeNote: 'رجع وباوع' });
+    expect(first).toMatchObject({ closed: true, alert: { closedAt, closedById: personId, closeReason: 'other', closeNote: 'رجع وباوع' } });
+    const again = await repo.closeSweepAlert(alert.id, { closedAt: new Date(closedAt.getTime() + 60_000), closedById: 'p_other', closeReason: 'guardian_called', closeNote: null });
+    expect(again).toMatchObject({ closed: false, alert: { closedAt, closedById: personId, closeReason: 'other' } });
+    const late = new Date(closedAt.getTime() + 2 * 60_000);
+    expect(await repo.confirmSweepAlert(tripId, late)).toMatchObject({ confirmedAt: late, closedAt });
+    expect(await repo.closeSweepAlert('ksw_missing', { closedAt, closedById: personId, closeReason: 'other', closeNote: null })).toBeNull();
   });
 
   it('fleet vehicles (registry) and drivers', async () => {
