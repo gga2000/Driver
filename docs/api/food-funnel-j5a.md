@@ -6,7 +6,7 @@ Plan: `docs/superpowers/plans/2026-10-06-j5a-food.md`. No money rule changes.
 
 - **Portions (o3).** `MenuItem.serves` and each `MenuModifier.serves` = `{ min, max }` people, or null
   when the kitchen said nothing. Stored on `catalog_items.serves_min/serves_max` and
-  `modifiers.serves_min/serves_max` (migration `20261006190000_menu_serves_labels`). The Merchant app
+  `modifiers.serves_min/serves_max` (migration `20261006192000_menu_serves_labels`). The Merchant app
   sets them per option («يشبّع كم؟ مثلاً 2–3»); `merchantAdmin.menu.setModifiers` refuses a range typed
   high to low (`invalid_input`).
 - **Labels (o8).** `MenuItem.labels` ⊆ `spicy | new | family` (`DISH_LABELS`), set by the kitchen
