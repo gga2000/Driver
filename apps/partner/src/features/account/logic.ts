@@ -7,6 +7,7 @@ import type {
   EarningsJobLine,
   EarningsPeriod,
   EarningsView,
+  MainPhotoView,
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
@@ -457,4 +458,34 @@ export function gateKind(gate: PartnerOnlineGate | null | undefined): GateKind |
 /** "m:ss" left on a check-in challenge. */
 export function secondsLeftOf(expiresAt: Date, now: number): number {
   return Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000));
+}
+
+// ───────────────────────── main photo (Ali, 2026-10-06) ─────────────────────────
+
+export type PillTone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+
+/**
+ * The main photo's one-line state for the account row and the photo screen: «تنتظر الموافقة» /
+ * «مقبولة» / «مرفوضة: {reason}», or «ما عندك صورة بعد». `short` drops the reason (a pill).
+ */
+export function mainPhotoStatus(view: MainPhotoView | undefined, t: T, opts: { short?: boolean } = {}): { label: string; tone: PillTone } {
+  switch (view?.state) {
+    case 'pending':
+      return { label: t('partner.mainphoto_state_pending'), tone: 'info' };
+    case 'approved':
+      return { label: t('partner.mainphoto_state_approved'), tone: 'success' };
+    case 'rejected': {
+      const reason = view.latest?.rejectReason?.trim();
+      return { label: !opts.short && reason ? t('partner.mainphoto_state_rejected', { reason }) : t('partner.mainphoto_state_rejected_short'), tone: 'danger' };
+    }
+    default:
+      return { label: t('partner.mainphoto_state_none'), tone: 'warning' };
+  }
+}
+
+/** What to say under the photos: what customers see while the latest one is under review or refused. */
+export function mainPhotoNote(view: MainPhotoView | undefined): MessageKey {
+  if (view?.state === 'pending') return view.approved ? 'partner.mainphoto_pending_keep' : 'partner.mainphoto_pending_first';
+  if (view?.state === 'rejected' && view.approved) return 'partner.mainphoto_rejected_keep';
+  return view?.approved ? 'partner.mainphoto_customers_see' : 'partner.mainphoto_customers_see_initial';
 }

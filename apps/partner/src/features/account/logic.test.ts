@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DriverDocumentView, EarningsJobLine } from '@driver/contracts';
+import type { DriverDocumentView, EarningsJobLine, MainPhotoView } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import {
   breakdownRows,
@@ -15,6 +15,8 @@ import {
   expiryText,
   gateKind,
   local,
+  mainPhotoNote,
+  mainPhotoStatus,
   metricFormat,
   metricPos,
   nextTierCap,
@@ -205,5 +207,28 @@ describe('online gate', () => {
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }] })).toBe('checkin');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_expired', message_ar: '' }, { code: 'checkin_locked', message_ar: '' }] })).toBe('locked');
+  });
+});
+
+describe('main photo (Ali, 2026-10-06)', () => {
+  const latest = (status: 'pending' | 'approved' | 'rejected', rejectReason: string | null = null) => ({ documentId: 'd', status, url: '/files/up_2', submittedAt: NOW, reviewedAt: null, rejectReason });
+  const approved = { url: '/files/up_1', approvedAt: NOW };
+  const view = (state: MainPhotoView['state'], extra: Partial<MainPhotoView> = {}): MainPhotoView => ({ state, approved: null, latest: null, ...extra });
+
+  it('says «تنتظر الموافقة» / «مقبولة» / «مرفوضة: السبب», or that there is none yet', () => {
+    expect(mainPhotoStatus(view('none'), t)).toEqual({ label: 'ما عندك صورة بعد', tone: 'warning' });
+    expect(mainPhotoStatus(view('pending', { latest: latest('pending') }), t)).toEqual({ label: 'تنتظر الموافقة', tone: 'info' });
+    expect(mainPhotoStatus(view('approved', { approved, latest: latest('approved') }), t)).toEqual({ label: 'مقبولة', tone: 'success' });
+    expect(mainPhotoStatus(view('rejected', { latest: latest('rejected', 'الوجه مو واضح') }), t)).toEqual({ label: 'مرفوضة: الوجه مو واضح', tone: 'danger' });
+    expect(mainPhotoStatus(view('rejected', { latest: latest('rejected', 'الوجه مو واضح') }), t, { short: true }).label).toBe('مرفوضة');
+    expect(mainPhotoStatus(undefined, t).label).toBe('ما عندك صورة بعد');
+  });
+
+  it('tells him what customers see while a new photo waits or was refused', () => {
+    expect(mainPhotoNote(view('pending', { approved, latest: latest('pending') }))).toBe('partner.mainphoto_pending_keep');
+    expect(mainPhotoNote(view('pending', { latest: latest('pending') }))).toBe('partner.mainphoto_pending_first');
+    expect(mainPhotoNote(view('rejected', { approved, latest: latest('rejected', 'x') }))).toBe('partner.mainphoto_rejected_keep');
+    expect(mainPhotoNote(view('approved', { approved }))).toBe('partner.mainphoto_customers_see');
+    expect(mainPhotoNote(view('none'))).toBe('partner.mainphoto_customers_see_initial');
   });
 });

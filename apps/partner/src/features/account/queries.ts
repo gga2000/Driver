@@ -43,6 +43,25 @@ export function useDocuments() {
   return useQuery({ ...api.driverAccount.documents.queryOptions({}), enabled: useEnabled() });
 }
 
+/** His main photo: what customers see (approved) and his latest one's state (Ali, 2026-10-06). */
+export function useMainPhoto() {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.mainPhoto.queryOptions(), enabled: useEnabled() });
+}
+
+/** Sends a new main photo for review; the photo, documents and account rows re-read. */
+export function useSetMainPhoto() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.driverAccount.setMainPhoto.mutationOptions(),
+    onSuccess: (view) => {
+      qc.setQueryData(api.driverAccount.mainPhoto.queryKey(), view);
+      void qc.invalidateQueries({ queryKey: api.driverAccount.documents.queryKey() });
+    },
+  });
+}
+
 export function useCheckInStatus() {
   const api = useApi();
   return useQuery({ ...api.driverAccount.checkInStatus.queryOptions(), enabled: useEnabled() });
