@@ -11,6 +11,7 @@ import { IdentityService } from './modules/identity/index.js';
 import { LedgerService } from './modules/ledger/index.js';
 import { OrdersService } from './modules/orders/index.js';
 import { OrgsService } from './modules/orgs/index.js';
+import { SUPPORT_REPOSITORY, SupportService, type SupportRepository } from './modules/support/index.js';
 import { TripsService } from './modules/trips/index.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
@@ -391,8 +392,23 @@ describe('launch control room (e2e)', () => {
       // S-K6: every tile says which way is better; minutes are written out (no bare "د").
       expect(wall.metrics.filter((m) => m.key !== 'ledger').every((m) => m.better === 'up' || m.better === 'down')).toBe(true);
       expect(wall.metrics.find((m) => m.key === 'orders_day')!.previous).toEqual(expect.any(Number));
+      // K3a: every tile with a figure compares with yesterday at this time (the ledger is yes/no).
+      expect(wall.metrics.find((m) => m.key === 'disputes_24h')!.previous).toEqual(expect.any(Number));
+      expect(wall.metrics.find((m) => m.key === 'ledger')!.previous ?? null).toBeNull();
       const med = wall.metrics.find((m) => m.key === 'median_delivery')!;
       expect(med.display === '—' || med.display.endsWith('دقيقة')).toBe(true);
+      // K3a: yesterday's "open over 24 h" is rebuilt from tickets still open and those resolved since.
+      const repo = app.get<SupportRepository>(SUPPORT_REPOSITORY);
+      const now = Date.now();
+      const ago = (h: number) => new Date(now - h * 3_600_000);
+      const ticketAt = (openedH: number, resolvedH: number | null) =>
+        repo.create({ cityId: 'e2e_overdue', kind: 'complaint', status: resolvedH === null ? 'open' : 'resolved', channel: 'phone', subject: 'تأخير', orderId: null, tripId: null, customerId: null, openedById: 'system:e2e', openedAt: ago(openedH), firstResponseAt: null, resolvedAt: resolvedH === null ? null : ago(resolvedH), slaDueAt: ago(openedH - 6), assigneeId: null, faultParty: 'none', refundedIqd: 0, escalatedTo: null, escalatedAt: null, resolution: null, sourceKey: null, reopenCount: 0, lastActivityAt: ago(openedH) });
+      await ticketAt(60, null); // overdue then and now
+      await ticketAt(55, 3); // overdue then, closed since
+      await ticketAt(30, null); // only 6 h old a day ago
+      await ticketAt(70, 30); // closed before then
+      expect(await app.get(SupportService).overdueAt('e2e_overdue', ago(24))).toBe(2);
+      expect((await app.get(SupportService).overdue('e2e_overdue')).overdue24h).toBe(2);
       // S-K5: the round carries tonight's progress.
       expect(desk.round).toMatchObject({ collectedIqd: expect.any(Number), targetIqd: desk.round.totalIqd + (desk.round.collectedIqd ?? 0) });
     });

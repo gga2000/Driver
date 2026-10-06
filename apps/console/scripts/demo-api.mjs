@@ -281,6 +281,53 @@ if (process.env.DEMO_HISTORY !== '0') {
 if (process.env.DEMO_LIVE === '0') await sim.stop();
 else if (process.env.DEMO_LIVE_SPEED && sim.live) sim.live.speed = Number(process.env.DEMO_LIVE_SPEED);
 
+// ───────────────────────── yesterday (the wall's «أمس بهالوقت») ─────────────────────────
+// The launch wall compares each tile with the same clock time yesterday (S-K6). The demo starts
+// today, so it writes a yesterday as the evening goes: four in five delivered orders again 24 hours
+// earlier (a little slower: +3 minutes to the door), the dispatch offers too (one in four accepted
+// ones declined), every 30 s so yesterday keeps pace with the live traffic; and الرجعة seats booked
+// yesterday further down. Copies only, with their own ids; DEMO_YESTERDAY=0 skips it.
+const DAY_MS = 86_400_000;
+const seedYesterday = process.env.DEMO_YESTERDAY !== '0';
+if (seedYesterday) {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const { DISPATCH_REPOSITORY } = await load('modules/dispatch/dispatch.repository.js');
+  const ordersRepo = get(ORDERS_REPOSITORY);
+  const offersRepo = app.get(DISPATCH_REPOSITORY, { strict: false });
+  const back = (v) => (v instanceof Date ? new Date(v.getTime() - DAY_MS) : v);
+  const shift = (rec) => Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, back(v)]));
+  const seen = new Set();
+  let n = 0;
+  let accepted = 0;
+  const copyToYesterday = () => {
+    for (const o of [...(ordersRepo.orders?.values?.() ?? [])]) {
+      if (!o.deliveredAt || o.id.endsWith('_y') || seen.has(o.id)) continue;
+      seen.add(o.id);
+      n += 1;
+      if (n % 5 === 0) continue;
+      const y = { ...shift(o), id: `${o.id}_y` };
+      y.deliveredAt = new Date(y.deliveredAt.getTime() + 3 * 60_000);
+      ordersRepo.orders.set(y.id, y);
+      const lines = (ordersRepo.linesByOrder?.get(o.id) ?? []).map((l) => ({ ...l, id: `${l.id}_y`, orderId: y.id }));
+      const parts = (ordersRepo.participantsByOrder?.get(o.id) ?? []).map((p) => ({ ...p, id: `${p.id}_y`, orderId: y.id }));
+      ordersRepo.lines?.push(...lines);
+      ordersRepo.participants?.push(...parts);
+      ordersRepo.linesByOrder?.set(y.id, lines);
+      ordersRepo.participantsByOrder?.set(y.id, parts);
+    }
+    for (const row of [...(offersRepo?.rows?.values?.() ?? [])]) {
+      if (row.state === 'sent' || row.state === 'seen' || row.id.endsWith('_y') || seen.has(row.id)) continue;
+      seen.add(row.id);
+      const y = { ...shift(row), id: `${row.id}_y`, tripId: `${row.tripId}_y` };
+      if (y.state === 'accepted' && accepted++ % 4 === 3) y.state = 'declined';
+      offersRepo.rows.set(y.id, y);
+    }
+  };
+  copyToYesterday();
+  setInterval(copyToYesterday, 30_000).unref?.();
+  console.log(`yesterday: ${n} delivered orders so far, copied 24 h back (and every 30 s)`);
+}
+
 // ───────────────────────── restaurants, orders and zone caps ─────────────────────────
 
 const orgs = get(OrgsService);
@@ -554,5 +601,31 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
   const attempts = await departures.pinAttempts(dep.id);
   return { departureId: dep.id, driverId, alertIds: attempts.filter((x) => x.alert).map((x) => x.id), attempts: attempts.map((x) => x.result) };
 };
+
+// الرجعة seats for the wall: a car at كراج البوابة 2 with 5 seats booked today, and (with the
+// yesterday above) 3 of them as if booked yesterday at this time, so «مقاعد الرجعة» has a comparison.
+{
+  const now = Date.now();
+  const driverId = await person('07814440300', 'جاسم محمد', ['intercity_driver']);
+  const dep = await departures.announce(
+    driverId,
+    AnnounceInput.parse({ garageId: 'mp_garage_bab2', corridorId: 'aziziyah_baghdad', departAt: new Date(now + 3 * 3_600_000), latestDepartureAt: new Date(now + 3 * 3_600_000 + 30 * 60_000), vehicle: { kind: 'van', layout: 7, plate: 'واسط 61880' } }),
+  );
+  const seatIds = ['front', 'middle_left', 'middle_right', 'rear_left', 'rear_right', 'rear_middle', 'middle_middle'];
+  const booked = [];
+  for (let i = 0; i < (seedYesterday ? 7 : 4); i += 1) {
+    const rider = await person(`07715550${String(300 + i).padStart(3, '0')}`, ['نور', 'حسين', 'فاطمة', 'مصطفى', 'زهراء', 'علي', 'مريم'][i]);
+    const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatIds[i]] }, travellingAs: 'rijal' }));
+    booked.push(await departures.book(rider, held.id, 'cash'));
+  }
+  if (seedYesterday) {
+    const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+    const routesRepo = get(ROUTES_REPOSITORY);
+    for (const b of booked.slice(4)) {
+      const rec = routesRepo.bookings?.get(b.id);
+      if (rec) routesRepo.bookings.set(b.id, { ...rec, bookedAt: new Date(now - DAY_MS - 20 * 60_000) });
+    }
+  }
+}
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);
