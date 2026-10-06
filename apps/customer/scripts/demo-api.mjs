@@ -22,6 +22,7 @@
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 import { createRequire } from 'node:module';
+import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -170,6 +171,22 @@ const trips = app.get(TripsService);
 const eta = app.get(EtaService);
 const vehicles = app.get(COURIER_VEHICLES);
 
+// Driver photos (Ali, 2026-10-06): every demo courier / driver has an approved main photo (a drawn
+// portrait), so the driver cards, الرجعة offers and the share page show a face; some drivers keep the
+// initial (`photo: false`) to show the fallback.
+const { DriverAccountService } = await load('modules/driver-account/index.js');
+const { BLOB_STORE: PHOTO_STORE } = await load('modules/places/index.js');
+async function giveMainPhoto(personId, seed) {
+  const bytes = avatarPng(seed);
+  const store = app.get(PHOTO_STORE);
+  const ticket = await store.createUpload({ ownerId: personId, contentType: 'image/png', sizeBytes: bytes.length });
+  const u = new URL(ticket.uploadUrl, 'http://x');
+  await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+  const account = app.get(DriverAccountService);
+  const sent = await account.setMainPhoto({ personId, sessionId: 'demo' }, { uploadId: ticket.uploadId });
+  await account.reviewDocument({ personId: 'demo-field-ops', sessionId: 'demo' }, { documentId: sent.latest.documentId, decision: 'approve' });
+}
+
 const HOME = { lat: 32.887, lng: 45.0765 };
 /** Kitchen → home along a plausible street line (draft; no road graph yet). */
 const TO_HOME = [kitchen, { lat: 32.9052, lng: 45.0641 }, { lat: 32.9008, lng: 45.0668 }, { lat: 32.8961, lng: 45.0709 }, { lat: 32.8912, lng: 45.0738 }, HOME];
@@ -203,6 +220,8 @@ async function newCourier(at) {
   const courierId = (await identity.verifyOtp({ phone, code })).personId;
   await identity.grantRole({ personId: 'system:demo' }, { personId: courierId, kind: 'courier' });
   await identity.setName({ personId: courierId, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
+  // Every other courier has his approved photo; the rest show the initial (the fallback).
+  if (courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
   vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length], label: null });
   await dispatch.presence.online(courierId, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
   return courierId;
@@ -532,6 +551,7 @@ for (const [code, name] of Object.entries(DRIVER_NAMES)) {
   const id = (await identity.verifyOtp({ phone, code: otp })).personId;
   await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'intercity_driver' });
   await identity.setName({ personId: id, sessionId: 'demo' }, name);
+  if (driverPhoneSeq !== 2) await giveMainPhoto(id, `rajaa:${code}`);
   D[code] = id;
 }
 
@@ -743,8 +763,9 @@ const rajaa = await (async () => {
 //   POST /demo/account?personId=<id>
 // Seeds the M3 account screens for that person: a gate photo on (and confirmation of) their home,
 // a work place, a cash food order with change kept as credit, an agent top-up, 2,500 points (+ 40
-// pending under their number), and a household where Minar (25,000 limit) waits for approval of a
-// 32,000 order and shares her family home.
+// pending under their number), a household where Minar (25,000 limit) waits for approval of a
+// 32,000 order and shares her family home, and two خطوط children (زهراء with a photo, محمد without)
+// for أطفال الخطوط (/household/children).
 {
   const { deflateSync } = await import('node:zlib');
   const { Buffer } = await import('node:buffer');
@@ -861,6 +882,17 @@ const rajaa = await (async () => {
         await places.save(minar, { cityId: 'aziziyah', label: 'custom', name: 'بيت أهل منار', pin: { lat: 32.887, lng: 45.0765 }, note: 'البيت الثالث بعد الفرن', photoIds: [], shareWithHousehold: true });
       }
       await ledger.recordAll(group(`demo:hh:${household.id}`, 'money', ago(30), [{ type: 'credit_issued', amount: 60_000, fromAccount: Accounts.bank, toAccount: Accounts.household(household.id), memo: 'topup:agent' }]));
+      // خطوط children (Ali, 2026-10-06): two on school runs; زهراء already has a photo (أطفال الخطوط).
+      if ((await identity.myChildren({ personId })).length === 0) {
+        const { KhatService } = await load('modules/khat/index.js');
+        const zahraa = (await identity.registerChild({ personId }, { name: 'زهراء علي' })).childRef;
+        await identity.registerChild({ personId }, { name: 'محمد علي' });
+        const bytes = avatarPng('زهراء علي', { child: true });
+        const ticket = await blobs.createUpload({ ownerId: personId, contentType: 'image/png', sizeBytes: bytes.length });
+        const u = new URL(ticket.uploadUrl, 'http://x');
+        await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+        await app.get(KhatService).setChildPhoto({ personId, sessionId: 'demo' }, { childRef: zahraa, uploadId: ticket.uploadId });
+      }
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ householdId: household.id, homeId: home.id }));
     } catch (err) {
@@ -1000,6 +1032,7 @@ const rajaa = await (async () => {
     const driverId = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'driver' });
     await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
+    await giveMainPhoto(driverId, 'ride:mustafa');
     vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض' });
     await dispatch.presence.online(driverId, { cityId: 'aziziyah', at, vehicle: 'car', tier: 'gold' });
     return driverId;
@@ -1118,6 +1151,7 @@ const rajaa = await (async () => {
     const id = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'driver' });
     await identity.setName({ personId: id, sessionId: 'demo' }, def.name);
+    await giveMainPhoto(id, `ride:${def.name}`);
     vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
     return { id, def, pos: { ...def.at }, tripId: null };

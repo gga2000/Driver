@@ -25,6 +25,7 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 
 const apiDir = fileURLToPath(new URL('../../api/', import.meta.url));
 const requireFromApi = createRequire(join(apiDir, 'package.json'));
@@ -201,8 +202,8 @@ const menu = (name, items) => `
   </div>`;
 
 const blobs = get(BLOB_STORE);
-async function upload(ownerId, bytes) {
-  const ticket = await blobs.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: bytes.length });
+async function upload(ownerId, bytes, contentType = 'image/jpeg') {
+  const ticket = await blobs.createUpload({ ownerId, contentType, sizeBytes: bytes.length });
   const res = await fetch(new URL(ticket.uploadUrl, origin), { method: 'PUT', headers: ticket.headers, body: bytes });
   if (res.status !== 200) throw new Error(`upload ${res.status}`);
   return ticket.uploadId;
@@ -382,6 +383,14 @@ await accounts.uploadDocument(actor(couriers[0].id), {
   uploadId: await upload(couriers[0].id, await render(idCard('إجازة السياقة', couriers[0].name, '#7a9a5b', '<div>الصنف: دراجة نارية</div>'))),
   expiresAt: new Date(Date.now() + 2 * 365 * 86_400_000),
 });
+// Main photos (Ali, 2026-10-06): Murtadha's was approved (customers see it); he sent a new one that
+// waits in the queue as «الصورة الرئيسية» next to the approved one; Abbas's first photo waits too.
+{
+  const sent = await accounts.setMainPhoto(actor(couriers[0].id), { uploadId: await upload(couriers[0].id, avatarPng('مرتضى'), 'image/png') });
+  await accounts.reviewDocument(actor(haider), { documentId: sent.latest.documentId, decision: 'approve' });
+  await accounts.setMainPhoto(actor(couriers[0].id), { uploadId: await upload(couriers[0].id, avatarPng('مرتضى · جديدة'), 'image/png') });
+  await accounts.setMainPhoto(actor(couriers[1].id), { uploadId: await upload(couriers[1].id, avatarPng('عباس'), 'image/png') });
+}
 // Haider drives too: his own licence waits for someone else.
 await identity.grantRole(SYSTEM, { personId: haider, kind: 'courier' });
 await accounts.uploadDocument(actor(haider), { kind: 'licence', uploadId: await upload(haider, await render(idCard('إجازة السياقة', 'حيدر', '#7a9a5b'))) });
