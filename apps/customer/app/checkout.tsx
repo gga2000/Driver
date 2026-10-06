@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Platform, Pressable, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
-import { formatClock, formatMinutesRange } from '@driver/i18n';
+import { formatClock, formatMinuteCount, formatMinutesRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { TABLE, groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -25,6 +25,9 @@ import { useWalletBalance } from '@/features/account/queries';
 import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
+import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
+import { useTimetable } from '@/features/season/use-timetable';
+import { useSeason } from '@/lib/use-season';
 import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
@@ -85,8 +88,13 @@ export default function CheckoutScreen() {
   // o11: slots for today or tomorrow inside the kitchen's hours; a closed kitchen starts on its first one.
   const [day, setDay] = useState<0 | 1>(0);
   const hours = menu.data?.restaurant.hours;
-  const slots = useMemo(() => preorderSlots(new Date(), hours ?? [], day), [hours, day]);
-  const [slot, setSlot] = useState(0);
+  const baseSlots = useMemo(() => preorderSlots(new Date(), hours ?? [], day), [hours, day]);
+  // J6: in Ramadan, «على الفطور» on the person's timetable joins today's list (the server's slot, before the adhan).
+  const season = useSeason();
+  const [timetable] = useTimetable();
+  const iftar = timesFor(season.ramadan, timetable);
+  const slots = useMemo(() => (day === 0 ? withIftarSlot(baseSlots, iftar, new Date(), IFTAR_MIN_LEAD_MIN) : baseSlots.map((at) => ({ at, iftar: false }))), [baseSlots, iftar, day]);
+  const [slot, setSlot] = useState<string | null>(null);
   const preset = useRef(false);
   useEffect(() => {
     const r = menu.data?.restaurant;
@@ -97,7 +105,7 @@ export default function CheckoutScreen() {
     if (!first) return;
     setWhen('later');
     setDay(first.day);
-    setSlot(0);
+    setSlot(null);
   }, [menu.data]);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
@@ -157,7 +165,8 @@ export default function CheckoutScreen() {
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
   const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
   const restaurant = menu.data?.restaurant;
-  const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
+  const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
+  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
   const { groups } = groupByPerson(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
@@ -284,7 +293,11 @@ export default function CheckoutScreen() {
   const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
   const payLine = payCopy(amountParam(totals?.totalIqd ?? 0), payment, receiver);
   const etaMax = restaurant?.etaMaxMinutes ?? null;
-  const whenValue = scheduledFor ? `${day === 1 ? t('time.tomorrow') : t('time.today')} ${t('checkout.when_at', { time: clock12(scheduledFor) })}` : t('checkout.when_now');
+  const whenValue = !scheduledFor
+    ? t('checkout.when_now')
+    : chosen?.iftar && iftar
+      ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) })
+      : `${day === 1 ? t('time.tomorrow') : t('time.today')} ${t('checkout.when_at', { time: clock12(scheduledFor) })}`;
   const receiverValue = recipientId === 'me' ? t('checkout.recipient_me') : recipientId === 'other' ? otherName.trim() || t('checkout.recipient_other') : (recipientName ?? t('checkout.recipient_other'));
   const choosePayer = (payer: Payer) => {
     const next = paymentOf(payer);
@@ -536,7 +549,7 @@ export default function CheckoutScreen() {
                   value={String(day)}
                   onChange={(v) => {
                     setDay(v === '1' ? 1 : 0);
-                    setSlot(0);
+                    setSlot(null);
                   }}
                   options={[
                     { value: '0', label: t('time.today') },
@@ -544,12 +557,22 @@ export default function CheckoutScreen() {
                   ]}
                 />
                 {slots.length > 0 ? (
-                  <ChipGroup items={slots.map((sl, i) => ({ id: String(i), label: t('checkout.when_at', { time: clock12(sl) }) }))} value={[String(slot)]} required onChange={(v) => setSlot(Number(v[0] ?? 0))} />
+                  <ChipGroup
+                    items={slots.map((sl) => ({ id: String(sl.at.getTime()), label: sl.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(sl.at) }) }))}
+                    value={chosen ? [String(chosen.at.getTime())] : []}
+                    required
+                    onChange={(v) => setSlot(v[0] ?? null)}
+                  />
                 ) : (
                   <Text variant="footnote" color="textMuted" testID="checkout-no-slots">
                     {t('checkout.no_slots_day')}
                   </Text>
                 )}
+                {chosen?.iftar && iftar && timetable ? (
+                  <Text testID="checkout-iftar-note" variant="footnote" color="textMuted">
+                    {t('checkout.iftar_note', { minutes: formatMinuteCount(iftarLeadMinutes(iftar), { locale }), timetable: t(timetable === 'sunni' ? 'season.timetable_sunni' : 'season.timetable_shia') })}
+                  </Text>
+                ) : null}
               </>
             ) : null}
           </View>
