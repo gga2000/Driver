@@ -75,6 +75,7 @@ import { ORDERS_HOUSEHOLDS, type OrdersHouseholdsPort } from './households.port.
 import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
 import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
+import { giftProblem, giftView } from './gift.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 
@@ -131,6 +132,11 @@ export interface OrdersPlacesPort {
 }
 
 export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
+
+/** Invite as a gift (joy g2): the person who invited a customer, or null (the referrals module). */
+export interface OrdersReferralsPort {
+  referrerOf(personId: string): Promise<string | null>;
+}
 
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
@@ -212,6 +218,20 @@ export class OrdersService implements OnModuleInit {
   private readonly householdLock = new KeyedLock();
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
   slotCaps: SlotCapRules = SLOT_CAP_RULES;
+  /**
+   * Invite as a gift (joy g2): who invited the orderer, sent with the closed order so the ledger's
+   * referral rule (decisions §1) can pay. Bound by the module (the referrals module owns invitations).
+   */
+  private referrals: OrdersReferralsPort | null = null;
+
+  bindReferrals(port: OrdersReferralsPort): void {
+    this.referrals = port;
+  }
+
+  /** How many orders a person has placed (any state): the referrals module asks before a claim. */
+  async placedCount(personId: string): Promise<number> {
+    return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
+  }
 
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
@@ -304,6 +324,9 @@ export class OrdersService implements OnModuleInit {
     if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total, ORDERS_RULES.changeToWallet) !== null)) {
       throw new DriverError('tender_invalid');
     }
+    // «عزيمة» (joy g1): a gift goes to a recipient; hidden prices only when the sender pays from his wallet.
+    const giftCode = giftProblem({ gift: input.gift, type: input.type, paymentMethod: input.paymentMethod, participantRoles: input.participants.map((pp) => pp.role) });
+    if (giftCode) throw new DriverError(giftCode);
     // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
     // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
@@ -362,6 +385,8 @@ export class OrdersService implements OnModuleInit {
             courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
             clientRequestId: input.clientRequestId ?? null,
             statedTenderIqd: input.statedTenderIqd ?? null,
+            gift: Boolean(input.gift),
+            giftHidePrices: Boolean(input.gift?.hidePrices),
             scheduledFor: input.scheduledFor ?? null,
             minVehicleClass: caps?.minVehicleClass ?? null,
             dropoff: input.dropoff ?? null,
@@ -1514,9 +1539,11 @@ export class OrdersService implements OnModuleInit {
    */
   private async moneyFact(order: OrderRecord, courier: Courier | null, cashCollectedIqd: number | undefined, tx: Tx, changeToWalletIqd = 0): Promise<MoneyFact> {
     const now = this.clock.now();
+    const referredBy = this.referrals ? await this.referrals.referrerOf(order.ordererId) : null;
     const payer = {
       customerId: order.ordererId,
       ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
+      ...(referredBy ? { referredBy } : {}),
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
       ...(changeToWalletIqd > 0 && order.paymentMethod === 'cash' ? { changeToWalletIqd } : {}),
@@ -2097,6 +2124,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     discount: discountView(order),
     statedTenderIqd: order.statedTenderIqd ?? null,
     changeToWalletIqd: order.changeToWalletIqd ?? null,
+    gift: giftView(order),
   };
 }
 

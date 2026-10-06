@@ -28,6 +28,7 @@ import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
 import { OrdersStorefrontMerchants } from './storefront.port.js';
 import { OrderTipsService } from './tips.js';
+import { ReferralsModule, ReferralsService } from '../referrals/index.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -40,7 +41,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule, ReferralsModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -118,11 +119,15 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly controls: ControlsService,
     private readonly trips: TripsService,
     private readonly households: HouseholdsRpc,
+    private readonly referrals: ReferralsService,
   ) {}
 
   onModuleInit(): void {
     // The throttle and the console's zone gauges count active orders here (orders owns them).
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
+    // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.
+    this.orders.bindReferrals({ referrerOf: (personId) => this.referrals.referrerOf(personId) });
+    this.referrals.bindOrders({ placedCount: (personId) => this.orders.placedCount(personId) });
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
     this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
     // Joy w4: a payer's yes or no moves the held household order (its timer settles it otherwise).

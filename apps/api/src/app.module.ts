@@ -27,6 +27,7 @@ import { SupportModule } from './modules/support/index.js';
 import { RetentionModule } from './modules/retention/index.js';
 import { SafetyModule } from './modules/safety/index.js';
 import { InsightsModule } from './modules/insights/index.js';
+import { ReferralsModule } from './modules/referrals/index.js';
 import { ControlsModule } from './modules/controls/index.js';
 import { ControlRoomModule } from './modules/control-room/index.js';
 import { TripsModule } from './modules/trips/index.js';
@@ -63,6 +64,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     RetentionModule,
     SafetyModule,
     InsightsModule,
+    ReferralsModule,
     ControlsModule,
     ControlRoomModule,
     EventsModule,

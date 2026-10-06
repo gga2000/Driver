@@ -185,6 +185,8 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     catering: o.cateringRequest,
     prepExtended: o.prepExtendedAt != null,
     handedOverAt: o.handedOverAt ?? null,
+    // «عزيمة» (joy g1): the ticket prints no amounts when the sender hid the prices.
+    gift: o.gift ?? null,
   };
 }
 

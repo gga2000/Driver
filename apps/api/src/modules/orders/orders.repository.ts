@@ -44,6 +44,10 @@ export interface OrderRecord {
   clientRequestId?: string | null;
   /** "الخردة علينا": the note the customer said he will pay with (`orders.stated_tender_iqd`); absent/null = none. */
   statedTenderIqd?: number | null;
+  /** «عزيمة» (joy g1): a gift for the recipient participant (`orders.gift`); absent = false. */
+  gift?: boolean;
+  /** «عزيمة»: prices kept off the ticket and out of the courier's mouth (`orders.gift_hide_prices`); absent = false. */
+  giftHidePrices?: boolean;
   /** "الخردة علينا": what went to his wallet at the door, no change on the courier (`orders.change_to_wallet_iqd`). */
   changeToWalletIqd?: number | null;
   scheduledFor: Date | null;
@@ -252,6 +256,8 @@ function orderFromRow(r: any): OrderRecord {
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
     statedTenderIqd: r.statedTenderIqd ?? null,
+    gift: r.gift ?? false,
+    giftHidePrices: r.giftHidePrices ?? false,
     smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,
     pointsRedeemed: r.pointsRedeemed ?? 0,
     changeToWalletIqd: r.changeToWalletIqd ?? null,

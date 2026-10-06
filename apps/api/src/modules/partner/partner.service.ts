@@ -276,6 +276,8 @@ export class PartnerService implements PartnerPort {
           pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
+          // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
+          gift: order?.gift ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
