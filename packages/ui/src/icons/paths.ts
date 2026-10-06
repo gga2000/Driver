@@ -41,6 +41,8 @@ export const ICONS = {
     { d: 'M9.5 10l2.5 6.5h3' },
   ],
   bag: [{ d: 'M5 8h14l-1 12.5H6L5 8z' }, { d: 'M9 8V6.5a3 3 0 0 1 6 0V8' }],
+  /** Work (saved places, A-06): the bag means food everywhere else. */
+  briefcase: [{ rect: [3.5, 7.5, 17, 12, 2] }, { d: 'M9 7.5V6a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 6v1.5' }, { d: 'M3.5 12.5h17' }, { d: 'M11 12.5v1.5h2v-1.5' }],
   parcel: [
     { d: 'M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z' },
     { d: 'M3.5 7.5 12 12l8.5-4.5' },

@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
-import { Button, Card, Icon, ListRow } from '@driver/ui';
+import { Button, Card, ListRow } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { placeLabelKey } from '@/features/places/PlaceForm';
+import { placeIcon } from '@/features/places/place-icon';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, selectedPlace, useProfile, zoneName } from '@/lib/profile';
 
@@ -20,11 +21,11 @@ export default function PlacePicker() {
           prof.places.map((p, i) => (
             <ListRow
               key={p.id}
-              leading={p.label === 'home' ? 'home' : p.label === 'work' ? 'bag' : 'map-pin'}
+              leading={placeIcon(p.label)}
               title={p.title ?? t(placeLabelKey(p.label))}
               subtitle={[zoneName(p.zoneId, locale), p.note].filter(Boolean).join(' · ')}
+              // ListRow draws the check for a selected row (D-17: no second tick).
               selected={p.id === current?.id}
-              trailing={p.id === current?.id ? <Icon name="check" size={20} color="accentText" strokeWidth={2.4} /> : undefined}
               chevron={false}
               divider={i < prof.places.length - 1}
               onPress={() => {

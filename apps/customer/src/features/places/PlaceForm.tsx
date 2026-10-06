@@ -4,6 +4,7 @@ import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { Button, ChipGroup, Text, TextField, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { zoneName, type PlaceLabel, type SavedPlace } from '@/lib/profile';
+import { placeIcon } from './place-icon';
 
 export type PlaceDraft = Omit<SavedPlace, 'id'>;
 
@@ -50,7 +51,7 @@ export function PlaceForm({ value, onChange }: { value: PlaceDraft; onChange: (n
           required
           value={[value.label]}
           onChange={(next) => onChange({ ...value, label: (next[0] as PlaceLabel | undefined) ?? value.label })}
-          items={LABELS.map((l) => ({ id: l, label: t(LABEL_KEY[l]), icon: l === 'home' ? 'home' : l === 'work' ? 'bag' : l === 'family' ? 'user' : 'map-pin' }))}
+          items={LABELS.map((l) => ({ id: l, label: t(LABEL_KEY[l]), icon: placeIcon(l) }))}
         />
       </View>
 

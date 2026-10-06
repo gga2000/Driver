@@ -8,6 +8,7 @@ import { zoneName } from '@/lib/profile';
 import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource } from './device';
 import { nearestZone, zoneCentre } from './geo';
 import { PinMap } from './PinMap';
+import { placeIcon } from '@/features/places/place-icon';
 
 export interface PlaceEditorValue {
   label: SavedPlaceLabel;
@@ -110,7 +111,7 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           required
           value={[value.label]}
           onChange={(next) => setLabel((next[0] as SavedPlaceLabel | undefined) ?? value.label)}
-          items={(['home', 'work', 'custom'] as const).map((l) => ({ id: l, label: t(LABEL_KEY[l]), icon: l === 'home' ? 'home' : l === 'work' ? 'bag' : 'map-pin' }))}
+          items={(['home', 'work', 'custom'] as const).map((l) => ({ id: l, label: t(LABEL_KEY[l]), icon: placeIcon(l) }))}
         />
         <TextField testID="place-name" label={t('place.name_label')} value={value.name} onChangeText={(name) => onChange({ ...value, name })} placeholder={defaultPlaceName(value.label, t)} maxLength={60} />
       </View>
