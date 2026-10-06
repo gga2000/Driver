@@ -12,24 +12,32 @@ ALTER TABLE "public"."orders" ADD COLUMN     "gift" BOOLEAN NOT NULL DEFAULT fal
 ADD COLUMN     "gift_hide_prices" BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE "public"."invite_codes" (
+    "id" TEXT NOT NULL,
     "person_id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "invite_codes_pkey" PRIMARY KEY ("person_id")
+    CONSTRAINT "invite_codes_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "public"."referrals" (
+    "id" TEXT NOT NULL,
     "referee_id" TEXT NOT NULL,
     "referrer_id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "claimed_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "referrals_pkey" PRIMARY KEY ("referee_id")
+    CONSTRAINT "referrals_pkey" PRIMARY KEY ("id")
 );
 
+CREATE UNIQUE INDEX "invite_codes_person_id_key" ON "public"."invite_codes"("person_id");
+
 CREATE UNIQUE INDEX "invite_codes_code_key" ON "public"."invite_codes"("code");
+
+CREATE UNIQUE INDEX "referrals_referee_id_key" ON "public"."referrals"("referee_id");
 
 CREATE INDEX "referrals_referrer_id_claimed_at_idx" ON "public"."referrals"("referrer_id", "claimed_at");
 

@@ -2154,9 +2154,11 @@ model ChatRead {
 /// Invite as a gift (joy g2): each person's own invite code (6 characters, no look-alikes), made on first ask.
 /// Ids and codes only; the inviter's first name is read from the vault (logged) when a friend opens the link.
 model InviteCode {
-  personId  String   @id @map("person_id")
+  id        String   @id @default(cuid())
+  personId  String   @unique @map("person_id")
   code      String   @unique
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("invite_codes")
   @@schema("public")
@@ -2166,11 +2168,13 @@ model InviteCode {
 /// customer accepts a code before his first order; the ledger's referral rule (decisions §1) reads the
 /// inviter from here through the orders module's closed-order fact.
 model Referral {
-  refereeId  String   @id @map("referee_id")
+  id         String   @id @default(cuid())
+  refereeId  String   @unique @map("referee_id")
   referrerId String   @map("referrer_id")
   code       String
   claimedAt  DateTime @map("claimed_at")
   createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@index([referrerId, claimedAt])
   @@map("referrals")
