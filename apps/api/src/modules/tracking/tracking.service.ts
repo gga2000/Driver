@@ -53,7 +53,12 @@ export interface TrackingTripsPort {
   lastPosition(tripId: string): Promise<{ at: Date; pin: LatLng; bearing: number | null; speedKmh: number | null; driverId: string } | null>;
 }
 export interface TrackingIdentityPort {
-  courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null }>;
+  /** `photoRef`: the storage ref of his APPROVED main photo (Ali, 2026-10-06); absent/null = his initial. */
+  courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null }>;
+}
+/** Signs a short-lived read URL for a stored photo (the places module's blob store). */
+export interface TrackingPhotosPort {
+  readUrl(ref: string): string;
 }
 export interface TrackingMerchantsPort {
   /** Name and pickup pin of a merchant org; null when unknown. */
@@ -90,6 +95,7 @@ export const TRACKING_TRIPS = Symbol('TRACKING_TRIPS');
 export const TRACKING_IDENTITY = Symbol('TRACKING_IDENTITY');
 export const TRACKING_MERCHANTS = Symbol('TRACKING_MERCHANTS');
 export const TRACKING_POINTS = Symbol('TRACKING_POINTS');
+export const TRACKING_PHOTOS = Symbol('TRACKING_PHOTOS');
 
 /** Asia/Baghdad is UTC+3 all year (no DST). */
 const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -146,7 +152,7 @@ export function lateApologyDue(
  */
 @Injectable()
 export class TrackingService implements TrackingPort {
-  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null }>();
+  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null }>();
 
   constructor(
     @Inject(TRACKING_ORDERS) private readonly orders: TrackingOrdersPort,
@@ -159,6 +165,8 @@ export class TrackingService implements TrackingPort {
     private readonly eta: EtaService,
     @Optional() @Inject(TRACKING_LATE_CREDIT) private readonly lateCredit: TrackingLateCreditPort | null = null,
     @Optional() @Inject(TRACKING_LATE_APOLOGY) private readonly lateApology: TrackingLateApologyPort | null = null,
+    /** Signs the approved main photo's URL on the courier card; without it the card has no photo. */
+    @Optional() @Inject(TRACKING_PHOTOS) private readonly photos: TrackingPhotosPort | null = null,
   ) {}
 
   private readonly logger = new Logger(TrackingService.name);
@@ -525,7 +533,8 @@ export class TrackingService implements TrackingPort {
       rating: null,
       ratingCount: 0,
       verifiedTodayAt: who.lastVerifiedAt && sameBaghdadDay(who.lastVerifiedAt, now) ? who.lastVerifiedAt : null,
-      photoUrl: null,
+      // Only the approved main photo, signed when the card is built (the cache keeps the ref, not the URL).
+      photoUrl: who.photoRef && this.photos ? this.photos.readUrl(who.photoRef) : null,
     };
   }
 

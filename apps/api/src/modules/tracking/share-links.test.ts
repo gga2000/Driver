@@ -46,6 +46,15 @@ function setup(router: Router = new StraightLineRouter()) {
         for (const id of ids) reads.push({ personId: id, accessorId, purpose });
         return Object.fromEntries(ids.map((id) => [id, id === 'd1' ? 'حيدر' : id === 'drv' ? 'مصطفى' : null]));
       },
+      // Only d1 has an approved main photo (Ali, 2026-10-06).
+      mainPhotoRefs: async (ids, accessorId, purpose) => {
+        const out: Record<string, string> = {};
+        for (const id of ids) if (id === 'd1') {
+          reads.push({ personId: id, accessorId, purpose: `${purpose}:photo` });
+          out[id] = 'up_d1';
+        }
+        return out;
+      },
     },
     vehicles,
     intercity,
@@ -59,6 +68,7 @@ function setup(router: Router = new StraightLineRouter()) {
         return { at: new Date(now.getTime() + 12 * MIN) };
       },
     },
+    { readUrl: (ref) => `/files/${ref}?exp=1&sig=x` },
   );
   return { h, share, repo, reads, departures, bookings, etaCalls };
 }
@@ -87,19 +97,19 @@ describe('ShareLinksService — rides', () => {
     const o = await ride(s);
     const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
     const waiting = await s.share.shared({ token: link.token });
-    expect(waiting).toMatchObject({ status: 'waiting', driverFirstName: null, position: null });
+    expect(waiting).toMatchObject({ status: 'waiting', driverFirstName: null, driverPhotoUrl: null, position: null });
 
     const trip = await s.h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
     await s.h.trips.reportPosition('d1', { tripId: trip.id, pin: { lat: 32.905, lng: 45.06 }, at: s.h.clock.now() });
     const coming = await s.share.shared({ token: link.token });
-    expect(coming).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', vehicleClass: 'car', plate: '12345 واسط', vehicleLabel: 'Toyota Corolla · أبيض', route: null });
+    expect(coming).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', driverPhotoUrl: '/files/up_d1?exp=1&sig=x', vehicleClass: 'car', plate: '12345 واسط', vehicleLabel: 'Toyota Corolla · أبيض', route: null });
     expect(coming.position).toMatchObject({ lat: 32.905, lng: 45.06, ageSec: 0 });
     // Heading to the rider first (maps program c9): a pin, never an address.
     const pickupPin = trip.stops.find((st) => st.type === 'pickup')!.target!;
     expect(coming.target).toEqual({ lat: pickupPin.lat, lng: pickupPin.lng, kind: 'pickup' });
     expect(coming.eta!.getTime()).toBeGreaterThan(s.h.clock.now().getTime());
     // Exactly the public shape: no phone, no full name, no address in words, no rider.
-    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
+    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'driverPhotoUrl', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
     expect(JSON.stringify(coming)).not.toMatch(/\+964|07\d{9}|c1|zakur/);
 
     await s.h.pickup(trip.id);
@@ -107,9 +117,12 @@ describe('ShareLinksService — rides', () => {
     expect(riding.status).toBe('on_trip');
     const dropPin = trip.stops.find((st) => st.type === 'dropoff')!.target!;
     expect(riding.target).toEqual({ lat: dropPin.lat, lng: dropPin.lng, kind: 'dropoff' });
-    // The first-name read is logged against the link, once (not once per poll).
+    // The first-name and photo reads are logged against the link, once (not once per poll).
     await s.share.shared({ token: link.token });
-    expect(s.reads).toEqual([{ personId: 'd1', accessorId: expect.stringMatching(/^share:shr_/), purpose: 'share_trip' }]);
+    expect(s.reads).toEqual([
+      { personId: 'd1', accessorId: expect.stringMatching(/^share:shr_/), purpose: 'share_trip' },
+      { personId: 'd1', accessorId: expect.stringMatching(/^share:shr_/), purpose: 'share_trip:photo' },
+    ]);
   });
 
   it('expires 30 minutes after the ride completes; no position after drop-off', async () => {

@@ -9,9 +9,10 @@ import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { NotifyModule } from '../notify/index.js';
+import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { TripsModule } from '../trips/index.js';
 import { InMemoryKhatRepository, KHAT_REPOSITORY, PrismaKhatRepository, type KhatRepository } from './khat.repository.js';
-import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_QUEUE, KhatService, type KhatConfig, type SweepCheckJob } from './khat.service.js';
+import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_PHOTOS, KHAT_QUEUE, KhatService, type KhatConfig, type KhatPhotosPort, type SweepCheckJob } from './khat.service.js';
 
 /** A whole number of minutes from the environment, else the rule's default. */
 function envMinutes(name: string, fallback: number): number {
@@ -30,7 +31,7 @@ function envMinutes(name: string, fallback: number): number {
  * (the dispatchers' WhatsApp link, as SOS).
  */
 @Module({
-  imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule],
+  imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule, PlacesModule],
   providers: [
     {
       provide: KHAT_REPOSITORY,
@@ -50,6 +51,19 @@ function envMinutes(name: string, fallback: number): number {
         sweepAlertAfterMin: envMinutes('KHAT_SWEEP_ALERT_AFTER_MIN', KHAT_RULES.sweepAlertAfterMin),
         consoleBase: process.env['CONSOLE_BASE_URL'] ?? DEFAULT_KHAT_CONFIG.consoleBase,
       }),
+    },
+    // Child photos (Ali, 2026-10-06): uploads in the places blob store, signed short-lived for the run's driver.
+    {
+      provide: KHAT_PHOTOS,
+      useFactory: (blobs: BlobStore): KhatPhotosPort => ({
+        owns: async (id, personId) => {
+          const rec = await blobs.get(id);
+          return rec !== null && rec.ownerId === personId && rec.state === 'stored';
+        },
+        readUrl: (ref) => blobs.readUrl(ref),
+        remove: (ref) => blobs.remove(ref),
+      }),
+      inject: [BLOB_STORE],
     },
     KhatService,
   ],

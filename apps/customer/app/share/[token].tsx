@@ -10,6 +10,7 @@ import { useSharedTrip } from '@/features/share/queries';
 import { ShareMap } from '@/features/share/ShareMap';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { apiPhoto } from '@/lib/photo';
 
 const STALE_SEC = 90;
 const VEHICLE_KEY: Record<VehicleClass, MessageKey> = { bike: 'track.vehicle.bike', tuktuk: 'track.vehicle.tuktuk', car: 'track.vehicle.car', suv: 'track.vehicle.car', van: 'track.vehicle.car', intercity: 'track.vehicle.car' };
@@ -138,7 +139,7 @@ export default function SharePage() {
 
             <View style={{ borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4], gap: theme.space[4] }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                <Avatar name={trip.driverFirstName ?? t(delivery ? 'share.courier' : 'share.driver')} size={52} />
+                <Avatar name={trip.driverFirstName ?? t(delivery ? 'share.courier' : 'share.driver')} uri={apiPhoto(trip.driverPhotoUrl) ?? undefined} size={52} />
                 <View style={{ flex: 1 }}>
                   <Text variant="caption" color="textMuted">
                     {t(delivery ? 'share.courier' : 'share.driver')}

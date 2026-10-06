@@ -5,7 +5,7 @@ import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlac
 const T = (min: number) => new Date(Date.UTC(2026, 9, 4, 4, min));
 
 function stop(seq: number, type: 'pickup' | 'dropoff', zoneKey: string, ref: string, over: Partial<KhatStopView> = {}): KhatStopView {
-  return { stopId: `s${seq}`, seq, type, state: 'pending', zoneKey, windowStart: T(seq * 5), windowEnd: T(seq * 5 + 5), child: { childRef: ref, firstName: ref }, tappedInAt: null, tappedOutAt: null, absent: false, ...over };
+  return { stopId: `s${seq}`, seq, type, state: 'pending', zoneKey, windowStart: T(seq * 5), windowEnd: T(seq * 5 + 5), child: { childRef: ref, firstName: ref, photoUrl: null }, tappedInAt: null, tappedOutAt: null, absent: false, ...over };
 }
 
 function trip(stops: KhatStopView[], over: Partial<KhatRunTrip> = {}): KhatRunTrip {

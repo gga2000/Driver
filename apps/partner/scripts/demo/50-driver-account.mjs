@@ -18,11 +18,17 @@
 //                                                qualifying shift (the last one that ended: 4/4 accepted, 3 jobs,
 //                                                3,500 earned) → earnings tab «ضمان الشفت: 6,500 دينار تنزل
 //                                                بحسابك يوم الأحد»; job end / shift summary show guarantee lines too
+//   POST /demo/account/photo?who=…&decision=approve|reject   field ops decides his main photo waiting for
+//                               approval (reject carries a demo reason); the photo screen and the
+//                               customer card follow. Main photos: every driver above has an approved
+//                               drawn portrait; courier has a new one «تنتظر الموافقة», tuktuk's new one
+//                               is «مرفوضة» with a reason; rookie has none (his initial).
 //
 // The in-memory API has no past, so the scorecard's history (offer answers, completed trips and their
 // ratings over the last weeks) is fed to `DriverAccountService` alone through demo-only wrappers of
 // its event / trip / order reads. Money is real ledger postings, dated in the past.
 import { Buffer } from 'node:buffer';
+import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -57,10 +63,13 @@ export default async function register(demo) {
   const { AZIZIYAH_MONEY_RULES } = await import('@driver/contracts');
   const guaranteeOn = AZIZIYAH_MONEY_RULES.guarantee.enabled;
 
-  async function photo(ownerId) {
-    const ticket = await blobs.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: JPEG.length });
+  /** A stored upload: a stand-in JPEG for papers, a drawn portrait (PNG) for a main photo. */
+  async function photo(ownerId, portraitSeed = null) {
+    const bytes = portraitSeed === null ? JPEG : avatarPng(portraitSeed);
+    const contentType = portraitSeed === null ? 'image/jpeg' : 'image/png';
+    const ticket = await blobs.createUpload({ ownerId, contentType, sizeBytes: bytes.length });
     const u = new URL(ticket.uploadUrl, 'http://x');
-    await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/jpeg', bytes: JPEG });
+    await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType, bytes });
     return ticket.uploadId;
   }
 
@@ -71,7 +80,7 @@ export default async function register(demo) {
 
   /** Upload + review: `days` from now for the expiry (negative = expired), `reject` a reason, `pending` leaves it. */
   async function paper(personId, kind, opts = {}) {
-    const d = await account.uploadDocument(actor(personId), { kind, uploadId: await photo(personId) });
+    const d = await account.uploadDocument(actor(personId), { kind, uploadId: await photo(personId, kind === 'photo' ? `${personId}:${opts.seed ?? 0}` : null) });
     if (opts.pending) return d;
     const expiresAt = opts.days === undefined ? undefined : new Date(now + opts.days * DAY);
     return account.reviewDocument(reviewer, {
@@ -110,6 +119,11 @@ export default async function register(demo) {
   for (const [kind, o] of [...ID, ['vehicle_registration', { days: 150 }]]) await paper(lapsed, kind, o);
   await paper(lapsed, 'licence', { days: -3 });
   for (const [kind, o] of ID) await paper(locked, kind, o);
+
+  // Main photos (Ali, 2026-10-06): everyone above has an approved one (customers see it). The courier
+  // sent a new one that waits for approval; the tuktuk driver's new one was refused with a reason.
+  await paper(courier, 'photo', { pending: true, seed: 1 });
+  await paper(tuktuk, 'photo', { seed: 1, reject: 'الوجه مو واضح. صوّر وجهك كامل بضوء زين وبدون نظارة شمسية' });
 
   for (const id of [courier, tuktuk, intercity, khat, lapsed]) await checkIn(id);
   await checkIn(locked, 0.18);
@@ -335,5 +349,15 @@ export default async function register(demo) {
       return real.call(account, a, { ...input, livenessScore: 0.2 });
     };
     demo.json(res, 200, { personId: p.personId, failNext: true });
+  });
+
+  // Field ops decides the main photo he sent (the Console approvals queue does this in the real flow).
+  demo.route('/demo/account/photo', async ({ res, query }) => {
+    const p = demo.who(query);
+    const view = await account.mainPhoto(actor(p.personId));
+    if (view.latest?.status !== 'pending') return demo.json(res, 409, { error: 'no main photo waiting for approval', state: view.state });
+    const reject = query.decision === 'reject';
+    await account.reviewDocument(reviewer, { documentId: view.latest.documentId, decision: reject ? 'reject' : 'approve', ...(reject ? { reason: 'الوجه مو واضح. صوّر وجهك كامل بضوء زين وبدون نظارة شمسية' } : {}) });
+    demo.json(res, 200, await account.mainPhoto(actor(p.personId)));
   });
 }

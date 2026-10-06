@@ -11,6 +11,9 @@ import { unregisterPush } from '@/features/notify/Push';
 import { navAppName, NavChooser } from '@/features/work/JobSheets';
 import { setNavApp, useNavApp } from '@/features/work/nav';
 import { useMe, useStatus } from '@/features/work/queries';
+import { mainPhotoStatus } from '@/features/account/logic';
+import { absoluteUrl } from '@/features/account/photo';
+import { useMainPhoto } from '@/features/account/queries';
 import { saveDataSaverPref } from '@/lib/data-saver-pref';
 import { playTestSound } from '@/lib/alert';
 import { useApiClient } from '@/lib/api';
@@ -45,6 +48,10 @@ export default function Account() {
   const tier = s?.tier ?? 'bronze';
   const invites = splitInvites(useFleetInvites(s?.canDrive ?? false).data ?? []);
   const contact = me?.emergencyContact ?? null;
+  // His main photo (Ali, 2026-10-06): the approved one is what customers see; the row says where the latest stands.
+  const photo = useMainPhoto().data;
+  const photoState = mainPhotoStatus(photo, t, { short: true });
+  const photoUri = photo?.approved ? absoluteUrl(photo.approved.url) : undefined;
 
   const work: HubRow[] = [
     { key: 'checkin', icon: 'shield', title: t('partner.hub_checkin'), subtitle: t('partner.hub_checkin_sub'), href: '/checkin' },
@@ -80,7 +87,7 @@ export default function Account() {
 
       <Card elevation={1} padding={4}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <Avatar name={me?.name ?? undefined} {...(me?.name ? {} : { icon: 'user' as const })} size={56} tone="accent" />
+          <Avatar name={me?.name ?? undefined} {...(me?.name || photoUri ? {} : { icon: 'user' as const })} uri={photoUri} size={56} tone="accent" />
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="title">{me?.name ?? '—'}</Text>
             <Text variant="label" color="textMuted" tabular>
@@ -97,6 +104,17 @@ export default function Account() {
       {invites.member.map((i) => (
         <FleetMemberCard key={i.fleetOrgId} invite={i} />
       ))}
+
+      <Card elevation={0} padding={0}>
+        <ListRow
+          testID="hub-photo"
+          leading="user"
+          title={t('partner.mainphoto_row')}
+          subtitle={photo?.state === 'rejected' && photo.latest?.rejectReason ? mainPhotoStatus(photo, t).label : t('partner.mainphoto_intro')}
+          trailing={photo ? <StatusPill size="sm" tone={photoState.tone} label={photoState.label} /> : undefined}
+          onPress={() => router.push('/photo')}
+        />
+      </Card>
 
       <Section title={t('partner.hub_work')} rows={work} />
       {more.length > 0 ? <Section title={t('partner.hub_more')} rows={more} /> : null}

@@ -324,7 +324,7 @@ or the clock.
 > once per run as the trip event `khat.empty_car_confirmed` (counts, seconds after the last drop;
 > the run's `emptyCarCheckedAt` reads it back). The guardian message already existed
 > (`khat_child_arrived`, on the school tap-out). No child photos exist in the vault yet: rows show
-> the initial. Open for Ali: alert ops when a run ends without a sweep within N minutes.
+> the initial (child photos: built 2026-10-06, below). Open for Ali: alert ops when a run ends without a sweep within N minutes.
 >
 > **2026-10-06 — Ali decided, built.** (a) No sweep within 5 minutes (`KHAT_RULES.sweepAlertAfterMin`)
 > of the run's last child stop: the `khat.timers` queue raises one alert per run
@@ -340,6 +340,12 @@ or the clock.
 > (khat) and `docs/api/safety.md`. Shots: `khat-sweep-wait`, `khat-sweep-wait-reduced`. Not built: a
 > dispatcher "close" for an alert the driver never confirms (it drops off the strip after 12 hours;
 > the record stays).
+>
+> **2026-10-06 — child photos built (Ali: guardian-added photos, seen only by the child's driver).**
+> The guardian adds, changes or deletes a photo of each child in the customer app (العائلة → أطفال
+> الخطوط, `khat.guardian.*`); it is stored in the identity vault (`child_identities.photo_ref`) and
+> the run rows show it to the run's own driver only (the substitute once the run is his), each read
+> logged (`child_photo`); otherwise the initial. Never on share pages. `docs/api/driver-photos.md`.
 
 ### S-7 "Why was I paid this" receipt
 - Any job in earnings opens a receipt: each component with its `quote.reason.*` line ("الجو مطر،

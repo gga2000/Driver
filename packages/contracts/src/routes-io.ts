@@ -499,13 +499,14 @@ export type RequestState = z.infer<typeof RequestState>;
 /**
  * Who offers on a request, as the rider sees him (R-01, C-19): first name only (identity vault,
  * purpose `intercity_driver_card`), whether he did a run's selfie check-in today, his car as on his
- * latest departure, and a photo once public portraits exist (null today: the app draws his initial).
+ * latest departure, and his approved main photo (Ali, 2026-10-06; null → the app draws his initial).
  * Null on a driver's own view of the board.
  */
 export const RequestOfferDriver = z.object({
   firstName: z.string().nullable(),
   verifiedTodayAt: z.coerce.date().nullable(),
-  photoUrl: z.string().url().nullable(),
+  /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
+  photoUrl: z.string().nullable(),
   vehicle: IntercityVehicle.nullable(),
 });
 export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
@@ -788,8 +789,8 @@ export type DepartureRiderName = z.infer<typeof DepartureRiderName>;
 /**
  * `routes.driverCards` (audit C-19): who drives a departure, as a rider sees him on the board, the
  * seat sheet and the boarding pass — first name only (identity vault, read logged with purpose
- * `intercity_driver_card`), whether he did this run's selfie check-in today, and a photo when a
- * public portrait exists (none today: the app draws his initial). Never a phone or full name.
+ * `intercity_driver_card`), whether he did this run's selfie check-in today, and his approved main
+ * photo (Ali, 2026-10-06; null → the app draws his initial). Never a phone or full name.
  */
 export const RajaaDriverCard = z.object({
   departureId: z.string(),
@@ -798,7 +799,8 @@ export const RajaaDriverCard = z.object({
   firstName: z.string().nullable(),
   /** The run's selfie check-in, when it happened today (Baghdad day); null otherwise. */
   verifiedTodayAt: z.coerce.date().nullable(),
-  photoUrl: z.string().url().nullable(),
+  /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
+  photoUrl: z.string().nullable(),
 });
 export type RajaaDriverCard = z.infer<typeof RajaaDriverCard>;
 

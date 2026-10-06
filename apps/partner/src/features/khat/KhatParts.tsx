@@ -11,6 +11,7 @@ import { zoneName } from '@/features/work/logic';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { canReportAbsent, childAction, deliveredShare, lookPauseLeft, runChips, type KhatPlace } from './logic';
+import { absoluteUrl } from '@/features/account/photo';
 
 export const ABSENCE_REASONS: readonly AbsenceReason[] = ['guardian_notice', 'not_at_stop', 'sick', 'other'];
 
@@ -318,8 +319,8 @@ function ChildRow({
   return (
     <View testID={`khat-child-${stop.stopId}`} style={{ gap: theme.space[2] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        {/* The child's photo when the guardian added one (none in the vault yet: the initial). */}
-        <Avatar name={name} size={48} />
+        {/* The guardian's photo of the child (Ali, 2026-10-06; only this run's driver gets it), else the initial. */}
+        <Avatar name={name} uri={stop.child!.photoUrl ? absoluteUrl(stop.child!.photoUrl) : undefined} size={48} />
         <View style={{ flex: 1 }}>
           <Text variant="bodyStrong" color={action === 'absent' ? 'textMuted' : 'text'}>
             {name}

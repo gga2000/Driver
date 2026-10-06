@@ -87,6 +87,9 @@ export interface IdentityRecord {
   name: string | null;
   /** Customer spec §10 safety; absent/null = none set. */
   emergencyContact?: EmergencyContactRecord | null;
+  /** The approved main photo customers see (storage ref) and when it was approved; absent/null = none. */
+  mainPhotoRef?: string | null;
+  mainPhotoAt?: Date | null;
 }
 
 export interface EmergencyContactRecord {
@@ -112,6 +115,8 @@ export interface ChildIdentityRecord {
   childRef: string;
   guardianId: string | null;
   name: string;
+  /** The guardian's photo of the child (storage ref); absent/null = none. */
+  photoRef?: string | null;
 }
 
 export interface IdentityRepository {
@@ -130,7 +135,7 @@ export interface IdentityRepository {
   readIdentity(personId: string, tx?: Tx): Promise<IdentityRecord | null>;
   /** Batched `readIdentity` (one query); people without a vault row are left out. */
   readIdentities(personIds: readonly string[], tx?: Tx): Promise<IdentityRecord[]>;
-  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx): Promise<IdentityRecord>;
+  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx): Promise<IdentityRecord>;
   logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
   /** One VaultAccessLog row per entry, written in one statement; returns how many were written. */
   logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx): Promise<number>;
@@ -138,6 +143,8 @@ export interface IdentityRepository {
   createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
   readChildIdentities(childRefs: readonly string[], tx?: Tx): Promise<ChildIdentityRecord[]>;
   childIdentitiesOf(guardianId: string, tx?: Tx): Promise<ChildIdentityRecord[]>;
+  /** Sets (or clears, with null) a child's photo ref. */
+  setChildPhoto(childRef: string, photoRef: string | null, tx?: Tx): Promise<void>;
   /** Wave 2: appends a storage ref (driver document photo, check-in selfie) to the vault row. */
   appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx): Promise<void>;
   /** Wave 2: the vault refs of one kind, for a reviewer's logged read. */
@@ -252,7 +259,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return rows.map(identityRecord);
   }
 
-  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx) {
+  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx) {
     const { emergencyContact, ...rest } = patch;
     const data = {
       ...rest,
@@ -282,12 +289,16 @@ export class PrismaIdentityRepository implements IdentityRepository {
   async readChildIdentities(childRefs: readonly string[], tx?: Tx) {
     if (childRefs.length === 0) return [];
     const rows = await this.db(tx).childIdentity.findMany({ where: { id: { in: [...childRefs] } } });
-    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name }));
+    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name, photoRef: r.photoRef }));
   }
 
   async childIdentitiesOf(guardianId: string, tx?: Tx) {
     const rows = await this.db(tx).childIdentity.findMany({ where: { guardianId }, orderBy: { createdAt: 'asc' } });
-    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name }));
+    return rows.map((r) => ({ childRef: r.id, guardianId: r.guardianId, name: r.name, photoRef: r.photoRef }));
+  }
+
+  async setChildPhoto(childRef: string, photoRef: string | null, tx?: Tx) {
+    await this.db(tx).childIdentity.update({ where: { id: childRef }, data: { photoRef } });
   }
 
   async vaultAccessLogs(personId: string, tx?: Tx) {
@@ -473,9 +484,9 @@ function fromDbPurpose(p: string): OtpPurpose {
   return p === 'number_change' ? 'phone_change' : (p as OtpPurpose);
 }
 
-function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown }): IdentityRecord {
+function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown; mainPhotoRef?: string | null; mainPhotoAt?: Date | null }): IdentityRecord {
   const ec = row.emergencyContact as { name?: unknown; phoneE164?: unknown; relation?: unknown } | null | undefined;
   const relation = EmergencyRelation.safeParse(ec?.relation);
   const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
-  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact };
+  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, mainPhotoRef: row.mainPhotoRef ?? null, mainPhotoAt: row.mainPhotoAt ?? null };
 }

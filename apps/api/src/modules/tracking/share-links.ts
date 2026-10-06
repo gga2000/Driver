@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   liveChannel,
@@ -135,6 +135,13 @@ export interface ShareIntercityPort {
 /** First names for the share page (logged vault reads with the link as accessor). */
 export interface ShareNamesPort {
   firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
+  /** Approved main photos (Ali, 2026-10-06), storage refs by person; logged vault reads. Optional for fakes. */
+  mainPhotoRefs?(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>>;
+}
+
+/** Signs a short-lived read URL for a stored photo (the places module's blob store). */
+export interface SharePhotosPort {
+  readUrl(ref: string): string;
 }
 
 /** The one ETA the customer sees (`TrackingService.liveEta`): the family page shows the same time. */
@@ -146,6 +153,7 @@ export const SHARE_INTERCITY = Symbol('SHARE_INTERCITY');
 export const SHARE_DELIVERY_ETA = Symbol('SHARE_DELIVERY_ETA');
 export const SHARE_NAMES = Symbol('SHARE_NAMES');
 export const SHARE_SECRET = Symbol('SHARE_SECRET');
+export const SHARE_PHOTOS = Symbol('SHARE_PHOTOS');
 
 const MIN_MS = 60_000;
 const LIVE_BOOKING = new Set(['booked', 'checked_in', 'completed']);
@@ -164,7 +172,7 @@ const NAME_CACHE_MAX = 2000;
  */
 @Injectable()
 export class ShareLinksService implements TrackingSharePort {
-  private readonly names = new Map<string, string | null>();
+  private readonly names = new Map<string, { firstName: string | null; photoRef: string | null }>();
 
   constructor(
     @Inject(SHARE_LINKS_REPOSITORY) private readonly repo: ShareLinksRepository,
@@ -178,6 +186,8 @@ export class ShareLinksService implements TrackingSharePort {
     private readonly eta: EtaService,
     @Inject(TRACKING_MERCHANTS) private readonly merchants: TrackingMerchantsPort,
     @Inject(SHARE_DELIVERY_ETA) private readonly deliveryEta: ShareDeliveryEtaPort,
+    /** Signs the driver's approved main photo for the page; without it the page draws his initial. */
+    @Optional() @Inject(SHARE_PHOTOS) private readonly photos: SharePhotosPort | null = null,
   ) {}
 
   async createShareLink(actor: Actor, input: CreateShareLinkInput): Promise<ShareLink> {
@@ -229,6 +239,7 @@ export class ShareLinksService implements TrackingSharePort {
       subject: rec.subjectKind,
       endedReason: reason,
       driverFirstName: null,
+      driverPhotoUrl: null,
       vehicleClass: null,
       vehicleLabel: null,
       plate: null,
@@ -245,12 +256,13 @@ export class ShareLinksService implements TrackingSharePort {
     const expiresAt = expiryOf(rec.createdAt, state.completedAt);
     if (now.getTime() >= expiresAt.getTime()) return ended('expired', expiresAt);
     if (state.status === 'ended') return ended('cancelled', expiresAt);
-    const driverFirstName = state.driverId ? await this.firstName(rec.id, state.driverId) : null;
+    const driver = state.driverId ? await this.driverCard(rec.id, state.driverId) : null;
     return {
       status: state.status,
       subject: rec.subjectKind,
       endedReason: null,
-      driverFirstName,
+      driverFirstName: driver?.firstName ?? null,
+      driverPhotoUrl: driver?.photoRef && this.photos ? this.photos.readUrl(driver.photoRef) : null,
       vehicleClass: state.vehicleClass,
       vehicleLabel: state.vehicleLabel,
       plate: state.plate,
@@ -317,13 +329,17 @@ export class ShareLinksService implements TrackingSharePort {
     return { token, path: `/share/${token}`, subject: rec.subjectKind, createdAt: rec.createdAt, expiresAt: expiryOf(rec.createdAt, state.completedAt), revokedAt: rec.revokedAt, views: rec.views };
   }
 
-  private async firstName(linkId: string, personId: string): Promise<string | null> {
+  /** His first name and approved main photo ref, read once per link (both logged against the link). */
+  private async driverCard(linkId: string, personId: string): Promise<{ firstName: string | null; photoRef: string | null }> {
     const key = `${linkId}:${personId}`;
     if (this.names.has(key)) return this.names.get(key)!;
-    const name = (await this.people.firstNamesFor([personId], `share:${linkId}`, 'share_trip'))[personId] ?? null;
+    const accessor = `share:${linkId}`;
+    const firstName = (await this.people.firstNamesFor([personId], accessor, 'share_trip'))[personId] ?? null;
+    const photoRef = this.people.mainPhotoRefs ? ((await this.people.mainPhotoRefs([personId], accessor, 'share_trip'))[personId] ?? null) : null;
+    const card = { firstName, photoRef };
     if (this.names.size >= NAME_CACHE_MAX) this.names.delete(this.names.keys().next().value!);
-    this.names.set(key, name);
-    return name;
+    this.names.set(key, card);
+    return card;
   }
 
   // ───────────────────────── subjects ─────────────────────────

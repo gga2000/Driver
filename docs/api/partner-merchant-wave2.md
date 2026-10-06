@@ -158,7 +158,7 @@ next to the call button (a dialog with the three reasons and the note). Columns 
 `20261006180000_khat_sweep_alert_close`. Open alerts nobody closes still leave the strip after
 `sweepOpenShowHours` (12); the record stays.
 
-Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
+Children's names: first name only, read through identity for the run's own driver (`childCardsForRun`, which also carries the guardian's photo of the child — see docs/api/driver-photos.md),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,
 `khat_child_not_on_trip`, `khat_child_absent`, `khat_child_not_tapped_in` (tap-out before tap-in), `stop_state_conflict` (absence after tap-in), `forbidden`.
 

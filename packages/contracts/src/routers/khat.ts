@@ -8,13 +8,16 @@ import {
   AcceptSubstituteOutput,
   CallGuardianInput,
   ConfirmEmptyCarInput,
+  GuardianChild,
   KhatRunTrip,
   KhatSweepAlert,
   KhatSweepAlertsInput,
   KhatSweepCallInput,
   KhatSweepCloseInput,
   KhatTapInput,
+  RemoveChildPhotoInput,
   ReportAbsenceInput,
+  SetChildPhotoInput,
   SubstituteOffer,
   SubstituteOffersInput,
   TodayRunInput,
@@ -66,6 +69,24 @@ export const khatRouter = router({
     .input(CallGuardianInput)
     .output(CallSession)
     .mutation(({ ctx, input }) => ctx.khat.callGuardian(ctx.actor, input)),
+  /**
+   * The guardian's side (customer app, Ali 2026-10-06): his own children and the photo he may add of
+   * each. Any signed-in person, his own children only (`forbidden` otherwise). The photo reaches only
+   * the driver of the child's run.
+   */
+  guardian: router({
+    children: protectedProcedure()
+      .output(z.array(GuardianChild))
+      .query(({ ctx }) => ctx.khat.guardianChildren(ctx.actor)),
+    setPhoto: protectedProcedure()
+      .input(SetChildPhotoInput)
+      .output(GuardianChild)
+      .mutation(({ ctx, input }) => ctx.khat.setChildPhoto(ctx.actor, input)),
+    removePhoto: protectedProcedure()
+      .input(RemoveChildPhotoInput)
+      .output(GuardianChild)
+      .mutation(({ ctx, input }) => ctx.khat.removeChildPhoto(ctx.actor, input)),
+  }),
   /**
    * Runs that ended without the sweep within `KHAT_RULES.sweepAlertAfterMin` (Console safety strip):
    * the driver, the run, the last drop time; late confirms show for a while, then go.

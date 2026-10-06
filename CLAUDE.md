@@ -23,8 +23,8 @@ store setup, and the gaps that need real phones.
 SOS calls Iraq's national emergency number 911 (Ali, 2026-10-06; `SAFETY_RULES.policeNumber`).
 Shift-guarantee shifts: 06:00–15:00 and 15:00–02:00 (Ali, 2026-10-06); still off; amount for 9–11 h
 shifts, couriers only and a minimum online time are open.
-Being decided/built in another window (2026-10-06): tips after a good rating, public driver photos,
-switching the guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
+Being decided/built in another window (2026-10-06): tips after a good rating, and switching the
+guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of
 `docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
@@ -32,6 +32,9 @@ tender limit) and extra cash must be named; honest delay in two steps (10 min ap
 min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee was built to be paid by
 the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen
 (every PIN typed is logged; cross-use and 3 wrong PINs on a seat alert ops on the Console safety strip), 3-second pause before the sweep.
+Driver photos (Ali, 2026-10-06): every driver has one approved main photo shown to customers (the
+`photo` document, approved in the Console queue); guardian-added child photos are seen only by that
+child's خطوط driver — `docs/api/driver-photos.md`.
 All 23 Phase 3 review problems are fixed (review board: Ali's artifact, see memory). Guardian messages (`khat.guardian_*`, `push.khat_dropped.body`, WhatsApp `wa.khat_dropped`) still say «صعد/وصل» for every child; postponed to the parents' WhatsApp work in `docs/before-launch.md` §4.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,

@@ -3,7 +3,7 @@ export { DriverAccountModule } from './driver-account.module.js';
  * `DriverAccountService.onlineGateFor(personId)` is what the Partner presence path (`partner.*`)
  * should check before letting a driver go online; `verifyHandoverCode` is field ops' cash check.
  */
-export { DriverAccountService, documentStatus, documentView, worstStatus, DOCUMENT_KIND_AR, EXPIRY_WARNING_DAYS, MAX_CHECKIN_FAILURES } from './driver-account.service.js';
+export { DriverAccountService, documentStatus, documentView, mainPhotoState, worstStatus, DOCUMENT_KIND_AR, EXPIRY_WARNING_DAYS, MAX_CHECKIN_FAILURES } from './driver-account.service.js';
 export { composeEarnings } from './earnings.js';
 export { composeReceipt, reasonOf } from './receipt.js';
 export { bestHour, busiestWindow, clampShift, perHour } from './shift.js';

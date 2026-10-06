@@ -193,3 +193,23 @@ export function useSavedPeople() {
     },
   });
 }
+
+// ── خطوط children's photos (Ali, 2026-10-06) ──
+
+/** The guardian's own خطوط children with the photo of each (only their run's driver ever sees it). */
+export function useGuardianChildren() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.khat.guardian.children.queryOptions(), enabled: signedIn });
+}
+
+/** Add / replace and remove a child's photo; the list re-reads. */
+export function useChildPhotoMutations() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: api.khat.guardian.children.queryKey() });
+  return {
+    set: useMutation({ ...api.khat.guardian.setPhoto.mutationOptions(), onSuccess: refresh }),
+    remove: useMutation({ ...api.khat.guardian.removePhoto.mutationOptions(), onSuccess: refresh }),
+  };
+}

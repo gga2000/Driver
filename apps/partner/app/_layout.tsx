@@ -108,6 +108,7 @@ function RootNavigator() {
         <Stack.Screen name="earnings/statement" options={{ title: t('partner.earnings_breakdown') }} />
         <Stack.Screen name="scorecard" options={{ title: t('partner.hub_scorecard') }} />
         <Stack.Screen name="documents/index" options={{ title: t('partner.hub_documents') }} />
+        <Stack.Screen name="photo" options={{ title: t('partner.mainphoto_title') }} />
         <Stack.Screen name="checkin" options={{ title: t('partner.hub_checkin') }} />
         <Stack.Screen name="intercity/index" options={{ title: t('partner.hub_intercity') }} />
         <Stack.Screen name="khat/index" options={{ title: t('partner.hub_khat') }} />

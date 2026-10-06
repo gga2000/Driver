@@ -42,6 +42,9 @@ export const APPROVAL_KIND_AR: Record<ApprovalKind, string> = {
   fleet_vehicle: 'مركبة أسطول',
 };
 
+/** The `photo` document is the driver's main photo customers see (Ali, 2026-10-06). */
+const MAIN_PHOTO_TITLE_AR = 'الصورة الرئيسية';
+const MAIN_PHOTO_HINT_AR = 'تبين للزبائن بعد الموافقة';
 const DEAL_TYPE_AR: Record<string, string> = { percent: 'خصم نسبة', fixed: 'خصم مبلغ', free_delivery: 'توصيل مجاني', bogo: 'واحد ويا واحد' };
 const VEHICLE_AR: Record<string, string> = { bike: 'ماطور', tuktuk: 'تكتك', car: 'سيارة', suv: 'جكسارة', van: 'كيا', intercity: 'سيارة خطوط' };
 const REF_TTL_MS = 5 * 60_000;
@@ -130,20 +133,26 @@ export class ApprovalsService {
         const selfie = (await this.refs(d.personId, 'selfieRefs', actor.personId)).at(-1);
         if (selfie) compare.push({ url: this.url(selfie.ref), label_ar: 'سيلفي التحقق اليومي' });
       }
+      // The main photo (Ali, 2026-10-06) is what customers see on his card: say so to the reviewer.
+      const main = d.kind === 'photo';
       out.push({
         id: `driver_document:${d.id}`,
         kind: 'driver_document',
         kind_ar: APPROVAL_KIND_AR.driver_document,
         refId: d.id,
-        title_ar: DOCUMENT_KIND_AR[d.kind],
-        subtitle_ar: d.expiresAt ? `ينتهي ${d.expiresAt.toISOString().slice(0, 10)}` : null,
+        title_ar: main ? MAIN_PHOTO_TITLE_AR : DOCUMENT_KIND_AR[d.kind],
+        subtitle_ar: main ? MAIN_PHOTO_HINT_AR : d.expiresAt ? `ينتهي ${d.expiresAt.toISOString().slice(0, 10)}` : null,
         submittedAt: d.submittedAt,
         submittedBy: d.personId,
         submittedByName: null,
         ownItem: own,
         photos,
         compare,
-        facts: [{ label_ar: 'النوع', value: DOCUMENT_KIND_AR[d.kind] }, ...(d.expiresAt ? [{ label_ar: 'تاريخ الانتهاء', value: d.expiresAt.toISOString().slice(0, 10) }] : [])],
+        facts: [
+          { label_ar: 'النوع', value: main ? MAIN_PHOTO_TITLE_AR : DOCUMENT_KIND_AR[d.kind] },
+          ...(main ? [{ label_ar: 'يبين لـ', value: 'الزبائن، على بطاقة السايق' }, { label_ar: 'المطلوب', value: 'وجه واضح، بدون نظارة شمسية، نفس الشخص بالبطاقة' }] : []),
+          ...(d.expiresAt ? [{ label_ar: 'تاريخ الانتهاء', value: d.expiresAt.toISOString().slice(0, 10) }] : []),
+        ],
         takesExpiry: ['licence', 'vehicle_registration', 'insurance', 'national_id_front'].includes(d.kind),
       });
     }

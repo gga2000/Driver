@@ -8,7 +8,13 @@
 //
 //   POST /demo/khat/seed?who=khat     → { tripId, substituteOfferId }
 //   POST /demo/khat/finish?who=khat   → taps every remaining child in and out (the summary screen)
+//
+//   Child photos (Ali, 2026-10-06): the guardian (أم زينب) added a photo of زينب, حسن and مريم; the
+//   others show their initial. Only this run's driver sees them.
+import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
+
 const MIN = 60_000;
+const WITH_PHOTO = new Set(['زينب علي حسين', 'حسن جاسم', 'مريم عادل']);
 const PLACES = {
   hashimi: [{ lat: 32.8962, lng: 45.0671 }, { lat: 32.8957, lng: 45.0682 }],
   shukri: [{ lat: 32.8946, lng: 45.0548 }, { lat: 32.8941, lng: 45.0539 }],
@@ -28,14 +34,24 @@ const CHILDREN = [
 export default async function register(demo) {
   const { services, CITY } = demo;
   const { KhatService } = await demo.load('modules/khat/index.js');
+  const { BLOB_STORE } = await demo.load('modules/places/index.js');
   const khat = demo.app.get(KhatService);
+  const blobs = demo.app.get(BLOB_STORE);
   const guardian = await demo.person({ key: 'guardian', phone: '07803330301', name: 'أم زينب' });
   const otherDriver = await demo.person({ phone: '07803330302', name: 'رعد سلمان', roles: ['khat_driver'], vehicle: 'van' });
   const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
   const state = { tripId: null };
 
   async function child(name) {
-    return (await services.identity.registerChild({ personId: guardian }, { name })).childRef;
+    const { childRef } = await services.identity.registerChild({ personId: guardian }, { name });
+    if (WITH_PHOTO.has(name)) {
+      const bytes = avatarPng(name, { child: true });
+      const ticket = await blobs.createUpload({ ownerId: guardian, contentType: 'image/png', sizeBytes: bytes.length });
+      const u = new URL(ticket.uploadUrl, 'http://x');
+      await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+      await khat.setChildPhoto({ personId: guardian, sessionId: 'demo' }, { childRef, uploadId: ticket.uploadId });
+    }
+    return childRef;
   }
 
   async function clearRuns(personId) {

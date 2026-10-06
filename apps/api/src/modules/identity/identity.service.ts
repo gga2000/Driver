@@ -371,18 +371,73 @@ export class IdentityService implements IdentityPort {
 
   /**
    * The courier card a customer sees on an order the courier carries (customer app §4): his first
-   * name only — read from the vault and logged with purpose `courier_card` — and when he last
-   * verified himself (OTP re-verification; the Partner shift selfie replaces it when it ships).
+   * name only — read from the vault and logged with purpose `courier_card` — when he last verified
+   * himself (OTP re-verification; the Partner shift selfie replaces it when it ships), and the storage
+   * ref of his APPROVED main photo (Ali, 2026-10-06; the caller signs a short-lived URL). The read
+   * logs `main_photo` too when he has one; a photo still under review never leaves the vault.
    */
-  async courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null }> {
+  async courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null; photoRef: string | null }> {
     return this.uow.run(async (tx) => {
       const person = await this.repo.findPersonById(courierId, tx);
-      if (!person || person.deletedAt) return { firstName: null, lastVerifiedAt: null };
+      if (!person || person.deletedAt) return { firstName: null, lastVerifiedAt: null, photoRef: null };
       const identity = await this.repo.readIdentity(courierId, tx);
-      await this.repo.logVaultAccess({ personId: courierId, accessorId, purpose: 'courier_card', fieldsRead: ['name'], now: this.clock.now() }, tx);
+      const photoRef = identity?.mainPhotoRef ?? null;
+      await this.repo.logVaultAccess({ personId: courierId, accessorId, purpose: 'courier_card', fieldsRead: photoRef ? ['name', 'main_photo'] : ['name'], now: this.clock.now() }, tx);
       const first = identity?.name?.trim().split(/\s+/)[0] ?? '';
-      return { firstName: first || null, lastVerifiedAt: person.lastVerifiedAt };
+      return { firstName: first || null, lastVerifiedAt: person.lastVerifiedAt, photoRef };
     });
+  }
+
+  // ───────────────────────── driver main photo (Ali, 2026-10-06) ─────────────────────────
+
+  /**
+   * The approved main photos of drivers a customer is shown (ride match card, الرجعة offers and seat,
+   * the share page): storage refs by person id, only for people who have one. Each one returned is a
+   * VaultAccessLog row (`main_photo`, the caller's accessor and purpose); deleted people are left out.
+   */
+  async mainPhotoRefs(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>> {
+    const ids = [...new Set(personIds)];
+    if (ids.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const live = (await this.repo.findPeopleByIds(ids, tx)).filter((p) => !p.deletedAt).map((p) => p.id);
+      if (live.length === 0) return {};
+      const out: Record<string, string> = {};
+      for (const i of await this.repo.readIdentities(live, tx)) if (i.mainPhotoRef) out[i.personId] = i.mainPhotoRef;
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        Object.keys(out).filter((id) => id !== accessorId).map((personId) => ({ personId, accessorId, purpose, fieldsRead: ['main_photo'], now })),
+        tx,
+      );
+      return out;
+    });
+  }
+
+  /**
+   * A `photo` driver document was approved: its upload (the vault's document ref for that record)
+   * becomes the main photo customers see. Called by driver-account inside the review's unit of work;
+   * a rejected or pending photo never gets here, so the previous approved photo (or the initial)
+   * stays until then. Returns the ref, or null when the document has no stored ref.
+   */
+  async promoteMainPhoto(personId: string, documentId: string): Promise<string | null> {
+    return this.uow.run(async (tx) => {
+      const ref = (await this.repo.vaultRefs(personId, 'documentRefs', tx)).find((r) => r['recordId'] === documentId && typeof r['ref'] === 'string');
+      if (!ref) return null;
+      await this.repo.updateIdentity(personId, { mainPhotoRef: ref['ref'] as string, mainPhotoAt: this.clock.now() }, tx);
+      return ref['ref'] as string;
+    });
+  }
+
+  /**
+   * The driver's own photo refs for his "صورتك" screen: the approved main photo and the upload behind
+   * each `photo` document (by document id). His own vault row, so nothing is logged.
+   */
+  async ownPhotoRefs(personId: string): Promise<{ mainRef: string | null; mainAt: Date | null; byDocument: Record<string, string> }> {
+    const identity = await this.repo.readIdentity(personId);
+    const byDocument: Record<string, string> = {};
+    for (const r of await this.repo.vaultRefs(personId, 'documentRefs')) {
+      if (r['kind'] === 'photo' && typeof r['recordId'] === 'string' && typeof r['ref'] === 'string') byDocument[r['recordId']] = r['ref'];
+    }
+    return { mainRef: identity?.mainPhotoRef ?? null, mainAt: identity?.mainPhotoAt ?? null, byDocument };
   }
 
   /**
@@ -634,12 +689,59 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
-   * Wave 2 (`khat.todayRun`): the children's FIRST names only, for the run's own driver (the khat
-   * module decides he is). The full name never leaves identity; every read is logged (khat_today_run).
+   * Wave 2 (`khat.todayRun`) rows: each child's FIRST name (the full name never leaves identity) and the storage ref of the photo the guardian added
+   * (null without one), for the run's own driver ONLY — the khat module checks he drives the run (the
+   * assigned driver, or the substitute once the run is his). One log row per child read, against the
+   * guardian (purpose khat_today_run; `child_photo` in the fields when a photo went out).
    */
-  async childFirstNamesForRun(driverId: string, childRefs: readonly string[]): Promise<Record<string, string>> {
-    const names = await this.readChildNames(driverId, [...new Set(childRefs)], 'khat_today_run');
-    return Object.fromEntries(Object.entries(names).map(([ref, name]) => [ref, firstNameOf(name)]));
+  async childCardsForRun(driverId: string, childRefs: readonly string[]): Promise<Record<string, { firstName: string; photoRef: string | null }>> {
+    const refs = [...new Set(childRefs)];
+    if (refs.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const found = await this.repo.readChildIdentities(refs, tx);
+      const now = this.clock.now();
+      const out: Record<string, { firstName: string; photoRef: string | null }> = {};
+      for (const ref of refs) {
+        const c = found.find((x) => x.childRef === ref);
+        if (!c) continue;
+        const photoRef = c.photoRef ?? null;
+        await this.repo.logVaultAccess({ personId: c.guardianId ?? driverId, accessorId: driverId, purpose: 'khat_today_run', fieldsRead: photoRef ? ['child_name', 'child_photo'] : ['child_name'], childRef: c.childRef, now }, tx);
+        out[c.childRef] = { firstName: firstNameOf(c.name), photoRef };
+      }
+      return out;
+    });
+  }
+
+  /**
+   * The guardian's own children with the storage ref of each one's photo (customer app, خطوط
+   * children). Only the guardian's own; each read logged (guardian_view).
+   */
+  async childrenWithPhotos(guardianId: string): Promise<Array<{ childRef: string; name: string; photoRef: string | null }>> {
+    return this.uow.run(async (tx) => {
+      const children = await this.repo.childIdentitiesOf(guardianId, tx);
+      const now = this.clock.now();
+      for (const c of children) {
+        await this.repo.logVaultAccess({ personId: guardianId, accessorId: guardianId, purpose: 'guardian_view', fieldsRead: c.photoRef ? ['child_name', 'child_photo'] : ['child_name'], childRef: c.childRef, now }, tx);
+      }
+      return children.map((c) => ({ childRef: c.childRef, name: c.name, photoRef: c.photoRef ?? null }));
+    });
+  }
+
+  /**
+   * A guardian sets (a storage ref) or removes (null) his child's photo. Only the child's own guardian:
+   * anyone else gets `forbidden`, an unknown child `not_found`. Returns the ref it replaced, so the
+   * caller deletes those bytes.
+   */
+  async setChildPhoto(guardianId: string, childRef: string, photoRef: string | null): Promise<{ previousRef: string | null }> {
+    return this.uow.run(async (tx) => {
+      const [child] = await this.repo.readChildIdentities([childRef], tx);
+      if (!child) throw new DriverError('not_found');
+      if (child.guardianId !== guardianId) throw new DriverError('forbidden');
+      await this.repo.setChildPhoto(childRef, photoRef, tx);
+      const now = this.clock.now();
+      await this.events.emit(tx, { actorId: guardianId, type: photoRef ? 'child.photo_set' : 'child.photo_removed', occurredAt: now, payload: { childRef } }, { name: 'person', id: guardianId });
+      return { previousRef: child.photoRef ?? null };
+    });
   }
 
   // ───────────────────────── wave 2: vault refs, org roles ─────────────────────────

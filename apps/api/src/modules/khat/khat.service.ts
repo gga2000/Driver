@@ -10,6 +10,7 @@ import {
   type CallGuardianInput,
   type CallSession,
   type ConfirmEmptyCarInput,
+  type GuardianChild,
   type KhatPort,
   type KhatRunTrip,
   type KhatSweepAlert,
@@ -17,8 +18,10 @@ import {
   type KhatSweepCallInput,
   type KhatSweepCloseInput,
   type KhatTapInput,
+  type RemoveChildPhotoInput,
   type ReportAbsenceInput,
   type SafetyCallSession,
+  type SetChildPhotoInput,
   type SubstituteOffer,
   type TodayRunView,
   type Trip,
@@ -46,6 +49,15 @@ export const KHAT_CALLS = Symbol('KHAT_CALLS');
 /** The `khat.timers` queue: the sweep check after a run ends (BullMQ with Redis, in process otherwise). */
 export const KHAT_QUEUE = Symbol('KHAT_QUEUE');
 export const KHAT_CONFIG = Symbol('KHAT_CONFIG');
+/** Child photos' storage (the places module's blob store): ownership check, signed reads, deletion. */
+export const KHAT_PHOTOS = Symbol('KHAT_PHOTOS');
+
+export interface KhatPhotosPort {
+  /** A stored upload of `personId` (pending or someone else's is not his photo). */
+  owns(uploadId: string, personId: string): Promise<boolean>;
+  readUrl(ref: string): string;
+  remove(ref: string): Promise<void>;
+}
 
 export interface KhatConfig {
   /** Minutes after the run's last child stop before a missing sweep alerts ops (`KHAT_RULES`). */
@@ -108,7 +120,13 @@ function lastDrop(trip: Trip): { at: Date | null; zoneKey: string | null } {
   return best;
 }
 
-export function runTripView(trip: Trip, names: Record<string, string>, absences: readonly AbsenceRecord[], emptyCarCheckedAt: Date | null = null): KhatRunTrip {
+/** A child on the run as its driver sees it: first name and the guardian's photo (signed URL) or null. */
+export interface RunChild {
+  firstName: string;
+  photoUrl: string | null;
+}
+
+export function runTripView(trip: Trip, names: Record<string, RunChild>, absences: readonly AbsenceRecord[], emptyCarCheckedAt: Date | null = null): KhatRunTrip {
   const absent = new Set(absences.filter((a) => a.tripId === trip.id).map((a) => a.childRef));
   const children = new Set(trip.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)));
   let onBoard = 0;
@@ -132,7 +150,7 @@ export function runTripView(trip: Trip, names: Record<string, string>, absences:
         zoneKey: s.zoneKey,
         windowStart: s.windowStart,
         windowEnd: s.windowEnd,
-        child: s.childRef ? { childRef: s.childRef, firstName: names[s.childRef] ?? '—' } : null,
+        child: s.childRef ? { childRef: s.childRef, firstName: names[s.childRef]?.firstName ?? '—', photoUrl: names[s.childRef]?.photoUrl ?? null } : null,
         tappedInAt: s.childTapInAt,
         tappedOutAt: s.childTapOutAt,
         absent: s.childRef ? absent.has(s.childRef) : false,
@@ -170,7 +188,59 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     // Both always bound by `KhatModule`; optional only so narrow harnesses can leave them out.
     @Optional() private readonly notify?: NotifyService,
     @Optional() private readonly audits?: AuditLogService,
+    /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
+    @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
   ) {}
+
+  /**
+   * The children on runs this driver drives, by childRef: first name and the guardian's photo (signed).
+   * Callers pass only refs of runs that are his (`trips.forDriver` / `ownRun`): identity logs each read.
+   */
+  private async runChildren(driverId: string, refs: readonly string[]): Promise<Record<string, RunChild>> {
+    if (refs.length === 0) return {};
+    const cards = await this.identity.childCardsForRun(driverId, refs);
+    return Object.fromEntries(Object.entries(cards).map(([ref, c]) => [ref, { firstName: c.firstName, photoUrl: c.photoRef && this.photos ? this.photos.readUrl(c.photoRef) : null }]));
+  }
+
+  // ───────────────────────── guardian: a child's photo ─────────────────────────
+
+  private guardianChild(c: { childRef: string; name: string; photoRef: string | null }): GuardianChild {
+    return { childRef: c.childRef, name: c.name, photoUrl: c.photoRef && this.photos ? this.photos.readUrl(c.photoRef) : null };
+  }
+
+  async guardianChildren(actor: Actor): Promise<GuardianChild[]> {
+    return (await this.identity.childrenWithPhotos(actor.personId)).map((c) => this.guardianChild(c));
+  }
+
+  /** The guardian adds (or replaces) his child's photo; the replaced photo's bytes are deleted. */
+  async setChildPhoto(actor: Actor, input: SetChildPhotoInput): Promise<GuardianChild> {
+    if (!this.photos || !(await this.photos.owns(input.uploadId, actor.personId))) throw new DriverError('upload_invalid');
+    const { previousRef } = await this.identity.setChildPhoto(actor.personId, input.childRef, input.uploadId);
+    if (previousRef && previousRef !== input.uploadId) await this.removeBytes(previousRef);
+    return this.ownChild(actor, input.childRef);
+  }
+
+  /** The guardian removes the photo: gone from the vault and from storage; drivers see the initial again. */
+  async removeChildPhoto(actor: Actor, input: RemoveChildPhotoInput): Promise<GuardianChild> {
+    const { previousRef } = await this.identity.setChildPhoto(actor.personId, input.childRef, null);
+    if (previousRef) await this.removeBytes(previousRef);
+    return this.ownChild(actor, input.childRef);
+  }
+
+  private async ownChild(actor: Actor, childRef: string): Promise<GuardianChild> {
+    const c = (await this.identity.childrenWithPhotos(actor.personId)).find((x) => x.childRef === childRef);
+    if (!c) throw new DriverError('not_found');
+    return this.guardianChild(c);
+  }
+
+  private async removeBytes(ref: string): Promise<void> {
+    try {
+      await this.photos?.remove(ref);
+    } catch (err) {
+      // The vault no longer points at it; a leftover object is unreachable (no signed URL is ever made).
+      this.logger.warn(`child photo ${ref} not deleted: ${(err as Error).message}`);
+    }
+  }
 
   /**
    * The sweep timer (Ali, 2026-10-06): the queue runs `checkSweep` when a run's grace is over. Taps
@@ -208,7 +278,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     const trips = [...going, ...finished.filter((t, i) => !finishedSwept[i] && !going.some((g) => g.id === t.id))];
     trips.sort((a, b) => runAt(a).getTime() - runAt(b).getTime());
     const refs = trips.flatMap((t) => t.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)));
-    const names = refs.length > 0 ? await this.identity.childFirstNamesForRun(actor.personId, refs) : {};
+    const names = await this.runChildren(actor.personId, refs);
     const absences = await this.repo.absencesForTrips(trips.map((t) => t.id));
     const swept = await Promise.all(trips.map((t) => this.emptyCarCheckedAt(t.id)));
     return { localDate, trips: trips.map((t, i) => runTripView(t, names, absences, swept[i] ?? null)) };
@@ -510,7 +580,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
 
   private async view(actor: Actor, trip: Trip): Promise<KhatRunTrip> {
     const refs = trip.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r));
-    const names = refs.length > 0 ? await this.identity.childFirstNamesForRun(actor.personId, refs) : {};
+    const names = await this.runChildren(actor.personId, refs);
     return runTripView(trip, names, await this.repo.absencesForTrips([trip.id]), await this.emptyCarCheckedAt(trip.id));
   }
 

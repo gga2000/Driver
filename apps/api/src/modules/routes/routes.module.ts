@@ -3,6 +3,7 @@ import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
 import { DemandService } from './demand.service.js';
@@ -32,7 +33,7 @@ import { RoutesWriter } from './writer.js';
  * `DEPARTURES` port.
  */
 @Module({
-  imports: [EventsModule, LedgerModule, IdentityModule, ControlsModule],
+  imports: [EventsModule, LedgerModule, IdentityModule, ControlsModule, PlacesModule],
   providers: [
     {
       provide: ROUTES_REPOSITORY,
@@ -57,11 +58,12 @@ import { RoutesWriter } from './writer.js';
     { provide: ROUTES_IDS, useValue: randomIds },
     {
       provide: ROUTES_RIDER_NAMES,
-      useFactory: (identity: IdentityService): RiderNamesReader => ({
+      useFactory: (identity: IdentityService, blobs: BlobStore): RiderNamesReader => ({
         firstNamesFor: (ids, accessorId, purpose) => identity.firstNamesFor(ids, accessorId, purpose),
         memberCards: (ids, accessorId, purpose) => identity.memberCards(ids, accessorId, purpose),
+        driverPhotoUrls: async (ids, accessorId, purpose) => Object.fromEntries(Object.entries(await identity.mainPhotoRefs(ids, accessorId, purpose)).map(([id, ref]) => [id, blobs.readUrl(ref)])),
       }),
-      inject: [IdentityService],
+      inject: [IdentityService, BLOB_STORE],
     },
     // Launch kill switches: corridor / الرجعة switches refuse new holds and request posts.
     { provide: ROUTES_CONTROLS, useExisting: ControlsService },

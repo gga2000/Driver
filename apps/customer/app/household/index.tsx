@@ -6,7 +6,7 @@ import { Avatar, Button, Card, EmptyState, ListRow, Skeleton, StatusPill, Text, 
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
-import { useCreateHousehold, useHousehold, useMe, useMyPlaces } from '@/features/account/queries';
+import { useCreateHousehold, useGuardianChildren, useHousehold, useMe, useMyPlaces } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -30,6 +30,7 @@ export default function Household() {
   const places = useMyPlaces();
   const me = useMe();
   const create = useCreateHousehold();
+  const children = useGuardianChildren();
   const [name, setName] = useState('');
   const home = household.data;
 
@@ -112,6 +113,12 @@ export default function Household() {
           })}
         </Card>
       </View>
+
+      {(children.data ?? []).length > 0 ? (
+        <Card elevation={0} padding={0}>
+          <ListRow testID="household-children-row" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} />
+        </Card>
+      ) : null}
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('household.shared_places')} />

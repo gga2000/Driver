@@ -19,11 +19,14 @@ import {
   type HandoverCode,
   type JobReceipt,
   type LivenessGesture,
+  type MainPhotoState,
+  type MainPhotoView,
   type OnlineGate,
   type PayQueryResult,
   type ReviewDocumentInput,
   type RoleKind,
   type ScorecardView,
+  type SetMainPhotoInput,
   type ShiftSummary,
   type SubmitCheckInInput,
   type UploadDocumentInput,
@@ -112,6 +115,16 @@ export function documentView(d: DocumentRecord, now: Date): DriverDocumentView {
     reviewedAt: d.reviewedAt,
     rejectReason: d.rejectReason,
   };
+}
+
+/**
+ * The main photo's state machine (Ali, 2026-10-06), from his latest `photo` document: none → pending
+ * (sent) → approved | rejected; a new photo starts pending again while the previous approved one
+ * stays what customers see.
+ */
+export function mainPhotoState(latest: Pick<DocumentRecord, 'status'> | null | undefined): MainPhotoState {
+  if (!latest) return 'none';
+  return latest.status;
 }
 
 /** Worst first: what a fleet owner or the gate should look at. */
@@ -357,6 +370,10 @@ export class DriverAccountService implements DriverAccountPort {
         const older = (await this.repo.currentDocuments([doc.personId], tx)).filter((d) => d.kind === doc.kind && d.id !== doc.id && d.submittedAt.getTime() <= doc.submittedAt.getTime());
         for (const o of older) await this.repo.updateDocument(o.id, { supersededAt: now }, tx);
       }
+      if (approve && doc.kind === 'photo') {
+        // Ali, 2026-10-06: the approved photo becomes the main photo customers see.
+        await this.identity.promoteMainPhoto(doc.personId, doc.id);
+      }
       const updated = await this.repo.updateDocument(
         doc.id,
         {
@@ -375,6 +392,35 @@ export class DriverAccountService implements DriverAccountPort {
       );
       return documentView(updated, now);
     });
+  }
+
+  // ───────────────────────── main photo (Ali, 2026-10-06) ─────────────────────────
+
+  /** His main photo: what customers see now and where his latest one stands. */
+  async mainPhoto(actor: Actor): Promise<MainPhotoView> {
+    const [docs, refs] = await Promise.all([this.repo.currentDocuments([actor.personId]), this.identity.ownPhotoRefs(actor.personId)]);
+    const latest = latestPerKind(docs).find((d) => d.kind === 'photo') ?? null;
+    const latestRef = latest ? refs.byDocument[latest.id] : undefined;
+    return {
+      state: mainPhotoState(latest),
+      approved: refs.mainRef ? { url: this.blobs.readUrl(refs.mainRef), approvedAt: refs.mainAt } : null,
+      latest: latest
+        ? {
+            documentId: latest.id,
+            status: latest.status,
+            url: latestRef ? this.blobs.readUrl(latestRef) : null,
+            submittedAt: latest.submittedAt,
+            reviewedAt: latest.reviewedAt,
+            rejectReason: latest.rejectReason,
+          }
+        : null,
+    };
+  }
+
+  /** A new main photo: a `photo` document for the approvals queue (replaces a pending or rejected one). */
+  async setMainPhoto(actor: Actor, input: SetMainPhotoInput): Promise<MainPhotoView> {
+    await this.uploadDocument(actor, { kind: 'photo', uploadId: input.uploadId });
+    return this.mainPhoto(actor);
   }
 
   private async assertUpload(ownerId: string, uploadId: string): Promise<void> {

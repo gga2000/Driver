@@ -11,6 +11,7 @@ import { playCue } from '@/lib/sound';
 import { cashAtDoor } from './arrival-logic';
 import { almostThere, DRIVER_HERE_GAP_MS, momentFeedback, momentsBetween, type MomentSnapshot } from './moments';
 import { courierAtDoor, type Phase } from './timeline';
+import { apiPhoto } from '@/lib/photo';
 
 export type DoorCardVariant = 'near' | 'door';
 
@@ -134,7 +135,7 @@ export function AlmostThereCard({
       }}
     >
       {atDoor ? (
-        <Avatar name={who} uri={photoUrl ?? undefined} size={44} />
+        <Avatar name={who} uri={apiPhoto(photoUrl) ?? undefined} size={44} />
       ) : (
         <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={pay.kind === 'cash' ? 'cash' : 'home'} size={22} color="accentText" strokeWidth={2.2} />

@@ -42,7 +42,8 @@ const POLL_MS = 15_000;
 
 /** One-tap reasons the reviewer can start from (keys 1–4; edited before sending). */
 const REJECT_PRESETS: Record<ApprovalKind, readonly MessageKey[]> = {
-  driver_document: ['console.apr_reason_blurry', 'console.apr_reason_expired', 'console.apr_reason_mismatch'],
+  // The last one is for the main photo customers see (Ali, 2026-10-06).
+  driver_document: ['console.apr_reason_blurry', 'console.apr_reason_expired', 'console.apr_reason_mismatch', 'console.apr_reason_face'],
   merchant_deal: ['console.apr_reason_deal_cost', 'console.apr_reason_deal_parity'],
   landmark_photo: ['console.apr_reason_blurry', 'console.apr_reason_wrong_place'],
   merchant_onboarding: ['console.apr_reason_menu_missing', 'console.apr_reason_owner_id'],
