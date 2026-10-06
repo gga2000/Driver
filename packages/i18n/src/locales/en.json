@@ -5058,6 +5058,8 @@
   "error.safety_incident_closed": "The incident is already closed",
   "error.safety_no_contact": "No emergency contact on file",
   "track.map_minutes": "{minutes} min",
+  "track.map_minutes_range_few": "{range} min",
+  "track.map_minutes_range": "{range} min",
   "track.near_title": "Your courier is almost there",
   "track.near_paid": "Already paid, just be ready at the door",
   "track.door_title": "{name} is at your door",

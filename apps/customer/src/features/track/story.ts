@@ -10,6 +10,16 @@ export interface Shot {
 
 /** Closer than this to the door (metres, straight line): the camera tightens on him and the door. */
 export const CLOSE_IN_M = 400;
+/** On the way and far: the frame reaches this share of the way ahead toward the door … */
+export const LOOK_AHEAD = 0.5;
+/** … and this share behind him, so he sits a little behind the middle with more road ahead. */
+export const LOOK_BEHIND = 0.2;
+
+/** The point `k` of the way from `a` to `b` (negative: behind `a`). */
+function toward(a: LngLat, b: LngLat, k: number): LngLat {
+  return { lat: a.lat + (b.lat - a.lat) * k, lng: a.lng + (b.lng - a.lng) * k };
+}
+
 /** Town overview → street level. */
 const WIDE: [number, number] = [12.5, 16.5];
 const KITCHEN_CLOSE: [number, number] = [15.8, 16.4];
@@ -36,7 +46,13 @@ export function storyShot(input: {
   if (!ride) {
     if ((phase === 'waiting_merchant' || phase === 'preparing') && kitchen && !courier) return { points: [kitchen], zoom: KITCHEN_CLOSE };
     if ((phase === 'to_pickup' || phase === 'at_pickup' || phase === 'preparing') && kitchen) return { points: some(courier, kitchen), zoom: WIDE };
-    if (phase === 'on_the_way' && door) return { points: some(courier, door), zoom: toDoorM !== null && toDoorM <= CLOSE_IN_M ? DOOR_CLOSE : WIDE };
+    if (phase === 'on_the_way' && door) {
+      if (toDoorM !== null && toDoorM <= CLOSE_IN_M) return { points: some(courier, door), zoom: DOOR_CLOSE };
+      // Far still (f19, maps c4 "follow with look-ahead"): him near the middle with road ahead, instead
+      // of courier and door pinned to opposite corners.
+      if (courier) return { points: [courier, toward(courier, door, LOOK_AHEAD), toward(courier, door, -LOOK_BEHIND)], zoom: WIDE };
+      return { points: [door], zoom: WIDE };
+    }
     if ((phase === 'arrived' || phase === 'done') && door) return { points: [door], zoom: DOOR_CLOSE };
   }
   const pts = some(courier, ...ahead);

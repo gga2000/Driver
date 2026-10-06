@@ -29,9 +29,21 @@ interface LayerProps {
 /**
  * The route still to drive. With a road path (maps program SP5a): the real streets from the courier's
  * gliding position to the end, solid, shortening behind him. Without one: dashed straight segments
- * through the remaining waypoints — honest about being a guess.
+ * through the remaining waypoints — unless `straight` is off (the live order map, joy f19 / L-07: a
+ * straight line would cross the river; `HeadingArrow` shows which way he is headed instead).
  */
-export function RouteLine({ cam, size, glide, progress, path, start, waypoints, color, onRoad = false }: LayerProps & GlideValues & { start: SharedValue<LngLat | null>; waypoints: SharedValue<LngLat[]>; color: string; onRoad?: boolean }) {
+export function RouteLine({
+  cam,
+  size,
+  glide,
+  progress,
+  path,
+  start,
+  waypoints,
+  color,
+  onRoad = false,
+  straight = true,
+}: LayerProps & GlideValues & { start: SharedValue<LngLat | null>; waypoints: SharedValue<LngLat[]>; color: string; onRoad?: boolean; straight?: boolean }) {
   const props = useAnimatedProps(() => {
     const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
     const g = glide.value;
@@ -44,6 +56,8 @@ export function RouteLine({ cam, size, glide, progress, path, start, waypoints, 
       } else {
         pts = road.pts;
       }
+    } else if (!straight) {
+      return { d: '' };
     } else {
       const head = g ? glidePos(g, null, progress.value).pos : start.value;
       pts = head ? [head, ...waypoints.value] : waypoints.value;
@@ -56,6 +70,45 @@ export function RouteLine({ cam, size, glide, progress, path, start, waypoints, 
       <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={onRoad ? 9 : 8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
       <AnimatedPath animatedProps={props} stroke={color} strokeWidth={onRoad ? 5 : 4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={onRoad ? undefined : '1 9'} fill="none" />
     </Svg>
+  );
+}
+
+/** The heading arrow (f19): starts this far from the courier's centre … */
+const ARROW_GAP = 32;
+/** … and is this long ("a 60 px heading arrow", L-07). */
+const ARROW_LEN = 60;
+const ARROW_BOX = 2 * (ARROW_GAP + ARROW_LEN);
+
+/**
+ * No road route (joy f19, L-07): a short arrow from the courier toward his next stop instead of a
+ * straight line across the map. Hidden while a road route is drawn, without a courier, or when he is
+ * already closer than the arrow would reach.
+ */
+export function HeadingArrow({ cam, size, glide, progress, path, waypoints, color, visible }: LayerProps & GlideValues & { waypoints: SharedValue<LngLat[]>; color: string; visible: boolean }) {
+  const style = useAnimatedStyle(() => {
+    const g = glide.value;
+    const to = waypoints.value[0];
+    const hidden = { opacity: 0, transform: [{ translateX: 0 }, { translateY: 0 }, { rotate: '0deg' }] };
+    if (!visible || !g || !to) return hidden;
+    const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
+    const pos = glidePos(g, path ? path.value : null, progress.value).pos;
+    const p = project(pos.lat, pos.lng, c, size.value);
+    const q = project(to.lat, to.lng, c, size.value);
+    const dx = q.x - p.x;
+    const dy = q.y - p.y;
+    if (Math.hypot(dx, dy) < ARROW_GAP + ARROW_LEN) return hidden;
+    return { opacity: 1, transform: [{ translateX: p.x - ARROW_BOX / 2 }, { translateY: p.y - ARROW_BOX / 2 }, { rotate: `${(Math.atan2(dy, dx) * 180) / Math.PI}deg` }] };
+  }, [visible]);
+  const mid = ARROW_BOX / 2;
+  const tip = mid + ARROW_GAP + ARROW_LEN;
+  return (
+    <Animated.View testID="heading-arrow" pointerEvents="none" style={[styles.anchor, { width: ARROW_BOX, height: ARROW_BOX }, style]}>
+      <Svg width={ARROW_BOX} height={ARROW_BOX}>
+        <Path d={`M ${mid + ARROW_GAP} ${mid} L ${tip - 8} ${mid}`} stroke={palette.neutral[0]} strokeWidth={8} strokeLinecap="round" strokeOpacity={0.9} />
+        <Path d={`M ${mid + ARROW_GAP} ${mid} L ${tip - 8} ${mid}`} stroke={color} strokeWidth={4} strokeLinecap="round" />
+        <Path d={`M ${tip} ${mid} L ${tip - 14} ${mid - 9} L ${tip - 14} ${mid + 9} Z`} fill={color} stroke={palette.neutral[0]} strokeWidth={1.5} strokeLinejoin="round" />
+      </Svg>
+    </Animated.View>
   );
 }
 

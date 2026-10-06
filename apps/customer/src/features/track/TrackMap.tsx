@@ -6,7 +6,7 @@ import { Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
-import { CourierMarker, PlacePin, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
+import { CourierMarker, HeadingArrow, PlacePin, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
 import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
@@ -123,7 +123,9 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
       {size.w > 0 ? (
         <>
           <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} />
-          <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} />
+          {/* No straight line across the river without a road route (joy f19): a heading arrow instead. */}
+          <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} straight={false} />
+          <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />
           {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
           {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} testID="pin-pickup" /> : null}
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}

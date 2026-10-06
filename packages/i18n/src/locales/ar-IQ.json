@@ -5058,6 +5058,8 @@
   "error.safety_incident_closed": "التنبيه مسكّر",
   "error.safety_no_contact": "ما عنده رقم طوارئ",
   "track.map_minutes": "{minutes} دقيقة",
+  "track.map_minutes_range_few": "{range} دقايق",
+  "track.map_minutes_range": "{range} دقيقة",
   "track.near_title": "الدليفري قريب",
   "track.near_paid": "الطلب مدفوع، بس استعد للباب",
   "track.door_title": "{name} عند بابك",

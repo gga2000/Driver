@@ -18,6 +18,7 @@ import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { rideAskOnLiveScreen } from '@/features/notify/prompt';
 import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
+import { mapMinutesLabel } from '@/features/track/eta-range';
 import { CancelPanel, DisputePanel, StreetPanel, UNREACHABLE_PANEL_H, UnreachablePanel } from '@/features/track/Panels';
 import { currentSosFix } from '@/features/safety/fix';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
@@ -91,7 +92,9 @@ export default function OrderLiveScreen() {
   useLatePromiseToast(v);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
   // At the door there is nothing left to count down (joy f3): no pill.
-  const mapMinutes = fix && eta && eta.getTime() > now && !atDoor ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
+  // A range when the ETA is a straight-line estimate (f19, maps c3): the server's basis, or ours when it gave none.
+  const mapMinutes =
+    fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated') : null;
   const ride = v?.order.type === 'ride';
   // Joy f1: rides ask for notifications inside the collapsed sheet once a driver is coming (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
