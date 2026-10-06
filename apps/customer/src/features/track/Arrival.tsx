@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag } from '@driver/contracts';
+import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, Icon, ltr, Text, useCountUp, useTheme, useToast } from '@driver/ui';
+import { Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
@@ -81,15 +81,14 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
       style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space[8], paddingBottom: Math.max(insets.bottom, theme.space[6]), paddingHorizontal: theme.space[6] }]}
     >
       <View style={{ flex: 1, alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
-        <View style={{ width: 88, height: 88, alignItems: 'center', justifyContent: 'center' }}>
-          {celebrate ? <Burst /> : null}
-          <Animated.View
-            entering={celebrate ? ZoomIn.springify().damping(11) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
-            style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
-          >
-            <Icon name="check" size={48} color="onAccent" strokeWidth={3} />
-          </Animated.View>
-        </View>
+        {/* Joy J4 (S2-12): the door scene (food) or the road home (rides) instead of a glowing check. */}
+        <Animated.View
+          testID="arrival-scene"
+          entering={celebrate ? ZoomIn.springify().damping(16) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
+          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : ARRIVAL_SCENE_MAX }}
+        >
+          {ride ? <SketchScene name="safe_arrival" vehicle={sceneVehicle(view.courier?.vehicleClass ?? null)} /> : <SketchScene name="door" />}
+        </Animated.View>
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
           <Text variant="display" style={{ fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center">
             {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
@@ -128,33 +127,15 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   );
 }
 
-/** The burst behind the check (maps program SP5b, c7): one short spray of brand dots, 900 ms, once. */
-const BURST_MS = 900;
-const BURST_DOTS = 14;
-const BURST_REACH = 92;
+/** How wide the arrival drawing grows; smaller when the customer's own gate photo also shows. */
+const ARRIVAL_SCENE_MAX = 300;
+const ARRIVAL_SCENE_WITH_PHOTO = 168;
 
-function Burst() {
-  const theme = useTheme();
-  const p = useSharedValue(0);
-  useEffect(() => {
-    p.value = withTiming(1, { duration: BURST_MS, easing: Easing.out(Easing.cubic) });
-  }, [p]);
-  const tones = [theme.colors.accent, theme.colors.success, theme.colors.info, theme.colors.warning];
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-      {Array.from({ length: BURST_DOTS }, (_, i) => (
-        <BurstDot key={i} p={p} angle={(i / BURST_DOTS) * Math.PI * 2 + (i % 2) * 0.18} reach={BURST_REACH * (i % 3 === 0 ? 1 : 0.78)} size={i % 3 === 0 ? 10 : 7} color={tones[i % tones.length]!} />
-      ))}
-    </View>
-  );
-}
-
-function BurstDot({ p, angle, reach, size, color }: { p: SharedValue<number>; angle: number; reach: number; size: number; color: string }) {
-  const style = useAnimatedStyle(() => ({
-    opacity: p.value < 0.6 ? 1 : 1 - (p.value - 0.6) / 0.4,
-    transform: [{ translateX: Math.cos(angle) * reach * p.value }, { translateY: Math.sin(angle) * reach * p.value }, { scale: 1.2 - 0.6 * p.value }],
-  }));
-  return <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: color }, style]} />;
+/** Which vehicle brings a rider home in the arrival drawing. */
+function sceneVehicle(vehicle: VehicleClass | null): SceneVehicle {
+  if (vehicle === 'tuktuk') return 'tuktuk';
+  if (vehicle === 'van' || vehicle === 'intercity') return 'minibus';
+  return 'car';
 }
 
 /** "جهّز 18,000 دينار للدليفري" and, when rounded, "الطلب 17,800 دينار، والـ200 الباقية ترجعلك رصيد بمحفظتك". */

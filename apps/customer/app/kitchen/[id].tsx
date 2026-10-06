@@ -2,10 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import type { RestaurantCard } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Button, Card, CountdownRing, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, CountdownRing, EmptyState, Icon, SketchScene, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -67,7 +66,7 @@ export default function KitchenScreen() {
     return (
       <Screen testID="kitchen" edges={['top', 'bottom']}>
         <View style={{ alignItems: 'center', gap: theme.space[4], paddingTop: theme.space[16] }}>
-          <Skeleton height={160} width={160} radius={80} />
+          <Skeleton height={176} width={280} radius={24} />
           <Skeleton height={22} width="60%" />
         </View>
       </Screen>
@@ -124,23 +123,35 @@ export default function KitchenScreen() {
   );
 }
 
-/** The accept ring with a gently bobbing bag inside: something is happening, calmly. */
+/** The waiting kitchen drawing's width (joy J4) and the accept-ring medallion that sits on its sill. */
+const SCENE_MAX = 300;
+const MEDALLION = 76;
+
+/**
+ * The kitchen at work (joy J4, design-system S2-12: a scene, not an icon in a circle): a pot on the
+ * fire with its steam drifting (still under reduced motion), and the 90 s accept ring as a small
+ * medallion on the sill, so the time is still there without a big orange ring.
+ */
 function WaitingMark({ startedAt }: { startedAt: number }) {
   const theme = useTheme();
-  const bob = useSharedValue(0);
-  useEffect(() => {
-    if (theme.reduceMotion) return;
-    bob.value = withRepeat(withSequence(withTiming(-6, { duration: 700 }), withTiming(0, { duration: 700 })), -1);
-  }, [bob, theme.reduceMotion]);
-  const style = useAnimatedStyle(() => ({ transform: [{ translateY: bob.value }] }));
   return (
-    <View style={{ width: 168, height: 168, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ position: 'absolute' }}>
-        <CountdownRing mode="accept" startedAt={startedAt} durationMs={ACCEPT_MS} size={168} strokeWidth={8} />
+    <View style={{ width: '100%', maxWidth: SCENE_MAX, alignItems: 'center' }}>
+      <SketchScene name="kitchen" />
+      <View
+        style={{
+          marginTop: -MEDALLION / 2,
+          width: MEDALLION,
+          height: MEDALLION,
+          borderRadius: MEDALLION / 2,
+          backgroundColor: theme.colors.surface,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CountdownRing mode="accept" startedAt={startedAt} durationMs={ACCEPT_MS} size={MEDALLION - 10} strokeWidth={5} />
       </View>
-      <Animated.View style={[{ width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }, style]}>
-        <Icon name="bag" size={44} color="accentText" strokeWidth={1.8} />
-      </Animated.View>
     </View>
   );
 }
@@ -188,8 +199,8 @@ function Rejected({ orderId }: { orderId: string }) {
   return (
     <Screen testID="kitchen-rejected" edges={['top', 'bottom']}>
       <View style={{ alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[6] }}>
-        <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="bag" size={34} color="warningText" />
+        <View style={{ width: '100%', maxWidth: 260, marginBottom: theme.space[2] }}>
+          <SketchScene name="rejected" />
         </View>
         <Text variant="heading" align="center">
           {t('order.status.merchant_rejected')}
