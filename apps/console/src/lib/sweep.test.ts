@@ -32,7 +32,7 @@ describe('sweep alert strip', () => {
     expect(line).toMatch(/^خط اليوم #\d{4} · /);
     expect(line).toContain('آخر نزول 7:40');
     expect(line).toContain('قبل 6 د');
-    expect(sweepTitle(alert('a', 0, { confirmedAt: at(7), confirmedLateMin: 7 }))).toBe('حيدر ك. تأكد متأخر 7 دقيقة');
+    expect(sweepTitle(alert('a', 0, { confirmedAt: at(7), confirmedLateMin: 7 }))).toBe('حيدر ك. تأكد متأخر 7 دقايق');
     expect(sweepDetail(alert('a', 0, { confirmedAt: at(7), confirmedLateMin: 7 }), at(8).getTime())).toContain('السيارة فاضية، ماكو شي مطلوب');
   });
 
