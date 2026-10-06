@@ -5,7 +5,7 @@ import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
 import { OrdersStorefrontMerchants } from '../orders/storefront.port.js';
 import { HARNESS_MENU, KITCHEN, ordersHarness } from '../orders/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
-import { MerchantService, type MerchantEventsPort, type MerchantPeoplePort } from './merchant.service.js';
+import { MerchantService, type MerchantEventsPort, type MerchantPeoplePort, type MerchantPhotosPort } from './merchant.service.js';
 
 const MIN = 60_000;
 
@@ -22,7 +22,7 @@ const code = async (p: Promise<unknown>) => {
  * MerchantService over the orders harness (orders + trips in memory, fake clock) and a real
  * in-memory OrgsService. `org_1` is Khalid's (staff `s1`, owner `o1`), `org_2` a second store.
  */
-async function setup() {
+async function setup(opts: { photos?: MerchantPhotosPort } = {}) {
   const h = ordersHarness();
   const orgs = new OrgsService(undefined, h.clock);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'o1' });
@@ -57,7 +57,7 @@ async function setup() {
     },
   };
   const names = new Map(HARNESS_MENU.map((m) => [m.id, m.nameAr]));
-  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()));
+  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()), opts.photos ?? null);
   const staff = { personId: 's1', sessionId: 'x' };
   const owner = { personId: 'o1', sessionId: 'y' };
   return { h, orgs, svc, khalid, other, staff, owner, recorded, nameReads };
@@ -387,5 +387,100 @@ describe('MerchantService — opening hours', () => {
     ).toMatchObject({ closed: true, holiday: true });
     h.clock.set('2026-10-23T10:00:00Z');
     expect(await directory.profile(khalid.id)).toMatchObject({ closed: false });
+  });
+});
+
+describe('MerchantService — pickup spot (maps program r7)', () => {
+  /** Uploads by owner (`up_o1_*` belong to o1); signed links; what was deleted. */
+  function photoStore() {
+    const uploads = new Map([
+      ['up_o1_door', 'o1'],
+      ['up_o1_window', 'o1'],
+      ['up_o1_counter', 'o1'],
+      ['up_o2_door', 'o2'],
+      ['up_s1_door', 's1'],
+    ]);
+    const removed: string[] = [];
+    const photos: MerchantPhotosPort = {
+      owns: async (id, personId) => uploads.get(id) === personId,
+      readUrl: (id) => `https://files/${id}?sig=x`,
+      remove: async (id) => {
+        removed.push(id);
+        uploads.delete(id);
+      },
+    };
+    return { photos, removed };
+  }
+
+  const ACCEPTED = new Date('2026-10-03T10:00:00Z');
+  const job = (extra: Partial<{ courierId: string | null; acceptedAt: Date | null; completedAt: Date | null; cancelled: boolean }> = {}) => ({ courierId: 'k1', acceptedAt: ACCEPTED, completedAt: null, ...extra });
+
+  it('the owner saves photos and a note; staff read it; it starts empty', async () => {
+    const { photos } = photoStore();
+    const { svc, owner, staff, khalid, recorded } = await setup({ photos });
+    expect(await svc.pickupSpot(staff, { merchantOrgId: khalid.id })).toEqual({ merchantOrgId: khalid.id, note: null, photos: [], canEdit: false, updatedAt: null });
+    const saved = await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: '  الاستلام من الشباك اليسار ', photoIds: ['up_o1_door', 'up_o1_window'] });
+    expect(saved).toMatchObject({
+      note: 'الاستلام من الشباك اليسار',
+      photos: [
+        { id: 'up_o1_door', url: 'https://files/up_o1_door?sig=x' },
+        { id: 'up_o1_window', url: 'https://files/up_o1_window?sig=x' },
+      ],
+      canEdit: true,
+    });
+    expect(saved.updatedAt).toBeInstanceOf(Date);
+    expect(await svc.pickupSpot(staff, { merchantOrgId: khalid.id })).toMatchObject({ note: 'الاستلام من الشباك اليسار', canEdit: false });
+    expect(recorded.at(-1)).toEqual({ type: 'merchant.pickup_spot_set', payload: { photos: 2, note: true } });
+  });
+
+  it('staff, other stores and someone else’s upload are refused', async () => {
+    const { photos } = photoStore();
+    const { svc, owner, staff, khalid, other } = await setup({ photos });
+    expect(await code(svc.setPickupSpot(staff, { merchantOrgId: khalid.id, note: 'باب جانبي', photoIds: [] }))).toBe('forbidden');
+    expect(await code(svc.setPickupSpot(staff, { merchantOrgId: khalid.id, note: null, photoIds: ['up_s1_door'] }))).toBe('forbidden');
+    expect(await code(svc.pickupSpot({ personId: 'nobody', sessionId: 'z' }, { merchantOrgId: khalid.id }))).toBe('forbidden');
+    // o2 owns the other store's photo, not o1: o1 can't attach it to his own store.
+    expect(await code(svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: null, photoIds: ['up_o2_door'] }))).toBe('upload_invalid');
+    expect(await code(svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: null, photoIds: ['up_missing'] }))).toBe('upload_invalid');
+    // s1 is staff at Khalid's only: the other store is not his to read.
+    expect(await code(svc.pickupSpot(staff, { merchantOrgId: other.id }))).toBe('forbidden');
+    expect((await svc.pickupSpot(owner, { merchantOrgId: khalid.id })).photos).toEqual([]);
+  });
+
+  it('replacing keeps the photos still listed, deletes the ones taken off, and empty clears it', async () => {
+    const { photos, removed } = photoStore();
+    const { svc, owner, khalid } = await setup({ photos });
+    await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: 'الشباك', photoIds: ['up_o1_door', 'up_o1_window'] });
+    const swapped = await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: 'الشباك', photoIds: ['up_o1_window', 'up_o1_counter'] });
+    expect(swapped.photos.map((p) => p.id)).toEqual(['up_o1_window', 'up_o1_counter']);
+    expect(removed).toEqual(['up_o1_door']);
+    const cleared = await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: '   ', photoIds: [] });
+    expect(cleared).toMatchObject({ note: null, photos: [], updatedAt: null });
+    expect(removed).toEqual(['up_o1_door', 'up_o1_window', 'up_o1_counter']);
+  });
+
+  it('a photo store is needed to attach photos; a note works without one', async () => {
+    const { svc, owner, khalid } = await setup();
+    expect(await code(svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: null, photoIds: ['up_o1_door'] }))).toBe('upload_invalid');
+    expect((await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: 'باب المطبخ الجانبي', photoIds: [] })).note).toBe('باب المطبخ الجانبي');
+  });
+
+  it('the courier sees it only on his own job, from accepting until the trip is over', async () => {
+    const { photos } = photoStore();
+    const { svc, owner, khalid, other } = await setup({ photos });
+    const during = new Date('2026-10-03T10:10:00Z');
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job(), now: during })).toBeNull(); // not set yet
+    await svc.setPickupSpot(owner, { merchantOrgId: khalid.id, note: 'الاستلام من الشباك اليسار', photoIds: ['up_o1_window'] });
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job(), now: during })).toEqual({
+      note: 'الاستلام من الشباك اليسار',
+      photos: [{ id: 'up_o1_window', url: 'https://files/up_o1_window?sig=x' }],
+    });
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k2', trip: job(), now: during })).toBeNull(); // another courier
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job({ acceptedAt: null }), now: during })).toBeNull(); // only offered
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job({ cancelled: true }), now: during })).toBeNull();
+    const done = new Date('2026-10-03T10:30:00Z');
+    expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job({ completedAt: done }), now: new Date('2026-10-04T10:00:00Z') })).toBeNull(); // long after
+    // A store without a spot shows nothing.
+    expect(await svc.courierPickupSpot(other.id, { courierId: 'k1', trip: job(), now: during })).toBeNull();
   });
 });

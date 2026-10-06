@@ -289,6 +289,44 @@ export const SetStoreHoursInput = MerchantOrgInput.extend({
 });
 export type SetStoreHoursInput = z.infer<typeof SetStoreHoursInput>;
 
+// ───────────────────────── pickup spot ─────────────────────────
+
+/**
+ * Where couriers collect orders (maps program r7): a couple of photos («الشباك اليسار», the side door)
+ * and one short line. Two photos are enough to show the door and the counter behind it; the note is a
+ * glance on the courier's job card, not a paragraph.
+ */
+export const PICKUP_SPOT_RULES = { maxPhotos: 2, noteMaxChars: 140 } as const;
+
+/** A pickup-spot photo: upload id (stable across saves) and a short-lived signed link to show it. */
+export const PickupSpotPhoto = z.object({ id: z.string(), url: z.string() });
+export type PickupSpotPhoto = z.infer<typeof PickupSpotPhoto>;
+
+/** The store's pickup spot as its owner and staff see it on «مكان الاستلام». */
+export const PickupSpotView = z.object({
+  merchantOrgId: z.string(),
+  note: z.string().nullable(),
+  photos: z.array(PickupSpotPhoto).max(PICKUP_SPOT_RULES.maxPhotos),
+  /** Owners edit; staff read. */
+  canEdit: z.boolean(),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type PickupSpotView = z.infer<typeof PickupSpotView>;
+
+/**
+ * Owner only. Replaces the spot: `photoIds` lists every photo to keep, in order — ids already on the
+ * spot stay, new ones must be the caller's own stored uploads (`places.photoUpload`), and photos left
+ * out are deleted. An empty note and no photos clears it.
+ */
+export const SetPickupSpotInput = MerchantOrgInput.extend({
+  note: z.string().trim().max(PICKUP_SPOT_RULES.noteMaxChars).nullable(),
+  photoIds: z
+    .array(z.string().min(1))
+    .max(PICKUP_SPOT_RULES.maxPhotos)
+    .refine((ids) => new Set(ids).size === ids.length, { message: 'a photo appears twice' }),
+});
+export type SetPickupSpotInput = z.infer<typeof SetPickupSpotInput>;
+
 /** What the API supplies to the `merchant` router (implemented by `modules/merchant`). */
 export interface MerchantPort {
   /** Stores the actor works at (owner or staff); empty when the account isn't activated for any. */
@@ -300,4 +338,6 @@ export interface MerchantPort {
   setPrinterStatus(actor: Actor, input: SetPrinterStatusInput): Promise<StoreStatusView>;
   hours(actor: Actor, input: MerchantOrgInput): Promise<StoreHoursView>;
   setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView>;
+  pickupSpot(actor: Actor, input: MerchantOrgInput): Promise<PickupSpotView>;
+  setPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView>;
 }

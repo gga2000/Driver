@@ -16,7 +16,7 @@ import {
   type PayerApprovalRequest,
 } from './orgs.types.js';
 
-export type { MerchantOrg, MerchantPauseWindow, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
+export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
 
 /**
  * Orgs: restaurants, grocers, fleets and households (domain §12) — members, merchant order-taking

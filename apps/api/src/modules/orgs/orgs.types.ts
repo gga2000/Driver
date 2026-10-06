@@ -57,6 +57,18 @@ export interface MerchantSettings {
   /** Dated closures (local dates, both included); null = none. */
   holidays?: HolidayClosure[] | null;
   hoursUpdatedAt?: Date | null;
+  /** Where couriers collect orders (maps program r7); null = never set. */
+  pickupSpot?: MerchantPickupSpot | null;
+}
+
+/**
+ * The pickup spot as stored: the owner's short note and photo upload ids (never URLs — they are read
+ * through signed links), and when it was last saved.
+ */
+export interface MerchantPickupSpot {
+  note: string | null;
+  photoRefs: string[];
+  updatedAt: Date;
 }
 
 export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
@@ -72,6 +84,7 @@ export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
   openingHours: null,
   holidays: null,
   hoursUpdatedAt: null,
+  pickupSpot: null,
 };
 
 /** A restaurant or grocer as the Console's merchant picker lists it. */

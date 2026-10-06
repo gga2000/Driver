@@ -235,6 +235,17 @@ export const PartnerDoor = z.object({
 });
 export type PartnerDoor = z.infer<typeof PartnerDoor>;
 
+/**
+ * Where the kitchen hands orders over (maps program r7): the restaurant's photos («الشباك اليسار»,
+ * the side door) and its short note. Only on a pickup still to do, only for the assigned courier
+ * during the job (the same rule as the customer's door); signed links.
+ */
+export const PartnerPickupSpot = z.object({
+  note: z.string().nullable(),
+  photos: z.array(z.object({ id: z.string(), url: z.string() })),
+});
+export type PartnerPickupSpot = z.infer<typeof PartnerPickupSpot>;
+
 export const PartnerJobStop = z.object({
   stopId: z.string(),
   seq: z.number().int(),
@@ -257,6 +268,8 @@ export const PartnerJobStop = z.object({
   pickupCode: z.string().nullable().optional(),
   /** A drop-off at a customer's saved place: what helps him find the door (maps program SP3d); null otherwise. */
   door: PartnerDoor.nullable().optional(),
+  /** A pickup not yet done at a kitchen that set its pickup spot (maps program r7); null/absent otherwise. */
+  pickupSpot: PartnerPickupSpot.nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

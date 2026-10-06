@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MerchantBoard, MerchantOrgInput, MerchantStore, SetBusyInput, SetPrinterStatusInput, SetStoreHoursInput, SetStoreOpenInput, StoreHoursView, StoreStatusView } from '../merchant-io.js';
+import { MerchantBoard, MerchantOrgInput, MerchantStore, PickupSpotView, SetBusyInput, SetPickupSpotInput, SetPrinterStatusInput, SetStoreHoursInput, SetStoreOpenInput, StoreHoursView, StoreStatusView } from '../merchant-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { MERCHANT_ROLES } from './orders.js';
 
@@ -26,4 +26,8 @@ export const merchantRouter = router({
   hours: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(StoreHoursView).query(({ ctx, input }) => ctx.merchant.hours(ctx.actor, input)),
   /** Owner only: replaces the schedule and closures; customers' cards and `orders.place` follow it. */
   setHours: protectedProcedure(MERCHANT_ROLES).input(SetStoreHoursInput).output(StoreHoursView).mutation(({ ctx, input }) => ctx.merchant.setHours(ctx.actor, input)),
+  /** Where couriers collect orders (maps program r7): up to 2 photos and a short note. */
+  pickupSpot: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(PickupSpotView).query(({ ctx, input }) => ctx.merchant.pickupSpot(ctx.actor, input)),
+  /** Owner only: replaces the photos and note; the courier sees them on the pickup stop of his job. */
+  setPickupSpot: protectedProcedure(MERCHANT_ROLES).input(SetPickupSpotInput).output(PickupSpotView).mutation(({ ctx, input }) => ctx.merchant.setPickupSpot(ctx.actor, input)),
 });

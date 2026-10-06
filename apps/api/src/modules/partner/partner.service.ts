@@ -12,6 +12,7 @@ import {
   type PartnerGoOnlineInput,
   type PartnerJob,
   type PartnerDoor,
+  type PartnerPickupSpot,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerOffer,
@@ -248,6 +249,7 @@ export class PartnerService implements PartnerPort {
     const names = await this.merchantNames(orders);
     const byId = new Map(orders.map((o) => [o.id, o]));
     const doors = await this.doorsOf(trip, actor.personId, now);
+    const spots = await this.pickupSpotsOf(trip, byId, actor.personId, now);
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -273,6 +275,7 @@ export class PartnerService implements PartnerPort {
           // Maps program r4: the code he shows at the counter, while the pickup is still to do.
           pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
+          pickupSpot: spots.get(s.id) ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -312,6 +315,27 @@ export class PartnerService implements PartnerPort {
       doors.set(s.id, { ...door, firstVisit: (await places.dropoffsAt(s.placeId, trip.id)) === 0 });
     }
     return doors;
+  }
+
+  /**
+   * The kitchen's pickup spot on each pickup still to do (maps program r7), by stop id. Once the food
+   * is in his bag the photos have done their job, so a completed or skipped pickup shows none.
+   */
+  private async pickupSpotsOf(trip: Trip, orders: ReadonlyMap<string, Order>, courierId: string, now: Date): Promise<Map<string, PartnerPickupSpot>> {
+    const out = new Map<string, PartnerPickupSpot>();
+    const source = this.deps.pickupSpots;
+    if (!source) return out;
+    const byOrg = new Map<string, PartnerPickupSpot | null>();
+    const input = { courierId, trip: { courierId: trip.courierId, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, cancelled: trip.cancelledAt !== null }, now };
+    for (const s of trip.stops) {
+      if (s.type !== 'pickup' || s.state === 'completed' || s.state === 'skipped' || !s.orderId) continue;
+      const orgId = orders.get(s.orderId)?.merchantOrgId;
+      if (!orgId) continue;
+      if (!byOrg.has(orgId)) byOrg.set(orgId, await source.forCourier(orgId, input));
+      const spot = byOrg.get(orgId);
+      if (spot) out.set(s.id, spot);
+    }
+    return out;
   }
 
   private async demand(cityId: string, presence: PartnerPresence | null) {

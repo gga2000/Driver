@@ -38,7 +38,7 @@ const chrome = createTheme('light');
  *   stores           store picker (more than one store)
  *   index            الطلبات — the orders board
  *   menu/ money/ insights   wave-2 sections (placeholders until then)
- *   more → deals/ staff/ printer hours settings
+ *   more → deals/ staff/ printer hours pickup-spot settings
  * Navigation: a rail on the start side on tablets/wide web (≥ 900 px), bottom tabs on a phone.
  */
 export default function RootLayout() {

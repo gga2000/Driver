@@ -6,6 +6,7 @@ import { DriverAccountModule, DriverAccountService } from '../driver-account/ind
 import { FleetModule, FleetService } from '../fleet/index.js';
 import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
+import { MerchantModule, MerchantService } from '../merchant/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
@@ -26,12 +27,12 @@ function takeFor(vertical: Vertical): TakeRule | null {
 
 /**
  * Driver Partner read side (`ctx.partner`): composes the public services of dispatch, trips,
- * orders, orgs, pricing, the ledger, identity's role reader, the courier vehicle registry and the
- * driver account's online gate into one narrow port (`PARTNER_DEPS`). Owns no tables and writes only
+ * orders, orgs, pricing, the ledger, identity's role reader, the courier vehicle registry, the
+ * customer's door (places), the kitchen's pickup spot (merchant) and the driver account's online gate into one narrow port (`PARTNER_DEPS`). Owns no tables and writes only
  * presence, through dispatch.
  */
 @Module({
-  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule, RoutingModule, PlacesModule],
+  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule, RoutingModule, PlacesModule, MerchantModule],
   providers: [
     {
       provide: PARTNER_DEPS,
@@ -49,6 +50,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         fleet: FleetService,
         eta: EtaService,
         places: SavedPlacesService,
+        merchant: MerchantService,
       ): PartnerDeps => ({
         roads: { path: (points) => eta.path(points) },
         presence: {
@@ -88,6 +90,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
         vehicles: { vehicleOf: async (id) => (await vehicles.forCourier(id, null))?.vehicleClass ?? (await fleet.activeVehicleOf(id))?.vehicleClass ?? null },
         // Maps program SP3d: the customer's door (note, photos, first visit) on drop-offs at saved places.
         places: { courierDoor: (placeId, input) => places.courierDoor(placeId, input), dropoffsAt: (placeId, tripId) => trips.dropoffsAt(placeId, tripId) },
+        // Maps program r7: the kitchen's pickup spot (note, photos) on pickups still to do.
+        pickupSpots: { forCourier: (merchantOrgId, input) => merchant.courierPickupSpot(merchantOrgId, input) },
         gate: {
           onlineGate: async (id) => {
             const g = await account.onlineGateFor(id);
@@ -95,7 +99,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService],
     },
     PartnerService,
   ],

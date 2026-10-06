@@ -29,6 +29,7 @@ function caller(roles: readonly RoleKind[] | null) {
     fleet: proxyPort(calls, 'fleet'),
     ops: proxyPort(calls, 'ops'),
     merchantAdmin: proxyPort(calls, 'merchantAdmin'),
+    merchant: proxyPort(calls, 'merchant'),
   } as unknown as AppContext;
   return { call: t.createCallerFactory(appRouter)(ctx), calls };
 }
@@ -104,6 +105,8 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['merchantAdmin.insights', (c) => c.merchantAdmin.insights(M), 'merchant_staff', 'customer'],
   ['merchantAdmin.staff.invite', (c) => c.merchantAdmin.staff.invite({ ...M, phone: '07700000001' }), 'merchant_owner', 'customer'],
   ['merchantAdmin.staff.remove', (c) => c.merchantAdmin.staff.remove({ ...M, personId: 'p2' }), 'merchant_owner', 'customer'],
+  ['merchant.pickupSpot', (c) => c.merchant.pickupSpot(M), 'merchant_staff', 'courier'],
+  ['merchant.setPickupSpot', (c) => c.merchant.setPickupSpot({ ...M, note: 'الاستلام من الشباك اليسار', photoIds: ['up_1'] }), 'merchant_owner', 'courier'],
 ];
 
 describe('wave-2 routers: role gates reach the right port', () => {
@@ -128,6 +131,10 @@ describe('wave-2 routers: role gates reach the right port', () => {
     expect(await codeOf(ops.call.ops.recordCashReceipt({ courierId: 'k1', amountIqd: 1000, code: '12a4' }))).toBe('BAD_REQUEST');
     const reviewer = caller(['field_ops']);
     expect(await codeOf(reviewer.call.driverAccount.reviewDocument({ documentId: 'd1', decision: 'reject' }))).toBe('BAD_REQUEST');
+    // Pickup spot (maps r7): at most 2 photos, each once, and a short note.
+    expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: null, photoIds: ['up_1', 'up_2', 'up_3'] }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: null, photoIds: ['up_1', 'up_1'] }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: 'ش'.repeat(141), photoIds: [] }))).toBe('BAD_REQUEST');
     expect([...calls, ...ops.calls, ...reviewer.calls]).toEqual([]);
   });
 });

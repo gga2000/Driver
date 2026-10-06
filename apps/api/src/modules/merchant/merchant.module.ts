@@ -6,6 +6,7 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
+import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../places/index.js';
 import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import {
@@ -13,23 +14,26 @@ import {
   MERCHANT_EVENTS,
   MERCHANT_ORDERS,
   MERCHANT_PEOPLE,
+  MERCHANT_PHOTOS,
   MERCHANT_STORES,
   MERCHANT_TRIPS,
   MerchantService,
   type MerchantCatalogPort,
   type MerchantEventsPort,
   type MerchantPeoplePort,
+  type MerchantPhotosPort,
 } from './merchant.service.js';
 
 /**
  * Driver Merchant (`merchant.*`): the kitchen's stores, live board and status header. A read side and
  * a few switches over other modules' public services — orders (active orders), trips (courier state),
  * identity (role grants, courier first name), orgs (store settings: busy, early close, printer),
- * catalog (item names). Owns no tables: the switches live on the org's merchant settings, which the
- * orders module reads for busy mode (+10 min prep) and early close.
+ * catalog (item names), places (pickup-spot photos in the blob store). Owns no tables: the switches and
+ * the pickup spot live on the org's merchant settings, which the orders module reads for busy mode
+ * (+10 min prep) and early close.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule, RoutingModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule, RoutingModule, PlacesModule],
   providers: [
     { provide: MERCHANT_ORDERS, useExisting: OrdersService },
     { provide: MERCHANT_TRIPS, useExisting: TripsService },
@@ -76,6 +80,16 @@ import {
         },
       }),
       inject: [EventsService, CLOCK],
+    },
+    // Pickup-spot photos (maps program r7): uploads in the places blob store, read through signed links.
+    {
+      provide: MERCHANT_PHOTOS,
+      useFactory: (blobs: BlobStore): MerchantPhotosPort => ({
+        owns: (id, personId) => ownsStoredUpload(blobs, id, personId),
+        readUrl: (id) => blobs.readUrl(id),
+        remove: (id) => blobs.remove(id),
+      }),
+      inject: [BLOB_STORE],
     },
     MerchantService,
   ],

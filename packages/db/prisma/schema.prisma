@@ -190,6 +190,12 @@ model Org {
   /// Dated closures (Eid, a family event): [{from, to, note}] as local dates, both included. NULL = none.
   holidayClosures Json?                                  @map("holiday_closures")
   hoursUpdatedAt  DateTime?                              @map("hours_updated_at")
+  /// Pickup spot (maps program r7): where couriers collect orders, a short note for the courier's job card.
+  pickupNote      String?                                @map("pickup_note")
+  /// Pickup-spot photos: upload ids (`uploads.id`, at most 2), never URLs; read through signed URLs only.
+  pickupPhotoRefs String[]                               @default([]) @map("pickup_photo_refs")
+  /// When the owner last saved the pickup spot; NULL = never set.
+  pickupUpdatedAt DateTime?                              @map("pickup_updated_at")
   createdAt       DateTime                               @default(now()) @map("created_at")
   updatedAt       DateTime                               @updatedAt @map("updated_at")
 

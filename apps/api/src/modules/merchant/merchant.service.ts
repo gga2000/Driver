@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   daysFromWindows,
@@ -17,8 +17,12 @@ import {
   type MerchantStore,
   type MissedSummary,
   type Order,
+  type PartnerPickupSpot,
+  type PickupSpotPhoto,
+  type PickupSpotView,
   type RoleKind,
   type SetBusyInput,
+  type SetPickupSpotInput,
   type SetPrinterStatusInput,
   type SetStoreHoursInput,
   type SetStoreOpenInput,
@@ -31,7 +35,8 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
-import type { MerchantSettings, Org } from '../orgs/index.js';
+import type { MerchantPickupSpot, MerchantSettings, Org } from '../orgs/index.js';
+import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
@@ -76,12 +81,24 @@ export interface MerchantEventsPort {
   record(type: string, actorId: string, merchantOrgId: string, payload: Record<string, unknown>): Promise<void>;
 }
 
+/**
+ * Pickup-spot photos (maps program r7): uploads in the places blob store. Reads are signed links, so
+ * the photos never sit at a public URL; absent (fakes) = a spot with a note only.
+ */
+export interface MerchantPhotosPort {
+  /** The upload is this person's and its bytes arrived (a stranger's upload id can't be attached). */
+  owns(uploadId: string, personId: string): Promise<boolean>;
+  readUrl(uploadId: string): string;
+  remove(uploadId: string): Promise<void>;
+}
+
 export const MERCHANT_ORDERS = Symbol('MERCHANT_ORDERS');
 export const MERCHANT_TRIPS = Symbol('MERCHANT_TRIPS');
 export const MERCHANT_PEOPLE = Symbol('MERCHANT_PEOPLE');
 export const MERCHANT_STORES = Symbol('MERCHANT_STORES');
 export const MERCHANT_CATALOG = Symbol('MERCHANT_CATALOG');
 export const MERCHANT_EVENTS = Symbol('MERCHANT_EVENTS');
+export const MERCHANT_PHOTOS = Symbol('MERCHANT_PHOTOS');
 
 const OWNER: RoleKind = 'merchant_owner';
 const STAFF: RoleKind = 'merchant_staff';
@@ -105,6 +122,7 @@ export class MerchantService implements MerchantPort {
     @Inject(MERCHANT_EVENTS) private readonly events: MerchantEventsPort,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly eta: EtaService,
+    @Optional() @Inject(MERCHANT_PHOTOS) private readonly photos: MerchantPhotosPort | null = null,
   ) {}
 
   async myStores(actor: Actor): Promise<MerchantStore[]> {
@@ -287,6 +305,60 @@ export class MerchantService implements MerchantPort {
       canEdit,
       updatedAt: s.hoursUpdatedAt ?? null,
     };
+  }
+
+  // ───────────────────────── pickup spot ─────────────────────────
+
+  /** Where couriers collect orders (maps program r7): the note and photos; owners edit, staff read. */
+  async pickupSpot(actor: Actor, input: MerchantOrgInput): Promise<PickupSpotView> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    const canEdit = await this.people.hasRole(actor.personId, OWNER, org.id);
+    return this.pickupView(org.id, (await this.stores.merchantSettings(org.id)).pickupSpot ?? null, canEdit);
+  }
+
+  /**
+   * Owner only. Replaces the spot: photos already on it stay; a new one must be his own stored upload
+   * (a stranger's upload id can't be attached); photos left out are deleted, since nothing else
+   * points at them. No note and no photos clears the spot, so couriers see no empty card.
+   */
+  async setPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    if (!(await this.people.hasRole(actor.personId, OWNER, org.id))) throw new DriverError('forbidden');
+    const before = (await this.stores.merchantSettings(org.id)).pickupSpot ?? null;
+    const kept = new Set(before?.photoRefs ?? []);
+    for (const id of input.photoIds) {
+      if (kept.has(id)) continue;
+      if (!this.photos || !(await this.photos.owns(id, actor.personId))) throw new DriverError('upload_invalid');
+    }
+    const note = input.note?.trim() || null;
+    const spot: MerchantPickupSpot | null = note || input.photoIds.length > 0 ? { note, photoRefs: [...input.photoIds], updatedAt: this.clock.now() } : null;
+    const saved = await this.stores.setMerchantSettings(org.id, { pickupSpot: spot });
+    for (const old of before?.photoRefs ?? []) if (!input.photoIds.includes(old)) await this.photos?.remove(old);
+    await this.events.record('merchant.pickup_spot_set', actor.personId, org.id, { photos: input.photoIds.length, note: note !== null });
+    return this.pickupView(org.id, saved.pickupSpot ?? null, true);
+  }
+
+  /**
+   * The pickup spot as the courier on the job sees it: only the assigned courier, from accepting
+   * until the trip is over — the rule the customer's door follows (`courierMaySeePlaceDetails`).
+   * Whether the pickup is still to do is the job screen's call. Null when there is nothing to show.
+   */
+  async courierPickupSpot(merchantOrgId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<PartnerPickupSpot | null> {
+    if (!courierMaySeePlaceDetails(input)) return null;
+    const spot = (await this.stores.merchantSettings(merchantOrgId)).pickupSpot ?? null;
+    if (!spot) return null;
+    const photos = this.signed(spot);
+    return spot.note || photos.length > 0 ? { note: spot.note, photos } : null;
+  }
+
+  private pickupView(merchantOrgId: string, spot: MerchantPickupSpot | null, canEdit: boolean): PickupSpotView {
+    return { merchantOrgId, note: spot?.note ?? null, photos: spot ? this.signed(spot) : [], canEdit, updatedAt: spot?.updatedAt ?? null };
+  }
+
+  /** Signed links for the spot's photos; none without a photo store. */
+  private signed(spot: MerchantPickupSpot): PickupSpotPhoto[] {
+    const photos = this.photos;
+    return photos ? spot.photoRefs.map((id) => ({ id, url: photos.readUrl(id) })) : [];
   }
 
   // ───────────────────────── internals ─────────────────────────

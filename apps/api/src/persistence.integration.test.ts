@@ -109,6 +109,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
         hoursUpdatedAt: at,
       });
+      await orgs.setMerchantSettings(store.id, { pickupSpot: { note: 'الاستلام من الشباك اليسار', photoRefs: [`up_pickup_${run}`], updatedAt: at } });
       await orgs.heartbeat(store.id, at);
 
       const home = await households.create(as(state.ali), { name: 'بيت علي', cityId: 'aziziyah' });
@@ -166,6 +167,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         ],
         holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
         hoursUpdatedAt: at,
+        pickupSpot: { note: 'الاستلام من الشباك اليسار', photoRefs: [`up_pickup_${run}`], updatedAt: at },
       });
       expect((await orgs.merchants('aziziyah')).map((m) => m.id)).toEqual(expect.arrayContaining([state.storeId, ...AZIZIYAH_RESTAURANTS.map((r) => r.orgId)]));
 

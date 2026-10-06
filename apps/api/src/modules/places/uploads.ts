@@ -41,6 +41,15 @@ export interface BlobStore {
 }
 
 export const BLOB_STORE = Symbol('BLOB_STORE');
+
+/**
+ * The upload is this person's and its bytes arrived: what a module asks before it attaches a photo
+ * id the app sent, so nobody can attach someone else's upload (or one that never finished).
+ */
+export async function ownsStoredUpload(blobs: Pick<BlobStore, 'get'>, uploadId: string, personId: string): Promise<boolean> {
+  const rec = await blobs.get(uploadId);
+  return rec !== null && rec.ownerId === personId && rec.state === 'stored';
+}
 const UPLOAD_TTL_MS = 15 * 60_000;
 const HOUR_MS = 3_600_000;
 const DIRECT_READ_TTL_SEC = 300;

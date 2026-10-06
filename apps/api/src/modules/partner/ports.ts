@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerOnlineGate, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { EtaBasis, LatLng, Order, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -97,6 +97,13 @@ export interface PartnerDeps {
   places?: {
     courierDoor(placeId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null }; now: Date }): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean; entranceSet: boolean; landmark: string | null } | null>;
     dropoffsAt(placeId: string, excludeTripId: string): Promise<number>;
+  };
+  /**
+   * The kitchen's pickup spot (maps program r7): the restaurant's note and photos for the assigned
+   * courier during the job (`MerchantService.courierPickupSpot`). Absent in fakes = none.
+   */
+  pickupSpots?: {
+    forCourier(merchantOrgId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null; cancelled?: boolean }; now: Date }): Promise<PartnerPickupSpot | null>;
   };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };

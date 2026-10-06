@@ -46,6 +46,9 @@ export default function More() {
           <EntryTile testID="more-hours" icon="clock" title={t('merchant.more.hours')} hint={t('merchant.more.hours_hint')} onPress={() => router.push('/hours')} />
         </View>
         <View style={cell}>
+          <EntryTile testID="more-pickup-spot" icon="map-pin" title={t('merchant.more.pickup_spot')} hint={t('merchant.more.pickup_spot_hint')} onPress={() => router.push('/pickup-spot')} />
+        </View>
+        <View style={cell}>
           <EntryTile testID="more-settings" icon="sliders" title={t('merchant.more.settings')} hint={t('merchant.more.settings_hint')} onPress={() => router.push('/settings')} />
         </View>
       </View>

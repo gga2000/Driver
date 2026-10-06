@@ -277,3 +277,12 @@ counts from what he owed before to the new amount and says what went to the cust
 shrinks to a strip while the helper is open. Cash rides use the same server path; the ride end screen
 does not show the helper yet. Demo: `POST /demo/job?who=courier&step=to_dropoff|at_dropoff&tender=25000`;
 shots: `SHOTS=cash` (`scripts/shots/90-cash-change.mjs`).
+
+## The kitchen's pickup spot (maps program r7)
+
+On a pickup still to do, the job card shows `PickupSpotCard` («مكان الاستلام»): the restaurant's note
+(«الاستلام من الشباك اليسار») and up to 2 photos that open full screen (`PlacePhotos.tsx`, the strip and
+viewer the customer's `DoorCard` uses too). It comes from `PartnerJobStop.pickupSpot`, which the API fills
+only for the assigned courier during the job and drops once he picked up. Unlike the door photo it does not
+open by itself on arrival, so the pickup code stays on screen at the counter. Demo: مطعم خالد has a drawn
+takeaway window and a note (`scripts/demo/20-core-work.mjs`); `POST /demo/job?who=courier&step=to_pickup`.

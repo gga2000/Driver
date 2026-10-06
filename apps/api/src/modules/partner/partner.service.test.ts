@@ -111,6 +111,7 @@ function harness(
     lastFix?: { lat: number; lng: number } | null;
     rideOrder?: boolean;
     places?: PartnerDeps['places'];
+    pickupSpots?: PartnerDeps['pickupSpots'];
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -169,6 +170,7 @@ function harness(
     vehicles: { vehicleOf: async () => (opts.registered === undefined ? 'bike' : opts.registered) },
     gate: { onlineGate: async () => opts.gate ?? OPEN },
     ...(opts.places ? { places: opts.places } : {}),
+    ...(opts.pickupSpots ? { pickupSpots: opts.pickupSpots } : {}),
   };
   return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
 }
@@ -349,6 +351,33 @@ describe('PartnerService', () => {
     visits.set('pl_home', 2);
     const again = await harness({ trips: [t], places }).activeJob(actor);
     expect(again!.stops.find((s) => s.stopId === 's2')!.door!.firstVisit).toBe(false);
+  });
+
+  it("activeJob: the kitchen's pickup spot on the pickup still to do, gone once he picked up (maps r7)", async () => {
+    const asked: Array<{ orgId: string; courierId: string; cancelled: boolean | undefined }> = [];
+    const pickupSpots: NonNullable<PartnerDeps['pickupSpots']> = {
+      forCourier: async (orgId, input) => {
+        asked.push({ orgId, courierId: input.courierId, cancelled: input.trip.cancelled });
+        return { note: 'الاستلام من الشباك اليسار', photos: [{ id: 'up9', url: 'https://cdn/up9?sig=x' }] };
+      },
+    };
+    const before = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    const job = await harness({ trips: [before], pickupSpots }).activeJob(actor);
+    expect(job!.stops.find((s) => s.stopId === 's1')!.pickupSpot).toEqual({ note: 'الاستلام من الشباك اليسار', photos: [{ id: 'up9', url: 'https://cdn/up9?sig=x' }] });
+    // The customer's door is not the kitchen's: no spot on the drop-off.
+    expect(job!.stops.find((s) => s.stopId === 's2')!.pickupSpot).toBeNull();
+    expect(asked).toEqual([{ orgId: 'm1', courierId: actor.personId, cancelled: false }]);
+
+    const after = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'completed'), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    const later = await harness({ trips: [after], pickupSpots }).activeJob(actor);
+    expect(later!.stops.map((s) => s.pickupSpot)).toEqual([null, null]);
+    expect(asked).toHaveLength(1); // a done pickup never asks
+  });
+
+  it('activeJob without a pickup-spot source (fakes) shows none', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    const job = await harness({ trips: [t] }).activeJob(actor);
+    expect(job!.stops.map((s) => s.pickupSpot)).toEqual([null, null]);
   });
 
   it('activeJob is null when he has no trip', async () => {

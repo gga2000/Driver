@@ -12,9 +12,12 @@
 //   POST /demo/online?who=…                    puts him online where his persona works
 //   POST /demo/clear?who=…                     cancels his open jobs and takes him offline
 //
+// مطعم خالد has a pickup spot (maps program r7): a drawn takeaway window and «الاستلام من الشباك
+// اليسار», so every job's pickup stop (`step=to_pickup`, `at_pickup`) shows the kitchen's card.
+//
 // At start food dispatch is set to suggest-only (nothing reaches drivers by itself) and three
 // orders wait at مشويات الحاج كريم in the centre, so the waiting screen reads "الطلب عالي بالمركز".
-import { doorPng } from '../door-photo.mjs';
+import { doorPng, pickupWindowPng } from '../door-photo.mjs';
 
 const KHALID_PIN = { lat: 32.9095, lng: 45.0635 };
 const HOMES = {
@@ -37,19 +40,29 @@ export default async function register(demo) {
   const places = demo.app.get(SavedPlacesService);
   const blobs = demo.app.get(BLOB_STORE);
 
+  /** A drawn photo stored as `ownerId`'s upload, as the app's ticket + PUT would; returns its id. */
+  async function storedPhoto(ownerId, bytes) {
+    const ticket = await blobs.createUpload({ ownerId, contentType: 'image/png', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+    return ticket.uploadId;
+  }
+
+  // Khalid's pickup spot (r7), as its owner would save it on «مكان الاستلام».
+  await services.orgs.setMerchantSettings(demo.restaurants.khalid.orgId, {
+    pickupSpot: { note: 'الاستلام من الشباك اليسار، جنب باب المطبخ', photoRefs: [await storedPhoto('demo-owner', pickupWindowPng())], updatedAt: new Date() },
+  });
+
   /** The buyer's saved home in الزكور with a door photo and a standing note (made once). */
   let home = null;
   async function savedHome() {
     if (home) return home;
-    const bytes = doorPng();
-    const ticket = await blobs.createUpload({ ownerId: buyer(), contentType: 'image/png', sizeBytes: bytes.length });
-    const u = new URL(ticket.uploadUrl, 'http://x');
-    await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+    const doorPhotoId = await storedPhoto(buyer(), doorPng());
     // «قرب X» on the door card (maps a2) when a landmark is within 500 m. Today none is: the seeded
     // garages and meeting points are all ~2.5 km from الزكور, so the home has no landmark (the API
     // would refuse a far one) until field ops approve one nearby — then the demo picks it up.
     const [landmark] = await places.landmarksNear(CITY, HOMES.zakur.pin);
-    const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [ticket.uploadId], shareWithHousehold: false, ...(landmark ? { landmarkId: landmark.id } : {}), clientRef: 'demo-home' });
+    const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [doorPhotoId], shareWithHousehold: false, ...(landmark ? { landmarkId: landmark.id } : {}), clientRef: 'demo-home' });
     home = { ...HOMES.zakur, placeId: saved.id };
     return home;
   }

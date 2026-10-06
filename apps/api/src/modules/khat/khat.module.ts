@@ -9,7 +9,7 @@ import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { NotifyModule } from '../notify/index.js';
-import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
+import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../places/index.js';
 import { TripsModule } from '../trips/index.js';
 import { InMemoryKhatRepository, KHAT_REPOSITORY, PrismaKhatRepository, type KhatRepository } from './khat.repository.js';
 import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_PHOTOS, KHAT_QUEUE, KhatService, type KhatConfig, type KhatPhotosPort, type SweepCheckJob } from './khat.service.js';
@@ -56,10 +56,7 @@ function envMinutes(name: string, fallback: number): number {
     {
       provide: KHAT_PHOTOS,
       useFactory: (blobs: BlobStore): KhatPhotosPort => ({
-        owns: async (id, personId) => {
-          const rec = await blobs.get(id);
-          return rec !== null && rec.ownerId === personId && rec.state === 'stored';
-        },
+        owns: (id, personId) => ownsStoredUpload(blobs, id, personId),
         readUrl: (ref) => blobs.readUrl(ref),
         remove: (ref) => blobs.remove(ref),
       }),

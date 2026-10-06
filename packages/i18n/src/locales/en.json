@@ -3883,6 +3883,8 @@
   "partner.door_first_visit_hint": "Call the customer before you get there so they can guide you",
   "partner.door_photo_open": "Door photo {n}",
   "partner.door_photo_next": "Next photo",
+  "partner.pickup_spot_title": "Where to pick up",
+  "partner.pickup_spot_photo_open": "Pickup spot photo {n}",
   "partner.cash_title": "Collect cash",
   "partner.cash_owed": "Customer owes",
   "partner.cash_confirm": "I received {amount} IQD",

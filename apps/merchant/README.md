@@ -69,6 +69,11 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   shifts past midnight, the Friday-prayer pause under Friday, holiday closures (two-month calendar, range + reason). Owners edit and
   save (`merchant.setHours`; problems shown before saving), staff read. The board shows "برّا وقت الدوام … يفتح …" / the holiday
   from `storeStatus.schedule`. Demo `POST /demo/hours/reset` (`scripts/demo/hours.mjs`).
+- **مكان الاستلام** (`app/pickup-spot.tsx`, `src/features/pickup/`, maps program r7): المزيد → «مكان الاستلام». Up to 2 photos
+  (library, camera on a phone) and a 140-character note of where couriers collect orders; a picked photo uploads at once
+  (`places.photoUpload`), «احفظ» sends `merchant.setPickupSpot`. Owners edit, staff read. The courier sees it on the pickup stop of
+  his job until he picks up. Demo: Khalid starts with a drawn takeaway window; `POST /demo/pickup/reset` | `/demo/pickup/clear`
+  (`scripts/demo/pickup.mjs`).
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).

@@ -271,6 +271,23 @@ the catalog's seeded hours) and mirrored onto the storefront's `hours`, which th
 closed by hours. `merchant.storeStatus` carries an additive `schedule {inHours, holiday, closesAt, opensAt}`; `open` keeps its meaning
 (switch + pause), the board explains "برّا وقت الدوام" separately. Event `merchant.hours_set`.
 
+## `merchant.pickupSpot` / `merchant.setPickupSpot` — where couriers collect (maps program r7, 2026-10-06)
+
+| Procedure | Roles | Input | Output |
+|---|---|---|---|
+| `merchant.pickupSpot` | owner or staff of the store | `{merchantOrgId}` | `PickupSpotView {merchantOrgId, note, photos[] {id, url}, canEdit, updatedAt}` |
+| `merchant.setPickupSpot` | owner (staff `FORBIDDEN`) | `{merchantOrgId, note ≤ 140 chars \| null, photoIds[] ≤ 2, no repeats}` | `PickupSpotView` |
+
+`PICKUP_SPOT_RULES` (`@driver/contracts`): 2 photos, 140-character note. `setPickupSpot` replaces the spot: ids already on it stay,
+new ids must be the caller's own stored uploads (`places.photoUpload` ticket + PUT; else `upload_invalid`), photos left out are
+deleted from storage. No note and no photos clears it (`updatedAt: null`). URLs are signed, short-lived links (never public).
+Stored on `orgs.pickup_note` / `pickup_photo_refs` / `pickup_updated_at` (migration `20261006191000_pickup_spot`). Event
+`merchant.pickup_spot_set {photos, note}`.
+
+Courier side: `partner.activeJob` stops carry an additive `pickupSpot {note, photos[] {id, url}} | null` on a pickup not yet
+completed or skipped — only for the assigned courier from accepting until an hour after the trip (`courierMaySeePlaceDetails`, the
+customer's door rule). Gone once he picked up.
+
 ## UI/UX audit Phase 1 — missed orders and "+5 د" (2026-10-04)
 
 | Procedure | Roles | Input | Output |

@@ -3883,6 +3883,8 @@
   "partner.door_first_visit_hint": "اتصل بالزبون قبل لا توصل حتى يدلّك",
   "partner.door_photo_open": "صورة الباب {n}",
   "partner.door_photo_next": "الصورة الجاية",
+  "partner.pickup_spot_title": "مكان الاستلام",
+  "partner.pickup_spot_photo_open": "صورة مكان الاستلام {n}",
   "partner.cash_title": "استلم الكاش",
   "partner.cash_owed": "المبلغ على الزبون",
   "partner.cash_confirm": "استلمت {amount} دينار",

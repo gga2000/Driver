@@ -142,6 +142,9 @@ interface OrgRow {
   openingHours?: unknown;
   holidayClosures?: unknown;
   hoursUpdatedAt?: Date | null;
+  pickupNote?: string | null;
+  pickupPhotoRefs?: string[];
+  pickupUpdatedAt?: Date | null;
   members: Array<{ personId: string; role: string; spendingLimitIqd: number | null }>;
 }
 
@@ -195,6 +198,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
       openingHours: openingHoursFrom(r.openingHours),
       holidays: holidaysFrom(r.holidayClosures),
       hoursUpdatedAt: r.hoursUpdatedAt ?? null,
+      pickupSpot: r.pickupUpdatedAt ? { note: r.pickupNote ?? null, photoRefs: [...(r.pickupPhotoRefs ?? [])], updatedAt: r.pickupUpdatedAt } : null,
     };
   }
   return org;
@@ -293,6 +297,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
           ? Prisma.DbNull
           : (patch.holidays as unknown as Prisma.InputJsonValue);
     if (patch.hoursUpdatedAt !== undefined) data.hoursUpdatedAt = patch.hoursUpdatedAt;
+    if (patch.pickupSpot !== undefined) Object.assign(data, { pickupNote: patch.pickupSpot?.note ?? null, pickupPhotoRefs: patch.pickupSpot?.photoRefs ?? [], pickupUpdatedAt: patch.pickupSpot?.updatedAt ?? null });
     await db.org.update({ where: { id: orgId }, data });
     if (patch.location !== undefined) {
       const pin = patch.location?.pin;

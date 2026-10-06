@@ -16,6 +16,7 @@ import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobP
 import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
+import { PickupSpotCard } from '@/features/work/PickupSpotCard';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
 import {
   canTopUpOnJob,
@@ -433,6 +434,9 @@ function JobView({
                   </Text>
                 </View>
               ) : null}
+
+              {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
+              {stop.type === 'pickup' && stop.pickupSpot ? <PickupSpotCard spot={stop.pickupSpot} /> : null}
 
               {stop.type === 'pickup' && stop.state === 'arrived' && job.merchant?.state === 'preparing' ? (
                 <View testID="job-wait-ready" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
