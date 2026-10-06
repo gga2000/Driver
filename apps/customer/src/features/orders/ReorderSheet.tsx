@@ -1,15 +1,23 @@
 import { router } from 'expo-router';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Icon, IconButton, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Avatar, Button, Card, Icon, IconButton, Skeleton, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
+import { TABLE, addLine, groupByPerson, type CartState } from '@/features/food/cart';
+import { cartStore } from '@/features/food/cart-store';
+import { buildPlaceOrderInput, checkoutTotals } from '@/features/food/checkout';
+import { DeliverToRow } from '@/features/food/DeliverToRow';
+import { afterFailure, attemptFor, attemptSignature } from '@/features/food/place-attempt';
+import { useCartQuote, useDeliverTo, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
+import { apiErrorCode } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { useProfile } from '@/lib/profile';
 import { useReorder, type ReorderState } from './queries';
-import { reorderIsClean, type ReorderMissReason } from './reorder';
+import type { ReorderMissReason, ReorderResult, ReorderSwap } from './reorder';
 
 const REASON: Record<ReorderMissReason, MessageKey> = {
   gone: 'reorder.reason_gone',
@@ -20,51 +28,40 @@ const REASON: Record<ReorderMissReason, MessageKey> = {
 
 /**
  * "اطلبه مرة ثانية" from anywhere (orders list, home card): `start(row)` rebuilds the cart from
- * today's menu. When nothing changed it goes straight to the cart; otherwise a sheet says what comes
- * back, what doesn't and why, what costs something else now, and whether the current cart is
- * replaced — before anything happens.
+ * today's menu and opens the express sheet (joy o13): the dishes by person, today's total from the
+ * server, the address and cash, a swap for anything gone, and «اطلبه» placing it in one more tap.
+ * «عدّل بالسلة» puts it in the cart instead.
  */
 export function useReorderFlow(): { start: ReturnType<typeof useReorder>['start']; busyOrderId: string | null; sheet: ReactNode } {
   const t = useT();
   const toast = useToast();
   const flow = useReorder();
-  const { state, confirm, close } = flow;
+  const { state, close } = flow;
 
-  const go = () => {
-    if (state.phase !== 'ready') return;
-    const merchant = state.result.cart.merchant?.name ?? '';
-    if (confirm()) {
-      close();
-      toast.show({ message: t('reorder.done', { merchant }), tone: 'success', icon: 'cart' });
-      router.push('/cart');
-    }
+  /** «عدّل بالسلة»: the rebuilt cart (with any swaps added) goes to the cart screen. */
+  const toCart = (cart: CartState) => {
+    if (state.phase !== 'ready' || cart.lines.length === 0) return;
+    cartStore.replaceCart(cart);
+    close();
+    toast.show({ message: t('reorder.done', { merchant: cart.merchant?.name ?? '' }), tone: 'success', icon: 'cart' });
+    router.push('/cart');
   };
 
-  // Clean rebuilds (same dishes, same prices, kitchen open, nothing to replace) skip the sheet.
-  const clean = state.phase === 'ready' && reorderIsClean(state.result) && !state.replacing;
-  useEffect(() => {
-    if (clean) go();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clean]);
-
   const busyOrderId = state.phase === 'loading' ? state.row.order.id : null;
-  const show = state.phase === 'error' || (state.phase === 'ready' && !clean);
+  const show = state.phase === 'error' || state.phase === 'ready';
   return {
     start: flow.start,
     busyOrderId,
-    sheet: show ? <ReorderSheet state={state} onClose={close} onGo={go} onRetry={() => void flow.start((state as Extract<ReorderState, { phase: 'error' }>).row)} /> : null,
+    sheet: show ? <ReorderSheet key={state.row.order.id} state={state} onClose={close} onCart={toCart} onRetry={() => void flow.start(state.row)} /> : null,
   };
 }
 
-function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; onClose: () => void; onGo: () => void; onRetry: () => void }) {
+function ReorderSheet({ state, onClose, onCart, onRetry }: { state: ReorderState; onClose: () => void; onCart: (cart: CartState) => void; onRetry: () => void }) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
   if (state.phase !== 'ready' && state.phase !== 'error') return null;
   const merchant = state.row.merchantName ?? '';
-  const r = state.phase === 'ready' ? state.result : null;
-  const nothing = r !== null && r.cart.lines.length === 0;
-
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={{ flex: 1, justifyContent: 'flex-end' }}>
@@ -75,7 +72,7 @@ function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; 
           style={{
             width: '100%',
             maxWidth: MAX_CONTENT_WIDTH,
-            maxHeight: '88%',
+            maxHeight: '90%',
             alignSelf: 'center',
             backgroundColor: theme.colors.surface,
             borderTopStartRadius: theme.radius['2xl'],
@@ -88,7 +85,7 @@ function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; 
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3], paddingHorizontal: theme.space[5] }}>
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="heading" accessibilityRole="header">
-                {t('reorder.title')}
+                {t('reorder.express_title')}
               </Text>
               <Text variant="footnote" color="textMuted">
                 {t('reorder.subtitle', { merchant })}
@@ -96,7 +93,6 @@ function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; 
             </View>
             <IconButton icon="x" variant="tonal" size={44} accessibilityLabel={t('action.close')} onPress={onClose} testID="reorder-close" />
           </View>
-
           {state.phase === 'error' ? (
             <View style={{ padding: theme.space[5], gap: theme.space[4] }}>
               <Text variant="body" color="textMuted">
@@ -104,74 +100,201 @@ function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; 
               </Text>
               <Button label={t('action.retry')} variant="secondary" fullWidth onPress={onRetry} />
             </View>
-          ) : r ? (
-            <>
-              <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[4], gap: theme.space[4] }}>
-                {r.closed ? <Note icon="clock" tone="warningTint" fg="warningText" text={r.opensAt ? t('reorder.closed', { time: r.opensAt }) : t('reorder.closed_no_time')} /> : null}
-                {nothing ? <Note icon="x" tone="dangerTint" fg="dangerText" text={t('reorder.nothing')} testID="reorder-nothing" /> : null}
-
-                {r.added.length > 0 ? (
-                  <Group title={t('reorder.added_heading')} testID="reorder-added">
-                    {r.cart.lines.map((l) => (
-                      <Line key={l.key} icon="check" fg="successText" title={l.qty > 1 ? `${l.qty}× ${l.name}` : l.name} />
-                    ))}
-                  </Group>
-                ) : null}
-
-                {r.missing.length > 0 ? (
-                  <Group title={t('reorder.missing_heading')} testID="reorder-missing">
-                    {r.missing.map((m, i) => (
-                      <Line key={`${m.name}-${i}`} icon="x" fg="dangerText" title={m.qty > 1 ? `${m.qty}× ${m.name}` : m.name} sub={t(REASON[m.reason])} muted />
-                    ))}
-                  </Group>
-                ) : null}
-
-                {r.repriced.length > 0 ? (
-                  <Group title={t('reorder.repriced_heading')} testID="reorder-repriced">
-                    {r.repriced.map((p) => (
-                      <Line key={p.name} icon="receipt" fg="warningText" title={p.name} sub={t('reorder.price_change', { was: amountParam(p.wasIqd), now: amountParam(p.nowIqd) })} />
-                    ))}
-                  </Group>
-                ) : null}
-
-                {r.droppedExtras.length > 0 ? (
-                  <Group title={t('reorder.extras_heading')}>
-                    {r.droppedExtras.map((d, i) => (
-                      <Line key={`${d.dish}-${d.extra}-${i}`} icon="x" fg="textMuted" title={t('reorder.extra_line', { dish: d.dish, extra: d.extra })} muted />
-                    ))}
-                  </Group>
-                ) : null}
-
-                {state.phase === 'ready' && state.replacing && !nothing ? <Note icon="cart" tone="surfaceSunken" fg="text" text={t('reorder.replace_note', { merchant: state.replacing })} testID="reorder-replace" /> : null}
-                {!nothing ? (
-                  <Text variant="caption" color="textMuted">
-                    {t('reorder.total_note')}
-                  </Text>
-                ) : null}
-              </ScrollView>
-              <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[4], gap: theme.space[2] }}>
-                {nothing ? (
-                  <Button
-                    testID="reorder-menu"
-                    size="lg"
-                    fullWidth
-                    icon="food"
-                    label={t('reorder.open_menu')}
-                    onPress={() => {
-                      const id = state.row.order.merchantOrgId;
-                      onClose();
-                      if (id) router.push({ pathname: '/restaurant/[id]', params: { id } });
-                    }}
-                  />
-                ) : (
-                  <Button testID="reorder-go" size="lg" fullWidth icon="cart" label={t('reorder.go')} onPress={onGo} />
-                )}
-              </View>
-            </>
-          ) : null}
+          ) : (
+            <Express result={state.result} replacing={state.replacing} oldTotalIqd={state.row.order.totalIqd} merchantId={state.row.order.merchantOrgId} onClose={onClose} onCart={onCart} />
+          )}
         </View>
       </View>
     </Modal>
+  );
+}
+
+/** The express body: what comes back (with swaps), where, how, today's server total, and the two buttons. */
+function Express({ result, replacing, oldTotalIqd, merchantId, onClose, onCart }: { result: ReorderResult; replacing: string | null; oldTotalIqd: number; merchantId: string | null; onClose: () => void; onCart: (cart: CartState) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const toast = useToast();
+  const { name: myName } = useProfile();
+  const { place, dropoff } = useDeliverTo();
+  const [cart, setCart] = useState<CartState>(result.cart);
+  const [taken, setTaken] = useState<string[]>([]);
+  const quote = useCartQuote(cart, dropoff, false);
+  const orderQuote = useOrderQuote(cart, dropoff, false);
+  const placeOrder = usePlaceOrder();
+  const totals = quote.data && (orderQuote.data || orderQuote.isError) ? checkoutTotals(cart, quote.data, orderQuote.data, 'cash') : null;
+  const nothing = cart.lines.length === 0;
+  const { groups } = groupByPerson(cart);
+  const swaps = result.swaps.filter((s) => !taken.includes(s.item.id));
+  const quoteFailed = quote.isError;
+  useEffect(() => setCart(result.cart), [result.cart]);
+
+  const addSwap = (s: ReorderSwap) => {
+    if (!cart.merchant && !result.cart.merchant) return;
+    const merchant = cart.merchant ?? result.cart.merchant!;
+    const res = addLine(cart, merchant, { itemId: s.item.id, name: s.item.name, basePriceIqd: s.item.priceIqd, modifiers: [], qty: s.qty, note: null, personId: s.personId }, s.person ? { person: s.person } : {});
+    if (res.ok) {
+      theme.haptic('light');
+      setCart(res.cart);
+      setTaken((x) => [...x, s.item.id]);
+    }
+  };
+
+  // Two taps: «اطلبه» places the order as checkout would (cash at the door, idempotency key). Anything
+  // the server refuses (a price moved, the deal changed) is explained on the checkout screen.
+  const placeNow = async () => {
+    if (!totals || !dropoff || !cart.merchant) return;
+    const attempt = attemptFor(cartStore.getSnapshot().pending ?? null, attemptSignature(cart.merchant.id, cart.lines));
+    cartStore.replaceCart(cart);
+    cartStore.setPending(attempt);
+    try {
+      const order = await placeOrder.mutateAsync(
+        buildPlaceOrderInput({
+          cart,
+          dropoff,
+          streetHandover: false,
+          recipient: { kind: 'me' },
+          scheduledFor: null,
+          paymentMethod: 'cash',
+          fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd },
+          ...(orderQuote.data ? { discountIqd: totals.discountIqd } : {}),
+          clientRequestId: attempt.key,
+        }),
+      );
+      cartStore.markPlaced(order.id);
+      onClose();
+      router.push({ pathname: '/kitchen/[id]', params: { id: order.id } });
+    } catch (err) {
+      cartStore.setPending(afterFailure(attempt, apiErrorCode(err)));
+      onClose();
+      toast.show({ message: t('reorder.place_failed'), tone: 'warning', icon: 'cart' });
+      router.push('/checkout');
+    }
+  };
+
+  const canPlace = !nothing && !result.closed && Boolean(dropoff) && Boolean(totals);
+  return (
+    <>
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[4], gap: theme.space[4] }}>
+        {result.closed ? <Note icon="clock" tone="warningTint" fg="warningText" text={result.opensAt ? t('reorder.closed', { time: result.opensAt }) : t('reorder.closed_no_time')} /> : null}
+        {nothing ? <Note icon="x" tone="dangerTint" fg="dangerText" text={t('reorder.nothing')} testID="reorder-nothing" /> : null}
+
+        {!nothing ? (
+          <View style={{ gap: theme.space[2] }} testID="reorder-added">
+            {groups.map((g) => (
+              <View key={g.personId} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+                {g.personId === TABLE ? <Avatar size={28} icon="family" tone="accent" /> : <Avatar size={28} name={g.person?.name ?? myName ?? t('item.for_me_chip')} tone={g.person ? undefined : 'accent'} />}
+                <Text variant="body" style={{ flex: 1 }}>
+                  <Text variant="body" weight={600}>
+                    {g.personId === TABLE ? t('cart.for_table_section') : (g.person?.name ?? t('cart.for_me_section'))}:{' '}
+                  </Text>
+                  {g.lines.map((l) => (l.qty > 1 ? `${l.qty}× ${l.name}` : l.name)).join('، ')}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {result.missing.length > 0 ? (
+          <Group title={t('reorder.missing_heading')} testID="reorder-missing">
+            {result.missing.map((m, i) => {
+              const swap = swaps.find((s) => s.missing === m.name);
+              return (
+                <View key={`${m.name}-${i}`} style={{ gap: theme.space[2] }}>
+                  <Line icon="x" fg="dangerText" title={m.qty > 1 ? `${m.qty}× ${m.name}` : m.name} sub={t(REASON[m.reason])} muted />
+                  {swap ? (
+                    <View testID={`reorder-swap-${swap.item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingStart: 36 }}>
+                      <Text variant="footnote" style={{ flex: 1 }} tabular>
+                        {t('reorder.swap', { dish: swap.item.name, amount: amountParam(swap.item.priceIqd) })}
+                      </Text>
+                      <Button size="sm" variant="secondary" icon="plus" label={t('reorder.swap_add')} onPress={() => addSwap(swap)} />
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </Group>
+        ) : null}
+
+        {result.repriced.length > 0 ? (
+          <Group title={t('reorder.repriced_heading')} testID="reorder-repriced">
+            {result.repriced.map((p) => (
+              <Line key={p.name} icon="receipt" fg="warningText" title={p.name} sub={t('reorder.price_change', { was: amountParam(p.wasIqd), now: amountParam(p.nowIqd) })} />
+            ))}
+          </Group>
+        ) : null}
+
+        {result.droppedExtras.length > 0 ? (
+          <Group title={t('reorder.extras_heading')}>
+            {result.droppedExtras.map((d, i) => (
+              <Line key={`${d.dish}-${d.extra}-${i}`} icon="x" fg="textMuted" title={t('reorder.extra_line', { dish: d.dish, extra: d.extra })} muted />
+            ))}
+          </Group>
+        ) : null}
+
+        {!nothing ? (
+          <Card elevation={0} tone="sunken" padding={0}>
+            <DeliverToRow place={place} divider />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4], minHeight: 52 }}>
+              <Icon name="cash" size={20} color="text" />
+              <Text variant="body" style={{ flex: 1 }}>
+                {t('reorder.pay_cash')}
+              </Text>
+            </View>
+          </Card>
+        ) : null}
+
+        {!nothing ? (
+          <View testID="reorder-total" accessibilityLiveRegion="polite">
+            {totals ? (
+              <Text variant="title" tabular>
+                {t('reorder.total_today', { amount: amountParam(totals.totalIqd) })}
+                {totals.totalIqd !== oldTotalIqd ? (
+                  <Text variant="body" color="textMuted" tabular>
+                    {' '}
+                    {t('reorder.total_was', { amount: amountParam(oldTotalIqd) })}
+                  </Text>
+                ) : null}
+              </Text>
+            ) : quoteFailed || !dropoff ? (
+              <Text variant="footnote" color="textMuted">
+                {t('reorder.total_note')}
+              </Text>
+            ) : (
+              <Skeleton height={24} width="60%" />
+            )}
+          </View>
+        ) : null}
+
+        {replacing && !nothing ? <Note icon="cart" tone="surfaceSunken" fg="text" text={t('reorder.replace_note', { merchant: replacing })} testID="reorder-replace" /> : null}
+      </ScrollView>
+      <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[4], gap: theme.space[2] }}>
+        {nothing ? (
+          <Button
+            testID="reorder-menu"
+            size="lg"
+            fullWidth
+            icon="food"
+            label={t('reorder.open_menu')}
+            onPress={() => {
+              onClose();
+              if (merchantId) router.push({ pathname: '/restaurant/[id]', params: { id: merchantId } });
+            }}
+          />
+        ) : (
+          <>
+            {canPlace && totals ? (
+              <Button testID="reorder-place" size="lg" fullWidth haptic="success" label={t('reorder.place', { amount: amountParam(totals.totalIqd) })} loading={placeOrder.isPending} loadingLabel={t('checkout.placing')} onPress={() => void placeNow()} />
+            ) : null}
+            <Button testID="reorder-go" size={canPlace ? 'md' : 'lg'} variant={canPlace ? 'ghost' : 'primary'} fullWidth icon="cart" label={t('reorder.edit_in_cart')} onPress={() => onCart(cart)} />
+            {totals ? (
+              <Text variant="caption" color="textMuted" align="center" tabular>
+                {t('checkout.pay_line_cash', { amount: amountParam(totals.totalIqd) })}
+              </Text>
+            ) : null}
+          </>
+        )}
+      </View>
+    </>
   );
 }
 

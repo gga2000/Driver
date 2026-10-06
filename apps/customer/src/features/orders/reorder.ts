@@ -1,5 +1,7 @@
 import type { MenuCategory, MenuItem, Order, OrderHistoryItem, RestaurantCard } from '@driver/contracts';
 import { addLine, cartMerchantOf, EMPTY_CART, ME, unitPrice, type CartModifier, type CartPerson, type CartState } from '@/features/food/cart';
+import { motifForDish } from '@/features/food/food-art';
+import { canQuickAdd } from '@/features/food/modifiers';
 
 /**
  * "اطلبه مرة ثانية" (audit C-15) as plain data: an old order's lines rebuilt into a fresh cart from
@@ -15,6 +17,20 @@ export interface ReorderMiss {
   name: string;
   qty: number;
   reason: ReorderMissReason;
+  /** Who it was for (a person's id, or `ME`): a swap goes to the same person. */
+  personId?: string;
+  /** The person behind `personId` when it is someone else. */
+  person?: CartPerson | null;
+}
+
+/** «حمص خلص اليوم · بداله متبّل 2,000 دينار؟» (joy o13, audit F-24): one dish today's menu offers instead. */
+export interface ReorderSwap {
+  /** The dish that is not available (its name as on the old order). */
+  missing: string;
+  item: MenuItem;
+  qty: number;
+  personId: string;
+  person: CartPerson | null;
 }
 
 export interface ReorderRepriced {
@@ -35,6 +51,8 @@ export interface ReorderResult {
   /** The kitchen is closed right now (the cart is still built; the menu says when it opens). */
   closed: boolean;
   opensAt: string | null;
+  /** One suggestion per missing dish, when today's menu has a close one (o13). */
+  swaps: ReorderSwap[];
 }
 
 interface StoredModifier {
@@ -79,7 +97,7 @@ export function buildReorderCart(input: {
   const merchant = cartMerchantOf(menu.restaurant);
   const byId = new Map(menu.categories.flatMap((c) => c.items).map((i) => [i.id, i]));
   const oldName = new Map(input.items.map((i) => [i.lineId, i.name]));
-  const result: ReorderResult = { cart: EMPTY_CART, added: [], missing: [], repriced: [], droppedExtras: [], closed: !menu.restaurant.open, opensAt: menu.restaurant.opensAt };
+  const result: ReorderResult = { cart: EMPTY_CART, added: [], missing: [], repriced: [], droppedExtras: [], closed: !menu.restaurant.open, opensAt: menu.restaurant.opensAt, swaps: [] };
   let cart: CartState = EMPTY_CART;
 
   for (const line of order.lines) {
@@ -90,7 +108,8 @@ export function buildReorderCart(input: {
     // Free-text lines (errands) have no menu dish to bring back.
     const reason = line.catalogItemId ? missReason(item) : 'gone';
     if (reason || !item) {
-      if (name) result.missing.push({ name, qty, reason: reason ?? 'gone' });
+      const who = personFor(line.participantId, order, input.savedPeople ?? []);
+      if (name) result.missing.push({ name, qty, reason: reason ?? 'gone', personId: who?.id ?? ME, person: who });
       continue;
     }
 
@@ -108,7 +127,8 @@ export function buildReorderCart(input: {
     if (short) {
       // The extras listed for this dish were part of why; the dish itself is what is missing.
       result.droppedExtras = result.droppedExtras.filter((d) => d.dish !== item.name);
-      result.missing.push({ name: item.name, qty, reason: 'choice_gone' });
+      const who = personFor(line.participantId, order, input.savedPeople ?? []);
+      result.missing.push({ name: item.name, qty, reason: 'choice_gone', personId: who?.id ?? ME, person: who });
       continue;
     }
 
@@ -126,7 +146,33 @@ export function buildReorderCart(input: {
   // An extra with no name (its group or option left the menu entirely) is not worth a line of its own.
   result.droppedExtras = result.droppedExtras.filter((d) => d.extra !== '');
   result.cart = cart.lines.length > 0 ? cart : EMPTY_CART;
+  result.swaps = swapsFor(result.missing, menu.categories, new Set(cart.lines.map((l) => l.itemId)));
   return result;
+}
+
+/**
+ * A swap per missing dish (o13): an available, one-tap dish from the same menu section (where the
+ * dish still is on the menu), else one of the same kind of food (a wrap for a wrap, a drink for a
+ * drink); never one already in the cart or already offered; the cheapest first. None when nothing
+ * fits — a swap is a suggestion, never a guess put in the cart.
+ */
+export function swapsFor(missing: readonly ReorderMiss[], categories: readonly MenuCategory[], taken: ReadonlySet<string>): ReorderSwap[] {
+  const offered = new Set(taken);
+  const out: ReorderSwap[] = [];
+  const all = categories.flatMap((c) => c.items.map((i) => ({ item: i, section: c.name })));
+  for (const m of missing) {
+    if (m.reason === 'choice_gone') continue;
+    const home = all.find((x) => x.item.name === m.name)?.section ?? null;
+    const kind = motifForDish(m.name, home ?? undefined);
+    const ok = (x: { item: MenuItem }) => x.item.available && canQuickAdd(x.item) && !offered.has(x.item.id) && x.item.name !== m.name;
+    const bySection = home ? all.filter((x) => x.section === home && ok(x)) : [];
+    const byKind = all.filter((x) => ok(x) && motifForDish(x.item.name, x.section) === kind);
+    const pick = [...(bySection.length > 0 ? bySection : byKind)].sort((a, b) => a.item.priceIqd - b.item.priceIqd)[0];
+    if (!pick) continue;
+    offered.add(pick.item.id);
+    out.push({ missing: m.name, item: pick.item, qty: m.qty, personId: m.personId ?? ME, person: m.person ?? null });
+  }
+  return out;
 }
 
 /** Nothing to explain: every dish came back at the same price, the kitchen is open. */

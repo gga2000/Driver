@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuCategory, MenuItem, Order, OrderLine } from '@driver/contracts';
 import { ME } from '@/features/food/cart';
-import { buildReorderCart, itemsSummary, reorderIsClean } from './reorder';
+import { buildReorderCart, itemsSummary, reorderIsClean, swapsFor } from './reorder';
 
 const bread = { id: 'g_bread', name: 'الخبز', required: true, min: 1, max: 1, variant: false, modifiers: [
   { id: 'm_samoon', name: 'صمون', priceIqd: 0, available: true },
@@ -65,7 +65,7 @@ describe('buildReorderCart (اطلبه مرة ثانية)', () => {
       menu: { restaurant, categories },
     });
     expect(r.cart.lines.map((l) => [l.itemId, l.qty])).toEqual([['liver', 1]]);
-    expect(r.missing).toEqual([
+    expect(r.missing.map(({ name, qty, reason }) => ({ name, qty, reason }))).toEqual([
       { name: 'حمص', qty: 2, reason: 'sold_out' },
       { name: 'چاي', qty: 1, reason: 'schedule' },
       { name: 'دولمة', qty: 1, reason: 'gone' },
@@ -91,7 +91,7 @@ describe('buildReorderCart (اطلبه مرة ثانية)', () => {
     });
     expect(breadGone.cart.lines).toEqual([]);
     expect(breadGone.cart.merchant).toBeNull();
-    expect(breadGone.missing).toEqual([{ name: 'لفة تكة', qty: 1, reason: 'choice_gone' }]);
+    expect(breadGone.missing.map(({ name, qty, reason }) => ({ name, qty, reason }))).toEqual([{ name: 'لفة تكة', qty: 1, reason: 'choice_gone' }]);
     expect(breadGone.droppedExtras).toEqual([]);
   });
 
@@ -128,5 +128,25 @@ describe('itemsSummary', () => {
     expect(itemsSummary([{ name: 'حمص', qty: 1 }])).toBe('حمص');
     expect(itemsSummary([{ name: 'تمن وبامية', qty: 2 }, { name: 'حمص', qty: 1 }])).toBe('2× تمن وبامية، حمص');
     expect(itemsSummary([{ name: 'أ', qty: 1 }, { name: 'ب', qty: 1 }, { name: 'ج', qty: 1 }, { name: 'د', qty: 1 }])).toBe('أ، ب، ج…');
+  });
+});
+
+describe('swaps for what is gone (o13)', () => {
+  const menu: MenuCategory[] = [
+    {
+      id: 'c2',
+      name: 'مقبلات',
+      items: [item('hummus', 'حمص', 2000, { available: false, unavailableReason: 'sold_out' }), item('mutabbal', 'متبّل', 2000), item('salad', 'سلطة خضرة', 1000)],
+    },
+    { id: 'c3', name: 'مشروبات', items: [item('pepsi', 'بيبسي', 750), item('laban', 'لبن أربيل', 750, { available: false, unavailableReason: 'sold_out' })] },
+  ];
+  it('the cheapest one-tap dish from the same section, for the same person; never one already in the cart', () => {
+    const r = buildReorderCart({ order: order([line('l1', 'hummus', 2, 2000, { participantId: 'pa' }), line('l2', 'salad', 1, 1000)], [{ id: 'pa', role: 'diner', personId: null, phoneOnly: true, label: 'سارة', note: null }]), items: [], menu: { restaurant, categories: menu } });
+    expect(r.swaps.map((x) => [x.missing, x.item.name, x.qty, x.person?.name ?? null])).toEqual([['حمص', 'متبّل', 2, 'سارة']]);
+  });
+  it('a dish gone from the menu gets one of its kind; nothing when nothing fits', () => {
+    expect(swapsFor([{ name: 'شنينة', qty: 1, reason: 'gone' }], menu, new Set()).map((x) => x.item.name)).toEqual([]);
+    expect(swapsFor([{ name: 'لبن أربيل', qty: 1, reason: 'sold_out' }], menu, new Set()).map((x) => x.item.name)).toEqual(['بيبسي']);
+    expect(swapsFor([{ name: 'لفة تكة', qty: 1, reason: 'choice_gone' }], menu, new Set())).toEqual([]);
   });
 });
