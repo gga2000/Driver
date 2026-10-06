@@ -772,6 +772,42 @@ const rajaa = await (async () => {
     }
   });
 
+  // POST /demo/rajaa/arrived?personId=…[&told=1] — a whole trip that just ended (joy r2): a seat on a
+  // car from Baghdad to Aziziyah, the other seats walk-ups, checked in, departed and arrived. The pass
+  // then shows «وصلت بالسلامة». `told=1` first gives the person a trusted contact (أمي) with
+  // «بلّغهم من أوصل» on, so the card says who was told and the WhatsApp ping goes out.
+  let arrivedSeq = 0;
+  app.use('/demo/rajaa/arrived', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/arrived?personId=…[&told=1]' });
+      if (url.searchParams.get('told') === '1') {
+        await app.get(IdentityService).updateProfile({ personId, sessionId: 'demo' }, { trustedContacts: [{ name: 'أمي', phone: '07801112233', relation: 'mother' }], safety: { notifyOnArrival: true } });
+      }
+      const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
+      const driverId = `drv_ARR${(++arrivedSeq).toString(36).toUpperCase()}`;
+      const dep = await deps.announce(driverId, {
+        garageId: 'mp_garage_nahdha',
+        corridorId: 'aziziyah_baghdad',
+        departAt,
+        latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
+        vehicle: saloon('12345 بغداد', 'كامري', 'بيضاء'),
+        familyOnly: false,
+      });
+      const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'nisa', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await deps.book(personId, held.id, 'cash');
+      await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+      for (const seatId of ['front', 'back_left', 'back_middle']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: seatId === 'front' ? 'rijal' : 'nisa' });
+      await deps.checkIn(driverId, dep.id, booked.pin);
+      await deps.depart(driverId, dep.id);
+      await deps.arrive(driverId, dep.id);
+      json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   app.use('/demo/rajaa/offers', async (req, res) => {
     try {
       const personId = personOf(req);

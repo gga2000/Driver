@@ -14,6 +14,8 @@ export interface BoardKey {
   corridorId: string;
   direction: IntercityDirection;
   travellingAs?: TravellingAs;
+  /** A preset window («احجز رجعتك», r2) instead of "from now". */
+  window?: { from: Date; to: Date } | null;
 }
 
 /** Garages, corridors (seat prices) and meeting points. Changes rarely. */
@@ -37,6 +39,7 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
       corridorId: key.corridorId,
       direction: key.direction,
       ...(key.travellingAs ? { travellingAs: key.travellingAs } : {}),
+      ...(key.window ? { from: key.window.from, to: key.window.to } : {}),
     }),
     enabled: signedIn,
     staleTime: 2_000,
@@ -128,6 +131,13 @@ export function useCancelSeat() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
   return useMutation(api.routes.cancelSeat.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/** «شلون كانت الرجعة؟» (r2): stars and chips once; the bookings list picks up the rating. */
+export function useRateBooking() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.rateBooking.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
 export function useImHere() {

@@ -2,17 +2,20 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
-import { Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { CorridorPicker, DemandBanner, TravellerAsk, TravellerChip, TripPill } from '@/features/rajaa/BoardParts';
 import { foldBoard, seatFit } from '@/features/rajaa/fit';
 import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
-import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
+import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { garageName, useActiveBooking, useBoard, useDriverCards, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
+import { presetWindow } from '@/features/rajaa/return-trip';
+import { dayKey } from '@/features/orders/history';
+import { dayLabel } from '@/features/orders/OrderRow';
 import { useLocale, useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
 import { profile, useProfile } from '@/lib/profile';
@@ -26,7 +29,10 @@ export default function RajaaBoard() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const params = useLocalSearchParams<{ corridor?: string; direction?: string }>();
+  const params = useLocalSearchParams<{ corridor?: string; direction?: string; at?: string }>();
+  // «احجز رجعتك» (r2): the board opens on the same weekday and time, until the rider clears it.
+  const [presetAt, setPresetAt] = useState<Date | null>(() => (params.at ? new Date(params.at) : null));
+  const window = useMemo(() => presetWindow(presetAt), [presetAt]);
   const [corridorId, setCorridorId] = useState(params.corridor || PRIMARY_CORRIDOR);
   const [direction, setDirection] = useState<IntercityDirection>(
     params.direction === 'from_aziziyah' || params.direction === 'to_aziziyah' ? params.direction : DEFAULT_DIRECTION,
@@ -39,7 +45,7 @@ export default function RajaaBoard() {
   // «تسافر:» (r1): remembered on the device; the board marks the seats this rider can't take.
   const travellingAs = useProfile().rajaaTravellingAs;
   const [askTraveller, setAskTraveller] = useState(false);
-  const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
+  const board = useBoard({ corridorId, direction, window, ...(travellingAs ? { travellingAs } : {}) });
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
@@ -121,6 +127,18 @@ export default function RajaaBoard() {
           />
         ) : null}
       </View>
+
+      {window && presetAt ? (
+        <Card testID="rajaa-preset" tone="tint" elevation={0} padding={3}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            <Icon name="clock" size={20} color="text" />
+            <Text variant="label" weight={600} style={{ flex: 1 }}>
+              {t('rajaa.preset_title', { when: `${dayLabel(t, dayKey(presetAt, now))} ${clockLabel(presetAt)}` })}
+            </Text>
+            <Button testID="rajaa-preset-clear" size="sm" variant="ghost" label={t('rajaa.preset_clear')} onPress={() => setPresetAt(null)} />
+          </View>
+        </Card>
+      ) : null}
 
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
 

@@ -6,6 +6,7 @@ import { Screen } from '@/components/Screen';
 import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { passPhase } from '@/features/rajaa/pass';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
+import { SafeArrival } from '@/features/rajaa/SafeArrival';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
 import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
@@ -152,6 +153,7 @@ export default function BoardingPassScreen() {
   if (passPhase(b, now) === 'kept') {
     return (
       <Screen testID="rajaa-pass" edges={['bottom']}>
+        <SafeArrival booking={b} route={route} driverName={driverCard?.firstName ?? null} now={now} />
         <KeptStub booking={b} route={route} garage={garage} driver={driverCard} />
       </Screen>
     );

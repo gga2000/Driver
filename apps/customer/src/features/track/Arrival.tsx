@@ -215,7 +215,7 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
   );
 }
 
-function Stars({ value, onPick, testID }: { value: number; onPick: (n: number) => void; testID: string }) {
+export function Stars({ value, onPick, testID }: { value: number; onPick: (n: number) => void; testID: string }) {
   const theme = useTheme();
   const t = useT();
   return (

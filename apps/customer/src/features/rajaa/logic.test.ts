@@ -130,6 +130,9 @@ function booking(over: Partial<BookingView> & { id: string }): BookingView {
       driverId: 'drv_1',
     },
     createdAt: NOON,
+    completedAt: null,
+    rating: null,
+    pointsEarned: null,
     ...over,
   };
 }
