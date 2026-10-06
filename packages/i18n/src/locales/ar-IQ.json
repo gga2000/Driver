@@ -5175,7 +5175,7 @@
   "partner.shiftsum_title": "خلصت شفتك",
   "partner.shiftsum_range": "من {from} لـ {to} · {duration}",
   "partner.shiftsum_net_label": "صافي الشفت",
-  "partner.shiftsum_per_hour": "تقريباً {amount} دينار بالساعة",
+  "partner.shiftsum_per_hour": "تقريباً {amount} دينار لكل ساعة شغل",
   "partner.shiftsum_per_hour_short": "الشفت قصير، ما نحسب بالساعة",
   "partner.shiftsum_jobs": "الطلبات",
   "partner.shiftsum_online": "وقت الشغل",
