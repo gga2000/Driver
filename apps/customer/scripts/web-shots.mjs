@@ -9,7 +9,7 @@
 //            node apps/customer/scripts/web-shots.mjs <out-dir>
 //
 // Screenshots are 390×844 (@2x; WIDTH=360 → 360×740 for small phones), in groups (file-name prefixes), each driven by its own demo seed:
-//   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, home (+ -full), soon sheet, orders, profile
+//   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, welcome-home (once after setup), home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
@@ -171,6 +171,13 @@ try {
     await byTestId('chip-street_30').click();
     await shot('app-setup');
     await byTestId('setup-save').click();
+    // The welcome-home moment (joy h7) plays once after setup: shot, then tapped away.
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await settle(1600);
+      await shot('app-welcome-home');
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => errors.push('welcome-home did not close'));
+    }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
 

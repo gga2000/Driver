@@ -14,6 +14,7 @@ import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, usePicks, useRestaurants } from '@/features/home/queries';
 import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
 import { DaypartBand } from '@/features/home/DaypartBand';
+import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { SeasonCard } from '@/features/season/SeasonCard';
 import { ReorderCard } from '@/features/home/ReorderCard';
@@ -28,6 +29,7 @@ import { startRide } from '@/features/ride/WhereToBar';
 import { popularTerms } from '@/features/search/logic';
 import { appNow } from '@/lib/dev-clock';
 import { useLocale, useT } from '@/lib/i18n';
+import { profile, selectedPlace, useProfile } from '@/lib/profile';
 import { useSeason } from '@/lib/use-season';
 
 /** Restaurants listed on home before "شوف الكل". */
@@ -58,6 +60,8 @@ export default function Home() {
   const now = useMemo(() => appNow(tick), [tick]);
   const dp = useMemo(() => daypart(now), [now]);
   const quiet = useSeason().quiet;
+  // h7: the welcome-home moment, once, right after setup.
+  const prof = useProfile();
   const picks = usePicks(bandWords(dp));
   const [refreshing, setRefreshing] = useState(false);
 
@@ -186,6 +190,9 @@ export default function Home() {
       <ComingSoonStrip onPress={onService} />
 
       <ComingSoonSheet service={soon} onClose={() => setSoon(null)} />
+      {prof.welcomeHomeDue && !prof.welcomedHome ? (
+        <WelcomeHome name={prof.name} zoneId={selectedPlace(prof)?.zoneId ?? null} kitchens={list} onDone={() => void profile.setWelcomedHome()} />
+      ) : null}
       {reorder.sheet}
     </Screen>
   );

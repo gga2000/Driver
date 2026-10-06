@@ -55,10 +55,28 @@ export interface ProfileState {
    * `/rajaa/…`): the guard returns them there after OTP (and setup), then clears it.
    */
   returnTo: string | null;
+  /**
+   * Joy h7: the welcome-home moment is due — set when the post-OTP setup finishes (saved or skipped),
+   * cleared when it played. `welcomedHome` makes it once for this person on this device.
+   */
+  welcomeHomeDue: boolean;
+  welcomedHome: boolean;
 }
 
 const KEY = 'driver.customer.profile';
-const EMPTY: ProfileState = { loaded: false, name: null, places: [], selectedPlaceId: null, locale: 'ar-IQ', setupPending: false, shareTripsByDefault: false, welcomed: false, returnTo: null };
+const EMPTY: ProfileState = {
+  loaded: false,
+  name: null,
+  places: [],
+  selectedPlaceId: null,
+  locale: 'ar-IQ',
+  setupPending: false,
+  shareTripsByDefault: false,
+  welcomed: false,
+  returnTo: null,
+  welcomeHomeDue: false,
+  welcomedHome: false,
+};
 
 export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
   const z = AZIZIYAH_ZONES.find((x) => x.id === zoneId);
@@ -156,12 +174,18 @@ export function createProfileStore(store: KeyValueStorage) {
           shareTripsByDefault: parsed.shareTripsByDefault === true,
           welcomed: parsed.welcomed === true,
           returnTo: typeof parsed.returnTo === 'string' && parsed.returnTo.startsWith('/') ? parsed.returnTo : null,
+          welcomeHomeDue: parsed.welcomeHomeDue === true,
+          welcomedHome: parsed.welcomedHome === true,
         });
       })();
       return loading;
     },
     setName: (name: string) => save({ ...state, name: name.trim() || null }),
-    setSetupPending: (setupPending: boolean) => save({ ...state, setupPending }),
+    /** Finishing setup (pending → done) makes the welcome-home moment due, once per person. */
+    setSetupPending: (setupPending: boolean) =>
+      save({ ...state, setupPending, welcomeHomeDue: state.welcomeHomeDue || (state.setupPending && !setupPending && !state.welcomedHome) }),
+    /** The welcome-home moment played (or was tapped away): never again for this person here. */
+    setWelcomedHome: () => (state.welcomedHome && !state.welcomeHomeDue ? Promise.resolve() : save({ ...state, welcomedHome: true, welcomeHomeDue: false })),
     setLocale: (locale: AppLocale) => save({ ...state, locale }),
     setWelcomed: () => (state.welcomed ? Promise.resolve() : save({ ...state, welcomed: true })),
     /** Remember (or clear, with null) where to go after sign-in; only in-app paths are kept. */

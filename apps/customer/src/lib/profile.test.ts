@@ -92,3 +92,32 @@ describe('saved places: server ↔ device', () => {
     expect(s2.getSnapshot().shareTripsByDefault).toBe(true);
   });
 });
+
+describe('welcome-home moment (joy h7)', () => {
+  it('is due once setup finishes, and once played never again for this person', async () => {
+    const mem = createMemoryStorage();
+    const s = createProfileStore(mem);
+    await s.load();
+    await s.setSetupPending(true);
+    expect(s.getSnapshot().welcomeHomeDue).toBe(false);
+    await s.setSetupPending(false);
+    expect(s.getSnapshot().welcomeHomeDue).toBe(true);
+    // Survives a restart before it played.
+    const again = createProfileStore(mem);
+    await again.load();
+    expect(again.getSnapshot().welcomeHomeDue).toBe(true);
+    await again.setWelcomedHome();
+    expect(again.getSnapshot()).toMatchObject({ welcomeHomeDue: false, welcomedHome: true });
+    // A second setup (no name yet) does not bring it back.
+    await again.setSetupPending(true);
+    await again.setSetupPending(false);
+    expect(again.getSnapshot().welcomeHomeDue).toBe(false);
+  });
+
+  it('is not due for a returning person who never went through setup', async () => {
+    const s = createProfileStore(createMemoryStorage());
+    await s.load();
+    await s.setSetupPending(false);
+    expect(s.getSnapshot().welcomeHomeDue).toBe(false);
+  });
+});
