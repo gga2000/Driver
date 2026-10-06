@@ -71,8 +71,8 @@ export default function HoldAndPay() {
       { bookingId: b.id, payment },
       {
         onSuccess: (done) => {
-          toast.show({ message: t('rajaa.booked_toast'), tone: 'success' });
-          router.replace({ pathname: '/rajaa/pass/[id]', params: { id: done.id } });
+          // The pass says "booked" in its own flow (`booked=1`): a toast here would sit over the car and plate.
+          router.replace({ pathname: '/rajaa/pass/[id]', params: { id: done.id, booked: '1' } });
         },
         onError: (err) => {
           toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000);

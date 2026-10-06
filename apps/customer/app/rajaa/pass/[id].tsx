@@ -45,7 +45,8 @@ export default function BoardingPassScreen() {
   const toast = useToast();
   const client = useApiClient();
   const locale = useLocale();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `booked=1`: straight from "احجز" — the confirmation sits above the ticket, never over it.
+  const { id, booked } = useLocalSearchParams<{ id: string; booked?: string }>();
   const bookingId = String(id ?? '');
   const booking = useBooking(bookingId);
   const b = booking.data ?? null;
@@ -157,6 +158,14 @@ export default function BoardingPassScreen() {
               : undefined,
         }}
       />
+      {booked === '1' && b.state === 'booked' ? (
+        <View testID="rajaa-booked-note" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <Icon name="check" size={18} color="successText" strokeWidth={2.4} />
+          <Text variant="label" weight={600} color="successText" style={{ flexShrink: 1 }}>
+            {t('rajaa.booked_toast')}
+          </Text>
+        </View>
+      ) : null}
       {/* The ticket. */}
       <Card padding={0} elevation={2} testID="rajaa-ticket">
         <View style={{ padding: theme.space[5], gap: theme.space[2] }}>
