@@ -574,8 +574,9 @@ export class DriverAccountService implements DriverAccountPort {
 
   private async receiptFor(driverId: string, key: string, at: Date): Promise<JobReceipt | null> {
     const view = await this.ledger.driverLedger({ driverId, from: new Date(at.getTime() - RECEIPT_WINDOW_MS), to: new Date(at.getTime() + RECEIPT_WINDOW_MS) });
-    const queryOpen = this.support ? await this.support.driverPayQueryOpen(driverId, key) : false;
-    return composeReceipt(view, key, this.receiptContext(), { queryOpen });
+    // His objection, if any, with support's latest reply and whether it is settled (S-7 follow-up).
+    const query = this.support ? await this.support.driverPayQuery(driverId, key) : null;
+    return composeReceipt(view, key, this.receiptContext(), { queryOpen: query !== null, query });
   }
 
   /** Night start and the wait step from the city's pricing rules (the same numbers the quote used). */
@@ -599,6 +600,7 @@ export class DriverAccountService implements DriverAccountPort {
     const when = formatWhen(receipt.at, this.clock.now());
     return this.support.openDriverPayQuery(actor.personId, {
       key: input.key,
+      jobAt: receipt.at,
       orderId: receipt.orderId,
       tripId: receipt.tripId,
       subject: `اعتراض سايق على أجرة الطلب ${ticket}`,

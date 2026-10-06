@@ -1,4 +1,4 @@
-import { orderTicketNumber, type DriverLedgerView, type JobReceipt, type JobReceiptLine, type ReceiptReasonCode } from '@driver/contracts';
+import { orderTicketNumber, type DriverLedgerView, type JobReceipt, type JobReceiptLine, type PayQueryStatus, type ReceiptReasonCode } from '@driver/contracts';
 import { CASH_IN_TYPES, GROSS_TYPES, jobKey, SETTLEMENT_TYPES } from './earnings.js';
 
 /**
@@ -55,7 +55,7 @@ export function reasonOf(line: { type: string; memo: string | null; amountIqd: n
 }
 
 /** The receipt of the job `key` in `view` (the ledger read around the job), or null when it isn't there. */
-export function composeReceipt(view: DriverLedgerView, key: string, ctx: ReceiptContext, opts: { queryOpen?: boolean } = {}): JobReceipt | null {
+export function composeReceipt(view: DriverLedgerView, key: string, ctx: ReceiptContext, opts: { queryOpen?: boolean; query?: PayQueryStatus | null } = {}): JobReceipt | null {
   const lines = view.earnings.lines.filter((l) => !SETTLEMENT_TYPES.has(l.type) && jobKey(l) === key);
   const cash = view.cash.lines.filter((l) => jobKey(l) === key);
   if (lines.length === 0 && cash.length === 0) return null;
@@ -106,7 +106,8 @@ export function composeReceipt(view: DriverLedgerView, key: string, ctx: Receipt
     tipsIqd,
     netIqd,
     cash: collectedIqd > 0 ? cashSplit(collectedIqd, toMerchantIqd, netIqd) : null,
-    queryOpen: opts.queryOpen ?? false,
+    queryOpen: opts.queryOpen ?? opts.query != null,
+    query: opts.query ?? null,
   };
 }
 

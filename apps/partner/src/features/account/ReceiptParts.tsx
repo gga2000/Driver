@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import type { JobReceipt } from '@driver/contracts';
-import { Button, Card, ChipGroup, formatWhen, Icon, ModalSheet, Rule, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Card, ChipGroup, formatWhen, Icon, ModalSheet, Rule, StatusPill, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -127,6 +127,48 @@ export function ReceiptCash({ r }: { r: JobReceipt }) {
           ) : null}
         </View>
       </Card>
+    </View>
+  );
+}
+
+/**
+ * His objection after he sent it (S-7 follow-up): where it stands — «دا نراجعه» until support
+ * settles it, «انحلت» after — with support's latest reply («ردّ الدعم: …») and the outcome. Before
+ * any reply it says support has it and answers within 24 hours.
+ */
+export function QueryStatus({ r }: { r: JobReceipt }) {
+  const theme = useTheme();
+  const t = useT();
+  const q = r.query;
+  const resolved = q?.status === 'resolved';
+  return (
+    <View
+      testID="receipt-query-open"
+      accessibilityLiveRegion="polite"
+      style={{ gap: theme.space[2], padding: theme.space[4], borderRadius: theme.radius.lg, backgroundColor: resolved ? theme.colors.successTint : theme.colors.infoTint }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <Icon name="chat" size={20} color={resolved ? 'successText' : 'infoText'} />
+        <Text variant="label" weight={600} color={resolved ? 'successText' : 'infoText'} style={{ flex: 1 }}>
+          {t(q ? 'partner.receipt_query_status' : 'partner.receipt_dispute_open')}
+        </Text>
+        {q ? <StatusPill label={t(resolved ? 'partner.receipt_query_resolved' : 'partner.receipt_query_open')} tone={resolved ? 'success' : 'info'} size="sm" /> : null}
+      </View>
+      {q?.reply ? (
+        <Text testID="receipt-query-reply" variant="body" color="text">
+          {t('partner.receipt_query_reply', { text: q.reply.text })}
+        </Text>
+      ) : null}
+      {resolved && q?.resolution && q.resolution !== q.reply?.text ? (
+        <Text testID="receipt-query-resolution" variant="body" color="text">
+          {t('partner.receipt_query_resolution', { text: q.resolution })}
+        </Text>
+      ) : null}
+      {!q?.reply && !resolved ? (
+        <Text variant="caption" color="text">
+          {t(q ? 'partner.receipt_query_waiting' : 'partner.receipt_dispute_open_body')}
+        </Text>
+      ) : null}
     </View>
   );
 }

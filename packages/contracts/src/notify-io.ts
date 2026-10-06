@@ -111,6 +111,8 @@ export const NotifyTemplateId = z.enum([
   'partner_zone_nudge',
   'merchant_cash_handover',
   'courier_cash_receipt',
+  'driver_pay_reply',
+  'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
   'rajaa_boarding_pass',
@@ -273,6 +275,24 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'partner',
     push: { title: 'push.partner_zone_nudge.title', body: 'push.partner_zone_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // «عندي اعتراض» answered (partner audit S-7 follow-up): support replied to, or settled, the driver's
+  // objection on one job's pay; the push opens that job's receipt with the reply on it.
+  driver_pay_reply: {
+    id: 'driver_pay_reply',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.driver_pay_reply.title', body: 'push.driver_pay_reply.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  driver_pay_resolved: {
+    id: 'driver_pay_resolved',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.driver_pay_resolved.title', body: 'push.driver_pay_resolved.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
     primary: ['push'],
     quietHours: 'send',
   },

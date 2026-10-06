@@ -25,6 +25,7 @@ function receipt(over: Partial<JobReceipt> = {}): JobReceipt {
     netIqd: 4900,
     cash: null,
     queryOpen: false,
+    query: null,
     ...over,
   };
 }

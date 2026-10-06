@@ -36,6 +36,8 @@ export const NOTIFY_EVENT_TYPES = [
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
+  'support.replied',
+  'support.resolved',
   'seat.booked',
   'khat.child_tapped_out',
   'khat.sweep_missed',
@@ -56,6 +58,11 @@ const MERCHANT_STAFF = ['merchant_staff', 'merchant_owner'] as const;
 const MERCHANT_OWNERS = ['merchant_owner'] as const;
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+/** A support reply in a push body: one line, at most 140 characters. */
+const clip = (text: string, max = 140): string => {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+};
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Turns one event into the notifications it implies. Exported for tests. */
@@ -163,6 +170,18 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!customerId || amount === null || amount <= 0) return [];
       // Signed and isolated (\u2066+7,250\u2069) so the plus stays left of the digits in Arabic.
       return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
+    }
+    case 'support.replied':
+    case 'support.resolved': {
+      // «عندي اعتراض» answered (S-7 follow-up): only a driver's pay query names `driverId`; the push
+      // carries the reply (or the resolution) and opens that job's receipt.
+      const driverId = str(p['driverId']);
+      const jobKey = str(p['jobKey']);
+      const jobAt = str(p['jobAt']);
+      const text = str(e.type === 'support.replied' ? p['text'] : p['resolution']);
+      if (!driverId || !jobKey || !jobAt) return [];
+      const template = e.type === 'support.replied' ? ('driver_pay_reply' as const) : ('driver_pay_resolved' as const);
+      return [{ ...base, template, to: driverId, params: { text: clip(text ?? ''), key: encodeURIComponent(jobKey), at: encodeURIComponent(jobAt) } }];
     }
     case 'seat.booked': {
       const bookingId = str(p['bookingId']);

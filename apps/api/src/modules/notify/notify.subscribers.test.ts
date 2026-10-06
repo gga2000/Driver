@@ -49,6 +49,15 @@ describe('notify subscribers: events → notifications', () => {
     // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 7_250, collectedIqd: 25_000, totalIqd: 17_750 }, { orderId: 'ord_1' }))).toEqual([{ template: 'cash_change_credit', to: 'cust', params: { amount: '\u2066+7,250\u2069' } }]);
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
+    // S-7 follow-up: support answered a driver's pay objection — the push opens that job's receipt.
+    expect(await one(event('support.replied', { ticketId: 'tk1', customerId: null, text: 'نراجع\nالحساب', driverId: 'drv', jobKey: 't_ride', jobAt: '2026-10-03T15:30:00.000Z' }))).toEqual([
+      { template: 'driver_pay_reply', to: 'drv', params: { text: 'نراجع الحساب', key: 't_ride', at: '2026-10-03T15%3A30%3A00.000Z' } },
+    ]);
+    expect(await one(event('support.resolved', { ticketId: 'tk1', resolution: 'الحساب صحيح', driverId: 'drv', jobKey: 't_ride', jobAt: '2026-10-03T15:30:00.000Z' }))).toEqual([
+      { template: 'driver_pay_resolved', to: 'drv', params: { text: 'الحساب صحيح', key: 't_ride', at: '2026-10-03T15%3A30%3A00.000Z' } },
+    ]);
+    // A customer's ticket (no driver on it) is not this push.
+    expect(await one(event('support.replied', { ticketId: 'tk2', customerId: 'cust', text: 'هلا' }))).toEqual([]);
     expect(await one(event('seat.booked', { bookingId: 'bk_1' }))).toEqual([
       { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30 ص', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
     ]);

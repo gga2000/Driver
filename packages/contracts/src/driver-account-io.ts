@@ -430,8 +430,24 @@ export const JobReceipt = z.object({
     .nullable(),
   /** An objection for this job is already with support. */
   queryOpen: z.boolean(),
+  /**
+   * His objection and what support said (partner audit S-7 follow-up): `open` («قيد المراجعة») until the
+   * ticket is resolved («انحلت»); `reply` is support's latest answer to him (never an internal note),
+   * `resolution` the closing words. Null when he never objected (and on older servers).
+   */
+  query: z
+    .object({
+      ticketId: z.string(),
+      status: z.enum(['open', 'resolved']),
+      reply: z.object({ text: z.string(), at: z.coerce.date() }).nullable(),
+      resolution: z.string().nullable(),
+      resolvedAt: z.coerce.date().nullable(),
+    })
+    .nullable()
+    .default(null),
 });
 export type JobReceipt = z.infer<typeof JobReceipt>;
+export type PayQueryStatus = NonNullable<JobReceipt['query']>;
 
 /** "عندي اعتراض": a support ticket with the job attached (receipt lines in the note). */
 export const PayQueryInput = z.object({

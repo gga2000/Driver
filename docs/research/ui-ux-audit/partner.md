@@ -353,6 +353,9 @@ or the clock.
   driver chat yet): it opens a `complaint` ticket in the Console queue with the order, trip and receipt
   in its note (`driverAccount.payQuery`, one per job). Gap: a support reply on that ticket has no
   customer to notify, so it doesn't reach the driver in the app yet.
+- **Gap closed 2026-10-06:** a Console reply or resolution pushes to the driver («الدعم ردّ على اعتراضك» /
+  «اعتراضك انحل», opens the receipt) and the receipt shows «دا نراجعه» / «انحلت» with «ردّ الدعم: …»
+  (`docs/api/driver-pay-query.md`).
 
 ### S-8 Readiness and activation checklist
 - **New drivers**: a 6-step checklist from welcome (P-12) with progress, resumable, each step

@@ -10,6 +10,7 @@ import {
   type FaultParty,
   type LedgerLineView,
   type OpenTicketInput,
+  type PayQueryStatus,
   type Order,
   type RefundLimits,
   type SlaState,
@@ -72,6 +73,14 @@ const OPEN_INCIDENTS_SCAN = 1_000;
 /** One pay objection per driver and job (`openDriverPayQuery`). */
 export function driverPayKey(driverId: string, jobKey: string): string {
   return `driver_pay:${driverId}:${jobKey}`;
+}
+
+/** The driver and job behind a pay-query ticket (`driverPayKey` read back); null for any other ticket. */
+export function driverPayJob(t: Pick<TicketRecord, 'sourceKey' | 'openedById'>): { driverId: string; jobKey: string } | null {
+  const prefix = `driver_pay:${t.openedById}:`;
+  if (!t.sourceKey?.startsWith(prefix)) return null;
+  const jobKey = t.sourceKey.slice(prefix.length);
+  return jobKey ? { driverId: t.openedById, jobKey } : null;
 }
 
 /** Same-day rule (launch playbook §4: every complaint answered the day it came): local midnight, ≥ 2 h, ≤ 24 h. */
@@ -182,7 +191,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   // ───────────────────────── opening ─────────────────────────
 
   private async create(
-    input: { cityId: string; kind: TicketRecord['kind']; channel: TicketRecord['channel']; subject: string; note: string | null; orderId: string | null; tripId: string | null; customerId: string | null; openedById: string; sourceKey: string | null },
+    input: { cityId: string; kind: TicketRecord['kind']; channel: TicketRecord['channel']; subject: string; note: string | null; orderId: string | null; tripId: string | null; customerId: string | null; openedById: string; sourceKey: string | null; openedMeta?: Record<string, unknown> },
     tx: Tx,
   ): Promise<TicketRecord> {
     const now = this.clock.now();
@@ -213,7 +222,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       },
       tx,
     );
-    await this.repo.addEntry({ ticketId: ticket.id, actorId: input.openedById, kind: 'opened', text: input.note ?? input.subject, amountIqd: null, meta: { channel: input.channel }, idempotencyKey: null, at: now }, tx);
+    await this.repo.addEntry({ ticketId: ticket.id, actorId: input.openedById, kind: 'opened', text: input.note ?? input.subject, amountIqd: null, meta: { channel: input.channel, ...(input.openedMeta ?? {}) }, idempotencyKey: null, at: now }, tx);
     await this.events.emit(
       tx,
       { actorId: input.openedById, type: 'support.ticket_opened', occurredAt: now, ...(input.orderId ? { orderId: input.orderId } : {}), payload: { ticketId: ticket.id, kind: ticket.kind, channel: ticket.channel, slaDueAt: ticket.slaDueAt.toISOString() } },
@@ -327,7 +336,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
    */
   async openDriverPayQuery(
     driverId: string,
-    input: { key: string; orderId: string | null; tripId: string | null; subject: string; note: string; cityId?: string },
+    input: { key: string; orderId: string | null; tripId: string | null; subject: string; note: string; cityId?: string; /** The job's time, so a reply push can open its receipt. */ jobAt?: Date },
   ): Promise<{ ticketId: string; openedAt: Date; alreadyOpen: boolean }> {
     const sourceKey = driverPayKey(driverId, input.key);
     const prior = await this.repo.bySourceKey(sourceKey);
@@ -348,6 +357,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
           customerId: null,
           openedById: driverId,
           sourceKey,
+          ...(input.jobAt ? { openedMeta: { jobAt: input.jobAt.toISOString() } } : {}),
         },
         tx,
       );
@@ -360,6 +370,34 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   /** Whether the driver already sent an objection for this job (the receipt says "وصل اعتراضك"). */
   async driverPayQueryOpen(driverId: string, key: string): Promise<boolean> {
     return (await this.repo.bySourceKey(driverPayKey(driverId, key))) !== null;
+  }
+
+  /**
+   * His objection on this job as the receipt shows it (S-7 follow-up): «قيد المراجعة» until resolved,
+   * «انحلت» after; support's latest reply to him (internal notes never) and the closing words.
+   */
+  async driverPayQuery(driverId: string, key: string): Promise<PayQueryStatus | null> {
+    const t = await this.repo.bySourceKey(driverPayKey(driverId, key));
+    if (!t) return null;
+    const replies = (await this.repo.entries(t.id)).filter((e) => e.kind === 'reply').sort((a, b) => a.at.getTime() - b.at.getTime());
+    const last = replies[replies.length - 1];
+    const resolved = t.status === 'resolved';
+    return {
+      ticketId: t.id,
+      status: resolved ? 'resolved' : 'open',
+      reply: last ? { text: last.text, at: last.at } : null,
+      resolution: resolved ? t.resolution : null,
+      resolvedAt: resolved ? t.resolvedAt : null,
+    };
+  }
+
+  /** What a reply / resolve event tells notify about a driver's pay query: who, which job and when it was. */
+  private async driverPayPayload(t: TicketRecord): Promise<Record<string, string>> {
+    const job = driverPayJob(t);
+    if (!job) return {};
+    const opened = (await this.repo.entries(t.id)).find((e) => e.kind === 'opened');
+    const jobAt = typeof opened?.meta['jobAt'] === 'string' ? opened.meta['jobAt'] : t.openedAt.toISOString();
+    return { driverId: job.driverId, jobKey: job.jobKey, jobAt };
   }
 
   /** Incidents keep a trip's safety data while open (scoring & safety retention). */
@@ -630,6 +668,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const ticket = await this.load(input.ticketId);
     if (ticket.status === 'resolved') throw new DriverError('ticket_closed');
     const now = this.clock.now();
+    const driverPay = input.internal ? {} : await this.driverPayPayload(ticket);
     await this.uow.run(async (tx) => {
       await this.repo.addEntry({ ticketId: ticket.id, actorId: actor.personId, kind: input.internal ? 'note' : 'reply', text: input.text, amountIqd: null, meta: input.cannedKey ? { cannedKey: input.cannedKey } : {}, idempotencyKey: null, at: now }, tx);
       await this.touch(ticket, actor, input.internal ? {} : { firstResponseAt: ticket.firstResponseAt ?? now, status: ticket.status === 'open' ? 'waiting' : ticket.status }, tx);
@@ -637,7 +676,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
         // The customer gets the answer through notify (push / WhatsApp per the channel policy).
         await this.events.emit(
           tx,
-          { actorId: actor.personId, type: 'support.replied', occurredAt: now, ...(ticket.orderId ? { orderId: ticket.orderId } : {}), payload: { ticketId: ticket.id, customerId: ticket.customerId, channel: ticket.channel, text: input.text } },
+          { actorId: actor.personId, type: 'support.replied', occurredAt: now, ...(ticket.orderId ? { orderId: ticket.orderId } : {}), payload: { ticketId: ticket.id, customerId: ticket.customerId, channel: ticket.channel, text: input.text, ...driverPay } },
           { name: 'support_ticket', id: ticket.id },
         );
       }
@@ -743,13 +782,14 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const ticket = await this.load(input.ticketId);
     if (ticket.status === 'resolved') throw new DriverError('ticket_closed');
     const now = this.clock.now();
+    const driverPay = await this.driverPayPayload(ticket);
     await this.uow.run(async (tx) => {
       await this.repo.addEntry({ ticketId: ticket.id, actorId: actor.personId, kind: 'resolve', text: input.resolution, amountIqd: null, meta: {}, idempotencyKey: null, at: now }, tx);
       await this.touch(ticket, actor, { status: 'resolved', resolvedAt: now, resolution: input.resolution, firstResponseAt: ticket.firstResponseAt ?? now }, tx);
       // "هل انحلت مشكلتك؟" goes to the customer with the resolution (support spec §2).
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'support.resolved', occurredAt: now, ...(ticket.orderId ? { orderId: ticket.orderId } : {}), payload: { ticketId: ticket.id, customerId: ticket.customerId, refundedIqd: ticket.refundedIqd, faultParty: ticket.faultParty, survey: true } },
+        { actorId: actor.personId, type: 'support.resolved', occurredAt: now, ...(ticket.orderId ? { orderId: ticket.orderId } : {}), payload: { ticketId: ticket.id, customerId: ticket.customerId, refundedIqd: ticket.refundedIqd, faultParty: ticket.faultParty, survey: true, resolution: input.resolution, ...driverPay } },
         { name: 'support_ticket', id: ticket.id },
       );
       await this.audits.record({ cityId: ticket.cityId, actorId: actor.personId, action: 'ticket.resolve', subjectKind: 'ticket', subjectId: ticket.id, summaryAr: `حلّ التذكرة: ${input.resolution.slice(0, 80)}` }, tx);
