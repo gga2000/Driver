@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import type { RequestPostView, TravellingAs } from '@driver/contracts';
-import { Avatar, Button, Card, Chip, ChipGroup, Icon, Rule, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
+import { Button, Card, Chip, ChipGroup, Icon, Rule, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { driverLabel, requestStateLabel, seatsCount, shortId, slotLabel, TRAVELLING_AS, travellingAsLabel } from '@/features/rajaa/labels';
+import { requestStateLabel, seatsCount, slotLabel, TRAVELLING_AS, travellingAsLabel } from '@/features/rajaa/labels';
+import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, type RequestDay } from '@/features/rajaa/logic';
 import { RuleList, Section } from '@/features/rajaa/Option';
 import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest } from '@/features/rajaa/queries';
@@ -49,9 +50,10 @@ function RequestCard({ r }: { r: RequestPostView }) {
 
         {r.state === 'matched' && picked ? (
           <View style={{ gap: theme.space[2] }}>
-            <Text variant="label" weight={600} color="successText">
-              {t('rajaa.req_matched', { id: shortId(picked.driverId), amount: amountParam(picked.priceIqd) })}
+            <Text variant="label" weight={600} color="successText" testID="rajaa-req-matched">
+              {t('rajaa.req_matched', { name: picked.driver?.firstName ?? t('rajaa.driver_unnamed'), amount: amountParam(picked.priceIqd) })}
             </Text>
+            <RajaaDriver dep={{ vehicle: picked.driver?.vehicle ?? null }} card={picked.driver} testID="rajaa-req-matched-driver" />
             {r.depositIqd ? (
               <Text variant="footnote" color="textMuted">
                 {t('request.deposit', { amount: amountParam(r.depositIqd) })}
@@ -71,8 +73,9 @@ function RequestCard({ r }: { r: RequestPostView }) {
             </View>
           ) : (
             <View style={{ gap: theme.space[2] }}>
-              <Text variant="caption" color="textMuted" weight={600}>
-                {t('rajaa.req_offers')}
+              {/* R-01: sorted by price and said so; every offer gets the same button (no default pick). */}
+              <Text variant="caption" color="textMuted" weight={600} testID="rajaa-offers-header">
+                {t('rajaa.req_offers_count', { count: offers.length })}
               </Text>
               {offers.map((o, i) => {
                 const deposit = depositFor(o.priceIqd);
@@ -80,15 +83,12 @@ function RequestCard({ r }: { r: RequestPostView }) {
                 return (
                   <View key={o.id} style={{ gap: theme.space[2] }}>
                     {i > 0 ? <Rule /> : null}
+                    <RajaaDriver dep={{ vehicle: o.driver?.vehicle ?? null }} card={o.driver} testID={`offer-driver-${o.id}`} />
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                      <Avatar size={32} icon="user" />
-                      <View style={{ flex: 1 }}>
-                        <Text variant="label">{driverLabel(t, o.driverId)}</Text>
-                        <Text variant="bodyStrong" tabular>
-                          {iqd(o.priceIqd, { locale })}
-                        </Text>
-                      </View>
-                      {!open ? <Button testID={`offer-${o.id}`} size="sm" variant={i === 0 ? 'primary' : 'secondary'} label={t('request.pick')} onPress={() => setConfirming(o.id)} /> : null}
+                      <Text variant="bodyStrong" tabular style={{ flex: 1 }} testID={`offer-price-${o.id}`}>
+                        {iqd(o.priceIqd, { locale })}
+                      </Text>
+                      {!open ? <Button testID={`offer-${o.id}`} variant="secondary" label={t('request.pick')} onPress={() => setConfirming(o.id)} /> : null}
                     </View>
                     {open ? (
                       <Card tone="sunken" elevation={0} padding={4} testID="rajaa-deposit">

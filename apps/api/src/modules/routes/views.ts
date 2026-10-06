@@ -10,6 +10,7 @@ import type {
   GarageView,
   PickupView,
   PrepayRail,
+  RequestOfferDriver,
   RequestPostView,
   TravellingAs,
 } from '@driver/contracts';
@@ -274,7 +275,11 @@ export function demandView(p: DemandPostRecord): DemandPostView {
 }
 
 /** `viewerDriverId`: a driver sees only his own offer among the others' (prices are not shown to rivals). */
-export function requestView(r: RequestRecord, viewerDriverId?: string): RequestPostView {
+/**
+ * A request as its rider (or, with `viewerDriverId`, one offering driver) sees it. `drivers` carries
+ * the offering drivers' cards for the rider (R-01); without it every offer's `driver` is null.
+ */
+export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?: ReadonlyMap<string, RequestOfferDriver>): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
     id: r.id,
@@ -295,6 +300,7 @@ export function requestView(r: RequestRecord, viewerDriverId?: string): RequestP
       priceIqd: o.priceIqd,
       at: o.at,
       state: o.state,
+      driver: drivers?.get(o.driverId) ?? null,
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,

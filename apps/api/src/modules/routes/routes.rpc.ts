@@ -17,6 +17,7 @@ import {
   type IntercityBoard,
   type IntercityNetwork,
   type RajaaDriverCard,
+  type RequestOfferDriver,
   type RequestPostView,
   type RoutesPort,
 } from '@driver/contracts';
@@ -24,7 +25,7 @@ import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { directionFrom } from './intercity.config.js';
 import { riderMeterMinutes } from './late-meter.js';
-import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord } from './model.js';
+import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type RequestRecord } from './model.js';
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
@@ -256,26 +257,58 @@ export class RoutesRpc implements RoutesPort {
   async postRequest(actor: Actor, input: In<'postRequest'>): Promise<RequestPostView> {
     // The request board has no corridor: only a switch on الرجعة as a whole stops it.
     await this.controls?.assertCorridorOpen({ cityId: HOME_CITY, corridorId: '*' });
-    return requestView(await this.requests.post(actor.personId, input));
+    return this.riderRequestView(await this.requests.post(actor.personId, input), actor.personId);
   }
 
   async myRequests(actor: Actor): Promise<RequestPostView[]> {
-    return (await this.requests.mine(actor.personId)).map((r) => requestView(r));
+    const mine = await this.requests.mine(actor.personId);
+    const drivers = await this.offerDrivers(mine, actor.personId);
+    return mine.map((r) => requestView(r, undefined, drivers));
   }
 
   async pickOffer(actor: Actor, input: In<'pickOffer'>): Promise<RequestPostView> {
-    return requestView(await this.requests.pick(actor.personId, input.postId, input.offerId));
+    return this.riderRequestView(await this.requests.pick(actor.personId, input.postId, input.offerId), actor.personId);
   }
 
   async cancelRequest(actor: Actor, input: In<'cancelRequest'>): Promise<RequestPostView> {
-    return requestView(await this.requests.cancel(actor.personId, input.postId));
+    return this.riderRequestView(await this.requests.cancel(actor.personId, input.postId), actor.personId);
+  }
+
+  private async riderRequestView(r: RequestRecord, riderId: string): Promise<RequestPostView> {
+    return requestView(r, undefined, await this.offerDrivers([r], riderId));
+  }
+
+  /**
+   * The offering drivers' cards for the rider (R-01): first names in one vault read (purpose
+   * `intercity_driver_card`, the rider as accessor), and from each driver's latest departure his car
+   * and whether he did a selfie check-in today. Never a phone or a full name.
+   */
+  private async offerDrivers(records: readonly RequestRecord[], riderId: string): Promise<Map<string, RequestOfferDriver>> {
+    const ids = [...new Set(records.flatMap((r) => r.offers.map((o) => o.driverId)))];
+    const out = new Map<string, RequestOfferDriver>();
+    if (ids.length === 0) return out;
+    const now = this.departures.now();
+    const names = this.names ? await this.names.firstNamesFor(ids, riderId, 'intercity_driver_card') : {};
+    for (const id of ids) {
+      const deps = await this.repo.listDepartures({ driverId: id });
+      const latest = deps.reduce<DepartureRecord | null>((a, d) => (!a || d.announcedAt > a.announcedAt ? d : a), null);
+      const checkIn = deps.map((d) => d.selfieAt).filter((at): at is Date => at !== null && sameBaghdadDay(at, now));
+      out.set(id, {
+        firstName: names[id] ?? null,
+        verifiedTodayAt: checkIn.length > 0 ? new Date(Math.max(...checkIn.map((d) => d.getTime()))) : null,
+        // Public driver portraits are an open decision (selfies stay in the vault); the app draws the initial.
+        photoUrl: null,
+        vehicle: latest ? { ...latest.vehicle, layout: latest.layout } : null,
+      });
+    }
+    return out;
   }
 
   async reportDriverNoShow(
     actor: Actor,
     input: In<'reportDriverNoShow'>,
   ): Promise<RequestPostView> {
-    return requestView(await this.requests.driverNoShow(actor.personId, input.postId));
+    return this.riderRequestView(await this.requests.driverNoShow(actor.personId, input.postId), actor.personId);
   }
 
   // ───────────────────────── drivers ─────────────────────────

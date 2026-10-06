@@ -1,14 +1,16 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import type { DemandPickup, IntercityDirection, TravellingAs } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, ltr, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { driverLabel, routeLabel, seatsCount, seatsList, TRAVELLING_AS, travellingAsLabel, vehicleLine, windowLabel } from '@/features/rajaa/labels';
+import { HeaderBack } from '@/features/food/HeaderBack';
+import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
+import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, demandWindows, endpoints, holdCountdown, hourLabel, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
-import { garageName, useBoard, useCancelDemand, useMyBookings, useMyDemand, useNetwork, usePostDemand } from '@/features/rajaa/queries';
+import { garageName, useBoard, useCancelDemand, useDriverCards, useMyBookings, useMyDemand, useNetwork, usePostDemand } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -55,6 +57,10 @@ export default function DemandScreen() {
     .filter((p) => p.state === 'claimed' && p.bookingId)
     .map((p) => ({ p, b: bookings.data?.find((b) => b.id === p.bookingId) }))
     .find((x) => x.b && (x.b.state === 'held' || x.b.state === 'booked'));
+  // R-02: who drives the car that claimed the seat (first name, today's check-in, the plate).
+  const cards = useDriverCards(claimed?.b ? [claimed.b.departure.id] : []);
+  // Opened from a push there is nothing to go back to: back goes to الرجعة (C-26).
+  const back = <Stack.Screen options={{ headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />;
 
   if (mine.isPending || network.isPending) {
     return (
@@ -70,6 +76,7 @@ export default function DemandScreen() {
     const b = claimed.b;
     const cd = b.state === 'held' && b.heldUntil ? holdCountdown(b.heldUntil, now) : null;
     const place = garageName(network.data, b.departure.garageId);
+    const card = cards.data?.get(b.departure.id);
     return (
       <Screen
         testID="rajaa-demand-claimed"
@@ -85,6 +92,7 @@ export default function DemandScreen() {
           />
         }
       >
+        {back}
         <View style={{ alignItems: 'center', gap: theme.space[3], paddingTop: theme.space[4] }}>
           {cd && !cd.expired ? (
             <CountdownRing mode="accept" format="clock" size={140} strokeWidth={8} urgentMs={60_000} startedAt={b.heldUntil!.getTime() - HOLD_MS} durationMs={HOLD_MS} caption={t('rajaa.hold_left')} />
@@ -93,8 +101,8 @@ export default function DemandScreen() {
               <Icon name="check" size={44} color="successText" strokeWidth={2.4} />
             </View>
           )}
-          <Text variant="heading" align="center">
-            {t('push.demand_claimed.title')}
+          <Text variant="heading" align="center" testID="rajaa-claim-title">
+            {card?.firstName ? t('demand.claimed_with', { name: card.firstName }) : t('push.demand_claimed.title')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
             {t('demand.claimed', { time: clockLabel(b.departure.departAt), place })}
@@ -116,8 +124,9 @@ export default function DemandScreen() {
             <Text variant="footnote" color="textMuted">
               {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
             </Text>
+            <RajaaDriver dep={b.departure} card={card} testID="rajaa-claim-driver" style={{ marginTop: theme.space[2] }} />
             <Text variant="footnote" color="textMuted">
-              {t('rajaa.seat_label')}: {seatsList(t, b.seatIds)} · {driverLabel(t, b.departure.driverId)} · {vehicleLine(t, b.departure.vehicle)}
+              {t('rajaa.seat_label')}: {seatsList(t, b.seatIds)}
             </Text>
           </View>
         </Card>

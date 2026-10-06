@@ -495,12 +495,27 @@ export const RequestState = z.enum([
 ]);
 export type RequestState = z.infer<typeof RequestState>;
 
+/**
+ * Who offers on a request, as the rider sees him (R-01, C-19): first name only (identity vault,
+ * purpose `intercity_driver_card`), whether he did a run's selfie check-in today, his car as on his
+ * latest departure, and a photo once public portraits exist (null today: the app draws his initial).
+ * Null on a driver's own view of the board.
+ */
+export const RequestOfferDriver = z.object({
+  firstName: z.string().nullable(),
+  verifiedTodayAt: z.coerce.date().nullable(),
+  photoUrl: z.string().url().nullable(),
+  vehicle: IntercityVehicle.nullable(),
+});
+export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
+
 export const RequestOfferView = z.object({
   id: z.string(),
   driverId: z.string(),
   priceIqd: Iqd,
   at: z.coerce.date(),
   state: z.enum(['open', 'picked', 'withdrawn', 'lost']),
+  driver: RequestOfferDriver.nullable(),
 });
 export type RequestOfferView = z.infer<typeof RequestOfferView>;
 

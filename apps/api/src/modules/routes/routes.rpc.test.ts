@@ -223,6 +223,28 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     expect(await rider.driverCards({ departureIds: [dep.id] })).toEqual([]);
   });
 
+  it('requestBoard offers carry the driver card for the rider: first name, today\'s check-in, his car (R-01)', async () => {
+    const h = routesHarness();
+    const rider = as(h, 'r1', ['customer']);
+    const driver = as(h, 'd1', ['intercity_driver']);
+    const fresh = as(h, 'd3', ['intercity_driver']);
+    h.riderNames.set('d1', 'حيدر كاظم جواد');
+    const dep = await h.announce({ vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 12345', model: 'سوناتا', color: 'بيضاء' } });
+    await driver.driver.selfie({ departureId: dep.id, selfieRef: 'blob/selfie' });
+    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة ١', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 2, travellingAs: 'aila' });
+    await driver.requestBoard.offer({ postId: rq.id, priceIqd: 45_000 });
+    await fresh.requestBoard.offer({ postId: rq.id, priceIqd: 40_000 });
+    const [mine] = await rider.requestBoard.mine();
+    const byDriver = new Map(mine!.offers.map((o) => [o.driverId, o.driver]));
+    expect(byDriver.get('d1')).toMatchObject({ firstName: 'حيدر', photoUrl: null, vehicle: { kind: 'saloon', plate: 'واسط 12345', model: 'سوناتا', color: 'بيضاء' } });
+    expect(byDriver.get('d1')!.verifiedTodayAt).toBeInstanceOf(Date);
+    expect(byDriver.get('d3')).toEqual({ firstName: null, verifiedTodayAt: null, photoUrl: null, vehicle: null });
+    expect(JSON.stringify(mine)).not.toContain('كاظم');
+    // The driver's own view of the board does not read other drivers' names.
+    const [seen] = await driver.requestBoard.list({});
+    expect(seen!.offers.every((o) => o.driver === null)).toBe(true);
+  });
+
   it('requestBoard.myRides: only rides that picked his offer, with price, cash to collect and the no-show time', async () => {
     const h = routesHarness();
     const rider = as(h, 'r1', ['customer']);
