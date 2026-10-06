@@ -30,6 +30,8 @@ export interface PlaceEditorValue {
 export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false, entrance: null, landmarkId: null };
 
 const LABEL_KEY = { home: 'onboarding.place_label_home', work: 'onboarding.place_label_work', custom: 'onboarding.place_label_other' } as const;
+/** The pin hint names the right door: home, work, or just «الباب» for any other place. */
+const MAP_HINT_KEY = { home: 'place.map_hint_home', work: 'place.map_hint_work', custom: 'place.map_hint_custom' } as const satisfies Record<SavedPlaceLabel, string>;
 
 export function defaultPlaceName(label: SavedPlaceLabel, t: TFn): string {
   return t(LABEL_KEY[label]);
@@ -134,9 +136,9 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
       <View style={{ gap: theme.space[3] }}>
         <Text variant="title">{t('place.where_title')}</Text>
         <Text variant="footnote" color="textMuted">
-          {t('place.map_hint')}
+          {t(MAP_HINT_KEY[value.label])}
         </Text>
-        <View testID="place-map" accessibilityLabel={t('place.map_hint')} style={{ height: 280, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+        <View testID="place-map" accessibilityLabel={t(MAP_HINT_KEY[value.label])} style={{ height: 280, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
           <PinPicker initial={start} onCentre={setPin} onMoving={() => undefined} recentre={recentre} />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
