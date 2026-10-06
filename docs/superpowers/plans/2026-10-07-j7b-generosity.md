@@ -60,7 +60,7 @@ merged — only one-line hook points here), packages/map, tips and driver photos
 | Area | Files |
 |---|---|
 | Contracts | `order.ts` (`PlaceOrderInput.gift`, `Order.gift`), `partner-io.ts` (`PartnerJobStop.gift`), `merchant-io.ts` (`BoardOrder.gift`), new `referral-io.ts` + `routers/referral.ts`, `router.ts`, `trpc.ts`, `errors.ts`, `index.ts` |
-| DB | `schema.prisma`; migration `20261007180000_j7b_gifts_invites` (orders columns + `invite_codes` + `referrals`, ends with `driver_harden`) |
+| DB | `schema.prisma`; migration `20261007200000_j7b_gifts_invites` (orders columns + `invite_codes` + `referrals`, ends with `driver_harden`) |
 | API | `modules/orders` (gift validation and storage, `referredBy` on the money fact, `placedCount`), `modules/partner` (stop gift), `modules/merchant` (board gift), new `modules/referrals`, `trpc/trpc.module.ts`, `app.module.ts` |
 | Customer | `features/gift/*` (gift.ts + test, gift-store.ts, GiftCard.tsx), `app/checkout.tsx`, `app/kitchen/[id].tsx`, `app/order/[id].tsx` (actions), `features/invite/*` (invite.ts + test, queries), `app/invite.tsx`, `app/i/[code].tsx`, `lib/guard.ts`, `features/stickers/*`, `app/stickers.tsx`, `assets/stickers/*`, `features/share-card/*` (share-card.ts + test, ShareCardView, render.ts / render.native.ts, ShareCardPanel), `app/rajaa/pass/[id].tsx` (one hook line), `app/(tabs)/account.tsx` (two rows), `scripts/demo-api.mjs`, `scripts/web-shots.mjs`, `scripts/stickers-export.mjs`, `README.md` |
 | Partner | `app/job.tsx` (gift note on the drop-off), `src/features/work/gift.ts` (+test) |
@@ -78,7 +78,7 @@ merged — only one-line hook points here), packages/map, tips and driver photos
 - [ ] `PartnerJobStop.gift?: { hidePrices: boolean } | null`; `BoardOrder.gift?: { hidePrices: boolean } | null`.
 - [ ] `referral-io.ts`: `InviteRule` (pointsPerSide, pointValueIqd, minOrderIqd, unlockOnOrder, monthlyCap), `InviteView` (code, path `/i/<code>`, rule, invited, rewarded), `InvitePreview` (inviterFirstName, rule, valid), `ClaimInviteInput`, `ClaimInviteOutput`, `ReferralsPort`. Router `referral.{mine, preview (public), claim}`.
 - [ ] Errors: `gift_needs_recipient`, `gift_hidden_prices_need_wallet`, `invite_invalid`, `invite_own`, `invite_not_new`, `invite_already_claimed` (+ ar/en `error.*`).
-- [ ] Prisma: `Order.gift`, `Order.giftHidePrices`; `InviteCode {personId @id, code @unique, createdAt}`, `Referral {refereeId @id, referrerId, code, claimedAt}` (+ index on referrerId). Migration `20261007180000_j7b_gifts_invites` ending with the `driver_harden` call.
+- [ ] Prisma: `Order.gift`, `Order.giftHidePrices`; `InviteCode {personId @id, code @unique, createdAt}`, `Referral {refereeId @id, referrerId, code, claimedAt}` (+ index on referrerId). Migration `20261007200000_j7b_gifts_invites` ending with the `driver_harden` call.
 - [ ] Contract tests: gift input parses, invite path shape. Commit.
 
 ## Task 2 — API: gift orders (g1 server)

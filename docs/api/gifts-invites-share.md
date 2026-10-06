@@ -1,6 +1,6 @@
 # Gifts, invitations, stickers and the share card (joy J7b, 2026-10-07)
 
-Plan: `docs/superpowers/plans/2026-10-07-j7b-generosity.md`. Migration: `20261007180000_j7b_gifts_invites`
+Plan: `docs/superpowers/plans/2026-10-07-j7b-generosity.md`. Migration: `20261007200000_j7b_gifts_invites`
 (two order columns, `invite_codes`, `referrals`; ids and codes only). **No money rule changes.**
 
 ## «عزيمة» — a meal as a gift (g1)
