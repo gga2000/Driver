@@ -63,6 +63,21 @@ export function motifForDish(name: string, section?: string): Motif {
   return 'plate';
 }
 
+/** Kitchen words on home's cuisine circles that no dish name uses. */
+const BY_CUISINE: ReadonlyArray<readonly [RegExp, Motif]> = [
+  [/فطور|ريوك|ريوگ/, 'tea'],
+  [/حلويات/, 'sweet'],
+  [/مشويات/, 'kebab'],
+  [/معجنات/, 'bread'],
+  [/عصائر/, 'juice'],
+];
+
+/** The dish a cuisine word on home stands for («كباب», «تمن ومرق», «فطور»): its round picture (joy b6). */
+export function motifForCuisine(word: string): Motif {
+  for (const [re, m] of BY_CUISINE) if (re.test(word)) return m;
+  return motifForDish(word);
+}
+
 /** A kitchen's hero scene, from its cuisine tags. */
 export function motifForKitchen(tags: readonly string[]): Motif {
   if (tags.includes('shawarma')) return 'shawarma';
