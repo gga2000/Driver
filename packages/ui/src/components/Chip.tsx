@@ -60,6 +60,8 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
             borderColor: border,
             flexDirection: 'row',
             alignItems: 'center',
+            // Centred when a grid cell makes the chip wider than its label.
+            justifyContent: 'center',
             gap: theme.space[2],
             paddingStart: avatar ? 4 : theme.space[4],
             paddingEnd: theme.space[4],
@@ -114,29 +116,59 @@ export interface ChipGroupProps {
   accessibilityLabel?: string;
   /** Trailing action chip, e.g. "ضيف شخص". */
   action?: { label: string; icon?: IconName; onPress: () => void };
+  /**
+   * An even grid of this many chips per row, each the same width (e.g. 2 → the four "راح أدفع بـ"
+   * notes as 2×2), instead of wrapping by length — no chip is left alone on a row of its own.
+   */
+  columns?: number;
   style?: StyleProp<ViewStyle>;
 }
 
-export function ChipGroup({ items, value, onChange, mode = 'single', required, accessibilityLabel, action, style }: ChipGroupProps) {
+/** Rows of `columns` items; the last row is padded with nulls so every cell keeps the same width. */
+export function chipRows<T>(items: readonly T[], columns: number): Array<Array<T | null>> {
+  const n = Math.max(1, Math.floor(columns));
+  const rows: Array<Array<T | null>> = [];
+  for (let i = 0; i < items.length; i += n) {
+    const row: Array<T | null> = items.slice(i, i + n);
+    while (row.length < n) row.push(null);
+    rows.push(row);
+  }
+  return rows;
+}
+
+export function ChipGroup({ items, value, onChange, mode = 'single', required, accessibilityLabel, action, columns, style }: ChipGroupProps) {
   const theme = useTheme();
+  const chip = (it: ChipGroupItem, cell?: StyleProp<ViewStyle>) => (
+    <Chip
+      key={it.id}
+      testID={`chip-${it.id}`}
+      label={it.label}
+      icon={it.icon}
+      avatar={it.avatar}
+      role={mode === 'single' ? 'radio' : 'checkbox'}
+      selected={value.includes(it.id)}
+      onPress={() => onChange(nextChipSelection(value, it.id, mode, required))}
+      style={cell}
+    />
+  );
+  if (columns && columns > 0) {
+    return (
+      <View accessibilityRole={mode === 'single' ? 'radiogroup' : undefined} accessibilityLabel={accessibilityLabel} style={[{ gap: theme.space[2] }, style]}>
+        {chipRows(items, columns).map((row, r) => (
+          <View key={`row-${r}`} style={{ flexDirection: 'row', gap: theme.space[2] }}>
+            {row.map((it, c) => (it ? chip(it, { flex: 1 }) : <View key={`empty-${r}-${c}`} style={{ flex: 1 }} />))}
+          </View>
+        ))}
+      </View>
+    );
+  }
   return (
     <View
       accessibilityRole={mode === 'single' ? 'radiogroup' : undefined}
       accessibilityLabel={accessibilityLabel}
       style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }, style]}
     >
-      {items.map((it) => (
-        <Chip
-          key={it.id}
-          testID={`chip-${it.id}`}
-          label={it.label}
-          icon={it.icon}
-          avatar={it.avatar}
-          role={mode === 'single' ? 'radio' : 'checkbox'}
-          selected={value.includes(it.id)}
-          onPress={() => onChange(nextChipSelection(value, it.id, mode, required))}
-        />
-      ))}
+      {items.map((it) => chip(it))}
       {action ? (
         <Chip
           label={action.label}

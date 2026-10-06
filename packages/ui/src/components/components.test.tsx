@@ -3,7 +3,7 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderUI } from '../test/render';
 import type { SeatId, SeatInfo } from '../logic/seats';
-import { ChipGroup, nextChipSelection } from './Chip';
+import { ChipGroup, chipRows, nextChipSelection } from './Chip';
 import { CountdownRing } from './CountdownRing';
 import { PriceBreakdown } from './PriceBreakdown';
 import { SeatMap } from './SeatMap';
@@ -244,5 +244,40 @@ describe('Chip selection', () => {
     fireEvent.click(sara); // required: can't empty the group
     expect(sara.getAttribute('aria-checked')).toBe('true');
     expect(haptic).toHaveBeenCalledWith('selection');
+  });
+});
+
+describe('ChipGroup columns', () => {
+  it('lays chips out in even rows, padding the last one so no chip sits alone at full width', () => {
+    expect(chipRows(['a', 'b', 'c', 'd'], 2)).toEqual([
+      ['a', 'b'],
+      ['c', 'd'],
+    ]);
+    expect(chipRows(['a', 'b', 'c'], 2)).toEqual([
+      ['a', 'b'],
+      ['c', null],
+    ]);
+    expect(chipRows(['a'], 0)).toEqual([['a']]);
+    expect(chipRows([], 2)).toEqual([]);
+  });
+
+  it('renders every chip in the grid as a radio of the group', () => {
+    renderUI(
+      <ChipGroup
+        columns={2}
+        value={['n-20000']}
+        onChange={() => undefined}
+        accessibilityLabel="راح أدفع بـ"
+        items={[
+          { id: 'n-14750', label: '14,750 بالضبط' },
+          { id: 'n-20000', label: '20,000' },
+          { id: 'n-25000', label: '25,000' },
+          { id: 'n-50000', label: '50,000' },
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    expect(screen.getByTestId('chip-n-20000').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('chip-n-50000').getAttribute('aria-checked')).toBe('false');
   });
 });

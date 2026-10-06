@@ -26,6 +26,15 @@ describe('DepartureTime', () => {
     expect(screen.getByTestId('pass').getAttribute('aria-label')).toBe('7:38 المسا، اليوم، بعد 38 دقيقة');
   });
 
+  it('an accent note reads as news ("الصعود بدأ"), a plain one stays muted', () => {
+    const { rerender } = renderUI(<DepartureTime at={NOW + 10 * 60_000} now={NOW} note="الصعود بدأ" noteTone="accent" testID="dt" />);
+    const accent = getComputedStyle(screen.getByTestId('dt-sub')).color;
+    rerender(<DepartureTime at={NOW + 10 * 60_000} now={NOW} note="الصعود بدأ" testID="dt" />);
+    const muted = getComputedStyle(screen.getByTestId('dt-sub')).color;
+    expect(screen.getByTestId('dt-sub').textContent).toBe('الصعود بدأ');
+    expect(accent).not.toBe(muted);
+  });
+
   it('changes digits in place when the time moves (reduced motion: no flip left behind)', () => {
     const { rerender } = renderUI(<DepartureTime at={NOW + 5 * 60_000} now={NOW} countdown={false} />);
     expect(screen.getByTestId('departure-time-digits').textContent).toBe('7:05');

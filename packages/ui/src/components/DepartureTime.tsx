@@ -25,6 +25,8 @@ export interface DepartureTimeProps {
   countdown?: boolean;
   /** A line in place of the countdown ("أو من تكمل · آخر وقت 8:00 م"). */
   note?: string;
+  /** The note as news, not a footnote: "الصعود بدأ" in the accent (default muted). */
+  noteTone?: 'muted' | 'accent';
   tone?: DepartureTimeTone;
   /** Say «اليوم» too, and the part of day in words («6:15 المسا»): the boarding pass (R-06). */
   passStyle?: boolean;
@@ -121,7 +123,7 @@ function FlapCell({ char, m, tone }: { char: string; m: Metrics; tone: Departure
  * city's clock (Asia/Baghdad). Used for الرجعة departures, khat stops and the food ETA ("يوصلك"),
  * so ETAs read like departures. The whole thing is one accessible text: "7:05 م، باچر، بعد 52 دقيقة".
  */
-export function DepartureTime({ at, now, size = 'card', label, countdown = true, note, tone = 'ink', passStyle = false, pastWarning = true, align = 'start', locale = 'ar-IQ', style, testID = 'departure-time' }: DepartureTimeProps) {
+export function DepartureTime({ at, now, size = 'card', label, countdown = true, note, noteTone = 'muted', tone = 'ink', passStyle = false, pastWarning = true, align = 'start', locale = 'ar-IQ', style, testID = 'departure-time' }: DepartureTimeProps) {
   const theme = useTheme();
   const m = METRICS[size];
   const atMs = typeof at === 'number' ? at : at.getTime();
@@ -159,7 +161,14 @@ export function DepartureTime({ at, now, size = 'card', label, countdown = true,
         </Text>
       </View>
       {sub ? (
-        <Text testID={`${testID}-sub`} variant={m.sub} weight={600} color={parts.past && pastWarning ? 'warningText' : 'textMuted'} tabular importantForAccessibility="no-hide-descendants">
+        <Text
+          testID={`${testID}-sub`}
+          variant={m.sub}
+          weight={note && noteTone === 'accent' ? 700 : 600}
+          color={parts.past && pastWarning ? 'warningText' : note && noteTone === 'accent' ? 'accentText' : 'textMuted'}
+          tabular
+          importantForAccessibility="no-hide-descendants"
+        >
           {sub}
         </Text>
       ) : null}
