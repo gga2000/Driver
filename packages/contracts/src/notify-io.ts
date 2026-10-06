@@ -117,6 +117,7 @@ export const NotifyTemplateId = z.enum([
   'wallet_topup_receipt',
   'cash_change_credit',
   'rajaa_boarding_pass',
+  'rajaa_pass_update',
   'khat_child_arrived',
   'khat_sweep_reminder',
   'sos_dispatch_alert',
@@ -151,6 +152,11 @@ export interface NotifyTemplateDef {
     androidChannel: AndroidChannelId;
     /** Deep link with `{param}` placeholders (every notification opens its screen, domain §8). */
     deepLink: string;
+    /**
+     * Data-only: no title, body or sound reach the phone — the app reads `data` and updates something
+     * it already shows (the الرجعة lock-screen card). Title and body still name it in the delivery log.
+     */
+    silent?: boolean;
   };
   whatsapp?: WhatsAppTemplateDef;
   /** Channels attempted at once (subject to preferences). */
@@ -343,6 +349,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('wallet_topup_receipt', 'wa.topup_receipt', ['amount', 'date', 'reference'], ['25,000', '2026-10-04', 'TU-2610-0007']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // The lock-screen boarding pass kept current with the app closed (customer d-8 follow-up): a data-only
+  // push per boarding moment; the app re-posts the Android ongoing card from it (`RajaaPassPush`).
+  rajaa_pass_update: {
+    id: 'rajaa_pass_update',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.rajaa_pass_update.title', body: 'push.rajaa_pass_update.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}', silent: true },
+    primary: ['push'],
     quietHours: 'send',
   },
   rajaa_boarding_pass: {

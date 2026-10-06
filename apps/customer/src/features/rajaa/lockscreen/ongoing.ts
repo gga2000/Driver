@@ -3,6 +3,7 @@
  * (Android ongoing notification through expo-notifications). This file is the web / test build:
  * a browser has no lock screen, so every call is a no-op and `supported` is false.
  */
+import type { RajaaPassPush } from '@driver/contracts';
 import type { PassCard } from './content';
 
 export interface OngoingLabels {
@@ -23,6 +24,11 @@ export interface OngoingPassDevice {
   dismiss(id: string): Promise<void>;
   /** "أني بالكراج" pressed on the card (the app comes to the front first). */
   onImHere(cb: (bookingId: string) => void): () => void;
+  /**
+   * A server pass update (data-only push) arrived while the app's JS is running — foreground, or alive
+   * in the background. With the app killed it needs a headless task (`expo-task-manager`, follow-up).
+   */
+  onPassPush(cb: (push: RajaaPassPush) => void): () => void;
 }
 
 export const ongoingPass: OngoingPassDevice = {
@@ -31,4 +37,5 @@ export const ongoingPass: OngoingPassDevice = {
   schedule: async () => undefined,
   dismiss: async () => undefined,
   onImHere: () => () => undefined,
+  onPassPush: () => () => undefined,
 };

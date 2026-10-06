@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
-import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
+import { decodeRajaaPassPush } from '@driver/contracts';
+import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -19,7 +20,25 @@ const lookups: NotifyLookups = {
   child: async (ref) => (ref === 'chref_z' ? { guardianId: 'guardian', childFirstName: 'زينب' } : null),
   stopPlace: async () => 'مدرسة الرافدين',
   tripZones: async () => ({ pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' }),
+  departurePasses: async (id) => (id === 'dep_1' ? passes : null),
 };
+
+/** dep_1: two riders still to board (garage, meeting point), one checked in, one cancelled. */
+let passes: Awaited<ReturnType<NotifyLookups['departurePasses']>> & object = [];
+const pass = (bookingId: string, riderId: string, state: string, over: Partial<(typeof passes)[number]> = {}) => ({
+  bookingId,
+  riderId,
+  state,
+  departAt: new Date('2026-10-04T15:30:00Z'),
+  stop: 'كراج النهضة',
+  pickupKind: 'garage' as const,
+  toCity: 'العزيزية',
+  seatIds: ['back_left'],
+  pin: '5481',
+  carKm: 1.2,
+  fareIqd: 10_000,
+  ...over,
+});
 
 const deps = (h: ReturnType<typeof notifyHarness>) => ({ engine: h.engine, repo: h.repo, lookups, receiptBaseUrl: 'https://driver.iq/r' });
 
@@ -140,5 +159,44 @@ describe('notify subscribers: events → notifications', () => {
     registerNotifySubscribers({ subscribe: (_n, _t, fn) => ((handler = fn), () => undefined) }, { ...deps(h), lookups: { ...lookups, order: async () => Promise.reject(new Error('db hiccup')) } });
     await expect(handler!(event('order.delivered', {}, { orderId: 'ord_1' }), { tx: undefined as never, subscriber: NOTIFY_SUBSCRIBER })).resolves.toBeUndefined();
     expect(await h.rows()).toEqual([]);
+  });
+});
+
+describe('الرجعة lock-screen pass updates (customer d-8 follow-up)', () => {
+  const dep = (type: string, payload: Record<string, unknown> = {}) => event(type, { departureId: 'dep_1', ...payload }, { aggregate: 'departure', aggregateId: 'dep_1', id: `ev-${type}` });
+  const decoded = async (e: PublishedEvent) => (await passUpdatesFor(e, lookups)).map((r) => ({ to: r.to, template: r.template, push: decodeRajaaPassPush(r.data) }));
+
+  it('boarding reaches every rider still to board, with the car\'s distance to his own stop', async () => {
+    passes = [pass('bk_a', 'r_a', 'booked'), pass('bk_b', 'r_b', 'booked', { stop: 'جسر ديالى', pickupKind: 'meeting_point', carKm: 6.4 }), pass('bk_c', 'r_c', 'checked_in'), pass('bk_d', 'r_d', 'cancelled')];
+    const out = await decoded(dep('departure.boarding'));
+    expect(out.map((o) => [o.to, o.template, o.push?.phase, o.push?.stop, o.push?.carKm])).toEqual([
+      ['r_a', 'rajaa_pass_update', 'boarding', 'كراج النهضة', 1.2],
+      ['r_b', 'rajaa_pass_update', 'boarding', 'جسر ديالى', 6.4],
+    ]);
+    expect(out[0]!.push).toMatchObject({ bookingId: 'bk_a', pin: '5481', seatIds: ['back_left'], toCity: 'العزيزية', sentAt: AT });
+  });
+
+  it('a seat event updates only its booking: on board, then gone when cancelled or a prepaid no-show', async () => {
+    passes = [pass('bk_a', 'r_a', 'checked_in'), pass('bk_b', 'r_b', 'booked')];
+    expect((await decoded(dep('seat.checked_in', { bookingId: 'bk_a', riderId: 'r_a' }))).map((o) => [o.to, o.push?.phase, o.push?.carKm])).toEqual([['r_a', 'on_board', null]]);
+    passes = [pass('bk_a', 'r_a', 'checked_in'), pass('bk_b', 'r_b', 'no_show')];
+    expect((await decoded(dep('seat.no_show', { seatId: 'bk_b.back_left' }))).map((o) => [o.to, o.push?.phase])).toEqual([['r_b', 'gone']]);
+    expect(await decoded(dep('seat.checked_in', {}))).toEqual([]);
+  });
+
+  it('on the road for those on board, arrived with the fare, nothing for an unknown departure', async () => {
+    passes = [pass('bk_a', 'r_a', 'checked_in'), pass('bk_b', 'r_b', 'no_show')];
+    expect((await decoded(dep('departure.departed'))).map((o) => [o.to, o.push?.phase])).toEqual([['r_a', 'on_road']]);
+    passes = [pass('bk_a', 'r_a', 'completed', { fareIqd: 12_500 })];
+    expect((await decoded(dep('departure.arrived'))).map((o) => [o.to, o.push?.phase, o.push?.fareIqd])).toEqual([['r_a', 'arrived', 12_500]]);
+    expect(await passUpdatesFor(event('departure.departed', { departureId: 'dep_x' }), lookups)).toEqual([]);
+    expect(await passUpdatesFor(event('order.accepted', {}, { orderId: 'ord_1' }), lookups)).toEqual([]);
+  });
+
+  it('is subscribed, and goes through requestsFor next to any message the event already sends', async () => {
+    for (const t of ['departure.boarding', 'departure.departed', 'departure.arrived', 'seat.checked_in', 'departure.cancelled']) expect(NOTIFY_EVENT_TYPES).toContain(t);
+    passes = [pass('bk_a', 'r_a', 'booked')];
+    const h = notifyHarness();
+    expect((await requestsFor(dep('departure.boarding'), deps(h))).map((r) => r.template)).toEqual(['rajaa_pass_update']);
   });
 });

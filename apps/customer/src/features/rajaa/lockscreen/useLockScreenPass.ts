@@ -11,6 +11,7 @@ import { amountParam } from '@/lib/money';
 import { useSignedIn } from '@/lib/session';
 import { passBooking, passCard, passCardKey, passNotificationId, passPhase, passShowAt } from './content';
 import { ongoingPass, type OngoingLabels } from './ongoing';
+import { applyPassPush } from './push';
 
 /**
  * Keeps the الرجعة boarding pass on the lock screen (customer audit d-8; Android only, a no-op on the
@@ -18,8 +19,11 @@ import { ongoingPass, type OngoingLabels } from './ongoing';
  * for T−30 so it appears with the app closed, replaces it as the trip moves on (boarding, on board, on
  * the road), ends with "وصلت بالسلامة" and the fare, and answers the card's "أني بالكراج".
  *
- * While the app is closed the card does not change by itself (it says what it said at T−30); a data
- * push that re-posts it, and the iOS Live Activity, are the follow-ups (docs/research/ui-ux-audit/customer.md d-8).
+ * The server also sends a data-only push at each boarding moment (`RajaaPassPush`): while the app's
+ * JS runs (foreground or alive in the background) it re-posts the card from it at once. With the app
+ * killed the card keeps its last words until a headless task handles that push — it needs
+ * `expo-task-manager`, not installed yet; the iOS Live Activity needs a widget extension
+ * (docs/api/rajaa-pass-push.md).
  */
 export function useLockScreenPass() {
   const signedIn = useSignedIn();
@@ -81,6 +85,24 @@ export function useLockScreenPass() {
     void ongoingPass.show(card, labels);
     posted.current = { id: card.id, key };
   }, [enabled, booking, phase, pass.data, network.data, now, t, labels]);
+
+  // The server's pass update (a data-only push): re-post the card from it, newest first.
+  const pushedAt = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!enabled) return;
+    return ongoingPass.onPassPush((push) => {
+      void applyPassPush(push, { t, amount: (n) => amountParam(n), labels, device: ongoingPass, now: new Date(), lastSentAt: pushedAt.current }).then((key) => {
+        if (key === null) return;
+        if (key === '') {
+          if (posted.current?.id === passNotificationId(push.bookingId)) posted.current = null;
+          return;
+        }
+        posted.current = { id: passNotificationId(push.bookingId), key };
+        if (push.phase !== 'arrived') watched.current.add(push.bookingId);
+        else arrived.current.add(push.bookingId);
+      });
+    });
+  }, [enabled, t, labels]);
 
   // "أني بالكراج" from the lock screen: the app opens on the pass and pings with his position.
   useEffect(() => {

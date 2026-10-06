@@ -288,6 +288,12 @@ boarding. It ends with "وصلت بالسلامة" and the fare. Spec §4 alread
 > the app is closed (today it keeps its T−30 words until the app runs), and the iOS Live Activity
 > (needs a native widget extension and an EAS build). The PIN shows on the lock screen by design
 > (confirmed by Ali 2026-10-06: it stays visible).
+>
+> **2026-10-06 — data push built.** Each boarding moment (boarding with the car's distance, on board,
+> on the road, arrived, gone) sends the rider a data-only push (`rajaa_pass_update`) that re-posts the
+> card whenever the app's JS runs, foreground or background (`docs/api/rajaa-pass-push.md`). Still
+> open: with the app killed it needs `expo-task-manager` (a headless task; not installed), and the iOS
+> Live Activity.
 
 ---
 

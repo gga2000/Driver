@@ -1134,6 +1134,8 @@
   "push.khat_dropped.body": "Arrived at {place} safely at {time}",
   "push.khat_sweep_reminder.title": "Did you forget to check the car is empty?",
   "push.khat_sweep_reminder.body": "Look at the back seats",
+  "push.rajaa_pass_update.title": "Seat pass update",
+  "push.rajaa_pass_update.body": "{phase}",
   "push.substitution.title": "Item unavailable",
   "push.substitution.body": "{item} is out. The shopper suggests a substitute; reply within 2 min",
   "push.release_request.title": "Approve parcel handover",

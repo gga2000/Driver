@@ -253,6 +253,8 @@ export class NotifyEngine {
       sound: sound === OFFER_SOUND ? OFFER_SOUND : sound ? 'default' : null,
       priority: def.category === 'marketing' ? ('normal' as const) : ('high' as const),
       ...(def.category === 'work' ? { ttlSec: 120 } : {}),
+      // Data-only (the الرجعة lock-screen card): nothing shows or rings; the app reads `data`.
+      ...(def.push?.silent ? { silent: true } : {}),
     };
     const tickets: TicketRecord[] = [];
     for (const kind of ['expo', 'fcm'] as const) {

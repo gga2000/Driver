@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { orderTicketNumber } from '@driver/contracts';
+import { encodeRajaaPassPush, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
@@ -40,6 +40,8 @@ export const NOTIFY_EVENT_TYPES = [
   'support.replied',
   'support.resolved',
   'seat.booked',
+  // الرجعة lock-screen pass updates (data-only), customer d-8 follow-up.
+  ...RAJAA_PASS_EVENTS,
   'khat.child_tapped_out',
   'khat.sweep_missed',
   'dispatch.offer_sent',
@@ -66,8 +68,52 @@ const clip = (text: string, max = 140): string => {
 };
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/**
+ * The الرجعة lock-screen card kept current with the app closed (customer d-8 follow-up): each boarding
+ * moment sends the riders it concerns a data-only push with what the card should say now (phase, time,
+ * stop, seats, PIN, the car's distance, the fare). Departure-wide events reach every booking on the
+ * car; seat events only their own booking. Exported for tests.
+ */
+export async function passUpdatesFor(e: PublishedEvent, lookups: Pick<NotifyLookups, 'departurePasses'>): Promise<NotifyRequest[]> {
+  if (!(RAJAA_PASS_EVENTS as readonly string[]).includes(e.type)) return [];
+  const p = e.payload;
+  const departureId = str(p['departureId']) ?? (e.aggregate === 'departure' ? e.aggregateId : null);
+  if (!departureId) return [];
+  const seatId = str(p['seatId']);
+  const bookingId = str(p['bookingId']) ?? (seatId && seatId.includes('.') ? seatId.slice(0, seatId.lastIndexOf('.')) : null);
+  if (e.type.startsWith('seat.') && !bookingId) return [];
+  const passes = (await lookups.departurePasses(departureId)) ?? [];
+  const out: NotifyRequest[] = [];
+  for (const b of passes) {
+    if (e.type.startsWith('seat.') && b.bookingId !== bookingId) continue;
+    const phase = rajaaPassPhaseFor(e.type, b.state);
+    if (!phase) continue;
+    const data = encodeRajaaPassPush({
+      kind: RAJAA_PASS_PUSH_KIND,
+      bookingId: b.bookingId,
+      phase,
+      departAt: b.departAt,
+      stop: b.stop,
+      pickupKind: b.pickupKind,
+      toCity: b.toCity,
+      seatIds: b.seatIds,
+      pin: b.pin,
+      carKm: phase === 'boarding' ? b.carKm : null,
+      fareIqd: b.fareIqd,
+      sentAt: e.occurredAt,
+    });
+    out.push({ eventId: e.id, template: 'rajaa_pass_update', to: b.riderId, params: { bookingId: b.bookingId, phase }, data });
+  }
+  return out;
+}
+
 /** Turns one event into the notifications it implies. Exported for tests. */
 export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
+  const passUpdates = await passUpdatesFor(e, deps.lookups);
+  return [...passUpdates, ...(await messagesFor(e, deps))];
+}
+
+async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const p = e.payload;
   const base = { eventId: e.id };
   const L = deps.lookups;
