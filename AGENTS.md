@@ -7,6 +7,11 @@ Console moments, the honest-delay promise) of `docs/research/ui-ux-audit/README.
 pushed. Verified on 2026-10-06 at `b66c9c5` from a fresh install: build, typecheck, lint, the full
 test suite and `pnpm sim --orders 2000 --seed 1 --ci` (18/18 invariants, change-to-wallet exercised)
 all pass. The Phase 3 merge had broken `apps/customer/scripts/demo-api.mjs` (fixed in `70c128e`).
+Phase 3 follow-ups (Ali's 2026-10-06 decisions: two-step honest delay, free-delivery credit, the G-91
+shift guarantee paid by the server, the خطوط sweep alert and 3-second look, plus screenshot fixes) are
+merged; the sim now has 20 invariants (`late_credit_once_per_delivery`, `shift_guarantee_once_and_exact`).
+Shift-guarantee details Ali has not confirmed (conservative defaults, config): peak shifts 12–16 and
+19–23, couriers only, no minimum online time — see `docs/api/shift-guarantee.md`.
 
 Open product decisions Ali has not yet made (ask before building further on these):
 tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
