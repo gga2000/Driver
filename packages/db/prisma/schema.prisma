@@ -2831,20 +2831,33 @@ model SystemBanner {
 /// Quiet days (customer joy J1a): mourning days ops set in the Console. While one is on, the apps play
 /// no celebrations or moment sounds and the notify engine sends no offers.
 model QuietPeriod {
-  id          String    @id @default(cuid())
+  id             String    @id @default(cuid())
   /// NULL = every city.
-  cityId      String?   @map("city_id")
+  cityId         String?   @map("city_id")
   /// Baghdad calendar days, inclusive, as YYYY-MM-DD.
-  startsOn    String    @map("starts_on")
-  endsOn      String    @map("ends_on")
-  labelAr     String    @map("label_ar")
-  setById     String    @map("set_by_id")
-  clearedAt   DateTime? @map("cleared_at")
-  clearedById String?   @map("cleared_by_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  startsOn       String    @map("starts_on")
+  endsOn         String    @map("ends_on")
+  labelAr        String    @map("label_ar")
+  setById        String    @map("set_by_id")
+  clearedAt      DateTime? @map("cleared_at")
+  clearedById    String?   @map("cleared_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  /// J6 seasons: quiet | ramadan | eid | friday_special (CHECK in the migration). Quiet forces the switches off.
+  kind           String    @default("quiet")
+  celebrations   Boolean   @default(false)
+  sounds         Boolean   @default(false)
+  promos         Boolean   @default(false)
+  accent         Boolean   @default(false)
+  homeCard       Boolean   @default(false) @map("home_card")
+  homeCardAr     String?   @map("home_card_ar")
+  /// Ramadan: minutes after sunset for the Shia maghrib; NULL = the default.
+  shiaOffsetMin  Int?      @map("shia_offset_min")
+  /// Ramadan: {"YYYY-MM-DD": {"sunni": "HH:MM", "shia": "HH:MM"}} set by ops.
+  iftarOverrides Json      @default("{}") @map("iftar_overrides")
 
   @@index([endsOn])
+  @@index([kind, endsOn])
   @@map("quiet_periods")
   @@schema("public")
 }
