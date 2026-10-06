@@ -500,7 +500,9 @@ export class TripsService implements OnModuleInit {
       // Without a fix on the tap, his last trail point (and its own accuracy) stands in.
       const trail = input.pin ? null : await this.repo.lastTrailPoint({ tripId }, tx);
       const pin = input.pin ?? trail?.pin ?? null;
-      const arrivalAccuracyM = input.pin ? (accuracyM ?? null) : (trail?.accuracyM ?? null);
+      // Only a fix sent with the tap carries an accuracy worth learning a door from (maps a3): his last
+      // trail point may be minutes old after an offline replay.
+      const arrivalAccuracyM = input.pin ? (accuracyM ?? null) : null;
       const { distanceM, outside } = evaluateArrival(pin, stop.target);
       await this.repo.updateStop(stop.id, { state: 'arrived', arrivedAt: now, arrivalPin: pin, arrivalDistanceM: distanceM, arrivalAccuracyM, arrivedOutsideGeofence: outside }, now, tx);
       await this.emit(
@@ -589,8 +591,9 @@ export class TripsService implements OnModuleInit {
           pinOk: handover.pinOk ?? null,
           serverReceivedAt: now.toISOString(),
           // Maps program a3: a delivered drop-off at a saved place teaches it where its door is.
-          ...(stop.type === 'dropoff' && stop.placeId && stop.arrivalPin && stop.arrivalAccuracyM !== null
-            ? { door: { placeId: stop.placeId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM } }
+          // Taps outside the 60 m geofence (the street corner) never teach one.
+          ...(stop.type === 'dropoff' && stop.placeId && stop.arrivalPin && stop.arrivalAccuracyM !== null && !stop.arrivedOutsideGeofence
+            ? { door: { placeId: stop.placeId, courierId: driverId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM } }
             : {}),
         },
         stamp,

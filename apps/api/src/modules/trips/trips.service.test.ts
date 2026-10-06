@@ -150,7 +150,24 @@ describe('TripsService — stops, geofence and arrival', () => {
     expect(h.events.last('stop.completed')!.payload).not.toHaveProperty('door');
     await h.trips.arrive(t.id, dropoff!.id, 'd1', { pin: PINS.home, accuracyM: 9 });
     await h.trips.completeStop(t.id, dropoff!.id, 'd1', { handover: { cashCollectedIqd: 16500 } });
-    expect(h.events.last('stop.completed')!.payload).toMatchObject({ stopType: 'dropoff', door: { placeId: 'pl_home', lat: PINS.home.lat, lng: PINS.home.lng, accuracyM: 9 } });
+    expect(h.events.last('stop.completed')!.payload).toMatchObject({ stopType: 'dropoff', door: { placeId: 'pl_home', courierId: 'd1', lat: PINS.home.lat, lng: PINS.home.lng, accuracyM: 9 } });
+  });
+
+  it('maps a3: a tap from the street corner (outside the geofence) or without its own fix teaches no door', async () => {
+    const h = tripsHarness();
+    const run = async (orderId: string, arrival: { pin?: { lat: number; lng: number }; accuracyM?: number }) => {
+      const t = await h.trips.createForOrders({ cityId: 'aziziyah', vertical: 'food', orders: [{ orderId, minVehicleClass: null }], stops: [{ orderId, type: 'pickup', zoneKey: 'centre', target: PINS.kitchen }, { orderId, type: 'dropoff', zoneKey: 'zakur', target: PINS.home, placeId: 'pl_home' }] });
+      await h.trips.offer(t.id, { driverIds: ['d1'] });
+      await h.trips.accept(t.id, 'd1', { vehicleClass: 'bike' });
+      const [pickup, dropoff] = t.stops;
+      await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen });
+      await h.trips.completeStop(t.id, pickup!.id, 'd1');
+      await h.trips.arrive(t.id, dropoff!.id, 'd1', arrival);
+      await h.trips.completeStop(t.id, dropoff!.id, 'd1', { handover: { cashCollectedIqd: 16500 } });
+      return h.events.last('stop.completed')!.payload;
+    };
+    expect(await run('ord_far', { pin: h.near(PINS.home, 120), accuracyM: 5 })).not.toHaveProperty('door');
+    expect(await run('ord_nofix', {})).not.toHaveProperty('door');
   });
 
   it('idempotent replay: repeated accept / arrive / complete change nothing and emit nothing', async () => {

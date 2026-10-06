@@ -408,11 +408,12 @@ export class ShareLinksService implements TrackingSharePort {
     const order = await this.orders.get(orderId);
     const storeName = order.merchantOrgId ? ((await this.merchants.merchant(order.merchantOrgId))?.name ?? null) : null;
     const base: SubjectState = { ...EMPTY_STATE, storeName };
-    if (DELIVERY_CANCELLED_ORDER.has(order.state)) return { ...base, status: 'ended', completedAt: order.cancelledAt ?? now };
+    // Fallbacks are fixed times (never `now`): on inconsistent data the link must still expire.
+    if (DELIVERY_CANCELLED_ORDER.has(order.state)) return { ...base, status: 'ended', completedAt: order.cancelledAt ?? order.placedAt };
     const trip = await this.tripOf(orderId);
     const stop = (type: 'pickup' | 'dropoff') => trip?.stops.find((st) => st.orderId === orderId && (st.type === type || (type === 'pickup' && st.type === 'shop')));
     // A stop is done before the order's own picked-up / delivered marks land (they follow from the trip's events).
-    const delivered = order.deliveredAt ?? stop('dropoff')?.completedAt ?? (order.state === 'delivered' || order.state === 'closed' ? now : null);
+    const delivered = order.deliveredAt ?? stop('dropoff')?.completedAt ?? (order.state === 'delivered' || order.state === 'closed' ? order.placedAt : null);
     if (!trip || !trip.courierId || !trip.acceptedAt || trip.state === 'driver_cancelled') {
       return delivered ? { ...base, status: 'arrived', completedAt: delivered } : base;
     }

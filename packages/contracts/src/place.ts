@@ -36,6 +36,8 @@ export const DOOR_RULES = {
   clusterM: 60,
   /** Agreeing fixes needed before the door counts as known ("الباب مأكّد"). */
   minSamples: 3,
+  /** …from at least this many couriers: one courier's habit (or a spoofed accuracy) never sets a door alone. */
+  minCouriers: 2,
   /** Only the latest fixes count (a family that moves door, a new gate). */
   keep: 10,
   /** Fixes this far from the customer's pin belong to another place (the pin was moved since). */
@@ -45,6 +47,8 @@ export const DOOR_RULES = {
 export const DoorSample = z.object({
   /** The drop-off it came from (a redelivered event adds nothing). */
   stopId: z.string(),
+  /** Who tapped "وصلت" (an opaque person id): the door needs `minCouriers` different ones. */
+  courierId: z.string(),
   lat: z.number(),
   lng: z.number(),
   accuracyM: z.number().min(0),

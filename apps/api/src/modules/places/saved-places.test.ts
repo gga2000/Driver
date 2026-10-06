@@ -70,13 +70,13 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     const h = harness();
     const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30 });
     expect(home.doorConfirmed).toBe(false);
-    expect(await h.service.learnDoor(home.id, { stopId: 's1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(true);
+    expect(await h.service.learnDoor(home.id, { stopId: 's1', courierId: 'd1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(true);
     // A redelivered event and a blurry fix teach nothing.
-    expect(await h.service.learnDoor(home.id, { stopId: 's1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(false);
-    expect(await h.service.learnDoor(home.id, { stopId: 's2', ...DOOR, accuracyM: 45, at: at(2) })).toBe(false);
-    await h.service.learnDoor(home.id, { stopId: 's3', lat: DOOR.lat + 0.00002, lng: DOOR.lng, accuracyM: 12, at: at(3) });
+    expect(await h.service.learnDoor(home.id, { stopId: 's1', courierId: 'd1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(false);
+    expect(await h.service.learnDoor(home.id, { stopId: 's2', courierId: 'd2', ...DOOR, accuracyM: 45, at: at(2) })).toBe(false);
+    await h.service.learnDoor(home.id, { stopId: 's3', courierId: 'd2', lat: DOOR.lat + 0.00002, lng: DOOR.lng, accuracyM: 12, at: at(3) });
     expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(false);
-    await h.service.learnDoor(home.id, { stopId: 's4', lat: DOOR.lat, lng: DOOR.lng + 0.00002, accuracyM: 6, at: at(4) });
+    await h.service.learnDoor(home.id, { stopId: 's4', courierId: 'd1', lat: DOOR.lat, lng: DOOR.lng + 0.00002, accuracyM: 6, at: at(4) });
     const [after] = await h.service.mine('cust_a');
     expect(after).toMatchObject({ doorConfirmed: true, pin: STREET_30 });
     // The order goes to the door; another customer gets nothing.
@@ -86,6 +86,9 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     // The owner's later edit keeps what couriers taught.
     await h.service.update('cust_a', { placeId: home.id, note: 'الباب الأسود' });
     expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(true);
+    // Moving the pin by hand (a corrected spot, within 150 m) forgets the old door.
+    await h.service.update('cust_a', { placeId: home.id, pin: { lat: STREET_30.lat + 0.0008, lng: STREET_30.lng } });
+    expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(false);
   });
 
   it('which gate (a4): the owner marks it near the pin; it wins over the learned door; a far one is refused', async () => {
@@ -93,7 +96,7 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     const GATE = { lat: STREET_30.lat, lng: STREET_30.lng + 0.0004 }; // ~37 m east, the alley
     const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, entrance: GATE });
     expect(home.entrance).toEqual(GATE);
-    for (const stopId of ['s1', 's2', 's3']) await h.service.learnDoor(home.id, { stopId, ...DOOR, accuracyM: 8, at: at(1) });
+    for (const [i, stopId] of ['s1', 's2', 's3'].entries()) await h.service.learnDoor(home.id, { stopId, courierId: `d${i}`, ...DOOR, accuracyM: 8, at: at(i) });
     expect((await h.service.deliveryPlace('cust_a', home.id))!.door).toEqual(GATE);
     expect(await h.service.courierDoor(home.id, { courierId: 'd1', trip: { courierId: 'd1', acceptedAt: h.clock.now(), completedAt: null }, now: h.clock.now() })).toMatchObject({ entranceSet: true, doorConfirmed: true });
     expect(await code(h.service.save('cust_a', { ...h.base, label: 'work', name: 'الشغل', pin: STREET_30, entrance: ZAKUR }))).toBe('place_entrance_too_far');
@@ -101,9 +104,9 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     const cleared = await h.service.update('cust_a', { placeId: home.id, entrance: null });
     expect(cleared.entrance).toBeNull();
     expect(distanceOf((await h.service.deliveryPlace('cust_a', home.id))!.door!, DOOR)).toBeLessThan(5);
-    // Moving the house far forgets its gate.
+    // Moving the house far forgets its gate — also when the editor sends the unchanged gate back.
     await h.service.update('cust_a', { placeId: home.id, entrance: GATE });
-    expect((await h.service.update('cust_a', { placeId: home.id, pin: ZAKUR })).entrance).toBeNull();
+    expect((await h.service.update('cust_a', { placeId: home.id, pin: ZAKUR, entrance: GATE })).entrance).toBeNull();
   });
 
   it('learns from delivered drop-offs through the outbox (stop.completed with a door)', async () => {
@@ -111,7 +114,7 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     h.service.onModuleInit();
     const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30 });
     for (const [i, stopId] of ['s1', 's2', 's3'].entries()) {
-      await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(i), payload: { stopId, stopType: 'dropoff', door: { placeId: home.id, lat: DOOR.lat, lng: DOOR.lng, accuracyM: 10 } } }, { name: 'trip', id: `t${i}` });
+      await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(i), payload: { stopId, stopType: 'dropoff', door: { placeId: home.id, courierId: `d${i}`, lat: DOOR.lat, lng: DOOR.lng, accuracyM: 10 } } }, { name: 'trip', id: `t${i}` });
     }
     // A pickup (no door) is ignored.
     await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(9), payload: { stopId: 's9', stopType: 'pickup' } }, { name: 'trip', id: 't9' });

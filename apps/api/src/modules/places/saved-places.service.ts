@@ -114,6 +114,8 @@ export function courierMaySeePlaceDetails(input: {
   return !trip.completedAt || input.now.getTime() <= trip.completedAt.getTime() + 3_600_000;
 }
 
+const samePoint = (a: LatLng | null, b: LatLng | null): boolean => a === b || (a !== null && b !== null && a.lat === b.lat && a.lng === b.lng);
+
 /** A marked gate, refused when it is too far from the pin to be this house's (maps program a4). */
 function entranceNear(pin: LatLng, entrance: LatLng | null): LatLng | null {
   if (!entrance) return null;
@@ -125,7 +127,7 @@ function entranceNear(pin: LatLng, entrance: LatLng | null): LatLng | null {
 export const PLACES_DOOR_SUBSCRIBER = 'places:door-learning';
 
 /** The `door` part of a `stop.completed` payload (trips adds it for drop-offs at saved places). */
-const DoorPayload = z.object({ stopId: z.string(), door: z.object({ placeId: z.string(), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }) });
+const DoorPayload = z.object({ stopId: z.string(), door: z.object({ placeId: z.string(), courierId: z.string(), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }) });
 
 /**
  * Customers' saved places (domain §7, customer spec §10): owner-only writes, zone resolved from the
@@ -157,7 +159,7 @@ export class SavedPlacesService implements OnModuleInit {
       // Pickups, rides and drop-offs without a saved place or a precise arrival carry no door.
       if (!p.success) return;
       const { door, stopId } = p.data;
-      await this.learnDoor(door.placeId, { stopId, lat: door.lat, lng: door.lng, accuracyM: door.accuracyM, at: e.occurredAt });
+      await this.learnDoor(door.placeId, { stopId, courierId: door.courierId, lat: door.lat, lng: door.lng, accuracyM: door.accuracyM, at: e.occurredAt });
     });
   }
 
@@ -214,14 +216,17 @@ export class SavedPlacesService implements OnModuleInit {
     }
     if (input.name !== undefined) rec.name = input.name.trim();
     if (input.note !== undefined) rec.note = input.note?.trim() || null;
+    let forgetDoor = false;
     if (input.pin) {
       const moved = distanceM(rec.pin, input.pin);
       rec.zoneId = this.zoneOrThrow(rec.cityId, input.pin);
       rec.pin = input.pin;
-      // A pin moved by hand is a new claim: the old confirmation no longer vouches for it.
+      // A pin moved by hand is a new claim: the old confirmation, and the door couriers learned
+      // for the old spot (maps a3), no longer vouch for it.
       if (moved > PLACE_AGREE_RADIUS_M) {
         rec.confidence = INITIAL_CONFIDENCE;
         rec.confirmedAt = null;
+        forgetDoor = true;
       }
     }
     if (input.photoIds) {
@@ -229,13 +234,16 @@ export class SavedPlacesService implements OnModuleInit {
       for (const old of rec.photoIds) if (!next.includes(old)) await this.blobs.remove(old);
       rec.photoIds = next;
     }
-    if (input.entrance !== undefined) rec.entrance = entranceNear(rec.pin, input.entrance);
+    // A gate the owner changes must be near the house; an unchanged one sent back with a moved pin is
+    // simply dropped below when the house moved too far from it.
+    if (input.entrance !== undefined && !samePoint(input.entrance, rec.entrance)) rec.entrance = entranceNear(rec.pin, input.entrance);
     // The house moved: a gate left far behind belongs to the old one.
     if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
     const startedSharing = input.shareWithHousehold === true && !rec.shareWithHousehold;
     if (input.shareWithHousehold !== undefined) rec.shareWithHousehold = input.shareWithHousehold;
     rec.updatedAt = now;
     await this.repo.put(rec);
+    if (forgetDoor) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.updated', personId, { placeId: rec.id, ownerId: personId, zoneId: rec.zoneId, label: rec.label, photos: rec.photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (startedSharing) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);
     return this.view(rec, personId);
@@ -267,6 +275,8 @@ export class SavedPlacesService implements OnModuleInit {
     rec.confirmedAt = now;
     rec.updatedAt = now;
     await this.repo.put(rec);
+    // Standing somewhere else: the door couriers learned belongs to the old spot (maps a3).
+    if (moved) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.confirmed', personId, { placeId: rec.id, ownerId: personId, by: 'owner', moved, distanceM: Math.round(d), zoneId: rec.zoneId, confidence: rec.confidence }, rec.id);
     return this.view(rec, personId);
   }
