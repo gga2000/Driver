@@ -9,7 +9,7 @@
 // plays the kitchen:
 //   - an order a customer places is accepted after DEMO_KITCHEN_MS (default 20000; 0 = never);
 //   - POST /demo/kitchen?orderId=<id>&action=accept|reject  decides one order now;
-//   - POST /demo/active-order?personId=<id>  places and accepts a cash order from مطعم خالد for that
+//   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
@@ -85,6 +85,8 @@ app.use('/demo/active-order', async (req, res) => {
       paymentMethod: 'cash',
       dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } },
     });
+    // `&accept=0` leaves it waiting for the kitchen (the /kitchen/<id> screen and its notification ask).
+    if (new URL(req.url ?? '/', 'http://x').searchParams.get('accept') === '0') return json(res, 200, { orderId: placed.id, state: placed.state, totalIqd: placed.totalIqd });
     const preparing = await accept(placed.id);
     json(res, 200, { orderId: preparing.id, state: preparing.state, totalIqd: preparing.totalIqd });
   } catch (err) {
