@@ -15,6 +15,7 @@ import { useGuarantee } from '@/features/account/queries';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
 import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
+import { DoorCard } from '@/features/work/DoorCard';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
 import {
   canTopUpOnJob,
@@ -428,6 +429,9 @@ function JobView({
                   <Text variant="label">{stop.note}</Text>
                 </View>
               ) : null}
+
+              {/* Maps program f6, a5: the saved place's door photos and note, and "call first" on a first visit. */}
+              {stop.type === 'dropoff' && stop.door ? <DoorCard door={stop.door} arrived={stop.state === 'arrived'} onCall={() => void customerCall.call()} stopId={stop.stopId} /> : null}
 
               <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
                 <QuickAction icon="phone" label={t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />

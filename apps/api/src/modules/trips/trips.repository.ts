@@ -163,6 +163,8 @@ export interface TripsRepository extends TripOrderLookup {
   pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>>;
   /** Up to `limit` completed stops before `cutoff` that still hold a delivery photo (maps program f11). */
   handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>>;
+  /** Completed drop-offs at a saved place, outside one trip (maps program a5: a courier's first visit). */
+  dropoffsAt(placeId: string, excludeTripId: string): Promise<number>;
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
@@ -428,6 +430,10 @@ export class PrismaTripsRepository implements TripsRepository {
     return new Map(rows.map((r) => [r.zoneKey, r._count._all]));
   }
 
+  async dropoffsAt(placeId: string, excludeTripId: string): Promise<number> {
+    return this.db().stop.count({ where: { placeId, type: 'dropoff', state: 'completed', tripId: { not: excludeTripId } } });
+  }
+
   async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {
     const rows = await this.db().$queryRaw<Array<{ id: string; proof: Record<string, unknown> }>>`
       SELECT "id", "handover_proof" AS proof FROM "public"."stops"
@@ -639,6 +645,10 @@ export class InMemoryTripsRepository implements TripsRepository {
       out.set(s.zoneKey, (out.get(s.zoneKey) ?? 0) + 1);
     }
     return out;
+  }
+
+  async dropoffsAt(placeId: string, excludeTripId: string): Promise<number> {
+    return [...this.stops.values()].filter((s) => s.placeId === placeId && s.type === 'dropoff' && s.state === 'completed' && s.tripId !== excludeTripId).length;
   }
 
   async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {

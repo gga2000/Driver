@@ -20,7 +20,8 @@ import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
-import { ORDERS_CASH_RISK, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
+import { ORDERS_CASH_RISK, ORDERS_PLACES, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
+import { PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
@@ -37,7 +38,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -54,6 +55,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_PROMOTIONS, useFactory: (promotions: PromotionsService) => new MerchantDealsPromotions(promotions), inject: [PromotionsService] },
     // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
     { provide: ORDERS_CASH_RISK, useExisting: CapsService },
+    // Maps program SP3d: an order links to the saved place it goes to only when the orderer may use it.
+    { provide: ORDERS_PLACES, useExisting: SavedPlacesService },
     // C-04: wallet payments at checkout are checked against the ledger balance of the paying wallet.
     {
       provide: ORDERS_WALLET,

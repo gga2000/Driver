@@ -90,6 +90,14 @@ export interface PartnerDeps {
   };
   roles: { activeRoles(personId: string): Promise<RoleKind[]> };
   vehicles: { vehicleOf(driverId: string): Promise<VehicleClass | null> };
+  /**
+   * The customer's door on a drop-off at a saved place (maps program SP3d): the place's note and photos
+   * for the assigned courier, and how many deliveries reached it before. Absent in fakes = no door.
+   */
+  places?: {
+    courierDoor(placeId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null }; now: Date }): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }> } | null>;
+    dropoffsAt(placeId: string, excludeTripId: string): Promise<number>;
+  };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
 }

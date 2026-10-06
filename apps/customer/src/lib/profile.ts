@@ -67,10 +67,15 @@ export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
   return locale === 'en' ? z.name_en : toWesternDigits(z.name_ar);
 }
 
+/**
+ * Where an order goes. A place the server has (`synced`) also sends its id, so the courier on the job
+ * sees that place's door photos and note (maps program SP3d); a device-only place sends the pin alone.
+ */
 export function deliveryPointOf(place: SavedPlace): DeliveryPoint {
-  if (place.pin) return { zoneKey: place.zoneId, pin: place.pin };
+  const link = place.synced ? { placeId: place.id } : {};
+  if (place.pin) return { zoneKey: place.zoneId, pin: place.pin, ...link };
   const z = AZIZIYAH_ZONES.find((x) => x.id === place.zoneId);
-  return z ? { zoneKey: z.id, pin: { lat: z.lat, lng: z.lng } } : { zoneKey: place.zoneId };
+  return z ? { zoneKey: z.id, pin: { lat: z.lat, lng: z.lng }, ...link } : { zoneKey: place.zoneId, ...link };
 }
 
 /** A server place as the device store keeps it. Custom places read as "other" with their name. */

@@ -34,6 +34,33 @@ function harness() {
   return { clock, events, eventsRepo, blobs, households, service, recorded, base, photo };
 }
 
+describe('SavedPlacesService — orders and couriers (maps program SP3d)', () => {
+  it('usableBy: the owner, and household members only when the place is shared', async () => {
+    const h = harness();
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30 });
+    expect(await h.service.usableBy('cust_a', home.id)).toBe(true);
+    expect(await h.service.usableBy('stranger', home.id)).toBe(false);
+    h.households.set('cust_b', ['cust_a']);
+    expect(await h.service.usableBy('cust_b', home.id)).toBe(false);
+    await h.service.update('cust_a', { placeId: home.id, shareWithHousehold: true });
+    expect(await h.service.usableBy('cust_b', home.id)).toBe(true);
+    expect(await h.service.usableBy('cust_a', 'pl_missing')).toBe(false);
+  });
+
+  it('courierDoor: note and signed photos for the assigned courier during the job and one hour after', async () => {
+    const h = harness();
+    const up = await h.photo('cust_a');
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, note: 'الباب الأسود', photoIds: [up] });
+    const trip = { courierId: 'd1', acceptedAt: h.clock.now(), completedAt: null };
+    const door = await h.service.courierDoor(home.id, { courierId: 'd1', trip, now: h.clock.now() });
+    expect(door).toMatchObject({ placeNote: 'الباب الأسود', photos: [{ id: up }] });
+    expect(door!.photos[0]!.url).toContain(up);
+    expect(await h.service.courierDoor(home.id, { courierId: 'd2', trip, now: h.clock.now() })).toBeNull();
+    const done = { ...trip, completedAt: h.clock.now() };
+    expect(await h.service.courierDoor(home.id, { courierId: 'd1', trip: done, now: new Date(h.clock.now().getTime() + 61 * 60_000) })).toBeNull();
+  });
+});
+
 const code = async (p: Promise<unknown>) => {
   try {
     await p;

@@ -223,6 +223,29 @@ export class SavedPlacesService {
     return this.view(rec, personId);
   }
 
+  /**
+   * Whether the person may deliver to this saved place: theirs, or one a household member shared with
+   * them (maps program SP3d). Orders keep a place link only when this holds.
+   */
+  async usableBy(personId: string, placeId: string): Promise<boolean> {
+    const r = await this.repo.get(placeId);
+    if (!r) return false;
+    if (r.ownerId === personId) return true;
+    return r.shareWithHousehold && (await this.peers.peersOf(personId)).includes(r.ownerId);
+  }
+
+  /**
+   * The door as the courier on the job sees it (maps program f6): the place's standing note and its
+   * photos as signed links — only for the assigned courier, from accepting until an hour after the
+   * trip (domain §7, `courierMaySeePlaceDetails`); null otherwise or when the place is gone.
+   */
+  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }> } | null> {
+    if (!courierMaySeePlaceDetails(input)) return null;
+    const r = await this.repo.get(placeId);
+    if (!r) return null;
+    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })) };
+  }
+
   zoneFor(cityId: string, pin: LatLng): { zoneId: string | null; zoneName_ar: string | null; zoneName_en: string | null; inService: boolean } {
     const zoneId = this.zones.resolve(cityId, pin);
     if (!zoneId) return { zoneId: null, zoneName_ar: null, zoneName_en: null, inService: false };

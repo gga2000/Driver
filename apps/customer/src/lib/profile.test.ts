@@ -40,7 +40,9 @@ describe('saved places: server ↔ device', () => {
       access: 'owner',
     });
     expect(fromServerPlace(view({ label: 'custom', name: 'بيت خالتي', photos: [], note: null }))).toMatchObject({ label: 'other', title: 'بيت خالتي' });
-    expect(deliveryPointOf(fromServerPlace(view()))).toEqual({ zoneKey: 'street_30', pin: { lat: 32.9096, lng: 45.0636 } });
+    expect(deliveryPointOf(fromServerPlace(view()))).toEqual({ zoneKey: 'street_30', pin: { lat: 32.9096, lng: 45.0636 }, placeId: view().id });
+    // A place only on this device sends no id (the server would not know it).
+    expect(deliveryPointOf({ ...fromServerPlace(view()), synced: false })).toEqual({ zoneKey: 'street_30', pin: { lat: 32.9096, lng: 45.0636 } });
   });
 
   it('a device-only place becomes an idempotent save at its zone centroid', () => {

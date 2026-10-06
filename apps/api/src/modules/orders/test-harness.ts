@@ -145,6 +145,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   };
   /** Wallet balances the harness's wallet port answers with (`customer:<id>` / `household:<id>`; points: `points:<id>`). */
   const wallets = new Map<string, number>();
+  const placeOwners = new Map<string, string>();
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
     itemsOf: async (orgId, ids) => {
       if (await merchants.profile(orgId)) await ensureMenu(orgId);
@@ -158,6 +159,9 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
     // W-02: points balances by person (`points:<id>`); unset = 0.
     pointsBalance: async (customerId) => wallets.get(`points:${customerId}`) ?? 0,
+  }, {
+    // Maps program SP3d: saved places by owner (`placeOwners.set(placeId, personId)`).
+    usableBy: async (personId, placeId) => placeOwners.get(placeId) === personId,
   });
   orders.onModuleInit();
   // "الخردة علينا": as OrdersModule binds it at start-up.
@@ -235,5 +239,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, placeOwners, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

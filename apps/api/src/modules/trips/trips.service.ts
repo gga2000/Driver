@@ -385,6 +385,11 @@ export class TripsService implements OnModuleInit {
   }
 
   /** Pickups per zone of trips created in `[from, to)` (the driver map's forecast, maps program d5). */
+  /** Completed drop-offs at a saved place outside this trip (maps program a5: first visit). */
+  dropoffsAt(placeId: string, excludeTripId: string): Promise<number> {
+    return this.repo.dropoffsAt(placeId, excludeTripId);
+  }
+
   pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>> {
     return this.repo.pickupsByZone(cityId, from, to);
   }

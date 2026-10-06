@@ -11,6 +11,7 @@ import {
   type PartnerDemandMap,
   type PartnerGoOnlineInput,
   type PartnerJob,
+  type PartnerDoor,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerOffer,
@@ -246,6 +247,7 @@ export class PartnerService implements PartnerPort {
     const orders = await this.ordersOf(trip);
     const names = await this.merchantNames(orders);
     const byId = new Map(orders.map((o) => [o.id, o]));
+    const doors = await this.doorsOf(trip, actor.personId, now);
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -270,6 +272,7 @@ export class PartnerService implements PartnerPort {
           completedAt: s.completedAt,
           // Maps program r4: the code he shows at the counter, while the pickup is still to do.
           pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          door: doors.get(s.id) ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -296,6 +299,20 @@ export class PartnerService implements PartnerPort {
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  /** Doors of the job's drop-offs at customers' saved places (maps program f6, a5), by stop id. */
+  private async doorsOf(trip: Trip, courierId: string, now: Date): Promise<Map<string, PartnerDoor>> {
+    const doors = new Map<string, PartnerDoor>();
+    const places = this.deps.places;
+    if (!places) return doors;
+    for (const s of trip.stops) {
+      if (s.type !== 'dropoff' || !s.placeId) continue;
+      const door = await places.courierDoor(s.placeId, { courierId, trip, now });
+      if (!door) continue;
+      doors.set(s.id, { ...door, firstVisit: (await places.dropoffsAt(s.placeId, trip.id)) === 0 });
+    }
+    return doors;
+  }
 
   private async demand(cityId: string, presence: PartnerPresence | null) {
     const [waiting, drivers] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId)]);

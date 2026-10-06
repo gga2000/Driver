@@ -104,6 +104,16 @@ export interface OrdersWalletPort {
 
 export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
 
+/**
+ * Saved places (maps program SP3d): an order keeps the link to the place it goes to only when the
+ * orderer may use it (theirs, or shared by the household), so the courier sees that place's door.
+ */
+export interface OrdersPlacesPort {
+  usableBy(personId: string, placeId: string): Promise<boolean>;
+}
+
+export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
+
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
@@ -169,6 +179,7 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_PROMOTIONS) promotions?: PromotionsPort,
     @Optional() @Inject(ORDERS_CONTROLS) private readonly controls?: OrdersControlsPort,
     @Optional() @Inject(ORDERS_WALLET) private readonly wallet?: OrdersWalletPort,
+    @Optional() @Inject(ORDERS_PLACES) private readonly places?: OrdersPlacesPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
@@ -205,6 +216,16 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
+  /**
+   * A point's saved-place link, kept only when the orderer may use that place (maps program SP3d). A
+   * place someone else owns, or one deleted since, drops the link; the pin and zone stay as sent.
+   */
+  private async placeLink(ordererId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
+    if (!point?.placeId) return point;
+    if (this.places && (await this.places.usableBy(ordererId, point.placeId))) return point;
+    return point.pin ? { zoneKey: point.zoneKey, pin: point.pin } : { zoneKey: point.zoneKey };
+  }
+
   /** The order already placed with this request's key, as `place` answered it; null when none. */
   private async replay(ordererId: string, input: z.output<typeof PlaceOrderInput>, tx?: Tx): Promise<Order | null> {
     if (!input.clientRequestId) return null;
@@ -215,7 +236,8 @@ export class OrdersService implements OnModuleInit {
     return this.view(prior.order.id, tx);
   }
 
-  private async placeOnce(ordererId: string, input: z.output<typeof PlaceOrderInput>): Promise<Order> {
+  private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>): Promise<Order> {
+    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.dropoff) };
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;

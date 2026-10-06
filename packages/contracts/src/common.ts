@@ -17,8 +17,12 @@ export const LatLng = z.object({
 });
 export type LatLng = z.infer<typeof LatLng>;
 
-/** Where a stop is: the zone key fares and dispatch use, and the pin when the app knows it. */
-export const DeliveryPoint = z.object({ zoneKey: z.string().min(1), pin: LatLng.optional() });
+/**
+ * Where a stop is: the zone key fares and dispatch use, and the pin when the app knows it. `placeId`:
+ * the customer's saved place it was picked from (maps program SP3d) — the server keeps it only when
+ * the orderer may use that place, and the courier then sees its door photos and note during the job.
+ */
+export const DeliveryPoint = z.object({ zoneKey: z.string().min(1), pin: LatLng.optional(), placeId: z.string().min(1).max(64).optional() });
 export type DeliveryPoint = z.infer<typeof DeliveryPoint>;
 
 export const CityId = z.string().min(1);

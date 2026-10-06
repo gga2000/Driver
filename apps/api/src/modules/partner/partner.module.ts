@@ -13,6 +13,7 @@ import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '
 import { TripsModule, TripsService } from '../trips/index.js';
 import { WAITING_STATUSES, type TakeRule } from './logic.js';
 import { PartnerService } from './partner.service.js';
+import { PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTNER_DEPS, type PartnerDeps } from './ports.js';
 
 /** Ride take rules by vertical (money & ops §3); deliveries pass through and have none. */
@@ -30,7 +31,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
  * presence, through dispatch.
  */
 @Module({
-  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule, RoutingModule],
+  imports: [DispatchModule, TripsModule, OrdersModule, OrgsModule, PricingModule, LedgerModule, IdentityModule, TrackingModule, DriverAccountModule, FleetModule, RoutingModule, PlacesModule],
   providers: [
     {
       provide: PARTNER_DEPS,
@@ -47,6 +48,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         account: DriverAccountService,
         fleet: FleetService,
         eta: EtaService,
+        places: SavedPlacesService,
       ): PartnerDeps => ({
         roads: { path: (points) => eta.path(points) },
         presence: {
@@ -84,6 +86,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
         // The registered vehicle (review #20): the vehicle registry the courier card reads (`vehicles`
         // with a database, the in-process registry otherwise), else the fleet's own registry.
         vehicles: { vehicleOf: async (id) => (await vehicles.forCourier(id, null))?.vehicleClass ?? (await fleet.activeVehicleOf(id))?.vehicleClass ?? null },
+        // Maps program SP3d: the customer's door (note, photos, first visit) on drop-offs at saved places.
+        places: { courierDoor: (placeId, input) => places.courierDoor(placeId, input), dropoffsAt: (placeId, tripId) => trips.dropoffsAt(placeId, tripId) },
         gate: {
           onlineGate: async (id) => {
             const g = await account.onlineGateFor(id);
@@ -91,7 +95,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService],
     },
     PartnerService,
   ],

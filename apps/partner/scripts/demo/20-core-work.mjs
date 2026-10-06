@@ -5,6 +5,8 @@
 //   POST /demo/offer?who=tuktuk&kind=ride      a tuktuk ride broadcast in waves (he is the nearest)
 //   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup ·
 //                                              to_dropoff · at_dropoff · unreachable
+//        …&door=1                              to the customer's saved home with a door photo and note,
+//                                              never delivered to before ("اتصل قبل لا توصل", maps f6/a5)
 //        …&tender=25000                        the customer said "راح أدفع بـ 25,000" at checkout
 //                                              ("الخردة علينا": the job card and the door helper show it)
 //   POST /demo/online?who=…                    puts him online where his persona works
@@ -12,6 +14,8 @@
 //
 // At start food dispatch is set to suggest-only (nothing reaches drivers by itself) and three
 // orders wait at مشويات الحاج كريم in the centre, so the waiting screen reads "الطلب عالي بالمركز".
+import { doorPng } from '../door-photo.mjs';
+
 const KHALID_PIN = { lat: 32.9095, lng: 45.0635 };
 const HOMES = {
   zakur: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } },
@@ -28,6 +32,23 @@ export default async function register(demo) {
   const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
   const buyer = () => demo.people.get('buyer').personId;
   const item = (r, key) => demo.restaurants[r].itemIds.get(key);
+
+  const { SavedPlacesService, BLOB_STORE } = await demo.load('modules/places/index.js');
+  const places = demo.app.get(SavedPlacesService);
+  const blobs = demo.app.get(BLOB_STORE);
+
+  /** The buyer's saved home in الزكور with a door photo and a standing note (made once). */
+  let home = null;
+  async function savedHome() {
+    if (home) return home;
+    const bytes = doorPng();
+    const ticket = await blobs.createUpload({ ownerId: buyer(), contentType: 'image/png', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+    const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [ticket.uploadId], shareWithHousehold: false, clientRef: 'demo-home' });
+    home = { ...HOMES.zakur, placeId: saved.id };
+    return home;
+  }
 
   let topUps = 0;
   async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note, statedTenderIqd) {
@@ -54,7 +75,7 @@ export default async function register(demo) {
   }
 
   /** An accepted food job for him, moved to `step`. */
-  async function job(personId, step, tender) {
+  async function job(personId, step, tender, door) {
     const { order, trip } = await placeAccepted(
       'khalid',
       [
@@ -62,7 +83,7 @@ export default async function register(demo) {
         { catalogItemId: item('khalid', 'salad'), qty: 1 },
         { catalogItemId: item('khalid', 'pepsi'), qty: 2 },
       ],
-      HOMES.zakur,
+      door ? await savedHome() : HOMES.zakur,
       step === 'to_pickup' ? 14 : 6,
       'cash',
       'باب أخضر يم جامع الرسول، اتصل من توصل',
@@ -121,7 +142,7 @@ export default async function register(demo) {
     await clear(p.personId);
     await ensureOnline(query.who, p.personId, p.vehicle ?? 'bike');
     const tender = query.tender ? Number(query.tender) : undefined;
-    demo.json(res, 200, { step, ...(await job(p.personId, step, tender)) });
+    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1')) });
   });
 
   demo.route('/demo/offer', async ({ res, query }) => {

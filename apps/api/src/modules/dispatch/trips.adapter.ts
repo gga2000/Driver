@@ -29,7 +29,7 @@ export class TripsServiceTripOffers implements TripOffersPort {
       orders: [{ orderId: input.orderId, minVehicleClass: input.minVehicleClass }],
       stops: [
         { orderId: input.orderId, type: 'pickup', zoneKey: input.pickup.zoneKey, target: input.pickup.pin ?? null },
-        { orderId: input.orderId, type: 'dropoff', zoneKey: input.dropoff.zoneKey, target: input.dropoff.pin ?? null },
+        { orderId: input.orderId, type: 'dropoff', zoneKey: input.dropoff.zoneKey, target: input.dropoff.pin ?? null, placeId: input.dropoff.placeId ?? null },
       ],
     };
     return (await this.trips.createForOrders(trip)).id;
@@ -45,7 +45,7 @@ export class TripsServiceTripOffers implements TripOffersPort {
       orders: [{ orderId: input.orderId }],
       stops: [
         { orderId: input.orderId, type: 'pickup', zoneKey: input.pickup.zoneKey, target: input.pickup.pin ?? null },
-        { orderId: input.orderId, type: 'dropoff', zoneKey: input.dropoff.zoneKey, target: input.dropoff.pin ?? null },
+        { orderId: input.orderId, type: 'dropoff', zoneKey: input.dropoff.zoneKey, target: input.dropoff.pin ?? null, placeId: input.dropoff.placeId ?? null },
       ],
     };
     return (await this.trips.createForOrders(trip)).id;

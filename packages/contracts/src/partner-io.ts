@@ -213,6 +213,19 @@ export const PartnerOffer = z.object({
 });
 export type PartnerOffer = z.infer<typeof PartnerOffer>;
 
+/**
+ * The customer's door for the courier on the job (maps program f6, a5). Photos are signed links,
+ * only for the assigned courier from accepting until an hour after the trip (domain §7).
+ */
+export const PartnerDoor = z.object({
+  /** The saved place's standing note ("الباب الأسود، الطابق الثاني"); the order's own note stays in `note`. */
+  placeNote: z.string().nullable(),
+  photos: z.array(z.object({ id: z.string(), url: z.string() })),
+  /** No delivery reached this place before: "اتصل قبل لا توصل" (a5). */
+  firstVisit: z.boolean(),
+});
+export type PartnerDoor = z.infer<typeof PartnerDoor>;
+
 export const PartnerJobStop = z.object({
   stopId: z.string(),
   seq: z.number().int(),
@@ -233,6 +246,8 @@ export const PartnerJobStop = z.object({
   completedAt: z.coerce.date().nullable(),
   /** Pickups not yet done: the 4-digit code he shows at the counter (maps program r4); null otherwise. */
   pickupCode: z.string().nullable().optional(),
+  /** A drop-off at a customer's saved place: what helps him find the door (maps program SP3d); null otherwise. */
+  door: PartnerDoor.nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 
