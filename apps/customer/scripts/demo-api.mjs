@@ -153,8 +153,10 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
-// Scenarios: preparing · on_the_way · near · at_door · unreachable · arrived · late · late_credit · signal_lost · reassigning.
+// Scenarios: preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
 // `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
+// `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
+// read (or the sweep) sends the one "آسفين، طلبك تأخر شوية" push and the banner says sorry;
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
@@ -348,11 +350,13 @@ async function pastPromise(personId, orderId, minutes) {
 }
 
 async function scenario(personId, name, opts = {}) {
-  if (name === 'late_credit') {
-    // Past the honest-delay threshold (MoneyRules.latePromise): the next read posts the credit.
+  if (name === 'late_credit' || name === 'late_apology') {
+    // Past one of the honest-delay promise's steps (MoneyRules.latePromise): the next read sends the
+    // apology (+ apologyAfterMin) or posts the credit (+ afterMin; the apology went out on the way).
     const { AZIZIYAH_MONEY_RULES } = await import('@driver/contracts');
     const r = await scenario(personId, 'late');
-    await pastPromise(personId, r.orderId, AZIZIYAH_MONEY_RULES.latePromise.afterMin + 1);
+    const rules = AZIZIYAH_MONEY_RULES.latePromise;
+    await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
   const late = name === 'late';
@@ -403,7 +407,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

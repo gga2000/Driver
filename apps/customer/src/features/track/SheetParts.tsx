@@ -23,6 +23,7 @@ import {
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { ChangeReceiptLine } from './ChangeCredited';
+import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 
@@ -336,7 +337,7 @@ export function PriceSection({ view }: { view: OrderTracking }) {
         <View
           testID="track-price-late-credit"
           accessible
-          accessibilityLabel={`${t('promise.receipt_line')} ${iqd(credit.amountIqd, { locale, sign: true })}. ${t('promise.receipt_hint', { minutes: view.latePromise.afterMin })}`}
+          accessibilityLabel={`${t('promise.receipt_line')} ${iqd(credit.amountIqd, { locale, sign: true })}. ${t(promiseCopy(view.latePromise.basis).receiptHint, { minutes: view.latePromise.afterMin, amount: amountParam(credit.amountIqd) })}`}
           style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.md, paddingVertical: theme.space[2], paddingHorizontal: theme.space[3] }}
         >
           <View style={{ marginTop: 2 }}>
@@ -352,7 +353,7 @@ export function PriceSection({ view }: { view: OrderTracking }) {
               </Text>
             </View>
             <Text variant="caption" color="textMuted">
-              {t('promise.receipt_hint', { minutes: view.latePromise.afterMin })}
+              {t(promiseCopy(view.latePromise.basis).receiptHint, { minutes: view.latePromise.afterMin, amount: amountParam(credit.amountIqd) })}
             </Text>
           </View>
         </View>
