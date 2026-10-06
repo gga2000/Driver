@@ -2,13 +2,22 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { Icon, Text, useTheme, type IconName } from '@driver/ui';
 import { useT } from '@/lib/i18n';
-import type { RideVertical } from './logic';
+import type { RideVertical, Spot } from './logic';
 import { rideStore } from './store';
 import { color as palette } from '@driver/design-tokens';
 
-/** Opens the booking flow for a vehicle (home tile, the bar, its two shortcuts). */
-export function startRide(vertical: RideVertical) {
+/**
+ * Opens the booking flow for a vehicle (home tile, the bar, its two shortcuts). Search's «تكسي للسوق»
+ * (joy h4) passes the destination it understood, so the rider lands on the fares to that place.
+ */
+export function startRide(vertical: RideVertical, to?: Spot) {
   rideStore.start(vertical);
+  if (to) {
+    // Straight to the fares; without a pickup place yet, that screen sends the rider to «من وين؟».
+    rideStore.update({ dropoff: to });
+    router.push('/ride/choose');
+    return;
+  }
   router.push({ pathname: '/ride', params: { vertical } });
 }
 
