@@ -2755,6 +2755,26 @@ model LaunchInterest {
   @@schema("public")
 }
 
+/// Searches that found nothing, kept when the customer said «إي گولولهم» (joy h4, discovery D-13):
+/// what the town asks for that no kitchen serves yet. Anonymous: no person id, only the zone.
+model SearchUnmet {
+  id        String   @id @default(cuid())
+  cityId    String   @map("city_id")
+  /// The query folded (ة/ه, أ/ا, ال…); the Console groups by it.
+  term      String
+  /// As the customer typed it.
+  typed     String
+  /// Zone of the deliver-to place (null = no place yet, or a guest).
+  zoneKey   String?  @map("zone_key")
+  signedIn  Boolean  @map("signed_in")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([cityId, createdAt])
+  @@map("search_unmet")
+  @@schema("public")
+}
+
 // ───────────────────────── launch control room ─────────────────────────
 
 /// Kill switch (launch playbook §3): one row per target `<scope>:<key>:<vertical|*>` in a city. Turning it

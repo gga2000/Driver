@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { CatalogPicksInput, CatalogSearchDish, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
 import type { Actor } from '../identity-io.js';
-import { publicProcedure, router, type AppContext } from '../trpc.js';
+import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
 
 /**
  * Who is reading: the signed-in caller when a valid token came with the request, otherwise a guest
@@ -42,4 +42,19 @@ export const catalogRouter = router({
     .input(CatalogPicksInput)
     .output(z.array(CatalogSearchDish))
     .query(({ ctx, input }) => ctx.catalog.picks(readerOf(ctx), input)),
+});
+
+/**
+ * One box for the whole town (joy h4): what a search could not find. The app sends the words when the
+ * customer agrees («نگول للمطاعم؟» → «إي گولولهم»); the Console reads the most asked-for ones.
+ */
+export const searchRouter = router({
+  unmet: publicProcedure
+    .input(SearchUnmetInput)
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(({ ctx, input }) => ctx.catalog.unmet(readerOf(ctx), input)),
+  unmetList: protectedProcedure(UNMET_SEARCH_ROLES)
+    .input(UnmetSearchesInput)
+    .output(z.array(UnmetSearchRow))
+    .query(({ ctx, input }) => ctx.catalog.unmetSearches(ctx.actor, input)),
 });

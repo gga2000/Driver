@@ -181,6 +181,23 @@ export interface CatalogRepository {
    * one caller that wins (a conditional update, so two concurrent applies cannot both create items).
    */
   claimImportJob(id: string, at: Date, tx?: Tx): Promise<boolean>;
+
+  // ── joy h4: searches that found nothing (anonymous) ──
+  addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void>;
+  /** Rows of `cityId` at or after `since`, newest first. */
+  unmetSearches(cityId: string, since: Date): Promise<UnmetSearchRecord[]>;
+}
+
+/** One «إي گولولهم» on an empty search: the words, the zone, signed in or not — never who. */
+export interface UnmetSearchRecord {
+  id: string;
+  cityId: string;
+  /** Folded (what the Console groups by). */
+  term: string;
+  typed: string;
+  zoneKey: string | null;
+  signedIn: boolean;
+  createdAt: Date;
 }
 
 function toStorefront(input: NewStorefront): StorefrontRecord {
@@ -220,7 +237,19 @@ function validate(input: NewCatalogItem): void {
 export class InMemoryCatalogRepository implements CatalogRepository {
   private readonly items = new Map<string, CatalogItemRecord>();
   private readonly fronts = new Map<string, StorefrontRecord>();
+  private readonly unmet: UnmetSearchRecord[] = [];
   private seq = 0;
+
+  async addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void> {
+    this.unmet.push({ ...input, id: `unmet_${++this.seq}` });
+  }
+
+  async unmetSearches(cityId: string, since: Date): Promise<UnmetSearchRecord[]> {
+    return this.unmet
+      .filter((r) => r.cityId === cityId && r.createdAt.getTime() >= since.getTime())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((r) => ({ ...r }));
+  }
 
   async itemsByIds(orgId: string, ids: readonly string[]): Promise<CatalogItemRecord[]> {
     return [...new Set(ids)].map((id) => this.items.get(id)).filter((i): i is CatalogItemRecord => i !== undefined && i.orgId === orgId).map(clone);
@@ -463,6 +492,15 @@ function storefrontFromRow(orgId: string, org: { name: string; cityId: string },
 /** `catalog_items` + `modifier_groups` + `modifiers` (seeded by `pnpm db:seed`). */
 export class PrismaCatalogRepository implements CatalogRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void> {
+    await this.prisma.prisma.searchUnmet.create({ data: { cityId: input.cityId, term: input.term, typed: input.typed, zoneKey: input.zoneKey, signedIn: input.signedIn, createdAt: input.createdAt } });
+  }
+
+  async unmetSearches(cityId: string, since: Date): Promise<UnmetSearchRecord[]> {
+    const rows = await this.prisma.prisma.searchUnmet.findMany({ where: { cityId, createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, take: 5000 });
+    return rows.map((r) => ({ id: r.id, cityId: r.cityId, term: r.term, typed: r.typed, zoneKey: r.zoneKey, signedIn: r.signedIn, createdAt: r.createdAt }));
+  }
 
   async itemsByIds(orgId: string, ids: readonly string[]): Promise<CatalogItemRecord[]> {
     if (ids.length === 0) return [];

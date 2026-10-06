@@ -15,6 +15,7 @@ import {
   type NewStorefront,
   type PriceChangeRecord,
   type StorefrontRecord,
+  type UnmetSearchRecord,
 } from './catalog.repository.js';
 
 /** True when customers can order the item right now: the toggle, "sold out today" and stock. */
@@ -57,6 +58,15 @@ export class CatalogService {
   /** M3 customer storefront of a merchant's main menu (cuisine line, minimum, hours…). */
   saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
     return this.repo.saveStorefront(input);
+  }
+
+  /** Joy h4: one anonymous «nobody serves this yet» search. */
+  addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void> {
+    return this.repo.addUnmetSearch(input);
+  }
+
+  unmetSearches(cityId: string, since: Date): Promise<UnmetSearchRecord[]> {
+    return this.repo.unmetSearches(cityId, since);
   }
 
   storefronts(cityId: string): Promise<StorefrontRecord[]> {

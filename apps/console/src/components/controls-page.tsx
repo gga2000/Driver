@@ -74,6 +74,7 @@ import {
   useToast,
 } from './ui';
 import { SeasonsCard } from './seasons-card';
+import { UnmetSearchesCard } from './unmet-searches-card';
 
 /** What a switch dialog acts on. */
 export interface SwitchTarget {
@@ -166,8 +167,9 @@ export function ControlsPage() {
         />
       )}
       {view.data && (
-        <div className="mt-6">
+        <div className="mt-6 space-y-5">
           <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
+          <UnmetSearchesCard signedIn={signedIn} />
         </div>
       )}
       <SwitchDialog target={target} onClose={() => setTarget(null)} />

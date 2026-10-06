@@ -12,7 +12,7 @@ import { ordersRouter } from './routers/orders.js';
 import { tripsRouter } from './routers/trips.js';
 import { ledgerRouter } from './routers/ledger.js';
 import { routesRouter } from './routers/routes.js';
-import { catalogRouter } from './routers/catalog.js';
+import { catalogRouter, searchRouter } from './routers/catalog.js';
 import { consoleRouter, driversRouter, merchantsRouter, systemRouter } from './routers/console.js';
 import { householdRouter, placesRouter, walletRouter } from './routers/account.js';
 import { partnerRouter } from './routers/partner.js';
@@ -64,6 +64,7 @@ export const appRouter = router({
   ledger: ledgerRouter,
   routes: routesRouter,
   catalog: catalogRouter,
+  search: searchRouter,
   console: consoleRouter,
   drivers: driversRouter,
   merchants: merchantsRouter,

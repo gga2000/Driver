@@ -25,15 +25,44 @@ import {
   type RestaurantCard,
   type RestaurantMenu,
   type RestaurantsInput,
+  type SearchUnmetInput,
+  type UnmetSearchesInput,
+  type UnmetSearchRow,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
-import type { CatalogItemRecord, StorefrontRecord } from './catalog.repository.js';
+import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, prepRange, STOREFRONT_RULES } from './storefront.js';
+
+/** Unmet searches one caller may send per minute (joy h4). */
+export const UNMET_PER_MINUTE = 10;
+
+/** Rows (newest first) → one line per folded term, most searches first, then the most recent. */
+export function aggregateUnmet(rows: readonly UnmetSearchRecord[], limit: number): UnmetSearchRow[] {
+  const byTerm = new Map<string, { row: UnmetSearchRow; zones: Map<string | null, number> }>();
+  for (const r of rows) {
+    const g = byTerm.get(r.term) ?? { row: { term: r.term, typed: r.typed, searches: 0, signedIn: 0, zones: [], lastAt: r.createdAt }, zones: new Map<string | null, number>() };
+    g.row.searches += 1;
+    if (r.signedIn) g.row.signedIn += 1;
+    if (r.createdAt > g.row.lastAt) {
+      g.row.lastAt = r.createdAt;
+      g.row.typed = r.typed;
+    }
+    g.zones.set(r.zoneKey, (g.zones.get(r.zoneKey) ?? 0) + 1);
+    byTerm.set(r.term, g);
+  }
+  return [...byTerm.values()]
+    .map(({ row, zones }) => ({
+      ...row,
+      zones: [...zones.entries()].map(([zoneKey, searches]) => ({ zoneKey, searches })).sort((a, b) => b.searches - a.searches || String(a.zoneKey).localeCompare(String(b.zoneKey))),
+    }))
+    .sort((a, b) => b.searches - a.searches || b.lastAt.getTime() - a.lastAt.getTime())
+    .slice(0, limit);
+}
 
 /** The quote engine the fee preview uses: the same one `orders.place` locks fees with. */
 export interface StorefrontPricing {
@@ -277,6 +306,30 @@ export class CatalogRpc implements CustomerCatalogPort {
       if (!out.includes(f.dish)) out.push(f.dish);
     }
     return out;
+  }
+
+  /**
+   * `search.unmet` (joy h4): keeps one anonymous empty search the customer chose to tell us about.
+   * Folded so «بيتزا» and «البيتزا» count together; at most `UNMET_PER_MINUTE` per caller (IP for
+   * guests, person for the signed in) so one bored thumb cannot fill the Console.
+   */
+  async unmet(reader: Actor | CatalogReader, input: z.infer<typeof SearchUnmetInput>): Promise<{ ok: true }> {
+    await this.admit(reader);
+    const term = foldArabic(input.term);
+    if (term.length < 2) return { ok: true };
+    const personId = 'personId' in reader ? reader.personId : (reader.actor?.personId ?? null);
+    const ip = 'ip' in reader ? (reader.ip ?? null) : null;
+    const who = personId ? `p:${personId}` : `ip:${ip ?? 'none'}`;
+    const hit = await this.guests.hit(`search:unmet:${who}`, 60_000, UNMET_PER_MINUTE);
+    if (!hit.allowed) throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    await this.catalog.addUnmetSearch({ cityId: input.cityId, term, typed: input.term.trim().slice(0, 60), zoneKey: input.zoneKey ?? null, signedIn: personId !== null, createdAt: this.clock.now() });
+    return { ok: true };
+  }
+
+  /** Console (`search.unmetList`): the most asked-for missing words, busiest first. */
+  async unmetSearches(_actor: Actor, input: z.infer<typeof UnmetSearchesInput>): Promise<UnmetSearchRow[]> {
+    const since = new Date(this.clock.now().getTime() - input.days * 86_400_000);
+    return aggregateUnmet(await this.catalog.unmetSearches(input.cityId, since), input.limit);
   }
 
   async today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday> {

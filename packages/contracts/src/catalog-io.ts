@@ -195,6 +195,43 @@ export const CatalogPicksInput = z.object({
 export type CatalogPicksInput = z.input<typeof CatalogPicksInput>;
 
 /**
+ * `search.unmet` (joy h4, discovery D-13): a search that found nothing, sent when the customer says
+ * «إي گولولهم». Anonymous by design: the words, the deliver-to zone and whether someone was signed in
+ * — never who. Public (guests search too) and limited per client IP like the catalog.
+ */
+export const SearchUnmetInput = z.object({
+  cityId: CityId,
+  term: z.string().trim().min(2).max(60),
+  zoneKey: z.string().trim().min(1).max(40).nullable().default(null),
+});
+export type SearchUnmetInput = z.input<typeof SearchUnmetInput>;
+
+/** Console: the most asked-for missing words over the last `days` days. */
+export const UnmetSearchesInput = z.object({
+  cityId: CityId,
+  days: z.number().int().min(1).max(90).default(30),
+  limit: z.number().int().min(1).max(100).default(30),
+});
+export type UnmetSearchesInput = z.input<typeof UnmetSearchesInput>;
+
+export const UnmetSearchRow = z.object({
+  /** Folded term (what the rows group by). */
+  term: z.string(),
+  /** The spelling typed most recently. */
+  typed: z.string(),
+  searches: z.number().int().min(1),
+  /** How many of them came from signed-in customers. */
+  signedIn: z.number().int().min(0),
+  /** Busiest zones first (null = no place). */
+  zones: z.array(z.object({ zoneKey: z.string().nullable(), searches: z.number().int().min(1) })),
+  lastAt: z.coerce.date(),
+});
+export type UnmetSearchRow = z.infer<typeof UnmetSearchRow>;
+
+/** Who reads the unmet-search list on the Console (the same desks that read launch demand). */
+export const UNMET_SEARCH_ROLES = ['admin', 'dispatcher', 'support', 'field_ops'] as const;
+
+/**
  * Public catalog reads (guest browsing, Ali 2026-10-04): no account needed, limited per client IP.
  * Nothing in a card or a menu is personal.
  */
@@ -231,6 +268,8 @@ export interface CustomerCatalogPort {
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
   picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]>;
+  unmet(reader: Actor | CatalogReader, input: z.infer<typeof SearchUnmetInput>): Promise<{ ok: true }>;
+  unmetSearches(actor: Actor, input: z.infer<typeof UnmetSearchesInput>): Promise<UnmetSearchRow[]>;
 }
 
 /**

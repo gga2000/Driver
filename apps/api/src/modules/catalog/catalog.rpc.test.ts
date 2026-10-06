@@ -424,3 +424,45 @@ describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
     expect(await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا'], limit: 3 })).toEqual([]);
   });
 });
+
+describe('search.unmet (joy h4: what the town asks for that nobody serves yet)', () => {
+  function searchCaller(rpc: CatalogRpc, personId: string | null, staff = false) {
+    const ctx = {
+      auth: personId ? { sub: personId, sid: `s_${personId}`, iss: 'driver-api', iat: 0, exp: 0 } : null,
+      authError: null,
+      identity: { hasRole: async () => staff },
+      catalog: rpc,
+      client: { ip: '10.0.0.7' },
+    } as unknown as AppContext;
+    return t.createCallerFactory(appRouter)(ctx).search;
+  }
+
+  it('keeps the words anonymously (guests too) and the Console reads them grouped by the folded term', async () => {
+    const w = await world();
+    await searchCaller(w.rpc, null).unmet({ cityId: 'aziziyah', term: 'بيتزا', zoneKey: 'street_30' });
+    w.clock.advance(60_000);
+    await searchCaller(w.rpc, 'c1').unmet({ cityId: 'aziziyah', term: 'البيتزا', zoneKey: 'street_30' });
+    await searchCaller(w.rpc, 'c2').unmet({ cityId: 'aziziyah', term: 'سوشي' });
+    const rows = await searchCaller(w.rpc, 'ops', true).unmetList({ cityId: 'aziziyah' });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ term: 'بيتزا', typed: 'البيتزا', searches: 2, signedIn: 1, zones: [{ zoneKey: 'street_30', searches: 2 }] });
+    expect(rows[1]).toMatchObject({ term: 'سوشي', searches: 1, zones: [{ zoneKey: null, searches: 1 }] });
+    expect(JSON.stringify(rows)).not.toContain('c1');
+  });
+
+  it('only Console desks read the list; one caller cannot flood it', async () => {
+    const w = await world();
+    await expect(searchCaller(w.rpc, 'c1').unmetList({ cityId: 'aziziyah' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    for (let i = 0; i < 10; i++) await w.rpc.unmet(ACTOR, { cityId: 'aziziyah', term: `كلمة ${i}`, zoneKey: null });
+    const err = await w.rpc.unmet(ACTOR, { cityId: 'aziziyah', term: 'زيادة', zoneKey: null }).catch((e: unknown) => e);
+    expect(isDriverError(err) && err.code).toBe('rate_limited');
+  });
+
+  it('forgets nothing inside the window and drops what is older than it', async () => {
+    const w = await world();
+    await w.rpc.unmet(ACTOR, { cityId: 'aziziyah', term: 'برگر', zoneKey: null });
+    w.clock.advance(31 * 86_400_000);
+    expect(await w.rpc.unmetSearches(ACTOR, { cityId: 'aziziyah', days: 30, limit: 30 })).toEqual([]);
+    expect(await w.rpc.unmetSearches(ACTOR, { cityId: 'aziziyah', days: 60, limit: 30 })).toHaveLength(1);
+  });
+});
