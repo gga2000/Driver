@@ -112,8 +112,7 @@ export interface OrdersPricingPort extends QuotePort {
 
 /** `DispatchConfig.customerFreeCancelAfterSec`'s default, when the pricing port has no city config. */
 const RIDE_FREE_CANCEL_FALLBACK_SEC = 180;
-const RIDE_VERTICALS = ['taxi', 'tuktuk'] as const;
-type RideVertical = (typeof RIDE_VERTICALS)[number];
+type RideVertical = 'taxi' | 'tuktuk';
 
 export const ORDERS_TRIPS = Symbol('ORDERS_TRIPS');
 export const ORDERS_PRICING = Symbol('ORDERS_PRICING');
