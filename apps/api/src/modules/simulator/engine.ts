@@ -306,6 +306,7 @@ export class Simulation implements SimContext {
       preparingAt: null,
       stageT: {},
       cancelTried: false,
+      rated: false,
       partialSeenT: null,
       partialAnswerAt: null,
       partialAnswered: false,

@@ -11,6 +11,7 @@ export type { RoutesTickResult } from './scheduler.js';
 export { INTERCITY_NETWORK, INTERCITY_RULES, GARAGES, CORRIDORS } from './intercity.config.js';
 export type { IntercityRules, CorridorConfig, GarageConfig } from './intercity.config.js';
 export { SEAT_ROWS, seatsOf, rowSeats, adjacencyViolation } from './seat-map.js';
+export { bookingTotal } from './model.js';
 export { riderMeterMinutes, driverMeter, TrailCheckpointWaiver } from './late-meter.js';
 export type { CheckpointWaiver } from './late-meter.js';
 export { ROUTES_REPOSITORY, InMemoryRoutesRepository } from './routes.repository.js';

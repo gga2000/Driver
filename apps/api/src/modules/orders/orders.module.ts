@@ -26,6 +26,7 @@ import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.j
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
 import { OrdersStorefrontMerchants } from './storefront.port.js';
+import { OrderTipsService } from './tips.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -88,9 +89,11 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     },
     CatalogRpc,
     OrdersService,
+    // «تحب تكرم عباس؟»: the tip after a 4–5 rating, wallet → driver (docs/api/tips.md).
+    OrderTipsService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc, CatalogRpc],
+  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);

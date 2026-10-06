@@ -19,6 +19,7 @@ import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
+import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
 /**
@@ -239,7 +240,8 @@ function Stars({ value, onPick, testID }: { value: number; onPick: (n: number) =
  * straight away; then the points this order earned count up and fly into the wallet. 1–3 on either
  * (audit C-12) asks what went wrong — one-tap reasons stored as rating tags — and offers "افتح شكوى",
  * which opens the complaint (`orders.openDispute`, a support ticket) before the rating is stored, so
- * the case stays open with support. No tip here: the API takes tips only at checkout.
+ * the case stays open with support. After a 4–5 rating «تحب تكرم عباس؟» offers a tip from the wallet
+ * (`TipOffer`; the server decides whether and which chips).
  */
 export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () => void }) {
   const theme = useTheme();
@@ -259,6 +261,9 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
   const name = view.courier?.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   const canComplain = view.order.state === 'delivered' || view.order.state === 'completed';
   const busy = rate.isPending || dispute.isPending;
+  // The tip is asked only after a good rating (4–5 on everything he rated); the server checks it again.
+  const rated = view.order.rating ?? null;
+  const goodRating = ratingBranch(rated?.delivery ?? delivery, food ? (rated?.food ?? foodScore) || null : null) === 'thanks' && (rated?.delivery ?? delivery) > 0;
 
   const fail = (e: unknown) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' });
   const submit = (d: number, f: number | null, withTags: readonly RatingTag[] = []) =>
@@ -349,6 +354,7 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
             </View>
           ) : null}
           <PointsEarned points={view.pointsEarned} />
+          <TipOffer orderId={view.order.id} name={name} enabled={!complained && goodRating} />
         </View>
       )}
       {step === 1 || step === 2 ? (

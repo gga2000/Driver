@@ -10,10 +10,10 @@ import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
-import { DeparturesService, GARAGES, CORRIDORS, RoutesModule } from '../routes/index.js';
+import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
-import { cityNameAr, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
+import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
 import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService } from './notify.service.js';
 import { registerNotifySubscribers } from './notify.subscribers.js';
@@ -99,6 +99,31 @@ function envInt(name: string, fallback: number): number {
               vehicle,
               pin: b.pin,
             };
+          }),
+        departurePasses: (departureId) =>
+          orNull(async () => {
+            const dep = await departures.departure(departureId);
+            const corridor = CORRIDORS.find((c) => c.id === dep.corridorId);
+            const garage = GARAGES.find((g) => g.id === dep.garageId);
+            const car = dep.lastPosition;
+            return (await departures.bookings(departureId)).map((b) => ({
+              bookingId: b.id,
+              riderId: b.riderId,
+              state: b.state,
+              departAt: dep.departAt,
+              stop:
+                b.pickup.kind === 'meeting_point'
+                  ? (corridor?.meetingPoints.find((m) => m.id === b.pickup.meetingPointId)?.nameAr ?? garage?.nameAr ?? '')
+                  : b.pickup.kind === 'door'
+                    ? 'باب البيت'
+                    : (garage?.nameAr ?? ''),
+              pickupKind: b.pickup.kind,
+              toCity: cityNameAr(dep.toCityId),
+              seatIds: [...b.seatIds],
+              pin: b.pin,
+              carKm: car ? kmBetween(car, b.pickup) : null,
+              fareIqd: bookingTotal(b),
+            }));
           }),
         child: (childRef) => orNull(() => identity.childNotice(childRef)),
         stopPlace: (tripId, stopId) =>

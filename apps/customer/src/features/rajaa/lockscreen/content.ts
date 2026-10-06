@@ -11,9 +11,13 @@
  *   arrived   completed              "وصلت بالسلامة" · "الأجرة 10,000 دينار" (dismissible, not sticky)
  *   gone      cancelled, moved, no-show, held, left without him: the notification is removed
  *
- * iOS: a Live Activity needs a native widget extension (follow-up); this module serves Android only.
+ * While the app is closed, the server's data push (`RajaaPassPush`, one per boarding moment) carries
+ * the same card: `passCardFromPush` turns it into these words without a network call.
+ *
+ * iOS: a Live Activity needs a native widget extension and an EAS build (out of scope); this module
+ * serves Android only.
  */
-import type { BookingView, BoardingPass } from '@driver/contracts';
+import type { BookingView, BoardingPass, RajaaPassPush } from '@driver/contracts';
 import { formatClock, formatDuration, type MessageKey } from '@driver/i18n';
 
 export type PassPhase = 'none' | 'upcoming' | 'boarding' | 'on_board' | 'on_road' | 'arrived' | 'gone';
@@ -129,4 +133,32 @@ export function passCard(input: PassCardInput, t: T): PassCard | null {
 /** Same words, same notification: the module skips re-posting an unchanged card. */
 export function passCardKey(c: PassCard | null): string {
   return c ? [c.id, c.phase, c.title, c.body, c.sub ?? '', c.sticky ? 1 : 0, c.imHere ?? ''].join('|') : '';
+}
+
+/**
+ * The card a server pass push means (customer d-8 follow-up), with the same words as `passCard`:
+ * boarding (the car's distance when the server knew it, else the countdown), on board, on the road,
+ * arrived with the fare. Null for `gone` (the card is removed).
+ */
+export function passCardFromPush(p: RajaaPassPush, t: T, amount: (iqd: number) => string, now: Date): PassCard | null {
+  if (p.phase === 'gone') return null;
+  const time = formatClock(p.departAt);
+  const seat = p.seatIds.map((id) => t(`seat.${id}` as MessageKey)).join('، ');
+  const base = { id: passNotificationId(p.bookingId), bookingId: p.bookingId, deepLink: `driver://rajaa/pass/${p.bookingId}` } as const;
+  if (p.phase === 'boarding') {
+    const left = p.departAt.getTime() - now.getTime();
+    const countdown = left >= MIN ? t('departure_time.in', { duration: formatDuration(left) }) : t('departure_time.now');
+    return {
+      ...base,
+      phase: 'boarding',
+      title: t('rajaa.lock_boarding_title', { garage: p.stop }),
+      body: p.pin ? t('rajaa.lock_pass_body', { seat, pin: p.pin }) : t('rajaa.lock_seat_body', { seat }),
+      sub: p.carKm !== null ? t('rajaa.lock_car_km', { km: p.carKm.toFixed(1) }) : countdown,
+      sticky: true,
+      imHere: p.pickupKind === 'garage' ? 'garage' : p.pickupKind === 'meeting_point' ? 'point' : null,
+    };
+  }
+  if (p.phase === 'on_board') return { ...base, phase: 'on_board', title: t('rajaa.lock_checked_in_title', { time }), body: t('rajaa.lock_seat_body', { seat }), sub: null, sticky: true, imHere: null };
+  if (p.phase === 'on_road') return { ...base, phase: 'on_road', title: t('rajaa.lock_on_road_title', { city: p.toCity }), body: t('rajaa.lock_seat_body', { seat }), sub: null, sticky: true, imHere: null };
+  return { ...base, phase: 'arrived', title: t('rajaa.lock_arrived_title'), body: t('rajaa.lock_arrived_body', { amount: amount(p.fareIqd) }), sub: null, sticky: false, imHere: null };
 }

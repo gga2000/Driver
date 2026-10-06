@@ -110,6 +110,18 @@ export const OrderChangeToWalletPayload = z.object({
 export type OrderChangeToWalletPayload = z.infer<typeof OrderChangeToWalletPayload>;
 
 /**
+ * `order.tipped`: the customer's tip after a 4–5 rating, wallet → driver (`tip:<orderId>`, Ali
+ * 2026-10-06). The notify module pushes «علي كرمك 1,000 دينار» to the driver.
+ */
+export const OrderTippedPayload = z.object({
+  customerId: z.string().min(1),
+  courierId: z.string().min(1),
+  tripId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+});
+export type OrderTippedPayload = z.infer<typeof OrderTippedPayload>;
+
+/**
  * `order.cash_collected`: cash is in the courier's (or driver's) hand. The ledger posts the money
  * group at once so the merchant's live balance and the courier's cap move immediately (decisions §3).
  * The nested money fact carries `cashCollectedIqd` = `amountIqd`.
@@ -256,6 +268,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'order.courier_unassigned': OrderCourierUnassignedPayload,
   'order.cash_collected': OrderCashCollectedPayload,
   'order.change_to_wallet': OrderChangeToWalletPayload,
+  'order.tipped': OrderTippedPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,
   'merchant.payable_accrued': MerchantPayableAccruedPayload,

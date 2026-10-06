@@ -177,6 +177,11 @@ export const ERROR_TABLE = {
   topup_amount_mismatch: { retryHint: 'never', status: 'BAD_REQUEST' },
   topup_courier_not_assigned: { retryHint: 'never', status: 'FORBIDDEN' },
   tip_above_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // The tip after a good rating (Ali, 2026-10-06): one per order, from the wallet, rated 4–5, within the window.
+  tip_not_offered: { retryHint: 'never', status: 'CONFLICT' },
+  tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
+  tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
+  tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },

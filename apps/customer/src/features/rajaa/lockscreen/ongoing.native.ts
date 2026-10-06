@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { decodeRajaaPassPush } from '@driver/contracts';
 import { Platform } from 'react-native';
 import type { PassCard } from './content';
 import type { OngoingLabels, OngoingPassDevice } from './ongoing';
@@ -80,6 +81,15 @@ export const ongoingPass: OngoingPassDevice = {
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
       const data = (r.notification.request.content.data ?? {}) as { kind?: string; bookingId?: string };
       if (r.actionIdentifier === IM_HERE && data.kind === 'rajaa_pass' && data.bookingId) cb(data.bookingId);
+    });
+    return () => sub.remove();
+  },
+  onPassPush(cb) {
+    if (!android) return () => undefined;
+    // The server's data-only pass update (`rajaa_pass_update`): nothing is shown for it by the system.
+    const sub = Notifications.addNotificationReceivedListener((n) => {
+      const push = decodeRajaaPassPush(n.request.content.data as Record<string, unknown> | null);
+      if (push) cb(push);
     });
     return () => sub.remove();
   },

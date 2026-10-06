@@ -32,6 +32,17 @@ describe('notify routing', () => {
     expect(h.phoneReads).toEqual(['cust:notify:order_receipt']);
   });
 
+  it('a data-only template (the الرجعة lock-screen card) goes out silent with its data and the deep link', async () => {
+    const h = notifyHarness();
+    await h.register('cust');
+    await h.service.dispatch({ eventId: 'ev9', template: 'rajaa_pass_update', to: 'cust', params: { bookingId: 'bk_1', phase: 'on_road' }, data: { kind: 'rajaa_pass_update', bookingId: 'bk_1', phase: 'on_road' } });
+    await h.run();
+    const push = (h.push as unknown as { sent: Array<{ silent?: boolean; data: Record<string, string> }> }).sent[0]!;
+    expect(push.silent).toBe(true);
+    expect(push.data).toMatchObject({ kind: 'rajaa_pass_update', bookingId: 'bk_1', phase: 'on_road', deepLink: 'driver://rajaa/pass/bk_1', template: 'rajaa_pass_update' });
+    expect((await h.rows({})).map((r) => [r.channel, r.status])).toEqual([['push', 'sent']]);
+  });
+
   it('dedupes by event id: an outbox redelivery inserts and sends nothing', async () => {
     const h = notifyHarness();
     await h.register('cust');

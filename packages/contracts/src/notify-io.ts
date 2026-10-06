@@ -111,9 +111,13 @@ export const NotifyTemplateId = z.enum([
   'partner_zone_nudge',
   'merchant_cash_handover',
   'courier_cash_receipt',
+  'driver_pay_reply',
+  'tip_received',
+  'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
   'rajaa_boarding_pass',
+  'rajaa_pass_update',
   'khat_child_arrived',
   'khat_sweep_reminder',
   'khat_sweep_dispatch_alert',
@@ -149,6 +153,11 @@ export interface NotifyTemplateDef {
     androidChannel: AndroidChannelId;
     /** Deep link with `{param}` placeholders (every notification opens its screen, domain §8). */
     deepLink: string;
+    /**
+     * Data-only: no title, body or sound reach the phone — the app reads `data` and updates something
+     * it already shows (the الرجعة lock-screen card). Title and body still name it in the delivery log.
+     */
+    silent?: boolean;
   };
   whatsapp?: WhatsAppTemplateDef;
   /** Channels attempted at once (subject to preferences). */
@@ -277,6 +286,33 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // «عندي اعتراض» answered (partner audit S-7 follow-up): support replied to, or settled, the driver's
+  // objection on one job's pay; the push opens that job's receipt with the reply on it.
+  // «علي كرمك 1,000 دينار» (Ali, 2026-10-06): the customer tipped after a 4–5 rating; 100 % his.
+  tip_received: {
+    id: 'tip_received',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.tip_received.title', body: 'push.tip_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  driver_pay_reply: {
+    id: 'driver_pay_reply',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.driver_pay_reply.title', body: 'push.driver_pay_reply.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  driver_pay_resolved: {
+    id: 'driver_pay_resolved',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.driver_pay_resolved.title', body: 'push.driver_pay_resolved.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
   merchant_cash_handover: {
     id: 'merchant_cash_handover',
     category: 'money',
@@ -314,6 +350,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('wallet_topup_receipt', 'wa.topup_receipt', ['amount', 'date', 'reference'], ['25,000', '2026-10-04', 'TU-2610-0007']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // The lock-screen boarding pass kept current with the app closed (customer d-8 follow-up): a data-only
+  // push per boarding moment; the app re-posts the Android ongoing card from it (`RajaaPassPush`).
+  rajaa_pass_update: {
+    id: 'rajaa_pass_update',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.rajaa_pass_update.title', body: 'push.rajaa_pass_update.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}', silent: true },
+    primary: ['push'],
     quietHours: 'send',
   },
   rajaa_boarding_pass: {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
+import { createT } from '@driver/i18n';
+import { disputeKindFor, lowReasons, ratingBranch, tipCard } from './rating-logic';
 
 describe('rating branches (C-12)', () => {
   it('asks what went wrong when either score is 3 or less', () => {
@@ -24,5 +25,25 @@ describe('rating branches (C-12)', () => {
     expect(disputeKindFor(['rude'], 'food')).toBe('other');
     expect(disputeKindFor([], 'food')).toBe('other');
     expect(disputeKindFor(['late'], 'ride')).toBe('other');
+  });
+});
+
+describe('the tip card after a good rating (Ali, 2026-10-06)', () => {
+  const offer = (over: Partial<{ offered: boolean; amountsIqd: number[]; tip: { amountIqd: number; at: Date } | null }> = {}) => ({ offered: true, amountsIqd: [500, 1000, 2000], tip: null, ...over });
+  it('chips when his wallet covers some, the cash note when it covers none', () => {
+    expect(tipCard(offer())).toBe('chips');
+    expect(tipCard(offer({ amountsIqd: [] }))).toBe('cash_note');
+  });
+  it('nothing when not offered, not loaded, or after «لا شكراً»; thanks once he tipped', () => {
+    expect(tipCard(offer({ offered: false, amountsIqd: [] }))).toBe('hidden');
+    expect(tipCard(null)).toBe('hidden');
+    expect(tipCard(offer(), true)).toBe('hidden');
+    expect(tipCard(offer({ amountsIqd: [], tip: { amountIqd: 1000, at: new Date() } }))).toBe('thanks');
+  });
+  it('speaks Iraqi, with دينار after every amount', () => {
+    const t = createT('ar-IQ');
+    expect(t('tip.ask', { name: 'عباس' })).toBe('تحب تكرم عباس؟');
+    expect(t('tip.chip', { amount: '1,000' })).toBe('1,000 دينار');
+    expect(t('tip.no_thanks')).toBe('لا شكراً');
   });
 });

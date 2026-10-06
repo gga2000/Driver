@@ -237,6 +237,10 @@ development bridge in the demo API, so the toast shows the other party's real (d
   (vault); the driver's SOS messages this contact.
 - Native modules added (development build needed, Expo SDK 52 versions): `expo-battery`, `expo-sharing`,
   `react-native-view-shot`.
+- «عندي اعتراض» answered (S-7 follow-up): when support replies to or resolves the driver's pay objection in the
+  Console, he gets a push that opens the job's receipt, and the receipt shows «دا نراجعه» / «انحلت» with
+  «ردّ الدعم: …». Demo: `POST /demo/pay-query?who=courier&step=open|reply|resolve` (`scripts/demo/55-pay-query.mjs`;
+  answers the receipt `path`).
 - Demo (`scripts/demo/80-money.mjs`): `POST /demo/money/shift?who=courier&hours=5` (online, shift started
   5 h ago), `POST /demo/money/settle?who=courier` (hands in his cash: the done screen counts down home);
   last week's city orders per hour are fed to the summary. Shots: `SHOTS=money` (`scripts/shots/90-money.mjs`).

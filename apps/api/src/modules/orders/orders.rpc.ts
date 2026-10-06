@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
@@ -15,11 +15,15 @@ import {
   type RateOrderInput,
   type RespondPartialInput,
   type RideSwitchQuote,
+  type TipOffer,
+  type TipOrderInput,
+  type TipResult,
   type RoleKind,
   type MerchantAcceptInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
+import { OrderTipsService } from './tips.js';
 
 /** Live role checks, optionally scoped to an org (merchant staff of *this* restaurant). */
 export interface OrgRoleChecker {
@@ -42,7 +46,19 @@ export class OrdersRpc implements OrdersPort {
     private readonly orders: OrdersService,
     @Inject(ORDERS_TRIPS) private readonly trips: OrdersTripsPort,
     @Inject(ORDERS_ROLE_CHECKER) private readonly roles: OrgRoleChecker,
+    @Optional() private readonly tips?: OrderTipsService,
   ) {}
+
+  /** «تحب تكرم عباس؟»: the orderer only (checked by the tips service). */
+  tipOptions(actor: Actor, input: { orderId: string }): Promise<TipOffer> {
+    if (!this.tips) throw new DriverError('internal');
+    return this.tips.options(actor.personId, input.orderId);
+  }
+
+  tip(actor: Actor, input: TipOrderInput): Promise<TipResult> {
+    if (!this.tips) throw new DriverError('internal');
+    return this.tips.tip(actor.personId, input);
+  }
 
   place(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<Order> {
     return this.orders.place(actor.personId, input);

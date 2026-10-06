@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { orderTicketNumber } from '@driver/contracts';
+import { encodeRajaaPassPush, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
@@ -36,7 +36,12 @@ export const NOTIFY_EVENT_TYPES = [
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
+  'order.tipped',
+  'support.replied',
+  'support.resolved',
   'seat.booked',
+  // الرجعة lock-screen pass updates (data-only), customer d-8 follow-up.
+  ...RAJAA_PASS_EVENTS,
   'khat.child_tapped_out',
   'khat.sweep_missed',
   'dispatch.offer_sent',
@@ -56,10 +61,59 @@ const MERCHANT_STAFF = ['merchant_staff', 'merchant_owner'] as const;
 const MERCHANT_OWNERS = ['merchant_owner'] as const;
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+/** A support reply in a push body: one line, at most 140 characters. */
+const clip = (text: string, max = 140): string => {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+};
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * The الرجعة lock-screen card kept current with the app closed (customer d-8 follow-up): each boarding
+ * moment sends the riders it concerns a data-only push with what the card should say now (phase, time,
+ * stop, seats, PIN, the car's distance, the fare). Departure-wide events reach every booking on the
+ * car; seat events only their own booking. Exported for tests.
+ */
+export async function passUpdatesFor(e: PublishedEvent, lookups: Pick<NotifyLookups, 'departurePasses'>): Promise<NotifyRequest[]> {
+  if (!(RAJAA_PASS_EVENTS as readonly string[]).includes(e.type)) return [];
+  const p = e.payload;
+  const departureId = str(p['departureId']) ?? (e.aggregate === 'departure' ? e.aggregateId : null);
+  if (!departureId) return [];
+  const seatId = str(p['seatId']);
+  const bookingId = str(p['bookingId']) ?? (seatId && seatId.includes('.') ? seatId.slice(0, seatId.lastIndexOf('.')) : null);
+  if (e.type.startsWith('seat.') && !bookingId) return [];
+  const passes = (await lookups.departurePasses(departureId)) ?? [];
+  const out: NotifyRequest[] = [];
+  for (const b of passes) {
+    if (e.type.startsWith('seat.') && b.bookingId !== bookingId) continue;
+    const phase = rajaaPassPhaseFor(e.type, b.state);
+    if (!phase) continue;
+    const data = encodeRajaaPassPush({
+      kind: RAJAA_PASS_PUSH_KIND,
+      bookingId: b.bookingId,
+      phase,
+      departAt: b.departAt,
+      stop: b.stop,
+      pickupKind: b.pickupKind,
+      toCity: b.toCity,
+      seatIds: b.seatIds,
+      pin: b.pin,
+      carKm: phase === 'boarding' ? b.carKm : null,
+      fareIqd: b.fareIqd,
+      sentAt: e.occurredAt,
+    });
+    out.push({ eventId: e.id, template: 'rajaa_pass_update', to: b.riderId, params: { bookingId: b.bookingId, phase }, data });
+  }
+  return out;
+}
 
 /** Turns one event into the notifications it implies. Exported for tests. */
 export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
+  const passUpdates = await passUpdatesFor(e, deps.lookups);
+  return [...passUpdates, ...(await messagesFor(e, deps))];
+}
+
+async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const p = e.payload;
   const base = { eventId: e.id };
   const L = deps.lookups;
@@ -163,6 +217,27 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!customerId || amount === null || amount <= 0) return [];
       // Signed and isolated (\u2066+7,250\u2069) so the plus stays left of the digits in Arabic.
       return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
+    }
+    case 'order.tipped': {
+      // «علي كرمك 1,000 دينار»: the customer's tip after a 4–5 rating, to the driver who carried it.
+      const courierId = str(p['courierId']);
+      const customerId = str(p['customerId']);
+      const amount = num(p['amountIqd']);
+      if (!courierId || !customerId || amount === null || amount <= 0) return [];
+      const name = await L.firstName(customerId, 'notify_tip_received');
+      return [{ ...base, template: 'tip_received', to: courierId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { name: name ?? 'الزبون', amount: iqd(amount), id: e.orderId ? orderTicketNumber(e.orderId) : '' } }];
+    }
+    case 'support.replied':
+    case 'support.resolved': {
+      // «عندي اعتراض» answered (S-7 follow-up): only a driver's pay query names `driverId`; the push
+      // carries the reply (or the resolution) and opens that job's receipt.
+      const driverId = str(p['driverId']);
+      const jobKey = str(p['jobKey']);
+      const jobAt = str(p['jobAt']);
+      const text = str(e.type === 'support.replied' ? p['text'] : p['resolution']);
+      if (!driverId || !jobKey || !jobAt) return [];
+      const template = e.type === 'support.replied' ? ('driver_pay_reply' as const) : ('driver_pay_resolved' as const);
+      return [{ ...base, template, to: driverId, params: { text: clip(text ?? ''), key: encodeURIComponent(jobKey), at: encodeURIComponent(jobAt) } }];
     }
     case 'seat.booked': {
       const bookingId = str(p['bookingId']);

@@ -188,6 +188,15 @@ export const MoneyRules = z.object({
     .object({ afterMin: z.number().int().positive(), apologyAfterMin: z.number().int().positive(), freeDeliveryCreditIqd: Iqd.nonnegative() })
     .refine((r) => r.apologyAfterMin < r.afterMin, { message: 'the apology comes before the credit' })
     .default({ afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 }),
+  /**
+   * The tip after a good rating (Ali, 2026-10-06, "do whatever is best"): after rating the
+   * courier/driver at least `minRating` stars the customer may give one of `amountsIqd` from his own
+   * wallet, 100 % to the driver, once per order, up to `windowHours` after delivery. Cash tips are
+   * handed over directly and never pass through the app.
+   */
+  afterTip: z
+    .object({ amountsIqd: z.array(Iqd.positive()).min(1), minRating: z.number().int().min(1).max(5), windowHours: z.number().positive() })
+    .default({ amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -235,6 +244,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   },
   nightly: { hour: 2, utcOffsetMin: 180 },
   latePromise: { afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 },
+  afterTip: { amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

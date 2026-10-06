@@ -133,7 +133,7 @@ export default {
       await byTestId('statement-bridge').waitFor({ timeout: 3000 });
       await shot('statement-bridge', { element: byTestId('statement-bridge') });
     });
-    // Scrolled to the end, the last row («رصيد آخر الأسبوع») clears the floating "3 طلبات تنتظر" pill.
+    // Scrolled to the end, the last row («رصيد آخر الأسبوع») sits above the docked "3 طلبات تنتظر" strip.
     await step('statement-end', async () => {
       await page.evaluate(() => {
         for (const el of document.querySelectorAll('div')) if (el.scrollHeight > el.clientHeight + 10 && getComputedStyle(el).overflowY !== 'visible') el.scrollTop = el.scrollHeight;

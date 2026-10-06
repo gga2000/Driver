@@ -1,4 +1,4 @@
-import { AZIZIYAH_MONEY_RULES, latePromiseTerms, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, latePromiseTerms, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
@@ -62,6 +62,8 @@ export const RULES = {
 const MAX_EXAMPLES = 5;
 /** Posting group prefix of the honest-delay credit (tracking's `latePromiseGroupId`). */
 const LATE_PROMISE_GROUP = 'late_promise:';
+/** Posting group prefix of the tip after a good rating (`afterTipGroupId`). */
+const AFTER_TIP_GROUP = 'tip:';
 const TERMINAL_TRIPS = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
 
 export const isPointsAccount = (a: string) => a.startsWith('points:') || a.startsWith('points_pending:') || a === 'points_pool';
@@ -360,6 +362,41 @@ export const INVARIANTS: readonly Definition[] = [
         for (const e of lines) {
           if (e.type !== 'credit_issued' || e.fromAccount !== 'platform' || e.toAccount !== `customer:${o.ordererId}`) bad.push(`${o.id}: late credit ${e.type} ${e.fromAccount} → ${e.toAccount} (must be platform → customer:${o.ordererId})`);
           if (e.amount !== expected) bad.push(`${o.id}: late credit ${e.amount} ≠ ${expected} (fee ${o.deliveryFeeIqd}${o.discount?.target === 'delivery' ? `, free-delivery deal ${o.discount.amountIqd}` : ''})`);
+        }
+      }
+      return { checked: byGroup.size, bad };
+    },
+  },
+  {
+    name: 'tip_after_rating_once_and_to_the_driver',
+    description:
+      'the tip after a 4–5 rating (tip:<order>, Ali 2026-10-06) is one line per order, from the orderer’s own wallet to the driver whose trip carried it, 100 % (no take), one of the offered amounts (500 / 1,000 / 2,000), only on an order rated ≥ 4 with no tip at checkout, within 24 h of delivery',
+    run: (s) => {
+      const bad: string[] = [];
+      const rules = AZIZIYAH_MONEY_RULES.afterTip;
+      const orders = new Map(s.orders.map((o) => [o.id, o]));
+      const trips = new Map(s.trips.map((t) => [t.id, t]));
+      const byGroup = new Map<string, LedgerEvent[]>();
+      for (const e of s.ledger) {
+        if (!e.postingGroupId?.startsWith(AFTER_TIP_GROUP)) continue;
+        byGroup.set(e.postingGroupId, [...(byGroup.get(e.postingGroupId) ?? []), e]);
+      }
+      for (const [group, lines] of byGroup) {
+        const o = orders.get(group.slice(AFTER_TIP_GROUP.length));
+        if (!o) {
+          bad.push(`${group}: no such order`);
+          continue;
+        }
+        if (lines.length !== 1) bad.push(`${o.id}: ${lines.length} tip lines (one per order)`);
+        if ((o.rating?.delivery ?? 0) < rules.minRating) bad.push(`${o.id}: tipped with a ${o.rating?.delivery ?? 'missing'} rating`);
+        if (o.tipIqd > 0) bad.push(`${o.id}: tipped again after a ${o.tipIqd} tip at checkout`);
+        for (const e of lines) {
+          const courier = e.tripId ? trips.get(e.tripId)?.courierId : null;
+          if (e.type !== 'tip' || e.memo !== AFTER_TIP_MEMO) bad.push(`${o.id}: ${e.type} (${e.memo}) in the tip group`);
+          if (e.fromAccount !== `customer:${o.ordererId}`) bad.push(`${o.id}: tip paid from ${e.fromAccount}, not customer:${o.ordererId}`);
+          if (!courier || e.toAccount !== `driver:${courier}`) bad.push(`${o.id}: tip to ${e.toAccount}, not the trip's driver (${courier ?? 'none'})`);
+          if (!rules.amountsIqd.includes(e.amount)) bad.push(`${o.id}: tip ${e.amount} is not one of ${rules.amountsIqd.join(' / ')}`);
+          if (!o.deliveredAt || e.occurredAt.getTime() > o.deliveredAt.getTime() + rules.windowHours * 3_600_000) bad.push(`${o.id}: tip at ${e.occurredAt.toISOString()} outside the window after delivery`);
         }
       }
       return { checked: byGroup.size, bad };

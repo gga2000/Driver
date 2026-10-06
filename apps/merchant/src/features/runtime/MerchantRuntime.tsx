@@ -18,9 +18,11 @@ import { usePrinterSync } from '@/features/print/runtime';
 /**
  * App-wide kitchen services for the selected store, mounted once under the navigator: the 30-s
  * heartbeat, the live channel (`live.merchantBoard`: rings on a new order at once), the board that drives the new-order alarm (it rings on every screen, not only on
- * the board), and printer status reporting. Off the board, a floating "طلب جديد!" pill leads back.
+ * the board), and printer status reporting. Off the board, "3 طلبات تنتظر" leads back: a floating pill
+ * at the top on the tablet, a strip docked above the phone's tab bar (it takes its own room, never
+ * covering a screen's content). Rendered between the screens and the tab bar for that reason.
  */
-export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: string; onBoard: boolean; /** Phone tab bar showing: the pill sits above it. */ bottomBar: boolean }) {
+export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: string; onBoard: boolean; /** Phone tab bar showing: the strip sits on it (no safe-area padding of its own). */ bottomBar: boolean }) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -47,11 +49,43 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
 
   if (onBoard || pending.length === 0) return null;
   const hot = plan.stage === 'urgent' || plan.stage === 'final';
+  const fg = hot ? theme.colors.onDanger : theme.colors.onAccent;
+  const iconColor = hot ? 'onDanger' : 'onAccent';
+  // M-10: the same number and words as the board's banner and the جديد column.
+  const label = summaryTitle(t, newOrderSummary(board.data?.orders ?? [], plan.snoozed));
+  if (!wide) {
+    // Phone: a strip docked in the layout right above the tab bar (or the bottom edge) — it takes its own
+    // room, so it never covers a screen's last line (the weekly statement's «رصيد آخر الأسبوع»).
+    return (
+      <Pressable
+        testID="new-order-pill"
+        accessibilityRole="button"
+        onPress={() => router.navigate('/')}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[2],
+          minHeight: 48,
+          paddingHorizontal: theme.space[4],
+          paddingTop: theme.space[2],
+          paddingBottom: theme.space[2] + (bottomBar ? 0 : insets.bottom),
+          backgroundColor: hot ? theme.colors.danger : theme.colors.accent,
+          opacity: pressed ? 0.9 : 1,
+        })}
+      >
+        <Icon name="bell" size={20} color={iconColor} strokeWidth={2.2} />
+        <Text weight={700} numberOfLines={1} style={{ flex: 1, fontSize: 17, lineHeight: 26, color: fg }}>
+          {label}
+        </Text>
+        <Icon name="chevron-forward" size={18} color={iconColor} />
+      </Pressable>
+    );
+  }
   return (
     <View
       pointerEvents="box-none"
-      // Tablet: top centre, over the page header's empty middle. Phone: above the tab bar, where the thumb is.
-      style={[{ position: 'absolute', start: 0, end: 0, alignItems: 'center' }, wide ? { top: insets.top + theme.space[3] } : { bottom: (bottomBar ? 84 : theme.space[4]) + insets.bottom }]}
+      // Tablet: top centre, over the page header's empty middle.
+      style={{ position: 'absolute', start: 0, end: 0, alignItems: 'center', top: insets.top + theme.space[3] }}
     >
       <Pressable
         testID="new-order-pill"
@@ -72,12 +106,11 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
           elevation: 8,
         }}
       >
-        <Icon name="bell" size={20} color={hot ? 'onDanger' : 'onAccent'} strokeWidth={2.2} />
-        <Text weight={700} style={{ fontSize: 17, lineHeight: 26, color: hot ? theme.colors.onDanger : theme.colors.onAccent }}>
-          {/* M-10: the same number and words as the board's banner and the جديد column. */}
-          {summaryTitle(t, newOrderSummary(board.data?.orders ?? [], plan.snoozed))}
+        <Icon name="bell" size={20} color={iconColor} strokeWidth={2.2} />
+        <Text weight={700} style={{ fontSize: 17, lineHeight: 26, color: fg }}>
+          {label}
         </Text>
-        <Icon name="chevron-forward" size={18} color={hot ? 'onDanger' : 'onAccent'} />
+        <Icon name="chevron-forward" size={18} color={iconColor} />
       </Pressable>
     </View>
   );

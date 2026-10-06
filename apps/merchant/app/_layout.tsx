@@ -134,8 +134,9 @@ function RootNavigator() {
           <Stack.Screen name="insights" options={{ animation: 'none' }} />
           <Stack.Screen name="more" options={{ animation: 'none' }} />
         </Stack>
+        {/* Between the screens and the tab bar: on a phone its "طلبات تنتظر" strip takes its own room. */}
+        {signedIn && access === 'ready' && store ? <MerchantRuntime storeId={store.orgId} onBoard={section === 'orders'} bottomBar={showNav && !wide && isSectionRoot(segments)} /> : null}
         {showNav && !wide && isSectionRoot(segments) ? <BottomBar items={items} active={section} newCount={newCount} onNavigate={navigate} /> : null}
-        {signedIn && access === 'ready' && store ? <MerchantRuntime storeId={store.orgId} onBoard={section === 'orders'} bottomBar={!wide && isSectionRoot(segments)} /> : null}
       </View>
       <ReceiptPreview />
       {ready ? null : <Splash />}

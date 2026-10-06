@@ -70,6 +70,23 @@ describe('Expo push', () => {
   });
 });
 
+describe('data-only push (the الرجعة lock-screen card, d-8 follow-up)', () => {
+  it('Expo: no title, body or sound — only data, high priority and content-available', async () => {
+    const f = fakeFetch({ status: 200, body: { data: [{ status: 'ok', id: 'tk-1' }] } });
+    await new ExpoPushProvider({ baseUrl: 'https://exp.host' }, f.fetchImpl).send([msg('ExponentPushToken[1]', { silent: true, data: { kind: 'rajaa_pass_update' } })]);
+    expect((f.calls[0]!.json as unknown[])[0]).toEqual({ to: 'ExponentPushToken[1]', data: { kind: 'rajaa_pass_update' }, priority: 'high', _contentAvailable: true });
+  });
+
+  it('FCM: a data message, no notification block', async () => {
+    const f = fakeFetch({ status: 200, body: { name: 'projects/p/messages/1' } });
+    await new FcmPushProvider({ projectId: 'p', accessToken: 'at', baseUrl: 'https://fcm.googleapis.com', tokenUrl: 'https://oauth2.googleapis.com/token' }, f.fetchImpl).send([msg('fcm-1', { silent: true, data: { kind: 'rajaa_pass_update' } })]);
+    const m = (f.calls[0]!.json as { message: Record<string, unknown> }).message;
+    expect(m['notification']).toBeUndefined();
+    expect(m).toMatchObject({ token: 'fcm-1', data: { kind: 'rajaa_pass_update' }, android: { priority: 'HIGH' }, apns: { payload: { aps: { 'content-available': 1 } } } });
+    expect((m['android'] as Record<string, unknown>)['notification']).toBeUndefined();
+  });
+});
+
 describe('FCM HTTP v1', () => {
   it('exchanges a service-account JWT once and sends one v1 message per token', async () => {
     const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

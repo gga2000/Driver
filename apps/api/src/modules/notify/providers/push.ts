@@ -13,6 +13,8 @@ export interface PushMessage {
   sound: string | null;
   priority: 'high' | 'normal';
   ttlSec?: number;
+  /** Data-only: no title, body or sound go out (the app handles `data` itself). */
+  silent?: boolean;
 }
 
 /** The provider's answer for one message. `id` is what receipts are polled by (Expo). */
@@ -67,7 +69,7 @@ export class DevPushProvider implements PushPort {
   async send(messages: readonly PushMessage[]): Promise<PushTicket[]> {
     return messages.map((m) => {
       this.sent.push(m);
-      if (this.log) this.logger.log(`→ ${m.token.slice(0, 28)}… [${m.channelId}] ${m.title} — ${m.body}`);
+      if (this.log) this.logger.log(`→ ${m.token.slice(0, 28)}… [${m.silent ? 'data' : m.channelId}] ${m.title} — ${m.body}`);
       if (this.dead.has(m.token)) return { token: m.token, ok: false, id: null, error: 'DeviceNotRegistered', invalidToken: true };
       this.seq += 1;
       return { token: m.token, ok: true, id: `dev-ticket-${this.seq}` };
@@ -161,6 +163,8 @@ export class ExpoPushProvider implements PushPort {
 }
 
 function toExpoMessage(m: PushMessage): Record<string, unknown> {
+  // Data-only: no title/body (Android hands `data` to the app); `_contentAvailable` wakes iOS.
+  if (m.silent) return { to: m.token, data: m.data, priority: m.priority, _contentAvailable: true, ...(m.ttlSec !== undefined ? { ttl: m.ttlSec } : {}) };
   return {
     to: m.token,
     title: m.title,
@@ -237,13 +241,21 @@ export class FcmPushProvider implements PushPort {
         method: 'POST',
         headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          message: {
-            token: m.token,
-            notification: { title: m.title, body: m.body },
-            data: m.data,
-            android: { priority: m.priority === 'high' ? 'HIGH' : 'NORMAL', ...(m.ttlSec !== undefined ? { ttl: `${m.ttlSec}s` } : {}), notification: { channel_id: m.channelId, ...(m.sound ? { sound: m.sound } : {}) } },
-            apns: { headers: { 'apns-priority': m.priority === 'high' ? '10' : '5' }, payload: { aps: { ...(m.sound ? { sound: m.sound } : {}) } } },
-          },
+          message: m.silent
+            ? {
+                // Data-only: a data message on Android, a background (content-available) push on iOS.
+                token: m.token,
+                data: m.data,
+                android: { priority: m.priority === 'high' ? 'HIGH' : 'NORMAL', ...(m.ttlSec !== undefined ? { ttl: `${m.ttlSec}s` } : {}) },
+                apns: { headers: { 'apns-priority': '5', 'apns-push-type': 'background' }, payload: { aps: { 'content-available': 1 } } },
+              }
+            : {
+                token: m.token,
+                notification: { title: m.title, body: m.body },
+                data: m.data,
+                android: { priority: m.priority === 'high' ? 'HIGH' : 'NORMAL', ...(m.ttlSec !== undefined ? { ttl: `${m.ttlSec}s` } : {}), notification: { channel_id: m.channelId, ...(m.sound ? { sound: m.sound } : {}) } },
+                apns: { headers: { 'apns-priority': m.priority === 'high' ? '10' : '5' }, payload: { aps: { ...(m.sound ? { sound: m.sound } : {}) } } },
+              },
         }),
       });
       const json = parseJson(res.body);

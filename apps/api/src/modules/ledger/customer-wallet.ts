@@ -50,6 +50,8 @@ const CASH_TYPES: ReadonlySet<LedgerEventType> = new Set(['cash_collected', 'cas
 const signedFor = (account: string, e: LedgerEvent): number => (e.toAccount === account ? e.amount : 0) - (e.fromAccount === account ? e.amount : 0);
 
 function purchaseKind(groupId: string, types: ReadonlySet<LedgerEventType>, memos: readonly string[]): WalletLineKind {
+  // The tip after a good rating, on its own (`tip:<orderId>`): «إكرامية · طلب #3808».
+  if (groupId.startsWith('tip:') && types.size === 1 && types.has('tip')) return 'tip';
   if (types.has('subscription_charge') || types.has('subscription_proration')) return 'subscription';
   if (groupId.startsWith('seat:') || types.has('seat_premium')) return 'seat';
   if (types.has('errand_cost_actual') || types.has('errand_fee')) return 'errand';
@@ -122,8 +124,8 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         kind,
         title_ar: walletLineTitle(kind, 'ar-IQ'),
         title_en: walletLineTitle(kind, 'en'),
-        detail_ar: walletLineDetail(method, 'ar-IQ'),
-        detail_en: walletLineDetail(method, 'en'),
+        detail_ar: kind === 'tip' && first.orderId ? walletOrderDetail(first.orderId, 'ar-IQ') : walletLineDetail(method, 'ar-IQ'),
+        detail_en: kind === 'tip' && first.orderId ? walletOrderDetail(first.orderId, 'en') : walletLineDetail(method, 'en'),
         amount: -charged,
         unit: 'iqd',
         method,

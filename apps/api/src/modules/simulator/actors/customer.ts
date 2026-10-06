@@ -2,7 +2,7 @@ import { PriceRequest, type Order } from '@driver/contracts';
 import { CITY, type OrderRun, type SimContext } from '../context.js';
 import { zoneAt } from '../world.js';
 
-/** Customer behaviour: places food and ride orders, cancels at random stages (~5 %), answers partial proposals. */
+/** Customer behaviour: places food and ride orders, cancels at random stages (~5 %), answers partial proposals, rates and tips. */
 export const CUSTOMER_BEHAVIOUR = {
   partialApprove: 0.7,
   partialDecline: 0.2,
@@ -11,6 +11,11 @@ export const CUSTOMER_BEHAVIOUR = {
   ridePatienceMin: 12,
   /** Food with no courier this long after it is ready: the customer cancels. */
   foodPatienceAfterReadyMin: 30,
+  /** After delivery: rates the courier (most give 5, some 3); the rest let it auto-close. */
+  rateAfterDelivery: 0.5,
+  fiveStars: 0.85,
+  /** A wallet payer who gave 4–5 stars tips one of the offered chips (Ali, 2026-10-06). */
+  tipAfterGoodRating: 0.4,
 };
 
 /** Places the planned order through `orders.place` (rides also get their trip and a broadcast request). */
@@ -114,6 +119,23 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
 export async function customerStep(ctx: SimContext, run: OrderRun, order: Order): Promise<void> {
   const p = run.plan;
   if (['merchant_accepted', 'preparing', 'ready'].includes(order.state)) run.stageT.accepted ??= ctx.t;
+
+  // Delivered: rate the courier, and after a good rating maybe tip from the wallet («تحب تكرم عباس؟»).
+  if (order.state === 'delivered' && order.type === 'food' && !run.rated) {
+    run.rated = true;
+    // Its own stream, so these choices never shift the run's other draws.
+    const r = run.rand.fork('after_delivery');
+    if (!r.chance(CUSTOMER_BEHAVIOUR.rateAfterDelivery)) return;
+    const score = r.chance(CUSTOMER_BEHAVIOUR.fiveStars) ? 5 : 3;
+    const rated = await ctx.call('customer.rate', () => ctx.s.orders.rate(run.customerId, { orderId: run.orderId!, delivery: score }));
+    if (!rated || score < 4 || p.payment !== 'wallet' || !r.chance(CUSTOMER_BEHAVIOUR.tipAfterGoodRating)) return;
+    const offer = await ctx.call('customer.tip_options', () => ctx.s.tips.options(run.customerId, run.orderId!));
+    const chips = offer?.offered ? offer.amountsIqd : [];
+    if (chips.length === 0) return;
+    const amountIqd = chips[r.int(0, chips.length - 1)]!;
+    await ctx.call('customer.tip', () => ctx.s.tips.tip(run.customerId, { orderId: run.orderId!, amountIqd }));
+    return;
+  }
 
   // Planned cancellation at its stage.
   if (p.cancel && !run.cancelTried) {

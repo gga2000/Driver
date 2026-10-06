@@ -9,7 +9,10 @@ test suite and `pnpm sim --orders 2000 --seed 1 --ci` (18/18 invariants, change-
 all pass. The Phase 3 merge had broken `apps/customer/scripts/demo-api.mjs` (fixed in `70c128e`).
 Phase 3 follow-ups (Ali's 2026-10-06 decisions: two-step honest delay, free-delivery credit, the G-91
 shift guarantee, the خطوط sweep alert and 3-second look, plus screenshot fixes) are merged; the sim now has
-20 invariants (`late_credit_once_per_delivery`, `shift_guarantee_once_and_exact`).
+21 invariants (`late_credit_once_per_delivery`, `shift_guarantee_once_and_exact`,
+`tip_after_rating_once_and_to_the_driver`). **Tips after a good rating** (Ali: "do whatever is best"):
+after 4–5 stars the customer may tip 500 / 1,000 / 2,000 دينار from his wallet, 100 % to the driver,
+once per order, within 24 h — `docs/api/tips.md`.
 **Shift guarantee (G-91): built, switched off by Ali on 2026-10-06** ("hold it, switch it off") — the
 money rule `MoneyRules.guarantee.enabled` is `false`: the server pays no top-up, the partner app shows no
 guarantee line, the sim asserts nothing is paid. Don't turn it on or show progress toward it until Ali
@@ -23,7 +26,7 @@ store setup, and the gaps that need real phones.
 SOS calls Iraq's national emergency number 911 (Ali, 2026-10-06; `SAFETY_RULES.policeNumber`).
 Shift-guarantee shifts: 06:00–15:00 and 15:00–02:00 (Ali, 2026-10-06); still off; amount for 9–11 h
 shifts, couriers only and a minimum online time are open.
-Being decided/built in another window (2026-10-06): tips after a good rating, and switching the
+Being decided/built in another window (2026-10-06): switching the
 guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of

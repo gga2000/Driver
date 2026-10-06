@@ -55,14 +55,14 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   const audits: Array<{ action: string; subjectId: string }> = [];
   const auditsFake = { record: async (a: { action: string; subjectId: string }) => void audits.push(a) } as unknown as AuditLogService;
   const none = {} as never;
-  const support = new SupportService(supportRepo, ordersFake, tripsFake, none, none, none, none, id.service, ev.events, auditsFake, {} as StaffNames, ev.uow, clock);
+  const support = new SupportService(supportRepo, ordersFake, tripsFake, none, none, none, none, id.service, ev.events, auditsFake, { of: async () => ({}) } as unknown as StaffNames, ev.uow, clock);
   const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService());
   async function person(phone: string, roles: RoleKind[] = []): Promise<Actor> {
     const { actor } = await id.login(phone);
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
     return actor;
   }
-  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
+  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
 describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
@@ -459,6 +459,34 @@ describe('driverAccount.jobReceipt and payQuery (Partner S-7)', () => {
     const again = await h.service.payQuery(d, { key: job.key, at: job.at, message: 'ثاني مرة' });
     expect(again).toMatchObject({ ticketId: q.ticketId, alreadyOpen: true });
     expect((await h.service.jobReceipt(d, { key: job.key, at: job.at })).queryOpen).toBe(true);
+  });
+
+  it('S-7 follow-up: support\'s reply and the resolution reach the receipt, and the events name the driver and the job', async () => {
+    const h = setup('2026-10-03T16:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    const agent = { personId: 'agent_1', roles: ['support'] } as unknown as Parameters<typeof h.support.reply>[0];
+    await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T15:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
+    const job = (await h.service.earnings(d, { period: 'day' })).jobs.find((j) => j.tripId === 't_ride')!;
+    expect((await h.service.jobReceipt(d, { key: job.key, at: job.at })).query).toBeNull();
+    const q = await h.service.payQuery(d, { key: job.key, at: job.at, message: 'العمولة أكثر من المتفق عليه' });
+    expect((await h.service.jobReceipt(d, { key: job.key, at: job.at })).query).toEqual({ ticketId: q.ticketId, status: 'open', reply: null, resolution: null, resolvedAt: null });
+
+    // An internal note never reaches him; a reply does, with the job's key and time for the push.
+    h.clock.set('2026-10-03T17:00:00Z');
+    await h.support.reply(agent, { ticketId: q.ticketId, text: 'ملاحظة داخلية', internal: true });
+    await h.support.reply(agent, { ticketId: q.ticketId, text: 'العمولة 12% على المشاوير، نراجع الحساب', internal: false });
+    const open = await h.service.jobReceipt(d, { key: job.key, at: job.at });
+    expect(open.query).toMatchObject({ status: 'open', reply: { text: 'العمولة 12% على المشاوير، نراجع الحساب', at: new Date('2026-10-03T17:00:00Z') }, resolution: null });
+    const replied = (await h.ev.events.forActor('agent_1')).find((e) => e.type === 'support.replied')!;
+    expect(replied.payload).toMatchObject({ driverId: d.personId, jobKey: job.key, jobAt: job.at.toISOString(), text: 'العمولة 12% على المشاوير، نراجع الحساب' });
+
+    h.clock.set('2026-10-03T18:00:00Z');
+    await h.support.resolve(agent, { ticketId: q.ticketId, resolution: 'الحساب صحيح، العمولة 12%' });
+    const done = await h.service.jobReceipt(d, { key: job.key, at: job.at });
+    expect(done.query).toMatchObject({ status: 'resolved', resolution: 'الحساب صحيح، العمولة 12%', resolvedAt: new Date('2026-10-03T18:00:00Z') });
+    expect(done.queryOpen).toBe(true);
+    const resolved = (await h.ev.events.forActor('agent_1')).find((e) => e.type === 'support.resolved')!;
+    expect(resolved.payload).toMatchObject({ driverId: d.personId, jobKey: job.key, jobAt: job.at.toISOString(), resolution: 'الحساب صحيح، العمولة 12%' });
   });
 
   it("is his own book only: another driver's job is not found", async () => {

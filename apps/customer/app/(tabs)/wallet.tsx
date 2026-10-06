@@ -32,6 +32,7 @@ const KIND_ICON: Record<WalletLineKind, IconName> = {
   cash_change: 'wallet',
   change_to_wallet: 'cash',
   late_credit: 'gift',
+  tip: 'gift',
   debt: 'wallet',
   adjustment: 'receipt',
   points: 'star',

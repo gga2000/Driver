@@ -55,6 +55,8 @@ const DAY_MS = 86_400_000;
 const SHIFT_CITY = 'aziziyah';
 /** A job's ledger lines sit within hours of its first line; the receipt reads this far either side. */
 const RECEIPT_WINDOW_MS = 12 * 3_600_000;
+/** A customer's tip after his rating can land up to `MoneyRules.afterTip.windowHours` (24) after delivery: read that far ahead too. */
+const RECEIPT_TIP_LOOKAHEAD_MS = (AZIZIYAH_MONEY_RULES.afterTip.windowHours + 1) * 3_600_000;
 /** Scoring §2: expiry reminders at 30 days. */
 export const EXPIRY_WARNING_DAYS = 30;
 const CHALLENGE_TTL_MS = 2 * 60_000;
@@ -622,9 +624,10 @@ export class DriverAccountService implements DriverAccountPort {
   }
 
   private async receiptFor(driverId: string, key: string, at: Date): Promise<JobReceipt | null> {
-    const view = await this.ledger.driverLedger({ driverId, from: new Date(at.getTime() - RECEIPT_WINDOW_MS), to: new Date(at.getTime() + RECEIPT_WINDOW_MS) });
-    const queryOpen = this.support ? await this.support.driverPayQueryOpen(driverId, key) : false;
-    return composeReceipt(view, key, this.receiptContext(), { queryOpen });
+    const view = await this.ledger.driverLedger({ driverId, from: new Date(at.getTime() - RECEIPT_WINDOW_MS), to: new Date(at.getTime() + Math.max(RECEIPT_WINDOW_MS, RECEIPT_TIP_LOOKAHEAD_MS)) });
+    // His objection, if any, with support's latest reply and whether it is settled (S-7 follow-up).
+    const query = this.support ? await this.support.driverPayQuery(driverId, key) : null;
+    return composeReceipt(view, key, this.receiptContext(), { queryOpen: query !== null, query });
   }
 
   /** Night start and the wait step from the city's pricing rules (the same numbers the quote used). */
@@ -648,6 +651,7 @@ export class DriverAccountService implements DriverAccountPort {
     const when = formatWhen(receipt.at, this.clock.now());
     return this.support.openDriverPayQuery(actor.personId, {
       key: input.key,
+      jobAt: receipt.at,
       orderId: receipt.orderId,
       tripId: receipt.tripId,
       subject: `اعتراض سايق على أجرة الطلب ${ticket}`,
