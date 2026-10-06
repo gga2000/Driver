@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { windowText } from './labels';
 import type { DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
 import {
   boardedSeats,
@@ -60,6 +61,8 @@ describe('clock and windows (Baghdad time)', () => {
     expect(dayPeriod(NOW)).toBe('night');
     expect(dayPeriod(new Date('2026-10-04T04:30:00Z'))).toBe('morning');
     expect(windowLabel(at(60), at(120))).toBe('11:00 م–12:00 ص');
+    // On screen the start sits on the right (right-to-left isolate), held on one line by word joiners.
+    expect(windowText(at(60), at(120))).toBe('\u206711:00 م\u2060–\u206012:00 ص\u2069');
     expect(dayOffset(at(180), NOW)).toBe(1);
     expect(minutesUntil(at(-12), NOW)).toBe(-12);
   });

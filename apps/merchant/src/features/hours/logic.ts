@@ -11,7 +11,8 @@ import {
   type StoreStatusView,
 } from '@driver/contracts';
 import { hour12, hourPeriod } from '@/lib/calendar';
-import type { TKey } from '@/lib/i18n-core';
+import { formatRange } from '@driver/i18n';
+import type { Locale, TKey } from '@/lib/i18n-core';
 
 /**
  * The opening-hours editor's rules (pure, tested): a draft of the week and the closures, the edits a
@@ -198,9 +199,12 @@ export function timeLabel(t: TFn, hhmm: string): string {
   return t('merchant.time.hour', { hour, period: t(`merchant.time.${hourPeriod(h)}` as TKey) });
 }
 
-/** "6 المغرب – 1 بالليل" (an end at or before the start runs past midnight). */
-export function shiftLabel(t: TFn, s: HoursShift): string {
-  return t('merchant.hours.shift', { start: timeLabel(t, s.start), end: timeLabel(t, s.end) });
+/**
+ * "6 المغرب – 1 بالليل" (an end at or before the start runs past midnight), isolated right to left in
+ * Arabic so the opening time stays on the right, where the reader starts (`formatRange`).
+ */
+export function shiftLabel(t: TFn, s: { start: string; end: string }, locale: Locale = 'ar-IQ'): string {
+  return formatRange(timeLabel(t, s.start), timeLabel(t, s.end), locale, { spaced: true });
 }
 
 export function crossesMidnight(s: HoursShift): boolean {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import type { StatementOrderLine, WeeklyStatement } from '@driver/contracts';
+import { formatRange } from '@driver/i18n';
 import { Button, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { ModalSheet } from '@driver/ui';
@@ -36,7 +37,7 @@ export function StatementView({
   const locale = useLocale();
   const dates = useDates();
   const toast = useToast();
-  const range = statement ? t('merchant.date.range', { from: dates.dayMonth(statement.from), to: dates.dayMonth(new Date(statement.to.getTime() - 1)) }) : '';
+  const range = statement ? formatRange(dates.dayMonth(statement.from), dates.dayMonth(new Date(statement.to.getTime() - 1)), locale, { spaced: true }) : '';
 
   const share = async () => {
     if (!statement) return;

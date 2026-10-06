@@ -19,6 +19,12 @@ describe('i18n', () => {
     expect(en).toEqual(ar);
     expect(ar.length).toBeGreaterThanOrEqual(30);
   });
+  it('no Arabic string builds a range itself: ranges come from formatRange (low end on the right)', () => {
+    // "{from} – {to}" in a string can't pick its direction, and a left-to-right isolate around
+    // "12–4" puts 12 on the left, where an Arabic reader finishes. formatRange isolates right to left.
+    const bad = Object.entries(locales['ar-IQ']).filter(([, v]) => /\}\s*[–-]\s*\{/.test(v) || /⁦[^⁩]*\d\s*[–-]\s*\d[^⁩]*⁩/.test(v));
+    expect(bad).toEqual([]);
+  });
   it('createT binds a locale', () => {
     const tEn = createT('en');
     expect(tEn('action.confirm')).toBe('Confirm');

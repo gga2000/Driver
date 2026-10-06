@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AZIZIYAH_ZONES, INTERCITY_DESTINATIONS, type PriceRequestInput, type QuoteComponent, type Vertical, type ZoneTier } from '@driver/contracts';
-import { t, type MessageKey } from '@driver/i18n';
+import { formatRange, t, type MessageKey } from '@driver/i18n';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { formatClock, formatIqd, formatMoney, formatSigned, fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { useTRPC } from '@/lib/trpc';
@@ -247,6 +247,7 @@ export function PricingSimulator() {
                       k={t(quote.data.bounds.clamped ? 'console.quote_clamped' : 'console.quote_bounds', {
                         floor: formatIqd(quote.data.bounds.floor ?? 0),
                         ceiling: formatIqd(quote.data.bounds.ceiling ?? 0),
+                        range: formatRange(formatIqd(quote.data.bounds.floor ?? 0), formatIqd(quote.data.bounds.ceiling ?? 0), undefined, { spaced: true }),
                       })}
                       v={quote.data.bounds.clamped ? t('console.quote_clamped_short') : ''}
                       muted

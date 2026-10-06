@@ -12,7 +12,7 @@ import { MIcon } from '@/components/MIcon';
 import { Panel, Tag } from '@/components/Panel';
 import { Glyph } from '@/features/menu/Glyph';
 import { Toggle } from '@/features/menu/parts';
-import { useT, type TKey } from '@/lib/i18n';
+import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import {
   daysForm,
@@ -53,6 +53,7 @@ export function WeekPanel({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const { wide } = useLayout();
   return (
     <Panel
@@ -210,7 +211,7 @@ export function WeekPanel({
               >
                 <MIcon name="hourglass" size={16} color="warningText" strokeWidth={2} />
                 <Text variant="footnote" color="warningText" style={{ flex: 1 }}>
-                  {`${p.reason ?? t('merchant.hours.prayer_title')}: ${t('merchant.hours.shift', { start: timeLabel(t, p.start), end: timeLabel(t, p.end) })}`}
+                  {`${p.reason ?? t('merchant.hours.prayer_title')}: ${shiftLabel(t, p, locale)}`}
                 </Text>
               </View>
             ))}
@@ -236,6 +237,7 @@ function ShiftPill({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   return (
     <Pressable
       testID={testID}
@@ -257,7 +259,7 @@ function ShiftPill({
     >
       <MIcon name="clock" size={16} color={bad ? 'dangerText' : 'successText'} strokeWidth={2.2} />
       <Text variant="label" weight={600} color={bad ? 'dangerText' : 'successText'}>
-        {shiftLabel(t, shift)}
+        {shiftLabel(t, shift, locale)}
       </Text>
       {editable ? (
         <Glyph name="pencil" size={14} color={bad ? 'dangerText' : 'successText'} strokeWidth={2} />
@@ -295,6 +297,7 @@ export function ShiftSheet({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const [side, setSide] = useState<'start' | 'end'>('start');
   useEffect(() => {
     if (visible) setSide('start');
@@ -310,7 +313,7 @@ export function ShiftSheet({
       onClose={onClose}
       testID="shift-sheet"
       title={title}
-      subtitle={shiftLabel(t, shift)}
+      subtitle={shiftLabel(t, shift, locale)}
       size="lg"
       footer={
         <View style={{ gap: theme.space[2] }}>

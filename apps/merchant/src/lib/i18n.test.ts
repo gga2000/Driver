@@ -19,6 +19,14 @@ describe('merchant copy (voice guide)', () => {
     }
   });
 
+  it('ranges read low to high in Arabic: no "{from} – {to}" in a string, no left-to-right isolate around one', () => {
+    // A string can't choose the range's direction (formatRange from @driver/i18n does), and "⁦12–4⁩"
+    // draws 12 on the left, where an Arabic reader ends. Fixed ranges use the right-to-left isolate.
+    const bad = Object.entries(ar).filter(([, v]) => /\}\s*[–-]\s*\{/.test(v) || /⁦[^⁩]*\d\s*[–-]\s*\d[^⁩]*⁩/.test(v));
+    expect(bad).toEqual([]);
+    expect(ar['merchant.deals.hours_lunch']).toBe('الغدا ⁧12–4⁩');
+  });
+
   it('Western digits, no emojis, no MSA particles or honorifics in Arabic', () => {
     const banned = ['يرجى', 'قم ب', 'سوف', 'لقد', 'لا يوجد', 'الآن', 'عزيزي', 'د.ع', 'حسناً'];
     for (const [k, v] of Object.entries(ar)) {
