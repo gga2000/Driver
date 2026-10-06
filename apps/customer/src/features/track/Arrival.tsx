@@ -227,7 +227,7 @@ function Stars({ value, onPick, testID }: { value: number; onPick: (n: number) =
           hitSlop={4}
           style={({ pressed }) => ({ padding: 4, transform: [{ scale: pressed ? 0.88 : 1 }] })}
         >
-          <Icon name="star" size={44} color={n <= value ? 'accent' : 'borderStrong'} filled={n <= value} strokeWidth={1.6} />
+          <Icon name="star" size={44} color={n <= value ? 'starOutline' : 'borderStrong'} fillColor="star" filled={n <= value} strokeWidth={1.6} />
         </Pressable>
       ))}
     </View>
