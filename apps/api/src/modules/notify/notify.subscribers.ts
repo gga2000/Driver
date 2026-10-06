@@ -49,6 +49,8 @@ export const NOTIFY_EVENT_TYPES = [
   'khat.sweep_missed',
   'dispatch.offer_sent',
   'dispatch.zone_nudged',
+  // Joy h2: a dish people follow is today's pot.
+  'catalog.pot_posted',
   'session.signed_out',
 ] as const;
 
@@ -128,6 +130,11 @@ async function sharedWithPeople(deps: NotifySubscriberDeps, e: PublishedEvent, r
   if (!link) return [];
   const name = (await L.firstName(riderId, 'notify_trip_shared')) ?? '';
   return Array.from({ length: safety.contacts }, (_, i) => ({ eventId: e.id, template: 'trip_shared_contact' as const, to: trustedContactRecipient(riderId, i), params: { name, what, link }, data: { ...subject } }));
+}
+
+/** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
+export function dishPotEventId(localDate: string): string {
+  return `dish_pot:${localDate}`;
 }
 
 /** Turns one event into the notifications it implies. Exported for tests. */
@@ -317,6 +324,21 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'catalog.pot_posted': {
+      // «قدر اليوم» (joy h2): each follower of the dish, at most once a Baghdad day — the request's
+      // event id is the day, so a second kitchen or a re-post the same day dedupes away in the engine.
+      const ids = Array.isArray(p['followerIds']) ? p['followerIds'].filter((x): x is string => typeof x === 'string') : [];
+      const day = str(p['localDate']);
+      const merchantOrgId = str(p['merchantOrgId']);
+      if (!day || !merchantOrgId) return [];
+      return [...new Set(ids)].map((to) => ({
+        eventId: dishPotEventId(day),
+        template: 'dish_pot_today' as const,
+        to,
+        params: { restaurant: str(p['restaurantName']) ?? '', dish: str(p['dishName']) ?? '', merchantOrgId },
+        data: { merchantOrgId, itemId: str(p['itemId']) ?? '' },
+      }));
     }
     case 'dispatch.zone_nudged': {
       // "Send drivers here" (maps program o5): one push per free driver around the busy zone.

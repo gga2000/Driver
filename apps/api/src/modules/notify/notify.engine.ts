@@ -5,6 +5,7 @@ import {
   MARKETING_MAX_PER_WEEK,
   NOTIFY_TEMPLATES,
   OFFER_SOUND,
+  PROMOTIONAL_CATEGORIES,
   preferenceFor,
   QUIET_HOURS,
   type DeliveryStatus,
@@ -144,7 +145,7 @@ export class NotifyEngine {
     };
     const channels = req.channels ?? def.primary;
     const capped = def.category === 'marketing' && (await this.repo.countMarketingSince(req.to, new Date(now.getTime() - WEEK_MS))) >= MARKETING_MAX_PER_WEEK;
-    const hold = def.category === 'marketing' ? await this.promoHold(now) : null;
+    const hold = PROMOTIONAL_CATEGORIES.has(def.category) ? await this.promoHold(now) : null;
     const deferred = def.quietHours === 'defer' && inQuietHours(now);
     const rows: NewDelivery[] = channels.map((channel) => {
       const pref = preferenceFor(def.category, channel);
@@ -204,7 +205,7 @@ export class NotifyEngine {
         return;
       }
     }
-    const hold = def.category === 'marketing' ? await this.promoHold(now) : null;
+    const hold = PROMOTIONAL_CATEGORIES.has(def.category) ? await this.promoHold(now) : null;
     if (hold?.reason === 'iftar') {
       // Offers wait until after iftar (J6): the row is parked and the send job runs again then.
       await this.repo.updateDelivery(row.id, { status: 'deferred', reason: 'iftar', notBefore: hold.until }, now);
@@ -263,7 +264,7 @@ export class NotifyEngine {
       data: { ...(row.payload.data ?? {}), deliveryId: row.id, template: row.template, ...(r.deepLink && !row.payload.data?.['deepLink'] ? { deepLink: r.deepLink } : {}) },
       channelId: channel,
       sound: sound === OFFER_SOUND ? OFFER_SOUND : sound ? 'default' : null,
-      priority: def.category === 'marketing' ? ('normal' as const) : ('high' as const),
+      priority: PROMOTIONAL_CATEGORIES.has(def.category) ? ('normal' as const) : ('high' as const),
       ...(def.category === 'work' ? { ttlSec: 120 } : {}),
       // Data-only (the الرجعة lock-screen card): nothing shows or rings; the app reads `data`.
       ...(def.push?.silent ? { silent: true } : {}),

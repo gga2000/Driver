@@ -8,6 +8,8 @@ import { Test } from '@nestjs/testing';
 import type { Actor } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
+import { CatalogService } from './modules/catalog/index.js';
+import { NotifyService } from './modules/notify/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersService } from './modules/orders/index.js';
 import { HouseholdsRpc, OrgsService } from './modules/orgs/index.js';
@@ -222,6 +224,40 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       created.orders.push(order.id);
       expect(order).toMatchObject({ state: 'placed', merchantOrgId: khalid.orgId });
       expect(order.lines[0]).toMatchObject({ catalogItemId: `${khalid.orgId}_pepsi`, unitPriceIqd: 750, qty: 8 });
+    } finally {
+      await close(app);
+    }
+  });
+
+  it('joy J7a: today\'s pot, a dish follow, the dish-pot switch and the kitchen story survive a restart', async () => {
+    const kareem = AZIZIYAH_RESTAURANTS.find((r) => r.key === 'haj_kareem')!;
+    const bamia = `${kareem.orgId}_rice_bamia`;
+    const fan = `fan_${run}`;
+    let app = await boot();
+    try {
+      const catalog = app.get(CatalogService);
+      const { followerIds } = await catalog.postPot(kareem.orgId, { itemId: bamia, note: 'ويا لحم غنم', until: '16:00' }, state.ali);
+      expect(followerIds).not.toContain(fan);
+      await catalog.followDish(fan, kareem.orgId, bamia, true);
+      await catalog.setStory(kareem.orgId, { text: 'من أيام أبوي.', sinceYear: 1998, shown: true });
+      await app.get(NotifyService).setPreferences({ personId: fan, sessionId: 's' }, { dishPots: false });
+    } finally {
+      await close(app);
+    }
+    app = await boot();
+    try {
+      const catalog = app.get(CatalogService);
+      expect(await catalog.showingPot(kareem.orgId)).toMatchObject({ itemId: bamia, note: 'ويا لحم غنم', until: '16:00', localDate: '2026-10-03' });
+      expect((await catalog.dishFollows(fan)).map((f) => f.itemId)).toEqual([bamia]);
+      expect((await catalog.followerCounts(kareem.orgId)).get(bamia)).toBe(1);
+      expect((await catalog.storefront(kareem.orgId))?.story).toMatchObject({ text: 'من أيام أبوي.', sinceYear: 1998, shown: true });
+      expect(await app.get(NotifyService).preferences({ personId: fan, sessionId: 's' })).toMatchObject({ dishPots: false, marketing: false });
+      // Leave the shared database as the seed wrote it.
+      await catalog.clearPot(kareem.orgId);
+      await catalog.followDish(fan, kareem.orgId, bamia, false);
+      const front = (await catalog.storefront(kareem.orgId))!;
+      await catalog.saveStorefront({ ...front, story: null });
+      await app.get(PrismaService).prisma.notifyPreference.deleteMany({ where: { personId: fan } });
     } finally {
       await close(app);
     }
