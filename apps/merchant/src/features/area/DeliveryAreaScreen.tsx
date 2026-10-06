@@ -214,8 +214,13 @@ function ZoneList({ zones, selectedKey, onSelect }: { zones: readonly DeliveryAr
             <Text variant={selected ? 'bodyStrong' : 'body'} numberOfLines={1} style={{ flex: 1 }}>
               {zoneName(z, locale)}
             </Text>
-            {z.kitchen ? <Tag label={t('merchant.area.your_zone')} tone="accent" /> : null}
-            {z.service === 'paused' ? <Tag label={t('merchant.area.paused')} tone="warning" /> : null}
+            {z.kitchen || z.service === 'paused' ? (
+              // Tag pins itself to the start (flex-start); this wrapper centres it on the row like the text.
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                {z.kitchen ? <Tag label={t('merchant.area.your_zone')} tone="accent" /> : null}
+                {z.service === 'paused' ? <Tag label={t('merchant.area.paused')} tone="warning" /> : null}
+              </View>
+            ) : null}
             <Text variant="bodyStrong" tabular color={z.feeIqd === null ? 'textMuted' : 'text'}>
               {z.feeIqd === null ? t('merchant.area.no_price') : iqd(z.feeIqd, { locale })}
             </Text>
