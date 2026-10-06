@@ -1,20 +1,26 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { RestaurantCard } from '@driver/contracts';
-import { formatRange } from '@driver/i18n';
-import { Button, Card, CountdownRing, EmptyState, Icon, SketchScene, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { travelMinutes, type RestaurantCard } from '@driver/contracts';
+import { formatClock, formatRange } from '@driver/i18n';
+import { Button, Card, EmptyState, Icon, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
+import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from '@/features/food/kitchen-moment';
+import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
 import { isKitchenAccepted, isKitchenRejection, useCancelOrder, useCatalogRestaurants, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { similarOpenRestaurants } from '@/features/food/similar';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { useProfile } from '@/lib/profile';
+import { playCue } from '@/lib/sound';
+import { useSeason } from '@/lib/use-season';
 
 /** The merchant's acceptance window (domain §2: 90 s, then the order auto-rejects). */
 const ACCEPT_MS = 90_000;
@@ -30,27 +36,65 @@ export default function KitchenScreen() {
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
+  const today = useSeason();
   const order = useKitchenAnswer(id);
   const { placed } = useCartStore();
+  const { name: myName } = useProfile();
+  const { dropoff } = useDeliverTo();
   const cancel = useCancelOrder();
   const o = order.data;
   // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
   const pushAsk = usePushAsk(o?.state === 'placed');
   const mineCart = placed?.orderId === id ? placed.cart : null;
   const name = mineCart?.merchant?.name ?? '';
-  const items = mineCart ? mineCart.lines.map((l) => (l.qty > 1 ? `${l.name} ×${l.qty}` : l.name)).join('، ') : '';
+  const groups = useMemo(() => (mineCart ? linesByPerson(mineCart) : []), [mineCart]);
+  // o14: the yes plays only when this screen saw the order waiting (opened later, it just moves on).
+  const sawWaiting = useRef(false);
+  const [yes, setYes] = useState<{ time: string } | null>(null);
+  const fade = useSharedValue(1);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+  const now = useNow(o?.state === 'placed' ? 5_000 : null);
 
   useEffect(() => {
     if (!o || !id) return;
+    if (o.state === 'placed') sawWaiting.current = true;
     if (isKitchenAccepted(o)) {
-      cartStore.settlePlaced(id);
-      router.replace({ pathname: '/order/[id]', params: { id } });
+      if (!sawWaiting.current) {
+        cartStore.settlePlaced(id);
+        router.replace({ pathname: '/order/[id]', params: { id } });
+        return;
+      }
+      if (yes) return;
+      const kitchen = mineCart?.merchant?.pickup?.pin ?? null;
+      const door = dropoff?.pin ?? null;
+      const eta = acceptedEta({ now: new Date(), promisedReadyAt: o.promisedReadyAt, rideMin: kitchen && door ? travelMinutes(kitchen, door, 'bike') : null });
+      const feedback = acceptFeedback(today, theme.reduceMotion);
+      setYes({ time: formatClock(eta, { locale }) });
+      theme.haptic(feedback.haptic);
+      if (feedback.cue) playCue(feedback.cue);
+      const go = () => {
+        cartStore.settlePlaced(id);
+        router.replace({ pathname: '/order/[id]', params: { id } });
+      };
+      const lead = feedback.animate ? ACCEPT_RING_MS : 0;
+      const timer = setTimeout(() => {
+        if (!feedback.animate) {
+          go();
+          return;
+        }
+        fade.value = withTiming(0, { duration: theme.motion.duration.base }, (done) => {
+          if (done) runOnJS(go)();
+        });
+      }, lead + feedback.holdMs);
+      return () => clearTimeout(timer);
     } else if (o.state === 'customer_cancelled' && placed?.orderId === id) {
       cartStore.replaceCart(placed.cart);
       cartStore.settlePlaced(id);
       router.replace('/cart');
     }
-  }, [o, id, placed]);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the moment runs once per answer
+  }, [o?.state, id]);
 
   const onCancel = async () => {
     if (!id) return;
@@ -75,85 +119,58 @@ export default function KitchenScreen() {
 
   if (isKitchenRejection(o)) return <Rejected orderId={o.id} />;
 
+  const offeredAt = o.merchantOfferedAt ?? o.placedAt;
+  const waiting = o.state === 'placed';
+  const slow = waiting && answerIsSlow(offeredAt, now);
   return (
-    <Screen
-      testID="kitchen"
-      edges={['top', 'bottom']}
-      contentStyle={{ flexGrow: 1 }}
-      footer={
-        o.state === 'placed' ? (
-          <View style={{ gap: theme.space[1] }}>
-            <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
-            <Text variant="caption" color="textMuted" align="center">
-              {t('kitchen.cancel_free')}
-            </Text>
-          </View>
-        ) : null
-      }
-    >
-      <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[5], paddingVertical: theme.space[6] }}>
-        <WaitingMark startedAt={(o.merchantOfferedAt ?? o.placedAt).getTime()} />
-        <View style={{ alignItems: 'center', gap: theme.space[2] }}>
-          <StatusPill live tone="accent" label={t('order.status.placed')} />
-          <Text variant="heading" align="center" testID="kitchen-title">
-            {name ? t('kitchen.waiting_title', { name }) : t('order.status.placed')}
-          </Text>
-          <Text variant="body" color="textMuted" align="center">
-            {t('order.status.placed_hint')}
-          </Text>
-        </View>
-        <Card elevation={0} tone="sunken" padding={3} style={{ alignSelf: 'stretch' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-            <Icon name="wallet" size={18} color="text" />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text variant="label" weight={600} tabular>
-                {t('kitchen.total_cash', { amount: amountParam(o.totalIqd) })}
+    <Animated.View style={[{ flex: 1 }, fadeStyle]}>
+      <Screen
+        testID="kitchen"
+        edges={['top', 'bottom']}
+        contentStyle={{ flexGrow: 1 }}
+        footer={
+          waiting ? (
+            <View style={{ gap: theme.space[1] }}>
+              <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
+              <Text variant="caption" color="textMuted" align="center">
+                {t('kitchen.cancel_free')}
               </Text>
-              {items ? (
-                <Text variant="footnote" color="textMuted" numberOfLines={2}>
-                  {items}
-                </Text>
-              ) : null}
             </View>
-          </View>
-        </Card>
-        {pushAsk.visible ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
-      </View>
-    </Screen>
+          ) : null
+        }
+      >
+        <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[5], paddingVertical: theme.space[4] }}>
+          <KitchenMark startedAt={offeredAt.getTime()} acceptMs={ACCEPT_MS} accepted={Boolean(yes)} animate={!theme.reduceMotion} />
+          {yes ? (
+            <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
+          ) : (
+            <View style={{ alignItems: 'center', gap: theme.space[2] }}>
+              <Text variant="heading" align="center" testID="kitchen-title">
+                {name ? t('kitchen.sent_title', { name }) : t('order.status.placed')}
+              </Text>
+              <Text variant="body" color={slow ? 'warningText' : 'textMuted'} align="center" testID="kitchen-hint" accessibilityLiveRegion="polite">
+                {slow ? t('kitchen.slow_hint') : t('kitchen.sent_hint')}
+              </Text>
+            </View>
+          )}
+          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
+          <PersonLinesCard groups={groups} myName={myName} totalLine={t('kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
+          {pushAsk.visible && !yes ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
+        </View>
+      </Screen>
+    </Animated.View>
   );
 }
 
-/** The waiting kitchen drawing's width (joy J4) and the accept-ring medallion that sits on its sill. */
-const SCENE_MAX = 300;
-const MEDALLION = 76;
-
-/**
- * The kitchen at work (joy J4, design-system S2-12: a scene, not an icon in a circle): a pot on the
- * fire with its steam drifting (still under reduced motion), and the 90 s accept ring as a small
- * medallion on the sill, so the time is still there without a big orange ring.
- */
-function WaitingMark({ startedAt }: { startedAt: number }) {
-  const theme = useTheme();
-  return (
-    <View style={{ width: '100%', maxWidth: SCENE_MAX, alignItems: 'center' }}>
-      <SketchScene name="kitchen" />
-      <View
-        style={{
-          marginTop: -MEDALLION / 2,
-          width: MEDALLION,
-          height: MEDALLION,
-          borderRadius: MEDALLION / 2,
-          backgroundColor: theme.colors.surface,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <CountdownRing mode="accept" startedAt={startedAt} durationMs={ACCEPT_MS} size={MEDALLION - 10} strokeWidth={5} />
-      </View>
-    </View>
-  );
+/** A clock that ticks every `everyMs` while set (the 45 s "not answered yet" line). */
+function useNow(everyMs: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (everyMs === null) return;
+    const h = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(h);
+  }, [everyMs]);
+  return now;
 }
 
 /** The kitchen said no: nothing charged; two similar open kitchens, cart carried over on a tap. */
