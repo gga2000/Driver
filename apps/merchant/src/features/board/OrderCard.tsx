@@ -5,6 +5,7 @@ import type { BoardGroup, BoardOrder } from '@driver/contracts';
 import { Button, CountdownRing, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { useLocale, useT } from '@/lib/i18n';
+import { useLayout } from '@/lib/layout';
 import { iqd } from '@/lib/money';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
@@ -213,10 +214,25 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
   );
 }
 
+/**
+ * The width a ticket number needs on one line: tabular digits and «#» are ~0.6 em in IBM Plex Sans,
+ * plus the letter spacing, with a little room. Keeps «#5427» from being squeezed into a column.
+ */
+export function numberMinWidth(label: string, fontSize: number): number {
+  return Math.ceil(label.length * (fontSize * 0.62 + 0.5)) + 4;
+}
+
 export function OrderCard(props: OrderCardProps) {
   const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand } = props;
   const theme = useTheme();
   const t = useT();
+  const { wide, width } = useLayout();
+  /** Three board columns under 1000 px leave a card ~190 px inside: the ticket number steps down. */
+  const tight = wide && width < 1000;
+  /** Under 1200 px the board's columns are too narrow for a row of three buttons. */
+  const narrowBoard = wide && width < 1200;
+  const numberLabel = t('merchant.card.number', { number: order.number });
+  const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   const isNew = order.column === 'new';
   const allergy = hasAllergy(order);
   const hot = isNew && (stage === 'urgent' || stage === 'final');
@@ -346,11 +362,14 @@ export function OrderCard(props: OrderCardProps) {
           opacity: pressed ? 0.96 : 1,
         })}
       >
-        {/* Header: big number + time; the accept ring on new orders. */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text weight={700} tabular style={{ fontSize: 34, lineHeight: 44, letterSpacing: 0.5 }}>
-              {t('merchant.card.number', { number: order.number })}
+        {/* Header: big number + time; the accept ring on new orders. The number never breaks («#5427»
+            in one piece): its block is never narrower than the number, and when the time pill does not
+            fit beside it, the pill wraps under it. On a narrow tablet board (three columns under
+            1000 px) the number steps down a size. */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', columnGap: theme.space[3], rowGap: theme.space[2] }}>
+          <View testID={`card-number-${order.number}`} style={{ flex: 1, minWidth: numberMinWidth(numberLabel, numberType.size), gap: 2 }}>
+            <Text variant={tight ? 'amount' : 'numeralSm'} weight={700} tabular numberOfLines={1} style={{ letterSpacing: 0.5 }}>
+              {numberLabel}
             </Text>
             <Text variant="footnote" color="textMuted" tabular>
               {[
@@ -395,6 +414,18 @@ export function OrderCard(props: OrderCardProps) {
 
         {isNew && !order.partial ? (
           acceptButtons('lg')
+        ) : order.column === 'preparing' && narrowBoard ? (
+          // A narrow board column has no room for three buttons in a row: «صار جاهز» takes the full
+          // width on top, «+5 د» and «التفاصيل» share the line under it.
+          <View style={{ gap: theme.space[2] }}>
+            <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} />
+            <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
+              {onExtend && canExtendPrep(order) ? (
+                <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
+              ) : null}
+              <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
+            </View>
+          </View>
         ) : order.column === 'preparing' ? (
           <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
             {onExtend && canExtendPrep(order) ? (
