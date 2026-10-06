@@ -30,6 +30,7 @@ export function RideMap({
   dropoff,
   pickupLabel,
   dropoffLabel,
+  dropoffKind = 'destination',
   topInset,
   bottomInset,
   radar = false,
@@ -40,6 +41,8 @@ export function RideMap({
   dropoff: LatLng | null;
   pickupLabel: string;
   dropoffLabel: string;
+  /** The saved home gets the house; any other destination a flag (L-15). */
+  dropoffKind?: 'home' | 'destination';
   topInset: number;
   bottomInset: number;
   radar?: boolean;
@@ -102,7 +105,7 @@ export function RideMap({
           {nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {dropoff ? <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={start} waypoints={waypoints} color={theme.colors.accent} /> : null}
           <PlacePin cam={cam} size={sizeSV} at={pickup} kind="pickup" label={pickupLabel} testID="pin-pickup" />
-          {dropoff ? <PlacePin cam={cam} size={sizeSV} at={dropoff} kind="home" label={dropoffLabel} testID="pin-dropoff" /> : null}
+          {dropoff ? <PlacePin cam={cam} size={sizeSV} at={dropoff} kind={dropoffKind} label={dropoffLabel} testID="pin-dropoff" /> : null}
         </>
       ) : null}
       <MapCredit bottom={bottomInset} />

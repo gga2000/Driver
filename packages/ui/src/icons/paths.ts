@@ -10,6 +10,8 @@ export type IconShape =
 
 export const ICONS = {
   home: [{ d: 'M3 10.5 12 3l9 7.5' }, { d: 'M5 9v10.5a1 1 0 0 0 1 1h4V15h4v5.5h4a1 1 0 0 0 1-1V9' }],
+  /** Where a ride goes (L-15): a pennant on a pole; the house is only for a saved home. */
+  flag: [{ d: 'M6 21V4' }, { d: 'M6 4.5h11l-2.5 4 2.5 4H6' }],
   search: [{ circle: [11, 11, 6.5] }, { d: 'M20 20l-4.2-4.2' }],
   cart: [
     { d: 'M3 4h2.2l2.1 10.1a1.5 1.5 0 0 0 1.5 1.2h8.5a1.5 1.5 0 0 0 1.4-1.1L20.5 8H6.1' },

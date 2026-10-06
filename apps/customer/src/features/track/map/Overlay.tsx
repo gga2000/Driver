@@ -201,14 +201,17 @@ export function CourierMarker({
 const PIN_W = 120;
 const PIN_H = 64;
 
-/** A place on the map: the home pin (with its label) or the kitchen. Anchored at its tip. */
-export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { at: LngLat; kind: 'home' | 'kitchen' | 'pickup'; label: string; testID?: string }) {
+/**
+ * A place on the map: home or a ride's destination (dark pill with its label: a house only for the
+ * saved home, a flag otherwise, L-15), the kitchen, or the ride pickup. Anchored at its tip.
+ */
+export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { at: LngLat; kind: 'home' | 'destination' | 'kitchen' | 'pickup'; label: string; testID?: string }) {
   const theme = useTheme();
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
     return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: p.y - PIN_H }] };
   }, [at.lat, at.lng]);
-  const home = kind === 'home';
+  const home = kind === 'home' || kind === 'destination';
   const pickup = kind === 'pickup';
   const fill = home ? theme.colors.text : theme.colors.surface;
   return (
@@ -235,7 +238,7 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
           {pickup ? (
             <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.success, borderWidth: 2, borderColor: withAlpha(theme.colors.success, 0.3) }} />
           ) : (
-            <Icon name={home ? 'home' : 'bag'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
+            <Icon name={kind === 'destination' ? 'flag' : home ? 'home' : 'bag'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
           )}
           <Text variant="caption" weight={600} color={home ? 'surface' : 'text'} numberOfLines={1} style={{ maxWidth: PIN_W - 44 }}>
             {label}
