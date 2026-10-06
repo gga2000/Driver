@@ -30,6 +30,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   // A field you can see at rest (audit S-04: 3.3–3.9:1, not 1.1:1), ink when focused, red on error.
   const borderColor = error ? theme.colors.danger : focused ? theme.colors.focusRing : theme.colors.borderStrong;
   const borderWidth = focused || error ? 2 : 1.5;
+  // A multi-line box (a note, a message) reads from its top-start corner with breathing room, not a
+  // line hugging the top border; it also grows into any height the caller gives the field.
+  const multiline = !!input.multiline;
   return (
     <View style={[{ gap: theme.space[1] }, style]}>
       {label ? (
@@ -40,8 +43,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
       <View
         style={{
           minHeight: 52,
+          flexGrow: multiline ? 1 : 0,
           flexDirection: 'row',
-          alignItems: 'center',
+          alignItems: multiline ? 'stretch' : 'center',
           gap: theme.space[2],
           paddingStart: leadingIcon ? theme.space[3] : theme.space[4],
           paddingEnd: trailing ? theme.space[1] : theme.space[4],
@@ -80,7 +84,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               writingDirection: theme.direction,
               // Native RTL swaps left/right (left = start); the web needs the physical side.
               textAlign: Platform.OS === 'web' && theme.isRTL ? 'right' : 'left',
-              paddingVertical: 0,
+              paddingVertical: multiline ? theme.space[3] : 0,
+              ...(multiline ? { textAlignVertical: 'top' as const } : null),
               ...theme.font(400),
             },
             // Web: drop the UA focus outline; the field draws its own ink border on focus.
