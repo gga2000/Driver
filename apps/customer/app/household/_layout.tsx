@@ -22,6 +22,7 @@ export default function HouseholdLayout() {
       <Stack.Screen name="index" options={{ title: t('household.title') }} />
       <Stack.Screen name="invite" options={{ title: t('household.invite'), headerLeft: () => <HeaderBack fallback="/household" /> }} />
       <Stack.Screen name="member" options={{ title: t('household.limit_title'), headerLeft: () => <HeaderBack fallback="/household" /> }} />
+      <Stack.Screen name="children" options={{ title: t('household.children_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
     </Stack>
   );
 }

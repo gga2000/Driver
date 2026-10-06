@@ -26,6 +26,7 @@ import { ChangeReceiptLine } from './ChangeCredited';
 import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
+import { apiPhoto } from '@/lib/photo';
 
 // ───────────────────────── collapsed header ─────────────────────────
 
@@ -204,7 +205,7 @@ export function CourierCard({
         testID="courier-chip"
         name={name}
         unnamed={!courier.firstName}
-        photoUrl={courier.photoUrl}
+        photoUrl={apiPhoto(courier.photoUrl)}
         vehicle={[vehicle, courier.rating ? `★ ${t('track.rating_value', { rating: courier.rating.toFixed(1), count: courier.ratingCount })}` : null].filter(Boolean).join(' · ') || null}
         plate={courier.plate}
         plateLabel={t('driver.plate')}
@@ -466,7 +467,7 @@ export function CourierFloat({
         testID="float-driver"
         name={name}
         unnamed={!courier.firstName}
-        photoUrl={courier.photoUrl}
+        photoUrl={apiPhoto(courier.photoUrl)}
         vehicle={vehicle}
         plate={ride && mode === 'plate' ? courier.plate : null}
         plateLabel={t('driver.plate')}

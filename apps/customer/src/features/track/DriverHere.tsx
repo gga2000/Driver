@@ -4,6 +4,7 @@ import type { CourierCard } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import { Avatar, Button, Icon, IconButton, PlateChip, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { apiPhoto } from '@/lib/photo';
 
 /**
  * "عباس وصل" over the map when the driver is at the pickup (L-02): his face, the plate large (the
@@ -63,7 +64,7 @@ export function DriverHereCard({
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <Avatar name={name} uri={courier.photoUrl ?? undefined} size={48} ring={Boolean(courier.verifiedTodayAt)} />
+        <Avatar name={name} uri={apiPhoto(courier.photoUrl) ?? undefined} size={48} ring={Boolean(courier.verifiedTodayAt)} />
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="title" testID="driver-here-title">
             {t('ride.here_title', { name })}

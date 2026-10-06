@@ -6,7 +6,7 @@ import { Avatar, Button, Card, Chip, Icon, ListRow, SegmentedControl, Skeleton, 
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
-import { useHousehold, useMe, useMyPlaces, useSavedPeople } from '@/features/account/queries';
+import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople } from '@/features/account/queries';
 import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
 import { useApiClient } from '@/lib/api';
@@ -36,6 +36,7 @@ function Account() {
   const places = useMyPlaces();
   const people = useSavedPeople();
   const household = useHousehold();
+  const children = useGuardianChildren();
   const [signingOut, setSigningOut] = useState(false);
   const name = me.data?.name ?? prof.name ?? null;
 
@@ -134,6 +135,10 @@ function Account() {
             onPress={() => router.push('/household')}
             divider
           />
+          {/* خطوط children's photos (Ali, 2026-10-06): only for guardians with a child registered. */}
+          {(children.data ?? []).length > 0 ? (
+            <ListRow testID="account-children" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} divider />
+          ) : null}
           <ListRow testID="account-notifications" leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} onPress={() => router.push('/profile/notifications')} />
         </Card>
         <Chip

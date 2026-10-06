@@ -4,6 +4,7 @@ import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { DriverChip } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { vehicleDesc } from './labels';
+import { apiPhoto } from '@/lib/photo';
 
 /**
  * The driver of a الرجعة car (audit C-19), the same on the board, the seat sheet and the boarding
@@ -36,7 +37,7 @@ export function RajaaDriver({
       testID={testID}
       name={card?.firstName ?? t('rajaa.driver_unnamed')}
       unnamed={!card?.firstName}
-      photoUrl={card?.photoUrl ?? null}
+      photoUrl={apiPhoto(card?.photoUrl)}
       vehicle={dep.vehicle ? vehicleDesc(t, dep.vehicle) : null}
       plate={dep.vehicle?.plate ?? null}
       plateLabel={t('driver.plate')}
