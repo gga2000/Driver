@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baghdadDayOfMonth, baghdadHour, baghdadMonth, baghdadMonthRange, householdApproval, monthNumber, shiftMonth } from './household-budget.js';
+import { baghdadDayOfMonth, baghdadHour, baghdadMonth, baghdadMonthRange, householdApproval, householdMonthSpend, monthNumber, shiftMonth } from './household-budget.js';
 
 const base = { role: 'orderer' as const, orderLimitIqd: null, monthlyBudgetIqd: null, monthSpentIqd: 0, totalIqd: 20_000 };
 
@@ -50,5 +50,13 @@ describe('Baghdad months', () => {
     expect(baghdadDayOfMonth(new Date('2026-09-30T21:30:00Z'))).toBe(1);
     expect(baghdadHour(new Date('2026-10-01T07:00:00Z'))).toBe(10);
     expect(monthNumber('2026-09')).toBe(9);
+  });
+});
+
+describe('householdMonthSpend', () => {
+  it('sums one member on one household wallet, open and waiting orders included, cancelled ones not', () => {
+    const o = (ordererId: string, householdOrgId: string | null, totalIqd: number, state: 'placed' | 'closed' | 'customer_cancelled' | 'merchant_rejected' | 'preparing') => ({ ordererId, householdOrgId, totalIqd, state });
+    const orders = [o('m', 'h', 10_000, 'closed'), o('m', 'h', 5_000, 'placed'), o('m', 'h', 7_000, 'preparing'), o('m', 'h', 9_000, 'customer_cancelled'), o('m', 'h', 4_000, 'merchant_rejected'), o('m', null, 20_000, 'closed'), o('m', 'h2', 3_000, 'closed'), o('x', 'h', 8_000, 'closed')];
+    expect(householdMonthSpend(orders, 'h', 'm')).toBe(22_000);
   });
 });

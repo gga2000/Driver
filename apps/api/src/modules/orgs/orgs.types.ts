@@ -1,5 +1,6 @@
 import type {
   CommissionTier,
+  HouseholdApprovalReason,
   DeliveryPoint,
   HolidayClosure,
   WeeklyWindow,
@@ -13,6 +14,8 @@ export interface OrgMember {
   role: OrgMemberRole;
   /** Household: orders above this ask the payer for one-tap approval. Null = no limit. */
   spendingLimitIqd: number | null;
+  /** Household (joy w4): over this in a Baghdad month an order asks the payer. Null/absent = none. */
+  monthlyBudgetIqd?: number | null;
 }
 
 export interface Org {
@@ -103,7 +106,10 @@ export interface PayerApprovalRequest {
   requestedBy: string;
   payerId: string;
   amountIqd: number;
-  state: 'pending' | 'approved' | 'declined';
+  /** `withdrawn`: the order went away (cancelled, or no answer in time) before a decision. */
+  state: 'pending' | 'approved' | 'declined' | 'withdrawn';
+  /** Joy w4: why the order asks (null on requests made before J7c, or made by hand). */
+  reason?: HouseholdApprovalReason | null;
   createdAt: Date;
 }
 

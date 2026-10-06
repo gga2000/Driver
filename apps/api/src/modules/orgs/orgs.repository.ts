@@ -38,7 +38,7 @@ export interface OrgsRepository {
   /** Newest first. */
   approvals(orgId: string, filter?: { state?: PayerApprovalRequest['state'] }, tx?: Tx): Promise<PayerApprovalRequest[]>;
   /** pending → decision; null when the request was no longer pending (someone resolved it first). */
-  resolveApproval(id: string, decision: 'approved' | 'declined', tx?: Tx): Promise<PayerApprovalRequest | null>;
+  resolveApproval(id: string, decision: 'approved' | 'declined' | 'withdrawn', tx?: Tx): Promise<PayerApprovalRequest | null>;
 }
 
 export const ORGS_REPOSITORY = Symbol('ORGS_REPOSITORY');
@@ -109,7 +109,7 @@ export class InMemoryOrgsRepository implements OrgsRepository {
       .map((a) => ({ ...a }));
   }
 
-  async resolveApproval(id: string, decision: 'approved' | 'declined'): Promise<PayerApprovalRequest | null> {
+  async resolveApproval(id: string, decision: 'approved' | 'declined' | 'withdrawn'): Promise<PayerApprovalRequest | null> {
     const r = this.approvalRows.get(id);
     if (!r || r.state !== 'pending') return null;
     r.state = decision;
@@ -145,7 +145,7 @@ interface OrgRow {
   pickupNote?: string | null;
   pickupPhotoRefs?: string[];
   pickupUpdatedAt?: Date | null;
-  members: Array<{ personId: string; role: string; spendingLimitIqd: number | null }>;
+  members: Array<{ personId: string; role: string; spendingLimitIqd: number | null; monthlyBudgetIqd?: number | null }>;
 }
 
 type Pin = { lat: number; lng: number };
@@ -182,7 +182,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
     type,
     name: r.name,
     cityId: r.cityId,
-    members: r.members.map((m) => ({ personId: m.personId, role: m.role as OrgMember['role'], spendingLimitIqd: m.spendingLimitIqd })),
+    members: r.members.map((m) => ({ personId: m.personId, role: m.role as OrgMember['role'], spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })),
   };
   if (isMerchantType(type)) {
     org.merchant = {
@@ -204,8 +204,11 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
   return org;
 }
 
-function approvalFromRow(r: { id: string; orgId: string; orderId: string; requestedBy: string; payerId: string; amountIqd: number; state: string; createdAt: Date }): PayerApprovalRequest {
-  return { id: r.id, orgId: r.orgId, orderId: r.orderId, requestedBy: r.requestedBy, payerId: r.payerId, amountIqd: r.amountIqd, state: r.state as PayerApprovalRequest['state'], createdAt: r.createdAt };
+const APPROVAL_REASONS: ReadonlySet<string> = new Set(['order_limit', 'month_budget', 'both']);
+
+function approvalFromRow(r: { id: string; orgId: string; orderId: string; requestedBy: string; payerId: string; amountIqd: number; state: string; reason?: string | null; createdAt: Date }): PayerApprovalRequest {
+  const reason = r.reason && APPROVAL_REASONS.has(r.reason) ? (r.reason as NonNullable<PayerApprovalRequest['reason']>) : null;
+  return { id: r.id, orgId: r.orgId, orderId: r.orderId, requestedBy: r.requestedBy, payerId: r.payerId, amountIqd: r.amountIqd, state: r.state as PayerApprovalRequest['state'], reason, createdAt: r.createdAt };
 }
 
 export class PrismaOrgsRepository implements OrgsRepository {
@@ -239,7 +242,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
         type: input.type,
         name: input.name,
         cityId: input.cityId,
-        members: { create: input.members.map((m) => ({ personId: m.personId, role: m.role, spendingLimitIqd: m.spendingLimitIqd })) },
+        members: { create: input.members.map((m) => ({ personId: m.personId, role: m.role, spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })) },
       },
       include: ORG_INCLUDE,
     });
@@ -269,8 +272,8 @@ export class PrismaOrgsRepository implements OrgsRepository {
   async upsertMember(orgId: string, member: OrgMember, tx?: Tx): Promise<void> {
     await this.db(tx).orgMember.upsert({
       where: { orgId_personId: { orgId, personId: member.personId } },
-      update: { role: member.role, spendingLimitIqd: member.spendingLimitIqd },
-      create: { orgId, personId: member.personId, role: member.role, spendingLimitIqd: member.spendingLimitIqd },
+      update: { role: member.role, spendingLimitIqd: member.spendingLimitIqd, monthlyBudgetIqd: member.monthlyBudgetIqd ?? null },
+      create: { orgId, personId: member.personId, role: member.role, spendingLimitIqd: member.spendingLimitIqd, monthlyBudgetIqd: member.monthlyBudgetIqd ?? null },
     });
   }
 
@@ -307,7 +310,8 @@ export class PrismaOrgsRepository implements OrgsRepository {
   }
 
   async addApproval(input: Omit<PayerApprovalRequest, 'id'>, tx?: Tx): Promise<PayerApprovalRequest> {
-    return approvalFromRow(await this.db(tx).payerApproval.create({ data: input }));
+    const { reason, ...rest } = input;
+    return approvalFromRow(await this.db(tx).payerApproval.create({ data: { ...rest, reason: reason ?? null } }));
   }
 
   async approval(id: string, tx?: Tx): Promise<PayerApprovalRequest | null> {
@@ -325,7 +329,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
     return rows.map(approvalFromRow);
   }
 
-  async resolveApproval(id: string, decision: 'approved' | 'declined', tx?: Tx): Promise<PayerApprovalRequest | null> {
+  async resolveApproval(id: string, decision: 'approved' | 'declined' | 'withdrawn', tx?: Tx): Promise<PayerApprovalRequest | null> {
     const db = this.db(tx);
     const { count } = await db.payerApproval.updateMany({ where: { id, state: 'pending' }, data: { state: decision } });
     if (count === 0) return null;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { OrderState } from './order.js';
 
 /**
  * Household spending (joy w4 «بيتنا», domain §12). A household spending limit, not a money rule:
@@ -84,4 +85,24 @@ export function baghdadHour(at: Date): number {
 /** 1–12 of a month key (for «أيلول» and friends: `time.month_<n>`). */
 export function monthNumber(month: MonthKey): number {
   return Number(month.slice(5, 7));
+}
+
+/** Orders that never cost the household anything: refused, cancelled, failed or fully refunded. */
+export const HOUSEHOLD_SPEND_EXCLUDED: readonly OrderState[] = ['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'failed', 'refunded'];
+
+/** The order fields the month's spend reads. */
+export interface HouseholdSpendOrder {
+  ordererId: string;
+  householdOrgId: string | null;
+  totalIqd: number;
+  state: OrderState;
+}
+
+/**
+ * What one member spent on one household's wallet among `orders` (the caller passes one Baghdad
+ * month): every order on that wallet that was not refused or cancelled, waiting ones included — so two
+ * orders placed together can't both slip under the budget.
+ */
+export function householdMonthSpend(orders: readonly HouseholdSpendOrder[], householdId: string, personId: string): number {
+  return orders.filter((o) => o.householdOrgId === householdId && o.ordererId === personId && !HOUSEHOLD_SPEND_EXCLUDED.includes(o.state)).reduce((s, o) => s + o.totalIqd, 0);
 }

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { DriverError } from '@driver/contracts';
+import { DriverError, type HouseholdApprovalReason } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
@@ -81,6 +81,16 @@ export class OrgsService {
     });
   }
 
+  /** Joy w4: a member's monthly budget on the household wallet (null = none). */
+  setMonthlyBudget(orgId: string, personId: string, monthlyBudgetIqd: number | null, actorId?: string): Promise<OrgMember> {
+    return this.uow.run(async (tx) => {
+      const m = { ...(await this.member(orgId, personId, tx)), monthlyBudgetIqd };
+      await this.repo.upsertMember(orgId, m, tx);
+      if (actorId) await this.emit(tx, 'org.member_budget_set', actorId, { orgId, personId, monthlyBudgetIqd }, orgId);
+      return m;
+    });
+  }
+
   async member(orgId: string, personId: string, tx?: Tx): Promise<OrgMember> {
     const m = (await this.get(orgId, tx)).members.find((x) => x.personId === personId);
     if (!m) throw new DriverError('not_household_member');
@@ -99,7 +109,7 @@ export class OrgsService {
   }
 
   /** Orders over a member's limit request one-tap payer approval (domain §12). Idempotent per order. */
-  requestPayerApproval(input: { orgId: string; orderId: string; requestedBy: string; amountIqd: number }): Promise<PayerApprovalRequest> {
+  requestPayerApproval(input: { orgId: string; orderId: string; requestedBy: string; amountIqd: number; reason?: HouseholdApprovalReason | null }): Promise<PayerApprovalRequest> {
     return this.uow.run(async (tx) => {
       const existing = await this.repo.approvalForOrder(input.orgId, input.orderId, tx);
       if (existing) return existing;
@@ -107,10 +117,16 @@ export class OrgsService {
       const payer = (await this.payersOf(input.orgId, tx))[0];
       if (!payer) throw new DriverError('no_payer');
       const req = await this.repo.addApproval(
-        { orgId: input.orgId, orderId: input.orderId, requestedBy: input.requestedBy, payerId: payer.personId, amountIqd: input.amountIqd, state: 'pending', createdAt: this.clock.now() },
+        { orgId: input.orgId, orderId: input.orderId, requestedBy: input.requestedBy, payerId: payer.personId, amountIqd: input.amountIqd, state: 'pending', reason: input.reason ?? null, createdAt: this.clock.now() },
         tx,
       );
-      await this.emit(tx, 'org.payer_approval_requested', input.requestedBy, { orgId: input.orgId, orderId: input.orderId, payerId: payer.personId, amountIqd: input.amountIqd, requestId: req.id }, input.orgId);
+      await this.emit(
+        tx,
+        'org.payer_approval_requested',
+        input.requestedBy,
+        { orgId: input.orgId, orderId: input.orderId, payerId: payer.personId, amountIqd: input.amountIqd, requestId: req.id, reason: input.reason ?? null },
+        input.orgId,
+      );
       return req;
     });
   }
@@ -127,6 +143,26 @@ export class OrgsService {
       await this.emit(tx, decision === 'approved' ? 'org.payer_approved' : 'org.payer_declined', payerId, { orgId: req.orgId, orderId: req.orderId, requestId }, req.orgId);
       return done;
     });
+  }
+
+  /**
+   * Joy w4: the order behind a pending request went away (the orderer cancelled, or nobody answered in
+   * time): the request is withdrawn so it stops asking. Null when there is none; a decided one stays.
+   */
+  withdrawApproval(orgId: string, orderId: string, actorId: string): Promise<PayerApprovalRequest | null> {
+    return this.uow.run(async (tx) => {
+      const req = await this.repo.approvalForOrder(orgId, orderId, tx);
+      if (!req || req.state !== 'pending') return req;
+      const done = await this.repo.resolveApproval(req.id, 'withdrawn', tx);
+      if (!done) return (await this.repo.approval(req.id, tx)) ?? req;
+      await this.emit(tx, 'org.payer_approval_withdrawn', actorId, { orgId, orderId, requestId: req.id }, orgId);
+      return done;
+    });
+  }
+
+  /** The request for an order, if any. */
+  approvalForOrder(orgId: string, orderId: string): Promise<PayerApprovalRequest | null> {
+    return this.repo.approvalForOrder(orgId, orderId);
   }
 
   async approval(requestId: string): Promise<PayerApprovalRequest> {

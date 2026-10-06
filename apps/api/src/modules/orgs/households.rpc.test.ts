@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
 import { harness as identityHarness } from '../identity/test-harness.js';
-import { HouseholdsRpc } from './households.rpc.js';
+import { HouseholdsRpc, type HouseholdMonthOrder } from './households.rpc.js';
 import { OrgsService } from './orgs.service.js';
 
 async function setup() {
   const id = identityHarness();
   const orgs = new OrgsService(undefined, id.clock);
-  const rpc = new HouseholdsRpc(orgs, id.service);
+  const rpc = new HouseholdsRpc(orgs, id.service, id.clock);
   const ali = (await id.login('07712345678')).actor;
   const minar = (await id.login('07712345679')).actor;
   const stranger = (await id.login('07712345670')).actor;
@@ -31,7 +31,7 @@ describe('households (domain §12)', () => {
     expect(await rpc.mine(ali)).toBeNull();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
     expect(home).toMatchObject({ name: 'بيت علي', myRole: 'payer', pendingApprovals: [] });
-    expect(home.members).toEqual([{ personId: ali.personId, name: 'علي', phoneMasked: '+96477*****78', role: 'payer', spendingLimitIqd: null, isMe: true }]);
+    expect(home.members).toEqual([{ personId: ali.personId, name: 'علي', phoneMasked: '+96477*****78', role: 'payer', spendingLimitIqd: null, isMe: true, monthlyBudgetIqd: null, monthSpentIqd: null }]);
     expect(await code(rpc.create(ali, { name: 'ثاني', cityId: 'aziziyah' }))).toBe('household_exists');
   });
 
@@ -110,5 +110,115 @@ describe('households (domain §12)', () => {
     expect((await rpc.mine(ali))?.pendingApprovals[0]?.context).toEqual(ctx);
     await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_x', requestedBy: minar.personId, amountIqd: 30_000 });
     expect((await rpc.mine(ali))?.pendingApprovals.map((a) => a.context?.merchantName ?? null).sort()).toEqual(['مطعم خالد', null].sort());
+  });
+
+  describe('joy w4: budgets, the month and the family table', () => {
+    const at = new Date('2026-10-07T09:00:00Z');
+    const order = (o: Partial<HouseholdMonthOrder> & Pick<HouseholdMonthOrder, 'orderId' | 'ordererId'>): HouseholdMonthOrder => ({
+      householdOrgId: null,
+      familyTable: false,
+      heldForPayer: false,
+      merchantName: 'مطعم خالد',
+      totalIqd: 10_000,
+      state: 'closed',
+      placedAt: at,
+      ...o,
+    });
+
+    async function family() {
+      const s = await setup();
+      s.id.clock.set(at);
+      const home = await s.rpc.create(s.ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      await s.rpc.inviteMember(s.ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
+      const kid = (await s.id.login('07712345671')).actor;
+      await s.id.service.updateProfile(kid, { name: 'حسين' });
+      await s.rpc.inviteMember(s.ali, { householdId: home.id, phone: '07712345671', role: 'orderer', spendingLimitIqd: 10_000 });
+      return { ...s, home, kid };
+    }
+
+    it('a payer sets a monthly budget; not on a payer, not by a member', async () => {
+      const { rpc, ali, minar, home } = await family();
+      const after = await rpc.setBudget(ali, { householdId: home.id, personId: minar.personId, monthlyBudgetIqd: 100_000 });
+      expect(after.members.find((m) => m.personId === minar.personId)?.monthlyBudgetIqd).toBe(100_000);
+      expect(await code(rpc.setBudget(ali, { householdId: home.id, personId: ali.personId, monthlyBudgetIqd: 1 }))).toBe('invalid_input');
+      expect(await code(rpc.setBudget(minar, { householdId: home.id, personId: minar.personId, monthlyBudgetIqd: 900_000 }))).toBe('household_payer_only');
+      const cleared = await rpc.setBudget(ali, { householdId: home.id, personId: minar.personId, monthlyBudgetIqd: null });
+      expect(cleared.members.find((m) => m.personId === minar.personId)?.monthlyBudgetIqd).toBeNull();
+    });
+
+    it('spend per member: the payer sees everyone, a member only their own; the family table for all', async () => {
+      const { rpc, ali, minar, kid, home } = await family();
+      const seen: Array<{ householdId: string; month: string; members: number }> = [];
+      rpc.bindMonthOrders(async ({ householdId, memberIds, month }) => {
+        seen.push({ householdId, month, members: memberIds.length });
+        return [
+          order({ orderId: 'o1', ordererId: minar.personId, householdOrgId: home.id, totalIqd: 30_000 }),
+          order({ orderId: 'o2', ordererId: minar.personId, householdOrgId: home.id, totalIqd: 16_000, state: 'preparing' }),
+          order({ orderId: 'o3', ordererId: minar.personId, householdOrgId: home.id, totalIqd: 9_000, state: 'customer_cancelled' }),
+          order({ orderId: 'o4', ordererId: kid.personId, householdOrgId: home.id, totalIqd: 12_000, state: 'placed', heldForPayer: true, placedAt: new Date(at.getTime() + 60_000) }),
+          order({ orderId: 'o5', ordererId: ali.personId, familyTable: true, totalIqd: 41_000, merchantName: 'مشويات الحاج كريم', placedAt: new Date(at.getTime() - 60_000) }),
+        ];
+      });
+      const forPayer = await rpc.mine(ali);
+      expect(seen[0]).toEqual({ householdId: home.id, month: '2026-10', members: 3 });
+      expect(forPayer?.members.map((m) => [m.name, m.monthSpentIqd])).toEqual([
+        ['علي', 0],
+        ['منار', 46_000],
+        ['حسين', 12_000],
+      ]);
+      expect(forPayer?.month?.tableOrders.map((o) => [o.orderId, o.status, o.onHouseholdWallet, o.familyTable, o.orderedByName])).toEqual([
+        ['o4', 'waiting', true, false, 'حسين'],
+        ['o2', 'live', true, false, 'منار'],
+        ['o1', 'done', true, false, 'منار'],
+        ['o5', 'done', false, true, 'علي'],
+      ]);
+      const forMinar = await rpc.mine(minar);
+      expect(forMinar?.members.map((m) => [m.name, m.monthSpentIqd])).toEqual([
+        ['علي', null],
+        ['منار', 46_000],
+        ['حسين', null],
+      ]);
+      // Her own household orders and the family table; never حسين's.
+      expect(forMinar?.month?.tableOrders.map((o) => o.orderId)).toEqual(['o2', 'o1', 'o5']);
+    });
+
+    it('without a month reader (or when it fails) the hub still opens', async () => {
+      const { rpc, ali } = await family();
+      expect((await rpc.mine(ali))?.month).toBeNull();
+      rpc.bindMonthOrders(() => Promise.reject(new Error('db down')));
+      const v = await rpc.mine(ali);
+      expect(v?.month).toBeNull();
+      expect(v?.members.every((m) => m.monthSpentIqd === null)).toBe(true);
+    });
+
+    it('an approval says why and how the month stands (before this order); the decision hook hears the answer', async () => {
+      const { rpc, orgs, ali, minar, home } = await family();
+      await rpc.setBudget(ali, { householdId: home.id, personId: minar.personId, monthlyBudgetIqd: 50_000 });
+      rpc.bindMonthOrders(async () => [order({ orderId: 'o1', ordererId: minar.personId, householdOrgId: home.id, totalIqd: 40_000 }), order({ orderId: 'ord_9', ordererId: minar.personId, householdOrgId: home.id, totalIqd: 18_000, state: 'placed', heldForPayer: true })]);
+      const heard: string[] = [];
+      rpc.bindDecision(async (r) => {
+        heard.push(`${r.orderId}:${r.state}`);
+      });
+      const req = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_9', requestedBy: minar.personId, amountIqd: 18_000, reason: 'month_budget' });
+      expect((await rpc.mine(ali))?.pendingApprovals[0]).toMatchObject({ reason: 'month_budget', monthBudgetIqd: 50_000, monthSpentIqd: 40_000, limitIqd: 25_000 });
+      await rpc.approve(ali, { requestId: req.id });
+      await rpc.approve(ali, { requestId: req.id });
+      expect(heard).toEqual(['ord_9:approved']);
+      // A failing hook never undoes the payer's answer.
+      rpc.bindDecision(() => Promise.reject(new Error('orders down')));
+      const second = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_10', requestedBy: minar.personId, amountIqd: 30_000, reason: 'order_limit' });
+      expect((await rpc.decline(ali, { requestId: second.id })).state).toBe('declined');
+    });
+
+    it('a withdrawn request stops asking and stays withdrawn', async () => {
+      const { rpc, orgs, ali, minar, home } = await family();
+      const req = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_w', requestedBy: minar.personId, amountIqd: 30_000, reason: 'order_limit' });
+      expect((await orgs.withdrawApproval(home.id, 'ord_w', minar.personId))?.state).toBe('withdrawn');
+      expect((await orgs.withdrawApproval(home.id, 'ord_w', minar.personId))?.state).toBe('withdrawn');
+      expect(await orgs.withdrawApproval(home.id, 'ord_none', minar.personId)).toBeNull();
+      expect((await rpc.mine(ali))?.pendingApprovals).toEqual([]);
+      expect((await rpc.approve(ali, { requestId: req.id })).state).toBe('withdrawn');
+      expect((await rpc.approvals(ali, { householdId: home.id }))[0]).toMatchObject({ state: 'withdrawn', state_ar: 'انلغى الطلب', canResolve: false });
+    });
   });
 });
