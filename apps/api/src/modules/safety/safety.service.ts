@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import {
   DriverError,
   liveChannel,
+  SAFETY_PAGED_ROLES,
   SAFETY_RULES,
   type Actor,
   type DeliveryLogRow,
@@ -65,8 +66,6 @@ export interface SafetyConfig {
 const MIN_MS = 60_000;
 const HOUR_MS = 60 * MIN_MS;
 const NAME_TTL_MS = 5 * MIN_MS;
-/** Roles paged on every SOS ("on shift": every live dispatcher and admin until a staff rota exists). */
-const PAGED_ROLES = ['dispatcher', 'admin'] as const;
 const ROLE_AR = { driver: 'سايق', customer: 'زبون' } as const;
 const OUTCOME_AR = { safe: 'الشخص بخير', false_alarm: 'تنبيه بالغلط', emergency: 'وصلنا الشرطة أو الإسعاف', escalated: 'صعّدناه لعلي' } as const;
 
@@ -396,7 +395,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     const incidentId = typeof e.payload['incidentId'] === 'string' ? e.payload['incidentId'] : null;
     const inc = incidentId ? await this.repo.get(incidentId, tx) : null;
     if (!inc) return;
-    const roles = e.type === 'sos.escalated' ? (['admin'] as const) : PAGED_ROLES;
+    const roles = e.type === 'sos.escalated' ? (['admin'] as const) : SAFETY_PAGED_ROLES;
     const roster = await this.identity.roster({ kinds: roles, limit: 200 });
     const to = roster.rows.filter((r) => !r.frozen && r.personId !== inc.raiserId).map((r) => r.personId);
     const name = (await this.identity.displayNamesFor([inc.raiserId], 'system:safety', 'sos_page'))[inc.raiserId]?.displayName ?? 'شخص';

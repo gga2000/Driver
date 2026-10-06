@@ -2417,6 +2417,12 @@ model KhatSweepAlert {
   runEndedAt    DateTime  @map("run_ended_at")
   raisedAt      DateTime  @map("raised_at")
   confirmedAt   DateTime? @map("confirmed_at")
+  /// A dispatcher closed it from the Console (Ali, 2026-10-06): when, who (staff person id), why.
+  closedAt      DateTime? @map("closed_at")
+  closedById    String?   @map("closed_by_id")
+  /// `KhatSweepCloseReason`: driver_called_empty | guardian_called | other.
+  closeReason   String?   @map("close_reason")
+  closeNote     String?   @map("close_note")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

@@ -134,6 +134,12 @@ export type SosShared = z.infer<typeof SosShared>;
 /** Back-office roles that see and answer SOS alerts (the launch rota: dispatchers, support, admin). */
 export const SAFETY_DESK_ROLES = ['dispatcher', 'support', 'admin'] as const;
 
+/**
+ * Roles paged on a phone when a safety alert fires (SOS, the خطوط car nobody checked): "on shift"
+ * means every live dispatcher and admin until a staff rota exists.
+ */
+export const SAFETY_PAGED_ROLES = ['dispatcher', 'admin'] as const;
+
 export const SafetyListInput = z.object({
   /** `open`: open + acknowledged (the banner and the default list); `all`: the last ones of every state. */
   scope: z.enum(['open', 'all']).default('open'),

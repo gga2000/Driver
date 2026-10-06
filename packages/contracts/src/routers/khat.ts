@@ -12,6 +12,7 @@ import {
   KhatSweepAlert,
   KhatSweepAlertsInput,
   KhatSweepCallInput,
+  KhatSweepCloseInput,
   KhatTapInput,
   ReportAbsenceInput,
   SubstituteOffer,
@@ -78,4 +79,12 @@ export const khatRouter = router({
     .input(KhatSweepCallInput)
     .output(SafetyCallSession)
     .mutation(({ ctx, input }) => ctx.khat.callSweepDriver(ctx.actor, input)),
+  /**
+   * "سكّر التنبيه" (Ali, 2026-10-06): a dispatcher closes an open alert with a reason (and a note for
+   * "غيرها"); it leaves the strip, the record keeps who, when and why. Audited; idempotent.
+   */
+  closeSweepAlert: protectedProcedure(DESK)
+    .input(KhatSweepCloseInput)
+    .output(KhatSweepAlert)
+    .mutation(({ ctx, input }) => ctx.khat.closeSweepAlert(ctx.actor, input)),
 });

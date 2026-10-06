@@ -108,8 +108,9 @@ Role: `khat_driver`. A run is a Trip of vertical `khat`; each stop carries one c
 | `acceptSubstitute` | mutation | `{offerId}` | `{outcome: assigned\|declined, tripId}` (goes through `dispatch.respond`) |
 | `confirmEmptyCar` | mutation | `{tripId}` | `KhatRunTrip` with `emptyCarCheckedAt` — the end-of-run sweep "تأكدت، السيارة فاضية" (partner S-6, 2026-10-05). Every child stop must be settled (`khat_run_not_finished`); logged once per run as the trip event `khat.empty_car_confirmed` `{tripId, driverId, childrenTotal, delivered, absent, lastDropAt, secondsAfterLastDrop}`; repeating returns the first time |
 | `callGuardian` | mutation | `{tripId, childRef}` | `CallSession` (as `chat.requestCall`) — masked call to the child's guardian for the run's own driver; vault read logged (`khat_guardian_call`), event `khat.guardian_call_requested` (no numbers); `call_unavailable` without a bridge |
-| `sweepAlerts` | query (dispatcher, support, admin) | `{cityId}` | `KhatSweepAlert[]` `{alertId, tripId, cityId, driver {personId, displayName, phoneMasked}, childrenTotal, lastDropAt, lastDropZone, runEndedAt, raisedAt, confirmedAt, confirmedLateMin}` — open alerts of the last 12 h first, then the ones confirmed late in the last 30 min. The drivers' cards are one logged vault read (`khat_sweep_alert`) for the staff member; never a child's name |
+| `sweepAlerts` | query (dispatcher, support, admin) | `{cityId}` | `KhatSweepAlert[]` `{alertId, tripId, cityId, driver {personId, displayName, phoneMasked}, childrenTotal, lastDropAt, lastDropZone, runEndedAt, raisedAt, confirmedAt, confirmedLateMin, closedAt, closedById, closeReason, closeNote}` — open alerts of the last 12 h first, then the ones confirmed late in the last 30 min; alerts a dispatcher closed are left out. The drivers' cards are one logged vault read (`khat_sweep_alert`) for the staff member; never a child's name |
 | `callSweepDriver` | mutation (dispatcher, support, admin) | `{alertId}` | `{mode, dial, expiresAt}` (as `safety.requestCall`) — masked call to the run's driver; event `khat.sweep_call_requested` on the run (no numbers); `not_found`, `call_unavailable` |
+| `closeSweepAlert` | mutation (dispatcher, support, admin) | `{alertId, reason: driver_called_empty\|guardian_called\|other, note?}` | `KhatSweepAlert` — "سكّر التنبيه" (Ali, 2026-10-06): reasons «اتصلت بالسايق، السيارة فاضية», «اتصلت بالأهل», «غيرها» (a note of 2–300 characters is required for `other`, optional otherwise). Sets `closedAt`/`closedById`/`closeReason`/`closeNote` once (conditional update), writes the audit entry `khat.sweep_close` (subject `khat_sweep_alert`) and the run event `khat.sweep_alert_closed` `{alertId, tripId, closedById, reason, hasNote}` in the same unit of work. Idempotent: a second close returns the first; an alert the driver already confirmed is returned unchanged (`closedAt` null, nothing audited). A later driver confirm still sets `confirmedAt`. `not_found` |
 
 `KhatRunTrip.emptyCarCheckedAt` (date or null) is read back from that event. `todayRun` keeps a run
 that completed with its last drop-off on the list until its car is checked (2026-10-06), so the sweep
@@ -124,9 +125,14 @@ last child stop settles (tap-out, or the rest absent)
         └─ not checked ─► khat_sweep_alerts row (one per run) + khat.sweep_missed
                             ├─ notify ─► push khat_sweep_reminder to the driver
                             │           "نسيت تتأكد إن السيارة فاضية؟ / باوع عالمقاعد الخلفية"
+                            ├─ khat:sweep-page ─► khat_sweep_dispatch_alert to every live dispatcher
+                            │           and admin (push + WhatsApp, SMS twin after 60 s), as SOS pages
+                            │           "خط #4821: ما تأكد إن السيارة فاضية من 5 دقايق"
                             └─ Console strip under the SOS banner (khat.sweepAlerts, polled 5 s)
 driver's late "تأكدت" ─► confirmed_at set once + khat.sweep_alert_cleared {lateMin}
                          ─► the row says "تأكد متأخر {n} دقيقة" (minutes from the last drop), 30 min
+dispatcher's "سكّر التنبيه" + reason ─► closed_at / closed_by_id / close_reason / close_note set once,
+                         audit khat.sweep_close + khat.sweep_alert_closed; the row leaves the strip
 ```
 
 The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
@@ -134,8 +140,23 @@ The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `k
 run, so a redelivery or a second instance changes nothing (unique `trip_id`). The queue is BullMQ
 with `REDIS_URL` (survives restarts), otherwise in process (polled once a second). Runs where no
 child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006150000_khat_sweep_alerts`.
-Console demo: `POST /demo/khat-sweep[?late=1]`. Not built: a dispatcher "close" for an alert the
-driver never confirms (it leaves the strip after `sweepOpenShowHours`, 12; the record stays).
+Console demo: `POST /demo/khat-sweep[?late=1]`.
+
+**The dispatchers' page (Ali, 2026-10-06).** The outbox subscriber `khat:sweep-page` answers
+`khat.sweep_missed` the way SOS pages the desk: identity's roster of live dispatchers and admins
+(`SAFETY_PAGED_ROLES`, shared with SOS; frozen accounts and the driver himself left out) each get the
+template `khat_sweep_dispatch_alert` (category safety, push + WhatsApp, the usual 60-s SMS twin, sent in
+quiet hours; no escalation). Params: the driver's short name (a logged vault read, `system:khat` /
+`khat_sweep_page`), the run's `#ticket`, the minutes since the run ended in their natural form via
+`t()`, and the Console link (`CONSOLE_BASE_URL` + `/safety`). Never a child's name. Once per alert: the
+event is once per run and notify dedupes event + person; nothing is sent when the driver confirmed, or
+a dispatcher closed it, before the outbox got there.
+
+**Closing an alert (Ali, 2026-10-06).** `closeSweepAlert` above; the Console row has «سكّر التنبيه»
+next to the call button (a dialog with the three reasons and the note). Columns `closed_at`,
+`closed_by_id` (staff person id, no names), `close_reason`, `close_note`; migration
+`20261006180000_khat_sweep_alert_close`. Open alerts nobody closes still leave the strip after
+`sweepOpenShowHours` (12); the record stays.
 
 Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,

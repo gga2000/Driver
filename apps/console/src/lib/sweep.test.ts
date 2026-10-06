@@ -16,6 +16,10 @@ const alert = (id: string, endedMin: number, over: Partial<KhatSweepAlert> = {})
   raisedAt: at(endedMin + 5),
   confirmedAt: null,
   confirmedLateMin: null,
+  closedAt: null,
+  closedById: null,
+  closeReason: null,
+  closeNote: null,
   ...over,
 });
 
@@ -23,6 +27,11 @@ describe('sweep alert strip', () => {
   it('shows open alerts first (oldest run first), then late confirms (latest first)', () => {
     const rows = [alert('a', 0, { confirmedAt: at(7), confirmedLateMin: 7 }), alert('b', 3), alert('c', 1), alert('d', 0, { confirmedAt: at(9), confirmedLateMin: 9 })];
     expect(sweepOrder(rows).map((r) => r.alertId)).toEqual(['c', 'b', 'd', 'a']);
+  });
+
+  it('drops an alert a dispatcher closed (the server leaves it out too)', () => {
+    const rows = [alert('a', 0), alert('b', 1, { closedAt: at(9), closedById: 'p_disp', closeReason: 'guardian_called' })];
+    expect(sweepOrder(rows).map((r) => r.alertId)).toEqual(['a']);
   });
 
   it('names the driver, the run, the last drop and how long ago; a late confirm says how late', () => {

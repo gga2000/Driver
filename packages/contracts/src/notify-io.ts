@@ -116,6 +116,7 @@ export const NotifyTemplateId = z.enum([
   'rajaa_boarding_pass',
   'khat_child_arrived',
   'khat_sweep_reminder',
+  'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
   'sos_emergency_contact',
   'chat_message',
@@ -342,6 +343,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'partner',
     push: { title: 'push.khat_sweep_reminder.title', body: 'push.khat_sweep_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://khat' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // The sweep nobody did, for ops (Ali, 2026-10-06): paged like SOS (every on-shift dispatcher and
+  // admin, loud push + WhatsApp) one step lower: the usual 60-s SMS twin and no escalation. No child's name.
+  khat_sweep_dispatch_alert: {
+    id: 'khat_sweep_dispatch_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.khat_sweep_dispatch.title', body: 'push.khat_sweep_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.driver.iq/safety']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
   // SOS (scoring & safety §3): every on-shift dispatcher and admin, loud, on every channel.

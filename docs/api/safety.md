@@ -51,8 +51,14 @@ the car is empty within `KHAT_RULES.sweepAlertAfterMin` (5) minutes, a red row a
 SOS banner on every Console page for dispatchers, support and admins (`SweepAlertStrip`,
 `components/safety/sweep-strip.tsx`): the driver, the run, where and when the last child got out,
 how long ago, and "اتصل ب…" through the masked line (`khat.callSweepDriver`). The driver gets a
-push reminder at the same moment. His late confirm turns the row calm ("تأكد متأخر {n} دقيقة") and
-it leaves after 30 minutes. Procedures, timer and table: `docs/api/partner-merchant-wave2.md`
+push reminder at the same moment, and every live dispatcher and admin is paged on the phone the way
+SOS pages them (same roster, `SAFETY_PAGED_ROLES`; push + WhatsApp, template
+`khat_sweep_dispatch_alert`: «خط #4821: ما تأكد إن السيارة فاضية من 5 دقايق», no children's names),
+once per alert and not at all if the driver confirmed in time. His late confirm turns the row calm
+("تأكد متأخر {n} دقيقة") and it leaves after 30 minutes. A dispatcher can also close an open row
+(«سكّر التنبيه», `khat.closeSweepAlert`) with a reason — «اتصلت بالسايق، السيارة فاضية», «اتصلت
+بالأهل» or «غيرها» with a short note — audited (`khat.sweep_close`); the row leaves the strip and the
+record keeps who, when and why. A later driver confirm is still recorded. Procedures, timer and table: `docs/api/partner-merchant-wave2.md`
 (`khat.sweepAlerts`, "The late sweep").
 
 ## الرجعة: a seat PIN on the wrong seat (2026-10-06)

@@ -4,12 +4,14 @@ import { callBridgeFor } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { ControlsModule } from '../controls/index.js';
 import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { NotifyModule } from '../notify/index.js';
 import { TripsModule } from '../trips/index.js';
 import { InMemoryKhatRepository, KHAT_REPOSITORY, PrismaKhatRepository, type KhatRepository } from './khat.repository.js';
-import { KHAT_CALLS, KHAT_CONFIG, KHAT_QUEUE, KhatService, type KhatConfig, type SweepCheckJob } from './khat.service.js';
+import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_QUEUE, KhatService, type KhatConfig, type SweepCheckJob } from './khat.service.js';
 
 /** A whole number of minutes from the environment, else the rule's default. */
 function envMinutes(name: string, fallback: number): number {
@@ -21,12 +23,14 @@ function envMinutes(name: string, fallback: number): number {
  * خطوط driver side: today's run, per-child taps, absences, substitute offers, and the late-sweep
  * alert. Runs are khat Trips (trips module), names come from identity's vault port, offers from
  * dispatch. Owns `khat_absences` and `khat_sweep_alerts`. The sweep check runs on the `khat.timers`
- * queue (BullMQ when REDIS_URL is set; otherwise in process, polled once a second).
+ * queue (BullMQ when REDIS_URL is set; otherwise in process, polled once a second). A raised alert
+ * pages the on-shift dispatchers through notify (as SOS does); a dispatcher's close is audited.
  *
- * Env: KHAT_SWEEP_ALERT_AFTER_MIN (default `KHAT_RULES.sweepAlertAfterMin`, 5).
+ * Env: KHAT_SWEEP_ALERT_AFTER_MIN (default `KHAT_RULES.sweepAlertAfterMin`, 5), CONSOLE_BASE_URL
+ * (the dispatchers' WhatsApp link, as SOS).
  */
 @Module({
-  imports: [TripsModule, DispatchModule, IdentityModule, EventsModule],
+  imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule],
   providers: [
     {
       provide: KHAT_REPOSITORY,
@@ -40,7 +44,13 @@ function envMinutes(name: string, fallback: number): number {
       useFactory: (f: BullMqQueueFactory, clock: Clock): Queue<SweepCheckJob> => (f.configured ? f.queue<SweepCheckJob>('khat.timers') : new InMemoryQueue<SweepCheckJob>('khat.timers', () => clock.now())),
       inject: [BullMqQueueFactory, CLOCK],
     },
-    { provide: KHAT_CONFIG, useFactory: (): KhatConfig => ({ sweepAlertAfterMin: envMinutes('KHAT_SWEEP_ALERT_AFTER_MIN', KHAT_RULES.sweepAlertAfterMin) }) },
+    {
+      provide: KHAT_CONFIG,
+      useFactory: (): KhatConfig => ({
+        sweepAlertAfterMin: envMinutes('KHAT_SWEEP_ALERT_AFTER_MIN', KHAT_RULES.sweepAlertAfterMin),
+        consoleBase: process.env['CONSOLE_BASE_URL'] ?? DEFAULT_KHAT_CONFIG.consoleBase,
+      }),
+    },
     KhatService,
   ],
   exports: [KhatService],

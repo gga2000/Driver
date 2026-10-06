@@ -3,6 +3,8 @@ import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModu
 import {
   DriverError,
   KHAT_RULES,
+  orderTicketNumber,
+  SAFETY_PAGED_ROLES,
   type AbsenceView,
   type Actor,
   type CallGuardianInput,
@@ -13,6 +15,7 @@ import {
   type KhatSweepAlert,
   type KhatSweepAlertsInput,
   type KhatSweepCallInput,
+  type KhatSweepCloseInput,
   type KhatTapInput,
   type ReportAbsenceInput,
   type SafetyCallSession,
@@ -20,14 +23,17 @@ import {
   type TodayRunView,
   type Trip,
 } from '@driver/contracts';
+import { formatMinuteCount, t } from '@driver/i18n';
 import type { CallBridgePort } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { AuditLogService } from '../controls/index.js';
 import { DispatchService } from '../dispatch/index.js';
-import { EventsService } from '../events/index.js';
+import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, shortDisplayName } from '../identity/index.js';
+import { NotifyService } from '../notify/index.js';
 import { TripsService } from '../trips/index.js';
 import { KHAT_REPOSITORY, type AbsenceRecord, type KhatRepository, type SweepAlertRecord } from './khat.repository.js';
 
@@ -44,9 +50,11 @@ export const KHAT_CONFIG = Symbol('KHAT_CONFIG');
 export interface KhatConfig {
   /** Minutes after the run's last child stop before a missing sweep alerts ops (`KHAT_RULES`). */
   sweepAlertAfterMin: number;
+  /** The Console origin, for the dispatchers' WhatsApp page ("افتح الكونسول"). */
+  consoleBase: string;
 }
 
-export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin };
+export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin, consoleBase: 'https://console.driver.iq' };
 
 export interface SweepCheckJob {
   tripId: string;
@@ -60,6 +68,10 @@ export const SWEEP_TIMER_SUBSCRIBER = 'khat:sweep-timer';
 export const SWEEP_MISSED_EVENT = 'khat.sweep_missed';
 /** The driver's late confirm cleared the run's alert. */
 export const SWEEP_CLEARED_EVENT = 'khat.sweep_alert_cleared';
+/** A dispatcher closed the run's alert from the Console (reason, who, when). */
+export const SWEEP_CLOSED_EVENT = 'khat.sweep_alert_closed';
+/** Outbox subscriber that pages the on-shift dispatchers on `khat.sweep_missed`, the way SOS does. */
+export const SWEEP_PAGE_SUBSCRIBER = 'khat:sweep-page';
 
 export type SweepCheckOutcome = 'raised' | 'swept' | 'already' | 'not_due' | 'not_applicable';
 
@@ -155,6 +167,9 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(KHAT_CALLS) private readonly calls: CallBridgePort | null = null,
     @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null = null,
     @Optional() @Inject(KHAT_CONFIG) private readonly config: KhatConfig = DEFAULT_KHAT_CONFIG,
+    // Both always bound by `KhatModule`; optional only so narrow harnesses can leave them out.
+    @Optional() private readonly notify?: NotifyService,
+    @Optional() private readonly audits?: AuditLogService,
   ) {}
 
   /**
@@ -171,6 +186,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
         if (e.tripId) await this.armSweepTimer(e.tripId);
       }),
     );
+    if (this.notify) this.offs.push(this.events.subscribe(SWEEP_PAGE_SUBSCRIBER, [SWEEP_MISSED_EVENT], (e, ctx) => this.pageDesk(e, ctx.tx)));
   }
 
   onModuleDestroy(): void {
@@ -338,13 +354,13 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
 
   /**
    * The Console safety strip: the city's open sweep alerts of the last `sweepOpenShowHours` and the
-   * ones confirmed late in the last `sweepClearedShowMin`. The drivers' names and masked numbers are
-   * one logged vault read for the staff member asking.
+   * ones confirmed late in the last `sweepClearedShowMin`; alerts a dispatcher closed are gone. The
+   * drivers' names and masked numbers are one logged vault read for the staff member asking.
    */
   async sweepAlerts(actor: Actor, input: KhatSweepAlertsInput): Promise<KhatSweepAlert[]> {
     const now = this.clock.now().getTime();
     const rows = (await this.repo.sweepAlertsSince(input.cityId, new Date(now - KHAT_RULES.sweepOpenShowHours * 3_600_000))).filter(
-      (r) => !r.confirmedAt || now - r.confirmedAt.getTime() <= KHAT_RULES.sweepClearedShowMin * 60_000,
+      (r) => !r.closedAt && (!r.confirmedAt || now - r.confirmedAt.getTime() <= KHAT_RULES.sweepClearedShowMin * 60_000),
     );
     if (rows.length === 0) return [];
     const cards = await this.identity.memberCards([...new Set(rows.map((r) => r.driverId))], actor.personId, 'khat_sweep_alert');
@@ -367,6 +383,75 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
       { name: 'trip', id: alert.tripId },
     );
     return { mode: session.mode, dial: session.dial, expiresAt: session.expiresAt };
+  }
+
+  /**
+   * "سكّر التنبيه" (Ali, 2026-10-06): a dispatcher closes an open alert with a reason ("اتصلت بالسايق،
+   * السيارة فاضية", "اتصلت بالأهل", "غيرها" + a note). Who, when and why stay on the row, an audit
+   * entry is written in the same unit of work and `khat.sweep_alert_closed` goes on the run's
+   * timeline. Idempotent: closing again (or a second dispatcher) returns the first close; an alert
+   * the driver already confirmed is returned as it is (nothing to close). A late driver confirm after
+   * the close is still recorded (`confirmedAt`).
+   */
+  async closeSweepAlert(actor: Actor, input: KhatSweepCloseInput): Promise<KhatSweepAlert> {
+    const before = await this.repo.sweepAlert(input.alertId);
+    if (!before) throw new DriverError('not_found');
+    const note = input.note?.trim() ? input.note.trim() : null;
+    const now = this.clock.now();
+    const after = await this.uow.run(async (tx) => {
+      const res = await this.repo.closeSweepAlert(before.id, { closedAt: now, closedById: actor.personId, closeReason: input.reason, closeNote: note }, tx);
+      if (!res) throw new DriverError('not_found');
+      if (!res.closed) return res.alert;
+      await this.events.emit(
+        tx,
+        {
+          actorId: actor.personId,
+          type: SWEEP_CLOSED_EVENT,
+          occurredAt: now,
+          tripId: res.alert.tripId,
+          idempotencyKey: `khat:sweep_closed:${res.alert.tripId}`,
+          payload: { alertId: res.alert.id, tripId: res.alert.tripId, closedById: actor.personId, reason: input.reason, hasNote: note !== null },
+        },
+        { name: 'trip', id: res.alert.tripId },
+      );
+      await this.audits?.record(
+        {
+          cityId: res.alert.cityId,
+          actorId: actor.personId,
+          action: 'khat.sweep_close',
+          subjectKind: 'khat_sweep_alert',
+          subjectId: res.alert.id,
+          summaryAr: `سكّر تنبيه السيارة الفاضية: ${t(`console.safety.sweep_reason_${input.reason}`)}`,
+          detail: { tripId: res.alert.tripId, reason: input.reason, ...(note ? { note } : {}) },
+        },
+        tx,
+      );
+      return res.alert;
+    });
+    const cards = await this.identity.memberCards([after.driverId], actor.personId, 'khat_sweep_alert');
+    return sweepAlertView(after, cards[after.driverId] ?? null);
+  }
+
+  /**
+   * `khat:sweep-page`: the on-shift dispatchers and admins get the alert on their phones the way SOS
+   * pages them (identity's roster, `notify` push + WhatsApp), one step lower: the usual 60-s SMS twin
+   * and no escalation. Nothing goes out when the driver confirmed (or a dispatcher closed it) before
+   * the outbox got here. Once per alert: the event is once per run and notify dedupes event + person.
+   * The driver's short name is a logged vault read (`khat_sweep_page`); never a child's name.
+   */
+  private async pageDesk(e: PublishedEvent, tx: Tx): Promise<void> {
+    const alertId = typeof e.payload['alertId'] === 'string' ? e.payload['alertId'] : null;
+    const alert = alertId ? await this.repo.sweepAlert(alertId, tx) : null;
+    if (!alert || alert.confirmedAt || alert.closedAt || !this.notify) return;
+    const roster = await this.identity.roster({ kinds: SAFETY_PAGED_ROLES, limit: 200 });
+    const to = roster.rows.filter((r) => !r.frozen && r.personId !== alert.driverId).map((r) => r.personId);
+    if (to.length === 0) return;
+    const name = (await this.identity.displayNamesFor([alert.driverId], 'system:khat', 'khat_sweep_page'))[alert.driverId]?.displayName ?? t('console.safety.role_driver');
+    const n = Math.max(1, Math.floor((alert.raisedAt.getTime() - alert.runEndedAt.getTime()) / 60_000));
+    const params = { name, route: `#${orderTicketNumber(alert.tripId)}`, n, minutes: formatMinuteCount(n), link: `${this.config.consoleBase.replace(/\/$/, '')}/safety`, alertId: alert.id };
+    for (const personId of to) {
+      await this.notify.dispatch({ eventId: e.id, template: 'khat_sweep_dispatch_alert', to: personId, params, data: { alertId: alert.id, tripId: alert.tripId } }, tx);
+    }
   }
 
   /**
@@ -522,6 +607,10 @@ function sweepAlertView(r: SweepAlertRecord, card: { name: string | null; phoneM
     raisedAt: r.raisedAt,
     confirmedAt: r.confirmedAt,
     confirmedLateMin: lateMinutes(r),
+    closedAt: r.closedAt,
+    closedById: r.closedById,
+    closeReason: r.closeReason,
+    closeNote: r.closeNote,
   };
 }
 
