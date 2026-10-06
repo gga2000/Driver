@@ -6,6 +6,7 @@ export { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository 
 export { seedStorefronts } from './seed.js';
 export { UPLOAD_PHOTO_PREFIX, STOREFRONT_PHOTOS, itemPhotoUrl, photoLink } from './photos.js';
 export type { PhotoLink, PhotoLinks } from './photos.js';
+export { potDay, potShowing, potSuggestions, daysBefore } from './pots.js';
 export type { SeededStorefront } from './seed.js';
 export { STOREFRONT_RULES, openState, nextOpening, twelveHour, pinOf, etaRange, prepRange, basePrepMin, menuSections, menuItemView, foldArabic, activeWindow, localDowMinutes } from './storefront.js';
 export type {
@@ -16,6 +17,9 @@ export type {
   CatalogModifierGroupRecord,
   CatalogModifierRecord,
   CatalogRepository,
+  DailyPotRecord,
+  DishFollowRecord,
+  KitchenStoryRecord,
   NewCatalogItem,
   NewStorefront,
   StorefrontRecord,

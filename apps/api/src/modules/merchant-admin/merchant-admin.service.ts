@@ -10,7 +10,10 @@ import {
   type AdminMenuItem,
   type DealProjectionView,
   type DealView,
+  type KitchenStoryView,
   type MenuImportJob,
+  type MerchantPotView,
+  POT_RULES,
   type MerchantAdminPort,
   type MerchantCashAccount,
   type MerchantDaySummary,
@@ -30,7 +33,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, itemPhotoUrl, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, itemOnSale, itemPhotoUrl, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -542,6 +545,86 @@ export class MerchantAdminService implements MerchantAdminPort {
       inPause: (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null,
       netIqd,
     });
+  }
+
+  // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
+
+  /** Today's pot (even past its «لحد» time), last week's same day and the recent ones, follower counts. */
+  async potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView> {
+    await this.roleAt(actor, input.merchantOrgId);
+    return this.potView(input.merchantOrgId);
+  }
+
+  private async potView(merchantOrgId: string): Promise<MerchantPotView> {
+    const now = this.clock.now();
+    const date = potDay(now);
+    const [pots, items, counts] = await Promise.all([this.catalog.recentPots(merchantOrgId, POT_RULES.recentDays), this.catalog.adminMenu(merchantOrgId), this.catalog.followerCounts(merchantOrgId)]);
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const name = (id: string) => byId.get(id)?.nameAr ?? '';
+    const today = pots.find((p) => p.localDate === date) ?? null;
+    const { lastWeek, recent } = potSuggestions(pots, date, (id) => {
+      const item = byId.get(id);
+      return item !== undefined && itemOnSale(item, now);
+    });
+    return {
+      merchantOrgId,
+      date,
+      today: today && byId.has(today.itemId) ? { itemId: today.itemId, name: name(today.itemId), note: today.note, until: today.until, postedAt: today.updatedAt } : null,
+      lastWeek: lastWeek ? { itemId: lastWeek, name: name(lastWeek) } : null,
+      recent: recent.map((itemId) => ({ itemId, name: name(itemId) })),
+      followers: Object.fromEntries(counts),
+    };
+  }
+
+  /**
+   * Posts today's pot (owner or staff: a daily kitchen task like «خلص اليوم»). In the same transaction
+   * the `catalog.pot_posted` event names the dish's followers, so notify tells each of them once.
+   */
+  async potSet(actor: Actor, input: { merchantOrgId: string; itemId: string; note?: string | null | undefined; until?: string | null | undefined }): Promise<MerchantPotView> {
+    await this.roleAt(actor, input.merchantOrgId);
+    const front = await this.catalog.storefront(input.merchantOrgId);
+    const restaurantName = front?.nameAr ?? (await this.orgs.get(input.merchantOrgId)).name;
+    await this.uow.run(async (tx) => {
+      const { pot, item, followerIds } = await this.catalog.postPot(input.merchantOrgId, { itemId: input.itemId, note: input.note ?? null, until: input.until ?? null }, actor.personId, tx);
+      await this.events.emit(
+        tx,
+        {
+          actorId: actor.personId,
+          type: 'catalog.pot_posted',
+          occurredAt: this.clock.now(),
+          payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, dishName: item.nameAr, restaurantName, localDate: pot.localDate, note: pot.note, until: pot.until, followerIds },
+        },
+        { name: 'org', id: input.merchantOrgId },
+      );
+    });
+    return this.potView(input.merchantOrgId);
+  }
+
+  /** «شيلها»: today's pot comes off the customer home. */
+  async potClear(actor: Actor, input: MerchantScope): Promise<MerchantPotView> {
+    await this.roleAt(actor, input.merchantOrgId);
+    await this.uow.run(async (tx) => {
+      await this.catalog.clearPot(input.merchantOrgId, tx);
+      await this.events.emit(tx, { actorId: actor.personId, type: 'catalog.pot_cleared', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId } }, { name: 'org', id: input.merchantOrgId });
+    });
+    return this.potView(input.merchantOrgId);
+  }
+
+  // ───────────────────────── joy h5: «مطاعمنا» ─────────────────────────
+
+  /** The kitchen's story; staff read it, the owner edits (showing it is his consent). */
+  async storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView> {
+    const role = await this.roleAt(actor, input.merchantOrgId);
+    const story = (await this.catalog.storefront(input.merchantOrgId))?.story ?? null;
+    return { merchantOrgId: input.merchantOrgId, text: story?.text ?? null, sinceYear: story?.sinceYear ?? null, shown: story?.shown ?? false, canEdit: role === 'merchant_owner', updatedAt: story?.updatedAt ?? null };
+  }
+
+  async storySet(actor: Actor, input: { merchantOrgId: string; text: string | null; sinceYear: number | null; shown: boolean }): Promise<KitchenStoryView> {
+    await this.owner(actor, input.merchantOrgId);
+    if (input.sinceYear !== null && input.sinceYear > Number(localDateKey(this.clock.now()).slice(0, 4))) throw new DriverError('invalid_input');
+    const saved = await this.catalog.setStory(input.merchantOrgId, { text: input.text, sinceYear: input.sinceYear, shown: input.shown && input.text !== null });
+    await this.events.emit(undefined, { actorId: actor.personId, type: 'catalog.story_set', occurredAt: saved.updatedAt, payload: { merchantOrgId: input.merchantOrgId, shown: saved.shown } }, { name: 'org', id: input.merchantOrgId });
+    return { merchantOrgId: input.merchantOrgId, text: saved.text, sinceYear: saved.sinceYear, shown: saved.shown, canEdit: true, updatedAt: saved.updatedAt };
   }
 
   // ───────────────────────── staff ─────────────────────────

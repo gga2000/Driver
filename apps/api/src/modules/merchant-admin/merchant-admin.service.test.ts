@@ -541,3 +541,62 @@ describe('merchantAdmin.staff', () => {
     await expect(h.svc.staffRemove(h.owner, { merchantOrgId: h.orgId, personId: h.owner.personId })).rejects.toMatchObject({ code: 'staff_last_owner' });
   });
 });
+
+describe('merchantAdmin.pot (joy h2 «قدر اليوم»)', () => {
+  // 2026-10-08 is a Thursday; 09:00 UTC is noon in Baghdad.
+  async function kitchen() {
+    const h = await setup('2026-10-01T09:00:00Z');
+    const bamia = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تمن وبامية', priceIqd: 5000 });
+    const fasoulia = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تمن وفاصوليا', priceIqd: 4000 });
+    await h.catalog.saveStorefront({ orgId: h.orgId, cityId: 'aziziyah', nameAr: 'مطعم الريف', cuisineAr: 'تمن ومرق', minOrderIqd: 0 });
+    return { ...h, bamia, fasoulia };
+  }
+
+  it('staff post in one tap; the event names the dish and its followers', async () => {
+    const h = await kitchen();
+    await h.catalog.followDish('fan_1', h.orgId, h.bamia.id, true);
+    await h.catalog.followDish('fan_2', h.orgId, h.bamia.id, true);
+    const view = await h.svc.potSet(h.staff, { merchantOrgId: h.orgId, itemId: h.bamia.id, note: 'ويا لحم غنم', until: '16:00' });
+    expect(view.today).toMatchObject({ itemId: h.bamia.id, name: 'تمن وبامية', note: 'ويا لحم غنم', until: '16:00' });
+    expect(view.followers).toEqual({ [h.bamia.id]: 2 });
+    const ev = (await h.ev.events.forActor(h.staff.personId)).find((e) => e.type === 'catalog.pot_posted');
+    expect(ev?.payload).toMatchObject({ merchantOrgId: h.orgId, itemId: h.bamia.id, dishName: 'تمن وبامية', restaurantName: 'مطعم الريف', localDate: '2026-10-01', followerIds: ['fan_1', 'fan_2'] });
+  });
+
+  it('next week offers last week’s same day first, then the recent ones', async () => {
+    const h = await kitchen();
+    await h.svc.potSet(h.owner, { merchantOrgId: h.orgId, itemId: h.bamia.id });
+    h.clock.set('2026-10-03T09:00:00Z');
+    await h.svc.potSet(h.owner, { merchantOrgId: h.orgId, itemId: h.fasoulia.id });
+    h.clock.set('2026-10-08T09:00:00Z');
+    const view = await h.svc.potGet(h.staff, { merchantOrgId: h.orgId });
+    expect(view).toMatchObject({ date: '2026-10-08', today: null, lastWeek: { itemId: h.bamia.id, name: 'تمن وبامية' }, recent: [{ itemId: h.fasoulia.id, name: 'تمن وفاصوليا' }] });
+    await h.svc.potSet(h.staff, { merchantOrgId: h.orgId, itemId: h.bamia.id });
+    const cleared = await h.svc.potClear(h.staff, { merchantOrgId: h.orgId });
+    expect(cleared.today).toBeNull();
+  });
+
+  it('refuses other stores, other stores’ dishes and a dish off sale', async () => {
+    const h = await kitchen();
+    const outsider = await h.person('07700000009');
+    await expect(h.svc.potSet(outsider, { merchantOrgId: h.orgId, itemId: h.bamia.id })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.svc.potSet(h.staff, { merchantOrgId: h.orgId, itemId: 'ci_nope' })).rejects.toMatchObject({ code: 'menu_item_not_found' });
+    await h.svc.menuSoldOutToday(h.staff, { merchantOrgId: h.orgId, itemId: h.bamia.id });
+    await expect(h.svc.potSet(h.staff, { merchantOrgId: h.orgId, itemId: h.bamia.id })).rejects.toMatchObject({ code: 'pot_dish_unavailable' });
+  });
+});
+
+describe('merchantAdmin.story (joy h5 «مطاعمنا»)', () => {
+  it('the owner writes it and decides if it shows; staff only read', async () => {
+    const h = await setup('2026-10-03T12:00:00Z');
+    await h.catalog.saveStorefront({ orgId: h.orgId, cityId: 'aziziyah', nameAr: 'مطعم الريف', cuisineAr: 'تمن ومرق', minOrderIqd: 0 });
+    expect(await h.svc.storyGet(h.staff, { merchantOrgId: h.orgId })).toMatchObject({ text: null, shown: false, canEdit: false });
+    await expect(h.svc.storySet(h.staff, { merchantOrgId: h.orgId, text: 'قصة', sinceYear: 2009, shown: true })).rejects.toMatchObject({ code: 'forbidden' });
+    const saved = await h.svc.storySet(h.owner, { merchantOrgId: h.orgId, text: 'طبخ البيت من 2009.', sinceYear: 2009, shown: true });
+    expect(saved).toMatchObject({ text: 'طبخ البيت من 2009.', sinceYear: 2009, shown: true, canEdit: true });
+    expect((await h.catalog.storefront(h.orgId))?.story).toMatchObject({ shown: true, sinceYear: 2009 });
+    expect(await h.svc.storyGet(h.staff, { merchantOrgId: h.orgId })).toMatchObject({ text: 'طبخ البيت من 2009.', shown: true, canEdit: false });
+    // Not a year from the future.
+    await expect(h.svc.storySet(h.owner, { merchantOrgId: h.orgId, text: 'قصة', sinceYear: 2030, shown: true })).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+});
