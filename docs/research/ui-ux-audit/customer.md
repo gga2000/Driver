@@ -241,6 +241,16 @@ unreachable. `orders.quote.latePromise`, `orders.track.latePromise` and `catalog
 carry the terms; the apps never hard-code them. The toast reads the real amount (500 or 1,000 by zone),
 not a fixed 1,000. Ali to confirm (money rule): threshold, amount = delivery fee, platform funds it.
 
+**Updated 2026-10-06 (Ali's decisions 3 and 4).** Two steps, both server config next to `afterMin`:
+at promised time + `MoneyRules.latePromise.apologyAfterMin` (10), still not delivered, not cancelled and
+the customer not unreachable, one proactive apology with the new time — push `order_late_apology`
+("آسفين، طلبك تأخر شوية. يوصلك تقريباً الساعة …", SMS twin) and the late banner's headline; no money,
+once per order (`order.late_apology`, idempotency key `late_apology:<orderId>`, sent by a track read or
+the 30-second sweep). At + 20 the credit stays as built. Free-delivery orders now carry the promise too:
+when the fee paid is 0 the credit is a fixed `freeDeliveryCreditIqd` (1,000), platform-funded, same
+posting and idempotency (`latePromiseTerms`, `basis: 'flat'`), and the apps say "حطينالك 1,000 دينار
+رصيد" instead of "أجرة التوصيل". Details: `docs/api/late-promise.md`.
+
 ### d-6. A welcome that is a map of home
 **What**: replace the tilted-icon card with a stylised, warm illustration of Aziziyah: the Tigris
 curve, the three garages, the old market, a tuktuk on the bridge.
