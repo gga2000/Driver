@@ -25,11 +25,16 @@ export function useMyPersonId(): string | null {
   return useSession().session?.personId ?? null;
 }
 
+/** A reorder for later (joy s3 «غدا الجمعة»): the slot it is booked for; absent = now. */
+export interface ReorderOptions {
+  scheduledFor?: Date | null;
+}
+
 export type ReorderState =
   | { phase: 'idle' }
-  | { phase: 'loading'; row: OrderHistoryRow }
-  | { phase: 'ready'; row: OrderHistoryRow; result: ReorderResult; replacing: string | null }
-  | { phase: 'error'; row: OrderHistoryRow };
+  | { phase: 'loading'; row: OrderHistoryRow; scheduledFor: Date | null }
+  | { phase: 'ready'; row: OrderHistoryRow; result: ReorderResult; replacing: string | null; scheduledFor: Date | null }
+  | { phase: 'error'; row: OrderHistoryRow; scheduledFor: Date | null };
 
 /**
  * "اطلبه مرة ثانية" (C-15): reads the restaurant's menu as it is now (`catalog.menu`, priced for the
@@ -44,19 +49,20 @@ export function useReorder() {
   const [state, setState] = useState<ReorderState>({ phase: 'idle' });
 
   const start = useCallback(
-    async (row: OrderHistoryRow) => {
+    async (row: OrderHistoryRow, opts: ReorderOptions = {}) => {
       const merchantId = row.order.merchantOrgId;
       if (!merchantId) return;
-      setState({ phase: 'loading', row });
+      const scheduledFor = opts.scheduledFor ?? null;
+      setState({ phase: 'loading', row, scheduledFor });
       try {
         await cartStore.load();
         const menu = await qc.fetchQuery({ ...api.catalog.menu.queryOptions({ merchantId, ...(dropoff ? { dropoff } : {}) }), staleTime: 0 });
         const result = buildReorderCart({ order: row.order, items: row.items, menu, savedPeople: cartStore.getSnapshot().people });
         const current = cartStore.getSnapshot().cart;
         const replacing = current.lines.length > 0 && current.merchant ? current.merchant.name : null;
-        setState({ phase: 'ready', row, result, replacing });
+        setState({ phase: 'ready', row, result, replacing, scheduledFor });
       } catch {
-        setState({ phase: 'error', row });
+        setState({ phase: 'error', row, scheduledFor });
       }
     },
     [api, qc, dropoff],

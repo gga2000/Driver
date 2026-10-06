@@ -14,6 +14,10 @@ import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, usePicks, useRestaurants } from '@/features/home/queries';
 import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
 import { DaypartBand } from '@/features/home/DaypartBand';
+import { useUsuals } from '@/features/home/habit-queries';
+import { fridayAhead, usualNow } from '@/features/home/habits';
+import { PotsStrip } from '@/features/home/PotsStrip';
+import { FridayCard, UsualCard } from '@/features/home/UsualCard';
 import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { SeasonCard } from '@/features/season/SeasonCard';
@@ -83,7 +87,18 @@ export default function Home() {
   const night = useMemo(() => nightHome(list ?? []), [list]);
   const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
-  const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last) });
+  // Joy s3: the usual for this hour, and Thursday evening / Friday morning the Friday booking.
+  const usuals = useUsuals();
+  const usual = useMemo(() => usualNow(usuals.data ?? [], now), [usuals.data, now]);
+  const friday = useMemo(
+    () =>
+      fridayAhead(usuals.data ?? [], now, (id) => {
+        const k = (list ?? []).find((r) => r.id === id);
+        return k ? { hours: k.hours ?? [], pauses: k.pauses ?? [] } : null;
+      }),
+    [usuals.data, now, list],
+  );
+  const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last), friday: Boolean(friday), usual: Boolean(usual) });
 
   const onService = (id: ServiceId) => {
     if (id === 'food') scrollRef.current?.scrollTo({ y: foodY.current, animated: true });
@@ -94,7 +109,7 @@ export default function Home() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.allSettled([restaurants.refetch(), active.refetch(), history.refetch()]);
+    await Promise.allSettled([restaurants.refetch(), active.refetch(), history.refetch(), usuals.refetch()]);
     setRefreshing(false);
   };
 
@@ -115,9 +130,14 @@ export default function Home() {
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
       {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard hour={dp.hour} /> : null}
+      {cards.includes('friday') && friday ? <FridayCard ahead={friday} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
+      {cards.includes('usual') && usual ? <UsualCard usual={usual} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
       {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
       <SeasonCard />
+
+      {/* «العزيزية اليوم» (joy h2): what the town's kitchens cook today; hidden when none is open with one. */}
+      <PotsStrip now={now} />
 
       {/* «وقت العزيزية»: real dishes for the hour from kitchens open now (hidden below two). */}
       {open.length > 0 ? <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={picks.data} /> : null}

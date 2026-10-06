@@ -36,3 +36,13 @@ describe('preorderSlots (o11): today and tomorrow, inside the hours', () => {
     expect(clocks(preorderSlots(at, [], 0, { count: 3 }))).toEqual(['8:00', '8:30', '9:00']);
   });
 });
+
+describe('preorderSlots: pause windows (Friday prayer) are skipped', () => {
+  const PRAYER = [{ dow: 5, start: '11:45', end: '13:15' }];
+  // Thursday 2026-10-08 21:00 Baghdad: Friday's slots from 11:00.
+  const thursdayNight = new Date('2026-10-08T18:00:00Z');
+  it('no slot inside the pause; the first after it is 13:30', () => {
+    const lunch = daily('11:00', '23:00');
+    expect(clocks(preorderSlots(thursdayNight, lunch, 1, { count: 4, pauses: PRAYER }))).toEqual(['11:00', '11:30', '1:30', '2:00']);
+  });
+});

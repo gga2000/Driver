@@ -8,9 +8,12 @@ import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
+import { useSignedIn } from '@/lib/session';
+import { useDishFollows } from '@/features/home/habit-queries';
 import { useHousehold } from '@/features/account/queries';
 import { ME, TABLE, type CartMerchant } from './cart';
 import { cartStore, useCartStore } from './cart-store';
+import { FollowBell } from './FollowBell';
 import { FoodArt, artOf } from './FoodArt';
 import { HOUSEHOLD_PREFIX, defaultPersonFor, isFamilyOrder, personChips } from './family';
 import { servesChosen, servesCopy } from './portions';
@@ -26,6 +29,8 @@ export interface ItemSheetProps {
   disabled?: boolean;
   onClose: () => void;
   onAdded: (name: string) => void;
+  /** Joy h2: this dish was the kitchen's «قدر اليوم» lately, so it can be followed («خبرني لمن يطبخوها»). */
+  followable?: boolean;
 }
 
 /**
@@ -33,7 +38,7 @@ export interface ItemSheetProps {
  * deltas, quantity, "لمن؟" (أنا / saved people / + new person with name and phone), a note for the
  * kitchen (per person when it's someone else's), and the live line price on the add button.
  */
-export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSheetProps) {
+export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followable = false }: ItemSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -203,6 +208,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
             </Text>
           </View>
         ) : null}
+        {followable ? <FollowRow item={item} merchant={merchant} /> : null}
         {item.modifierGroups.map((g) => (
           <View key={g.id} onLayout={(e) => (groupY.current[g.id] = e.nativeEvent.layout.y)}>
             <ModifierGroupBlock group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} flash={flash?.groupId === g.id ? flash.n : 0} />
@@ -381,6 +387,29 @@ function ModifierGroupBlock({
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+/** «خبرني لمن يطبخوها» (joy h2): for a dish that was the kitchen's pot lately; signed-in people only. */
+function FollowRow({ item, merchant }: { item: MenuItem; merchant: CartMerchant }) {
+  const theme = useTheme();
+  const t = useT();
+  const signedIn = useSignedIn();
+  const follows = useDishFollows();
+  if (!signedIn) return null;
+  const followed = Boolean(follows.data?.itemIds.includes(item.id));
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }} testID="item-follow">
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={600}>
+          {followed ? t('item.following') : t('item.follow')}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {t('item.follow_hint')}
+        </Text>
+      </View>
+      <FollowBell merchantOrgId={merchant.id} itemId={item.id} dish={item.name} restaurant={merchant.name} followed={followed} testID="item-follow-bell" />
     </View>
   );
 }

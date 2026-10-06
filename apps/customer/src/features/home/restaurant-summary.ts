@@ -30,6 +30,9 @@ export interface RestaurantSummary {
   tags: string[];
   /** Live merchant deals (badges); the list's "عروض" filter. */
   dealCount: number;
+  /** Opening hours and pause windows (joy s3: the «غدا الجمعة» slot). */
+  hours?: Array<{ dow: number; start: string; end: string }>;
+  pauses?: Array<{ dow: number; start: string; end: string }>;
 }
 
 export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantSummary {
@@ -52,6 +55,8 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     favourite,
     tags: [...card.tags],
     dealCount: card.deals?.length ?? 0,
+    hours: [...(card.hours ?? [])],
+    pauses: [...(card.pauses ?? [])],
   };
 }
 

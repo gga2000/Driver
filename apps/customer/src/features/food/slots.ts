@@ -44,10 +44,19 @@ function localDayStart(now: Date, dayOffset: number, offsetMin: number): number 
   return midnight + dayOffset * DAY_MIN * MIN - offsetMin * MIN;
 }
 
-/** The half-hour slots of today (0) or tomorrow (1) that the kitchen can take, earliest first. */
-export function preorderSlots(now: Date, hours: readonly OpeningWindow[], dayOffset: 0 | 1, opts: { offsetMin?: number; count?: number } = {}): Date[] {
+/** Start of the city's local day `dayOffset` days after `now` (today 0, tomorrow 1). */
+export function cityDayStart(now: Date, dayOffset: 0 | 1, offsetMin: number = CITY_UTC_OFFSET_MIN): Date {
+  return new Date(localDayStart(now, dayOffset, offsetMin));
+}
+
+/**
+ * The half-hour slots of today (0) or tomorrow (1) that the kitchen can take, earliest first: inside
+ * its opening hours and outside its pause windows (Friday prayer), which `orders.place` refuses.
+ */
+export function preorderSlots(now: Date, hours: readonly OpeningWindow[], dayOffset: 0 | 1, opts: { offsetMin?: number; count?: number; pauses?: readonly OpeningWindow[] } = {}): Date[] {
   const offsetMin = opts.offsetMin ?? CITY_UTC_OFFSET_MIN;
   const count = opts.count ?? SLOTS_PER_DAY;
+  const pauses = opts.pauses ?? [];
   const start = localDayStart(now, dayOffset, offsetMin);
   const earliest = now.getTime() + SLOT_LEAD_MIN * MIN;
   const dow = new Date(start + offsetMin * MIN).getUTCDay();
@@ -55,15 +64,15 @@ export function preorderSlots(now: Date, hours: readonly OpeningWindow[], dayOff
   for (let m = 0; m < DAY_MIN && out.length < count; m += SLOT_STEP_MIN) {
     const at = start + m * MIN;
     if (at < earliest) continue;
-    if (insideHours(dow, m, hours)) out.push(new Date(at));
+    if (insideHours(dow, m, hours) && !(pauses.length > 0 && insideHours(dow, m, pauses))) out.push(new Date(at));
   }
   return out;
 }
 
 /** The first slot a closed kitchen can take: today's, else tomorrow's; null when neither has one. */
-export function firstOpenSlot(now: Date, hours: readonly OpeningWindow[], offsetMin?: number): { day: 0 | 1; at: Date } | null {
+export function firstOpenSlot(now: Date, hours: readonly OpeningWindow[], offsetMin?: number, pauses: readonly OpeningWindow[] = []): { day: 0 | 1; at: Date } | null {
   for (const day of [0, 1] as const) {
-    const [first] = preorderSlots(now, hours, day, { ...(offsetMin !== undefined ? { offsetMin } : {}), count: 1 });
+    const [first] = preorderSlots(now, hours, day, { ...(offsetMin !== undefined ? { offsetMin } : {}), count: 1, pauses });
     if (first) return { day, at: first };
   }
   return null;

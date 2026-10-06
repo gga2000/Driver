@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { MessageKey } from '@driver/i18n';
+import { cityDayDiff, formatClock, type MessageKey } from '@driver/i18n';
 import { Avatar, Button, Card, Icon, IconButton, Skeleton, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
@@ -13,6 +13,7 @@ import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { afterFailure, attemptFor, attemptSignature } from '@/features/food/place-attempt';
 import { useCartQuote, useDeliverTo, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
 import { apiErrorCode } from '@/lib/api';
+import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useProfile } from '@/lib/profile';
@@ -52,7 +53,7 @@ export function useReorderFlow(): { start: ReturnType<typeof useReorder>['start'
   return {
     start: flow.start,
     busyOrderId,
-    sheet: show ? <ReorderSheet key={state.row.order.id} state={state} onClose={close} onCart={toCart} onRetry={() => void flow.start(state.row)} /> : null,
+    sheet: show ? <ReorderSheet key={state.row.order.id} state={state} onClose={close} onCart={toCart} onRetry={() => void flow.start(state.row, { scheduledFor: state.scheduledFor })} /> : null,
   };
 }
 
@@ -85,7 +86,7 @@ function ReorderSheet({ state, onClose, onCart, onRetry }: { state: ReorderState
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3], paddingHorizontal: theme.space[5] }}>
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="heading" accessibilityRole="header">
-                {t('reorder.express_title')}
+                {state.scheduledFor ? t('reorder.book_title') : t('reorder.express_title')}
               </Text>
               <Text variant="footnote" color="textMuted">
                 {t('reorder.subtitle', { merchant })}
@@ -101,7 +102,7 @@ function ReorderSheet({ state, onClose, onCart, onRetry }: { state: ReorderState
               <Button label={t('action.retry')} variant="secondary" fullWidth onPress={onRetry} />
             </View>
           ) : (
-            <Express result={state.result} replacing={state.replacing} oldTotalIqd={state.row.order.totalIqd} merchantId={state.row.order.merchantOrgId} onClose={onClose} onCart={onCart} />
+            <Express result={state.result} replacing={state.replacing} oldTotalIqd={state.row.order.totalIqd} merchantId={state.row.order.merchantOrgId} scheduledFor={state.scheduledFor} onClose={onClose} onCart={onCart} />
           )}
         </View>
       </View>
@@ -110,7 +111,24 @@ function ReorderSheet({ state, onClose, onCart, onRetry }: { state: ReorderState
 }
 
 /** The express body: what comes back (with swaps), where, how, today's server total, and the two buttons. */
-function Express({ result, replacing, oldTotalIqd, merchantId, onClose, onCart }: { result: ReorderResult; replacing: string | null; oldTotalIqd: number; merchantId: string | null; onClose: () => void; onCart: (cart: CartState) => void }) {
+function Express({
+  result,
+  replacing,
+  oldTotalIqd,
+  merchantId,
+  scheduledFor,
+  onClose,
+  onCart,
+}: {
+  result: ReorderResult;
+  replacing: string | null;
+  oldTotalIqd: number;
+  merchantId: string | null;
+  /** «غدا الجمعة»: booked for this slot (the kitchen being closed now does not matter). */
+  scheduledFor: Date | null;
+  onClose: () => void;
+  onCart: (cart: CartState) => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const toast = useToast();
@@ -153,7 +171,7 @@ function Express({ result, replacing, oldTotalIqd, merchantId, onClose, onCart }
           dropoff,
           streetHandover: false,
           recipient: { kind: 'me' },
-          scheduledFor: null,
+          scheduledFor,
           paymentMethod: 'cash',
           fees: { deliveryFeeIqd: totals.deliveryFeeIqd, serviceFeeIqd: totals.serviceFeeIqd },
           ...(orderQuote.data ? { discountIqd: totals.discountIqd } : {}),
@@ -171,11 +189,13 @@ function Express({ result, replacing, oldTotalIqd, merchantId, onClose, onCart }
     }
   };
 
-  const canPlace = !nothing && !result.closed && Boolean(dropoff) && Boolean(totals);
+  const canPlace = !nothing && (scheduledFor !== null || !result.closed) && Boolean(dropoff) && Boolean(totals);
+  const bookedFor = scheduledFor ? t('reorder.book_when', { day: cityDayDiff(scheduledFor, appNow()) >= 1 ? t('time.tomorrow') : t('time.today'), time: formatClock(scheduledFor) }) : null;
   return (
     <>
       <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[4], gap: theme.space[4] }}>
-        {result.closed ? <Note icon="clock" tone="warningTint" fg="warningText" text={result.opensAt ? t('reorder.closed', { time: result.opensAt }) : t('reorder.closed_no_time')} /> : null}
+        {bookedFor ? <Note icon="clock" tone="surfaceSunken" fg="text" text={bookedFor} testID="reorder-booked-for" /> : null}
+        {result.closed && !scheduledFor ? <Note icon="clock" tone="warningTint" fg="warningText" text={result.opensAt ? t('reorder.closed', { time: result.opensAt }) : t('reorder.closed_no_time')} /> : null}
         {nothing ? <Note icon="x" tone="dangerTint" fg="dangerText" text={t('reorder.nothing')} testID="reorder-nothing" /> : null}
 
         {!nothing ? (
@@ -283,7 +303,7 @@ function Express({ result, replacing, oldTotalIqd, merchantId, onClose, onCart }
         ) : (
           <>
             {canPlace && totals ? (
-              <Button testID="reorder-place" size="lg" fullWidth haptic="success" label={t('reorder.place', { amount: amountParam(totals.totalIqd) })} loading={placeOrder.isPending} loadingLabel={t('checkout.placing')} onPress={() => void placeNow()} />
+              <Button testID="reorder-place" size="lg" fullWidth haptic="success" label={scheduledFor ? t('reorder.book', { amount: amountParam(totals.totalIqd) }) : t('reorder.place', { amount: amountParam(totals.totalIqd) })} loading={placeOrder.isPending} loadingLabel={t('checkout.placing')} onPress={() => void placeNow()} />
             ) : null}
             <Button testID="reorder-go" size={canPlace ? 'md' : 'lg'} variant={canPlace ? 'ghost' : 'primary'} fullWidth icon="cart" label={t('reorder.edit_in_cart')} onPress={() => onCart(cart)} />
             {totals ? (

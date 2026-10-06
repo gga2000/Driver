@@ -16,6 +16,7 @@ import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/featur
 import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
+import { KitchenStory, PotBanner } from '@/features/food/KitchenHabits';
 import { useMenu } from '@/features/food/queries';
 import { useMyOrders } from '@/features/home/queries';
 import { useRememberViewed } from '@/features/search/viewed';
@@ -72,6 +73,12 @@ export default function RestaurantScreen() {
     const art = dishArt(rows);
     return new Map<string, DishArt>(rows.map((r, i) => [r.id, art[i]!]));
   }, [categories]);
+  // h2: today's pot (when its dish is on this menu); h5: the owner's story, «معروف بـ» the most ordered dish.
+  const potItem = useMemo(() => {
+    const pid = menu.data?.pot?.itemId;
+    return pid ? (categories.flatMap((c) => c.items).find((i) => i.id === pid) ?? null) : null;
+  }, [menu.data, categories]);
+  const story = menu.data?.story ?? null;
   const merchant = restaurant ? cartMerchantOf(restaurant) : null;
   const mine = cart.merchant?.id === id;
   const counts = useMemo(() => {
@@ -202,6 +209,7 @@ export default function RestaurantScreen() {
             <Card elevation={2} padding={4} testID="restaurant-facts">
               {restaurant ? <Facts r={restaurant} /> : <FactsSkeleton />}
             </Card>
+            {story ? <KitchenStory story={story} knownFor={popular[0]?.name ?? null} /> : null}
           </View>
         </View>
 
@@ -249,6 +257,9 @@ export default function RestaurantScreen() {
                 </View>
               </View>
             </Card>
+          ) : null}
+          {menu.data?.pot && potItem && restaurant ? (
+            <PotBanner pot={menu.data.pot} item={potItem} art={artById.get(potItem.id)} restaurant={restaurant.name} merchantOrgId={restaurant.id} onOpen={() => setOpen(potItem)} />
           ) : null}
           {popular.length > 0 ? (
             <View style={{ paddingTop: theme.space[5] }} testID="section-popular">
@@ -304,7 +315,7 @@ export default function RestaurantScreen() {
 
       <FlyToCart ref={flyRef} targetRef={bubbleRef} onLanded={land} />
 
-      {open && merchant ? <ItemSheet item={open} merchant={merchant} onClose={() => setOpen(null)} onAdded={onAdded} /> : null}
+      {open && merchant ? <ItemSheet item={open} merchant={merchant} followable={(menu.data?.potDishes ?? []).includes(open.id)} onClose={() => setOpen(null)} onAdded={onAdded} /> : null}
     </View>
   );
 }

@@ -88,7 +88,8 @@ export default function CheckoutScreen() {
   // o11: slots for today or tomorrow inside the kitchen's hours; a closed kitchen starts on its first one.
   const [day, setDay] = useState<0 | 1>(0);
   const hours = menu.data?.restaurant.hours;
-  const baseSlots = useMemo(() => preorderSlots(new Date(), hours ?? [], day), [hours, day]);
+  const pauses = menu.data?.restaurant.pauses;
+  const baseSlots = useMemo(() => preorderSlots(new Date(), hours ?? [], day, { pauses: pauses ?? [] }), [hours, pauses, day]);
   // J6: in Ramadan, «على الفطور» on the person's timetable joins today's list (the server's slot, before the adhan).
   const season = useSeason();
   const [timetable] = useTimetable();
@@ -101,7 +102,7 @@ export default function CheckoutScreen() {
     if (!r || preset.current) return;
     preset.current = true;
     if (r.open) return;
-    const first = firstOpenSlot(new Date(), r.hours ?? []);
+    const first = firstOpenSlot(new Date(), r.hours ?? [], undefined, r.pauses ?? []);
     if (!first) return;
     setWhen('later');
     setDay(first.day);
