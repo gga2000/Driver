@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { DispatchBoard } from '@driver/contracts';
+import { KHAT_RULES, type DispatchBoard } from '@driver/contracts';
+import { InMemoryQueue } from '../../shared/queue.js';
 import type { DispatchService } from '../dispatch/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { PINS, tripsHarness } from '../trips/test-harness.js';
 import { InMemoryKhatRepository } from './khat.repository.js';
-import { KhatService } from './khat.service.js';
+import { KhatService, type SweepCheckJob } from './khat.service.js';
 
 /** A morning خطوط run: two children picked up at home, both dropped at school. */
 async function setup() {
@@ -190,5 +191,146 @@ describe('khat substitutes', () => {
     expect(offers[0]).toMatchObject({ offerId: `of_${h.driver.personId}_sent`, tripId: h.trip.id, stopsCount: 4, childrenCount: 2, zones: ['zakur', 'centre'] });
     expect(await h.khat.acceptSubstitute(h.driver, { offerId: offers[0]!.offerId })).toEqual({ outcome: 'assigned', tripId: h.trip.id });
     expect(h.responses).toEqual([{ offerId: offers[0]!.offerId, accept: true }]);
+  });
+});
+
+/**
+ * The late sweep (Ali, 2026-10-06): the run's last child stop settled, `sweepAlertAfterMin` passed
+ * and no "تأكدت، السيارة فاضية" → one alert for the Console and the driver's reminder; the late
+ * confirm clears it.
+ */
+describe('khat sweep alert', () => {
+  const MIN = 60_000;
+  const AFTER = KHAT_RULES.sweepAlertAfterMin * MIN;
+
+  async function sweepSetup() {
+    const h = await setup();
+    const queue = new InMemoryQueue<SweepCheckJob>('khat.timers', () => h.t.clock.now());
+    const opened: Array<{ orderId: string; callerId: string; calleeId: string }> = [];
+    const calls = {
+      open: async (req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date) => {
+        opened.push(req);
+        return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
+      },
+    };
+    const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls, queue);
+    khat.onModuleInit();
+    const dispatcher = (await h.id.login('07700000900')).actor;
+    const [p1, p2, d1, d2] = h.trip.stops;
+    /** Both children in at home, out at school; returns when the last one got out. */
+    const finishRun = async () => {
+      await khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+      await khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p2!.id, pin: PINS.home2 });
+      await khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school });
+      h.t.clock.advance(30_000);
+      await khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d2!.id, pin: PINS.school });
+      return h.t.clock.now();
+    };
+    /** Moves the clock and runs every sweep check now due. */
+    const advance = async (ms: number) => {
+      h.t.clock.advance(ms);
+      return queue.drain();
+    };
+    const missed = async () => (await h.ev.events.forTrip(h.trip.id)).filter((e) => e.type === 'khat.sweep_missed');
+    return { ...h, khat, queue, opened, dispatcher, finishRun, advance, missed };
+  }
+
+  it(`fires ${KHAT_RULES.sweepAlertAfterMin} minutes after the last drop when the car was not checked`, async () => {
+    const h = await sweepSetup();
+    const lastDrop = await h.finishRun();
+    // Not a second before.
+    await h.advance(AFTER - 1_000);
+    expect(await h.missed()).toEqual([]);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toEqual([]);
+    expect(await h.advance(1_000)).toBe(1);
+    const [ev] = await h.missed();
+    // The event carries the driver: the notify subscriber turns it into his reminder push.
+    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, runEndedAt: lastDrop.toISOString(), afterMin: KHAT_RULES.sweepAlertAfterMin });
+    const alerts = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ tripId: h.trip.id, driver: { personId: h.driver.personId }, childrenTotal: 2, lastDropAt: lastDrop, lastDropZone: 'centre', runEndedAt: lastDrop, raisedAt: h.t.clock.now(), confirmedAt: null, confirmedLateMin: null });
+    expect(alerts[0]!.driver.phoneMasked).toMatch(/\*{3,}/);
+    // Never a child's name on the Console's alert; the driver's card is a logged vault read for the dispatcher.
+    expect(JSON.stringify(alerts)).not.toMatch(/زينب|علي/);
+    expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.dispatcher.personId && l.purpose === 'khat_sweep_alert')).toBe(true);
+    // Another city's desk sees nothing.
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'kut' })).toEqual([]);
+  });
+
+  it('keeps a finished run on today\'s list until the car is checked (app restart, reminder push)', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    expect((await h.t.trips.get(h.trip.id)).state).toBe('completed');
+    const [run] = (await h.khat.todayRun(h.driver, {})).trips;
+    expect(run).toMatchObject({ tripId: h.trip.id, delivered: 2, emptyCarCheckedAt: null });
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    expect((await h.khat.todayRun(h.driver, {})).trips).toEqual([]);
+  });
+
+  it('does not fire when the driver checked the car in time', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    await h.advance(2 * MIN);
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    await h.advance(AFTER);
+    expect(await h.missed()).toEqual([]);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toEqual([]);
+    expect(await h.khat.checkSweep(h.trip.id)).toBe('swept');
+  });
+
+  it('fires once per run, however often the check runs', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    await h.advance(AFTER);
+    expect(await h.khat.checkSweep(h.trip.id)).toBe('already');
+    await h.khat.armSweepTimer(h.trip.id);
+    await h.advance(AFTER);
+    expect(await h.missed()).toHaveLength(1);
+    expect(h.repo.sweepAlerts).toHaveLength(1);
+  });
+
+  it("is cleared by the driver's late confirm, shows how late, then leaves the strip", async () => {
+    const h = await sweepSetup();
+    const lastDrop = await h.finishRun();
+    await h.advance(AFTER);
+    // He slides "تأكدت" 7 minutes after the last child got out.
+    h.t.clock.set(lastDrop.getTime() + 7 * MIN + 20_000);
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    const [alert] = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
+    expect(alert).toMatchObject({ confirmedAt: h.t.clock.now(), confirmedLateMin: 7 });
+    const cleared = (await h.ev.events.forTrip(h.trip.id)).filter((e) => e.type === 'khat.sweep_alert_cleared');
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]!.payload).toMatchObject({ alertId: alert!.alertId, lateMin: 7 });
+    // A repeated slide changes nothing.
+    h.t.clock.advance(MIN);
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    expect((await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' }))[0]).toMatchObject({ confirmedLateMin: 7 });
+    // Gone from the strip after `sweepClearedShowMin`; the record stays.
+    h.t.clock.advance(KHAT_RULES.sweepClearedShowMin * MIN);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toEqual([]);
+    expect(h.repo.sweepAlerts[0]!.confirmedAt).not.toBeNull();
+  });
+
+  it('leaves a run alone where no child got in (everyone absent)', async () => {
+    const h = await sweepSetup();
+    await h.khat.reportAbsence(h.driver, { tripId: h.trip.id, childRef: h.zainab, reason: 'sick' });
+    await h.khat.reportAbsence(h.driver, { tripId: h.trip.id, childRef: h.ali, reason: 'guardian_notice' });
+    await h.advance(AFTER);
+    expect(await h.khat.checkSweep(h.trip.id)).toBe('not_applicable');
+    expect(await h.missed()).toEqual([]);
+  });
+
+  it("calls the driver from the alert through the masked bridge (on the run's timeline, no number in the event)", async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    await h.advance(AFTER);
+    const [alert] = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
+    const s = await h.khat.callSweepDriver(h.dispatcher, { alertId: alert!.alertId });
+    expect(s).toMatchObject({ mode: 'proxy', dial: '+9647800000000' });
+    expect(h.opened).toEqual([expect.objectContaining({ orderId: h.trip.id, callerId: h.dispatcher.personId, calleeId: h.driver.personId })]);
+    const ev = (await h.ev.events.forTrip(h.trip.id)).find((e) => e.type === 'khat.sweep_call_requested');
+    expect(ev?.payload).toMatchObject({ alertId: alert!.alertId, mode: 'proxy' });
+    expect(JSON.stringify(ev?.payload)).not.toContain('+964');
+    await expect(h.khat.callSweepDriver(h.dispatcher, { alertId: 'ksw_nope' })).rejects.toMatchObject({ code: 'not_found' });
   });
 });

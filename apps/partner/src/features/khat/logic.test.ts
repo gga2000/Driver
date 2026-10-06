@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KhatRunTrip, KhatStopView } from '@driver/contracts';
-import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, needsSweep, nextStopAt, runChips, runFinished, runStart, runUnderway } from './logic';
+import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, lookPauseLeft, needsSweep, nextStopAt, runChips, runFinished, runStart, runUnderway } from './logic';
 
 const T = (min: number) => new Date(Date.UTC(2026, 9, 4, 4, min));
 
@@ -54,8 +54,13 @@ describe('khat run', () => {
     expect(runFinished(run)).toBe(false);
     const done = trip(run.stops.map((s) => ({ ...s, state: s.absent ? 'skipped' : 'completed' })), { tripId: 't0' });
     expect(runFinished(done)).toBe(true);
-    expect(activeRunIndex([done, run])).toBe(1);
-    expect(activeRunIndex([done])).toBe(0);
+    // A finished run whose car was checked steps aside for the next one…
+    const swept = { ...done, emptyCarCheckedAt: T(40) };
+    expect(activeRunIndex([swept, run])).toBe(1);
+    expect(activeRunIndex([swept])).toBe(0);
+    // …but one still waiting for the sweep opens first (app restart, the reminder push).
+    expect(activeRunIndex([done, run])).toBe(0);
+    expect(activeRunIndex([run, done])).toBe(1);
     expect(runStart(run)).toEqual(T(0));
   });
 
@@ -90,5 +95,22 @@ describe('child-safe run (partner S-6)', () => {
     expect(nextStopAt(groupPlaces(fresh))).toEqual(T(0));
     expect(nextStopAt(groupPlaces({ stops: [{ ...fresh.stops[0]!, tappedInAt: T(1), state: 'completed' }, fresh.stops[1]!] }))).toEqual(T(5));
     expect(nextStopAt([])).toBeNull();
+  });
+});
+
+describe('lookPauseLeft (sweep step 1 forced pause)', () => {
+  it('counts 3 → 2 → 1 → 0 over the pause and stays at 0 after it', () => {
+    const shown = 1_000_000;
+    expect(lookPauseLeft(shown, shown, 3)).toBe(3);
+    expect(lookPauseLeft(shown, shown + 1, 3)).toBe(3);
+    expect(lookPauseLeft(shown, shown + 1_000, 3)).toBe(2);
+    expect(lookPauseLeft(shown, shown + 2_500, 3)).toBe(1);
+    expect(lookPauseLeft(shown, shown + 2_999, 3)).toBe(1);
+    expect(lookPauseLeft(shown, shown + 3_000, 3)).toBe(0);
+    expect(lookPauseLeft(shown, shown + 60_000, 3)).toBe(0);
+  });
+
+  it('a clock that steps back never lengthens the wait', () => {
+    expect(lookPauseLeft(5_000, 4_000, 3)).toBe(3);
   });
 });

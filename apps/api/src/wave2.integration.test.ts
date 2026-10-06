@@ -77,6 +77,21 @@ describe.skipIf(!url)('wave 2 repositories on Postgres (needs DATABASE_URL)', ()
     expect((await repo.absencesForTrips([`trip_${run}`])).length).toBe(1);
   });
 
+  it('khat sweep alerts: one per run, the first late confirm kept', async () => {
+    const repo = new PrismaKhatRepository(prisma);
+    const tripId = `trip_sw_${run}`;
+    const input = { tripId, cityId: 'aziziyah', driverId: personId, childrenTotal: 2, lastDropAt: at, lastDropZone: 'centre', runEndedAt: at, raisedAt: new Date(at.getTime() + 5 * 60_000) };
+    const first = await repo.raiseSweepAlert(input);
+    expect(first.created).toBe(true);
+    const again = await repo.raiseSweepAlert(input);
+    expect(again).toMatchObject({ created: false, alert: { id: first.alert.id } });
+    const late = new Date(at.getTime() + 7 * 60_000);
+    expect((await repo.confirmSweepAlert(tripId, late))?.confirmedAt).toEqual(late);
+    expect((await repo.confirmSweepAlert(tripId, new Date(late.getTime() + 60_000)))?.confirmedAt).toEqual(late);
+    expect((await repo.sweepAlertsSince('aziziyah', at)).some((a) => a.id === first.alert.id)).toBe(true);
+    expect(await repo.sweepAlert(first.alert.id)).toMatchObject({ tripId, lastDropZone: 'centre' });
+  });
+
   it('fleet vehicles (registry) and drivers', async () => {
     const repo = new PrismaFleetRepository(prisma);
     const v1 = await repo.createVehicle({ plate: `P1-${run}`, vehicleClass: 'car', ownerOrgId: fleetOrgId });

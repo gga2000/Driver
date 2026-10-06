@@ -286,7 +286,8 @@ boarding. It ends with "وصلت بالسلامة" and the fare. Spec §4 alread
 > while the app runs (boarding with the car's distance, on board, on the road), "أني بالكراج"
 > action, dismissible "وصلت بالسلامة" + fare. Follow-ups: a data push that re-posts the card while
 > the app is closed (today it keeps its T−30 words until the app runs), and the iOS Live Activity
-> (needs a native widget extension and an EAS build). The PIN shows on the lock screen by design.
+> (needs a native widget extension and an EAS build). The PIN shows on the lock screen by design
+> (confirmed by Ali 2026-10-06: it stays visible).
 
 ---
 

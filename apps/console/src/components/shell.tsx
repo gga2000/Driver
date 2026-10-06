@@ -6,6 +6,7 @@ import { useState, type ReactNode } from 'react';
 import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
+import { SweepAlertStrip } from './safety/sweep-strip';
 import { CommandPalette } from './shell/command-palette';
 import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
@@ -71,6 +72,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* SOS (scoring & safety §3): red, on every page, while any alert is open. */}
           <SafetyBanner />
+          {/* خطوط: a run ended and nobody confirmed the car is empty (partner S-6, Ali 2026-10-06). */}
+          <SweepAlertStrip />
           {/* S-K1: cards waiting for a dispatcher, seen from every page. */}
           <GlobalTriageStrip />
           <TopBar onSearch={() => setPalette(true)} />
@@ -79,7 +82,7 @@ export function Shell({ children }: { children: ReactNode }) {
             className={cx(
               'min-w-0',
               fullBleed
-                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--triage-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--triage-h,0px))]'
+                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px))]'
                 : 'flex-1 px-4 py-6 lg:px-8 lg:py-7',
             )}
           >

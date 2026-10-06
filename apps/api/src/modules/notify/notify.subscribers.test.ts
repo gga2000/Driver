@@ -54,6 +54,9 @@ describe('notify subscribers: events → notifications', () => {
     ]);
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', stopId: 'st1', notifyGuardian: true }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_child_arrived', to: 'guardian', params: { child: 'زينب', place: 'مدرسة الرافدين', time: '12:30 م' } }]);
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', notifyGuardian: false }))).toEqual([]);
+    // The late sweep (Ali, 2026-10-06): "نسيت تتأكد إن السيارة فاضية؟" to the run's driver.
+    expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1', driverId: 'drv', tripId: 'trp_1' }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_sweep_reminder', to: 'drv', params: {} }]);
+    expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1' }, { tripId: 'trp_1' }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
     // Maps program o5: "send drivers here" is one push per free driver around the zone.
     expect(await one(event('dispatch.zone_nudged', { zoneId: 'centre', zoneName_ar: 'العزيزية (مركز)', driverIds: ['d1', 'd2'] }))).toEqual([

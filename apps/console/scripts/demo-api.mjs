@@ -18,7 +18,8 @@
 // GET /demo/seed lists them. POST /demo/cash-change → the latest order where the courier had no change
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
-// 23:00 round, S-K5).
+// 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
+// check (the red row under the SOS banner; `late=1`: confirmed late).
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -64,6 +65,19 @@ app.use('/demo/sos', async (req, res) => {
     if (!raiseDemoSos) throw new Error('still seeding');
     const who = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('who') ?? 'driver';
     res.end(JSON.stringify(await raiseDemoSos(who)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/khat-sweep[?late=1] (registered before listen; filled in below by `raiseDemoSweep`).
+let raiseDemoSweep = null;
+app.use('/demo/khat-sweep', async (req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!raiseDemoSweep) throw new Error('still seeding');
+    const late = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('late') === '1';
+    res.end(JSON.stringify(await raiseDemoSweep(late)));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -459,5 +473,23 @@ raiseDemoSos = async function raiseDemoSos(who = 'driver') {
   return { incidentId: view.incidentId, personId, tripId: trip.id };
 };
 if (process.env.DEMO_SOS === '1') await raiseDemoSos().catch((err) => console.warn('demo sos skipped:', err?.message ?? err));
+
+// ───────────────────────── خطوط sweep alert ─────────────────────────
+// POST /demo/khat-sweep — a خطوط run ended 6 minutes ago and كرار has not confirmed the car is empty:
+// the red row under the SOS banner (call him through the masked line). `?late=1`: he confirmed 9
+// minutes after the last drop, the calm "تأكد متأخر 9 دقيقة" row. Written straight into the khat
+// module's table (the run itself lives in the Partner demo; see apps/partner/scripts/demo/khat.mjs).
+const { KHAT_REPOSITORY } = await load('modules/khat/index.js');
+const khatRepo = get(KHAT_REPOSITORY);
+const khatDriver = await person('07803330410', 'كرار عادل', ['khat_driver']);
+people.khatDriver = { phone: '0780 333 0410', personId: khatDriver };
+raiseDemoSweep = async function raiseDemoSweep(late = false) {
+  const now = Date.now();
+  const tripId = `trip_demo_khat_${now.toString(36)}`;
+  const ended = new Date(now - (late ? 10 : 6) * 60_000);
+  const { alert } = await khatRepo.raiseSweepAlert({ tripId, cityId: 'aziziyah', driverId: khatDriver, childrenTotal: 5, lastDropAt: ended, lastDropZone: 'centre', runEndedAt: ended, raisedAt: new Date(ended.getTime() + 5 * 60_000) });
+  if (late) await khatRepo.confirmSweepAlert(tripId, new Date(ended.getTime() + 9 * 60_000 + 20_000));
+  return { alertId: alert.id, tripId, driverId: khatDriver };
+};
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

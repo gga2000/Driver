@@ -29,6 +29,8 @@ export interface ButtonProps {
   fullWidth?: boolean;
   /** Haptic fired on press; false to silence. Defaults: destructive → warning, else light. */
   haptic?: HapticKind | false;
+  /** What a screen reader says instead of `label` (e.g. why the button is waiting). */
+  accessibilityLabel?: string;
   accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -55,6 +57,7 @@ export function Button({
   disabled = false,
   fullWidth = false,
   haptic,
+  accessibilityLabel,
   accessibilityHint,
   style,
   testID,
@@ -71,7 +74,7 @@ export function Button({
     <AnimatedPressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={loading && loadingLabel ? loadingLabel : label}
+      accessibilityLabel={loading && loadingLabel ? loadingLabel : (accessibilityLabel ?? label)}
       accessibilityHint={accessibilityHint}
       aria-disabled={inactive}
       aria-busy={loading}

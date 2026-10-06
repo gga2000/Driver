@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import { CallSession } from '../chat-io.js';
+import { SAFETY_DESK_ROLES, SafetyCallSession } from '../safety-io.js';
 import {
   AbsenceView,
   AcceptSubstituteInput,
@@ -8,6 +9,9 @@ import {
   CallGuardianInput,
   ConfirmEmptyCarInput,
   KhatRunTrip,
+  KhatSweepAlert,
+  KhatSweepAlertsInput,
+  KhatSweepCallInput,
   KhatTapInput,
   ReportAbsenceInput,
   SubstituteOffer,
@@ -18,6 +22,8 @@ import {
 import { protectedProcedure, router } from '../trpc.js';
 
 export const KHAT_DRIVER_ROLES: readonly RoleKind[] = ['khat_driver'];
+/** Who sees and answers sweep alerts: the same back-office rota as SOS. */
+const DESK: readonly RoleKind[] = SAFETY_DESK_ROLES;
 
 /**
  * `khat.*` — خطوط driver side (edge-case §5): today's run with children by first name (vault reads
@@ -59,4 +65,17 @@ export const khatRouter = router({
     .input(CallGuardianInput)
     .output(CallSession)
     .mutation(({ ctx, input }) => ctx.khat.callGuardian(ctx.actor, input)),
+  /**
+   * Runs that ended without the sweep within `KHAT_RULES.sweepAlertAfterMin` (Console safety strip):
+   * the driver, the run, the last drop time; late confirms show for a while, then go.
+   */
+  sweepAlerts: protectedProcedure(DESK)
+    .input(KhatSweepAlertsInput)
+    .output(z.array(KhatSweepAlert))
+    .query(({ ctx, input }) => ctx.khat.sweepAlerts(ctx.actor, input)),
+  /** The strip's call button: a masked call from the dispatcher to the run's driver. Audited. */
+  callSweepDriver: protectedProcedure(DESK)
+    .input(KhatSweepCallInput)
+    .output(SafetyCallSession)
+    .mutation(({ ctx, input }) => ctx.khat.callSweepDriver(ctx.actor, input)),
 });

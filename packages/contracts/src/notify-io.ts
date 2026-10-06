@@ -115,6 +115,7 @@ export const NotifyTemplateId = z.enum([
   'cash_change_credit',
   'rajaa_boarding_pass',
   'khat_child_arrived',
+  'khat_sweep_reminder',
   'sos_dispatch_alert',
   'sos_emergency_contact',
   'chat_message',
@@ -332,6 +333,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('khat_child_arrived', 'wa.khat_dropped', ['child', 'place', 'time'], ['زينب', 'مدرسة الرافدين', '7:40']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // The sweep nobody did (partner S-6, Ali 2026-10-06): the run's driver, the moment ops are alerted.
+  khat_sweep_reminder: {
+    id: 'khat_sweep_reminder',
+    category: 'safety',
+    app: 'partner',
+    push: { title: 'push.khat_sweep_reminder.title', body: 'push.khat_sweep_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://khat' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS (scoring & safety §3): every on-shift dispatcher and admin, loud, on every channel.
