@@ -330,7 +330,6 @@ async function savedHome(personId) {
   return mine.find((p) => p.label === 'home' && p.photos.length > 0) ?? null;
 }
 
-async function scenario(personId, name, cash = {}) {
 /**
  * Audit d-5 demo: moves an order's kitchen times back so its promised arrival was `minutes` ago (the
  * in-memory record only), so the late banner's promise bar — and past the threshold the credit — show.
@@ -357,11 +356,11 @@ async function scenario(personId, name, opts = {}) {
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
-  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, cash.tender ?? null);
+  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
   const tripId = await assign(orderId, courierId);
-  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(cash.noChange) };
+  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(opts.noChange) };
   demos.set(orderId, d);
   if (name === 'preparing' || late) {
     await startMover(tripId, courierId, late ? FAR_TO_KITCHEN : TO_KITCHEN, late ? 22 : 30);
@@ -423,9 +422,8 @@ app.use('/demo/track', async (req, res) => {
     }
     const tender = Number(url.searchParams.get('tender') ?? 0) || null;
     const noChange = url.searchParams.get('nochange') === '1';
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange })) }));
     const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { pastPromiseMin })) }));
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));
