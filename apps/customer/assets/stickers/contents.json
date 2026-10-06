@@ -1,0 +1,85 @@
+{
+  "android_play_store_link": "",
+  "ios_app_store_link": "",
+  "sticker_packs": [
+    {
+      "identifier": "driver_aziziyah_1",
+      "name": "درايفر · العزيزية",
+      "publisher": "درايفر",
+      "tray_image_file": "tray.png",
+      "image_data_version": "1",
+      "avoid_cache": false,
+      "animated_sticker_pack": false,
+      "publisher_email": "",
+      "publisher_website": "",
+      "privacy_policy_website": "",
+      "license_agreement_website": "",
+      "stickers": [
+        {
+          "image_file": "bil_afia.webp",
+          "emojis": [
+            "😋",
+            "🍽️"
+          ],
+          "accessibility_text": "بالعافية"
+        },
+        {
+          "image_file": "wasal_akil.webp",
+          "emojis": [
+            "🚪",
+            "🛵"
+          ],
+          "accessibility_text": "وصل الأكل"
+        },
+        {
+          "image_file": "yumma.webp",
+          "emojis": [
+            "😍",
+            "❤️"
+          ],
+          "accessibility_text": "يمّه شكد طيب"
+        },
+        {
+          "image_file": "jay.webp",
+          "emojis": [
+            "🛺",
+            "⏳"
+          ],
+          "accessibility_text": "جاي بالطريق"
+        },
+        {
+          "image_file": "wasalt.webp",
+          "emojis": [
+            "🏠",
+            "🙏"
+          ],
+          "accessibility_text": "وصلت بالسلامة"
+        },
+        {
+          "image_file": "ala_hsabi.webp",
+          "emojis": [
+            "🤝",
+            "🎁"
+          ],
+          "accessibility_text": "على حسابي"
+        },
+        {
+          "image_file": "chai.webp",
+          "emojis": [
+            "☕",
+            "🫖"
+          ],
+          "accessibility_text": "استكان چاي؟"
+        },
+        {
+          "image_file": "sahha.webp",
+          "emojis": [
+            "💪",
+            "🍚"
+          ],
+          "accessibility_text": "صحة وعافية"
+        }
+      ]
+    }
+  ]
+}

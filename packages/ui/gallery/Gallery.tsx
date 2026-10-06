@@ -51,6 +51,7 @@ import {
   type TimelineStep,
 } from '../src';
 import { SketchbookDishes, SketchbookPage, SketchbookScenes } from './Sketchbook';
+import { StickersPage } from './Stickers';
 
 /* ───────────────────────── layout helpers ───────────────────────── */
 
@@ -1123,7 +1124,11 @@ export function Gallery() {
       <SafeAreaProvider>
         <ThemeProvider theme="light" direction="rtl">
           <ToastProvider bottomOffset={32}>
-            {typeof window !== 'undefined' && window.location.hash.startsWith('#sketchbook') ? (
+            {typeof window !== 'undefined' && window.location.hash === '#stickers' ? (
+              <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }}>
+                <StickersPage />
+              </ScrollView>
+            ) : typeof window !== 'undefined' && window.location.hash.startsWith('#sketchbook') ? (
               <ScrollView style={{ flex: 1 }}>
                 <SketchbookPage dishSize={Number(window.location.hash.split('-')[1]) || 96} />
               </ScrollView>
