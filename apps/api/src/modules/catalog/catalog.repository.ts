@@ -128,10 +128,46 @@ export interface StorefrontRecord {
   hours: AvailabilityWindow[];
   /** PLACEHOLDER until ratings are aggregated from orders. */
   ratingPlaceholder: { avg: number; count: number } | null;
+  /** «مطاعمنا» (joy h5): the owner's own lines; customers see it only when `shown`. */
+  story?: KitchenStoryRecord | null;
 }
 
-export type NewStorefront = Omit<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags'> &
-  Partial<Pick<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags'>>;
+/** The kitchen's story as the owner wrote it (storefront JSON `story`). */
+export interface KitchenStoryRecord {
+  text: string | null;
+  sinceYear: number | null;
+  /** The owner agreed to show it to customers. */
+  shown: boolean;
+  updatedAt: Date;
+}
+
+export type NewStorefront = Omit<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story'> &
+  Partial<Pick<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story'>>;
+
+/** «قدر اليوم» (joy h2): one kitchen's dish of one Baghdad day. */
+export interface DailyPotRecord {
+  id: string;
+  merchantOrgId: string;
+  itemId: string;
+  /** Baghdad date "YYYY-MM-DD". */
+  localDate: string;
+  note: string | null;
+  /** "HH:MM" local; null = to the end of the day. */
+  until: string | null;
+  postedById: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type NewDailyPot = Pick<DailyPotRecord, 'merchantOrgId' | 'itemId' | 'localDate' | 'note' | 'until' | 'postedById'> & { at: Date };
+
+/** «خبرني لمن يطبخوه»: one person following one dish. */
+export interface DishFollowRecord {
+  personId: string;
+  merchantOrgId: string;
+  itemId: string;
+  createdAt: Date;
+}
 
 export interface NewCatalogItem {
   /** Optional fixed id (seeds, simulator); generated otherwise. */
@@ -193,6 +229,22 @@ export interface CatalogRepository {
    */
   claimImportJob(id: string, at: Date, tx?: Tx): Promise<boolean>;
 
+  // ── joy h2: today's pot and dish follows ──
+  /** Creates or replaces the kitchen's pot of `localDate`. */
+  upsertPot(input: NewDailyPot, tx?: Tx): Promise<DailyPotRecord>;
+  deletePot(merchantOrgId: string, localDate: string, tx?: Tx): Promise<void>;
+  /** Every kitchen's pot of one day. */
+  potsOn(localDate: string): Promise<DailyPotRecord[]>;
+  /** One kitchen's pots from `sinceDate` (inclusive), newest first. */
+  potsOf(merchantOrgId: string, sinceDate: string): Promise<DailyPotRecord[]>;
+  dishFollows(personId: string): Promise<DishFollowRecord[]>;
+  /** Idempotent: on adds the row once, off removes it. */
+  setDishFollow(input: Omit<DishFollowRecord, 'createdAt'> & { on: boolean; at: Date }): Promise<void>;
+  /** Who follows a dish. */
+  followersOf(itemId: string, tx?: Tx): Promise<string[]>;
+  /** Followers per dish of one kitchen. */
+  followerCounts(merchantOrgId: string): Promise<Map<string, number>>;
+
   // ── joy h4: searches that found nothing (anonymous) ──
   addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void>;
   /** Rows of `cityId` at or after `since`, newest first. */
@@ -224,6 +276,7 @@ function toStorefront(input: NewStorefront): StorefrontRecord {
     prepMin: input.prepMin ?? null,
     hours: [...(input.hours ?? [])],
     ratingPlaceholder: input.ratingPlaceholder ?? null,
+    story: input.story ?? null,
   };
 }
 
@@ -249,7 +302,62 @@ export class InMemoryCatalogRepository implements CatalogRepository {
   private readonly items = new Map<string, CatalogItemRecord>();
   private readonly fronts = new Map<string, StorefrontRecord>();
   private readonly unmet: UnmetSearchRecord[] = [];
+  private readonly pots = new Map<string, DailyPotRecord>();
+  private readonly follows = new Map<string, DishFollowRecord>();
   private seq = 0;
+
+  async upsertPot(input: NewDailyPot): Promise<DailyPotRecord> {
+    const key = `${input.merchantOrgId}|${input.localDate}`;
+    const old = this.pots.get(key);
+    const row: DailyPotRecord = {
+      id: old?.id ?? `pot_${++this.seq}`,
+      merchantOrgId: input.merchantOrgId,
+      itemId: input.itemId,
+      localDate: input.localDate,
+      note: input.note,
+      until: input.until,
+      postedById: input.postedById,
+      createdAt: old?.createdAt ?? input.at,
+      updatedAt: input.at,
+    };
+    this.pots.set(key, row);
+    return { ...row };
+  }
+
+  async deletePot(merchantOrgId: string, localDate: string): Promise<void> {
+    this.pots.delete(`${merchantOrgId}|${localDate}`);
+  }
+
+  async potsOn(localDate: string): Promise<DailyPotRecord[]> {
+    return [...this.pots.values()].filter((p) => p.localDate === localDate).map((p) => ({ ...p }));
+  }
+
+  async potsOf(merchantOrgId: string, sinceDate: string): Promise<DailyPotRecord[]> {
+    return [...this.pots.values()]
+      .filter((p) => p.merchantOrgId === merchantOrgId && p.localDate >= sinceDate)
+      .sort((a, b) => b.localDate.localeCompare(a.localDate))
+      .map((p) => ({ ...p }));
+  }
+
+  async dishFollows(personId: string): Promise<DishFollowRecord[]> {
+    return [...this.follows.values()].filter((f) => f.personId === personId).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((f) => ({ ...f }));
+  }
+
+  async setDishFollow(input: Omit<DishFollowRecord, 'createdAt'> & { on: boolean; at: Date }): Promise<void> {
+    const key = `${input.personId}|${input.itemId}`;
+    if (!input.on) this.follows.delete(key);
+    else if (!this.follows.has(key)) this.follows.set(key, { personId: input.personId, merchantOrgId: input.merchantOrgId, itemId: input.itemId, createdAt: input.at });
+  }
+
+  async followersOf(itemId: string): Promise<string[]> {
+    return [...this.follows.values()].filter((f) => f.itemId === itemId).map((f) => f.personId);
+  }
+
+  async followerCounts(merchantOrgId: string): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const f of this.follows.values()) if (f.merchantOrgId === merchantOrgId) out.set(f.itemId, (out.get(f.itemId) ?? 0) + 1);
+    return out;
+  }
 
   async addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void> {
     this.unmet.push({ ...input, id: `unmet_${++this.seq}` });
@@ -506,12 +614,80 @@ function storefrontFromRow(orgId: string, org: { name: string; cityId: string },
     prepMin: typeof j['prepMin'] === 'number' ? j['prepMin'] : null,
     hours: Array.isArray(j['hours']) ? (j['hours'] as AvailabilityWindow[]) : [],
     ratingPlaceholder: rating && typeof rating.avg === 'number' && typeof rating.count === 'number' ? { avg: rating.avg, count: rating.count } : null,
+    story: storyFromJson(j['story']),
   };
+}
+
+/** `storefront.story` as written by `saveStorefront`; anything malformed reads as no story. */
+function storyFromJson(raw: unknown): KitchenStoryRecord | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const j = raw as Record<string, unknown>;
+  const updatedAt = typeof j['updatedAt'] === 'string' ? new Date(j['updatedAt']) : null;
+  if (!updatedAt || Number.isNaN(updatedAt.getTime())) return null;
+  return {
+    text: typeof j['text'] === 'string' && j['text'] ? j['text'] : null,
+    sinceYear: typeof j['sinceYear'] === 'number' ? j['sinceYear'] : null,
+    shown: j['shown'] === true,
+    updatedAt,
+  };
+}
+
+function potFromRow(r: { id: string; merchantOrgId: string; itemId: string; localDate: string; note: string | null; until: string | null; postedById: string; createdAt: Date; updatedAt: Date }): DailyPotRecord {
+  return { id: r.id, merchantOrgId: r.merchantOrgId, itemId: r.itemId, localDate: r.localDate, note: r.note, until: r.until, postedById: r.postedById, createdAt: r.createdAt, updatedAt: r.updatedAt };
 }
 
 /** `catalog_items` + `modifier_groups` + `modifiers` (seeded by `pnpm db:seed`). */
 export class PrismaCatalogRepository implements CatalogRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async upsertPot(input: NewDailyPot, tx?: Tx): Promise<DailyPotRecord> {
+    const data = { itemId: input.itemId, note: input.note, until: input.until, postedById: input.postedById, updatedAt: input.at };
+    const row = await this.db(tx).dailyPot.upsert({
+      where: { merchantOrgId_localDate: { merchantOrgId: input.merchantOrgId, localDate: input.localDate } },
+      create: { ...data, merchantOrgId: input.merchantOrgId, localDate: input.localDate, createdAt: input.at },
+      update: data,
+    });
+    return potFromRow(row);
+  }
+
+  async deletePot(merchantOrgId: string, localDate: string, tx?: Tx): Promise<void> {
+    await this.db(tx).dailyPot.deleteMany({ where: { merchantOrgId, localDate } });
+  }
+
+  async potsOn(localDate: string): Promise<DailyPotRecord[]> {
+    return (await this.prisma.prisma.dailyPot.findMany({ where: { localDate } })).map(potFromRow);
+  }
+
+  async potsOf(merchantOrgId: string, sinceDate: string): Promise<DailyPotRecord[]> {
+    return (await this.prisma.prisma.dailyPot.findMany({ where: { merchantOrgId, localDate: { gte: sinceDate } }, orderBy: { localDate: 'desc' } })).map(potFromRow);
+  }
+
+  async dishFollows(personId: string): Promise<DishFollowRecord[]> {
+    const rows = await this.prisma.prisma.dishFollow.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } });
+    return rows.map((r) => ({ personId: r.personId, merchantOrgId: r.merchantOrgId, itemId: r.itemId, createdAt: r.createdAt }));
+  }
+
+  async setDishFollow(input: Omit<DishFollowRecord, 'createdAt'> & { on: boolean; at: Date }): Promise<void> {
+    const db = this.prisma.prisma;
+    if (!input.on) {
+      await db.dishFollow.deleteMany({ where: { personId: input.personId, itemId: input.itemId } });
+      return;
+    }
+    await db.dishFollow.upsert({
+      where: { personId_itemId: { personId: input.personId, itemId: input.itemId } },
+      create: { personId: input.personId, merchantOrgId: input.merchantOrgId, itemId: input.itemId, createdAt: input.at },
+      update: {},
+    });
+  }
+
+  async followersOf(itemId: string, tx?: Tx): Promise<string[]> {
+    return (await this.db(tx).dishFollow.findMany({ where: { itemId }, select: { personId: true } })).map((r) => r.personId);
+  }
+
+  async followerCounts(merchantOrgId: string): Promise<Map<string, number>> {
+    const rows = await this.prisma.prisma.dishFollow.groupBy({ by: ['itemId'], where: { merchantOrgId }, _count: { _all: true } });
+    return new Map(rows.map((r) => [r.itemId, r._count._all]));
+  }
 
   async addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void> {
     await this.prisma.prisma.searchUnmet.create({ data: { cityId: input.cityId, term: input.term, typed: input.typed, zoneKey: input.zoneKey, signedIn: input.signedIn, createdAt: input.createdAt } });
@@ -554,7 +730,8 @@ export class PrismaCatalogRepository implements CatalogRepository {
   async saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
     const s = toStorefront(input);
     const db = this.prisma.prisma;
-    const json = { cuisineAr: s.cuisineAr, tags: s.tags, photoUrl: s.photoUrl, minOrderIqd: s.minOrderIqd, prepMin: s.prepMin, hours: s.hours, ratingPlaceholder: s.ratingPlaceholder } as never;
+    const story = s.story ? { text: s.story.text, sinceYear: s.story.sinceYear, shown: s.story.shown, updatedAt: s.story.updatedAt.toISOString() } : null;
+    const json = { cuisineAr: s.cuisineAr, tags: s.tags, photoUrl: s.photoUrl, minOrderIqd: s.minOrderIqd, prepMin: s.prepMin, hours: s.hours, ratingPlaceholder: s.ratingPlaceholder, story } as never;
     const catalog = await db.catalog.findFirst({ where: { orgId: s.orgId, branchKey: null, active: true }, orderBy: { createdAt: 'asc' } });
     if (catalog) await db.catalog.update({ where: { id: catalog.id }, data: { storefront: json } });
     else await db.catalog.create({ data: { orgId: s.orgId, nameAr: 'القائمة الرئيسية', storefront: json } });

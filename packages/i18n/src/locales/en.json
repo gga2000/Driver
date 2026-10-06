@@ -5934,5 +5934,7 @@
   "share.ended_safe_body": "Home safe. The link stopped after arrival",
   "rajaa.kept_title": "Your trip",
   "push.dish_pot.title": "{restaurant} is cooking {dish} today",
-  "push.dish_pot.body": "You asked us to tell you. It's today's pot."
+  "push.dish_pot.body": "You asked us to tell you. It's today's pot.",
+  "error.pot_dish_unavailable": "That dish isn't on sale right now. Put it back on the menu first.",
+  "error.dish_follow_limit": "You follow 30 dishes. Stop one to add another."
 }

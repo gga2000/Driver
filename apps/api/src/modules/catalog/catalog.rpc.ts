@@ -26,6 +26,10 @@ import {
   type CatalogToday,
   type CatalogTodayInput,
   type CustomerCatalogPort,
+  type FollowDishInput,
+  type MyDishFollows,
+  type PotsTodayInput,
+  type TodayPot,
   type DealBadge,
   type DeliveryPoint,
   type MenuInput,
@@ -46,6 +50,11 @@ import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './c
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
 import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
+
+/** The signed-in person behind a catalog read, if any. */
+function readerPerson(reader: Actor | CatalogReader): string | null {
+  return 'personId' in reader ? reader.personId : (reader.actor?.personId ?? null);
+}
 
 /** Unmet searches one caller may send per minute (joy h4). */
 export const UNMET_PER_MINUTE = 10;
@@ -193,7 +202,60 @@ export class CatalogRpc implements CustomerCatalogPort {
     const counts = (await this.merchants.dishOrderCounts?.(s.orgId, since, now)) ?? new Map<string, number>();
     const orderable = categories.flatMap((c) => c.items).filter((i) => i.available);
     const popular = popularItems(counts, orderable.map((i) => i.id), POPULAR_RULES);
-    return { restaurant, categories, popular };
+    // h2: today's pot while it shows and its dish can be ordered; dishes that were a pot lately (followable).
+    const pot = await this.catalog.showingPot(s.orgId);
+    const potOk = pot !== null && orderable.some((i) => i.id === pot.itemId);
+    const potDishes = await this.catalog.followableDishes(s.orgId);
+    // h5: the owner's story, only when he chose to show it.
+    const story = s.story?.shown && s.story.text ? { text: s.story.text, sinceYear: s.story.sinceYear } : null;
+    return { restaurant, categories, popular, pot: potOk ? { itemId: pot.itemId, note: pot.note, until: pot.until } : null, potDishes, story };
+  }
+
+  /**
+   * «العزيزية اليوم» (joy h2): the city's pots that show now and whose dish can be ordered, with the
+   * kitchen's open state; open kitchens first, then the first to cook. `followed` is the reader's own.
+   */
+  async pots(reader: Actor | CatalogReader, input: z.infer<typeof PotsTodayInput>): Promise<TodayPot[]> {
+    await this.admit(reader);
+    const now = this.clock.now();
+    const showing = new Map((await this.catalog.showingPots()).map((p) => [p.merchantOrgId, p]));
+    const personId = readerPerson(reader);
+    const followed = new Set(personId ? (await this.catalog.dishFollows(personId)).map((f) => f.itemId) : []);
+    const out: Array<{ pot: TodayPot; postedAt: number }> = [];
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      const pot = showing.get(s.orgId);
+      if (!pot) continue;
+      const items = await this.catalog.menu(s.orgId);
+      const item = items.find((i) => i.id === pot.itemId);
+      if (!item) continue;
+      const view = menuItemView(item, now, this.merchants.timeZone);
+      if (!view.available) continue;
+      const card = await this.card(s, items, input.dropoff ?? null, now);
+      out.push({
+        postedAt: pot.createdAt.getTime(),
+        pot: {
+          merchantOrgId: s.orgId,
+          restaurantName: card.name,
+          restaurantOpen: card.open,
+          opensAt: card.opensAt,
+          dish: { id: view.id, name: view.name, priceIqd: view.priceIqd, photoUrl: view.photoUrl },
+          note: pot.note,
+          until: pot.until,
+          followed: followed.has(view.id),
+        },
+      });
+    }
+    return out.sort((a, b) => Number(b.pot.restaurantOpen) - Number(a.pot.restaurantOpen) || a.postedAt - b.postedAt).map((o) => o.pot);
+  }
+
+  async dishFollows(actor: Actor): Promise<MyDishFollows> {
+    return { itemIds: (await this.catalog.dishFollows(actor.personId)).map((f) => f.itemId) };
+  }
+
+  /** «خبرني لمن يطبخوه»: follow or stop following one dish (the kitchen's own, at most 30). */
+  async followDish(actor: Actor, input: FollowDishInput): Promise<MyDishFollows> {
+    const rows = await this.catalog.followDish(actor.personId, input.merchantOrgId, input.itemId, input.on);
+    return { itemIds: rows.map((f) => f.itemId) };
   }
 
   /**
@@ -377,7 +439,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     await this.admit(reader);
     const term = foldArabic(input.term);
     if (term.length < 2) return { ok: true };
-    const personId = 'personId' in reader ? reader.personId : (reader.actor?.personId ?? null);
+    const personId = readerPerson(reader);
     const ip = 'ip' in reader ? (reader.ip ?? null) : null;
     const who = personId ? `p:${personId}` : `ip:${ip ?? 'none'}`;
     const hit = await this.guests.hit(`search:unmet:${who}`, 60_000, UNMET_PER_MINUTE);
@@ -481,6 +543,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       opensInMin: holiday || closed || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
       busy,
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
+      pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
       deals: (await this.merchants.deals?.(s.orgId, now)) ?? [],
     };
   }

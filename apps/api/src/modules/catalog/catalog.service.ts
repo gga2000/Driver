@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { DriverError } from '@driver/contracts';
+import { DriverError, FOLLOW_RULES, POT_RULES } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { nextLocalMidnight } from '../../shared/local-time.js';
@@ -8,6 +8,9 @@ import {
   type CatalogItemPatch,
   type CatalogItemRecord,
   type CatalogRepository,
+  type DailyPotRecord,
+  type DishFollowRecord,
+  type KitchenStoryRecord,
   type ImportedItemRecord,
   type MenuImportJobRecord,
   type NewCatalogItem,
@@ -17,6 +20,7 @@ import {
   type StorefrontRecord,
   type UnmetSearchRecord,
 } from './catalog.repository.js';
+import { daysBefore, potDay, potShowing } from './pots.js';
 
 /** True when customers can order the item right now: the toggle, "sold out today" and stock. */
 export function itemOnSale(item: CatalogItemRecord, now: Date): boolean {
@@ -75,6 +79,90 @@ export class CatalogService {
 
   storefront(orgId: string): Promise<StorefrontRecord | null> {
     return this.repo.storefront(orgId);
+  }
+
+  // ───────────────────────── joy h2: «قدر اليوم» and dish follows ─────────────────────────
+
+  /**
+   * Posts (or replaces) the kitchen's pot for today (Baghdad). The dish must be the kitchen's own and
+   * on sale now. Returns the pot, the dish and who follows it (the caller tells them, in the same
+   * transaction as its event).
+   */
+  async postPot(
+    orgId: string,
+    input: { itemId: string; note: string | null; until: string | null },
+    actorId: string,
+    tx?: Tx,
+  ): Promise<{ pot: DailyPotRecord; item: CatalogItemRecord; followerIds: string[] }> {
+    const now = this.clock.now();
+    const item = await this.adminItem(orgId, input.itemId, tx);
+    if (!itemOnSale(item, now)) throw new DriverError('pot_dish_unavailable');
+    const pot = await this.repo.upsertPot({ merchantOrgId: orgId, itemId: item.id, localDate: potDay(now), note: input.note, until: input.until, postedById: actorId, at: now }, tx);
+    return { pot, item, followerIds: await this.repo.followersOf(item.id, tx) };
+  }
+
+  /** «شيلها»: today's pot comes off. */
+  async clearPot(orgId: string, tx?: Tx): Promise<void> {
+    await this.repo.deletePot(orgId, potDay(this.clock.now()), tx);
+  }
+
+  /** The kitchen's pot while it shows today (its «لحد» time not passed). */
+  async showingPot(orgId: string): Promise<DailyPotRecord | null> {
+    const now = this.clock.now();
+    const [pot] = await this.repo.potsOf(orgId, potDay(now));
+    return pot && potShowing(pot, now) ? pot : null;
+  }
+
+  /** Every kitchen's pot that shows now (any city; the caller keeps its own storefronts). */
+  async showingPots(): Promise<DailyPotRecord[]> {
+    const now = this.clock.now();
+    return (await this.repo.potsOn(potDay(now))).filter((p) => potShowing(p, now));
+  }
+
+  /** The kitchen's pots of the last `days` days (today included), newest first. */
+  async recentPots(orgId: string, days: number): Promise<DailyPotRecord[]> {
+    return this.repo.potsOf(orgId, daysBefore(potDay(this.clock.now()), days));
+  }
+
+  /** Dishes that were this kitchen's pot in the followable window: the item sheet offers the bell. */
+  async followableDishes(orgId: string): Promise<string[]> {
+    return [...new Set((await this.recentPots(orgId, POT_RULES.followableDays)).map((p) => p.itemId))];
+  }
+
+  dishFollows(personId: string): Promise<DishFollowRecord[]> {
+    return this.repo.dishFollows(personId);
+  }
+
+  /**
+   * Follow (or stop following) a kitchen's dish. Following needs the dish to be on that kitchen's menu
+   * and the person under `FOLLOW_RULES.maxPerPerson`; stopping always works.
+   */
+  async followDish(personId: string, orgId: string, itemId: string, on: boolean): Promise<DishFollowRecord[]> {
+    if (on) {
+      const mine = await this.repo.dishFollows(personId);
+      if (!mine.some((f) => f.itemId === itemId)) {
+        const [item] = await this.repo.itemsByIds(orgId, [itemId]);
+        if (!item) throw new DriverError('menu_item_not_found');
+        if (mine.length >= FOLLOW_RULES.maxPerPerson) throw new DriverError('dish_follow_limit');
+      }
+    }
+    await this.repo.setDishFollow({ personId, merchantOrgId: orgId, itemId, on, at: this.clock.now() });
+    return this.repo.dishFollows(personId);
+  }
+
+  followerCounts(orgId: string): Promise<Map<string, number>> {
+    return this.repo.followerCounts(orgId);
+  }
+
+  // ───────────────────────── joy h5: «مطاعمنا» ─────────────────────────
+
+  /** Saves the owner's story on the kitchen's storefront (`org_not_found` when it has none). */
+  async setStory(orgId: string, story: Omit<KitchenStoryRecord, 'updatedAt'>): Promise<KitchenStoryRecord> {
+    const front = await this.repo.storefront(orgId);
+    if (!front) throw new DriverError('org_not_found');
+    const saved: KitchenStoryRecord = { ...story, updatedAt: this.clock.now() };
+    await this.repo.saveStorefront({ ...front, story: saved });
+    return saved;
   }
 
   /** The orders module's pricing read (`CatalogPort`): only `orgId`'s own items, unknown ids omitted. */

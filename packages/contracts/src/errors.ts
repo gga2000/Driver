@@ -167,6 +167,9 @@ export const ERROR_TABLE = {
   merchant_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   one_merchant_per_order: { retryHint: 'never', status: 'BAD_REQUEST' },
   catalog_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  // joy J7a: «قدر اليوم» names a dish that is off sale; following more dishes than allowed
+  pot_dish_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  dish_follow_limit: { retryHint: 'never', status: 'CONFLICT' },
   modifier_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   price_changed: { retryHint: 'never', status: 'CONFLICT' },
   // J-D7: the ride is not (or no longer) one that may switch vehicle

@@ -5934,5 +5934,7 @@
   "share.ended_safe_body": "الحمد لله على السلامة. الرابط وقف بعد الوصول",
   "rajaa.kept_title": "رحلتك",
   "push.dish_pot.title": "اليوم {restaurant} طابخين {dish}",
-  "push.dish_pot.body": "گلتلنا خبرني لمن يطبخوه، وهذا قدر اليوم."
+  "push.dish_pot.body": "گلتلنا خبرني لمن يطبخوه، وهذا قدر اليوم.",
+  "error.pot_dish_unavailable": "هالأكلة مو متوفرة هسة. رجّعها بالمنيو أول وبعدين سوّيها قدر اليوم",
+  "error.dish_follow_limit": "تتابع 30 أكلة. بطّل وحدة حتى تضيف غيرها"
 }
