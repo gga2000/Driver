@@ -169,6 +169,26 @@ describe('TrackingService — «أول مرة» (joy g8)', () => {
     expect((await tracking.firsts(as('c1'))).foodOrderId).toBe(later.id);
     expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
   });
+
+  it('joy s3: the same delivered order a week apart, same weekday and band, is a usual with its history row', async () => {
+    const { h, tracking } = setup();
+    expect(await tracking.usuals(as('c1'))).toEqual([]);
+    const delivered = async () => {
+      const o = await acceptedOrder(h);
+      const t = await h.tripFor(o.id);
+      await h.pickup(t.id);
+      await h.dropoff(t.id, { cashCollectedIqd: 16500 });
+      return o;
+    };
+    await delivered();
+    expect(await tracking.usuals(as('c1'))).toEqual([]);
+    h.clock.advance(7 * 24 * 60 * MIN);
+    const second = await delivered();
+    const [usual] = await tracking.usuals(as('c1'));
+    expect(usual).toMatchObject({ kind: 'weekday', times: 2, row: { order: { id: second.id }, merchantName: expect.any(String) } });
+    expect(usual!.row.items.length).toBeGreaterThan(0);
+    expect(await tracking.usuals(as('someone_else'))).toEqual([]);
+  });
 });
 
 describe('TrackingService — courier position window', () => {

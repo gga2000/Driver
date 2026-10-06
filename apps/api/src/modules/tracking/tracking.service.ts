@@ -23,12 +23,14 @@ import {
   type TrackingPort,
   type TrackItem,
   type TrackStop,
+  type Usual,
   type Trip,
   type VehicleClass,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
 /**
@@ -491,6 +493,28 @@ export class TrackingService implements TrackingPort {
     const orders = [...(await this.orders.listForPerson(actor.personId))]
       .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
       .slice(0, ORDER_HISTORY_LIMIT);
+    return this.historyRows(orders);
+  }
+
+  /**
+   * «طلبك المعتاد؟» (joy s3): the actor's usuals from every order they placed and received in the last
+   * six weeks (`findUsuals`), each as its newest order's history row so the app's reorder sheet takes
+   * it as it is. Explained by the server's counts, never placed by itself.
+   */
+  async usuals(actor: Actor): Promise<Usual[]> {
+    const orders = await this.orders.listForPerson(actor.personId);
+    const found = findUsuals(orders, actor.personId, this.clock.now());
+    if (found.length === 0) return [];
+    const byId = new Map(orders.map((o) => [o.id, o]));
+    const rows = new Map((await this.historyRows(found.map((u) => byId.get(u.orderId)).filter((o): o is Order => o !== undefined))).map((r) => [r.order.id, r]));
+    return found.flatMap((u) => {
+      const row = rows.get(u.orderId);
+      return row ? [{ kind: u.kind, weekday: u.weekday, band: u.band, times: u.times, atMinute: u.atMinute, row }] : [];
+    });
+  }
+
+  /** History rows for orders (newest first as given): the kitchen's name and the dishes resolved. */
+  private async historyRows(orders: readonly Order[]): Promise<OrderHistoryRow[]> {
     const merchantNames = new Map<string, string | null>();
     const itemIds = new Map<string, Set<string>>();
     for (const o of orders) {
