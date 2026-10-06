@@ -20,7 +20,7 @@ them now"). Don't start anything listed there unless Ali asks; update the file w
 It holds the real WhatsApp support number, SOS on-duty/escalation, calls (Ali: no outside masked-call
 provider, "we carry them"), the parents' WhatsApp messages for خطوط, the brand symbol, accounts and
 store setup, and the gaps that need real phones.
-Being decided/built in another window (2026-10-06): tips after a good rating, public driver photos,
+Being decided/built in another window (2026-10-06): tips after a good rating,
 the emergency number (Ali chose 911; main still says 104), shift-guarantee hours, and switching the
 guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
@@ -30,6 +30,9 @@ tender limit) and extra cash must be named; honest delay in two steps (10 min ap
 min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee was built to be paid by
 the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen
 (every PIN typed is logged; cross-use and 3 wrong PINs on a seat alert ops on the Console safety strip), 3-second pause before the sweep.
+Driver photos (Ali, 2026-10-06): every driver has one approved main photo shown to customers (the
+`photo` document, approved in the Console queue); guardian-added child photos are seen only by that
+child's خطوط driver — `docs/api/driver-photos.md`.
 All 23 Phase 3 review problems are fixed (review board: Ali's artifact, see memory). Guardian messages (`khat.guardian_*`, `push.khat_dropped.body`, WhatsApp `wa.khat_dropped`) still say «صعد/وصل» for every child; postponed to the parents' WhatsApp work in `docs/before-launch.md` §4.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,

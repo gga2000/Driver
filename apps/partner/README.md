@@ -169,7 +169,11 @@ Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 14,00
 (rides with the take; licence expiring, registration rejected), intercity `0770 111 0003`, khat
 `0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (no check-in
 yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
-Everyone else is checked in for today. `POST /demo/account/fail-next-checkin?who=…` fails his next selfie. Food dispatch runs suggest-only in the demo so the three orders
+Everyone else is checked in for today. `POST /demo/account/fail-next-checkin?who=…` fails his next selfie.
+Main photos (صورتك الرئيسية, `/photo`, docs/api/driver-photos.md): every driver has an approved drawn
+portrait; courier's new one «تنتظر الموافقة», tuktuk's «مرفوضة» with a reason, rookie none.
+`POST /demo/account/photo?who=…&decision=approve|reject` decides the waiting one; three خطوط children
+(زينب، حسن، مريم) have their guardian's photo on the run rows. Shots: `SHOTS=photo`. Food dispatch runs suggest-only in the demo so the three orders
 waiting at مشويات الحاج كريم keep the demand hint at "الطلب عالي بالمركز"; demo offers go out
 through the dispatcher override, the tuktuk ride through the real wave-1 broadcast.
 
