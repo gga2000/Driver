@@ -4,8 +4,8 @@
  * optionally `x_zero` ("ماكو طلبات") and `x_other` (100, 101, 102 …). A missing form falls back
  * along a fixed chain, so a key set of just `_one`/`_few`/`_many` is enough.
  *
- * The voice spec's exception stays: minutes are "{n} دقيقة" for every count, so `time.minutes`
- * has no plural forms.
+ * Minutes need no `_one`/`_few` keys: `t()` makes every "{n} دقيقة" agree by itself (joy J-D9,
+ * `agreeMinutes`).
  */
 import { hasKey, locales, PLURAL_FALLBACK, pluralCategory, t, type Locale, type MessageKey, type Params } from './translate.js';
 

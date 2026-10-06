@@ -2,7 +2,7 @@ import type { BookingState, IntercityDirection, IntercitySeatId, IntercityVehicl
 import type { MessageKey } from '@driver/i18n';
 import { ltr } from '@driver/ui';
 import type { TFn } from '@/lib/i18n';
-import { endpoints, hourLabel, labelWindow } from './logic';
+import { endpoints } from './logic';
 
 /** Copy helpers shared by the الرجعة screens (all strings come from @driver/i18n). */
 
@@ -61,11 +61,7 @@ export function driverLabel(t: TFn, driverId: string): string {
   return t('rajaa.driver', { id: shortId(driverId) });
 }
 
-/** "بين 4 و 6" (a window that starts "now" reads from the 5-minute mark before it: "بين 6:30 و 7:35"). */
-export function windowLabel(t: TFn, start: Date, end: Date): string {
-  const shown = labelWindow(start, end);
-  return t('rajaa.window_between', { from: hourLabel(shown.start), to: hourLabel(shown.end) });
-}
+export { windowLabel } from './logic';
 
 /** "مقعد واحد" / "مقعدين" / "3 مقاعد". */
 export function seatsCount(t: TFn, n: number): string {

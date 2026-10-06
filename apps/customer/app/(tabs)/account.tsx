@@ -8,6 +8,7 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
 import { useHousehold, useMe, useMyPlaces, useSavedPeople } from '@/features/account/queries';
 import { unregisterPush } from '@/features/notify/usePush';
+import { placeIcon } from '@/features/places/place-icon';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
@@ -182,7 +183,7 @@ function PlaceRow({ place, divider }: { place: SavedPlaceView; divider: boolean 
   const t = useT();
   const locale = useLocale();
   const photo = place.photos[0];
-  const icon = place.label === 'home' ? 'home' : place.label === 'work' ? 'bag' : 'map-pin';
+  const icon = placeIcon(place.label);
   const leading = photo ? (
     <Image source={{ uri: photoUri(photo.url) }} style={{ width: 44, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} accessibilityIgnoresInvertColors />
   ) : (

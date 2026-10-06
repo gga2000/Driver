@@ -200,7 +200,7 @@ describe('status → timeline', () => {
     expect(tl.current).toBe('picked_up');
     const step = tl.steps.find((s) => s.key === 'picked_up')!;
     expect(step.late).toBe(true);
-    expect(step.note).toContain('تأخرنا 8 دقيقة');
+    expect(step.note).toContain('تأخرنا 8 دقايق');
     expect(step.note).toContain('09:33');
     expect(phaseOf(v)).toBe('on_the_way');
   });

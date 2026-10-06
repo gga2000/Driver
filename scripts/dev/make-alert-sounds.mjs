@@ -5,7 +5,7 @@
 //   apps/merchant/assets/sounds/new-order-urgent.wav  1 s seamless loop of fast two-tone beeps (last 10 s)
 //   apps/merchant/assets/sounds/courier.wav           two notes down (E6 B5): a courier about to walk in
 //   apps/partner/assets/sounds/offer-loop.wav         1.6 s seamless loop: doorbell fifth + a short rest
-//   apps/customer/assets/sounds/{accepted,picked-up,near,delivered}.wav
+//   apps/customer/assets/sounds/{accepted,picked_up,near,delivered}.wav (underscores: Android res/raw names)
 //                                                     the tracking screen's soft cues (maps program SP5b)
 //
 // The existing `offer.wav` (push notification channel sound) is left alone.
@@ -120,7 +120,7 @@ function save(rel, samples) {
   note(picked, { freq: 523, at: 0, dur: 0.2, decay: 8 });
   note(picked, { freq: 659, at: 0.12, dur: 0.2, decay: 8 });
   note(picked, { freq: 784, at: 0.24, dur: 0.4, decay: 5.5 });
-  save('apps/customer/assets/sounds/picked-up.wav', finish(picked, 0.55));
+  save('apps/customer/assets/sounds/picked_up.wav', finish(picked, 0.55));
   // Almost there: a two-tone doorbell (A5 → F#5), a little brighter so it is heard from the kitchen.
   const near = soft(0.65);
   note(near, { freq: 880, at: 0, dur: 0.3, decay: 5 });

@@ -8,12 +8,13 @@ import { Button, ChipGroup, Icon, ltr, Text, useCountUp, useTheme, useToast } fr
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
-import { amountParam } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
 import { arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
+import { rideArrivalCopy } from './arrival-copy';
 import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
@@ -60,6 +61,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   const insets = useSafeAreaInsets();
   const places = useMyPlaces();
   const ride = view.order.type === 'ride';
+  // L-09: «ويا عباس · 12 دقيقة» under «وصلت بالسلامة», and «قيّم عباس» (rides rate in one step).
+  const rideCopy = ride ? rideArrivalCopy(t, view) : null;
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
   const pay = cashAtDoor(view.order);
   const today = useSeason();
@@ -92,7 +95,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
-            {ride ? t('track.arrived_ride') : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
+            {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
@@ -118,7 +121,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         )}
       </View>
       <View style={{ gap: theme.space[2], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
-        <Button label={t('track.arrived_continue')} icon="star" size="lg" fullWidth onPress={onRate} testID="arrival-rate" />
+        <Button label={rideCopy ? rideCopy.rate : t('track.arrived_continue')} icon="star" size="lg" fullWidth onPress={onRate} testID="arrival-rate" />
         <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onLater} />
       </View>
     </Animated.View>
@@ -158,6 +161,7 @@ function BurstDot({ p, angle, reach, size, color }: { p: SharedValue<number>; an
 function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   if (pay.kind === 'paid') {
     return (
       <View testID="arrival-paid" style={{ width: '100%', flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
@@ -196,7 +200,7 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="label" weight={600} color="successText">
-              {`${t('quote.change_to_wallet')} ${amountParam(pay.changeIqd, { sign: true })}`}
+              {`${t('quote.change_to_wallet')} ${iqd(pay.changeIqd, { locale, sign: true })}`}
             </Text>
             <Text variant="caption" color="textMuted">
               {t('track.cash_change_note', { price: amountParam(pay.priceIqd), change: amountParam(pay.changeIqd) })}

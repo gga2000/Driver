@@ -54,6 +54,15 @@ export const BANNED_TERMS: Readonly<Record<string, BannedTerm>> = {
     // siblings on the same tight row.
     allow: (k) => ['time.minutes_short', 'time.hm_short', 'merchant.accept.minutes', 'merchant.accept.one_tap', 'merchant.busy.chip_on'].includes(k),
   },
+  /**
+   * Minute agreement is automatic (joy J-D9, `agreeMinutes` in `t()`): a template writes the 11+ form
+   * "{minutes} دقيقة" and reads «5 دقايق» for 5 but «15 دقيقة» for 15. A hard-coded "{x} دقايق" would
+   * read «15 دقايق».
+   */
+  '{x} دقايق': { use: '{x} دقيقة (t() picks دقيقة / دقيقتين / دقايق)', pattern: /\{\w+\}\s+دقايق/,
+    // A `_few` key is picked for 3–10 only (plural keys, `agoText`), so its «دقايق» is always right.
+    allow: (k) => k.endsWith('_few'),
+  },
 };
 
 /** Exclamation marks: only "طلب جديد!" for merchants and "مبروك" for tier-ups (voice spec §2.8). */
@@ -68,6 +77,11 @@ export const EXCLAMATION_ALLOWED: ReadonlySet<string> = new Set([
  * (`safety.*` serves الرجعة too, so it is not checked).
  */
 const TAXI_FAMILIES = /^(?:trip|ride)\./;
+
+/** Every amount says «دينار» after it (voice §5): "+500 دينار", "توفّر 150 دينار", "× 15,000 دينار". */
+const BARE_AMOUNT = /\{amount\}(?! دينار)(?!%)/;
+/** The Console is our own terse ops tool; the merchant table formats some amounts with the unit already (its own sweep). */
+const AMOUNT_EXEMPT = /^(?:console|merchant)\./;
 
 export interface VoiceProblem {
   key: string;
@@ -92,6 +106,7 @@ export function voiceProblems(table: Record<string, string>): VoiceProblem[] {
     if (/(?![\u2190-\u21FF])\p{Extended_Pictographic}/u.test(value)) out.push({ key, value, problem: 'emoji' });
     if (value.includes('!') && !EXCLAMATION_ALLOWED.has(key)) out.push({ key, value, problem: 'exclamation mark' });
     if (TAXI_FAMILIES.test(key) && /رحل[ةت]/.test(value)) out.push({ key, value, problem: '«رحلة» on a taxi ride → مشوار' });
+    if (!AMOUNT_EXEMPT.test(key) && BARE_AMOUNT.test(value)) out.push({ key, value, problem: '{amount} without «دينار» → "{amount} دينار" (voice §5, C-29)' });
   }
   return out;
 }

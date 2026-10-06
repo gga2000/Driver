@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { useTheme } from '@driver/ui';
+import { HeaderBack } from '@/features/food/HeaderBack';
 import { useT } from '@/lib/i18n';
 
 /** Profile edits (modal over the tabs): name, safety. */
@@ -14,6 +15,8 @@ export default function ProfileLayout() {
         headerStyle: { backgroundColor: theme.colors.bg },
         headerTintColor: theme.colors.text,
         contentStyle: { backgroundColor: theme.colors.bg },
+        // A push or link can open any of these with no history: the back button falls back home (C-26, A-02).
+        headerLeft: () => <HeaderBack fallback="/account" />,
       }}
     >
       <Stack.Screen name="name" options={{ title: t('profile.name_title') }} />

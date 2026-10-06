@@ -4,8 +4,8 @@ import { View } from 'react-native';
 import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { Icon, Text, useTheme } from '@driver/ui';
 import { useApi } from '@/lib/api';
-import { useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
+import { useLocale, useT } from '@/lib/i18n';
+import { amountParam, iqd } from '@/lib/money';
 
 /** How far the coin travels to the wallet badge (px), and when (same rhythm as the points coin). */
 const FLIGHT_PX = 150;
@@ -73,10 +73,11 @@ export function ChangeCreditStrip({ amountIqd, testID = 'change-credited' }: { a
   );
 }
 
-/** The receipt's line after the hand-off: "باقي الكاش (رصيد) +7,250" and what he paid. */
+/** The receipt's line after the hand-off: "باقي الكاش (رصيد) +7,250 دينار" and what he paid. */
 export function ChangeReceiptLine({ paidIqd, creditedIqd }: { paidIqd: number; creditedIqd: number }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   return (
     <View testID="receipt-change-to-wallet" style={{ gap: 2, padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.successTint }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
@@ -85,7 +86,7 @@ export function ChangeReceiptLine({ paidIqd, creditedIqd }: { paidIqd: number; c
           {t('cashchange.receipt_line')}
         </Text>
         <Text variant="label" weight={700} color="successText" tabular>
-          {amountParam(creditedIqd, { sign: true })}
+          {iqd(creditedIqd, { locale, sign: true })}
         </Text>
       </View>
       <Text variant="caption" color="textMuted" tabular>

@@ -53,6 +53,22 @@ describe('departureParts', () => {
   });
 });
 
+describe('the boarding pass: the day always, the part of day in words (R-06)', () => {
+  it('says «اليوم» and «المسا»', () => {
+    const p = departureParts(at('2026-10-05T15:15:00Z'), at('2026-10-05T14:37:00Z'), { alwaysDay: true, partOfDay: true });
+    expect(p.digits).toBe('6:15');
+    expect(p.period).toBe('المسا');
+    expect(p.day).toBe('اليوم');
+    expect(p.countdown).toBe('بعد 38 دقيقة');
+    expect(p.label).toBe('6:15 المسا، اليوم، بعد 38 دقيقة');
+  });
+  it('tomorrow still reads «باچر», and English keeps AM/PM', () => {
+    const p = departureParts(at('2026-10-06T03:30:00Z'), NOW, { alwaysDay: true, partOfDay: true });
+    expect([p.day, p.period]).toEqual(['باچر', 'الصبح']);
+    expect(departureParts(at('2026-10-05T16:52:00Z'), NOW, { alwaysDay: true, partOfDay: true, locale: 'en' }).period).toBe('PM');
+  });
+});
+
 describe('countdown helpers', () => {
   it('rounds minutes up while ahead', () => {
     expect(departureMinutesLeft(NOW + 61_000, NOW)).toBe(2);

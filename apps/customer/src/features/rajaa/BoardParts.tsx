@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import type { BookingView, CorridorView, IntercityDirection } from '@driver/contracts';
 import { Button, Card, Icon, SegmentedControl, StatusPill, Text, useTheme } from '@driver/ui';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { cityName, windowLabel } from './labels';
 import { bookingHref, clockLabel, endpoints, holdCountdown, type DemandSummary } from './logic';
 
@@ -106,11 +106,12 @@ export function CorridorPicker({
   );
 }
 
-/** "7 ناس يريدون يرجعون بين 4 و 6" with the أريد أرجع call to action. */
+/** "7 ناس يريدون يرجعون بين 4 و 6 العصر" with the أريد أرجع call to action. */
 export function DemandBanner({ demand, empty, onPost }: { demand: DemandSummary | null; /** No car on the board at all. */ empty: boolean; onPost: () => void }) {
   const theme = useTheme();
   const t = useT();
-  const window = demand ? windowLabel(t, demand.windowStart, demand.windowEnd) : '';
+  const locale = useLocale();
+  const window = demand ? windowLabel(t, demand.windowStart, demand.windowEnd, locale) : '';
   return (
     <Card testID="rajaa-demand-banner" tone="tint" elevation={0} padding={4}>
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>

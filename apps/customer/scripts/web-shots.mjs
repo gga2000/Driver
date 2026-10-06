@@ -8,7 +8,7 @@
 // 3. Run:  PLAYWRIGHT_MODULE=/path/to/node_modules/playwright CHROMIUM_PATH=/path/to/chrome \
 //            node apps/customer/scripts/web-shots.mjs <out-dir>
 //
-// Screenshots are 390×844 (@2x), in groups (file-name prefixes), each driven by its own demo seed:
+// Screenshots are 390×844 (@2x; WIDTH=360 → 360×740 for small phones), in groups (file-name prefixes), each driven by its own demo seed:
 //   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
@@ -39,6 +39,9 @@ const dist = resolve(process.env.DIST_DIR ?? join(here, '../dist-web'));
 const outDir = resolve(process.argv[2] ?? join(here, '../web-shots'));
 const apiBase = (process.env.DEMO_API ?? 'http://127.0.0.1:3200').replace(/\/$/, '');
 const phone = process.env.DEMO_PHONE ?? '0770 123 4567';
+/** Viewport: 390×844 by default; WIDTH=360 gives the small-phone run (360×740). */
+const W = Number(process.env.WIDTH ?? 390);
+const H = W <= 360 ? 740 : 844;
 mkdirSync(outDir, { recursive: true });
 if (!existsSync(join(dist, 'index.html'))) throw new Error(`No web export at ${dist}; run expo export first`);
 
@@ -62,7 +65,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
-const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
 const errors = [];
 page.on('console', (m) => {
   const text = m.text();
@@ -111,9 +114,9 @@ const fullShot = async (name) => {
     }
     return max;
   });
-  await page.setViewportSize({ width: 390, height: Math.min(h, 4000) });
+  await page.setViewportSize({ width: W, height: Math.min(h, 4000) });
   await shot(name);
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: W, height: H });
 };
 const demoPost = async (path) => {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
@@ -599,7 +602,7 @@ async function topupShots() {
   });
   await new Promise((r) => pServer.listen(0, '127.0.0.1', r));
   const pOrigin = `http://127.0.0.1:${pServer.address().port}`;
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   const ops = await ctx.newPage();
   ops.on('pageerror', (e) => errors.push(`[ops] ${e.stack ?? e.message}`));
   ops.on('console', (m) => {
@@ -711,7 +714,7 @@ async function chatShots(personId) {
   await byTestId('share-panel').waitFor({ timeout: 15_000 });
   await shot('chat-ride-share-sheet');
 
-  const guest = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  const guest = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   guest.on('pageerror', (e) => errors.push(`guest: ${e.stack ?? e.message}`));
   await guest.goto(`${origin}${r.path}`, { waitUntil: 'load', timeout: 30_000 });
   await guest.locator('[data-testid="share-page"]').waitFor({ timeout: 20_000 });

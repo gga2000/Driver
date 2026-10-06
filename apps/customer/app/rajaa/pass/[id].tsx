@@ -39,6 +39,9 @@ function Field({ label, value, icon }: { label: string; value: string; icon: Ico
  * crowded garage, seat, garage, how it's paid, the grace and late-meter rules for this seat, the
  * live car from T−30, "أني بالكراج", share, and cancel with its rule shown before the button.
  */
+/** The pass's own toasts sit at the top and a good-news one leaves after 3 s, so none covers the pass or its cancel (C-38, R-10). */
+const PASS_TOAST_MS = 3000;
+
 export default function BoardingPassScreen() {
   const theme = useTheme();
   const t = useT();
@@ -93,18 +96,18 @@ export default function BoardingPassScreen() {
   const onImHere = async () => {
     const at = await currentLocation();
     if (!at) {
-      toast.show({ message: t('error.location_off'), tone: 'warning', icon: 'location-arrow' }, 5000);
+      toast.show({ message: t('error.location_off'), tone: 'warning', icon: 'location-arrow', placement: 'top' }, 5000);
       return;
     }
     imHere.mutate(
       { bookingId: b.id, lat: at.lat, lng: at.lng },
       {
         onSuccess: (r) => {
-          if (r.warning === 'meeting_point_mismatch') toast.show({ message: t('intercity.meeting_point_mismatch', { place: stopName }), tone: 'warning' }, 6000);
-          else if (atPoint) toast.show({ message: t('rajaa.im_here_point_ok'), tone: 'success' });
-          else toast.show({ message: r.atGarage ? t('rajaa.im_here_ok') : t('rajaa.im_here_far'), tone: r.atGarage ? 'success' : 'warning' }, 5000);
+          if (r.warning === 'meeting_point_mismatch') toast.show({ message: t('intercity.meeting_point_mismatch', { place: stopName }), tone: 'warning', placement: 'top' }, 6000);
+          else if (atPoint) toast.show({ message: t('rajaa.im_here_point_ok'), tone: 'success', placement: 'top' }, PASS_TOAST_MS);
+          else toast.show({ message: r.atGarage ? t('rajaa.im_here_ok') : t('rajaa.im_here_far'), tone: r.atGarage ? 'success' : 'warning', placement: 'top' }, r.atGarage ? PASS_TOAST_MS : 5000);
         },
-        onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }),
+        onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger', placement: 'top' }),
       },
     );
   };
@@ -115,14 +118,14 @@ export default function BoardingPassScreen() {
     try {
       link = shareUrl((await client.tracking.createShareLink.mutate({ bookingId: b.id })).path);
     } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning', placement: 'top' });
       return;
     }
     const message = t('rajaa.share_message', { route, time: clockLabel(b.departure.departAt), plate: plate(b.departure.vehicle.plate), link });
     try {
       await Share.share({ message });
     } catch {
-      toast.show({ message: t('rajaa.share_copied', { link }) }, 6000);
+      toast.show({ message: t('rajaa.share_copied', { link }), placement: 'top' }, 6000);
     }
   };
 
@@ -134,7 +137,7 @@ export default function BoardingPassScreen() {
           toast.show({ message: t('rajaa.cancelled_toast') });
           router.replace('/rajaa');
         },
-        onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000),
+        onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger', placement: 'top' }, 5000),
       },
     );
 
@@ -176,7 +179,7 @@ export default function BoardingPassScreen() {
             <StatusPill size="sm" tone={b.state === 'checked_in' ? 'success' : 'accent'} icon="check" label={bookingStateLabel(t, b.state)} />
           </View>
           {/* The garage-board time (audit d-2): split-flap digits and the countdown to the car. */}
-          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} />
+          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} passStyle locale={locale} />
           <Text variant="footnote" color="textMuted">
             {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
           </Text>

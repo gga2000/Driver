@@ -5,7 +5,7 @@
  * Times: the backend's rules run on Baghdad wall time (UTC+3 all year), so window builders take a
  * `utcOffsetMin` (default 180) instead of trusting the device's time zone.
  */
-import { formatClock } from '@driver/i18n';
+import { formatClock, hourWindow, type Locale, type MessageKey, type Params } from '@driver/i18n';
 import type {
   BoardSeat,
   BookingState,
@@ -394,12 +394,13 @@ export function labelWindow(start: Date, end: Date): { start: Date; end: Date } 
   return { start: new Date(Math.floor(start.getTime() / step) * step), end: new Date(ceilTo(end.getTime(), step)) };
 }
 
-/** `4` or `4:30` on a 12-hour local clock (no AM/PM words, per the voice guide). */
-export function hourLabel(at: Date, utcOffsetMin: number = IRAQ_UTC_OFFSET_MIN): string {
-  const local = new Date(at.getTime() + utcOffsetMin * MIN);
-  const h = local.getUTCHours() % 12 || 12;
-  const m = local.getUTCMinutes();
-  return m === 0 ? String(h) : `${h}:${String(m).padStart(2, '0')}`;
+/**
+ * "بين 4 و 6 العصر", "بين 8 و 10 بالليل" (R-06: never a bare 8 that could be morning or night). A
+ * window that starts "now" reads from the 5-minute mark before it: "بين 6:30 و 7:35 المسا".
+ */
+export function windowLabel(t: (key: MessageKey, params?: Params) => string, start: Date, end: Date, locale: Locale = 'ar-IQ'): string {
+  const shown = labelWindow(start, end);
+  return t('rajaa.window_between', hourWindow(shown.start, shown.end, { locale, offsetMin: IRAQ_UTC_OFFSET_MIN }));
 }
 
 /** "7:05 م": the city's one clock with the part of day (packages/i18n `formatClock`). */

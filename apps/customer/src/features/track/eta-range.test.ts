@@ -13,7 +13,9 @@ describe('minutes on the map (f19, maps c3)', () => {
     expect(minutesRange(20, 'estimated')).toEqual({ low: 16, high: 25 });
   });
   it('labels: the single pill as before, a range in an isolated left-to-right run', () => {
-    expect(mapMinutesLabel(t, 8, 'road')).toBe(t('track.map_minutes', { minutes: 8 }));
+    expect(mapMinutesLabel(t, 8, 'road')).toBe('8 دقايق');
+    expect(mapMinutesLabel(t, 2, 'road')).toBe('دقيقتين');
+    expect(mapMinutesLabel(t, 14, 'road')).toBe('14 دقيقة');
     expect(mapMinutesLabel(t, 8, 'estimated')).toBe('⁦6–10⁩ دقايق');
     expect(mapMinutesLabel(t, 20, 'estimated')).toBe('⁦16–25⁩ دقيقة');
   });

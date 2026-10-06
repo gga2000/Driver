@@ -3,13 +3,17 @@ import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 import { ANDROID_CHANNELS } from '@driver/contracts';
 import { t } from '@driver/i18n';
+import { momentBehavior } from './moment-sound';
 import type { PushData, PushDevice, PushPermission, PushToken } from './push';
 
 export type { PushData, PushDevice, PushPermission, PushToken } from './push';
 
-/** Foreground notifications still show (the order screen may be in the background tab). */
+/**
+ * Foreground notifications still show (the order screen may be in the background tab). A moment
+ * sound (`moment-channel`, Android) only plays its channel's sound: nothing is shown.
+ */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+  handleNotification: async (n) => momentBehavior(n.request.content.data) ?? { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false },
 });
 
 const APP = 'customer';

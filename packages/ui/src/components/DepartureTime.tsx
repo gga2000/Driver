@@ -26,6 +26,8 @@ export interface DepartureTimeProps {
   /** A line in place of the countdown ("أو من تكمل · آخر وقت 8:00 م"). */
   note?: string;
   tone?: DepartureTimeTone;
+  /** Say «اليوم» too, and the part of day in words («6:15 المسا»): the boarding pass (R-06). */
+  passStyle?: boolean;
   /** Colour the line under the time as a warning once the time has passed (default on). */
   pastWarning?: boolean;
   align?: 'start' | 'center';
@@ -119,13 +121,13 @@ function FlapCell({ char, m, tone }: { char: string; m: Metrics; tone: Departure
  * city's clock (Asia/Baghdad). Used for الرجعة departures, khat stops and the food ETA ("يوصلك"),
  * so ETAs read like departures. The whole thing is one accessible text: "7:05 م، باچر، بعد 52 دقيقة".
  */
-export function DepartureTime({ at, now, size = 'card', label, countdown = true, note, tone = 'ink', pastWarning = true, align = 'start', locale = 'ar-IQ', style, testID = 'departure-time' }: DepartureTimeProps) {
+export function DepartureTime({ at, now, size = 'card', label, countdown = true, note, tone = 'ink', passStyle = false, pastWarning = true, align = 'start', locale = 'ar-IQ', style, testID = 'departure-time' }: DepartureTimeProps) {
   const theme = useTheme();
   const m = METRICS[size];
   const atMs = typeof at === 'number' ? at : at.getTime();
   // Its own clock when the screen gives none: every 15 s near the time, every minute further out.
   const ticking = useNow(now === undefined, departureTickMs(atMs, Date.now()));
-  const parts = departureParts(atMs, now ?? ticking, { locale, countdown });
+  const parts = departureParts(atMs, now ?? ticking, { locale, countdown, alwaysDay: passStyle, partOfDay: passStyle });
   const sub = [parts.day, note ?? parts.countdown].filter(Boolean).join(' · ');
   const centered = align === 'center';
   const spoken = [label, parts.label, note].filter(Boolean).join('، ');

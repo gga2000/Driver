@@ -2,13 +2,13 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import type { DemandPickup, IntercityDirection, TravellingAs } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, ltr, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
+import { formatHourRange, type MessageKey } from '@driver/i18n';
+import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
-import { clockLabel, demandWindows, endpoints, holdCountdown, hourLabel, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
+import { clockLabel, demandWindows, endpoints, holdCountdown, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
 import { garageName, useBoard, useCancelDemand, useDriverCards, useMyBookings, useMyDemand, useNetwork, usePostDemand } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
@@ -179,7 +179,7 @@ export default function DemandScreen() {
             <Text variant="caption" color="textMuted">
               {corridor ? routeLabel(t, corridor.cityId, direction) : ''}
             </Text>
-            <Text variant="title">{windowLabel(t, open.windowStart, open.windowEnd)}</Text>
+            <Text variant="title">{windowLabel(t, open.windowStart, open.windowEnd, locale)}</Text>
             <Text variant="footnote" color="textMuted">
               {seatsCount(t, open.seats)} · {travellingAsLabel(t, open.travellingAs)} · {open.garageId ? garageName(network.data, open.garageId) : t('rajaa.any_garage')}
             </Text>
@@ -230,7 +230,7 @@ export default function DemandScreen() {
               key={w.id}
               testID={`window-${w.id}`}
               role="radio"
-              label={w.id === 'afternoon' ? ltr(`${hourLabel(new Date(w.end.getTime() - 2 * 3600_000))}–${hourLabel(w.end)}`) : t(`rajaa.window_${w.id}` as MessageKey)}
+              label={w.id === 'afternoon' ? formatHourRange(new Date(w.end.getTime() - 2 * 3600_000), w.end, { locale }) : t(`rajaa.window_${w.id}` as MessageKey)}
               selected={windowId === w.id && w.available}
               disabled={!w.available}
               onPress={() => setWindowId(w.id)}
@@ -239,7 +239,7 @@ export default function DemandScreen() {
         </View>
         {chosen ? (
           <Text variant="footnote" color="textMuted">
-            {windowLabel(t, chosen.start, chosen.end)}
+            {windowLabel(t, chosen.start, chosen.end, locale)}
           </Text>
         ) : null}
       </Section>

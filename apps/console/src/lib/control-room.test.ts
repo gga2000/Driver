@@ -59,7 +59,7 @@ describe('control room helpers (console)', () => {
     expect(slaClock({ slaDueAt: new Date('2026-10-04T19:00:00Z'), slaState: 'due_soon', status: 'open' }, now)).toEqual({ text: 'باقي 30 د', tone: 'warn' });
     expect(slaClock({ slaDueAt: new Date('2026-10-04T18:00:00Z'), slaState: 'breached', status: 'waiting' }, now)).toEqual({ text: 'متأخرة 30 د', tone: 'bad' });
     expect(slaClock({ slaDueAt: now, slaState: 'met', status: 'resolved' }, now).text).toBe('انحلّت بوقتها');
-    expect(ageLabel(new Date('2026-10-04T18:20:00Z'), now)).toBe('قبل 10 دقيقة');
+    expect(ageLabel(new Date('2026-10-04T18:20:00Z'), now)).toBe('قبل 10 دقايق');
     expect(ageLabel(new Date('2026-10-02T18:20:00Z'), now)).toBe('قبل 2 يوم');
     expect(refundChips(5500)).toEqual([1000, 2000, 5000]);
   });

@@ -1,11 +1,14 @@
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { Card, DepartureTime, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
-import { useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
+import { useLocale, useT } from '@/lib/i18n';
+import { amountParam, iqd } from '@/lib/money';
 import { seatsLeftLabel } from './labels';
 import { RajaaDriver } from './RajaaDriver';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, toSeatMap, type FillTone } from './logic';
+
+/** Below this window width the seat map sits under the driver block (R-08: 360 px phones). */
+const NARROW_MAX = 380;
 
 const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'accent', last: 'warning', full: 'neutral' };
 
@@ -31,6 +34,8 @@ export function MiniSeatMap({ dep, scale = 0.78 }: { dep: Pick<DepartureCard, 'v
 export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; onPress?: () => void }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
+  const narrow = useWindowDimensions().width < NARROW_MAX;
   const tone = fillTone(dep.fill);
   const full = tone === 'full';
   const mins = minutesUntil(dep.departAt, now);
@@ -60,9 +65,10 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
           <StatusPill size="sm" tone={FILL_TONE[tone]} label={seatsLeftLabel(t, dep.fill.free)} />
         </View>
 
-        <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
-          <MiniSeatMap dep={dep} />
-          <View style={{ flex: 1, gap: theme.space[2] }}>
+        {/* R-08: on a narrow phone the seat map goes under the driver, so his plate is never clipped. */}
+        <View style={narrow ? { gap: theme.space[3] } : { flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+          {narrow ? null : <MiniSeatMap dep={dep} />}
+          <View style={{ flex: narrow ? undefined : 1, minWidth: 0, gap: theme.space[2] }}>
             <RajaaDriver dep={dep} card={driver} testID={`departure-driver-${dep.id}`} />
             <Text variant="bodyStrong" tabular>
               {t('rajaa.price_per_seat', { amount: amountParam(dep.seatPriceIqd) })}
@@ -85,6 +91,11 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
               {dep.familyOnly ? <StatusPill size="sm" tone="info" icon="user" label={t('intercity.family_only')} /> : null}
             </View>
           </View>
+          {narrow ? (
+            <View style={{ alignItems: 'center' }}>
+              <MiniSeatMap dep={dep} />
+            </View>
+          ) : null}
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexWrap: 'wrap' }}>
@@ -92,7 +103,7 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
           <Text variant="caption" color="textMuted">
             {[
               t('rajaa.pickup_short_garage'),
-              hasWay ? `${t('rajaa.pickup_short_way')} +${amountParam(wayFrom)}` : null,
+              hasWay ? `${t('rajaa.pickup_short_way')} ${iqd(wayFrom, { locale, sign: true })}` : null,
               dep.doorPickupsLeft > 0 ? t('rajaa.pickup_short_door') : null,
             ]
               .filter(Boolean)

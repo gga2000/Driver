@@ -69,7 +69,8 @@ Four audiences, one voice:
 - **Western-Arabic digits (0–9)** everywhere, including inside Arabic strings. Thousands separator is a comma: `1,000 دينار`. No Eastern-Arabic digits (٠–٩).
 - Currency is always `دينار` after the number; never "د.ع" or "IQD" in customer-facing Arabic. English uses `IQD`.
 - Amounts are inserted via `{amount}` placeholders already formatted by the client. Cash totals are rounded up to 250 and the remainder is shown as "الباقي رصيد" (change to the wallet), never as a "تقريب +" line.
-- Time: one clock for every app and the API (`formatClock` / `formatWhen` in `@driver/i18n`): Asia/Baghdad whatever the phone's zone, 12-hour with the part of day (`الساعة {time}` → "الساعة 7:30 م"), and the day when it isn't today ("باچر 7:30 ص", "الخميس 9:00 م", "3/10 9:00 م"). Durations are durations, never a clock (`formatDuration`): "45 دقيقة", "ساعة و20 دقيقة", short "1 س 20 د" only where a chip has no room. Minutes: `{n} دقيقة` for singular/plural alike (Iraqi speech uses `دقيقة` after numbers above 10 and `دقايق` for 3–10; we use `دقايق` only in fixed phrases such as "5 دقايق", "أول 3 دقايق"); never the bare "د", which also starts "دينار".
+- Time: one clock for every app and the API (`formatClock` / `formatWhen` in `@driver/i18n`): Asia/Baghdad whatever the phone's zone, 12-hour with the part of day (`الساعة {time}` → "الساعة 7:30 م"), and the day when it isn't today ("باچر 7:30 ص", "الخميس 9:00 م", "3/10 9:00 م"). Durations are durations, never a clock (`formatDuration`): "45 دقيقة", "ساعة و20 دقيقة", short "1 س 20 د" only where a chip has no room. Minutes take the natural Iraqi forms (joy decision J-D9, 2026-10-05): "دقيقة" (1), "دقيقتين" (2), "{n} دقايق" (3–10), "{n} دقيقة" (11 and up); a range agrees with its high end ("6–9 دقايق", "10–15 دقيقة"). Copy always writes `{minutes} دقيقة` and `t()` picks the form (`agreeMinutes` in `@driver/i18n`; `formatMinuteCount` / `formatMinutesRange` for code); a hard-coded `{x} دقايق` fails the voice test (only `_few` plural keys may carry it). Fixed phrases keep their own words ("5 دقايق", "أول 3 دقايق", "خلال دقيقة"). Never the bare "د", which also starts "دينار".
+- Parts of the day on الرجعة times and windows (R-06): "الصبح" (4–11), "الظهر" (12–14), "العصر" (15–17), "المسا" (18–19), "بالليل" (20–3): "4–6 العصر", "بين 8 و 10 بالليل", "اليوم · 6:15 المسا" (`formatHourPart` / `hourWindow`). A window's end is read a minute before it, so 4–6 pm is "4–6 العصر".
 - Counted nouns agree with the number (`_one`, `_two`, `_few` keys beside the base, which is the 11+ form; `t()` picks the form): "طلب واحد", "طلبين", "3 طلبات", "11 طلب".
 - Countdowns use `{minutes}:{seconds}`.
 - Distances: `{n} كم`.
@@ -114,7 +115,7 @@ Four audiences, one voice:
 | 13 | `order.status.merchant_rejected_hint` | ما انخصم عليك شي. تحب تختار مطعم ثاني؟ | You weren’t charged. Want to pick another restaurant? |
 | 14 | `trip.status.arrived_pickup` | السايق وصل، اطلع | Driver’s here. Head out |
 | 15 | `trip.rebroadcast` | زدنا {amount} دينار للسايق حتى يجيك أسرع، ما يتغير سعرك | We added {amount} IQD for the driver so one comes faster. Your price doesn’t change |
-| 16 | `unreachable.customer_body` | رد على الاتصال أو اطلع له. عندك {minutes} دقايق | Answer the call or step out. You have {minutes} min |
+| 16 | `unreachable.customer_body` | رد على الاتصال أو اطلع له. عندك {minutes} دقيقة («5 دقايق», «دقيقتين») | Answer the call or step out. You have {minutes} min |
 | 17 | `unreachable.driver_mark_failed` | الزبون ما رد، أنهي الطلب | No answer. End the order |
 | 18 | `dispute.resolved_q` | انحلت مشكلتك؟ | Was your problem solved? |
 | 19 | `intercity.late_meter_rider` | تأخرت: {amount} دينار كل 10 دقايق للسايق والركاب. بعد 20 دقيقة السيارة تمشي ويروح مقعدك | You’re late: {amount} IQD per 10 min to the driver and riders. After 20 min the car leaves and your seat is forfeited |
@@ -123,7 +124,7 @@ Four audiences, one voice:
 | 22 | `khat.substitute_intro` | اليوم السايق البديل {name} بدل {regular}. متحقق من درايفر، نفس الخط ونفس التوقيت | Today substitute driver {name} covers for {regular}. Verified by Driver, same route and times |
 | 23 | `parcel.pin_recipient_body` | رمز استلام طردك من {sender}: {pin}. گوله للدليفري بس | Your PIN for the parcel from {sender}: {pin}. Tell it to the courier only |
 | 24 | `errand.substitution_prompt` | {item} ماكو. أكو {alternative} بـ {amount} دينار. يصير؟ | {item} isn’t available. There’s {alternative} for {amount} IQD. OK? |
-| 25 | `household.approval_request` | {name} يريد يطلب بـ {amount} دينار، أكثر من حده. توافق؟ | {name} wants to order for {amount} IQD, above their limit. Approve? |
+| 25 | `household.approval_request` | طلب من {name}: {amount} دينار (no gendered verb, C-28) | Request from {name}: {amount} IQD |
 | 26 | `safety.sos_sent` | وصلنا تنبيهك. الديسباتشر يشوف موقعك هسة ويتصل بيك | Alert received. Dispatch sees your location and is calling you |
 | 27 | `partner.cap_warning` | اقتربت من سقف الكاش ({percent}%). سوّي تسوية حتى ما تتوقف الطلبات | You’re at {percent}% of your cash cap. Settle soon so offers don’t stop |
 | 28 | `partner.nudge_acceptance` | قبولك هالأسبوع {value}%. من تقبل 85% وأكثر تصير أول واحد يوصله الطلب | Your acceptance this week is {value}%. At 85%+ you’re first to get offers |
@@ -136,7 +137,8 @@ Four audiences, one voice:
 - [ ] One idea; under ~12 words unless it is a WhatsApp template or a reason line.
 - [ ] Money: amount, recipient, timing all present.
 - [ ] Apology → next step.
-- [ ] Digits 0–9, `دينار` after the number.
+- [ ] Digits 0–9, `دينار` after the number (also on chips: "+500 دينار", "توفّر 150 دينار"; the voice test fails a bare `{amount}` outside the Console).
+- [ ] Minutes written `{minutes} دقيقة` (t() makes it «دقيقتين», «5 دقايق»).
 - [ ] Glossary words only (`voiceProblems` in `@driver/i18n` fails CI on مندوب، الموزّع، رحلة for a taxi, "{minutes} د", هسه …).
 - [ ] Placeholders identical between `ar-IQ` and `en` (the i18n test enforces key parity; a script in review checks placeholder parity).
 - [ ] Key follows `<screen>.<thing>` and the `push.*` / `wa.*` / `quote.reason.*` conventions.
