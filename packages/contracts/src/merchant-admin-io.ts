@@ -229,6 +229,7 @@ export const MoneyToday = z.object({
   merchantOrgId: z.string(),
   /** Baghdad local date (YYYY-MM-DD). */
   localDate: z.string(),
+  /** Today's delivered/closed orders: the ones `salesIqd` is made of (not the kitchen's open orders). */
   orders: z.number().int(),
   /** Item sales (commission base) of today's delivered/closed orders. */
   salesIqd: Iqd,
@@ -470,7 +471,9 @@ export type DayAdviceKind = z.infer<typeof DayAdviceKind>;
  * S-M6 · the end-of-day card (UI/UX audit merchant-and-console §8): "اليوم: 42 طلب · فاتك 0 · وقتك
  * مضبوط 91% · الصافي 512,000 دينار" and one advice line. Computed on the server for a Baghdad local
  * day. `due` says whether the board shows it now: the store closed for the day (`closed`), or the
- * day ended (`day_end`, from 00:30 to 05:00 for the day before). `netIqd` is the owner's (null for staff).
+ * day ended (`day_end`, from 00:30 to 05:00 for the day before). `netIqd` is the owner's: null for
+ * staff, and while none of the day's orders has been delivered yet (an order's money is booked at
+ * delivery).
  */
 export const MerchantDaySummary = z.object({
   merchantOrgId: z.string(),

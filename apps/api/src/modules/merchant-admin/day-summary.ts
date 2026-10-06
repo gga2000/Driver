@@ -123,6 +123,9 @@ export function composeDaySummary(input: {
   netIqd: number | null;
 }): MerchantDaySummary {
   const counts = dayCounts(input.orders, input.inPause);
+  // An order's money is booked when it is delivered: a day whose orders are all still in the kitchen
+  // or on the road has no net yet, and "6 طلبات · الصافي 0 دينار" would read as a day of free food.
+  const netIqd = input.netIqd === 0 && counts.orders > 0 ? null : input.netIqd;
   return {
     merchantOrgId: input.merchantOrgId,
     storeName: input.storeName,
@@ -134,8 +137,8 @@ export function composeDaySummary(input: {
     onTimeShare: counts.onTimeShare,
     onTimeSamples: counts.onTimeSamples,
     rejected: counts.rejected,
-    netIqd: input.netIqd,
+    netIqd,
     advice: dayAdvice(counts),
-    share_ar: dayShareText({ storeName: input.storeName, localDate: input.day.localDate, counts, netIqd: input.netIqd }),
+    share_ar: dayShareText({ storeName: input.storeName, localDate: input.day.localDate, counts, netIqd }),
   };
 }
