@@ -458,7 +458,7 @@ export default function CheckoutScreen() {
               testID="checkout-points"
               leading="gift"
               title={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
-              subtitle={t('checkout.points_hint', { n: pointsOffer.balance })}
+              subtitle={t('checkout.points_hint', { n: amountParam(pointsOffer.balance) })}
               onPress={() => setUsePoints((v) => !v)}
               chevron={false}
               trailing={
