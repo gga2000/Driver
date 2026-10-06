@@ -22,6 +22,7 @@ import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { rideAskOnLiveScreen } from '@/features/notify/prompt';
 import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
+import { rideArrivalCopy } from '@/features/track/arrival-copy';
 import { mapMinutesLabel } from '@/features/track/eta-range';
 import { CancelPanel, DisputePanel, StreetPanel, UNREACHABLE_PANEL_H, UnreachablePanel } from '@/features/track/Panels';
 import { currentSosFix } from '@/features/safety/fix';
@@ -439,7 +440,7 @@ export default function OrderLiveScreen() {
             {arrived && !showArrival ? (
               <View testID="receipt-rate" style={{ gap: theme.space[2] }}>
                 <Text variant="title">{t('order.rate_title')}</Text>
-                <Button label={t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
+                <Button label={v.order.type === 'ride' ? rideArrivalCopy(t, v).rate : t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
               </View>
             ) : null}
             {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
