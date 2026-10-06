@@ -9,7 +9,12 @@ import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../places/index.js';
 import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
+import { ControlsModule, ControlsService } from '../controls/index.js';
+import { PricingModule, PricingService } from '../pricing/index.js';
+import { ZonesModule, ZonesService } from '../zones/index.js';
+import { foodDeliveryFee } from './area.js';
 import {
+  MERCHANT_AREA,
   MERCHANT_CATALOG,
   MERCHANT_EVENTS,
   MERCHANT_ORDERS,
@@ -18,6 +23,7 @@ import {
   MERCHANT_STORES,
   MERCHANT_TRIPS,
   MerchantService,
+  type MerchantAreaPort,
   type MerchantCatalogPort,
   type MerchantEventsPort,
   type MerchantPeoplePort,
@@ -28,12 +34,13 @@ import {
  * Driver Merchant (`merchant.*`): the kitchen's stores, live board and status header. A read side and
  * a few switches over other modules' public services — orders (active orders), trips (courier state),
  * identity (role grants, courier first name), orgs (store settings: busy, early close, printer),
- * catalog (item names), places (pickup-spot photos in the blob store). Owns no tables: the switches and
+ * catalog (item names), places (pickup-spot photos in the blob store), and for the delivery map zones
+ * (outlines), pricing (checkout's fee quote) and controls (switched-off zones). Owns no tables: the switches and
  * the pickup spot live on the org's merchant settings, which the orders module reads for busy mode
  * (+10 min prep) and early close.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule, RoutingModule, PlacesModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, EventsModule, TrackingModule, RoutingModule, PlacesModule, ZonesModule, PricingModule, ControlsModule],
   providers: [
     { provide: MERCHANT_ORDERS, useExisting: OrdersService },
     { provide: MERCHANT_TRIPS, useExisting: TripsService },
@@ -80,6 +87,23 @@ import {
         },
       }),
       inject: [EventsService, CLOCK],
+    },
+    // Delivery area (maps program r5): the zones every map draws, checkout's fee quote and the switches
+    // `orders.place` obeys, so the kitchen's map can't disagree with what customers are charged.
+    {
+      provide: MERCHANT_AREA,
+      useFactory: (zones: ZonesService, pricing: PricingService, controls: ControlsService): MerchantAreaPort => ({
+        zones: (cityId) => zones.list(cityId),
+        foodDeliveryFee: (cityId, kitchenZone, dropoffZone, at) => foodDeliveryFee(pricing, cityId, kitchenZone, dropoffZone, at),
+        pausedZones: async (cityId, merchantOrgId, kitchenZone, zoneKeys) => {
+          const paused = new Set<string>();
+          for (const key of zoneKeys) {
+            if (await controls.blockingSwitch({ cityId, vertical: 'food', zones: [kitchenZone, key], merchantOrgId })) paused.add(key);
+          }
+          return paused;
+        },
+      }),
+      inject: [ZonesService, PricingService, ControlsService],
     },
     // Pickup-spot photos (maps program r7): uploads in the places blob store, read through signed links.
     {

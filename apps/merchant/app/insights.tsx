@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { SegmentedControl } from '@driver/ui';
 import { Page } from '@/components/Page';
+import { CustomerZonesPanel } from '@/features/area/CustomerZonesPanel';
 import { InsightsView } from '@/features/insights/InsightsView';
 import { useInsights } from '@/features/insights/queries';
 import { useCurrentStore } from '@/features/store/queries';
@@ -10,7 +11,7 @@ import { useLayout } from '@/lib/layout';
 
 type Range = '7' | '30' | '90';
 
-/** الإحصائيات (owner and staff): how honest the prep times are, rejections, peak hours, what sells, what customers say. */
+/** الإحصائيات (owner and staff): how honest the prep times are, rejections, peak hours, what sells, what customers say, and where they are (maps r6). */
 export default function InsightsScreen() {
   const t = useT();
   const { wide } = useLayout();
@@ -41,6 +42,7 @@ export default function InsightsScreen() {
     >
       {wide ? null : picker}
       <InsightsView data={insights.data} wide={wide} />
+      <CustomerZonesPanel merchantOrgId={store?.orgId ?? null} days={days} wide={wide} />
     </Page>
   );
 }

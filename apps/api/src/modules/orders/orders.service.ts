@@ -1056,6 +1056,14 @@ export class OrdersService implements OnModuleInit {
     return (await this.repo.merchantOrdersBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
   }
 
+  /**
+   * «منين زبائنك» (maps program r6): the store's delivered orders placed in `[from, to)` per drop-off
+   * zone. Counts only, from one grouped read; the merchant module hides the small zones (D7).
+   */
+  async deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>> {
+    return this.repo.deliveredByDropoffZone(merchantOrgId, range.from, range.to);
+  }
+
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
   async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined }): Promise<OrderSearchPage> {
     const { cursor, late, ...filter } = input;

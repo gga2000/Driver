@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import { Iqd } from './common.js';
+import { ZoneTier } from './city-config.js';
+import { Iqd, LatLng } from './common.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
 import { VehicleClass } from './trip.js';
+import { ZonePlacement } from './zones-io.js';
 
 /**
  * Driver Merchant (restaurants and grocers) — the kitchen side: which stores a person works at, the
@@ -327,6 +329,110 @@ export const SetPickupSpotInput = MerchantOrgInput.extend({
 });
 export type SetPickupSpotInput = z.infer<typeof SetPickupSpotInput>;
 
+// ───────────────────────── delivery area and fees (maps program r5) ─────────────────────────
+
+/**
+ * How long the API keeps a store's delivery-area view. Zones and fee rules change rarely (a Console
+ * edit, Ali's money rules), and the fee also moves with the hour (night fee), so the cache is also
+ * keyed by the Baghdad hour: a cached fee never outlives the hour it was priced in.
+ */
+export const DELIVERY_AREA_CACHE_MS = 3 * 60_000;
+
+/**
+ * Whether customers in a zone can order from this kitchen right now: `open`; `paused` when a Console
+ * switch stops food there (the zone, the whole food service, or this store); `no_price` when the
+ * pricing engine could not price the pair (checkout would refuse it the same way).
+ */
+export const DeliveryZoneService = z.enum(['open', 'paused', 'no_price']);
+export type DeliveryZoneService = z.infer<typeof DeliveryZoneService>;
+
+/** One zone on the restaurant's delivery map: its outline and what the customer pays from this kitchen. */
+export const DeliveryAreaZone = z.object({
+  key: z.string(),
+  name_ar: z.string(),
+  name_en: z.string(),
+  tier: ZoneTier,
+  placement: ZonePlacement,
+  /** Open ring; fewer than 3 points means no outline yet (the app draws a dot at `centre`). */
+  ring: z.array(LatLng),
+  centre: LatLng,
+  /** The delivery fee a customer here pays for this kitchen's food (server quote, door delivery); null when not priced. */
+  feeIqd: Iqd.nullable(),
+  /** Index into `bands` (cheapest first); null when not priced. */
+  band: z.number().int().nonnegative().nullable(),
+  service: DeliveryZoneService,
+  /** The kitchen stands in this zone. */
+  kitchen: z.boolean(),
+});
+export type DeliveryAreaZone = z.infer<typeof DeliveryAreaZone>;
+
+/** One fee amount on the legend and how many zones pay it. */
+export const DeliveryFeeBand = z.object({ feeIqd: Iqd, zones: z.number().int().positive() });
+export type DeliveryFeeBand = z.infer<typeof DeliveryFeeBand>;
+
+/** «منطقة التوصيل»: read-only; every amount is the server's (the app never prices). */
+export const MerchantDeliveryArea = z.object({
+  merchantOrgId: z.string(),
+  cityId: z.string(),
+  /** Where the kitchen is; null when the store has no place on file yet (then nothing is priced). */
+  kitchen: z
+    .object({
+      zoneKey: z.string(),
+      name_ar: z.string(),
+      name_en: z.string(),
+      pin: LatLng.nullable(),
+    })
+    .nullable(),
+  zones: z.array(DeliveryAreaZone),
+  /** Distinct fees, cheapest first: the map's colours and the legend. */
+  bands: z.array(DeliveryFeeBand),
+  /** When the fees were quoted (night fees depend on the hour). */
+  pricedAt: z.coerce.date(),
+});
+export type MerchantDeliveryArea = z.infer<typeof MerchantDeliveryArea>;
+
+/**
+ * The legend's bands from the zones' fees: one per distinct amount, cheapest first, with how many
+ * zones pay it. Unpriced zones (null) are left out. Shared so the API and its tests agree.
+ */
+export function feeBandsOf(fees: ReadonlyArray<number | null>): DeliveryFeeBand[] {
+  const counts = new Map<number, number>();
+  for (const fee of fees) if (fee !== null) counts.set(fee, (counts.get(fee) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([feeIqd, zones]) => ({ feeIqd, zones }));
+}
+
+// ───────────────────────── where my customers are (maps program r6) ─────────────────────────
+
+/**
+ * Privacy (maps spec D7): a zone with fewer delivered orders than this in the window is not named; its
+ * orders join «مناطق ثانية». Restaurants see areas only, never a pin, an address or a customer.
+ */
+export const CUSTOMER_ZONE_MIN_ORDERS = 5;
+/** The window the spec asks for (last 30 days); the insights screen passes its own range (up to 90). */
+export const CUSTOMER_ZONES_DEFAULT_DAYS = 30;
+
+export const CustomerZonesInput = MerchantOrgInput.extend({ days: z.number().int().min(1).max(90).default(CUSTOMER_ZONES_DEFAULT_DAYS) });
+export type CustomerZonesInput = z.input<typeof CustomerZonesInput>;
+
+/** A zone that passed the threshold, with its delivered orders. */
+export const CustomerZoneCount = z.object({ key: z.string(), name_ar: z.string(), name_en: z.string(), orders: z.number().int().positive() });
+export type CustomerZoneCount = z.infer<typeof CustomerZoneCount>;
+
+export const MerchantCustomerZones = z.object({
+  merchantOrgId: z.string(),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  days: z.number().int().positive(),
+  /** The threshold in force (CUSTOMER_ZONE_MIN_ORDERS), so the app's copy says the same number. */
+  minOrders: z.number().int().positive(),
+  /** Zones with at least `minOrders` delivered orders, most first. */
+  zones: z.array(CustomerZoneCount),
+  /** Delivered orders in zones under the threshold (or with no zone on file), summed. */
+  otherOrders: z.number().int().nonnegative(),
+  totalOrders: z.number().int().nonnegative(),
+});
+export type MerchantCustomerZones = z.infer<typeof MerchantCustomerZones>;
+
 /** What the API supplies to the `merchant` router (implemented by `modules/merchant`). */
 export interface MerchantPort {
   /** Stores the actor works at (owner or staff); empty when the account isn't activated for any. */
@@ -340,4 +446,8 @@ export interface MerchantPort {
   setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView>;
   pickupSpot(actor: Actor, input: MerchantOrgInput): Promise<PickupSpotView>;
   setPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView>;
+  /** The store's delivery zones with the server's fee from this kitchen to each (maps program r5). */
+  deliveryArea(actor: Actor, input: MerchantOrgInput): Promise<MerchantDeliveryArea>;
+  /** Delivered orders per drop-off zone over the window, small zones hidden (maps program r6, D7). */
+  customerZones(actor: Actor, input: z.output<typeof CustomerZonesInput>): Promise<MerchantCustomerZones>;
 }

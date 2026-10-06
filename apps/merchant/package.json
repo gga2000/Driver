@@ -21,6 +21,7 @@
     "@driver/contracts": "workspace:*",
     "@driver/design-tokens": "workspace:*",
     "@driver/i18n": "workspace:*",
+    "@driver/map": "workspace:*",
     "@driver/ui": "workspace:*",
     "@expo-google-fonts/ibm-plex-sans-arabic": "0.4.2",
     "@expo/dom-webview": "57.0.1",

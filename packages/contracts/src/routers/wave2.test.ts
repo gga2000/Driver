@@ -6,12 +6,13 @@ import { appRouter } from '../router.js';
 import { t, type AppContext } from '../trpc.js';
 
 /** Every port method answers "not found": reaching it proves the role gate let the call through. */
-function proxyPort(calls: string[], prefix: string): unknown {
+function proxyPort(calls: string[], prefix: string, inputs: unknown[] = []): unknown {
   return new Proxy(
     {},
     {
-      get: (_t, name: string) => async () => {
+      get: (_t, name: string) => async (_actor?: unknown, input?: unknown) => {
         calls.push(`${prefix}.${name}`);
+        inputs.push(input);
         throw new DriverError('not_found');
       },
     },
@@ -20,6 +21,8 @@ function proxyPort(calls: string[], prefix: string): unknown {
 
 function caller(roles: readonly RoleKind[] | null) {
   const calls: string[] = [];
+  /** What the merchant port was handed (after the router's input parsing and defaults). */
+  const inputs: unknown[] = [];
   const ctx = {
     auth: roles ? { sub: 'p1', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
     authError: null,
@@ -29,9 +32,9 @@ function caller(roles: readonly RoleKind[] | null) {
     fleet: proxyPort(calls, 'fleet'),
     ops: proxyPort(calls, 'ops'),
     merchantAdmin: proxyPort(calls, 'merchantAdmin'),
-    merchant: proxyPort(calls, 'merchant'),
+    merchant: proxyPort(calls, 'merchant', inputs),
   } as unknown as AppContext;
-  return { call: t.createCallerFactory(appRouter)(ctx), calls };
+  return { call: t.createCallerFactory(appRouter)(ctx), calls, inputs };
 }
 
 type Call = ReturnType<typeof caller>['call'];
@@ -107,6 +110,11 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['merchantAdmin.staff.remove', (c) => c.merchantAdmin.staff.remove({ ...M, personId: 'p2' }), 'merchant_owner', 'customer'],
   ['merchant.pickupSpot', (c) => c.merchant.pickupSpot(M), 'merchant_staff', 'courier'],
   ['merchant.setPickupSpot', (c) => c.merchant.setPickupSpot({ ...M, note: 'الاستلام من الشباك اليسار', photoIds: ['up_1'] }), 'merchant_owner', 'courier'],
+  // Maps program r5 / r6: read-only, owner and staff; a customer or courier never reaches the port.
+  ['merchant.deliveryArea', (c) => c.merchant.deliveryArea(M), 'merchant_staff', 'customer'],
+  ['merchant.deliveryArea', (c) => c.merchant.deliveryArea(M), 'merchant_owner', 'courier'],
+  ['merchant.customerZones', (c) => c.merchant.customerZones(M), 'merchant_staff', 'customer'],
+  ['merchant.customerZones', (c) => c.merchant.customerZones({ ...M, days: 30 }), 'merchant_owner', 'dispatcher'],
 ];
 
 describe('wave-2 routers: role gates reach the right port', () => {
@@ -135,6 +143,16 @@ describe('wave-2 routers: role gates reach the right port', () => {
     expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: null, photoIds: ['up_1', 'up_2', 'up_3'] }))).toBe('BAD_REQUEST');
     expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: null, photoIds: ['up_1', 'up_1'] }))).toBe('BAD_REQUEST');
     expect(await codeOf(call.merchant.setPickupSpot({ merchantOrgId: 'org_1', note: 'ش'.repeat(141), photoIds: [] }))).toBe('BAD_REQUEST');
+    // Where my customers are (r6): 1–90 days, a store always named.
+    expect(await codeOf(call.merchant.customerZones({ merchantOrgId: 'org_1', days: 0 }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.merchant.customerZones({ merchantOrgId: 'org_1', days: 91 }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.merchant.deliveryArea({ merchantOrgId: '' }))).toBe('BAD_REQUEST');
     expect([...calls, ...ops.calls, ...reviewer.calls]).toEqual([]);
+  });
+
+  it('customerZones defaults to the last 30 days', async () => {
+    const { call, inputs } = caller(['merchant_staff']);
+    await codeOf(call.merchant.customerZones(M));
+    expect(inputs).toEqual([{ merchantOrgId: 'org_1', days: 30 }]);
   });
 });

@@ -42,6 +42,24 @@ const BASKETS = [
   [[['lamb_tikka_plate', 1, 1], ['salad', 1, 1]], 2],
 ];
 
+/**
+ * Where Khalid's delivered orders go: [zone, weight]. Mostly the centre and the near streets; a few
+ * far zones stay under the 5-order line in a month, so «مناطق ثانية» has something in it.
+ */
+const DROPOFF_ZONES = [
+  ['centre', 22],
+  ['hashimi', 14],
+  ['street_30', 12],
+  ['zakur', 10],
+  ['mahdood_1', 8],
+  ['shukri', 6],
+  ['saadouniya', 5],
+  ['hawas_tujjar', 4],
+  ['qutniya', 3],
+  ['khamas', 1],
+  ['deir', 0.5],
+];
+
 /** Food rating per item (mean) and what people write. */
 const TASTE = {
   liver_wrap: { mean: 3.1, notes: ['الكبد ناشف شوية', 'الكبد بارد وصل', 'زين بس الكبد قليل'] },
@@ -88,6 +106,18 @@ async function build(ctx) {
   const rand = rng(20261003);
   const pick = (arr) => arr[Math.floor(rand() * arr.length)];
   const between = (a, b) => a + Math.floor(rand() * (b - a + 1));
+  // Customers' areas («منين زبائنك», maps r6) from their own seed, so adding them left every other
+  // number of the story (money, insights) exactly as it was.
+  const zoneRand = rng(20261007);
+  const zoneWeight = DROPOFF_ZONES.reduce((s, z) => s + z[1], 0);
+  const dropoffZone = () => {
+    let r = zoneRand() * zoneWeight;
+    for (const [key, w] of DROPOFF_ZONES) {
+      r -= w;
+      if (r <= 0) return key;
+    }
+    return DROPOFF_ZONES[0][0];
+  };
 
   // Couriers with names (first names show on the Money screen).
   const couriers = [];
@@ -172,7 +202,7 @@ async function build(ctx) {
             note: null,
             scheduledFor: null,
             minVehicleClass: null,
-            dropoff: null,
+            dropoff: pickup ? null : { zoneKey: dropoffZone() },
             placedAt: new Date(placedAt),
           },
           lines.map((l) => ({ catalogItemId: l.catalogItemId, freeText: l.freeText, qty: l.qty, unitPriceIqd: l.unitPriceIqd, modifiers: l.modifiers, note: l.note, pointsEligible: l.pointsEligible, participantRef: l.participantRef })),

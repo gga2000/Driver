@@ -41,7 +41,7 @@ describe('sections', () => {
     expect(sectionOf(['menu', 'item'])).toBe('menu');
     expect(sectionOf(['money'])).toBe('money');
     expect(sectionOf(['insights'])).toBe('insights');
-    for (const s of ['more', 'deals', 'staff', 'printer', 'hours', 'pickup-spot', 'settings']) expect(sectionOf([s])).toBe('more');
+    for (const s of ['more', 'deals', 'staff', 'printer', 'hours', 'pickup-spot', 'delivery-area', 'settings']) expect(sectionOf([s])).toBe('more');
     expect(sectionOf(['(auth)', 'welcome'])).toBeNull();
     expect(sectionOf(['stores'])).toBeNull();
   });
@@ -51,5 +51,6 @@ describe('sections', () => {
     expect(isSectionRoot(['menu', 'index'])).toBe(true);
     expect(isSectionRoot(['menu', 'item'])).toBe(false);
     expect(isSectionRoot(['printer'])).toBe(false);
+    expect(isSectionRoot(['delivery-area'])).toBe(false); // a screen under المزيد: back button, no tab bar
   });
 });

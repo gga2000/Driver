@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MerchantBoard, MerchantOrgInput, MerchantStore, PickupSpotView, SetBusyInput, SetPickupSpotInput, SetPrinterStatusInput, SetStoreHoursInput, SetStoreOpenInput, StoreHoursView, StoreStatusView } from '../merchant-io.js';
+import { CustomerZonesInput, MerchantBoard, MerchantCustomerZones, MerchantDeliveryArea, MerchantOrgInput, MerchantStore, PickupSpotView, SetBusyInput, SetPickupSpotInput, SetPrinterStatusInput, SetStoreHoursInput, SetStoreOpenInput, StoreHoursView, StoreStatusView } from '../merchant-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { MERCHANT_ROLES } from './orders.js';
 
@@ -30,4 +30,8 @@ export const merchantRouter = router({
   pickupSpot: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(PickupSpotView).query(({ ctx, input }) => ctx.merchant.pickupSpot(ctx.actor, input)),
   /** Owner only: replaces the photos and note; the courier sees them on the pickup stop of his job. */
   setPickupSpot: protectedProcedure(MERCHANT_ROLES).input(SetPickupSpotInput).output(PickupSpotView).mutation(({ ctx, input }) => ctx.merchant.setPickupSpot(ctx.actor, input)),
+  /** «منطقة التوصيل» (maps program r5): zones with the server's fee from this kitchen; read-only, owner and staff. */
+  deliveryArea: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(MerchantDeliveryArea).query(({ ctx, input }) => ctx.merchant.deliveryArea(ctx.actor, input)),
+  /** «منين زبائنك» (maps program r6): delivered orders per area, zones under 5 orders hidden (D7). */
+  customerZones: protectedProcedure(MERCHANT_ROLES).input(CustomerZonesInput).output(MerchantCustomerZones).query(({ ctx, input }) => ctx.merchant.customerZones(ctx.actor, input)),
 });

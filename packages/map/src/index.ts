@@ -4,3 +4,4 @@ export * from './zones.js';
 export * from './garages.js';
 export * from './style.js';
 export * from './polyline.js';
+export * from './project.js';

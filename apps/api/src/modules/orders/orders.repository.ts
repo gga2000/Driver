@@ -158,12 +158,24 @@ export interface OrdersRepository {
    * (placedAt, id) — one bounded read on `(merchant_org_id, placed_at)` (review 2026-10-04 #11).
    */
   merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
+   * One merchant's delivered orders placed in `[from, to)`, counted per drop-off zone (`dropoff.zoneKey`,
+   * null when none): one grouped read on `(merchant_org_id, placed_at)` that returns counts only, never
+   * an order, a customer or a pin (maps program r6).
+   */
+  deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
   countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
+}
+
+/** Delivered orders to one drop-off zone (null: the order carried no zone). */
+export interface DropoffZoneCount {
+  zoneKey: string | null;
+  orders: number;
 }
 
 export interface OrderSearchFilter {
@@ -385,6 +397,17 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
   }
 
+  async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]> {
+    // Prisma's groupBy cannot group on a JSON path, so this one read is SQL; the placed-at range keeps
+    // it on the (merchant_org_id, placed_at) index and only counts leave the database.
+    const rows = await this.db(tx).$queryRaw<Array<{ zone_key: string | null; orders: number }>>`
+      SELECT "dropoff"->>'zoneKey' AS "zone_key", COUNT(*)::int AS "orders"
+      FROM "public"."orders"
+      WHERE "merchant_org_id" = ${merchantOrgId} AND "placed_at" >= ${from} AND "placed_at" < ${to} AND "delivered_at" IS NOT NULL
+      GROUP BY 1`;
+    return rows.map((r) => ({ zoneKey: r.zone_key, orders: Number(r.orders) }));
+  }
+
   async forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]> {
     const rows = await this.db(tx).order.findMany({
       where: { OR: [{ ordererId: personId }, { participants: { some: { personId } } }] },
@@ -530,6 +553,16 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       });
     }
     return out.sort((a, b) => a.order.placedAt.getTime() - b.order.placedAt.getTime() || a.order.id.localeCompare(b.order.id));
+  }
+
+  async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date): Promise<DropoffZoneCount[]> {
+    const counts = new Map<string | null, number>();
+    for (const o of this.orders.values()) {
+      if (o.merchantOrgId !== merchantOrgId || o.placedAt < from || o.placedAt >= to || !o.deliveredAt) continue;
+      const zone = o.dropoff?.zoneKey ?? null;
+      counts.set(zone, (counts.get(zone) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([zoneKey, orders]) => ({ zoneKey, orders }));
   }
 
   async forPerson(personId: string): Promise<OrderRecord[]> {

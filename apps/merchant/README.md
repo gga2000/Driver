@@ -74,6 +74,11 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   (`places.photoUpload`), «احفظ» sends `merchant.setPickupSpot`. Owners edit, staff read. The courier sees it on the pickup stop of
   his job until he picks up. Demo: Khalid starts with a drawn takeaway window; `POST /demo/pickup/reset` | `/demo/pickup/clear`
   (`scripts/demo/pickup.mjs`).
+- **منطقة التوصيل** (`app/delivery-area.tsx`, `src/features/area/`, maps program r5): المزيد → «منطقة التوصيل». The town's zones
+  as a plain SVG map (`ZoneMap`, no tiles) coloured by the delivery fee a customer there pays for this store's food
+  (`merchant.deliveryArea`, the server's checkout quote; read-only), a legend in دينار, paused zones dashed, and a list of every
+  zone. Owner and staff. **منين زبائنك** (r6) is a panel on الإحصائيات (`merchant.customerZones`): delivered orders per area
+  for the chosen range, zones under 5 orders folded into «مناطق ثانية» (spec D7). Demo: Khalid's history carries drop-off zones.
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).

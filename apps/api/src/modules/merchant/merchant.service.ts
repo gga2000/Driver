@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  DELIVERY_AREA_CACHE_MS,
   DriverError,
   daysFromWindows,
   localClock,
@@ -12,6 +13,8 @@ import {
   type BoardOrder,
   type LatLng,
   type MerchantBoard,
+  type MerchantCustomerZones,
+  type MerchantDeliveryArea,
   type MerchantOrgInput,
   type MerchantPort,
   type MerchantStore,
@@ -31,6 +34,7 @@ import {
   type Trip,
   type VehicleClass,
   type WeeklyWindow,
+  type ZonePlacementView,
 } from '@driver/contracts';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -38,6 +42,7 @@ import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES }
 import type { MerchantPickupSpot, MerchantSettings, Org } from '../orgs/index.js';
 import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
+import { composeCustomerZones, composeDeliveryArea } from './area.js';
 import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyUntilFor, toStoreStatus } from './status.js';
 
@@ -49,6 +54,8 @@ export interface MerchantOrdersPort {
   listActive(filter: { merchantOrgId: string }): Promise<Order[]>;
   /** The store's orders placed in `[from, to)` — today's misses for the board (M-01). Optional for fakes. */
   merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Delivered orders placed in `[from, to)` per drop-off zone: counts only (maps program r6). */
+  deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>>;
 }
 export interface MerchantTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -92,7 +99,22 @@ export interface MerchantPhotosPort {
   remove(uploadId: string): Promise<void>;
 }
 
+/**
+ * The delivery map's facts from other modules (maps program r5): the zones every app map draws,
+ * checkout's fee quote, and the Console switches `orders.place` obeys — so the kitchen sees exactly
+ * what its customers get.
+ */
+export interface MerchantAreaPort {
+  /** The city's live zones with outlines (`ZonesService.list`). */
+  zones(cityId: string): Promise<readonly ZonePlacementView[]>;
+  /** Checkout's delivery fee for food from the kitchen's zone to `dropoffZone` at `at`; null when it cannot be priced. */
+  foodDeliveryFee(cityId: string, kitchenZone: string, dropoffZone: string, at: Date): number | null;
+  /** Of `zoneKeys`, those a Console switch closes to food from this store (zone, food service or the store itself). */
+  pausedZones(cityId: string, merchantOrgId: string, kitchenZone: string, zoneKeys: readonly string[]): Promise<Set<string>>;
+}
+
 export const MERCHANT_ORDERS = Symbol('MERCHANT_ORDERS');
+export const MERCHANT_AREA = Symbol('MERCHANT_AREA');
 export const MERCHANT_TRIPS = Symbol('MERCHANT_TRIPS');
 export const MERCHANT_PEOPLE = Symbol('MERCHANT_PEOPLE');
 export const MERCHANT_STORES = Symbol('MERCHANT_STORES');
@@ -103,6 +125,10 @@ export const MERCHANT_PHOTOS = Symbol('MERCHANT_PHOTOS');
 const OWNER: RoleKind = 'merchant_owner';
 const STAFF: RoleKind = 'merchant_staff';
 const CARD_CACHE_MAX = 2000;
+/** Stores whose delivery map is kept (a town has a few hundred; the oldest goes first past this). */
+const AREA_CACHE_MAX = 1000;
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
 
 /**
  * Driver Merchant reads and store switches (`merchant.*`). Every call is scoped: the actor must hold
@@ -112,6 +138,8 @@ const CARD_CACHE_MAX = 2000;
 export class MerchantService implements MerchantPort {
   /** Courier first names per trip and reader: a board polled every few seconds logs one vault read per trip. */
   private readonly names = new Map<string, string | null>();
+  /** Delivery maps per store, with when they were priced (DELIVERY_AREA_CACHE_MS, same Baghdad hour). */
+  private readonly areas = new Map<string, { at: number; view: MerchantDeliveryArea }>();
 
   constructor(
     @Inject(MERCHANT_ORDERS) private readonly orders: MerchantOrdersPort,
@@ -122,6 +150,7 @@ export class MerchantService implements MerchantPort {
     @Inject(MERCHANT_EVENTS) private readonly events: MerchantEventsPort,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly eta: EtaService,
+    @Inject(MERCHANT_AREA) private readonly area: MerchantAreaPort,
     @Optional() @Inject(MERCHANT_PHOTOS) private readonly photos: MerchantPhotosPort | null = null,
   ) {}
 
@@ -359,6 +388,50 @@ export class MerchantService implements MerchantPort {
   private signed(spot: MerchantPickupSpot): PickupSpotPhoto[] {
     const photos = this.photos;
     return photos ? spot.photoRefs.map((id) => ({ id, url: photos.readUrl(id) })) : [];
+  }
+
+  // ───────────────────────── delivery area and customers' zones (maps r5, r6) ─────────────────────────
+
+  /**
+   * «منطقة التوصيل»: the zones and the fee a customer in each pays for this kitchen's food, read-only.
+   * Fees come from checkout's own quote (never a client number, never a rule copied here). Kept per
+   * store for DELIVERY_AREA_CACHE_MS and never past the Baghdad hour it was priced in (night fees
+   * change on the hour), so a tablet polling the screen does not re-read zones and switches.
+   */
+  async deliveryArea(actor: Actor, input: MerchantOrgInput): Promise<MerchantDeliveryArea> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    const now = this.clock.now().getTime();
+    const hit = this.areas.get(org.id);
+    if (hit && now - hit.at >= 0 && now - hit.at < DELIVERY_AREA_CACHE_MS && Math.floor(hit.at / HOUR_MS) === Math.floor(now / HOUR_MS)) return hit.view;
+    const at = new Date(now);
+    const kitchen = (await this.stores.merchantSettings(org.id)).location ?? null;
+    const zones = await this.area.zones(org.cityId);
+    const paused = kitchen ? await this.area.pausedZones(org.cityId, org.id, kitchen.zoneKey, zones.map((z) => z.key)) : new Set<string>();
+    const view = composeDeliveryArea({
+      merchantOrgId: org.id,
+      cityId: org.cityId,
+      kitchen,
+      zones,
+      feeOf: (zoneKey) => (kitchen ? this.area.foodDeliveryFee(org.cityId, kitchen.zoneKey, zoneKey, at) : null),
+      paused,
+      at,
+    });
+    this.areas.delete(org.id);
+    if (this.areas.size >= AREA_CACHE_MAX) this.areas.delete(this.areas.keys().next().value!);
+    this.areas.set(org.id, { at: now, view });
+    return view;
+  }
+
+  /**
+   * «منين زبائنك»: the store's delivered orders over the last `days` per drop-off zone, from one grouped
+   * read. Zones under CUSTOMER_ZONE_MIN_ORDERS are not named (D7); owner and staff alike (no money).
+   */
+  async customerZones(actor: Actor, input: { merchantOrgId: string; days: number }): Promise<MerchantCustomerZones> {
+    const org = await this.assertStore(actor, input.merchantOrgId);
+    const to = this.clock.now();
+    const from = new Date(to.getTime() - input.days * DAY_MS);
+    const [counts, zones] = await Promise.all([this.orders.deliveredByDropoffZone(org.id, { from, to: new Date(to.getTime() + 1) }), this.area.zones(org.cityId)]);
+    return composeCustomerZones({ merchantOrgId: org.id, from, to, days: input.days, counts, zones });
   }
 
   // ───────────────────────── internals ─────────────────────────

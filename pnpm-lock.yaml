@@ -365,6 +365,9 @@ importers:
       '@driver/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@driver/map':
+        specifier: workspace:*
+        version: link:../../packages/map
       '@driver/ui':
         specifier: workspace:*
         version: link:../../packages/ui

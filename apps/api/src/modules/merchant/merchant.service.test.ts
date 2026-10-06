@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
-import { DriverError, type RoleKind } from '@driver/contracts';
+import { CUSTOMER_ZONE_MIN_ORDERS, DELIVERY_AREA_CACHE_MS, DriverError, type RoleKind } from '@driver/contracts';
 import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
 import { OrdersStorefrontMerchants } from '../orders/storefront.port.js';
-import { HARNESS_MENU, KITCHEN, ordersHarness } from '../orders/test-harness.js';
+import { HARNESS_MENU, HOME, KITCHEN, ordersHarness } from '../orders/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
-import { MerchantService, type MerchantEventsPort, type MerchantPeoplePort, type MerchantPhotosPort } from './merchant.service.js';
+import { ConfigService } from '../config/index.js';
+import { serverFees } from '../orders/index.js';
+import { PricingService } from '../pricing/index.js';
+import { SEED_ZONES } from './area.fixtures.js';
+import { foodDeliveryFee } from './area.js';
+import { MerchantService, type MerchantAreaPort, type MerchantEventsPort, type MerchantPeoplePort, type MerchantPhotosPort } from './merchant.service.js';
 
 const MIN = 60_000;
 
@@ -57,10 +62,31 @@ async function setup(opts: { photos?: MerchantPhotosPort } = {}) {
     },
   };
   const names = new Map(HARNESS_MENU.map((m) => [m.id, m.nameAr]));
-  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()), opts.photos ?? null);
+  const area = testArea();
+  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()), area, opts.photos ?? null);
   const staff = { personId: 's1', sessionId: 'x' };
   const owner = { personId: 'o1', sessionId: 'y' };
-  return { h, orgs, svc, khalid, other, staff, owner, recorded, nameReads };
+  return { h, orgs, svc, khalid, other, staff, owner, recorded, nameReads, area };
+}
+
+/**
+ * The delivery map's port as the module binds it, over the seed zones (drafts), checkout's real
+ * pricing (`foodDeliveryFee` → `serverFees` → `PricingService`) and a settable set of switched-off
+ * zones; counts its zone reads so the cache can be seen.
+ */
+function testArea(): MerchantAreaPort & { zoneReads: number; paused: Set<string> } {
+  const pricing = new PricingService(new ConfigService());
+  const port = {
+    zoneReads: 0,
+    paused: new Set<string>(),
+    zones: async () => {
+      port.zoneReads += 1;
+      return SEED_ZONES;
+    },
+    foodDeliveryFee: (cityId: string, kitchenZone: string, dropoffZone: string, at: Date) => foodDeliveryFee(pricing, cityId, kitchenZone, dropoffZone, at),
+    pausedZones: async (_city: string, _org: string, _kitchen: string, keys: readonly string[]) => new Set(keys.filter((k) => port.paused.has(k))),
+  };
+  return port;
 }
 
 describe('MerchantService — stores and scope', () => {
@@ -290,6 +316,7 @@ describe('MerchantService — opening hours', () => {
       events,
       base.h.clock,
       new EtaService(new StraightLineRouter()),
+      base.area,
     );
     return { ...base, svc, fronts };
   }
@@ -482,5 +509,124 @@ describe('MerchantService — pickup spot (maps program r7)', () => {
     expect(await svc.courierPickupSpot(khalid.id, { courierId: 'k1', trip: job({ completedAt: done }), now: new Date('2026-10-04T10:00:00Z') })).toBeNull(); // long after
     // A store without a spot shows nothing.
     expect(await svc.courierPickupSpot(other.id, { courierId: 'k1', trip: job(), now: during })).toBeNull();
+  });
+});
+
+describe('MerchantService — delivery area and fees (maps program r5)', () => {
+  it('prices every zone from this kitchen with checkout’s own quote, bands cheapest first', async () => {
+    const { svc, staff, khalid } = await setup(); // 12:00 Baghdad: no night fee
+    const view = await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    const pricing = new PricingService(new ConfigService());
+    expect(view.kitchen).toMatchObject({ zoneKey: 'centre', name_en: 'Aziziyah centre', pin: KITCHEN });
+    expect(view.zones).toHaveLength(SEED_ZONES.length);
+    for (const z of view.zones) {
+      // The very fee orders.place locks for a customer in that zone.
+      const fee = serverFees(pricing, { cityId: 'aziziyah', type: 'food', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: z.key }, at: view.pricedAt }).deliveryFeeIqd;
+      expect(z.feeIqd, z.key).toBe(fee);
+      expect(view.bands[z.band!]!.feeIqd).toBe(fee);
+      expect(z.service).toBe('open');
+    }
+    const byKey = new Map(view.zones.map((z) => [z.key, z]));
+    expect(byKey.get('centre')).toMatchObject({ feeIqd: 500, kitchen: true });
+    expect(byKey.get('zakur')).toMatchObject({ feeIqd: 1000, kitchen: false });
+    expect(byKey.get('khamas')?.feeIqd).toBe(1500);
+    expect(byKey.get('bazl_hallata')?.feeIqd).toBe(2000);
+    expect(view.bands.map((b) => b.feeIqd)).toEqual([500, 1000, 1500, 2000]);
+    expect(view.bands.reduce((a, b) => a + b.zones, 0)).toBe(SEED_ZONES.length);
+  });
+
+  it('a night hour quotes the night fee, like checkout at that hour', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    h.clock.set('2026-10-03T20:30:00Z'); // 23:30 Baghdad
+    const view = await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(view.zones.find((z) => z.key === 'centre')?.feeIqd).toBe(750);
+  });
+
+  it('marks a switched-off zone as paused and keeps its fee', async () => {
+    const { svc, staff, khalid, area } = await setup();
+    area.paused.add('zakur');
+    const view = await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(view.zones.find((z) => z.key === 'zakur')).toMatchObject({ service: 'paused', feeIqd: 1000 });
+    expect(view.zones.filter((z) => z.service === 'paused')).toHaveLength(1);
+  });
+
+  it('a store without a place on file sees the zones with nothing priced', async () => {
+    const { svc, owner, other } = await setup();
+    const view = await svc.deliveryArea(owner, { merchantOrgId: other.id });
+    expect(view.kitchen).toBeNull();
+    expect(view.bands).toEqual([]);
+    expect(view.zones.every((z) => z.feeIqd === null && z.band === null && z.service === 'no_price')).toBe(true);
+  });
+
+  it('keeps the view a few minutes, never past the hour it was priced in', async () => {
+    const { h, svc, staff, khalid, area } = await setup();
+    h.clock.set('2026-10-03T09:10:00Z');
+    await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    h.clock.advance(2 * MIN);
+    await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(area.zoneReads).toBe(1);
+    h.clock.advance(DELIVERY_AREA_CACHE_MS); // past the cache
+    await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(area.zoneReads).toBe(2);
+    h.clock.set('2026-10-03T09:59:30Z');
+    await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(area.zoneReads).toBe(3);
+    h.clock.set('2026-10-03T10:00:10Z'); // 40 s later, but a new hour (a night fee may start on one)
+    await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(area.zoneReads).toBe(4);
+  });
+
+  it('refuses people who don’t work at the store, and another store’s staff', async () => {
+    const { svc, staff, other, khalid } = await setup();
+    expect(await code(svc.deliveryArea({ personId: 'nobody', sessionId: 'z' }, { merchantOrgId: khalid.id }))).toBe('forbidden');
+    expect(await code(svc.deliveryArea(staff, { merchantOrgId: other.id }))).toBe('forbidden');
+    expect(await code(svc.deliveryArea({ personId: 'f1', sessionId: 'z' }, { merchantOrgId: khalid.id }))).toBe('forbidden'); // frozen grant
+  });
+});
+
+describe('MerchantService — where my customers are (maps program r6)', () => {
+  /** Delivered khalid orders, one per zone listed, placed now; plus noise that must not count. */
+  async function delivered(base: Awaited<ReturnType<typeof setup>>, zones: readonly string[]) {
+    const { h, khalid, other } = base;
+    const place = (merchantOrgId: string, zoneKey: string) =>
+      h.orders.place('c1', { ...h.foodInput({ merchantOrgId, dropoff: { zoneKey, pin: HOME } }), deliveryFeeIqd: undefined, serviceFeeIqd: undefined });
+    for (const zoneKey of zones) {
+      const o = await place(khalid.id, zoneKey);
+      await h.repo.update(o.id, { state: 'delivered', deliveredAt: h.clock.now() });
+    }
+    // Not delivered yet, and another store's delivered order: neither counts.
+    await place(khalid.id, 'zakur');
+    h.merchants.add(other.id, { location: { zoneKey: 'centre', pin: KITCHEN } });
+    const theirs = await place(other.id, 'zakur');
+    await h.repo.update(theirs.id, { state: 'delivered', deliveredAt: h.clock.now() });
+  }
+
+  it('names zones with 5 or more delivered orders, sums the rest into “other”, most first', async () => {
+    const base = await setup();
+    await delivered(base, [...Array<string>(7).fill('zakur'), ...Array<string>(5).fill('hashimi'), ...Array<string>(4).fill('khamas'), 'deir']);
+    const view = await base.svc.customerZones(base.staff, { merchantOrgId: base.khalid.id, days: 30 });
+    expect(view.zones).toEqual([
+      { key: 'zakur', name_ar: 'زاكور', name_en: 'Zakur', orders: 7 },
+      { key: 'hashimi', name_ar: 'الهاشمي', name_en: 'Al-Hashimi', orders: 5 },
+    ]);
+    expect(view).toMatchObject({ otherOrders: 5, totalOrders: 17, minOrders: CUSTOMER_ZONE_MIN_ORDERS, days: 30 });
+    // Counts only: no order, customer or pin leaves the server.
+    expect(JSON.stringify(view)).not.toMatch(/c1|lat|lng|orderId/);
+  });
+
+  it('only counts the window', async () => {
+    const base = await setup();
+    base.h.clock.set('2026-09-01T09:00:00Z');
+    await delivered(base, Array<string>(6).fill('zakur'));
+    base.h.clock.set('2026-10-03T09:00:00Z'); // 32 days later
+    const view = await base.svc.customerZones(base.owner, { merchantOrgId: base.khalid.id, days: 30 });
+    expect(view).toMatchObject({ zones: [], otherOrders: 0, totalOrders: 0 });
+    expect((await base.svc.customerZones(base.owner, { merchantOrgId: base.khalid.id, days: 90 })).zones).toEqual([{ key: 'zakur', name_ar: 'زاكور', name_en: 'Zakur', orders: 6 }]);
+  });
+
+  it('refuses people who don’t work at the store', async () => {
+    const { svc, staff, other, khalid } = await setup();
+    expect(await code(svc.customerZones({ personId: 'nobody', sessionId: 'z' }, { merchantOrgId: khalid.id, days: 30 }))).toBe('forbidden');
+    expect(await code(svc.customerZones(staff, { merchantOrgId: other.id, days: 30 }))).toBe('forbidden');
   });
 });
