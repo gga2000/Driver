@@ -3,6 +3,7 @@ import { ScrollView, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { SAFETY_RULES } from '@driver/contracts';
 import { contrastRatio, type ThemeColorKey } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
 import {
@@ -1003,7 +1004,23 @@ function SosSection() {
         </View>
       </Panel>
       <View style={{ height: 470, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
-        <SosSheet phase="open" cancelUntil={start + 8_000} clock={frozen} contactName="أم زينب" onCancel={() => undefined} onClose={() => undefined} onCallPolice={() => undefined} />
+        <SosSheet phase="open" policeNumber={SAFETY_RULES.policeNumber} cancelUntil={start + 8_000} clock={frozen} contactName="أم زينب" onCancel={() => undefined} onClose={() => undefined} onCallPolice={() => undefined} />
+      </View>
+      {/* Rider layout (customer rides, L-17): police first, the car to read out, no contact → share my location. */}
+      <View style={{ height: 560, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+        <SosSheet
+          layout="rider"
+          phase="open"
+          policeNumber={SAFETY_RULES.policeNumber}
+          car="عباس · تويوتا كورولا أبيض · واسط 31207"
+          cancelUntil={start + 8_000}
+          clock={frozen}
+          contactName={null}
+          onShareLocation={() => undefined}
+          onCancel={() => undefined}
+          onClose={() => undefined}
+          onCallPolice={() => undefined}
+        />
       </View>
     </Section>
   );

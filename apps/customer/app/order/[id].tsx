@@ -16,6 +16,7 @@ import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
+import { shareUrl } from '@/features/rajaa/share';
 import { SosControl } from '@/features/safety/SosControl';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { rideAskOnLiveScreen } from '@/features/notify/prompt';
@@ -201,6 +202,17 @@ export default function OrderLiveScreen() {
     }
   };
   const call = () => void maskedCall();
+  // SOS (L-17): the car to read out, and a live link for someone the rider trusts.
+  const sosCar = v?.courier ? [v.courier.firstName ?? t('track.driver_fallback'), v.courier.vehicleLabel, v.courier.plate].filter(Boolean).join(' · ') : null;
+  const shareMyLocation = async () => {
+    try {
+      const link = shareLink && !shareLink.revokedAt ? shareLink : await client.tracking.createShareLink.mutate({ orderId: id });
+      setShareLink(link);
+      await Share.share({ message: t('sos.share_message', { url: shareUrl(link.path) }) });
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+    }
+  };
   const openChat = (kind: 'customer_courier' | 'customer_merchant') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
   const reply = async (key: QuickReplyKey) => {
     try {
@@ -320,7 +332,11 @@ export default function OrderLiveScreen() {
       <TopBar
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
         // SOS on a ride with a driver (scoring & safety §3): from the match until a little after arrival.
-        sos={ride && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way' || phase === 'arrived' || phase === 'unreachable') ? <SosControl subject={{ kind: 'order', id }} /> : null}
+        sos={
+          ride && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way' || phase === 'arrived' || phase === 'unreachable') ? (
+            <SosControl subject={{ kind: 'order', id }} car={sosCar} onShareLocation={() => void shareMyLocation()} />
+          ) : null
+        }
       >
         {lostMin !== null ? (
           <DegradedBanner

@@ -114,8 +114,8 @@ describe('SosSheet', () => {
     vi.useFakeTimers();
     let now = 0;
     const onCancel = vi.fn();
-    renderUI(<SosSheet phase="open" cancelUntil={10_000} contactName="أم" clock={() => now} onCancel={onCancel} onClose={() => undefined} />);
-    expect(screen.getByTestId('sos-sheet-title').textContent).toBe('وصلنا تنبيهك. الديسباتشر يشوف موقعك هسة ويتصل بيك');
+    renderUI(<SosSheet phase="open" policeNumber="104" cancelUntil={10_000} contactName="أم" clock={() => now} onCancel={onCancel} onClose={() => undefined} />);
+    expect(screen.getByTestId('sos-sheet-title').textContent).toBe('وصلنا تنبيهك. فريق درايفر يشوف موقعك هسة ويتصل بيك');
     expect(screen.getByTestId('sos-cancel').textContent).toContain('كنسل — تنبيه بالغلط (10)');
     fireEvent.click(screen.getByTestId('sos-cancel'));
     expect(onCancel).toHaveBeenCalledTimes(1);
@@ -130,9 +130,41 @@ describe('SosSheet', () => {
 
   it('when sending failed it says so and offers the police number', () => {
     const onCallPolice = vi.fn();
-    renderUI(<SosSheet phase="failed" onClose={() => undefined} onRetry={() => undefined} onCallPolice={onCallPolice} />);
+    renderUI(<SosSheet phase="failed" policeNumber="104" onClose={() => undefined} onRetry={() => undefined} onCallPolice={onCallPolice} />);
     expect(screen.getByTestId('sos-sheet-title').textContent).toContain('104');
     fireEvent.click(screen.getByTestId('sos-police'));
     expect(onCallPolice).toHaveBeenCalledTimes(1);
+  });
+
+  it('rider layout (L-17): police first and filled, the car to read out, «فريق درايفر», then a quiet cancel', () => {
+    vi.useFakeTimers();
+    const now = 0;
+    const onCallPolice = vi.fn();
+    const onCancel = vi.fn();
+    const { container } = renderUI(
+      <SosSheet layout="rider" phase="open" policeNumber="104" car="عباس · تويوتا كورولا أبيض · واسط 31207" cancelUntil={10_000} contactName="أم" contactNotified clock={() => now} onCancel={onCancel} onClose={() => undefined} onCallPolice={onCallPolice} />,
+    );
+    const order = [...container.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'));
+    const at = (id: string) => order.indexOf(id);
+    expect(at('sos-police')).toBeGreaterThan(-1);
+    expect(at('sos-police')).toBeLessThan(at('sos-car'));
+    expect(at('sos-car')).toBeLessThan(at('sos-team'));
+    expect(at('sos-team')).toBeLessThan(at('sos-cancel'));
+    expect(screen.getByTestId('sos-police').textContent).toContain('اتصل بالشرطة 104');
+    expect(screen.getByTestId('sos-car').textContent).toContain('واسط 31207');
+    expect(screen.getByTestId('sos-team').textContent).toBe('فريق درايفر يشوف موقعك هسة ويتصل بيك');
+    expect(screen.getByTestId('sos-cancel').textContent).toContain('كنسل، ضغطتها بالغلط (10)');
+    fireEvent.click(screen.getByTestId('sos-police'));
+    expect(onCallPolice).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('sos-share-location')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('rider layout without an emergency contact: «دز موقعي لواحد أثق بيه» opens the share sheet', () => {
+    const onShareLocation = vi.fn();
+    renderUI(<SosSheet layout="rider" phase="open" policeNumber="104" contactName={null} onClose={() => undefined} onShareLocation={onShareLocation} />);
+    fireEvent.click(screen.getByTestId('sos-share-location'));
+    expect(onShareLocation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('ما عندك رقم طوارئ. تگدر تضيفه من حسابك')).toBeNull();
   });
 });

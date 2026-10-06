@@ -30,7 +30,11 @@ export const SAFETY_RULES = {
   graceAfterEndMin: 30,
   /** The emergency contact's live-location link lives this long after the incident closes. */
   linkAfterCloseMin: 30,
-  /** Iraq's police emergency number, shown when the alert cannot be sent. */
+  /**
+   * Iraq's police emergency number: the rider's first SOS action and the fallback when the alert
+   * cannot be sent. The one place it lives (every app passes it to `SosSheet`). NEEDS ALI: confirm 104
+   * is the right number for Wasit (CLAUDE.md open decisions).
+   */
   policeNumber: '104',
 } as const;
 

@@ -194,7 +194,18 @@ export interface SosSheetProps {
   /** Positions are still being shared. */
   sharing?: boolean;
   cancelling?: boolean;
-  policeNumber?: string;
+  /** The emergency number (one constant: `SAFETY_RULES.policeNumber`, passed by each app). */
+  policeNumber: string;
+  /**
+   * `rider` (customer rides, L-17): the police call first and filled, the car to read out, who is
+   * looking ("فريق درايفر"), then the false-alarm cancel as a quiet text button. `standard` (the
+   * Partner app) keeps its order.
+   */
+  layout?: 'standard' | 'rider';
+  /** Rider layout: the car to read out to the police ("عباس · تويوتا كورولا أبيض · واسط 31207"). */
+  car?: string | null;
+  /** Rider layout with no emergency contact: send my location to someone I trust (system share sheet). */
+  onShareLocation?: () => void;
   onCancel?: () => void;
   onClose: () => void;
   onRetry?: () => void;
@@ -205,7 +216,7 @@ export interface SosSheetProps {
 
 /**
  * What the person sees once the alert is sent (voice spec #26, "calm in danger"): it states the fact
- * and the next step — "وصلنا تنبيهك. الديسباتشر يشوف موقعك هسة ويتصل بيك" — with "كنسل — تنبيه بالغلط"
+ * and the next step — "وصلنا تنبيهك. فريق درايفر يشوف موقعك هسة ويتصل بيك" — with "كنسل — تنبيه بالغلط"
  * for 10 seconds, then who took it, whether the emergency contact was told, and that the location
  * keeps going to dispatch. If the alert could not be sent it says so and offers the police number.
  */
@@ -217,7 +228,10 @@ export function SosSheet({
   contactNotified = false,
   sharing = true,
   cancelling = false,
-  policeNumber = '104',
+  policeNumber,
+  layout = 'standard',
+  car = null,
+  onShareLocation,
   onCancel,
   onClose,
   onRetry,
@@ -236,6 +250,7 @@ export function SosSheet({
 
   const live = phase === 'open' || phase === 'acknowledged';
   const failed = phase === 'failed' || phase === 'offline';
+  const rider = layout === 'rider';
   const title =
     phase === 'sending'
       ? t('sos.sending')
@@ -251,7 +266,9 @@ export function SosSheet({
               ? t('sos.failed', { number: policeNumber })
               : phase === 'offline'
                 ? t('sos.offline', { number: policeNumber })
-                : t('safety.sos_sent');
+                : rider
+                  ? t('sos.rider_sent')
+                  : t('safety.sos_sent');
 
   return (
     <View testID={testID} style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, justifyContent: 'flex-end', zIndex: 50 }}>
@@ -276,14 +293,43 @@ export function SosSheet({
           {title}
         </Text>
 
-        {live ? (
+        {rider && live ? (
+          <View style={{ gap: theme.space[3] }}>
+            {onCallPolice ? <Button label={t('sos.call_police', { number: policeNumber })} variant="destructive" size="lg" icon="phone" fullWidth onPress={onCallPolice} haptic="heavy" testID="sos-police" /> : null}
+            {car ? (
+              <View testID="sos-car" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+                <Icon name="car" size={22} color="text" strokeWidth={2} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text variant="caption" color="textMuted">
+                    {t('sos.car_label')}
+                  </Text>
+                  <Text variant="bodyStrong">{car}</Text>
+                </View>
+              </View>
+            ) : null}
+            <Line icon="location-arrow" text={t('sos.rider_team')} tone="text" live={sharing} testID="sos-team" />
+            {contactName === null ? (
+              onShareLocation ? (
+                <Button label={t('sos.share_location')} variant="secondary" icon="share" fullWidth onPress={onShareLocation} testID="sos-share-location" />
+              ) : null
+            ) : contactName && contactNotified ? (
+              <Line icon="check" text={t('sos.contact_notified', { name: contactName })} tone="successText" />
+            ) : null}
+          </View>
+        ) : null}
+
+        {!rider && live ? (
           <View style={{ gap: theme.space[2] }}>
             {sharing ? <Line icon="location-arrow" text={t('sos.sharing')} tone="text" live /> : null}
             {contactName === null ? <Line icon="user" text={t('sos.contact_none')} tone="textMuted" /> : contactName && contactNotified ? <Line icon="check" text={t('sos.contact_notified', { name: contactName })} tone="successText" /> : null}
           </View>
         ) : null}
 
-        {live && left > 0 && onCancel ? (
+        {rider && live && left > 0 && onCancel ? (
+          <Button label={t('sos.rider_cancel', { seconds: left })} variant="ghost" fullWidth loading={cancelling} onPress={onCancel} testID="sos-cancel" />
+        ) : null}
+
+        {!rider && live && left > 0 && onCancel ? (
           <View style={{ gap: theme.space[1] }}>
             <Button label={`${t('sos.cancel')} (${left})`} variant="secondary" size="lg" fullWidth loading={cancelling} onPress={onCancel} haptic="medium" testID="sos-cancel" />
             <Text variant="caption" color="textMuted" align="center" tabular>
@@ -293,7 +339,7 @@ export function SosSheet({
         ) : null}
 
         {failed && onRetry ? <Button label={t('action.retry')} variant="destructive" size="lg" fullWidth onPress={onRetry} testID="sos-retry" /> : null}
-        {(failed || live) && onCallPolice ? (
+        {(failed || (live && !rider)) && onCallPolice ? (
           <Button label={t('sos.call_police', { number: policeNumber })} variant={failed ? 'secondary' : 'ghost'} icon="phone" fullWidth onPress={onCallPolice} testID="sos-police" />
         ) : null}
         {phase !== 'sending' && !(live && left > 0) ? <Button label={t('sos.back')} variant={failed ? 'ghost' : 'primary'} size="lg" fullWidth onPress={onClose} testID="sos-close" /> : null}
@@ -302,10 +348,10 @@ export function SosSheet({
   );
 }
 
-function Line({ icon, text, tone, live = false }: { icon: 'location-arrow' | 'user' | 'check'; text: string; tone: 'text' | 'textMuted' | 'successText'; live?: boolean }) {
+function Line({ icon, text, tone, live = false, testID }: { icon: 'location-arrow' | 'user' | 'check'; text: string; tone: 'text' | 'textMuted' | 'successText'; live?: boolean; testID?: string }) {
   const theme = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
       <View style={{ width: 28, alignItems: 'center' }}>
         {live ? <View style={{ position: 'absolute', width: 8, height: 8, borderRadius: 4, top: -2, end: 2, backgroundColor: theme.colors.danger }} /> : null}
         <Icon name={icon} size={18} color={tone} strokeWidth={2} />
