@@ -10,7 +10,7 @@ import { cartStore, useCart } from '@/features/food/cart-store';
 import { checkoutTotals, lineSavings, otherDeals } from '@/features/food/checkout';
 import { DealBadges } from '@/features/food/DealBadge';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
-import { FoodArt, motifForDish } from '@/features/food/FoodArt';
+import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { minOrderProgress } from '@/features/food/min-order';
 import { MinOrderStrip } from '@/features/food/MinOrderStrip';
 import { priceItems } from '@/features/food/price-lines';
@@ -153,7 +153,7 @@ export default function CartScreen() {
             {upsell.map((item) => (
               <Card key={item.id} padding={0} style={{ width: 132, overflow: 'hidden' }} onPress={() => quickAdd(item)} accessibilityLabel={t('restaurant.add_item', { name: item.name })} testID={`upsell-${item.id}`}>
                 <View style={{ height: 84 }}>
-                  <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
+                  <FoodArt {...artOf(item)} photoUrl={item.photoUrl} />
                 </View>
                 <View style={{ padding: theme.space[2], gap: 2 }}>
                   <Text variant="label" weight={600} numberOfLines={1}>

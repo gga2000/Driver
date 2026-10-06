@@ -6,7 +6,7 @@ import { Button, Card, Chip, Icon, ListRow, SearchField, StatusPill, Text, useTh
 import { countKey } from '@/lib/plural';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
-import { FoodArt, motifForDish } from '@/features/food/FoodArt';
+import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { useCatalogSearch } from '@/features/food/queries';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
@@ -197,7 +197,7 @@ function DishResult({ d, divider, onPress }: { d: CatalogSearchDish; divider: bo
       })}
     >
       <View style={{ width: 64, height: 64, borderRadius: theme.radius.md, overflow: 'hidden', opacity: muted ? 0.55 : 1 }}>
-        <FoodArt motif={motifForDish(d.name)} photoUrl={d.photoUrl} />
+        <FoodArt {...artOf(d)} photoUrl={d.photoUrl} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="bodyStrong" numberOfLines={2}>

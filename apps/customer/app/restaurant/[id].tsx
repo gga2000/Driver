@@ -10,7 +10,7 @@ import { CartBar } from '@/features/food/CartBar';
 import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
-import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
+import { FoodArt, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { useMenu } from '@/features/food/queries';
 import { HeaderBack } from '@/features/food/HeaderBack';
@@ -51,6 +51,12 @@ export default function RestaurantScreen() {
 
   const restaurant = menu.data?.restaurant;
   const categories = useMemo(() => menu.data?.categories ?? [], [menu.data]);
+  // b3: a drawing per dish, in menu order, never the same one twice in a row.
+  const artById = useMemo(() => {
+    const rows = categories.flatMap((c) => c.items.map((i) => ({ id: i.id, name: i.name, category: c.name })));
+    const art = dishArt(rows);
+    return new Map<string, DishArt>(rows.map((r, i) => [r.id, art[i]!]));
+  }, [categories]);
   const merchant = restaurant ? cartMerchantOf(restaurant) : null;
   const mine = cart.merchant?.id === id;
   const counts = useMemo(() => {
@@ -199,7 +205,7 @@ export default function RestaurantScreen() {
                     {c.name}
                   </Text>
                   {c.items.map((item) => (
-                    <DishCard key={item.id} item={item} inCart={counts.get(item.id) ?? 0} disabled={closed} onOpen={() => setOpen(item)} onQuickAdd={() => quickAdd(item)} />
+                    <DishCard key={item.id} item={item} art={artById.get(item.id)} inCart={counts.get(item.id) ?? 0} disabled={closed} onOpen={() => setOpen(item)} onQuickAdd={() => quickAdd(item)} />
                   ))}
                 </View>
               ))}

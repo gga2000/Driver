@@ -3,7 +3,7 @@ import { dealLinePrice, type MenuItem } from '@driver/contracts';
 import { IconButton, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { FoodArt, motifForDish } from './FoodArt';
+import { FoodArt, artOf, type DishArt } from './FoodArt';
 import { canQuickAdd, fromPrice } from './modifiers';
 
 export interface DishCardProps {
@@ -15,6 +15,8 @@ export interface DishCardProps {
   onOpen: () => void;
   /** One-tap add (dishes without a required choice); otherwise the + opens the sheet. */
   onQuickAdd: () => void;
+  /** Its drawing in the menu (`dishArt`: never the same as the row above); its own otherwise. */
+  art?: DishArt;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface DishCardProps {
  * live percent deal with no minimum (f10, the server's `item.deal`) the price is the deal price in
  * the success colour with the menu price struck through, as the cart will charge it.
  */
-export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd }: DishCardProps) {
+export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, art }: DishCardProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -78,7 +80,7 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd }: DishCar
       </View>
       <View style={{ width: 96, height: 96 }}>
         <View style={{ width: 96, height: 96, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
-          <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
+          <FoodArt {...(art ?? artOf(item))} photoUrl={item.photoUrl} />
         </View>
         {!soldOut && !disabled ? (
           <IconButton

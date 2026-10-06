@@ -434,6 +434,35 @@ export const state = {
 /** Minimum touch target (px). */
 export const hitTarget = 44;
 
+/**
+ * Food drawing pigments (UI/UX audit S2-07, b3): fixed in both themes — a kebab must not turn pale
+ * at night — and never UI roles (green herbs are not "success"). Decoration only: no text sits on
+ * them. `plateTints` gives each dish look its own plate.
+ */
+export const art = {
+  paper: '#F6EEDF',
+  plate: '#FFF8EC',
+  plateTints: ['#FFF8EC', '#F4E9D6', '#EFE3CF'],
+  rim: '#E4D5BC',
+  line: '#3A2414',
+  meat: '#A0561C',
+  char: '#5B2E12',
+  chicken: '#D9A257',
+  tomato: '#C8432F',
+  herb: '#4E8A3A',
+  onion: '#F1E3B8',
+  bread: '#E9C77B',
+  rice: '#F3E6C4',
+  tea: '#B5521B',
+  water: '#7FB7D9',
+  laban: '#FBF7EE',
+  can: '#C8432F',
+  juice: '#E8962E',
+  metal: '#9A8F80',
+  steam: '#C9B79C',
+} as const;
+export type ArtPigments = typeof art;
+
 export const tokens = {
   color,
   themes,
@@ -448,5 +477,6 @@ export const tokens = {
   hitTarget,
   minFontSize,
   fontScale,
+  art,
 } as const;
 export type Tokens = typeof tokens;

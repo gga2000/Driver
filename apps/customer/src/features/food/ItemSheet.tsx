@@ -9,7 +9,7 @@ import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
 import { ME, type CartMerchant } from './cart';
 import { cartStore, useCartStore } from './cart-store';
-import { FoodArt, motifForDish } from './FoodArt';
+import { FoodArt, artOf } from './FoodArt';
 import { chosenModifiers, defaultSelection, selectionProblems, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
 
 export interface ItemSheetProps {
@@ -108,7 +108,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
       subtitle={item.description ?? undefined}
       leading={
         <View style={{ width: 64, height: 64, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
-          <FoodArt motif={motifForDish(item.name)} photoUrl={item.photoUrl} />
+          <FoodArt {...artOf(item)} photoUrl={item.photoUrl} />
         </View>
       }
       layout="sheet"
