@@ -89,15 +89,23 @@ export class SessionService {
    */
   async refresh(refreshToken: string, tx?: Tx, patch?: (session: SessionRecord) => Promise<{ deviceId?: string | null } | void>): Promise<{ session: SessionRecord; tokens: TokenPair }> {
     const now = this.clock.now();
-    const session = await this.repo.findSessionByRefreshHash(hashToken(refreshToken), tx);
-    if (!session) throw new DriverError('token_invalid');
+    const presented = hashToken(refreshToken);
+    const session = await this.repo.findSessionByRefreshHash(presented, tx);
+    if (!session) {
+      // A token the last rotation retired: someone else holds the current one. End the session for
+      // both holders. Written OUTSIDE `tx`, which the thrown error rolls back.
+      const stolen = await this.repo.findSessionByPreviousRefreshHash(presented);
+      if (!stolen) throw new DriverError('token_invalid');
+      if (!stolen.revokedAt) await this.repo.updateSession(stolen.id, { revokedAt: now });
+      throw new DriverError('refresh_reused');
+    }
     if (session.revokedAt) throw new DriverError('refresh_reused');
     if (session.expiresAt.getTime() <= now.getTime()) throw new DriverError('session_expired');
     const extra = (await patch?.(session)) ?? {};
     const next = newRefreshToken();
     const updated = await this.repo.updateSession(
       session.id,
-      { refreshTokenHash: hashToken(next), rotatedAt: now, expiresAt: addSec(now, REFRESH_TOKEN_TTL_SEC), ...(extra.deviceId !== undefined ? { deviceId: extra.deviceId } : {}) },
+      { refreshTokenHash: hashToken(next), previousRefreshTokenHash: presented, rotatedAt: now, expiresAt: addSec(now, REFRESH_TOKEN_TTL_SEC), ...(extra.deviceId !== undefined ? { deviceId: extra.deviceId } : {}) },
       tx,
     );
     const tokens = await this.tokensFor(updated, next, now);

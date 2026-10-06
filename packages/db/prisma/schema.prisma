@@ -294,15 +294,17 @@ model Device {
 
 /// Refresh-token session: 30-day rotating refresh, 15-minute access tokens (plan Step 2).
 model Session {
-  id               String    @id @default(cuid())
-  personId         String    @map("person_id")
-  deviceId         String?   @map("device_id")
-  refreshTokenHash String    @unique @map("refresh_token_hash")
-  expiresAt        DateTime  @map("expires_at")
-  rotatedAt        DateTime? @map("rotated_at")
-  revokedAt        DateTime? @map("revoked_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id                       String    @id @default(cuid())
+  personId                 String    @map("person_id")
+  deviceId                 String?   @map("device_id")
+  refreshTokenHash         String    @unique @map("refresh_token_hash")
+  /// The token the last rotation retired: presenting it again revokes the session (theft signal).
+  previousRefreshTokenHash String?   @unique @map("previous_refresh_token_hash")
+  expiresAt                DateTime  @map("expires_at")
+  rotatedAt                DateTime? @map("rotated_at")
+  revokedAt                DateTime? @map("revoked_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   person Person  @relation(fields: [personId], references: [id])
   device Device? @relation(fields: [deviceId], references: [id])

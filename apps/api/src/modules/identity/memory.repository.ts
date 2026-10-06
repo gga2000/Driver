@@ -276,7 +276,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   async createSession(input: { personId: string; deviceId: string | null; refreshTokenHash: string; expiresAt: Date; now: Date }, tx?: Tx) {
-    const s: SessionRecord = { id: this.id('sess'), personId: input.personId, deviceId: input.deviceId, refreshTokenHash: input.refreshTokenHash, expiresAt: input.expiresAt, rotatedAt: null, revokedAt: null, createdAt: input.now };
+    const s: SessionRecord = { id: this.id('sess'), personId: input.personId, deviceId: input.deviceId, refreshTokenHash: input.refreshTokenHash, previousRefreshTokenHash: null, expiresAt: input.expiresAt, rotatedAt: null, revokedAt: null, createdAt: input.now };
     this.sessions.push(s);
     this.added(tx, this.sessions, s);
     return s;
@@ -290,7 +290,11 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.sessions.find((s) => s.refreshTokenHash === hash) ?? null;
   }
 
-  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
+  async findSessionByPreviousRefreshHash(hash: string) {
+    return this.sessions.find((s) => s.previousRefreshTokenHash === hash) ?? null;
+  }
+
+  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
     const s = this.sessions.find((x) => x.id === id);
     if (!s) throw new Error(`session ${id} not found`);
     this.keep(tx, s);

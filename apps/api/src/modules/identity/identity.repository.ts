@@ -49,6 +49,8 @@ export interface SessionRecord {
   personId: string;
   deviceId: string | null;
   refreshTokenHash: string;
+  /** The refresh token the last rotation retired; presenting it again revokes the session. */
+  previousRefreshTokenHash: string | null;
   expiresAt: Date;
   rotatedAt: Date | null;
   revokedAt: Date | null;
@@ -179,7 +181,8 @@ export interface IdentityRepository {
   createSession(input: { personId: string; deviceId: string | null; refreshTokenHash: string; expiresAt: Date; now: Date }, tx?: Tx): Promise<SessionRecord>;
   findSessionById(id: string, tx?: Tx): Promise<SessionRecord | null>;
   findSessionByRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
-  updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
+  findSessionByPreviousRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
+  updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
   revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
   /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
   lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
@@ -420,7 +423,11 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return this.db(tx).session.findUnique({ where: { refreshTokenHash: hash } });
   }
 
-  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
+  async findSessionByPreviousRefreshHash(hash: string, tx?: Tx) {
+    return this.db(tx).session.findUnique({ where: { previousRefreshTokenHash: hash } });
+  }
+
+  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
     return this.db(tx).session.update({ where: { id }, data: patch });
   }
 
