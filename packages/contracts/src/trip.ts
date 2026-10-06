@@ -102,6 +102,8 @@ export const Stop = z.object({
   windowStart: z.coerce.date().nullable(),
   windowEnd: z.coerce.date().nullable(),
   geofenceEnteredAt: z.coerce.date().nullable(),
+  /** First live fix within `NEAR_DROPOFF_M` of a drop-off with the food on board (the "almost there" moment). */
+  courierNearAt: z.coerce.date().nullable().default(null),
   /** Server receipt time of the driver's arrival tap (evidence, edge-case §10). */
   arrivedAt: z.coerce.date().nullable(),
   arrivedOutsideGeofence: z.boolean(),
@@ -127,13 +129,19 @@ export const TripOrderLink = z.object({
 });
 export type TripOrderLink = z.infer<typeof TripOrderLink>;
 
-/** Unreachable-customer protocol status (domain §2): dispatcher at 3:00, "فشل" at 5:00. */
+/**
+ * Unreachable-customer protocol status (domain §2): dispatcher at 3:00, "فشل" at 5:00 — or 7:00 once
+ * the customer tapped «أني نازل» (J-D8: 2 more free minutes, once per stop).
+ */
 export const UnreachableStatus = z.object({
   stopId: z.string().nullable(),
   startedAt: z.coerce.date(),
   escalatedAt: z.coerce.date().nullable(),
   escalateAt: z.coerce.date(),
+  /** Already includes the customer's extension when there is one. */
   failAllowedAt: z.coerce.date(),
+  /** When the customer said «أني نازل» (the courier's screen says «الزبون نازل»); null if not. */
+  extendedAt: z.coerce.date().nullable().default(null),
 });
 export type UnreachableStatus = z.infer<typeof UnreachableStatus>;
 
@@ -199,10 +207,11 @@ export const POSITION_RULES = {
 } as const;
 
 /**
- * "Almost there" (maps program SP5b): a live fix this close (straight line) to a food drop-off — about
- * 700 m of road, two minutes in town — tells the customer to get the cash and the door ready.
+ * "Almost there" (maps spec c5, joy spec f3): a live fix this close (straight line) to a food drop-off —
+ * about a minute in town — tells the customer to get the cash and the door ready. The customer app
+ * also shows the card once the ETA is two minutes or less (`ALMOST_THERE_ETA_MS`), whichever is first.
  */
-export const NEAR_DROPOFF_M = 500;
+export const NEAR_DROPOFF_M = 300;
 
 /** Raw driver trails are kept this long; after that the trip row is the summary (decision D6). */
 export const TRAIL_RETENTION_DAYS = 30;

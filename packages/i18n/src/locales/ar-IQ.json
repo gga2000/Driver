@@ -1302,6 +1302,7 @@
   "error.child_handover_required": "لازم تأكد استلام/تسليم الطفل بالاسم",
   "error.unreachable_not_started": "ابدأ \"ما أگدر أوصله\" أول",
   "error.unreachable_too_early": "انتظر لحد ما يخلص العداد",
+  "error.unreachable_not_active": "الدليفري مو منتظرك عند الباب هسة",
   "error.dispatch_not_found": "ما لگينا طلب التوزيع",
   "error.offer_not_found": "ما لگينا العرض",
   "error.offer_not_yours": "هذا العرض مو إلك",

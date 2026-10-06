@@ -1195,6 +1195,8 @@ model Trip {
   /// Domain §2 unreachable protocol: dispatcher at minute 3, `failed` allowed at minute 5.
   unreachableStartedAt   DateTime? @map("unreachable_started_at")
   unreachableEscalatedAt DateTime? @map("unreachable_escalated_at")
+  /// Joy spec J-D8: the customer's «أني نازل» moved "فشل" by 2 minutes (once per protocol run).
+  unreachableExtendedAt  DateTime? @map("unreachable_extended_at")
   completedAt            DateTime? @map("completed_at")
   cancelledAt            DateTime? @map("cancelled_at")
   cancellationReason     String?   @map("cancellation_reason")

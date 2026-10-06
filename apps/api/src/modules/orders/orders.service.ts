@@ -17,6 +17,7 @@ import {
   smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
+  type ComingOutResult,
   type DisputeKind,
   type DomainEventInput,
   type HandoverProof,
@@ -71,6 +72,8 @@ export interface OrdersTripsPort {
   detachOrder(tripId: string, orderId: string, actorId?: string, reason?: string): Promise<Trip>;
   cancel(tripId: string, by: 'driver' | 'customer' | 'platform', actorId: string, reason: string): Promise<Trip>;
   customerComplete(tripId: string, customerId: string, reason?: string): Promise<Trip>;
+  /** «أني نازل» (J-D8): 2 more minutes before "فشل" at this order's door, once. */
+  extendUnreachable(tripId: string, orderId: string, customerId: string): Promise<{ extended: boolean; trip: Trip }>;
   /** Who carried the order (for settlement on `closed`); null when no driver ever took it. */
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
 }
@@ -830,6 +833,23 @@ export class OrdersService implements OnModuleInit {
       await this.completeRide(order, actorId, tx, { by: 'customer', tripId: trip.id });
       return this.view(order.id, tx);
     });
+  }
+
+  /**
+   * «أني نازل» (joy spec J-D8): the courier is at the door and the unreachable countdown runs; the
+   * orderer (or anyone on the order) answers and the courier must wait 2 more minutes, once. Money
+   * is untouched: if the customer still never comes, the same unreachable default applies, later.
+   */
+  async comingOut(actorId: string, input: { orderId: string }): Promise<ComingOutResult> {
+    const agg = await this.load(input.orderId);
+    const order = agg.order;
+    if (order.ordererId !== actorId && !agg.participants.some((p) => p.personId === actorId)) throw new DriverError('forbidden');
+    const trip = await this.trips.activeForOrder(order.id);
+    if (!trip?.unreachable) throw new DriverError('unreachable_not_active');
+    const res = await this.trips.extendUnreachable(trip.id, order.id, actorId);
+    const status = res.trip.unreachable;
+    if (!status) throw new DriverError('unreachable_not_active');
+    return { extended: res.extended, failAllowedAt: status.failAllowedAt };
   }
 
   // ───────────────────────── trip events ─────────────────────────

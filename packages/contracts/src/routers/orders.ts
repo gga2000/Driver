@@ -3,6 +3,7 @@ import type { RoleKind } from '../auth.js';
 import {
   CancelOrderInput,
   CancellationFee,
+  ComingOutResult,
   ListActiveOrdersInput,
   MerchantAcceptInput,
   MerchantExtendPrepInput,
@@ -56,6 +57,8 @@ export const ordersRouter = router({
   route: protectedProcedure().input(OrderIdInput).output(OrderRoute).query(({ ctx, input }) => ctx.tracking.route(ctx.actor, input)),
   /** Customer-side ride completion ("وصلت") at the locked quote (edge-case review B.24). */
   confirmRideArrived: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.confirmRideArrived(ctx.actor, input)),
+  /** «أني نازل» at the door: 2 more free minutes before the courier may leave, once (J-D8). */
+  comingOut: protectedProcedure().input(OrderIdInput).output(ComingOutResult).mutation(({ ctx, input }) => ctx.orders.comingOut(ctx.actor, input)),
   /** Console history: any state, newest first, keyset-paginated. */
   search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
   /** The order's actor event log (quarantined late replays included and marked). */

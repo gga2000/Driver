@@ -133,6 +133,29 @@ describe('orders × trips — end to end', () => {
     expect(h.events.last('order.disputed')!.payload).toMatchObject({ kind: 'unreachable', defaultOutcome: 'customer_owes_cost', openedBy: 'system' });
   });
 
+  it('«أني نازل» (J-D8): the orderer buys 2 more minutes once; strangers cannot; outside the countdown it is refused', async () => {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    const dropoff = (await h.trips.get(t.id)).stops.find((s) => s.type === 'dropoff')!;
+    await h.trips.arrive(t.id, dropoff.id, 'd1', { pin: HOME });
+    expect(await code(h.orders.comingOut('c1', { orderId: o.id }))).toBe('unreachable_not_active');
+    const started = await h.trips.startUnreachable(t.id, dropoff.id, 'd1');
+    expect(await code(h.orders.comingOut('stranger', { orderId: o.id }))).toBe('forbidden');
+    const first = await h.orders.comingOut('c1', { orderId: o.id });
+    expect(first.extended).toBe(true);
+    expect(first.failAllowedAt.getTime()).toBe(started.unreachable!.startedAt.getTime() + 7 * MIN);
+    expect((await h.orders.comingOut('c1', { orderId: o.id })).extended).toBe(false);
+    await h.advance(5 * MIN);
+    expect(await code(h.trips.fail(t.id, { personId: 'd1', role: 'driver' }))).toBe('unreachable_too_early');
+    await h.advance(2 * MIN);
+    await h.trips.fail(t.id, { personId: 'd1', role: 'driver' });
+    await h.deliver();
+    expect((await h.orders.get(o.id)).state).toBe('disputed');
+  });
+
   it('courier cancels after pickup: dispute, courier pays the food cost', async () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());

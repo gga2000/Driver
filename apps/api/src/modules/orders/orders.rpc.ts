@@ -4,6 +4,7 @@ import {
   type Actor,
   type CancelOrderInput,
   type CancellationFee,
+  type ComingOutResult,
   type ListActiveOrdersInput,
   type MerchantRejectInput,
   type OpenDisputeInput,
@@ -97,6 +98,10 @@ export class OrdersRpc implements OrdersPort {
 
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order> {
     return this.orders.confirmRideArrived(actor.personId, input);
+  }
+
+  comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult> {
+    return this.orders.comingOut(actor.personId, input);
   }
 
   async merchantAccept(actor: Actor, input: z.infer<typeof MerchantAcceptInput>): Promise<Order> {

@@ -80,8 +80,8 @@ function trip(state: NonNullable<OrderTracking['trip']>['state'], extra: Partial
     acceptedAt: at(3),
     completedAt: null,
     stops: [
-      { id: 's1', seq: 0, type: 'pickup', state: 'pending', mine: true, target: KITCHEN, arrivedAt: null, completedAt: null },
-      { id: 's2', seq: 1, type: 'dropoff', state: 'pending', mine: true, target: HOME, arrivedAt: null, completedAt: null },
+      { id: 's1', seq: 0, type: 'pickup', state: 'pending', mine: true, target: KITCHEN, courierNearAt: null, arrivedAt: null, completedAt: null },
+      { id: 's2', seq: 1, type: 'dropoff', state: 'pending', mine: true, target: HOME, courierNearAt: null, arrivedAt: null, completedAt: null },
     ],
     dropsBeforeMine: 0,
     unreachable: null,
@@ -243,7 +243,7 @@ describe('status → timeline', () => {
   });
 
   it('unreachable, reassigning, cancelled phases', () => {
-    const unreachable = { stopId: 's2', startedAt: at(20), escalatedAt: null, escalateAt: at(23), failAllowedAt: at(25) };
+    const unreachable = { stopId: 's2', startedAt: at(20), escalatedAt: null, escalateAt: at(23), failAllowedAt: at(25), extendedAt: null };
     expect(phaseOf(view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff', { unreachable }), courier }))).toBe('unreachable');
     expect(phaseOf(view({ state: 'preparing' }, { reassigning: true }))).toBe('reassigning');
     expect(phaseOf(view({ state: 'merchant_rejected' }))).toBe('cancelled');

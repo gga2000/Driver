@@ -61,13 +61,19 @@ describe('TripsService — almost there (maps program SP5b)', () => {
     await h.trips.completeStop(t.id, pickup.id, 'd1');
     h.clock.advanceSeconds(60);
     await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 700), at: h.clock.now() });
-    expect(h.events.ofType('stop.courier_near')).toHaveLength(0);
     h.clock.advanceSeconds(30);
+    // 450 m was "near" under the old 500 m line; the spec's line is 300 m (joy f3, maps c5).
     await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 450), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near')).toHaveLength(0);
+    h.clock.advanceSeconds(20);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 280), at: h.clock.now() });
+    const nearAt = h.clock.now();
     h.clock.advanceSeconds(10);
-    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 200), at: h.clock.now() });
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 150), at: h.clock.now() });
     const near = h.events.ofType('stop.courier_near');
     expect(near).toHaveLength(1);
-    expect(near[0]).toMatchObject({ orderId: 'ord_1', payload: { stopId: dropoff.id, distanceM: 450 } });
+    expect(near[0]).toMatchObject({ orderId: 'ord_1', payload: { stopId: dropoff.id, distanceM: 280 } });
+    // The customer's card reads the same moment from the trip view.
+    expect((await h.trips.get(t.id)).stops.find((s) => s.id === dropoff.id)!.courierNearAt).toEqual(nearAt);
   });
 });

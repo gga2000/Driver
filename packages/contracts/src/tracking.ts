@@ -45,6 +45,8 @@ export const TrackStop = z.object({
   mine: z.boolean(),
   /** Pin of this order's stops only; null for other customers' stops. */
   target: LatLng.nullable(),
+  /** My drop-off only: the server's first "almost there" fix (null otherwise). */
+  courierNearAt: z.coerce.date().nullable().default(null),
   arrivedAt: z.coerce.date().nullable(),
   completedAt: z.coerce.date().nullable(),
 });

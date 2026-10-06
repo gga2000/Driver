@@ -32,6 +32,8 @@ import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TrailPointRecord,
 import {
   UNREACHABLE_ESCALATE_AFTER_MS,
   UNREACHABLE_FAIL_AFTER_MS,
+  UNREACHABLE_EXTEND_MS,
+  failAt,
   UNREACHABLE_JOBS,
   canFail,
   unreachableJobId,
@@ -586,7 +588,7 @@ export class TripsService implements OnModuleInit {
       }
       let current = trip;
       if (trip.unreachableStartedAt) {
-        current = await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null }, now, tx);
+        current = await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, now, tx);
       }
       await this.rederive(current, driverId, tx);
       return this.view(tripId, tx);
@@ -617,7 +619,7 @@ export class TripsService implements OnModuleInit {
       if (stop.type !== 'dropoff' || stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
       if (trip.unreachableStartedAt) return this.view(tripId, tx);
       const now = this.clock.now();
-      await this.repo.updateTrip(tripId, { unreachableStartedAt: now, unreachableEscalatedAt: null }, now, tx);
+      await this.repo.updateTrip(tripId, { unreachableStartedAt: now, unreachableEscalatedAt: null, unreachableExtendedAt: null }, now, tx);
       await this.emit(
         tx,
         'trip.unreachable_started',
@@ -634,6 +636,32 @@ export class TripsService implements OnModuleInit {
   }
 
   /**
+   * «أني نازل» (joy spec J-D8): the customer of the order whose door the courier is waiting at moves
+   * the courier's "فشل" by `UNREACHABLE_EXTEND_MS`, once per protocol run (one run = one stop). A
+   * second tap is a no-op (`extended: false`). Who may tap is the orders module's check.
+   */
+  async extendUnreachable(tripId: string, orderId: string, customerId: string): Promise<{ extended: boolean; trip: Trip }> {
+    return this.uow.run(async (tx) => {
+      const trip = await this.load(tripId, tx);
+      const stops = await this.repo.stopsOf(tripId, tx);
+      const atDoor = stops.find((s) => s.type === 'dropoff' && s.state === 'arrived');
+      if (!trip.unreachableStartedAt || isTerminal(trip.state) || !atDoor || atDoor.orderId !== orderId) throw new DriverError('unreachable_not_active');
+      if (trip.unreachableExtendedAt) return { extended: false, trip: await this.view(tripId, tx) };
+      const now = this.clock.now();
+      await this.repo.updateTrip(tripId, { unreachableExtendedAt: now }, now, tx);
+      const failAllowedAt = failAt(trip.unreachableStartedAt, now);
+      await this.emit(tx, 'trip.unreachable_extended', customerId, tripId, { stopId: atDoor.id, byCustomer: customerId, extraMs: UNREACHABLE_EXTEND_MS, failAllowedAt: failAllowedAt.toISOString() }, { orderId });
+      const startedAtMs = trip.unreachableStartedAt.getTime();
+      await this.queue.add(
+        UNREACHABLE_JOBS.allowFail,
+        { tripId, stopId: atDoor.id, startedAtMs },
+        { delayMs: Math.max(0, failAllowedAt.getTime() - now.getTime()), jobId: unreachableJobId('allowFail', tripId, startedAtMs, true) },
+      );
+      return { extended: true, trip: await this.view(tripId, tx) };
+    });
+  }
+
+  /**
    * Fails the unreachable dropoff: the driver from minute 5, a dispatcher from minute 3. In a
    * batched trip only that order fails (its stops are skipped and it is detached); otherwise the
    * whole trip fails. The orders module turns this into a dispute with its default outcome.
@@ -644,7 +672,7 @@ export class TripsService implements OnModuleInit {
       if (isTerminal(trip.state)) throw new DriverError('trip_state_conflict');
       if (!trip.unreachableStartedAt) throw new DriverError('unreachable_not_started');
       const now = this.clock.now();
-      if (!canFail(trip.unreachableStartedAt, now, actor.role)) throw new DriverError('unreachable_too_early');
+      if (!canFail(trip.unreachableStartedAt, now, actor.role, trip.unreachableExtendedAt)) throw new DriverError('unreachable_too_early');
       const stops = await this.repo.stopsOf(tripId, tx);
       const failed = stops.find((s) => s.type === 'dropoff' && s.state === 'arrived') ?? null;
       const failedOrderId = failed?.orderId ?? null;
@@ -656,7 +684,7 @@ export class TripsService implements OnModuleInit {
         for (const s of stops) if (s.orderId === failedOrderId && !isStopFinished(s.state)) await this.repo.updateStop(s.id, { state: 'skipped', skippedAt: now, skipReason: 'unreachable_failed' }, now, tx);
         const link = links.find((l) => l.orderId === failedOrderId);
         if (link) await this.repo.detach(link.id, { at: now, reason: 'unreachable_failed', changedBy: personOrNull(actor.personId) }, tx);
-        const cleared = await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null }, now, tx);
+        const cleared = await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, now, tx);
         await this.emit(tx, 'trip.order_failed', actor.personId, tripId, evidence, { orderId: failedOrderId });
         await this.rederive(cleared, actor.personId, tx);
         return this.view(tripId, tx);
@@ -781,7 +809,8 @@ export class TripsService implements OnModuleInit {
       if (name === UNREACHABLE_JOBS.escalate && !trip.unreachableEscalatedAt) {
         await this.repo.updateTrip(trip.id, { unreachableEscalatedAt: now }, now, tx);
         await this.emit(tx, 'trip.unreachable_escalated', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId, dispatcherCard: true });
-      } else if (name === UNREACHABLE_JOBS.allowFail) {
+      } else if (name === UNREACHABLE_JOBS.allowFail && canFail(trip.unreachableStartedAt, now, 'driver', trip.unreachableExtendedAt)) {
+        // After «أني نازل» the 5:00 job finds it too early and stays quiet; the 7:00 one announces.
         await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId });
       }
     });
@@ -875,7 +904,7 @@ export class TripsService implements OnModuleInit {
       if (!isStopFinished(s.state)) await this.repo.updateStop(s.id, { state: 'skipped', skippedAt: now, skipReason: reason }, now, tx);
     }
     const links = (await this.repo.linksOf(trip.id, tx)).filter((l) => l.detachedAt === null);
-    await this.move(trip, 'completed', actorId, tx, { completedAt: now, unreachableStartedAt: null, unreachableEscalatedAt: null }, { by, reason, orderIds: links.map((l) => l.orderId) });
+    await this.move(trip, 'completed', actorId, tx, { completedAt: now, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, { by, reason, orderIds: links.map((l) => l.orderId) });
   }
 
   private async finishCancelled(trip: TripRecord, to: TripState, actorId: string, reason: string, tx: Tx): Promise<void> {
@@ -887,7 +916,7 @@ export class TripsService implements OnModuleInit {
     for (const l of links) await this.repo.detach(l.id, { at: now, reason: `trip_${to}`, changedBy: personOrNull(actorId) }, tx);
     const arrivedPickup = stops.filter((s) => s.type === 'pickup' && s.arrivedAt).map((s) => s.arrivedAt!.getTime());
     const pickedUpOrderIds = [...new Set(stops.filter((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed' && s.orderId).map((s) => s.orderId!))];
-    await this.move(trip, to, actorId, tx, { cancelledAt: now, cancellationReason: reason, unreachableStartedAt: null, unreachableEscalatedAt: null }, {
+    await this.move(trip, to, actorId, tx, { cancelledAt: now, cancellationReason: reason, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, {
       by: to === 'driver_cancelled' ? 'driver' : to === 'customer_cancelled' ? 'customer' : 'platform',
       reason,
       courierId: trip.courierId,
@@ -984,7 +1013,7 @@ export function toTripView(trip: TripRecord, stops: StopRecord[], links: TripOrd
     completedAt: trip.completedAt,
     cancelledAt: trip.cancelledAt,
     cancellationReason: trip.cancellationReason,
-    unreachable: unreachableStatus({ stopId: unreachableStop?.id ?? null, startedAt: trip.unreachableStartedAt, escalatedAt: trip.unreachableEscalatedAt }),
+    unreachable: unreachableStatus({ stopId: unreachableStop?.id ?? null, startedAt: trip.unreachableStartedAt, escalatedAt: trip.unreachableEscalatedAt, extendedAt: trip.unreachableExtendedAt }),
     stops: stops.map(toStopView),
     orders: links.map((l) => ({ orderId: l.orderId, attachedAt: l.attachedAt, detachedAt: l.detachedAt, reason: l.reason, minVehicleClass: l.minVehicleClass })),
     createdAt: trip.createdAt,
@@ -1007,6 +1036,7 @@ function toStopView(s: StopRecord): Stop {
     windowStart: s.windowStart,
     windowEnd: s.windowEnd,
     geofenceEnteredAt: s.geofenceEnteredAt,
+    courierNearAt: s.courierNearAt,
     arrivedAt: s.arrivedAt,
     arrivedOutsideGeofence: s.arrivedOutsideGeofence,
     arrivalDistanceM: s.arrivalDistanceM,

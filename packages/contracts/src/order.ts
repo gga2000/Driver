@@ -376,6 +376,15 @@ export type MerchantExtendPrepInput = z.infer<typeof MerchantExtendPrepInput>;
 export const MerchantHandOverInput = z.object({ orderId: z.string().min(1) });
 export type MerchantHandOverInput = z.infer<typeof MerchantHandOverInput>;
 
+/**
+ * «أني نازل» (joy spec J-D8): the customer answers the courier waiting at the door. The first tap
+ * during an unreachable countdown adds `UNREACHABLE_EXTEND_SEC` to it, once per stop; later taps change
+ * nothing (`extended: false`). `failAllowedAt` is the courier's new "فشل" time.
+ */
+export const UNREACHABLE_EXTEND_SEC = 120;
+export const ComingOutResult = z.object({ extended: z.boolean(), failAllowedAt: z.coerce.date() });
+export type ComingOutResult = z.infer<typeof ComingOutResult>;
+
 /** What the API supplies to the orders router (implemented by `modules/orders`). */
 export interface OrdersPort {
   place(actor: Actor, input: z.infer<typeof PlaceOrderInput>): Promise<Order>;
@@ -391,6 +400,8 @@ export interface OrdersPort {
   /** Closes the order early; with scores, also stores the two-tap rating (validated by the API). */
   rate(actor: Actor, input: RateOrderInput): Promise<Order>;
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
+  /** «أني نازل» while the courier waits at the door (J-D8). The orderer or a participant only. */
+  comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult>;
   merchantAccept(actor: Actor, input: z.infer<typeof MerchantAcceptInput>): Promise<Order>;
   merchantReject(actor: Actor, input: MerchantRejectInput): Promise<Order>;
   markPreparing(actor: Actor, input: { orderId: string }): Promise<Order>;

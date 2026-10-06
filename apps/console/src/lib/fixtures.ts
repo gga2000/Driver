@@ -42,6 +42,7 @@ export function stop(p: Partial<Stop> & { id: string; seq: number }): Stop {
     windowStart: null,
     windowEnd: null,
     geofenceEnteredAt: null,
+    courierNearAt: null,
     arrivedAt: null,
     arrivedOutsideGeofence: false,
     arrivalDistanceM: null,

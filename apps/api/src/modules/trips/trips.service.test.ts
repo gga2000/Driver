@@ -299,6 +299,47 @@ describe('TripsService — unreachable protocol', () => {
     expect(h.events.ofType('trip.unreachable_escalated')).toHaveLength(0);
   });
 
+  it('J-D8 «أني نازل»: 2 more minutes, once; the courier fails from 7:00 and the 5:00 job stays quiet', async () => {
+    const { h, t, dropoff } = await atDoor();
+    expect(await code(h.trips.extendUnreachable(t.id, 'ord_1', 'c1'))).toBe('unreachable_not_active');
+    const started = await h.trips.startUnreachable(t.id, dropoff.id, 'd1');
+    const startedAt = started.unreachable!.startedAt.getTime();
+    await h.advance(60_000);
+    const first = await h.trips.extendUnreachable(t.id, 'ord_1', 'c1');
+    expect(first.extended).toBe(true);
+    expect(first.trip.unreachable).toMatchObject({ extendedAt: h.clock.now() });
+    expect(first.trip.unreachable!.failAllowedAt.getTime()).toBe(startedAt + 7 * 60_000);
+    expect(h.events.last('trip.unreachable_extended')!.payload).toMatchObject({ stopId: dropoff.id, byCustomer: 'c1', extraMs: 120_000 });
+    // Once per stop: a second tap changes nothing.
+    await h.advance(30_000);
+    const again = await h.trips.extendUnreachable(t.id, 'ord_1', 'c1');
+    expect(again.extended).toBe(false);
+    expect(again.trip.unreachable!.failAllowedAt.getTime()).toBe(startedAt + 7 * 60_000);
+    expect(h.events.ofType('trip.unreachable_extended')).toHaveLength(1);
+    // The dispatcher's 3:00 rule is unchanged.
+    await h.advance(90_000);
+    expect(h.events.ofType('trip.unreachable_escalated')).toHaveLength(1);
+    // 5:00: the original job announces nothing, the driver may not fail yet.
+    await h.advance(120_000);
+    expect(h.events.ofType('trip.unreachable_fail_allowed')).toHaveLength(0);
+    expect(await code(h.trips.fail(t.id, { personId: 'd1', role: 'driver' }))).toBe('unreachable_too_early');
+    // 7:00: armed.
+    await h.advance(120_000);
+    expect(h.events.ofType('trip.unreachable_fail_allowed')).toHaveLength(1);
+    expect((await h.trips.fail(t.id, { personId: 'd1', role: 'driver' })).state).toBe('failed');
+  });
+
+  it('J-D8: only for the order whose door the courier is at, and the hand-over clears it', async () => {
+    const { h, t, dropoff } = await atDoor();
+    await h.trips.startUnreachable(t.id, dropoff.id, 'd1');
+    expect(await code(h.trips.extendUnreachable(t.id, 'ord_other', 'c1'))).toBe('unreachable_not_active');
+    await h.trips.extendUnreachable(t.id, 'ord_1', 'c1');
+    const done = await h.trips.completeStop(t.id, dropoff.id, 'd1');
+    expect(done.unreachable).toBeNull();
+    await h.advance(10 * 60_000);
+    expect(h.events.ofType('trip.unreachable_fail_allowed')).toHaveLength(0);
+  });
+
   it('batched trip: only the unreachable order fails, the trip carries on', async () => {
     const h = tripsHarness();
     const t = await h.foodTrip('ord_a');

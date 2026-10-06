@@ -218,6 +218,7 @@ export const ERROR_TABLE = {
   child_handover_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   unreachable_not_started: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  unreachable_not_active: { retryHint: 'never', status: 'CONFLICT' },
   // dispatch
   dispatch_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   offer_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

@@ -24,6 +24,7 @@ function stop(id: string, seq: number, type: Stop['type'], zoneKey: string, targ
     windowStart: null,
     windowEnd: null,
     geofenceEnteredAt: null,
+    courierNearAt: null,
     arrivedAt: null,
     arrivedOutsideGeofence: false,
     arrivalDistanceM: null,

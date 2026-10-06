@@ -1302,6 +1302,7 @@
   "error.child_handover_required": "Per-child tap-in/tap-out required",
   "error.unreachable_not_started": "Start the unreachable protocol first",
   "error.unreachable_too_early": "Too early to fail; wait for the timer",
+  "error.unreachable_not_active": "The courier isn't waiting at your door right now",
   "error.dispatch_not_found": "Dispatch request not found",
   "error.offer_not_found": "Offer not found",
   "error.offer_not_yours": "This offer is not yours",

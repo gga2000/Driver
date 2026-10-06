@@ -28,6 +28,8 @@ export interface TripRecord {
   acceptedAt: Date | null;
   unreachableStartedAt: Date | null;
   unreachableEscalatedAt: Date | null;
+  /** «أني نازل» (J-D8): the customer bought 2 more minutes for this protocol run; cleared with it. */
+  unreachableExtendedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
   cancellationReason: string | null;
@@ -185,6 +187,7 @@ function tripFromRow(r: TripRow & Record<string, unknown>): TripRecord {
     acceptedAt: r.acceptedAt,
     unreachableStartedAt: r.unreachableStartedAt,
     unreachableEscalatedAt: r.unreachableEscalatedAt,
+    unreachableExtendedAt: r.unreachableExtendedAt,
     completedAt: r.completedAt,
     cancelledAt: r.cancelledAt,
     cancellationReason: r.cancellationReason,
@@ -476,6 +479,7 @@ export class InMemoryTripsRepository implements TripsRepository {
       acceptedAt: null,
       unreachableStartedAt: null,
       unreachableEscalatedAt: null,
+      unreachableExtendedAt: null,
       completedAt: null,
       cancelledAt: null,
       cancellationReason: null,
