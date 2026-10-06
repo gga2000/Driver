@@ -397,7 +397,9 @@ were already in; S-K1 gained its strip on every page. New: S-M4 (`orders.merchan
 `merchantAdmin.money.cash`, statement `adjustmentsIqd` for the M-17 bridge), S-M6
 (`merchantAdmin.daySummary`; due at close or 00:30–05:00 for the day before; local calendar day), S-K5
 (round receipts are the existing `ops.recordCashReceipt`/`driver_settlement` with the courier's daily
-code; tonight's round counts ops-round receipts from 18:00 Baghdad), S-K6 (`previous` and `better` per
+code; tonight's round counts ops-round receipts from 18:00 Baghdad — env `CASH_ROUND_FROM_HOUR`, which
+the Console demo sets to 0 so «استلمت» moves the line at any hour; proven on a 22:30 clock in
+`apps/api/src/cash-round.e2e.test.ts`), S-K6 (`previous` and `better` per
 tile: the value as it stood 24 h ago; disputes and the ledger have none). Copy: no em dash; minutes
 written out ("4 دقايق", "11 دقيقة") — the wall's median no longer reads "1 د".
 

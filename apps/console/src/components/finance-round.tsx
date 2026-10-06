@@ -95,7 +95,7 @@ export function CollectionRound({ desk }: { desk: FinanceDeskView }) {
   );
 }
 
-function RoundProgressBar({ progress: p }: { progress: ReturnType<typeof roundProgress> }) {
+export function RoundProgressBar({ progress: p }: { progress: ReturnType<typeof roundProgress> }) {
   return (
     <div className="border-t border-line px-5 py-4" data-testid="round-progress">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
@@ -135,7 +135,7 @@ function StopRow({ stop: s, last, canCollect, onCollect }: { stop: RoundStop; la
   );
 }
 
-function CourierRow({ c, canCollect, onCollect }: { c: RoundCourier; canCollect: boolean; onCollect: () => void }) {
+export function CourierRow({ c, canCollect, onCollect }: { c: RoundCourier; canCollect: boolean; onCollect: () => void }) {
   const state = courierRoundState(c);
   const name = c.name ?? <PersonName id={c.driverId} copy={false} />;
   return (

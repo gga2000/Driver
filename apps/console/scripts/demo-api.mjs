@@ -33,6 +33,9 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const PORT = Number(process.env.PORT ?? 3395);
 const SIM_SECONDS = Number(process.env.DEMO_SIM_SECONDS ?? 45);
 
+// The 23:00 round counts receipts from 18:00 Baghdad; the demo counts them from midnight so «استلمت»
+// moves "جمعنا … من …" at any hour of the day (CASH_ROUND_FROM_HOUR=18 for the real window).
+process.env.CASH_ROUND_FROM_HOUR ??= '0';
 // Outlines drawn in the demo Console (Zones page) are written here so they survive restarts.
 process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-placements.json', import.meta.url));
 const { createApp } = await load('bootstrap.js');
