@@ -74,6 +74,11 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     s.ledger.push(row({ kind: 'points', type: 'points_earned', amount: 60, fromAccount: 'points_pool', toAccount: 'points:fault', orderId: o.id, postingGroupId: `points:${o.id}:fault` }));
   },
+  late_credit_once_per_delivery: (s) => {
+    // The honest-delay credit posted twice for one delivery (a retried sweep without the per-order key).
+    const o = first(s.orders, 'a food order', (x) => x.type === 'food');
+    for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'credit_issued', amount: 1000, fromAccount: 'platform', toAccount: `customer:${o.ordererId}`, orderId: o.id, postingGroupId: `late_promise:${o.id}` }));
+  },
   shift_guarantee_once_and_exact: (s) => {
     // The same shift's top-up posted a second time (a Sunday re-run without the once-per-shift key).
     const driverId = first(s.guarantee?.covered ?? [], 'a covered courier');
