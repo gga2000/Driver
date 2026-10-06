@@ -291,6 +291,9 @@ export function Board() {
   const beginShift = async () => {
     if (!prefs.soundOn) await prefsStore.setSound(true);
     const r = await startShift();
+    // At closing the board leads with the day's card ("خلص الدوام"): no "بالتوفيق" toast on top of it.
+    // A blocked chime still shows as the red sound chip in the header.
+    if (showDay) return;
     toast.show(r.sound ? { message: t('merchant.shift.started'), tone: 'success', icon: 'check' } : { message: t('merchant.shift.no_sound'), tone: 'warning' });
   };
 
