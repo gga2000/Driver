@@ -140,12 +140,13 @@ function RootNavigator() {
         {/* SOS: the emergency contact's live-location page (public, signed token). */}
         <Stack.Screen name="sos/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
-        <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title') }} />
-        <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title') }} />
-        <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title') }} />
-        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass') }} />
-        <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title') }} />
-        <Stack.Screen name="rajaa/request" options={{ title: t('request.title') }} />
+        {/* Opened from a push with no history, every الرجعة screen still has a way back (C-26, A-02). */}
+        <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />
+        <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/request" options={{ title: t('request.title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
       </Stack>
       {/* الرجعة boarding pass on the lock screen from T−30 (audit d-8; Android). */}
       {lockScreenPassSupported ? <LockScreenPass /> : null}
