@@ -134,4 +134,18 @@ describe('ToastProvider', () => {
     act(() => fireEvent.click(screen.getByTestId('toast-dismiss')));
     expect(screen.getByText('ثاني')).toBeTruthy();
   });
+
+  it('a detail is its own quieter line under the message, never run on after it', () => {
+    renderUI(
+      <ToastProvider>
+        <Grab />
+      </ToastProvider>,
+    );
+    show({ message: 'رجعنالك 1,000 دينار رصيد', detail: 'آسفين على التأخير', tone: 'success' });
+    const message = screen.getByText('رجعنالك 1,000 دينار رصيد');
+    const detail = screen.getByText('آسفين على التأخير');
+    expect(message).not.toBe(detail);
+    expect(message.textContent).not.toContain('آسفين');
+    expect(getComputedStyle(detail).color).not.toBe(getComputedStyle(message).color);
+  });
 });

@@ -6,12 +6,18 @@ import { t } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
 import { enqueueToast, remainingAfterPause, toastDuration, yieldsToNext } from '../logic/toast';
+import { withAlpha } from '../theme/color';
 import { useTheme } from '../theme/ThemeProvider';
 import { STATUS_TONES, type StatusTone } from './StatusPill';
 import { Text } from './Text';
 
 export interface ToastData {
   message: string;
+  /**
+   * A second, quieter line under the message, so two sentences never break mid-phrase
+   * ("رجعنالك 1,000 دينار رصيد" / "آسفين على التأخير", not «التأخير» alone on a line).
+   */
+  detail?: string;
   tone?: Exclude<StatusTone, 'accent'>;
   icon?: IconName;
   action?: { label: string; onPress: () => void };
@@ -48,7 +54,7 @@ export interface ToastProps extends ToastData {
  * icon chip, so the message stays high-contrast whatever the tone. The close button is a full 44 px
  * target, next to the action when there is one.
  */
-export function Toast({ message, tone = 'neutral', icon, action, placement = 'bottom', onDismiss, leaving = false, onExited, onHold, style }: ToastProps) {
+export function Toast({ message, detail, tone = 'neutral', icon, action, placement = 'bottom', onDismiss, leaving = false, onExited, onHold, style }: ToastProps) {
   const theme = useTheme();
   // Enters and leaves toward its own edge: up from the bottom, down from the top.
   const edge = placement === 'top' ? -1 : 1;
@@ -117,9 +123,16 @@ export function Toast({ message, tone = 'neutral', icon, action, placement = 'bo
         <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.colors[c.bg], alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon ?? DEFAULT_ICON[tone]} size={20} color={c.fg} strokeWidth={2} />
         </View>
-        <Text variant="label" color={fg} style={{ flex: 1, marginStart: theme.space[1] }}>
-          {message}
-        </Text>
+        <View style={{ flex: 1, marginStart: theme.space[1], gap: 2 }}>
+          <Text variant="label" color={fg}>
+            {message}
+          </Text>
+          {detail ? (
+            <Text variant="footnote" color={withAlpha(fg, 0.78)}>
+              {detail}
+            </Text>
+          ) : null}
+        </View>
         {action ? (
           <Pressable
             accessibilityRole="button"
