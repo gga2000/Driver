@@ -178,6 +178,26 @@ for today (no delivered burst, success buzz or moment sounds). `web-shots.mjs` a
 (`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
 `SHOTS=food` (or the older `ONLY=food`) runs only that group, `DIST_DIR` points at another export.
 
+Metro caches inlined `EXPO_PUBLIC_*` values across checkouts: add `--clear` to the export when the
+API port changed (otherwise the bundle can still point at another demo API).
+
+## «بيتنا» and «شهرك» (joy w4, w6)
+
+`docs/api/family-and-month.md`. The household hub (`app/household/index.tsx`) shows this month per
+member as bullet bars (payer: everyone; others: themselves), the requests, who orders on the household
+wallet, «سفرة البيت» and the trusted-people row; `app/household/member.tsx` sets a member's per-order
+limit and monthly budget. Checkout offers «من حساب البيت» to payers and orderers; an order over a limit
+waits for the payer («ننتظر موافقة حساب البيت» on the order screen). `app/month.tsx` is «شهرك» (wallet
+and account rows; the month-start card shows on the 1st–3rd, once per device, never on a quiet day —
+try it with `?now=2026-10-02T12:00:00+03:00` in a dev build).
+
+- Demo: after `POST /demo/account?personId=…`, `POST /demo/family?personId=…` sets budgets (منار
+  25,000 an order / 100,000 a month, حسين 10,000 / 20,000), adds a month of household-wallet and
+  «للسفرة» orders, holds a third order of حسين's over his month (reason `month_budget`), gives you two
+  months of meals, savings and points and a الرجعة trip that just ended. Once per household.
+- Shots: `SHOTS=family` → `family-*.png` (hub, its month/table/trusted parts, a member's limits,
+  «شهرك» this month and last, the month-start card, the account row).
+
 ## Deals and wallet top-up
 
 Merchant deals come from the server only (`docs/api/deals-and-topup.md`): `RestaurantCard.deals` are the
