@@ -1,5 +1,6 @@
 import {
   cashToHand,
+  guaranteeMemo,
   pointsRedemption,
   DepartureCancelledPayload,
   OrderCancelledPayload,
@@ -421,18 +422,19 @@ export function postSettlement(
 
 // ───────────────────────── incentives ─────────────────────────
 
-export interface ShiftStats {
-  earningsIqd: number;
-  acceptanceRate: number;
-  cancelsAfterAccept: number;
-  completedJobs: number;
+/** The posting group of a driver's G-91 top-up for one peak shift: one per driver per shift, ever. */
+export function guaranteeGroupId(driverId: string, windowId: string): string {
+  return `incentive:guarantee:${driverId}:${windowId}`;
 }
 
-/** G-91: guarantee needs ≥ 85 % acceptance, ≤ 1 cancel after accept and ≥ 3 completed jobs. */
-export function guaranteeTopUp(shift: ShiftStats, rules: MoneyRules): number {
-  const g = rules.guarantee;
-  const eligible = shift.acceptanceRate >= g.minAcceptance && shift.cancelsAfterAccept <= g.maxCancelsAfterAccept && shift.completedJobs >= g.minCompletedJobs;
-  return eligible ? Math.max(0, g.amountIqd - shift.earningsIqd) : 0;
+/**
+ * G-91 shift guarantee top-up (money §2; Ali, 2026-10-06): platform → the driver's earnings, memo
+ * `guarantee:<window id>`. The group id is per driver per shift, so a re-run of the Sunday close
+ * posts nothing twice. The amount is `shiftGuarantee(...).topUpIqd`; 0 posts nothing.
+ */
+export function postShiftGuarantee(input: { driverId: string; windowId: string; amountIqd: number; occurredAt: Date }): PostingGroup | null {
+  if (!Number.isInteger(input.amountIqd) || input.amountIqd < 0) throw new RangeError(`guarantee top-up ${input.amountIqd} must be a whole, non-negative amount`);
+  return postDriverIncentive({ key: `guarantee:${input.driverId}:${input.windowId}`, driverId: input.driverId, amountIqd: input.amountIqd, reason: guaranteeMemo(input.windowId), occurredAt: input.occurredAt });
 }
 
 export function postDriverIncentive(input: { key: string; driverId: string; amountIqd: number; reason: string; occurredAt: Date }): PostingGroup | null {

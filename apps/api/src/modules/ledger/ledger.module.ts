@@ -10,6 +10,7 @@ import { ScoringModule, ScoringService } from '../scoring/index.js';
 import { AdjustmentService } from './adjustments.service.js';
 import { CAP_PROFILE_RESOLVER, CapsService, IdentityScoringCapProfiles } from './caps.js';
 import { EventsServiceLedgerBus, type LedgerEventBus } from './events.adapter.js';
+import { EventsShiftActivity, SHIFT_ACTIVITY, ShiftGuaranteeService } from './guarantee.js';
 import { LedgerIncidents } from './incidents.js';
 import { CustomerWalletService, WALLET_HOUSEHOLDS, WALLET_PEOPLE, type WalletHouseholds } from './customer-wallet.js';
 import { LedgerFacade } from './ledger.facade.js';
@@ -58,6 +59,9 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     MerchantCashService,
     PostingService,
     AdjustmentService,
+    // G-91 shift guarantee: activity from the driver's own trip events; posted on the Sunday run.
+    { provide: SHIFT_ACTIVITY, useFactory: (events: EventsService) => new EventsShiftActivity(events), inject: [EventsService] },
+    ShiftGuaranteeService,
     NightlyJob,
     LedgerFacade,
     // Customer wallet (customer spec §9): own phone hash for pending points, household from orgs.
@@ -76,7 +80,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     CustomerWalletService,
     SupportCreditService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
+  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);

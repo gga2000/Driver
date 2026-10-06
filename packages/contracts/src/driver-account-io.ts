@@ -260,6 +260,55 @@ export type OnlineGate = z.infer<typeof OnlineGate>;
 export const HandoverCode = z.object({ code: z.string().regex(/^\d{4}$/), validUntil: z.coerce.date() });
 export type HandoverCode = z.infer<typeof HandoverCode>;
 
+// ───────────────────────── G-91 shift guarantee ─────────────────────────
+
+/**
+ * One peak shift of his, as the server counts it (docs/api/shift-guarantee.md). `live`: now inside
+ * it, the numbers so far; `ended`: over, the top-up (if any) is paid on `paysOn`; `paid`: the
+ * top-up line is in his earnings (`topUpIqd` is what was paid).
+ */
+export const GuaranteeWindowView = z.object({
+  /** `2026-10-04:lunch`: the ledger line's memo is `guarantee:<id>`. */
+  id: z.string(),
+  peak: z.string(),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  status: z.enum(['live', 'ended', 'paid']),
+  offers: z.number().int().min(0),
+  accepted: z.number().int().min(0),
+  /** accepted ÷ offers (0–1); null before the first offer. */
+  acceptance: z.number().min(0).max(1).nullable(),
+  cancelsAfterAccept: z.number().int().min(0),
+  completedJobs: z.number().int().min(0),
+  /** Earned on the shift's completed jobs (pay and tips less the take; penalties not counted). */
+  earningsIqd: Iqd,
+  meets: z.object({ acceptance: z.boolean(), cancels: z.boolean(), jobs: z.boolean() }),
+  qualified: z.boolean(),
+  /** Completed jobs still missing for the jobs condition. */
+  jobsToGo: z.number().int().min(0),
+  /** live/ended: what the rule gives as it stands; paid: what was paid. */
+  topUpIqd: Iqd,
+  /** The Sunday it is (or was) paid with the weekly scorecard (local midnight starting that Sunday). */
+  paysOn: z.coerce.date(),
+});
+export type GuaranteeWindowView = z.infer<typeof GuaranteeWindowView>;
+
+export const GuaranteeView = z.object({
+  /** The city has the guarantee on and his role is covered; false → nothing to show. */
+  enabled: z.boolean(),
+  amountIqd: Iqd,
+  minAcceptance: z.number().min(0).max(1),
+  maxCancelsAfterAccept: z.number().int().min(0),
+  minCompletedJobs: z.number().int().min(0),
+  /** The peak shift happening now; null between peaks or when not enabled. */
+  current: GuaranteeWindowView.nullable(),
+  /** This local week's shifts so far (live, ended, paid), newest first; empty when not enabled. */
+  week: z.array(GuaranteeWindowView),
+  /** Top-ups earned and waiting for Sunday (ended, qualified, not yet paid), summed. */
+  pendingIqd: Iqd,
+});
+export type GuaranteeView = z.infer<typeof GuaranteeView>;
+
 // ───────────────────────── end of shift (partner S-4) ─────────────────────────
 
 /**
@@ -301,6 +350,8 @@ export const ShiftSummary = z.object({
   tomorrow: z.object({ from: z.coerce.date(), to: z.coerce.date(), orders: z.number().int() }).nullable(),
   /** One scorecard nudge at most (the first component under its Silver line), from day 31 only. */
   nudge: ScoreNudge.nullable(),
+  /** G-91: the peak shifts this shift overlapped, oldest first (empty when the guarantee does not cover him). */
+  guarantee: z.array(GuaranteeWindowView).default([]),
 });
 export type ShiftSummary = z.infer<typeof ShiftSummary>;
 
@@ -390,6 +441,7 @@ export const PayQueryResult = z.object({
 export type PayQueryResult = z.infer<typeof PayQueryResult>;
 
 export interface DriverAccountPort {
+  guarantee(actor: Actor): Promise<GuaranteeView>;
   shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
   jobReceipt(actor: Actor, input: z.output<typeof JobReceiptInput>): Promise<JobReceipt>;
   payQuery(actor: Actor, input: z.output<typeof PayQueryInput>): Promise<PayQueryResult>;

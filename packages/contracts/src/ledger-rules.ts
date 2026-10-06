@@ -37,6 +37,29 @@ export type SettlementMode = z.infer<typeof SettlementMode>;
 
 const CapsByTier = z.object({ bronze: Iqd.positive(), silver: Iqd.positive(), gold: Iqd.positive() });
 
+/**
+ * A peak shift on the city's clock (G-91 shift guarantee): `[startMin, endMin)` minutes after local
+ * midnight, inside one local day. `key` names it in the ledger memo (`guarantee:2026-10-04:lunch`).
+ */
+export const PeakShift = z
+  .object({
+    key: z.string().regex(/^[a-z][a-z_]*$/),
+    startMin: z.number().int().min(0).max(1439),
+    endMin: z.number().int().min(1).max(1440),
+  })
+  .refine((p) => p.endMin > p.startMin, { message: 'a peak shift ends after it starts, on the same local day' });
+export type PeakShift = z.infer<typeof PeakShift>;
+
+/**
+ * Aziziyah's two 4-hour peak shifts (2026-10-06, for Ali's G-91 decision): the guarantee is "per
+ * 4-hour peak shift" and the city's peaks are lunch 13:00–15:00 and dinner 19:30–22:30 (edge-case
+ * review #21), so each shift is the 4 hours around its peak: lunch 12:00–16:00, dinner 19:00–23:00.
+ */
+export const AZIZIYAH_PEAK_SHIFTS: readonly PeakShift[] = [
+  { key: 'lunch', startMin: 12 * 60, endMin: 16 * 60 },
+  { key: 'dinner', startMin: 19 * 60, endMin: 23 * 60 },
+];
+
 export const MoneyRules = z.object({
   commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
   serviceFeeIqd: Iqd.nonnegative(),
@@ -98,8 +121,23 @@ export const MoneyRules = z.object({
   adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative() }),
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
-  /** G-91 shift guarantee conditions. */
-  guarantee: z.object({ amountIqd: Iqd.nonnegative(), minAcceptance: Rate, maxCancelsAfterAccept: z.number().int().nonnegative(), minCompletedJobs: z.number().int().nonnegative() }),
+  /**
+   * G-91 launch shift guarantee (money §2, edge-case review #91; Ali decided 2026-10-06 to pay it):
+   * per peak shift, a driver whose cap role is in `roles` and who met the three conditions in it is
+   * topped up by the platform to `amountIqd` (the difference, never a flat bonus), paid on the Sunday
+   * run with the scorecard. `enabled` is the city's switch. See `shiftGuarantee` and
+   * docs/api/shift-guarantee.md.
+   */
+  guarantee: z.object({
+    enabled: z.boolean().default(true),
+    amountIqd: Iqd.nonnegative(),
+    minAcceptance: Rate,
+    maxCancelsAfterAccept: z.number().int().nonnegative(),
+    minCompletedJobs: z.number().int().nonnegative(),
+    peaks: z.array(PeakShift).min(1).default([...AZIZIYAH_PEAK_SHIFTS]),
+    /** Money §2 / §5 "courier shift guarantees": food couriers at launch. */
+    roles: z.array(CapRole).min(1).default(['courier']),
+  }),
   /** Domain §2 seat lateness meter; decisions §8 binds it to server time. */
   lateMeter: z.object({
     graceMin: z.number().int().nonnegative(),
@@ -153,7 +191,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
   adjustments: { secondApproverAboveIqd: 25000 },
   driverPayoutAboveIqd: 20000,
-  guarantee: { amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3 },
+  guarantee: { enabled: true, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_PEAK_SHIFTS], roles: ['courier'] },
   lateMeter: {
     graceMin: 5,
     blockMin: 10,

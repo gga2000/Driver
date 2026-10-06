@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { DriverLedgerView, LedgerPort, MerchantBalanceView, NightlyReport, SettlementPlan } from '@driver/contracts';
+import type { DriverLedgerView, GuaranteeWindowView, LedgerPort, MerchantBalanceView, NightlyReport, SettlementPlan } from '@driver/contracts';
 import { Accounts } from './accounts.js';
 import { CapsService } from './caps.js';
+import { ShiftGuaranteeService } from './guarantee.js';
 import { LedgerService } from './ledger.service.js';
 import { MerchantCashService } from './merchant-cash.service.js';
 import { NightlyJob } from './nightly.job.js';
@@ -14,6 +15,7 @@ export class LedgerFacade implements LedgerPort {
     private readonly caps: CapsService,
     private readonly merchantCash: MerchantCashService,
     private readonly nightly: NightlyJob,
+    private readonly guarantee: ShiftGuaranteeService,
   ) {}
 
   async driverLedger(input: { driverId: string; from?: Date; to?: Date }): Promise<DriverLedgerView> {
@@ -37,6 +39,16 @@ export class LedgerFacade implements LedgerPort {
       earnings,
       cash,
     };
+  }
+
+  /** G-91: whether the shift guarantee covers him (city switch on, his cap role covered). */
+  guaranteeCovers(driverId: string): Promise<boolean> {
+    return this.guarantee.covers(driverId);
+  }
+
+  /** G-91: the peak shifts overlapping the range that have begun, with his numbers and paid status. */
+  guaranteeWindows(input: { driverId: string; from: Date; to: Date }): Promise<GuaranteeWindowView[]> {
+    return this.guarantee.windows(input.driverId, { from: input.from, to: input.to });
   }
 
   merchantBalance(merchantId: string): Promise<MerchantBalanceView> {

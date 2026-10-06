@@ -264,6 +264,8 @@ export const NightlyReport = z.object({
   ),
   incidentId: z.string().nullable(),
   message_ar: z.string(),
+  /** Sunday runs: the G-91 shift-guarantee top-ups this run posted (one per driver per peak shift, ever). */
+  guaranteePaid: z.array(z.object({ driverId: z.string(), windowId: z.string(), amountIqd: Iqd })).default([]),
 });
 export type NightlyReport = z.infer<typeof NightlyReport>;
 

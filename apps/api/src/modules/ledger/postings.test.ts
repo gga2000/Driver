@@ -3,7 +3,7 @@ import { AZIZIYAH_MONEY_RULES as rules, cashToHand, type OrderMoneyPayload } fro
 import { validateGroup } from './ledger.service.js';
 import {
   allocate,
-  guaranteeTopUp,
+  guaranteeGroupId,
   lateMeterBlocks,
   orderPointRecipients,
   pointsForRevenue,
@@ -17,6 +17,7 @@ import {
   postRideCompleted,
   postSeat,
   postSettlement,
+  postShiftGuarantee,
   postSubscription,
   roundCustomerTotal,
   takeOf,
@@ -352,13 +353,14 @@ describe('settlements and incentives', () => {
     expect(nets(postSettlement({ kind: 'driver_payout', driverId: 'd1', amountIqd: 25000, channel: 'zaincash', reference: 'P-1', occurredAt: at }))).toEqual({ 'driver:d1': -25000, bank: 25000 });
   });
 
-  it('shift guarantee needs ≥ 85 % acceptance, ≤ 1 cancel after accept and ≥ 3 jobs (G-91)', () => {
-    const ok = { earningsIqd: 6000, acceptanceRate: 0.9, cancelsAfterAccept: 1, completedJobs: 3 };
-    expect(guaranteeTopUp(ok, rules)).toBe(4000);
-    expect(guaranteeTopUp({ ...ok, acceptanceRate: 0.84 }, rules)).toBe(0);
-    expect(guaranteeTopUp({ ...ok, cancelsAfterAccept: 2 }, rules)).toBe(0);
-    expect(guaranteeTopUp({ ...ok, completedJobs: 2 }, rules)).toBe(0);
-    expect(guaranteeTopUp({ ...ok, earningsIqd: 12000 }, rules)).toBe(0);
+  it('shift guarantee top-up: platform → driver, memo guarantee:<shift>, one group per driver per shift (G-91)', () => {
+    const g = postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: 4000, occurredAt: at })!;
+    expect(() => validateGroup(g)).not.toThrow();
+    expect(g.id).toBe(guaranteeGroupId('k1', '2026-10-04:lunch'));
+    expect(g.lines).toEqual([{ type: 'driver_incentive', amount: 4000, fromAccount: 'platform', toAccount: 'driver:k1', memo: 'guarantee:2026-10-04:lunch' }]);
+    expect(nets(g)).toEqual({ platform: -4000, 'driver:k1': 4000 });
+    expect(postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: 0, occurredAt: at })).toBeNull();
+    expect(() => postShiftGuarantee({ driverId: 'k1', windowId: '2026-10-04:lunch', amountIqd: -1, occurredAt: at })).toThrow(RangeError);
   });
 });
 
