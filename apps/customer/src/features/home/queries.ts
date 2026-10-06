@@ -37,6 +37,21 @@ export function useActiveOrder() {
 }
 
 /**
+ * Real dishes for the hour (joy h1): `catalog.picks` with the daypart's words, from kitchens open now
+ * (public, like the rest of the catalog). The band hides itself below `BAND_MIN_DISHES`.
+ */
+export function usePicks(words: readonly string[], limit = 3) {
+  const api = useApi();
+  const { dropoff } = useDeliverTo();
+  return useQuery({
+    ...api.catalog.picks.queryOptions({ cityId: CITY_ID, words: [...words], limit, ...(dropoff ? { dropoff } : {}) }),
+    enabled: words.length > 0,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
  * Restaurants for the home rails and the full list: `catalog.restaurants` for the deliver-to zone
  * (fee preview and ETA). Public (guests browse too); favourites only from the person's own orders.
  */

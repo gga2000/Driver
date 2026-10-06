@@ -11,7 +11,9 @@ import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
 import { nightHome } from '@/features/home/night';
 import { HomeHeader } from '@/features/home/HomeHeader';
-import { useActiveOrder, useRestaurants } from '@/features/home/queries';
+import { useActiveOrder, usePicks, useRestaurants } from '@/features/home/queries';
+import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
+import { DaypartBand } from '@/features/home/DaypartBand';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { SeasonCard } from '@/features/season/SeasonCard';
 import { ReorderCard } from '@/features/home/ReorderCard';
@@ -24,7 +26,9 @@ import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useRajaaHome } from '@/features/rajaa/queries';
 import { startRide } from '@/features/ride/WhereToBar';
 import { popularTerms } from '@/features/search/logic';
+import { appNow } from '@/lib/dev-clock';
 import { useLocale, useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 
 /** Restaurants listed on home before "شوف الكل". */
 const HOME_LIST = 5;
@@ -50,7 +54,11 @@ export default function Home() {
   const me = useMyPersonId();
   const reorder = useReorderFlow();
   const tick = useNow(true, 60_000);
-  const now = useMemo(() => new Date(tick), [tick]);
+  // The hour in town (joy h1). A dev build may shift it for screenshots (`?now=07:30`).
+  const now = useMemo(() => appNow(tick), [tick]);
+  const dp = useMemo(() => daypart(now), [now]);
+  const quiet = useSeason().quiet;
+  const picks = usePicks(bandWords(dp));
   const [refreshing, setRefreshing] = useState(false);
 
   const list = restaurants.data;
@@ -62,11 +70,14 @@ export default function Home() {
     restartSlow();
     void restaurants.refetch();
   };
-  // Open kitchens, the ones this person already ordered from first.
-  const open = useMemo(() => (list ?? []).filter((r) => r.open).sort((a, b) => Number(b.favourite) - Number(a.favourite)), [list]);
+  // Open kitchens: the ones this person already ordered from first, then the ones that suit the hour.
+  const open = useMemo(
+    () => (list ?? []).filter((r) => r.open).sort((a, b) => Number(b.favourite) - Number(a.favourite) || kitchenRank(a.tags, dp.key) - kitchenRank(b.tags, dp.key)),
+    [list, dp.key],
+  );
   // f12: at night (no kitchen open) the chips come from every kitchen, and the first to open is named.
   const night = useMemo(() => nightHome(list ?? []), [list]);
-  const cuisines = useMemo(() => popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), [open, list]);
+  const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
   const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaa.trip), reorder: Boolean(last) });
 
@@ -91,7 +102,7 @@ export default function Home() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
     >
       <View style={{ gap: theme.space[3] }}>
-        <HomeHeader />
+        <HomeHeader daypart={dp} quiet={quiet} />
         {/* No mic until voice search exists (audit C-01). */}
         <SearchField testID="home-search" placeholder={t('search.placeholder')} accessibilityLabel={t('search.a11y_open')} onPress={() => router.push('/search')} />
       </View>
@@ -103,6 +114,9 @@ export default function Home() {
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
       {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
       <SeasonCard />
+
+      {/* «وقت العزيزية»: real dishes for the hour from kitchens open now (hidden below two). */}
+      {open.length > 0 ? <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={picks.data} /> : null}
 
       <View testID="home-food" onLayout={(e) => (foodY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[3] }}>
         <SectionHeader voice title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
