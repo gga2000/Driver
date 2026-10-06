@@ -253,10 +253,24 @@ function Facts({ r }: { r: RestaurantCard }) {
       </View>
       <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>
         <Fact icon="bike" label={fee} highlight={r.deliveryFeeIqd === 0} testID="restaurant-fee" />
-        <Fact icon="bag" label={t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })} testID="restaurant-min" />
+        {/* J-D6: below the minimum is a choice with the server's small-order fee, said up front. */}
+        <Fact
+          icon="bag"
+          label={
+            r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
+              ? t('restaurant.small_order_note', { amount: amountParam(r.minOrderIqd), fee: amountParam(r.smallOrderFeeIqd ?? 0) })
+              : t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })
+          }
+          testID="restaurant-min"
+        />
       </View>
       {/* The restaurant's live deals; the best one is applied by the server at checkout. */}
       <DealBadges deals={r.deals ?? []} testID="restaurant-deals" />
+      {(r.deals?.length ?? 0) > 1 ? (
+        <Text variant="footnote" color="textMuted" testID="restaurant-deals-one">
+          {t('restaurant.deals_one_applies')}
+        </Text>
+      ) : null}
       {r.busy ? (
         <Text variant="footnote" color="warningText">
           {t('restaurant.busy')}

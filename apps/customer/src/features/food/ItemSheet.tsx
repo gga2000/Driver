@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import type { MenuItem, MenuModifierGroup } from '@driver/contracts';
+import { dealLinePrice, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import { Button, Card, Chip, ChipGroup, Icon, ModalSheet, Rule, StatusPill, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { useLocale, useT } from '@/lib/i18n';
@@ -29,6 +29,7 @@ export interface ItemSheetProps {
 export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSheetProps) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const toast = useToast();
   const { name: myName } = useProfile();
   const { people } = useCartStore();
@@ -52,6 +53,8 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
 
   const problems = selectionProblems(item, selection);
   const price = sheetLinePrice(item, selection, qty);
+  // f10: the line under the dish's menu deal (the server's percent, the rule orders.quote applies).
+  const dealPrice = dealLinePrice(price, item.deal);
   const person = people.find((p) => p.id === personId) ?? null;
 
   const personItems = useMemo(
@@ -129,12 +132,22 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
               {t('item.missing_choice', { group: missing.name })}
             </Text>
           ) : null}
+          {item.available && dealPrice < price ? (
+            <View testID="item-deal-price" style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'baseline', gap: theme.space[2] }}>
+              <Text variant="label" weight={700} color="successText" tabular>
+                {iqd(dealPrice, { locale })}
+              </Text>
+              <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
+                {iqd(price, { locale })}
+              </Text>
+            </View>
+          ) : null}
           <Button
             testID="item-add"
             size="lg"
             fullWidth
             disabled={disabled || problems.length > 0 || !item.available}
-            label={item.available ? t('item.add_to_cart', { amount: amountParam(price) }) : t('item.sold_out')}
+            label={item.available ? t('item.add_to_cart', { amount: amountParam(dealPrice) }) : t('item.sold_out')}
             onPress={() => add(false)}
           />
         </>

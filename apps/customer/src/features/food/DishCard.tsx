@@ -1,5 +1,5 @@
 import { Pressable, View } from 'react-native';
-import type { MenuItem } from '@driver/contracts';
+import { dealLinePrice, type MenuItem } from '@driver/contracts';
 import { IconButton, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -17,19 +17,28 @@ export interface DishCardProps {
   onQuickAdd: () => void;
 }
 
-/** A menu row: name, description, price, and a thumbnail with the + button on its corner. */
+/**
+ * A menu row: name, description, price, and a thumbnail with the + button on its corner. Under a
+ * live percent deal with no minimum (f10, the server's `item.deal`) the price is the deal price in
+ * the success colour with the menu price struck through, as the cart will charge it.
+ */
 export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd }: DishCardProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const price = fromPrice(item);
+  const dealPrice = item.deal ? dealLinePrice(price.amount, item.deal) : null;
   const soldOut = !item.available;
   const quick = canQuickAdd(item);
   return (
     <Pressable
       testID={`dish-${item.id}`}
       accessibilityRole="button"
-      accessibilityLabel={`${item.name}، ${iqd(price.amount, { locale })}`}
+      accessibilityLabel={
+        dealPrice !== null && dealPrice < price.amount
+          ? t('restaurant.deal_price_a11y', { name: item.name, amount: amountParam(dealPrice), was: amountParam(price.amount) })
+          : `${item.name}، ${iqd(price.amount, { locale })}`
+      }
       onPress={onOpen}
       style={({ pressed }) => ({
         flexDirection: 'row',
@@ -50,9 +59,20 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd }: DishCar
           </Text>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: 2 }}>
-          <Text variant="label" weight={600} tabular>
-            {price.varies ? t('restaurant.price_from', { amount: amountParam(price.amount) }) : iqd(price.amount, { locale })}
-          </Text>
+          {dealPrice !== null && dealPrice < price.amount ? (
+            <>
+              <Text variant="label" weight={700} color="successText" tabular testID={`dish-deal-${item.id}`}>
+                {price.varies ? t('restaurant.price_from', { amount: amountParam(dealPrice) }) : iqd(dealPrice, { locale })}
+              </Text>
+              <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
+                {iqd(price.amount, { locale })}
+              </Text>
+            </>
+          ) : (
+            <Text variant="label" weight={600} tabular>
+              {price.varies ? t('restaurant.price_from', { amount: amountParam(price.amount) }) : iqd(price.amount, { locale })}
+            </Text>
+          )}
           {soldOut ? <StatusPill size="sm" tone="neutral" label={t('item.sold_out')} /> : null}
         </View>
       </View>
