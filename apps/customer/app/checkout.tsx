@@ -5,7 +5,7 @@ import { View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
 import { Screen } from '@/components/Screen';
-import { groupByPerson, minOrderShortfall, reconcile } from '@/features/food/cart';
+import { groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { afterFailure, attemptFor, attemptSignature, shouldReplay } from '@/features/food/place-attempt';
 import {
@@ -129,7 +129,6 @@ export default function CheckoutScreen() {
   const restaurant = menu.data?.restaurant;
   const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
   const { groups } = groupByPerson(cart);
-  const shortfall = minOrderShortfall(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
 
@@ -153,9 +152,7 @@ export default function CheckoutScreen() {
       : null;
   const blocker = netBlocker ?? (!dropoff
     ? t('cart.pick_place')
-    : shortfall > 0
-      ? t('cart.min_not_met', { amount: amountParam(shortfall) })
-      : closedNow && restaurant
+    : closedNow && restaurant
         ? restaurant.closedReason === 'paused'
           ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
           : t('error.merchant_closed', { time: restaurant.opensAt ?? '' })

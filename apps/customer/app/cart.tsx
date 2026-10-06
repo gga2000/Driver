@@ -4,13 +4,15 @@ import { ScrollView, View } from 'react-native';
 import type { MenuItem } from '@driver/contracts';
 import { Avatar, Button, Card, EmptyState, Icon, IconButton, PriceBreakdown, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { groupByPerson, ME, minOrderShortfall } from '@/features/food/cart';
+import { groupByPerson, itemsTotal, ME, minOrderShortfall } from '@/features/food/cart';
 import { CartLineRow } from '@/features/food/CartLineRow';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { checkoutTotals, lineSavings, otherDeals } from '@/features/food/checkout';
 import { DealBadges } from '@/features/food/DealBadge';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { FoodArt, motifForDish } from '@/features/food/FoodArt';
+import { minOrderProgress } from '@/features/food/min-order';
+import { MinOrderStrip } from '@/features/food/MinOrderStrip';
 import { priceItems } from '@/features/food/price-lines';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote } from '@/features/food/queries';
 import { upsellItems } from '@/features/food/upsell';
@@ -45,7 +47,10 @@ export default function CartScreen() {
   const nextDeal = orderQuote.data?.nextDeal ?? null;
   const deals = menu.data?.restaurant.deals ?? [];
   const shortfall = minOrderShortfall(cart);
-  const upsell = useMemo(() => (menu.data ? upsellItems(menu.data.categories, cart) : []), [menu.data, cart]);
+  const progress = cart.merchant ? minOrderProgress(itemsTotal(cart), cart.merchant.minOrderIqd) : null;
+  // J-D6: below the minimum the order can still go with the server's small-order fee (guests: the card's).
+  const smallOrderFee = orderQuote.data?.smallOrder?.feeIqd ?? menu.data?.restaurant.smallOrderFeeIqd ?? 0;
+  const upsell = useMemo(() => (menu.data ? upsellItems(menu.data.categories, cart, shortfall) : []), [menu.data, cart, shortfall]);
   const closed = menu.data ? !menu.data.restaurant.open : false;
   // A guest builds the cart freely; "كمّل الطلب" asks for the phone and comes back to checkout (C-18).
   const guest = !useSignedIn();
@@ -69,16 +74,20 @@ export default function CartScreen() {
     if (res.ok) toast.show({ message: t('restaurant.added', { name: item.name }), tone: 'success', icon: 'cart' });
   };
 
-  const canCheckout = (guest || Boolean(totals)) && shortfall === 0;
+  // Below the minimum is allowed since J-D6 (with the small-order fee in the total), so only a missing price blocks.
+  const canCheckout = guest || Boolean(totals);
   const footer = (
-    <Button
-      testID="cart-checkout"
-      size="lg"
-      fullWidth
-      disabled={!canCheckout}
-      label={totals ? `${t('cart.checkout')} · ${iqd(totals.totalIqd, { locale })}` : t('cart.checkout')}
-      onPress={() => (guest ? void requireSignIn('/checkout') : router.push('/checkout'))}
-    />
+    <View style={{ gap: theme.space[3] }}>
+      {progress ? <MinOrderStrip progress={progress} minOrderIqd={merchant.minOrderIqd} feeIqd={smallOrderFee} /> : null}
+      <Button
+        testID="cart-checkout"
+        size="lg"
+        fullWidth
+        disabled={!canCheckout}
+        label={totals ? `${t('cart.checkout')} · ${iqd(totals.totalIqd, { locale })}` : t('cart.checkout')}
+        onPress={() => (guest ? void requireSignIn('/checkout') : router.push('/checkout'))}
+      />
+    </View>
   );
 
   return (
@@ -139,7 +148,7 @@ export default function CartScreen() {
 
       {upsell.length ? (
         <View style={{ gap: theme.space[3] }} testID="cart-upsell">
-          <Text variant="title">{t('cart.upsell_title')}</Text>
+          <Text variant="title">{shortfall > 0 ? t('cart.upsell_close_gap') : t('cart.upsell_title')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -theme.space[5] }} contentContainerStyle={{ paddingHorizontal: theme.space[5], gap: theme.space[3], paddingVertical: theme.space[1] }}>
             {upsell.map((item) => (
               <Card key={item.id} padding={0} style={{ width: 132, overflow: 'hidden' }} onPress={() => quickAdd(item)} accessibilityLabel={t('restaurant.add_item', { name: item.name })} testID={`upsell-${item.id}`}>
@@ -180,16 +189,6 @@ export default function CartScreen() {
               <Icon name="gift" size={18} color="accentText" />
               <Text variant="label" color="accentText" style={{ flex: 1 }}>
                 {t('cart.deal_unlock', { amount: amountParam(nextDeal.missingIqd), label: locale === 'en' ? nextDeal.label_en : nextDeal.label_ar })}
-              </Text>
-            </View>
-          </Card>
-        ) : null}
-        {shortfall > 0 ? (
-          <Card elevation={0} tone="sunken" padding={3} testID="cart-min">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Icon name="bag" size={18} color="warningText" />
-              <Text variant="label" style={{ flex: 1 }}>
-                {t('cart.min_not_met', { amount: amountParam(shortfall) })}
               </Text>
             </View>
           </Card>

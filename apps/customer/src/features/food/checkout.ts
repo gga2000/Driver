@@ -49,7 +49,13 @@ export interface CheckoutTotals {
   dealIqd: number;
   /** Legacy "تقريب" (deal trimmed onto a 500 step): always 0 now. */
   roundingIqd: number;
-  /** What the order costs: items + fees − the deal. */
+  /** J-D6: the server's small-order fee (below the restaurant minimum), 0 otherwise. */
+  smallOrderFeeIqd: number;
+  /** The restaurant minimum behind that fee (its reason line); null without a minimum. */
+  smallOrderMinIqd: number | null;
+  /** W-02: what the server's points take off (0 unless «استخدم نقاطك» is on). */
+  pointsIqd: number;
+  /** What the order costs: items + fees + small-order fee − the deal − points. */
   priceIqd: number;
   /**
    * What the customer pays (Ali, 2026-10-04): cash → the price rounded up to 250 (what he hands the
@@ -63,15 +69,15 @@ export interface CheckoutTotals {
 }
 
 /**
- * Cart and checkout totals: items at menu prices, fees split from the pricing quote, the discount line
- * from the server's order quote (`orders.quote`, merchant deal) — never computed here — and the
- * payment: cash rounds up to 250 with the change to the wallet, the wallet pays the exact price
- * (`cashToHand`, the same helper the server prices with).
+ * Cart and checkout totals: items at menu prices, fees split from the pricing quote, the discount
+ * line, the small-order fee and the points from the server's order quote (`orders.quote`) — never
+ * computed here — and the payment: cash rounds up to 250 with the change to the wallet, the wallet
+ * pays the exact price (`cashToHand`, the same helper the server prices with).
  */
 export function checkoutTotals(
   cart: Pick<CartState, 'lines'>,
   quote: Pick<Quote, 'components'>,
-  order?: Pick<OrderQuote, 'discountIqd' | 'discount'> | null,
+  order?: (Pick<OrderQuote, 'discountIqd' | 'discount'> & Partial<Pick<OrderQuote, 'smallOrderFeeIqd' | 'smallOrder' | 'pointsIqd'>>) | null,
   paymentMethod: 'cash' | 'wallet' = 'cash',
 ): CheckoutTotals {
   const items = itemsTotal(cart);
@@ -79,7 +85,9 @@ export function checkoutTotals(
   const parts = quote.components.filter((c) => c.key !== 'promo');
   const components = [...parts.filter((c) => c.key !== 'service_fee'), ...parts.filter((c) => c.key === 'service_fee')];
   const discountIqd = order?.discountIqd ?? 0;
-  const priceIqd = Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd - discountIqd);
+  const smallOrderFeeIqd = order?.smallOrderFeeIqd ?? 0;
+  const pointsIqd = order?.pointsIqd ?? 0;
+  const priceIqd = Math.max(0, items + fees.deliveryFeeIqd + fees.serviceFeeIqd + smallOrderFeeIqd - discountIqd - pointsIqd);
   const cash = paymentMethod === 'cash' ? cashToHand(priceIqd) : { cashIqd: priceIqd, changeIqd: 0 };
   return {
     itemsIqd: items,
@@ -88,6 +96,9 @@ export function checkoutTotals(
     discount: order?.discount ?? null,
     dealIqd: discountIqd,
     roundingIqd: 0,
+    smallOrderFeeIqd,
+    smallOrderMinIqd: order?.smallOrder?.minOrderIqd ?? null,
+    pointsIqd,
     priceIqd,
     totalIqd: cash.cashIqd,
     changeIqd: cash.changeIqd,
@@ -129,6 +140,9 @@ export interface CheckoutChoices {
   clientRequestId?: string;
   /** "راح أدفع بـ 25,000": the note he will hand over (cash only; a hint for the courier). */
   statedTenderIqd?: number | null;
+  /** «استخدم نقاطك» (W-02) and the points value `orders.quote` showed (the server refuses another: `price_changed`). */
+  usePoints?: boolean;
+  pointsIqd?: number;
 }
 
 const OTHER_RECIPIENT_REF = 'recipient';
@@ -189,6 +203,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.courierNote?.trim() ? { courierNote: c.courierNote.trim().slice(0, 300) } : {}),
     ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
     ...(c.paymentMethod === 'cash' && c.statedTenderIqd ? { statedTenderIqd: c.statedTenderIqd } : {}),
+    ...(c.usePoints ? { usePoints: true, ...(c.pointsIqd !== undefined ? { pointsIqd: c.pointsIqd } : {}) } : {}),
   };
 }
 
@@ -196,8 +211,8 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
  * The `orders.quote` input for a cart: the same lines and drop-off `place` will get, without the fee
  * and discount expectations (the quote is what sets them).
  */
-export function orderQuoteInput(cart: CartState, dropoff: DeliveryPoint, streetHandover: boolean): PlaceOrderInput {
-  const full = buildPlaceOrderInput({ cart, dropoff, streetHandover, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 } });
+export function orderQuoteInput(cart: CartState, dropoff: DeliveryPoint, streetHandover: boolean, usePoints = false): PlaceOrderInput {
+  const full = buildPlaceOrderInput({ cart, dropoff, streetHandover, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 }, usePoints });
   const { deliveryFeeIqd: _d, serviceFeeIqd: _s, participants: _p, ...rest } = full;
   return { ...rest, lines: (rest.lines ?? []).map(({ participantRef: _r, ...l }) => l) };
 }

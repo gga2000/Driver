@@ -1,6 +1,7 @@
 import type { QuoteComponent } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import type { PriceItem } from '@driver/ui';
+import { amountParam } from '@/lib/money';
 import type { CheckoutTotals } from './checkout';
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string;
@@ -20,8 +21,9 @@ const NAMES: Partial<Record<QuoteComponent['key'], { label: MessageKey; reason?:
 };
 
 /**
- * The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, then
- * the deal (negative) at its exact promised saving. They sum to the price; a cash total's change (up
+ * The receipt lines for cart and checkout: items, each non-zero delivery part, the service fee, the
+ * small-order fee with its reason, then the deal (negative) at its exact promised saving and the
+ * points (negative). They sum to the price; a cash total's change (up
  * to 250) is `PriceBreakdown`'s "الباقي رصيد" strip under the total, never a line.
  */
 export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en'): PriceItem[] {
@@ -37,6 +39,15 @@ export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en')
       ...(name?.reason ? { reason: t(name.reason) } : {}),
     });
   }
+  // J-D6: the small-order fee, named, with its reason (below the restaurant's minimum).
+  if (totals.smallOrderFeeIqd > 0) {
+    out.push({
+      key: 'small_order',
+      label: t('quote.small_order_fee'),
+      amount: totals.smallOrderFeeIqd,
+      ...(totals.smallOrderMinIqd ? { reason: t('quote.reason.small_order', { amount: amountParam(totals.smallOrderMinIqd) }) } : {}),
+    });
+  }
   // The restaurant's deal, as the server applied it (domain §11: every discount is its own named line).
   if (totals.discount && totals.discountIqd > 0) {
     const d = totals.discount;
@@ -48,5 +59,7 @@ export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en')
       ...(d.funder === 'merchant' ? { reason: t('quote.deal_reason', { label }) } : {}),
     });
   }
+  // W-02: the points the server took off (delivery fee first, then the service fee).
+  if (totals.pointsIqd > 0) out.push({ key: 'points', label: t('quote.points'), amount: -totals.pointsIqd });
   return out;
 }

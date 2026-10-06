@@ -85,10 +85,10 @@ export function useCartQuote(cart: CartState, dropoff: DeliveryPoint | null, str
  * The server's checkout quote (`orders.quote`): the restaurant's deal on this exact cart, what each
  * line saves, the deal a bigger cart would unlock. Re-asked when the cart changes and each minute.
  */
-export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean) {
+export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean, usePoints = false) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const input = useMemo(() => (dropoff && cart.merchant && cart.lines.length > 0 ? orderQuoteInput(cart, dropoff, streetHandover) : null), [cart, dropoff, streetHandover]);
+  const input = useMemo(() => (dropoff && cart.merchant && cart.lines.length > 0 ? orderQuoteInput(cart, dropoff, streetHandover, usePoints) : null), [cart, dropoff, streetHandover, usePoints]);
   return useQuery({
     ...api.orders.quote.queryOptions(input ?? { cityId: CITY_ID, type: 'food', lines: [] }),
     enabled: signedIn && input !== null,
