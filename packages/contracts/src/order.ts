@@ -123,6 +123,14 @@ export const PlaceOrderInput = z.object({
    * (`tenderProblem`), else `tender_invalid`; sent with a wallet order it is `tender_invalid` too.
    */
   statedTenderIqd: Iqd.positive().optional(),
+  /**
+   * W-02 / J-D10: spend the customer's points on this order («استخدم نقاطك»). The server decides how
+   * many (his available points, capped by the delivery fee + service fee and by the price) and takes
+   * them off the delivery fee first, then the service fee. Merchant orders only; ignored otherwise.
+   */
+  usePoints: z.boolean().optional(),
+  /** The points value `orders.quote` showed (0 = none): a different server figure is `price_changed`. */
+  pointsIqd: Iqd.min(0).optional(),
 });
 export type PlaceOrderInput = z.input<typeof PlaceOrderInput>;
 
@@ -183,6 +191,11 @@ export const Order = z.object({
   serviceFeeIqd: Iqd,
   discountIqd: Iqd,
   tipIqd: Iqd,
+  /** J-D6: the small-order fee (below the restaurant's minimum), fixed at placement; absent = 0. */
+  smallOrderFeeIqd: Iqd.min(0).optional(),
+  /** W-02: points spent on the order (posted when it closes) and what they take off; absent = 0. */
+  pointsRedeemed: z.number().int().min(0).optional(),
+  pointsIqd: Iqd.min(0).optional(),
   /**
    * What the customer pays: a cash order's price rounded up to 250 (what he hands the courier), a
    * wallet order's exact price (Ali, 2026-10-04 — `cashToHand`).
@@ -250,6 +263,21 @@ export const OrderQuote = z.object({
   serviceFeeIqd: Iqd,
   tipIqd: Iqd,
   discountIqd: Iqd,
+  /**
+   * J-D6 (Ali, 2026-10-05): the small-order fee this order carries — the city fee (500) when its items
+   * are below the restaurant's minimum, else 0. Part of `totalIqd`; shown as its own named line.
+   */
+  smallOrderFeeIqd: Iqd.min(0).optional(),
+  /** The restaurant's minimum and the fee below it (null = no minimum): the cart's progress strip and the line's reason. */
+  smallOrder: z.object({ minOrderIqd: Iqd.positive(), feeIqd: Iqd.min(0) }).nullable().optional(),
+  /**
+   * W-02: the customer's points for this order — his available balance, how many this order could
+   * take and what they are worth (delivery fee first, then the service fee). Null when he has none or
+   * the order cannot take points.
+   */
+  points: z.object({ balance: z.number().int().min(0), usable: z.number().int().min(0), valueIqd: Iqd.min(0) }).nullable().optional(),
+  /** What points take off this quote (0 unless `usePoints`); part of `totalIqd`. */
+  pointsIqd: Iqd.min(0).optional(),
   /** What the customer pays for `paymentMethod`: cash → the price rounded up to 250; wallet → the exact price. */
   totalIqd: Iqd,
   /** Cash: `totalIqd − price` (0–249), the change credited to his wallet ("الباقي رصيد"); 0 for wallet. */

@@ -37,6 +37,13 @@ export const ORDERS_RULES = {
   pointsCapPerOrder: 50,
   /** Domain §3/§10: organiser bonus +10 % of the order's points. */
   organizerBonusPct: 10,
+  /**
+   * J-D6 (Ali, 2026-10-05): an order whose items (menu prices, before any deal) are below the
+   * restaurant's minimum goes ahead with this fee (500), from the city's money rules.
+   */
+  smallOrder: AZIZIYAH_MONEY_RULES.smallOrder,
+  /** W-02 / J-D10: 100 points = 1,000 دينار, spent on the delivery fee first, then the service fee. */
+  pointValueIqd: AZIZIYAH_MONEY_RULES.points.pointValueIqd,
   /** M2 review follow-up: the customer's tip is capped per order; it goes 100 % to the courier/driver. */
   maxTipIqd: 10_000,
   /** Domain §10: pending points for non-users expire after 90 days unclaimed. */

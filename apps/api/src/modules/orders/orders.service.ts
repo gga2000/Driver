@@ -13,6 +13,8 @@ import {
   isDomainEventType,
   orderTicketNumber,
   parseOrderTicket,
+  redeemablePoints,
+  smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
   type DisputeKind,
@@ -90,6 +92,8 @@ export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
  */
 export interface OrdersWalletPort {
   balanceIqd(payer: { customerId: string; householdId: string | null }): Promise<number>;
+  /** W-02: the customer's own points balance (points are personal, also on a household order). */
+  pointsBalance?(customerId: string): Promise<number>;
 }
 
 export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
@@ -221,6 +225,8 @@ export class OrdersService implements OnModuleInit {
     // is a refresh, never a silent change of what the customer pays.
     const discount = p.discount?.amountIqd ?? 0;
     if (input.discountIqd !== undefined && input.discountIqd !== discount) throw new DriverError(input.promoCode ? 'price_changed' : 'deal_changed');
+    // W-02: the points value the checkout showed; a different figure (balance spent elsewhere) is a refresh.
+    assertExpected(input.pointsIqd, p.pointsIqd);
     const total = p.totalIqd;
     // "الخردة علينا": the note he says he will pay with is a hint for the courier, checked on the
     // server's own cash total (≥ total, ≤ total + 50,000, in 250s) and only on a cash order.
@@ -264,6 +270,8 @@ export class OrdersService implements OnModuleInit {
           discountIqd: discount,
           promotionId: discount > 0 ? (p.discount?.promotionId ?? null) : null,
           discountMeta: discount > 0 ? (p.discount?.meta ?? null) : null,
+          smallOrderFeeIqd: p.smallOrderFee,
+          pointsRedeemed: p.pointsRedeemed,
           tipIqd: input.tipIqd,
           totalIqd: total,
           note: input.note ?? null,
@@ -326,6 +334,10 @@ export class OrdersService implements OnModuleInit {
       serviceFeeIqd: p.fees.serviceFeeIqd,
       tipIqd: input.tipIqd,
       discountIqd: d?.amountIqd ?? 0,
+      smallOrderFeeIqd: p.smallOrderFee,
+      smallOrder: p.minOrderIqd > 0 ? { minOrderIqd: p.minOrderIqd, feeIqd: ORDERS_RULES.smallOrder.feeIqd } : null,
+      points: p.points,
+      pointsIqd: p.pointsIqd,
       totalIqd: p.totalIqd,
       changeIqd: p.changeIqd,
       discount: d ? { promotionId: d.promotionId, amountIqd: d.amountIqd, ...d.meta, ...roundingOf(d.meta, d.amountIqd) } : null,
@@ -348,6 +360,22 @@ export class OrdersService implements OnModuleInit {
       .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
       .reduce((a, o) => a + o.totalIqd, 0);
     return balance - held;
+  }
+
+  /**
+   * W-02: the customer's points an order could take — his ledger points balance less the points his
+   * open orders already spoke for (the ledger redeems them when each closes), capped by the delivery
+   * fee after a free-delivery deal plus the service fee, and by the price. Null when none apply.
+   */
+  private async pointsOffer(customerId: string, fees: ServerFees, discount: OrderDiscount | null, priceIqd: number): Promise<{ balance: number; usable: number; valueIqd: number } | null> {
+    if (!this.wallet?.pointsBalance) return null;
+    const [balance, mine] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.forPerson(customerId)]);
+    const held = mine.filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
+    const available = Math.max(0, balance - held);
+    const deliveryDeal = discount?.meta.funder === 'merchant' && discount.meta.target === 'delivery' ? discount.amountIqd : 0;
+    const usable = redeemablePoints({ availablePoints: available, serviceFeeIqd: fees.serviceFeeIqd, deliveryFeeIqd: fees.deliveryFeeIqd - deliveryDeal, priceIqd }, ORDERS_RULES.pointValueIqd);
+    if (available <= 0 || usable <= 0) return null;
+    return { balance: available, usable, valueIqd: usable * ORDERS_RULES.pointValueIqd };
   }
 
   /**
@@ -392,9 +420,11 @@ export class OrdersService implements OnModuleInit {
     });
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
-    // Apps review #11: the restaurant minimum, on the menu-priced items before any deal (a deal's own
-    // minimum is checked by the deal engine, separately). The checkout summary shows it instead.
-    if (!opts.quote && storefront && storefront.minOrderIqd > 0 && itemsTotal < storefront.minOrderIqd) throw new DriverError('order_below_minimum');
+    // J-D6 (Ali, 2026-10-05; replaces apps review #11's refusal): below the restaurant minimum — on the
+    // menu-priced items before any deal (a deal's own minimum is the deal engine's) — the order goes
+    // ahead with the city's small-order fee, fixed here at placement.
+    const minOrderIqd = merchantType && storefront ? storefront.minOrderIqd : 0;
+    const smallOrderFee = smallOrderFeeIqd(itemsTotal, minOrderIqd, ORDERS_RULES);
     // M2 review follow-up: fees come from a server quote for the order's vertical, zones and options,
     // locked here; what the client sent is only its expectation and must match (`price_changed`).
     const fees = serverFees(this.pricing, {
@@ -408,12 +438,18 @@ export class OrdersService implements OnModuleInit {
     });
     // Tip: the customer's choice, capped per order; it goes 100 % to the courier/driver (ledger `tip`).
     if (input.tipIqd > ORDERS_RULES.maxTipIqd) throw new DriverError('tip_above_cap');
-    const preTotal = input.type === 'ride' ? fees.fareIqd + input.tipIqd : itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + input.tipIqd;
+    const preTotal = input.type === 'ride' ? fees.fareIqd + input.tipIqd : itemsTotal + fees.deliveryFeeIqd + fees.serviceFeeIqd + smallOrderFee + input.tipIqd;
     const discount = await this.discountFor(ordererId, input, { merchantType, newLines, itemsTotal, fees, preTotal, now });
-    const priceIqd = Math.max(0, preTotal - (discount?.amountIqd ?? 0));
+    const beforePoints = Math.max(0, preTotal - (discount?.amountIqd ?? 0));
+    // W-02 / J-D10: points pay the delivery fee (after a free-delivery deal) first, then the service
+    // fee; never more than the customer has free (balance less his open orders) or than the price.
+    const points = merchantType ? await this.pointsOffer(ordererId, fees, discount, beforePoints) : null;
+    const pointsRedeemed = input.usePoints === true && points ? points.usable : 0;
+    const pointsIqd = pointsRedeemed * ORDERS_RULES.pointValueIqd;
+    const priceIqd = Math.max(0, beforePoints - pointsIqd);
     const { totalIqd, changeIqd } = payable(input.type, input.paymentMethod, priceIqd);
     const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
-    return { merchantType, profile, newLines, itemsTotal, fees, discount, totalIqd, changeIqd, caps };
+    return { merchantType, profile, newLines, itemsTotal, fees, discount, minOrderIqd, smallOrderFee, points, pointsRedeemed, pointsIqd, totalIqd, changeIqd, caps };
   }
 
   /**
@@ -1209,8 +1245,10 @@ export class OrdersService implements OnModuleInit {
           itemsSubtotalIqd: order.itemsTotalIqd,
           commissionTier: profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
           serviceFeeIqd: order.serviceFeeIqd,
+          smallOrderFeeIqd: order.smallOrderFeeIqd ?? 0,
           deliveryFeeIqd: order.deliveryFeeIqd,
           tipIqd: order.tipIqd,
+          pointsRedeemed: order.pointsRedeemed ?? 0,
           ...moneyDiscount(order),
           participants: participantShares(agg),
         },
@@ -1476,6 +1514,13 @@ interface Priced {
   itemsTotal: number;
   fees: ServerFees;
   discount: OrderDiscount | null;
+  /** The restaurant's minimum (0 = none) and the J-D6 small-order fee this basket carries. */
+  minOrderIqd: number;
+  smallOrderFee: number;
+  /** W-02: what the customer's points could do on this order (null = nothing), and what `usePoints` spends. */
+  points: { balance: number; usable: number; valueIqd: number } | null;
+  pointsRedeemed: number;
+  pointsIqd: number;
   /** What the customer pays (cash: the price rounded up to 250; wallet: the price). */
   totalIqd: number;
   /** Cash change above the price, credited to his wallet ("الباقي رصيد"). */
@@ -1546,11 +1591,16 @@ function moneyDiscount(order: OrderRecord): { merchantDeal: { promotionId: strin
  * (the kept discount, or the re-priced deal), then cash rounding as at placement (`payable`).
  */
 function reducedTotalOf(order: PricedOrder, removedIqd: number, reducedDiscountIqd: number | null): number {
-  const price = Math.max(0, order.itemsTotalIqd - removedIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - (reducedDiscountIqd ?? order.discountIqd));
+  const price = Math.max(0, order.itemsTotalIqd - removedIqd + order.deliveryFeeIqd + order.serviceFeeIqd + (order.smallOrderFeeIqd ?? 0) + order.tipIqd - (reducedDiscountIqd ?? order.discountIqd) - pointsIqdOf(order));
   return payable(order.type, order.paymentMethod, price).totalIqd;
 }
 
-type PricedOrder = Pick<OrderRecord, 'type' | 'paymentMethod' | 'totalIqd' | 'itemsTotalIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd' | 'tipIqd' | 'discountIqd'>;
+type PricedOrder = Pick<OrderRecord, 'type' | 'paymentMethod' | 'totalIqd' | 'itemsTotalIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd' | 'tipIqd' | 'discountIqd' | 'smallOrderFeeIqd' | 'pointsRedeemed'>;
+
+/** What the order's points take off its price (100 points = 1,000; the ledger posts the same at close). */
+export function pointsIqdOf(order: Pick<OrderRecord, 'pointsRedeemed'>): number {
+  return (order.pointsRedeemed ?? 0) * ORDERS_RULES.pointValueIqd;
+}
 
 /**
  * What the customer pays for a price (Ali, 2026-10-04): cash rounds **up** to 250 and the remainder is
@@ -1564,10 +1614,10 @@ export function payable(type: OrderRecord['type'], paymentMethod: OrderRecord['p
   return { totalIqd: cashIqd, changeIqd };
 }
 
-/** The order's price before cash rounding: items + fees + tip − discount (rides: the stored total). */
+/** The order's price before cash rounding: items + fees + small-order fee + tip − discount − points (rides: the stored total). */
 export function orderPriceIqd(order: PricedOrder): number {
   if (order.type === 'ride') return order.totalIqd;
-  return Math.max(0, order.itemsTotalIqd + order.deliveryFeeIqd + order.serviceFeeIqd + order.tipIqd - order.discountIqd);
+  return Math.max(0, order.itemsTotalIqd + order.deliveryFeeIqd + order.serviceFeeIqd + (order.smallOrderFeeIqd ?? 0) + order.tipIqd - order.discountIqd - pointsIqdOf(order));
 }
 
 /** Cash change in the stored total ("الباقي رصيد"): 0 for wallet orders, rides and orders placed before the rule. */
@@ -1699,6 +1749,9 @@ export function toOrderView(agg: OrderAggregate): Order {
     serviceFeeIqd: order.serviceFeeIqd,
     discountIqd: order.discountIqd,
     tipIqd: order.tipIqd,
+    smallOrderFeeIqd: order.smallOrderFeeIqd ?? 0,
+    pointsRedeemed: order.pointsRedeemed ?? 0,
+    pointsIqd: pointsIqdOf(order),
     totalIqd: order.totalIqd,
     changeIqd: changeOf(order),
     minVehicleClass: order.minVehicleClass,

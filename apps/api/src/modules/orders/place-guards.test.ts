@@ -70,19 +70,17 @@ describe('orders.place — opening hours (apps review 2026-10-04 #10)', () => {
   });
 });
 
-describe('orders.place — merchant minimum order (apps review 2026-10-04 #11)', () => {
-  it('refuses a basket under the restaurant minimum (menu prices, before any deal)', async () => {
+describe('orders.place — merchant minimum order (apps review 2026-10-04 #11, J-D6 since 2026-10-05)', () => {
+  it('a basket under the restaurant minimum (menu prices, before any deal) goes ahead with the small-order fee', async () => {
     const h = ordersHarness('2026-10-03T10:30:00Z');
     await withStorefront(h, { minOrderIqd: 12_000 });
     // 2 × kebab = 10,000 < 12,000
     const small = h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 2, unitPriceIqd: 5000 }] });
-    const err = await h.orders.place('c1', small).catch((e: unknown) => e);
-    expect((err as DriverError).code).toBe('order_below_minimum');
-    expect((err as DriverError).envelope.message_ar.length).toBeGreaterThan(10);
+    expect(await h.orders.place('c1', small)).toMatchObject({ smallOrderFeeIqd: 500, totalIqd: 12_000 });
     // Free-text requests are priced 0 and do not count toward the minimum.
-    expect(await code(h.orders.place('c1', h.foodInput({ lines: [...small.lines!, { freeText: 'خبز زيادة', qty: 5 }] })))).toBe('order_below_minimum');
-    // 15,000 meets it.
-    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    expect((await h.orders.place('c1', h.foodInput({ lines: [...small.lines!, { freeText: 'خبز زيادة', qty: 5 }] }))).smallOrderFeeIqd).toBe(500);
+    // 15,000 meets it: no fee.
+    expect((await h.orders.place('c1', h.foodInput())).smallOrderFeeIqd).toBe(0);
   });
 
   it('the merchant minimum is on the items before a deal; the deal keeps its own minimum', async () => {
@@ -101,10 +99,10 @@ describe('orders.place — merchant minimum order (apps review 2026-10-04 #11)',
     expect(await code(h.orders.place('c1', mid))).toBe('ok');
   });
 
-  it('a scheduled order is held to the minimum too', async () => {
+  it('a scheduled order below the minimum carries the fee too', async () => {
     const h = ordersHarness();
     await withStorefront(h, { minOrderIqd: 12_000 });
     const small = h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1, unitPriceIqd: 5000 }], scheduledFor: new Date('2026-10-03T11:00:00Z') });
-    expect(await code(h.orders.place('c1', small))).toBe('order_below_minimum');
+    expect(await h.orders.place('c1', small)).toMatchObject({ smallOrderFeeIqd: 500 });
   });
 });

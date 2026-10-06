@@ -24,6 +24,10 @@ export interface OrderRecord {
   deliveryFeeIqd: number;
   serviceFeeIqd: number;
   discountIqd: number;
+  /** J-D6: the small-order fee (`orders.small_order_fee_iqd`), fixed at placement; absent = 0. */
+  smallOrderFeeIqd?: number;
+  /** W-02 / J-D10: points the customer spends on this order (`orders.points_redeemed`), posted at close; absent = 0. */
+  pointsRedeemed?: number;
   /** The server-resolved promotion behind `discountIqd` (`orders.promotion_id`); null = no discount. */
   promotionId: string | null;
   /** The discount line (`orders.discount_meta`): funder, what it comes off, labels. Absent on old rows = platform promo. */
@@ -224,6 +228,8 @@ function orderFromRow(r: any): OrderRecord {
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
     statedTenderIqd: r.statedTenderIqd ?? null,
+    smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,
+    pointsRedeemed: r.pointsRedeemed ?? 0,
     changeToWalletIqd: r.changeToWalletIqd ?? null,
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,

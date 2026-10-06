@@ -942,6 +942,10 @@ model Order {
   deliveryFeeIqd     Int           @default(0) @map("delivery_fee_iqd")
   serviceFeeIqd      Int           @default(0) @map("service_fee_iqd")
   discountIqd        Int           @default(0) @map("discount_iqd")
+  /// J-D6 (Ali, 2026-10-05): the small-order fee charged below the restaurant's minimum, fixed at placement.
+  smallOrderFeeIqd   Int           @default(0) @map("small_order_fee_iqd")
+  /// W-02 / J-D10: points the customer spends on this order (delivery fee first, then service fee), posted at close.
+  pointsRedeemed     Int           @default(0) @map("points_redeemed")
   /// M2 review follow-up: the server-resolved promotion behind discountIqd (null = no discount).
   promotionId        String?       @map("promotion_id")
   /// The discount line {funder: merchant|platform, target: items|delivery|order, type, label_ar, label_en}; null = none.
