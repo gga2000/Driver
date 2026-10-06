@@ -143,3 +143,23 @@ export function useRateOrder(orderId: string) {
   const invalidate = useInvalidateOrder(orderId);
   return useMutation({ ...api.orders.rate.mutationOptions(), onSuccess: () => void invalidate() });
 }
+
+/** «تحب تكرم عباس؟» after a 4–5 rating: whether to ask and the wallet chips (the server decides). */
+export function useTipOptions(orderId: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({ ...api.orders.tipOptions.queryOptions({ orderId }), enabled: enabled && orderId.length > 0 });
+}
+
+/** The tip after the rating, from the wallet: refreshes the offer and the wallet. */
+export function useTipOrder(orderId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.orders.tip.mutationOptions(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: api.orders.tipOptions.queryKey({ orderId }) });
+      void qc.invalidateQueries({ queryKey: api.wallet.balance.queryKey() });
+      void qc.invalidateQueries({ queryKey: api.wallet.transactions.queryKey() });
+    },
+  });
+}
