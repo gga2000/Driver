@@ -26,6 +26,9 @@
 //   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
 //            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
 //                                                                         POST /demo/ride
+//   season-* J6 on a frozen 13:00 Baghdad clock: home Ramadan card (pick, then the countdown), the
+//            timetable in notifications, checkout's «على الفطور» slot, the Eid card
+//                                                                         POST /demo/season
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -86,7 +89,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -212,6 +215,7 @@ try {
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
   if (wants('ride')) await rideShots();
+  if (wants('season')) await seasonShots(khalid);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -735,6 +739,54 @@ async function chatShots(personId) {
   await guest.screenshot({ path: join(outDir, 'chat-share-ended.png') });
   console.log(join(outDir, 'chat-share-ended.png'));
   await guest.close();
+}
+
+/**
+ * Seasons (J6): a Ramadan period from today, on a browser clock frozen at 13:00 Baghdad so the
+ * countdown and the iftar slot show whatever the real hour. Home asks for the timetable, then counts
+ * down; notifications show the pick; checkout offers «على الفطور»; then the Eid card. Ends with no season.
+ */
+async function seasonShots(khalid) {
+  const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+  await page.clock.setFixedTime(new Date(`${today}T13:00:00+03:00`));
+  await page.evaluate(() => localStorage.removeItem('driver.customer.ramadan_timetable'));
+  await demoPost('/demo/season?kind=ramadan');
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-season-pick').waitFor({ timeout: 15_000 });
+  await shot('season-home-pick');
+  await byTestId('chip-sunni').click();
+  await byTestId('home-season-iftar').waitFor({ timeout: 10_000 });
+  await shot('season-home-ramadan');
+
+  await page.goto(`${origin}/profile/notifications`, LOADED);
+  await byTestId('pref-ramadan-timetable').waitFor({ timeout: 15_000 });
+  await byTestId('pref-ramadan-timetable').scrollIntoViewIfNeeded();
+  await shot('season-timetable');
+
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
+  await byTestId(`dish-add-${khalid}_pepsi`).click();
+  if (await byTestId('item-sheet').isVisible().catch(() => false)) {
+    await byTestId('item-add').click();
+    await byTestId('item-sheet').waitFor({ state: 'detached' });
+  }
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('chip-later').click();
+  const iftarChip = page.getByText(/على الفطور/).first();
+  await iftarChip.waitFor({ timeout: 10_000 });
+  await iftarChip.click();
+  await byTestId('checkout-iftar-note').waitFor({ timeout: 10_000 });
+  await byTestId('checkout-iftar-note').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(3800); // let the "added" toast go
+  await shot('season-checkout-iftar');
+
+  await demoPost('/demo/season?kind=eid');
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-season').waitFor({ timeout: 15_000 });
+  await shot('season-home-eid');
+  await demoPost('/demo/season?kind=off');
 }
 
 /**

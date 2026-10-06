@@ -97,12 +97,12 @@ export default function Home() {
       </View>
 
       <ServicesRow onPress={onService} />
-      {/* J6: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
-      <SeasonCard />
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
       {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard /> : null}
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
+      {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
+      <SeasonCard />
 
       <View testID="home-food" onLayout={(e) => (foodY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[3] }}>
         <SectionHeader voice title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
