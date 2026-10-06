@@ -143,7 +143,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     if (!menus.has(orgId)) menus.set(orgId, Promise.all(HARNESS_MENU.map((m) => catalog.addItem({ ...m, id: scoped(orgId, m.id), orgId }))));
     return menus.get(orgId)!;
   };
-  /** Wallet balances the harness's wallet port answers with (`customer:<id>` / `household:<id>`). */
+  /** Wallet balances the harness's wallet port answers with (`customer:<id>` / `household:<id>`; points: `points:<id>`). */
   const wallets = new Map<string, number>();
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
     itemsOf: async (orgId, ids) => {
@@ -156,6 +156,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   }, promotions, undefined, {
     // C-04: wallet balances by payer (customer or household); unset = 0.
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
+    // W-02: points balances by person (`points:<id>`); unset = 0.
+    pointsBalance: async (customerId) => wallets.get(`points:${customerId}`) ?? 0,
   });
   orders.onModuleInit();
   // "الخردة علينا": as OrdersModule binds it at start-up.

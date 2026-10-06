@@ -59,6 +59,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       provide: ORDERS_WALLET,
       useFactory: (ledger: LedgerService): OrdersWalletPort => ({
         balanceIqd: async ({ customerId, householdId }) => (await ledger.balance(householdId ? Accounts.household(householdId) : Accounts.customer(customerId))).amount,
+        // W-02: points at checkout read the customer's own points account.
+        pointsBalance: async (customerId) => (await ledger.balance(Accounts.points(customerId))).amount,
       }),
       inject: [LedgerService],
     },
