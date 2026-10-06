@@ -38,7 +38,7 @@ export const DISH_KINDS = [
 ] as const;
 export type DishKind = (typeof DISH_KINDS)[number];
 
-/** How many looks each dish has (plate tint, garnish); the caller adds the tilt. */
+/** How many looks each dish has (plate tint, garnish); the caller picks the tilt (`tilt`). */
 export const DISH_LOOKS = 3;
 
 interface Pen {
@@ -654,19 +654,21 @@ export interface DishDrawingProps {
   line?: number;
   /** Draw the faint arch window behind the dish (thumbnails); heroes have their own backdrop. */
   window?: boolean;
+  /** Degrees the dish turns on the table (a look of its own); the window stays upright. */
+  tilt?: number;
 }
 
 /**
  * One dish in a 200 × 200 box centred on (100, 110), as an SVG group: place it inside an `<Svg>` (the
- * caller sets the size, the tilt and the backdrop). Pure and memoised: nothing animates per frame.
+ * caller sets the size and the backdrop). Pure and memoised: nothing animates per frame.
  */
-export const DishDrawing = memo(function DishDrawing({ kind, look = 0, line = 4, window = true }: DishDrawingProps) {
+export const DishDrawing = memo(function DishDrawing({ kind, look = 0, line = 4, window = true, tilt = 0 }: DishDrawingProps) {
   const i = ((look % DISH_LOOKS) + DISH_LOOKS) % DISH_LOOKS;
   const p: Pen = { plate: K.plateTints[i] ?? K.plate, garnish: i !== 1, w: line };
   return (
     <G>
       {window ? <Path d={archPath(34, 14, 132, 176)} fill={K.wallDeep} opacity={0.32} /> : null}
-      {drawDish(kind, p)}
+      {tilt ? <G transform={`rotate(${tilt} 100 120)`}>{drawDish(kind, p)}</G> : drawDish(kind, p)}
     </G>
   );
 });
