@@ -252,6 +252,25 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   "try the other vehicle" card). `SHOTS=ride` writes
   `ride-*.png`.
 
+## Gifts, invitations, stickers and the share card (joy J7b)
+
+API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07-j7b-generosity.md`.
+
+- **«عزيمة» (g1)** — checkout, once someone else receives the order: «هذا الطلب هدية مني», a line with
+  the food, «خلي الأسعار مخفية» (wallet only). The kitchen screen then offers «دز لـ أمي خبر العزيمة»
+  (WhatsApp or SMS from the phone, `src/features/gift/`). Demo: `POST /demo/gift?personId=…` places a
+  wallet gift to «أمي» with hidden prices, accepted, a courier on the way (order screen pill «عزيمة لـ
+  أمي»). The heads-up card needs a gift placed through checkout on that phone.
+- **«عزّم صديقك» (g2)** — account → «عزّم صديقك» (`app/invite.tsx`); a friend opens `/i/<code>`
+  (`app/i/[code].tsx`). Demo: `POST /demo/invite?personId=…` makes two friends accept the code.
+- **Stickers (g7)** — account → «ستيكرات درايفر» (`app/stickers.tsx`). Re-export the pack after a
+  drawing or a line changes: `pnpm --filter @driver/ui gallery && PLAYWRIGHT_MODULE=… node
+  apps/customer/scripts/stickers-export.mjs` (writes `assets/stickers/*` and `public/invite-card.png`).
+- **Share card (l5)** — «شارك الفرحة» on a delivered order / finished ride (order screen actions) and
+  under a finished الرجعة trip (`POST /demo/history` or `/demo/rajaa/arrived` give one).
+- `SHOTS=gift` writes `gift-*.png` (checkout gift, kitchen heads-up, invite, invite landing as a
+  guest, stickers, share card sheet) and saves the share cards the web renders (`gift-card-*.png`).
+
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
 
 - Reads `orders.track` (own order + trip summary + courier card, every 4 s while live) and

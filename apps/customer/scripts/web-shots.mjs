@@ -29,6 +29,9 @@
 //   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
 //            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
 //            (`?now=`), the wallet and account rows                 POST /demo/account + /demo/family
+//   gift-*   J7b: checkout «عزيمة» card, the kitchen's gift heads-up, «عزّم صديقك», a friend's /i/<code>
+//            as a guest, the sticker pack, the share card sheet (food and الرجعة) and the rendered cards
+//                                                                         POST /demo/account, /demo/invite, /demo/history, /demo/rajaa/arrived
 //   season-* J6 on a frozen 13:00 Baghdad clock: home Ramadan card (pick, then the countdown), the
 //            timetable in notifications, checkout's «على الفطور» slot, the Eid card
 //                                                                         POST /demo/season
@@ -59,6 +62,7 @@ const types = {
   '.css': 'text/css',
   '.json': 'application/json',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.ttf': 'font/ttf',
   '.ico': 'image/x-icon',
 };
@@ -94,7 +98,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -230,6 +234,7 @@ try {
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
+  if (wants('gift')) await giftShots(khalid, personId);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -1066,6 +1071,105 @@ async function rideShots() {
   await byTestId('stars-delivery').waitFor();
   await settle(500);
   await shot('ride-rating');
+}
+
+/**
+ * Joy J7b: a gift to «أمي» through checkout (wallet, hidden prices, a line), its heads-up card while
+ * the kitchen decides; «عزّم صديقك» with two friends who took the code; a friend's landing as a guest;
+ * the sticker pack; the share card after a delivered meal and after a الرجعة trip, with the rendered
+ * PNGs the web downloads (the browser here cannot share files).
+ */
+async function giftShots(khalid, personId) {
+  const item = (key) => `${khalid}_${key}`;
+  if (personId) await demoPost(`/demo/account?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${item('pepsi')}`).waitFor({ timeout: 15_000 });
+  await byTestId(`dish-${item('kebab_plate')}`).click();
+  await byTestId('item-sheet').waitFor();
+  await byTestId('item-add').click();
+  await byTestId('item-sheet').waitFor({ state: 'detached' });
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-row-receiver').click();
+  await byTestId('chip-other').click();
+  await page.locator('[data-testid="checkout-recipient-name"]').fill('أمي');
+  await page.locator('[data-testid="checkout-recipient-phone"]').fill('07801112233');
+  await byTestId('chip-me_wallet').click();
+  await byTestId('checkout-gift-switch').click();
+  await page.getByText('بالعافية يمه', { exact: true }).first().click();
+  await settle(600);
+  await byTestId('checkout-gift').scrollIntoViewIfNeeded();
+  await shot('gift-checkout');
+  await fullShot('gift-checkout-full');
+
+  await byTestId('checkout-place').click();
+  await byTestId('gift-heads-up').waitFor({ timeout: 15_000 }).catch(() => errors.push('gift heads-up card not shown'));
+  await settle(1200);
+  await shot('gift-kitchen');
+  const giftOrder = new URL(page.url()).pathname.split('/').pop();
+  await fetch(`${apiBase}/demo/kitchen?orderId=${giftOrder}&action=accept`, { method: 'POST' });
+  await page.waitForURL(/\/order\//, { timeout: 15_000 }).catch(() => errors.push('accepted gift did not open /order/[id]'));
+  await page.goto(`${origin}/order/${giftOrder}?sheet=2`, LOADED);
+  await byTestId('sheet-body').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await settle(1200);
+  await shot('gift-order');
+
+  if (personId) await demoPost(`/demo/invite?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/invite`, LOADED);
+  await byTestId('invite-code').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('gift-invite');
+  await fullShot('gift-invite-full');
+  const code = (await byTestId('invite-code').innerText()).trim();
+
+  // A friend without the app or an account opens the link.
+  const guest = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  guest.on('pageerror', (e) => errors.push(`[guest] ${e.stack ?? e.message}`));
+  await guest.goto(`${origin}/i/${code}`, LOADED);
+  await guest.locator('[data-testid="invite-landing-title"]').waitFor({ timeout: 20_000 }).catch(() => errors.push('invite landing not shown'));
+  await guest.evaluate(() => document.fonts.ready);
+  await guest.waitForTimeout(900);
+  if (wanted('gift-invite-landing')) await guest.screenshot({ path: join(outDir, 'gift-invite-landing.png') });
+  await guest.close();
+
+  await page.goto(`${origin}/stickers`, LOADED);
+  await byTestId('sticker-bil_afia').waitFor({ timeout: 15_000 });
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await settle(800);
+  await shot('gift-stickers');
+  await fullShot('gift-stickers-full');
+
+  // The share card after a delivered meal: the sheet, then the picture the web renders (a download here).
+  const history = personId ? await demoPost(`/demo/history?personId=${encodeURIComponent(personId)}`) : null;
+  const delivered = history?.orderIds?.[0];
+  if (delivered) {
+    await page.goto(`${origin}/order/${delivered}?sheet=2`, LOADED);
+    await byTestId('action-share-card').waitFor({ timeout: 15_000 });
+    await byTestId('action-share-card').click();
+    await byTestId('sharecard-panel').waitFor({ timeout: 10_000 });
+    await settle(900);
+    await shot('gift-sharecard');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20_000 }), byTestId('sharecard-share').click()]);
+    if (wanted('gift-card')) await dl.saveAs(join(outDir, 'gift-card-food.png'));
+    await byTestId('sharecard-name').click();
+    await settle(400);
+    const [named] = await Promise.all([page.waitForEvent('download', { timeout: 20_000 }), byTestId('sharecard-share').click()]);
+    if (wanted('gift-card')) await named.saveAs(join(outDir, 'gift-card-food-name.png'));
+  } else errors.push('no delivered order for the share card');
+
+  const trip = personId ? await demoPost(`/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`) : null;
+  if (trip?.bookingId) {
+    await page.goto(`${origin}/rajaa/pass/${trip.bookingId}`, LOADED);
+    await byTestId('share-moment').waitFor({ timeout: 15_000 });
+    await byTestId('share-moment').click();
+    await byTestId('sharecard-panel').waitFor({ timeout: 10_000 });
+    await settle(900);
+    await shot('gift-sharecard-rajaa');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20_000 }), byTestId('sharecard-share').click()]);
+    if (wanted('gift-card')) await dl.saveAs(join(outDir, 'gift-card-rajaa.png'));
+  } else errors.push('no الرجعة trip for the share card');
 }
 
 if (errors.length) {

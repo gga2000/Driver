@@ -24,6 +24,7 @@
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
+//   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -1504,6 +1505,74 @@ const rajaa = await (async () => {
       if (url.searchParams.has('acceptMs')) acceptMs = Number(url.searchParams.get('acceptMs'));
       const list = await ensureDrivers();
       json(res, 200, { acceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── joy J7b: gifts and invitations ─────────────────────────
+//
+//   POST /demo/gift?personId=<id>     → {orderId}
+// A «عزيمة» from that person to «أمي» (her own number) at مطعم خالد, paid from his wallet (25,000
+// دينار is credited first) with the prices hidden; accepted and with a courier on the way to the
+// kitchen, so the order screen says «عزيمة لـ أمي», the kitchen card shows «هدية» and the courier's
+// drop-off says «هدية · لا تذكر السعر». (The heads-up card lives on the phone that placed it: place a
+// gift through checkout to see it.)
+//
+//   POST /demo/invite?personId=<id>   → {code, friends}
+// Two friends (زيد, حسن) accept that person's invite code, so «عزّم صديقك» reads «عزمت 2…».
+{
+  const { LedgerService, Accounts } = await load('modules/ledger/index.js');
+  const { ReferralsService } = await load('modules/referrals/index.js');
+  const ledger = app.get(LedgerService);
+  const referrals = app.get(ReferralsService);
+  const giftIdentity = app.get(IdentityService);
+  let inviteSeq = 0;
+
+  app.use('/demo/gift', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/gift?personId=…' });
+      await ledger.record({ type: 'credit_issued', amount: 25_000, fromAccount: Accounts.bank, toAccount: Accounts.customer(personId), occurredAt: new Date(), idempotencyKey: `demo:gift-wallet:${personId}:${Date.now()}` });
+      const placed = await orders.place(personId, {
+        cityId: 'aziziyah',
+        type: 'food',
+        merchantOrgId: khalid.orgId,
+        lines: [
+          { catalogItemId: khalid.itemIds.get('liver_plate'), qty: 1 },
+          { catalogItemId: khalid.itemIds.get('khalid_mix'), qty: 1 },
+        ],
+        participants: [{ ref: 'mum', role: 'recipient', label: 'أمي', phone: '07801112233' }],
+        paymentMethod: 'wallet',
+        gift: { hidePrices: true },
+        dropoff: { zoneKey: 'zakur', pin: HOME },
+      });
+      await accept(placed.id);
+      const courierId = await newCourier(kitchen);
+      await assign(placed.id, courierId);
+      json(res, 200, { orderId: placed.id, gift: placed.gift });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  app.use('/demo/invite', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/invite?personId=…' });
+      const { code } = await referrals.mine({ personId, sessionId: 'demo' });
+      const friends = [];
+      // New friends per call: a friend accepts one invitation only.
+      inviteSeq += 1;
+      const base = 9_900_000 + inviteSeq * 10;
+      for (const [phone, name] of [[`0770${base + 1}`, 'زيد'], [`0770${base + 2}`, 'حسن']]) {
+        const id = await giftIdentity.ensurePersonByPhone(phone, personId, 'demo');
+        await giftIdentity.updateProfile({ personId: id, sessionId: 'demo' }, { name });
+        await referrals.claim({ personId: id, sessionId: 'demo' }, { code });
+        friends.push(id);
+      }
+      json(res, 200, { code, friends });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

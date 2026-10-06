@@ -107,7 +107,7 @@ export default function InviteLanding() {
       <Card elevation={0} padding={4}>
         {preview.data ? (
           <View style={{ gap: theme.space[3] }}>
-            {ruleLines(preview.data.rule).map((line, i) => (
+            {ruleLines(preview.data.rule, 'friend').map((line, i) => (
               <View key={line.key} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
                 <View style={{ marginTop: 2 }}>
                   <Icon name={i === 0 ? 'gift' : i === 1 ? 'receipt' : 'family'} size={18} color={i === 0 ? 'accentText' : 'textMuted'} />

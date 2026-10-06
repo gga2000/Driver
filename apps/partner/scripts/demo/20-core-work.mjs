@@ -9,6 +9,8 @@
 //                                              never delivered to before ("اتصل قبل لا توصل", maps f6/a5)
 //        …&tender=25000                        the customer said "راح أدفع بـ 25,000" at checkout
 //                                              ("الخردة علينا": the job card and the door helper show it)
+//        …&gift=1                              a «عزيمة» paid from the sender's wallet with the prices hidden:
+//                                              «هدية · لا تذكر السعر» at the door, no receipt in the bag (joy g1)
 //   POST /demo/online?who=…                    puts him online where his persona works
 //   POST /demo/clear?who=…                     cancels his open jobs and takes him offline
 //
@@ -68,13 +70,13 @@ export default async function register(demo) {
   }
 
   let topUps = 0;
-  async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note, statedTenderIqd) {
+  async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note, statedTenderIqd, extra = {}) {
     // A prepaid (wallet) order needs a wallet that covers it (wallet_insufficient): the buyer topped up.
     if (paymentMethod === 'wallet') {
       const account = demo.Accounts.customer(buyer());
       await services.ledger.recordAll({ id: `demo:topup:buyer:${++topUps}:${Date.now()}`, kind: 'money', occurredAt: new Date(), refs: {}, lines: [{ type: 'credit_issued', amount: 50_000, fromAccount: demo.Accounts.bank, toAccount: account, memo: 'topup:agent' }], controls: [{ account, net: 50_000 }] });
     }
-    const placed = await orders.place(buyer(), { cityId: CITY, type: 'food', merchantOrgId: demo.restaurants[restaurant].orgId, lines, paymentMethod, dropoff, ...(note ? { note } : {}), ...(statedTenderIqd ? { statedTenderIqd } : {}) });
+    const placed = await orders.place(buyer(), { cityId: CITY, type: 'food', merchantOrgId: demo.restaurants[restaurant].orgId, lines, paymentMethod, dropoff, ...(note ? { note } : {}), ...(statedTenderIqd ? { statedTenderIqd } : {}), ...extra });
     await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
     await orders.markPreparing('demo-staff', { orderId: placed.id });
     const trip = await trips.activeForOrder(placed.id);
@@ -92,7 +94,7 @@ export default async function register(demo) {
   }
 
   /** An accepted food job for him, moved to `step`. */
-  async function job(personId, step, tender, door) {
+  async function job(personId, step, tender, door, gift = false) {
     const { order, trip } = await placeAccepted(
       'khalid',
       [
@@ -102,9 +104,10 @@ export default async function register(demo) {
       ],
       door ? await savedHome() : HOMES.zakur,
       step === 'to_pickup' ? 14 : 6,
-      'cash',
+      gift ? 'wallet' : 'cash',
       'باب أخضر يم جامع الرسول، اتصل من توصل',
-      tender,
+      gift ? undefined : tender,
+      gift ? { participants: [{ ref: 'mum', role: 'recipient', label: 'أم علي', phone: '07801112233' }], gift: { hidePrices: true } } : {},
     );
     const offerId = await offerTo(trip.id, personId);
     await dispatch.respond({ personId, sessionId: 'demo' }, { offerId, accept: true });
@@ -159,7 +162,7 @@ export default async function register(demo) {
     await clear(p.personId);
     await ensureOnline(query.who, p.personId, p.vehicle ?? 'bike');
     const tender = query.tender ? Number(query.tender) : undefined;
-    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1')) });
+    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1', query.gift === '1')) });
   });
 
   demo.route('/demo/offer', async ({ res, query }) => {

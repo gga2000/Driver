@@ -19,15 +19,22 @@ export function pointsWorthIqd(rule: InviteRule): number {
 }
 
 /**
- * The rule in three plain lines: what each side gets (points and what they are worth), when it
- * arrives (the friend's Nth cash order of at least the minimum), and the monthly cap.
+ * The rule in plain lines: what each side gets (points and what they are worth) and when it arrives
+ * (the friend's Nth cash order of at least the minimum); the inviter also reads the monthly cap. The
+ * friend on the landing page reads the same rule from his side («إلك و200 لصديقك»، «ثاني طلب كاش إلك»).
  */
-export function ruleLines(rule: InviteRule): Copy[] {
-  return [
-    { key: 'invite.rule_gift', params: { points: amountParam(rule.pointsPerSide), amount: amountParam(pointsWorthIqd(rule)) } },
-    { key: rule.unlockOnOrder === 2 ? 'invite.rule_when_second' : 'invite.rule_when_nth', params: { n: rule.unlockOnOrder, amount: amountParam(rule.minOrderIqd) } },
-    { key: 'invite.rule_cap', params: { n: rule.monthlyCap } },
+export function ruleLines(rule: InviteRule, side: 'inviter' | 'friend' = 'inviter'): Copy[] {
+  const friend = side === 'friend';
+  const second = rule.unlockOnOrder === 2;
+  const lines: Copy[] = [
+    { key: friend ? 'invite.rule_gift_friend' : 'invite.rule_gift', params: { points: amountParam(rule.pointsPerSide), amount: amountParam(pointsWorthIqd(rule)) } },
+    {
+      key: friend ? (second ? 'invite.rule_when_second_friend' : 'invite.rule_when_nth_friend') : second ? 'invite.rule_when_second' : 'invite.rule_when_nth',
+      params: { n: rule.unlockOnOrder, amount: amountParam(rule.minOrderIqd) },
+    },
   ];
+  if (!friend) lines.push({ key: 'invite.rule_cap', params: { n: rule.monthlyCap } });
+  return lines;
 }
 
 /** The WhatsApp text in the sender's name: a treat, not a recruitment pitch. */

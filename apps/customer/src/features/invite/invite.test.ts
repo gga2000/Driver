@@ -24,6 +24,14 @@ describe('invite as a gift (joy g2)', () => {
     expect(cap).toContain('10');
   });
 
+  it('the friend reads the same rule from his side, without the inviter’s monthly cap', () => {
+    const lines = ruleLines(rule, 'friend').map((c) => t(c.key, c.params));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('لصديقك');
+    expect(lines[0]).toContain('2,000 دينار');
+    expect(lines[1]).toContain('إلك');
+  });
+
   it('another unlock order reads with its number', () => {
     expect(ruleLines({ ...rule, unlockOnOrder: 3 })[1]!.key).toBe('invite.rule_when_nth');
   });

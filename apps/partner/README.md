@@ -278,6 +278,13 @@ shrinks to a strip while the helper is open. Cash rides use the same server path
 does not show the helper yet. Demo: `POST /demo/job?who=courier&step=to_dropoff|at_dropoff&tender=25000`;
 shots: `SHOTS=cash` (`scripts/shots/90-cash-change.mjs`).
 
+## «عزيمة» gift jobs (joy g1)
+
+When a customer sends a meal to someone else as a gift, the job card says so (`GiftLine` in `app/job.tsx`,
+`src/features/work/gift.ts`): «هدية» on the drop-off; when the sender paid from his wallet and hid the
+prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
+الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
+
 ## The kitchen's pickup spot (maps program r7)
 
 On a pickup still to do, the job card shows `PickupSpotCard` («مكان الاستلام»): the restaurant's note

@@ -179,7 +179,7 @@ export default function KitchenScreen() {
             </View>
           )}
           <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
-          <PersonLinesCard groups={groups} myName={myName} totalLine={t('kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
+          <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
           {gift && id && !yes ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
           {recipient && !gift && !yes ? (
             <Card elevation={0} padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-send-tracking">
