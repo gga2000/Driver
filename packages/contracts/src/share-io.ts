@@ -8,7 +8,7 @@ import { VehicleClass } from './trip.js';
  * app spec §2 and §4; edge-case review C-126). A rider shares a signed link to a ride (taxi /
  * tuktuk) or a الرجعة seat; a customer shares a delivery (food, shop, errand, parcel) with the family
  * at home (maps program SP3c). Whoever opens it — no sign-in — sees coarse data only: the driver's
- * first name, the vehicle and plate, the car's live position inside the sharing window, where a
+ * first name and approved main photo (Ali, 2026-10-06), the vehicle and plate, the car's live position inside the sharing window, where a
  * city ride is heading (a pin and the road to it, never an address in words: maps program c9, Ali's
  * call) and the ETA. Never a phone, a full name or the rider's name. The page updates live
  * (`live.share`). The link expires 30 minutes after the trip completes (24 h after creation at the
@@ -87,6 +87,8 @@ export const SharedTrip = z.object({
   /** Why it ended (`expired`, `revoked`, `cancelled`); null otherwise. */
   endedReason: z.enum(['expired', 'revoked', 'cancelled']).nullable(),
   driverFirstName: z.string().nullable(),
+  /** His approved main photo (Ali, 2026-10-06): a short-lived signed URL; null = the page draws his initial. */
+  driverPhotoUrl: z.string().nullable(),
   vehicleClass: VehicleClass.nullable(),
   /** "Toyota Corolla · أبيض"; null when unknown. */
   vehicleLabel: z.string().nullable(),

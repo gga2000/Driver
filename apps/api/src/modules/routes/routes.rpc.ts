@@ -294,6 +294,7 @@ export class RoutesRpc implements RoutesPort {
     if (ids.length === 0) return out;
     const now = this.departures.now();
     const names = this.names ? await this.names.firstNamesFor(ids, riderId, 'intercity_driver_card') : {};
+    const photos = this.names?.driverPhotoUrls ? await this.names.driverPhotoUrls(ids, riderId, 'intercity_driver_card') : {};
     for (const id of ids) {
       const deps = await this.repo.listDepartures({ driverId: id });
       const latest = deps.reduce<DepartureRecord | null>((a, d) => (!a || d.announcedAt > a.announcedAt ? d : a), null);
@@ -301,8 +302,8 @@ export class RoutesRpc implements RoutesPort {
       out.set(id, {
         firstName: names[id] ?? null,
         verifiedTodayAt: checkIn.length > 0 ? new Date(Math.max(...checkIn.map((d) => d.getTime()))) : null,
-        // Public driver portraits are an open decision (selfies stay in the vault); the app draws the initial.
-        photoUrl: null,
+        // His approved main photo (Ali, 2026-10-06); none yet → the app draws the initial.
+        photoUrl: photos[id] ?? null,
         vehicle: latest ? { ...latest.vehicle, layout: latest.layout } : null,
       });
     }
@@ -434,8 +435,8 @@ export class RoutesRpc implements RoutesPort {
 
   /**
    * Riders (audit C-19): who drives each departure — first name (vault read, purpose
-   * `intercity_driver_card`, the rider as accessor), today's selfie check-in for this run, and a
-   * photo once public portraits exist. Only departures still on the board, or ones the rider holds
+   * `intercity_driver_card`, the rider as accessor), today's selfie check-in for this run, and his
+   * approved main photo (Ali, 2026-10-06). Only departures still on the board, or ones the rider holds
    * a seat on, are answered; any other id is left out (no error, nothing about it leaks).
    */
   async driverCards(actor: Actor, input: In<'driverCards'>): Promise<RajaaDriverCard[]> {
@@ -449,14 +450,16 @@ export class RoutesRpc implements RoutesPort {
       if (onBoard || mine) visible.push(dep);
     }
     if (visible.length === 0) return [];
-    const names = this.names ? await this.names.firstNamesFor([...new Set(visible.map((d) => d.driverId))], actor.personId, 'intercity_driver_card') : {};
+    const driverIds = [...new Set(visible.map((d) => d.driverId))];
+    const names = this.names ? await this.names.firstNamesFor(driverIds, actor.personId, 'intercity_driver_card') : {};
+    const photos = this.names?.driverPhotoUrls ? await this.names.driverPhotoUrls(driverIds, actor.personId, 'intercity_driver_card') : {};
     return visible.map((d) => ({
       departureId: d.id,
       driverId: d.driverId,
       firstName: names[d.driverId] ?? null,
       verifiedTodayAt: d.selfieAt && sameBaghdadDay(d.selfieAt, now) ? d.selfieAt : null,
-      // TODO(identity): a public driver portrait (selfies stay in the vault); the app draws the initial.
-      photoUrl: null,
+      // His approved main photo (Ali, 2026-10-06); none yet → the app draws the initial.
+      photoUrl: photos[d.driverId] ?? null,
     }));
   }
 

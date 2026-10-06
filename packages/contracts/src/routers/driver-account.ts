@@ -12,6 +12,7 @@ import {
   HandoverCode,
   JobReceipt,
   JobReceiptInput,
+  MainPhotoView,
   OnlineGate,
   PayQueryInput,
   PayQueryResult,
@@ -20,6 +21,7 @@ import {
   ReviewDocumentInput,
   ScorecardInput,
   ScorecardView,
+  SetMainPhotoInput,
   SubmitCheckInInput,
   UploadDocumentInput,
 } from '../driver-account-io.js';
@@ -58,6 +60,18 @@ export const driverAccountRouter = router({
     .input(ReviewDocumentInput)
     .output(DriverDocumentView)
     .mutation(({ ctx, input }) => ctx.driverAccount.reviewDocument(ctx.actor, input)),
+  /**
+   * His main photo (Ali, 2026-10-06): what customers see now (the approved one, signed URL) and his
+   * latest submission's state — «تنتظر الموافقة» / «مقبولة» / «مرفوضة: {reason}».
+   */
+  mainPhoto: protectedProcedure(DRIVING_ROLES)
+    .output(MainPhotoView)
+    .query(({ ctx }) => ctx.driverAccount.mainPhoto(ctx.actor)),
+  /** A new main photo (upload first with `places.photoUpload`): goes to the Console approvals queue. */
+  setMainPhoto: protectedProcedure(DRIVING_ROLES)
+    .input(SetMainPhotoInput)
+    .output(MainPhotoView)
+    .mutation(({ ctx, input }) => ctx.driverAccount.setMainPhoto(ctx.actor, input)),
   /** Random liveness gesture, valid 2 minutes. */
   checkInChallenge: protectedProcedure(DRIVING_ROLES)
     .output(CheckInChallenge)

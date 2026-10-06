@@ -9,6 +9,7 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { CORRIDORS, DeparturesService, RoutesModule } from '../routes/index.js';
+import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import {
   InMemoryShareLinksRepository,
   PrismaShareLinksRepository,
@@ -16,6 +17,7 @@ import {
   SHARE_INTERCITY,
   SHARE_LINKS_REPOSITORY,
   SHARE_NAMES,
+  SHARE_PHOTOS,
   SHARE_SECRET,
   ShareLinksService,
   shareSecret,
@@ -28,6 +30,7 @@ import {
   TRACKING_LATE_CREDIT,
   TRACKING_MERCHANTS,
   TRACKING_ORDERS,
+  TRACKING_PHOTOS,
   TRACKING_POINTS,
   TRACKING_TRIPS,
   TrackingService,
@@ -44,7 +47,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
  * earned). Owns no tables; the vehicle registry read is narrow and read-only.
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule, EventsModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule, EventsModule, PlacesModule],
   providers: [
     { provide: TRACKING_ORDERS, useExisting: OrdersService },
     { provide: TRACKING_TRIPS, useExisting: TripsService },
@@ -84,6 +87,9 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
     { provide: TRACKING_LATE_CREDIT, useFactory: (ledger: LedgerService) => ledgerLateCredit(ledger), inject: [LedgerService] },
     // Its first step (Ali, 2026-10-06): one apology with the new time, sent by the sweep or a track read.
     { provide: TRACKING_LATE_APOLOGY, useFactory: (events: EventsService) => eventsLateApology(events), inject: [EventsService] },
+    // Driver photos (Ali, 2026-10-06): the approved main photo, signed short-lived from the blob store.
+    { provide: TRACKING_PHOTOS, useFactory: (blobs: BlobStore) => ({ readUrl: (ref: string) => blobs.readUrl(ref) }), inject: [BLOB_STORE] },
+    { provide: SHARE_PHOTOS, useExisting: TRACKING_PHOTOS },
     TrackingService,
     LatePromiseSubscriber,
     LateApologySweeper,

@@ -14,6 +14,11 @@ export const ROUTES_RIDER_NAMES = Symbol('ROUTES_RIDER_NAMES');
 export interface RiderNamesReader {
   firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
   memberCards(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, { name: string | null; phoneMasked: string }>>;
+  /**
+   * Drivers' APPROVED main photos (Ali, 2026-10-06) as short-lived signed URLs, by person; people
+   * without one are left out. Logged vault reads. Optional for fakes (then every card draws the initial).
+   */
+  driverPhotoUrls?(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>>;
 }
 
 /**

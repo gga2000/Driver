@@ -30,7 +30,8 @@ function setup(router: Router = new StraightLineRouter()) {
     {
       courierCard: async (courierId, accessorId) => {
         vaultReads.push({ courierId, accessorId });
-        return { firstName: courierId === 'd1' ? 'حيدر' : null, lastVerifiedAt: h.clock.now() };
+        // d1 has an approved main photo (Ali, 2026-10-06); identity hands out the ref of the approved one only.
+        return { firstName: courierId === 'd1' ? 'حيدر' : null, lastVerifiedAt: h.clock.now(), photoRef: courierId === 'd1' ? 'up_d1' : null };
       },
     },
     {
@@ -41,6 +42,9 @@ function setup(router: Router = new StraightLineRouter()) {
     vehicles,
     h.clock,
     new EtaService(router),
+    null,
+    null,
+    { readUrl: (ref) => `/files/${ref}?exp=1&sig=x` },
   );
   return { h, tracking, vehicles, vaultReads };
 }
@@ -92,7 +96,7 @@ describe('TrackingService — the view', () => {
     const o = await acceptedOrder(h);
     const trip = await h.tripFor(o.id);
     const v = await tracking.track(as('c1'), { orderId: o.id });
-    expect(v.courier).toMatchObject({ firstName: 'حيدر', vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨', rating: null, ratingCount: 0 });
+    expect(v.courier).toMatchObject({ firstName: 'حيدر', vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨', rating: null, ratingCount: 0, photoUrl: '/files/up_d1?exp=1&sig=x' });
     expect(v.courier!.verifiedTodayAt).not.toBeNull();
     expect(v.trip).toMatchObject({ id: trip.id, state: 'en_route_to_pickup', dropsBeforeMine: 0 });
     expect(v.trip!.stops.every((s) => s.mine && s.target)).toBe(true);
@@ -111,7 +115,7 @@ describe('TrackingService — the view', () => {
     await h.tripFor(o.id, { driverId: 'd2' });
     const again = await tracking.track(as('c1'), { orderId: o.id });
     expect(again.reassigning).toBe(false);
-    expect(again.courier).toMatchObject({ firstName: null });
+    expect(again.courier).toMatchObject({ firstName: null, photoUrl: null });
   });
 
   it('reports points once the order closes', async () => {

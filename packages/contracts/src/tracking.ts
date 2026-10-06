@@ -31,7 +31,8 @@ export const CourierCard = z.object({
   ratingCount: z.number().int().min(0),
   /** When he last verified himself today (Baghdad day); null = not verified today or unknown. */
   verifiedTodayAt: z.coerce.date().nullable(),
-  photoUrl: z.string().url().nullable(),
+  /** His approved main photo (Ali, 2026-10-06): a short-lived signed URL, absolute or relative to the API origin. */
+  photoUrl: z.string().nullable(),
 });
 export type CourierCard = z.infer<typeof CourierCard>;
 

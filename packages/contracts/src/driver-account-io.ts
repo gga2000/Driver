@@ -204,6 +204,41 @@ export const ReviewDocumentInput = z
   .refine((v) => v.decision === 'approve' || Boolean(v.reason), { message: 'a rejection needs a reason', path: ['reason'] });
 export type ReviewDocumentInput = z.infer<typeof ReviewDocumentInput>;
 
+// ───────────────────────── main photo (Ali, 2026-10-06) ─────────────────────────
+
+/**
+ * Every driver has ONE main photo customers see (courier / driver card, ride match card, الرجعة
+ * offers and seat, the share page). It is the `photo` driver document: a new one goes to the Console
+ * approvals queue and only an approved one is shown; until then the previous approved photo (or his
+ * initial) stays. `none` = never sent · `pending` = «تنتظر الموافقة» · `approved` = «مقبولة» ·
+ * `rejected` = «مرفوضة: {reason}» (the latest submission's state).
+ */
+export const MainPhotoState = z.enum(['none', 'pending', 'approved', 'rejected']);
+export type MainPhotoState = z.infer<typeof MainPhotoState>;
+
+export const MainPhotoView = z.object({
+  state: MainPhotoState,
+  /** What customers see now: a short-lived signed URL (absolute, or relative to the API). Null = his initial. */
+  approved: z.object({ url: z.string(), approvedAt: z.coerce.date().nullable() }).nullable(),
+  /** His latest submission (null when he never sent one). */
+  latest: z
+    .object({
+      documentId: z.string(),
+      status: z.enum(['pending', 'approved', 'rejected']),
+      /** Signed URL of the photo he sent (his own; null if the upload is gone). */
+      url: z.string().nullable(),
+      submittedAt: z.coerce.date(),
+      reviewedAt: z.coerce.date().nullable(),
+      rejectReason: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type MainPhotoView = z.infer<typeof MainPhotoView>;
+
+/** Upload first with `places.photoUpload`, then send its id: a new `photo` document for review. */
+export const SetMainPhotoInput = z.object({ uploadId: z.string().min(1) });
+export type SetMainPhotoInput = z.infer<typeof SetMainPhotoInput>;
+
 // ───────────────────────── daily check-in ─────────────────────────
 
 export const LivenessGesture = z.enum(['blink', 'turn_left', 'turn_right', 'smile', 'nod']);
@@ -459,6 +494,8 @@ export interface DriverAccountPort {
   documents(actor: Actor, input: z.infer<typeof DocumentsInput>): Promise<DocumentsView>;
   uploadDocument(actor: Actor, input: UploadDocumentInput): Promise<DriverDocumentView>;
   reviewDocument(actor: Actor, input: ReviewDocumentInput): Promise<DriverDocumentView>;
+  mainPhoto(actor: Actor): Promise<MainPhotoView>;
+  setMainPhoto(actor: Actor, input: SetMainPhotoInput): Promise<MainPhotoView>;
   checkInChallenge(actor: Actor): Promise<CheckInChallenge>;
   submitCheckIn(actor: Actor, input: SubmitCheckInInput): Promise<CheckInResult>;
   checkInStatus(actor: Actor): Promise<CheckInStatus>;
