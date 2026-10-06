@@ -44,7 +44,17 @@ export const KhatStopView = z.object({
   windowStart: z.coerce.date().nullable(),
   windowEnd: z.coerce.date().nullable(),
   /** Null on stops without a child (school gate wait, depot). */
-  child: z.object({ childRef: z.string(), firstName: z.string() }).nullable(),
+  child: z
+    .object({
+      childRef: z.string(),
+      firstName: z.string(),
+      /**
+       * The photo the guardian added (short-lived signed URL; null = the initial). Only ever sent to the
+       * run's own driver (the assigned one, or the substitute once the run is his); never on share pages.
+       */
+      photoUrl: z.string().nullable(),
+    })
+    .nullable(),
   tappedInAt: z.coerce.date().nullable(),
   tappedOutAt: z.coerce.date().nullable(),
   /** Reported absent for this run: the child's stops are skipped. */
@@ -164,7 +174,26 @@ export type SubstituteOffer = z.infer<typeof SubstituteOffer>;
 export const AcceptSubstituteInput = z.object({ offerId: z.string().min(1) });
 export const AcceptSubstituteOutput = z.object({ outcome: z.enum(['assigned', 'declined']), tripId: z.string() });
 
+// ───────────────────────── guardian: a child's photo (Ali, 2026-10-06) ─────────────────────────
+
+/**
+ * A guardian's own خطوط child as the customer app shows it, with the photo he added (signed URL; null =
+ * none). The photo is seen ONLY by the driver of that child's run (and the substitute driving it); never
+ * on a share page or by anyone else. The guardian removes it at any time (the bytes are deleted).
+ */
+export const GuardianChild = z.object({ childRef: z.string(), name: z.string(), photoUrl: z.string().nullable() });
+export type GuardianChild = z.infer<typeof GuardianChild>;
+
+/** Upload first with `places.photoUpload`, then send its id. Replaces (and deletes) an earlier photo. */
+export const SetChildPhotoInput = z.object({ childRef: z.string().min(1).max(80), uploadId: z.string().min(1).max(80) });
+export type SetChildPhotoInput = z.infer<typeof SetChildPhotoInput>;
+export const RemoveChildPhotoInput = z.object({ childRef: z.string().min(1).max(80) });
+export type RemoveChildPhotoInput = z.infer<typeof RemoveChildPhotoInput>;
+
 export interface KhatPort {
+  guardianChildren(actor: Actor): Promise<GuardianChild[]>;
+  setChildPhoto(actor: Actor, input: SetChildPhotoInput): Promise<GuardianChild>;
+  removeChildPhoto(actor: Actor, input: RemoveChildPhotoInput): Promise<GuardianChild>;
   todayRun(actor: Actor, input: z.infer<typeof TodayRunInput>): Promise<TodayRunView>;
   tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;
   tapOut(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;
