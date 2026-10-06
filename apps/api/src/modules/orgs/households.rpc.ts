@@ -56,6 +56,12 @@ const STATE_AR: Record<PayerApprovalRequest['state'], string> = { pending: 'با
 const DONE_STATES: ReadonlySet<OrderState> = new Set(['delivered', 'closed', 'completed']);
 
 /**
+ * What the hub shows as spent: orders still waiting for the payer's yes are left out (they are not
+ * spent yet). Placement counts them, so two orders can't slip under the budget together.
+ */
+const settled = (orders: readonly HouseholdMonthOrder[]): HouseholdMonthOrder[] => orders.filter((o) => !(o.heldForPayer && o.state === 'placed'));
+
+/**
  * `ctx.households` (domain §12). Only members see a household; only payers invite, set limits and
  * resolve approvals. A non-member asking about a household gets `not_household_member`.
  */
@@ -221,7 +227,7 @@ export class HouseholdsRpc implements HouseholdsPort {
       // What they spent this month before this order (the card says «هالشهر 46,000 من 50,000»).
       monthSpentIqd: month
         ? householdMonthSpend(
-            month.orders.filter((o) => o.orderId !== a.orderId),
+            settled(month.orders).filter((o) => o.orderId !== a.orderId),
             home.id,
             a.requestedBy,
           )
@@ -253,7 +259,7 @@ export class HouseholdsRpc implements HouseholdsPort {
         isMe: m.personId === viewerId,
         monthlyBudgetIqd: m.role === 'payer' ? null : (m.monthlyBudgetIqd ?? null),
         // Privacy between adults: the payer sees everyone's month, a member only their own.
-        monthSpentIqd: month && (payer || m.personId === viewerId) ? householdMonthSpend(month.orders, home.id, m.personId) : null,
+        monthSpentIqd: month && (payer || m.personId === viewerId) ? householdMonthSpend(settled(month.orders), home.id, m.personId) : null,
       }))
       .sort((a, b) => rank[a.role] - rank[b.role] || Number(b.isMe) - Number(a.isMe));
     const pending = (await this.orgs.pendingApprovals(home.id)).filter((a) => payer || a.requestedBy === viewerId);

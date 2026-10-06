@@ -123,7 +123,8 @@ function MonthBody({ v }: { v: MonthInsightsView }) {
         </Card>
       ) : null}
 
-      {v.topDish ? (
+      {/* "The dish you came back to" needs a second order of it. */}
+      {v.topDish && v.topDish.orders >= 2 ? (
         <Card elevation={0} padding={4} testID="month-top-dish">
           <View style={{ gap: theme.space[1] }}>
             <Text variant="label" color="textMuted">
@@ -158,7 +159,7 @@ function MonthBody({ v }: { v: MonthInsightsView }) {
           <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
             <Icon name="star" size={22} color="starOutline" filled fillColor="star" />
             <Text variant="bodyStrong" tabular style={{ flex: 1 }}>
-              {t('month.points', { n: v.pointsEarned })}
+              {t('month.points', { n: amountParam(v.pointsEarned) })}
             </Text>
           </View>
         </Card>

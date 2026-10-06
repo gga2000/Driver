@@ -525,7 +525,9 @@ async function deliveredOrder(personId, h) {
     type: 'food',
     merchantOrgId: r.orgId,
     lines: h.lines.map(([k, qty]) => ({ catalogItemId: r.itemIds.get(k), qty })),
-    paymentMethod: 'cash',
+    paymentMethod: h.householdOrgId ? 'wallet' : 'cash',
+    ...(h.householdOrgId ? { householdOrgId: h.householdOrgId } : {}),
+    ...(h.familyTable ? { familyTable: true } : {}),
     dropoff: { zoneKey: 'zakur', pin: HOME },
   });
   await accept(placed.id);
@@ -538,7 +540,7 @@ async function deliveredOrder(personId, h) {
   const drop = await stopOf(tripId, 'dropoff');
   await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
   const order = await orders.get(placed.id);
-  await trips.completeStop(tripId, drop.id, courierId, { handover: { cashCollectedIqd: order.totalIqd } });
+  await trips.completeStop(tripId, drop.id, courierId, { handover: h.householdOrgId ? {} : { cashCollectedIqd: order.totalIqd } });
   if (h.rate) await orders.rate(personId, { orderId: placed.id, delivery: 5, food: 5 });
   // Back-date (in-memory repository only): the list then shows "أمس" and older days.
   const rec = orders.repo?.orders?.get?.(placed.id);
@@ -1024,26 +1026,31 @@ const rajaa = await (async () => {
       const kid = await identity.ensurePersonByPhone('07709876543', personId, 'demo');
       await identity.updateProfile({ personId: kid, sessionId: 'demo' }, { name: 'حسين' });
       await orgs.addMember(household.id, kid, { role: 'orderer', spendingLimitIqd: 10_000, actorId: personId });
-      // A real order of Minar's at مطعم خالد, so the approval names the kitchen, the dishes and where (joy w5).
-      let minarOrderId = `demo-order-${now}`;
-      try {
-        const placed = await orders.place(minar, {
-          cityId: 'aziziyah',
-          type: 'food',
-          merchantOrgId: khalid.orgId,
-          lines: [['liver_plate', 2], ['salad', 1], ['pepsi', 2]].map(([k, qty]) => ({ catalogItemId: khalid.itemIds.get(k), qty })),
-          paymentMethod: 'cash',
-          dropoff: { zoneKey: 'street_30', pin: { lat: 32.9097, lng: 45.0633 } },
-        });
-        minarOrderId = placed.id;
-      } catch {
-        // The kitchen may be closed at this hour: the approval then shows the amount alone.
+      // The household wallet first, so Minar's order can be paid from it.
+      await ledger.recordAll(group(`demo:hh:${household.id}`, 'money', ago(30), [{ type: 'credit_issued', amount: 60_000, fromAccount: Accounts.bank, toAccount: Accounts.household(household.id), memo: 'topup:agent' }]));
+      // A real order of Minar's at مطعم خالد on the household wallet, over her 25,000 limit: the server
+      // holds it for the payer (joy w4), and the approval names the kitchen, the dishes and where (w5).
+      const pending = (await orgs.pendingApprovals(household.id)).some((a) => a.requestedBy === minar);
+      if (!pending) {
+        try {
+          await orders.place(minar, {
+            cityId: 'aziziyah',
+            type: 'food',
+            merchantOrgId: khalid.orgId,
+            lines: [['khalid_mix', 1], ['liver_plate', 2], ['pepsi', 2]].map(([k, qty]) => ({ catalogItemId: khalid.itemIds.get(k), qty })),
+            paymentMethod: 'wallet',
+            householdOrgId: household.id,
+            familyTable: true,
+            dropoff: { zoneKey: 'street_30', pin: { lat: 32.9097, lng: 45.0633 } },
+          });
+        } catch {
+          // The kitchen may be closed at this hour: a request with the amount alone stands in.
+          await orgs.requestPayerApproval({ orgId: household.id, orderId: `demo-order-${now}`, requestedBy: minar, amountIqd: 32_000, reason: 'order_limit' });
+        }
       }
-      await orgs.requestPayerApproval({ orgId: household.id, orderId: minarOrderId, requestedBy: minar, amountIqd: 32_000 });
       if (!(await places.mine(minar)).some((p) => p.access === 'owner')) {
         await places.save(minar, { cityId: 'aziziyah', label: 'custom', name: 'بيت أهل منار', pin: { lat: 32.887, lng: 45.0765 }, note: 'البيت الثالث بعد الفرن', photoIds: [], shareWithHousehold: true });
       }
-      await ledger.recordAll(group(`demo:hh:${household.id}`, 'money', ago(30), [{ type: 'credit_issued', amount: 60_000, fromAccount: Accounts.bank, toAccount: Accounts.household(household.id), memo: 'topup:agent' }]));
       // خطوط children (Ali, 2026-10-06): two on school runs; زهراء already has a photo (أطفال الخطوط).
       if ((await identity.myChildren({ personId })).length === 0) {
         const { KhatService } = await load('modules/khat/index.js');
@@ -1060,6 +1067,90 @@ const rajaa = await (async () => {
     } catch (err) {
       res.statusCode = 500;
       res.end(String(err?.stack ?? err));
+    }
+  });
+
+  // ───────────────────────── «بيتنا» and «شهرك» (joy w4, w6) ─────────────────────────
+  //
+  //   POST /demo/family?personId=<id>   (after /demo/account)  → { householdId, held }
+  //
+  // Budgets: منار 25,000 an order and 100,000 a month, حسين 10,000 and 20,000. This month on the household
+  // wallet: two delivered orders of منار's and two of حسين's, then a third of حسين's that fits his
+  // per-order limit but not his month, so the server holds it for the payer (reason month_budget).
+  // Your own month: four meals at three kitchens (one «للسفرة» at مشويات الحاج كريم), a الرجعة trip that
+  // just ended, «وفّرت» lines and points; last month three meals and its own savings and points, for
+  // the month stepper and the month-start card.
+  const familySeeded = new Set();
+  app.use('/demo/family', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/family?personId=…' });
+      const household = (await orgs.householdsOf(personId))[0];
+      if (!household) return json(res, 400, { error: 'POST /demo/account?personId=… first' });
+      // Once per household: a second call would push حسين's orders over his month and hold them.
+      if (familySeeded.has(household.id)) return json(res, 200, { householdId: household.id, held: null, again: true });
+      familySeeded.add(household.id);
+      const byName = async (phone) => identity.personIdByPhone(phone);
+      const minar = await byName('07801234567');
+      const hussein = await byName('07709876543');
+      await orgs.setMonthlyBudget(household.id, minar, 100_000, personId);
+      await orgs.setMonthlyBudget(household.id, hussein, 20_000, personId);
+      const now = Date.now();
+      const ago = (h) => new Date(now - h * 3_600_000);
+      await ledger.recordAll(group(`demo:hh2:${household.id}`, 'money', ago(28), [{ type: 'credit_issued', amount: 150_000, fromAccount: Accounts.bank, toAccount: Accounts.household(household.id), memo: 'topup:agent' }]));
+      // Days into this Baghdad month so far: this month's orders stay inside it, last month's land before it.
+      const dom = new Date(now + 3 * 3_600_000).getUTCDate();
+      const inMonth = (d) => Math.min(d, Math.max(0, dom - 1) + 0.2);
+      const lastMonth = (d) => dom + d;
+      const at = (key, lines, daysAgo, extra = {}) => ({ key, lines, daysAgo, ...extra });
+      const hh = { householdOrgId: household.id };
+      for (const [who, h] of [
+        [minar, at('khalid', [['liver_plate', 2], ['salad', 1]], inMonth(5), hh)],
+        [minar, at('sham', [['arabi_shawarma', 2], ['lemon_mint', 1]], inMonth(2), hh)],
+        [hussein, at('sham', [['falafel_plate', 2], ['lemon_mint', 1]], inMonth(4), hh)],
+        [hussein, at('khalid', [['liver_plate', 1], ['pepsi', 1]], inMonth(1), hh)],
+        // Small ones first: a new account's first three cash orders are capped (decisions §4).
+        [personId, at('khalid', [['liver_plate', 2]], lastMonth(4))],
+        [personId, at('musafir', [['kahi_geymar', 2], ['iraqi_tea', 2]], lastMonth(9))],
+        [personId, at('khalid', [['salad', 2], ['lentil_soup', 2]], lastMonth(15))],
+        [personId, at('khalid', [['liver_plate', 1], ['pepsi', 1]], inMonth(6))],
+        [personId, at('khalid', [['khalid_mix', 1], ['liver_plate', 1], ['shenina', 1]], inMonth(2))],
+        [personId, at('sham', [['falafel_plate', 1], ['lemon_mint', 1]], inMonth(1))],
+        [personId, at('haj_kareem', [['rice_bamia', 2], ['arabic_salad', 1], ['erbil_laban', 2]], inMonth(3), { familyTable: true })],
+      ]) {
+        await deliveredOrder(who, h);
+      }
+      // حسين's third this month: 7,000-ish fits his 10,000 limit but not what is left of his 20,000.
+      const sham = seeded.find((s) => s.seed.key === 'sham');
+      let held = null;
+      try {
+        held = await orders.place(hussein, {
+          cityId: 'aziziyah',
+          type: 'food',
+          merchantOrgId: sham.orgId,
+          lines: [['falafel_plate', 2]].map(([k, qty]) => ({ catalogItemId: sham.itemIds.get(k), qty })),
+          paymentMethod: 'wallet',
+          householdOrgId: household.id,
+          dropoff: { zoneKey: 'zakur', pin: HOME },
+        });
+      } catch {
+        // A closed kitchen at this hour: the hub still shows the month without it.
+      }
+      // «وفّرت» and points: this month and last (the same ledger lines the year sum reads).
+      const customer = Accounts.customer(personId);
+      const days = (d) => new Date(now - d * 86_400_000);
+      await ledger.recordAll([
+        group(`demo:saved:${personId}:1`, 'money', days(inMonth(3)), [{ type: 'promo_funded', amount: 1_500, fromAccount: Accounts.platform, toAccount: customer, memo: 'points:demo' }]),
+        group(`demo:saved:${personId}:2`, 'money', days(inMonth(2)), [{ type: 'credit_issued', amount: 1_000, fromAccount: Accounts.platform, toAccount: customer, memo: 'late_promise' }]),
+        group(`demo:saved:${personId}:3`, 'money', days(lastMonth(6)), [{ type: 'promo_funded', amount: 2_000, fromAccount: Accounts.platform, toAccount: customer, memo: 'deal:demo' }]),
+        group(`demo:earned:${personId}:1`, 'points', days(inMonth(3)), [{ type: 'points_earned', amount: 120, fromAccount: Accounts.pointsPool, toAccount: Accounts.points(personId) }]),
+        group(`demo:earned:${personId}:2`, 'points', days(lastMonth(5)), [{ type: 'points_earned', amount: 75, fromAccount: Accounts.pointsPool, toAccount: Accounts.points(personId) }]),
+      ]);
+      // A الرجعة trip that just ended (this month's «رجعة وحدة»).
+      await fetch(`http://127.0.0.1:${PORT}/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`, { method: 'POST' }).catch(() => null);
+      json(res, 200, { householdId: household.id, held: held ? { orderId: held.id, heldForPayer: held.heldForPayer === true } : null });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
     }
   });
 }

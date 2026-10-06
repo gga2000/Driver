@@ -164,7 +164,8 @@ describe('households (domain §12)', () => {
       expect(forPayer?.members.map((m) => [m.name, m.monthSpentIqd])).toEqual([
         ['علي', 0],
         ['منار', 46_000],
-        ['حسين', 12_000],
+        // حسين's only order waits for the payer: not spent yet (placement still counts it).
+        ['حسين', 0],
       ]);
       expect(forPayer?.month?.tableOrders.map((o) => [o.orderId, o.status, o.onHouseholdWallet, o.familyTable, o.orderedByName])).toEqual([
         ['o4', 'waiting', true, false, 'حسين'],

@@ -26,6 +26,9 @@
 //   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
 //            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
 //                                                                         POST /demo/ride
+//   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
+//            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
+//            (`?now=`), the wallet and account rows                 POST /demo/account + /demo/family
 //   season-* J6 on a frozen 13:00 Baghdad clock: home Ramadan card (pick, then the countdown), the
 //            timetable in notifications, checkout's «على الفطور» slot, the Eid card
 //                                                                         POST /demo/season
@@ -91,7 +94,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'habits'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -225,6 +228,7 @@ try {
   if (wants('chat')) await chatShots(personId);
   if (wants('ride')) await rideShots();
   if (wants('season')) await seasonShots(khalid);
+  if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
@@ -306,6 +310,56 @@ async function habitsShots() {
   await page.goto(`${origin}/profile/notifications`, LOADED);
   await byTestId('pref-dishPots').waitFor({ timeout: 15_000 }).catch(() => errors.push('dish pots switch not shown'));
   await shot('habits-notifications');
+}
+
+/**
+ * Joy w4/w6: the household with budgets and a month of history, then «بيتنا», a member's limits,
+ * «شهرك» (this month, then last), the month-start card (the app's clock on the 2nd) and the rows.
+ */
+async function familyShots(personId) {
+  if (!personId) return;
+  await demoPost(`/demo/account?personId=${encodeURIComponent(personId)}`);
+  await demoPost(`/demo/family?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/household`, LOADED);
+  await byTestId('household-month').waitFor({ timeout: 15_000 });
+  await shot('family-hub');
+  await fullShot('family-hub-full');
+  // The page scrolls inside its own view on web: bring each part up for its own shot.
+  for (const [id, name] of [
+    ['household-month', 'family-hub-month'],
+    ['household-table', 'family-hub-table'],
+    ['household-trusted', 'family-hub-trusted'],
+  ]) {
+    await byTestId(id).scrollIntoViewIfNeeded();
+    await shot(name);
+  }
+
+  await page.locator('[data-testid^="member-"]').nth(1).click();
+  await byTestId('member-limits').waitFor({ timeout: 15_000 });
+  await shot('family-member');
+  await byTestId('limit-month').scrollIntoViewIfNeeded();
+  await shot('family-member-month');
+  await fullShot('family-member-full');
+
+  await page.goto(`${origin}/month`, LOADED);
+  await byTestId('month-hero').waitFor({ timeout: 15_000 });
+  await shot('family-month');
+  await fullShot('family-month-full');
+  await byTestId('month-private').scrollIntoViewIfNeeded();
+  await shot('family-month-end');
+  await byTestId('month-prev').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="month-hero"]') !== null && !document.querySelector('[data-testid="month-loading"]'));
+  await settle(900);
+  await fullShot('family-month-last-full');
+
+  // The month-start card: the app's clock on the 2nd of this month (dev builds only, `?now=`).
+  const second = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 8) + '02T12:00:00+03:00';
+  await page.goto(`${origin}/wallet?now=${encodeURIComponent(second)}`, LOADED);
+  await byTestId('wallet-month-card').waitFor({ timeout: 15_000 }).catch(() => errors.push('month-start card not shown'));
+  await shot('family-wallet-card');
+  await page.goto(`${origin}/account`, LOADED);
+  await byTestId('account-month').waitFor({ timeout: 15_000 });
+  await shot('family-account');
 }
 
 /** M3 account: seed places / points / household, then profile, place editor, wallet, household. */

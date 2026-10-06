@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, IconButton, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { appNow } from '@/lib/dev-clock';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { monthCardDue, monthLabel } from './month';
@@ -30,7 +31,7 @@ export function MonthCard({ testID = 'month-card' }: { testID?: string }) {
       live = false;
     };
   }, []);
-  const due = seen === undefined ? null : monthCardDue(new Date(), seen, today.quiet);
+  const due = seen === undefined ? null : monthCardDue(appNow(), seen, today.quiet);
   const month = useMonth(due ?? undefined, { enabled: due !== null });
   if (!due || !month.data || month.data.month !== due || !month.data.hasActivity) return null;
 
