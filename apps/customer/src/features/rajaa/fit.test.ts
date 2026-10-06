@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardSeat } from '@driver/contracts';
-import { seatFit } from './fit';
+import { foldBoard, seatFit } from './fit';
 
 const seat = (id: BoardSeat['id'], state: BoardSeat['state'], blocked: BoardSeat['blocked'] = null): BoardSeat => ({ id, state, premiumIqd: 0, blocked });
 
@@ -22,3 +22,17 @@ describe('seatFit', () => {
   });
 });
 
+describe('foldBoard', () => {
+  const car = (id: string, free: number, seats: BoardSeat[]) => ({ id, fill: { free }, seats });
+  const open = car('a', 2, [seat('back_left', 'free'), seat('back_right', 'free')]);
+  const full = car('b', 0, [seat('back_left', 'taken')]);
+  const notForMe = car('c', 1, [seat('back_middle', 'free', 'adjacency')]);
+
+  it('folds full cars, keeping the board order of the rest', () => {
+    expect(foldBoard([full, open, notForMe], false)).toEqual({ open: [open, notForMe], folded: [full] });
+  });
+
+  it('also folds cars with nothing for the rider once they said who travels', () => {
+    expect(foldBoard([full, open, notForMe], true)).toEqual({ open: [open], folded: [full, notForMe] });
+  });
+});

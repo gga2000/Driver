@@ -5,15 +5,16 @@ import type { IntercityDirection } from '@driver/contracts';
 import { Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
-import { CorridorPicker, DemandBanner, TravellerPicker, TripPill } from '@/features/rajaa/BoardParts';
-import { seatFit } from '@/features/rajaa/fit';
-import { DepartureTile } from '@/features/rajaa/DepartureTile';
+import { CorridorPicker, DemandBanner, TravellerAsk, TravellerChip, TripPill } from '@/features/rajaa/BoardParts';
+import { foldBoard, seatFit } from '@/features/rajaa/fit';
+import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { garageName, useActiveBooking, useBoard, useDriverCards, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { countKey } from '@/lib/plural';
 import { profile, useProfile } from '@/lib/profile';
 
 /**
@@ -37,6 +38,7 @@ export default function RajaaBoard() {
   const network = useNetwork();
   // «تسافر:» (r1): remembered on the device; the board marks the seats this rider can't take.
   const travellingAs = useProfile().rajaaTravellingAs;
+  const [askTraveller, setAskTraveller] = useState(false);
   const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
@@ -87,21 +89,16 @@ export default function RajaaBoard() {
       edges={['bottom']}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
     >
-      <View style={{ gap: theme.space[4] }}>
-        <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'flex-start' }}>
-          <Icon name="shield" size={20} color="accentText" strokeWidth={2} />
-          <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
-            {t('rajaa.calm_line')}
-          </Text>
-        </View>
+      <View style={{ gap: theme.space[3] }}>
         {network.isPending ? (
-          <Skeleton height={140} radius={20} />
+          <Skeleton height={60} radius={20} />
         ) : (
           <CorridorPicker
             corridors={corridors}
             corridorId={corridorId}
             direction={direction}
             suggested={suggested}
+            leading={travellingAs && !askTraveller ? <TravellerChip value={travellingAs} onPress={() => setAskTraveller(true)} /> : null}
             onCorridor={(id) => {
               touched.current = true;
               setSuggested(false);
@@ -114,7 +111,15 @@ export default function RajaaBoard() {
             }}
           />
         )}
-        <TravellerPicker value={travellingAs} onChange={(v) => void profile.setRajaaTravellingAs(v)} />
+        {!travellingAs || askTraveller ? (
+          <TravellerAsk
+            value={travellingAs}
+            onChange={(v) => {
+              setAskTraveller(false);
+              void profile.setRajaaTravellingAs(v);
+            }}
+          />
+        ) : null}
       </View>
 
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
@@ -134,8 +139,10 @@ export default function RajaaBoard() {
         />
       ) : (
         <>
-          {banner || !anyCars ? <DemandBanner demand={banner} empty={!anyCars} onPost={openDemand} /> : null}
-          {groups.map((g, gi) => (
+          {!anyCars ? <DemandBanner demand={banner} empty onPost={openDemand} /> : null}
+          {groups.map((g, gi) => {
+            const { open, folded } = foldBoard(g.departures, Boolean(travellingAs));
+            return (
             <View key={g.garage.id} style={{ gap: theme.space[3] }} testID={`garage-${g.garage.id}`}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                 <Icon name="garage" size={20} color="textMuted" />
@@ -144,9 +151,18 @@ export default function RajaaBoard() {
                 </View>
                 {gi === 0 ? <StatusPill size="sm" tone="success" live label={t('rajaa.live')} /> : null}
                 <Text variant="caption" color="textMuted">
-                  {g.departures.length === 1 ? t('rajaa.garage_count_one') : g.departures.length > 1 ? t('rajaa.garage_count', { n: g.departures.length }) : ''}
+                  {g.departures.length === 0 ? '' : t(countKey('rajaa.garage_count', g.departures.length), { n: g.departures.length })}
                 </Text>
               </View>
+              {/* The calm line (keep list #1), now a caption under the first garage instead of above the route. */}
+              {gi === 0 ? (
+                <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start', marginTop: -theme.space[1] }}>
+                  <Icon name="shield" size={16} color="textMuted" strokeWidth={2} />
+                  <Text variant="caption" color="textMuted" style={{ flex: 1 }} testID="rajaa-calm-line">
+                    {t('rajaa.calm_line')}
+                  </Text>
+                </View>
+              ) : null}
               {g.departures.length === 0 ? (
                 <Card elevation={0} tone="sunken" padding={4}>
                   <Text variant="footnote" color="textMuted">
@@ -154,7 +170,7 @@ export default function RajaaBoard() {
                   </Text>
                 </Card>
               ) : (
-                g.departures.map((d) => (
+                open.map((d) => (
                   <DepartureTile
                     key={d.id}
                     dep={d}
@@ -165,9 +181,17 @@ export default function RajaaBoard() {
                   />
                 ))
               )}
+              {folded.length > 0 ? (
+                <Card elevation={0} tone="sunken" padding={0} testID={`garage-folded-${g.garage.id}`}>
+                  {folded.map((d, i) => (
+                    <FoldedDeparture key={d.id} dep={d} driver={drivers.data?.get(d.id)} fit={travellingAs ? seatFit(d) : undefined} divider={i < folded.length - 1} />
+                  ))}
+                </Card>
+              ) : null}
             </View>
-          ))}
-          {!banner && anyCars ? <DemandBanner demand={null} empty={false} onPost={openDemand} /> : null}
+            );
+          })}
+          {anyCars ? <DemandBanner demand={banner} empty={false} onPost={openDemand} /> : null}
         </>
       )}
 

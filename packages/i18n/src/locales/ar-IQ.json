@@ -5751,5 +5751,6 @@
   "rajaa.fit_none": "المقاعد الباقية ما تناسبك",
   "rajaa.fit_none_one": "المقعد الباقي ما يناسبك",
   "rajaa.fit_reason_adjacency": "ما نحط أحد بين غريبين من غير جنسه",
-  "rajaa.fit_reason_family_only": "هالسيارة للعوائل بس"
+  "rajaa.fit_reason_family_only": "هالسيارة للعوائل بس",
+  "rajaa.corridor_chip": "خط {city}"
 }

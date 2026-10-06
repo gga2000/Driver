@@ -1,15 +1,15 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 import type { BookingView, CorridorView, IntercityDirection, TravellingAs } from '@driver/contracts';
-import { Button, Card, Chip, Icon, SegmentedControl, StatusPill, Text, useTheme } from '@driver/ui';
+import { Button, Card, Chip, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { cityName, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from './labels';
 import { bookingHref, clockLabel, endpoints, holdCountdown, type DemandSummary } from './logic';
 
 /**
- * Corridor picker: بغداد ⇄ العزيزية (default) and العزيزية ⇄ الكوت, then the route itself with a
- * flip button. The far city is named, so the segment reads like the garage sign.
+ * The route as one row (joy r7, audit R-05): "بغداد ← العزيزية" with the swap button, and the
+ * corridors as small chips under it ("بغداد" · "الكوت", the far city named like the garage sign).
  */
 export function CorridorPicker({
   corridors,
@@ -18,7 +18,10 @@ export function CorridorPicker({
   onCorridor,
   onFlip,
   suggested,
+  leading,
 }: {
+  /** First in the chip row: the «تسافر:» chip (r1). */
+  leading?: ReactNode;
   corridors: readonly CorridorView[];
   corridorId: string;
   direction: IntercityDirection;
@@ -31,15 +34,7 @@ export function CorridorPicker({
   const corridor = corridors.find((c) => c.id === corridorId);
   const e = endpoints(corridor?.cityId ?? 'baghdad', direction);
   return (
-    <View style={{ gap: theme.space[3] }}>
-      {corridors.length > 1 ? (
-        <SegmentedControl
-          accessibilityLabel={t('home.rajaa_title')}
-          value={corridorId}
-          onChange={onCorridor}
-          options={corridors.map((c) => ({ value: c.id, label: `${cityName(t, c.cityId)} ⇄ ${cityName(t, 'aziziyah')}` }))}
-        />
-      ) : null}
+    <View style={{ gap: theme.space[2] }}>
       <View
         style={{
           flexDirection: 'row',
@@ -49,33 +44,22 @@ export function CorridorPicker({
           borderRadius: theme.radius.xl,
           borderWidth: 1,
           borderColor: theme.colors.border,
-          paddingVertical: theme.space[3],
-          paddingHorizontal: theme.space[4],
+          paddingVertical: theme.space[2],
+          paddingStart: theme.space[4],
+          paddingEnd: theme.space[2],
         }}
       >
-        <View style={{ alignItems: 'center', gap: 3 }}>
-          <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: theme.colors.accent }} />
-          <View style={{ width: 2, height: 22, backgroundColor: theme.colors.border }} />
-          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accent }} />
-        </View>
-        <View style={{ flex: 1, gap: theme.space[2] }}>
-          <View>
-            <Text variant="caption" color="textMuted">
-              {t('intercity.from')}
-            </Text>
-            <Text variant="title" testID="rajaa-from">
-              {cityName(t, e.from)}
-            </Text>
-          </View>
-          <View>
-            <Text variant="caption" color="textMuted">
-              {t('intercity.to')}
-            </Text>
-            <Text variant="title" testID="rajaa-to">
-              {cityName(t, e.to)}
-            </Text>
-          </View>
-        </View>
+        <Text variant="title" style={{ flex: 1 }} numberOfLines={1} testID="rajaa-route" accessibilityRole="header">
+          <Text variant="title" testID="rajaa-from">
+            {cityName(t, e.from)}
+          </Text>
+          <Text variant="title" color="textMuted">
+            {'  ←  '}
+          </Text>
+          <Text variant="title" testID="rajaa-to">
+            {cityName(t, e.to)}
+          </Text>
+        </Text>
         <Pressable
           testID="rajaa-flip"
           accessibilityRole="button"
@@ -85,9 +69,9 @@ export function CorridorPicker({
             onFlip();
           }}
           style={({ pressed }) => ({
-            width: 48,
-            height: 48,
-            borderRadius: 24,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken,
             alignItems: 'center',
             justifyContent: 'center',
@@ -98,6 +82,16 @@ export function CorridorPicker({
           </Text>
         </Pressable>
       </View>
+      {corridors.length > 1 || leading ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], alignItems: 'center' }}>
+          {leading}
+          {corridors.length > 1
+            ? corridors.map((c) => (
+                <Chip key={c.id} testID={`corridor-${c.id}`} role="radio" label={t('rajaa.corridor_chip', { city: cityName(t, c.cityId) })} selected={c.id === corridorId} onPress={() => onCorridor(c.id)} />
+              ))
+            : null}
+        </ScrollView>
+      ) : null}
       {suggested ? (
         <Text variant="footnote" color="textMuted">
           {t('rajaa.suggested_back')}
@@ -109,46 +103,48 @@ export function CorridorPicker({
 
 /**
  * «تسافر: نساء · غيّر» (joy r1, audit R-03): asked once on the board, remembered on the device, and
- * sent with every board read so each tile says whether a seat is left *for you*. Unasked (or while
- * changing) it is the three choices with one line saying why we ask.
+ * sent with every board read so each tile says whether a seat is left *for you*. The chip sits in the
+ * route's chip row; tapping it opens `TravellerAsk` again.
  */
-export function TravellerPicker({ value, onChange }: { value: TravellingAs | null; onChange: (v: TravellingAs) => void }) {
+export function TravellerChip({ value, onPress }: { value: TravellingAs; onPress: () => void }) {
   const theme = useTheme();
   const t = useT();
-  const [open, setOpen] = useState(false);
-  if (value && !open) {
-    return (
-      <Pressable
-        testID="traveller-change"
-        accessibilityRole="button"
-        accessibilityLabel={`${t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}، ${t('rajaa.traveller_change')}`}
-        onPress={() => setOpen(true)}
-        style={({ pressed }) => ({
-          alignSelf: 'flex-start',
-          minHeight: 44,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: theme.space[2],
-          paddingHorizontal: theme.space[3],
-          borderRadius: theme.radius.pill,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
-        })}
-      >
-        <Icon name={TRAVELLING_AS_ICON[value]} size={18} color="text" />
-        <Text variant="label" weight={600}>
-          {t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}
-        </Text>
-        <Text variant="label" color="textMuted">
-          ·
-        </Text>
-        <Text variant="label" color="accentText" weight={600}>
-          {t('rajaa.traveller_change')}
-        </Text>
-      </Pressable>
-    );
-  }
+  return (
+    <Pressable
+      testID="traveller-change"
+      accessibilityRole="button"
+      accessibilityLabel={`${t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}، ${t('rajaa.traveller_change')}`}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[2],
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.pill,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+      })}
+    >
+      <Icon name={TRAVELLING_AS_ICON[value]} size={18} color="text" />
+      <Text variant="label" weight={600} compact>
+        {t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}
+      </Text>
+      <Text variant="label" color="textMuted" compact>
+        ·
+      </Text>
+      <Text variant="label" color="accentText" weight={600} compact>
+        {t('rajaa.traveller_change')}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The three choices with one line saying why we ask (first visit, or after «غيّر»). */
+export function TravellerAsk({ value, onChange }: { value: TravellingAs | null; onChange: (v: TravellingAs) => void }) {
+  const theme = useTheme();
+  const t = useT();
   return (
     <View style={{ gap: theme.space[2] }} testID="traveller-ask">
       <Text variant="footnote" color="textMuted">
@@ -156,19 +152,7 @@ export function TravellerPicker({ value, onChange }: { value: TravellingAs | nul
       </Text>
       <View style={{ flexDirection: 'row', gap: theme.space[2] }} accessibilityRole="radiogroup" accessibilityLabel={t('intercity.travelling_as')}>
         {TRAVELLING_AS.map((v) => (
-          <Chip
-            key={v}
-            testID={`traveller-${v}`}
-            role="radio"
-            icon={TRAVELLING_AS_ICON[v]}
-            label={travellingAsLabel(t, v)}
-            selected={value === v}
-            style={{ flex: 1 }}
-            onPress={() => {
-              setOpen(false);
-              onChange(v);
-            }}
-          />
+          <Chip key={v} testID={`traveller-${v}`} role="radio" icon={TRAVELLING_AS_ICON[v]} label={travellingAsLabel(t, v)} selected={value === v} style={{ flex: 1 }} onPress={() => onChange(v)} />
         ))}
       </View>
     </View>

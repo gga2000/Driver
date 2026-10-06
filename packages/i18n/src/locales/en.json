@@ -5751,5 +5751,6 @@
   "rajaa.fit_none": "The seats left don't suit you",
   "rajaa.fit_none_one": "The seat left doesn't suit you",
   "rajaa.fit_reason_adjacency": "We never seat anyone between two strangers of the other sex",
-  "rajaa.fit_reason_family_only": "This car is for families only"
+  "rajaa.fit_reason_family_only": "This car is for families only",
+  "rajaa.corridor_chip": "{city} line"
 }

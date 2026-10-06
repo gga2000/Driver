@@ -20,3 +20,18 @@ export function seatFit(dep: Pick<DepartureCard, 'seats'>): SeatFit {
   return { kind: 'none_fit', free: free.length, reason: free.find((s) => s.blocked !== null)?.blocked ?? 'adjacency' };
 }
 
+/**
+ * The faster board (joy r7, audit R-05): cars a rider can still book stay as tiles; full cars, and
+ * cars with nothing left for this rider, fold into one short line each at the bottom of their
+ * garage, so a full car never holds the top slot. `asked`: the rider said who travels (r1).
+ */
+export function foldBoard<T extends Pick<DepartureCard, 'seats'> & { fill: Pick<DepartureCard['fill'], 'free'> }>(departures: readonly T[], asked: boolean): { open: T[]; folded: T[] } {
+  const open: T[] = [];
+  const folded: T[] = [];
+  for (const d of departures) {
+    const gone = d.fill.free <= 0 || (asked && seatFit(d).kind !== 'fits');
+    (gone ? folded : open).push(d);
+  }
+  return { open, folded };
+}
+
