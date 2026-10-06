@@ -151,7 +151,7 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
-// Scenarios: preparing · on_the_way · near · unreachable · arrived · late · late_credit · signal_lost · reassigning.
+// Scenarios: preparing · on_the_way · near · at_door · unreachable · arrived · late · late_credit · signal_lost · reassigning.
 // `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
 const { IdentityService } = await load('modules/identity/index.js');
@@ -387,6 +387,7 @@ async function scenario(personId, name, opts = {}) {
     return { orderId, tripId, courierId };
   }
   await advance(orderId); // at the door
+  if (name === 'at_door') return { orderId, tripId, courierId };
   if (name === 'unreachable') {
     const drop = await stopOf(tripId, 'dropoff');
     await trips.startUnreachable(tripId, drop.id, courierId);
@@ -397,7 +398,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'unreachable', 'arrived', 'late', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

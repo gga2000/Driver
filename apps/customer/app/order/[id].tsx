@@ -20,7 +20,7 @@ import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
 import { ActionRow, COURIER_FLOAT_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
-import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
+import { buildTimeline, courierAtDoor, phaseOf, statusLine } from '@/features/track/timeline';
 import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
 import { TrackMap } from '@/features/track/TrackMap';
@@ -81,11 +81,13 @@ export default function OrderLiveScreen() {
   // The courier over the map while he is coming (maps program SP5b, c6); the camera keeps clear of it.
   const showFloat = Boolean(v?.courier && fix && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way'));
   // Moments (maps program SP5b): a buzz and a soft sound at each step; the "almost there" card.
-  const moments = useTrackingMoments(v, phase, fix?.pin ?? null);
+  const moments = useTrackingMoments(v, phase, fix?.pin ?? null, eta, now);
+  const atDoor = v ? courierAtDoor(v) : false;
   // Audit d-5: the honest-delay credit, said once when the server posts it.
   useLatePromiseToast(v);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
-  const mapMinutes = fix && eta && eta.getTime() > now ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
+  // At the door there is nothing left to count down (joy f3): no pill.
+  const mapMinutes = fix && eta && eta.getTime() > now && !atDoor ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
   const ride = v?.order.type === 'ride';
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
@@ -224,7 +226,16 @@ export default function OrderLiveScreen() {
           bottom={collapsed + 8}
         />
       ) : null}
-      {v && moments.near ? <AlmostThereCard order={v.order} top={insets.top + TOP_BAR + banners * BANNER_H + 8} onClose={moments.closeNear} /> : null}
+      {v && moments.card ? (
+        <AlmostThereCard
+          order={v.order}
+          variant={moments.card}
+          name={courierName}
+          photoUrl={v.courier?.photoUrl ?? null}
+          top={insets.top + TOP_BAR + banners * BANNER_H + 8}
+          onClose={moments.closeCard}
+        />
+      ) : null}
 
       <Sheet
         snapPoints={[collapsed, 0.62, 0.9]}

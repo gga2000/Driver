@@ -42,6 +42,11 @@ export function unreachableActive(v: OrderTracking): boolean {
   return !drop || (drop.state !== 'completed' && drop.state !== 'skipped');
 }
 
+/** Food: he pressed "وصلت" at my door — not at another customer's drop before mine. */
+export function courierAtDoor(v: OrderTracking): boolean {
+  return v.order.type !== 'ride' && v.trip?.state === 'arrived_dropoff' && v.trip.dropsBeforeMine === 0;
+}
+
 export function phaseOf(v: OrderTracking): Phase {
   const o = v.order;
   if (CANCELLED.has(o.state)) return 'cancelled';
@@ -95,7 +100,7 @@ export function statusLine(v: OrderTracking, t: TFn): string {
     case 'on_the_way':
       if (ride) return t('trip.status.in_transit');
       // He pressed "وصلت" at my door (not someone else's drop first): say so, not "on the way".
-      return v.trip?.state === 'arrived_dropoff' && v.trip.dropsBeforeMine === 0 ? t('track.courier_at_door') : t('track.on_the_way');
+      return courierAtDoor(v) ? t('track.courier_at_door') : t('track.on_the_way');
     case 'unreachable':
       return t('unreachable.customer_title');
     case 'arrived':
