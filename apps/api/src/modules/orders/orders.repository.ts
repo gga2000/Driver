@@ -176,6 +176,8 @@ export interface OrdersRepository {
    * `(orderer_id, placed_at)`.
    */
   householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]>;
+  /** Joy w6: everyone who placed an order in `[from, to)` that was delivered or completed (distinct). */
+  orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
@@ -420,6 +422,15 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((r) => ({ zoneKey: r.zone_key, orders: Number(r.orders) }));
   }
 
+  async orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { placedAt: { gte: from, lt: to }, OR: [{ deliveredAt: { not: null } }, { state: { in: ['completed', 'closed'] } }] },
+      distinct: ['ordererId'],
+      select: { ordererId: true },
+    });
+    return rows.map((r) => r.ordererId);
+  }
+
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]> {
     const rows = await this.db(tx).order.findMany({
       where: { placedAt: { gte: from, lt: to }, OR: [{ householdOrgId }, ...(memberIds.length > 0 ? [{ familyTable: true, ordererId: { in: [...memberIds] } }] : [])] },
@@ -583,6 +594,14 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       counts.set(zone, (counts.get(zone) ?? 0) + 1);
     }
     return [...counts.entries()].map(([zoneKey, orders]) => ({ zoneKey, orders }));
+  }
+
+  async orderersServedBetween(from: Date, to: Date): Promise<string[]> {
+    const out = new Set<string>();
+    for (const o of this.orders.values()) {
+      if (o.placedAt >= from && o.placedAt < to && (o.deliveredAt !== null || o.state === 'completed' || o.state === 'closed')) out.add(o.ordererId);
+    }
+    return [...out];
   }
 
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {

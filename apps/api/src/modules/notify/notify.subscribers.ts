@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { encodeRajaaPassPush, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { encodeRajaaPassPush, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
@@ -52,6 +52,9 @@ export const NOTIFY_EVENT_TYPES = [
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
   'session.signed_out',
+  // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
+  'org.payer_approval_requested',
+  'insights.month_ready',
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -243,6 +246,24 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const amount = num(p['amountIqd']);
       if (!courierId || amount === null) return [];
       return [{ ...base, template: 'courier_cash_receipt', to: courierId, params: { amount: iqd(amount), date: localDate(e.occurredAt), balance: iqd(num(p['courierCashAfterIqd']) ?? 0) } }];
+    }
+    case 'org.payer_approval_requested': {
+      // «طلب من منار: مطعم خالد · 32,000 دينار» to the payer (joy w4); the name read is logged.
+      const payerId = str(p['payerId']);
+      const amount = num(p['amountIqd']);
+      const orderId = str(p['orderId']);
+      if (!payerId || amount === null) return [];
+      const name = (await L.firstName(e.actorId, 'notify_household_approval')) ?? 'فرد من العائلة';
+      const order = orderId ? await L.order(orderId).catch(() => null) : null;
+      const merchant = order?.merchantOrgId ? await L.storeName(order.merchantOrgId) : null;
+      return [{ ...base, template: 'household_approval', to: payerId, params: { name, what: merchant ? `${merchant} · ` : '', amount: iqd(amount) }, data: { requestId: str(p['requestId']) ?? '' } }];
+    }
+    case 'insights.month_ready': {
+      // «شهرك» (joy w6): marketing — the engine sends it only with marketing on, outside quiet hours and days.
+      const personId = str(p['personId']);
+      const month = MonthKey.safeParse(p['month']);
+      if (!personId || !month.success) return [];
+      return [{ ...base, template: 'month_ready', to: personId, params: { month: month.data } }];
     }
     case 'wallet.topped_up': {
       const customerId = str(p['customerId']);

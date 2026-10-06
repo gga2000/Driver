@@ -1250,6 +1250,11 @@ export class OrdersService implements OnModuleInit {
     return this.repo.householdOrdersBetween(householdId, memberIds, from, to);
   }
 
+  /** Joy w6: who had orders served in `[from, to)` (the month-start card's audience). */
+  orderersServedBetween(from: Date, to: Date): Promise<string[]> {
+    return this.repo.orderersServedBetween(from, to);
+  }
+
   /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
   async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
     const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);

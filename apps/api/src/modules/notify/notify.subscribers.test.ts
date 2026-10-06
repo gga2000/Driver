@@ -241,3 +241,23 @@ describe('الرجعة lock-screen pass updates (customer d-8 follow-up)', () =>
     expect((await requestsFor(dep('departure.boarding'), deps(h))).map((r) => r.template)).toEqual(['rajaa_pass_update']);
   });
 });
+
+describe('joy w4 / w6 notifications', () => {
+  const one = async (e: PublishedEvent) => (await requestsFor(e, deps(notifyHarness()))).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('the payer hears about a request that waits for him, with the kitchen and the amount', async () => {
+    expect(await one(event('org.payer_approval_requested', { orgId: 'h1', orderId: 'ord_1', payerId: 'payer', amountIqd: 32_000, requestId: 'pay_1', reason: 'order_limit' }, { actorId: 'drv' }))).toEqual([
+      { template: 'household_approval', to: 'payer', params: { name: 'حيدر', what: 'مطعم خالد · ', amount: '32,000' } },
+    ]);
+    expect(await one(event('org.payer_approval_requested', { payerId: 'payer', amountIqd: 9_000, orderId: 'gone' }, { actorId: 'nobody' }))).toEqual([
+      { template: 'household_approval', to: 'payer', params: { name: 'فرد من العائلة', what: '', amount: '9,000' } },
+    ]);
+    expect(await one(event('org.payer_approval_requested', { amountIqd: 9_000 }))).toEqual([]);
+  });
+
+  it('«شهرك» is ready: one marketing push to that person, with the month for the link', async () => {
+    expect(await one(event('insights.month_ready', { personId: 'cust', month: '2026-09' }))).toEqual([{ template: 'month_ready', to: 'cust', params: { month: '2026-09' } }]);
+    expect(await one(event('insights.month_ready', { personId: 'cust', month: 'September' }))).toEqual([]);
+    expect(NOTIFY_EVENT_TYPES).toEqual(expect.arrayContaining(['org.payer_approval_requested', 'insights.month_ready']));
+  });
+});

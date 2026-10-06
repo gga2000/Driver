@@ -112,9 +112,17 @@ export function baghdadYearStart(now: Date): Date {
  * (`cash_change_to_wallet`). Pure: the caller passes the account's events.
  */
 export function savedThisYear(account: string, events: readonly LedgerEvent[], now: Date): number {
-  const from = baghdadYearStart(now).getTime();
+  return savedBetween(account, events, baghdadYearStart(now), new Date(now.getTime() + 1));
+}
+
+/**
+ * «وفّرت» over `[from, to)`: the one definition behind the account header's year (w10) and the
+ * month page «شهرك» (w6) — points spent on fees, deals and promotions (`promo_funded`), the
+ * late-delivery credit and change kept in the wallet. Pure: the caller passes the account's events.
+ */
+export function savedBetween(account: string, events: readonly LedgerEvent[], from: Date, to: Date): number {
   return events
-    .filter((e) => e.kind === 'money' && e.toAccount === account && e.occurredAt.getTime() >= from && e.occurredAt.getTime() <= now.getTime())
+    .filter((e) => e.kind === 'money' && e.toAccount === account && e.occurredAt.getTime() >= from.getTime() && e.occurredAt.getTime() < to.getTime())
     .filter((e) => e.type === 'promo_funded' || e.type === 'cash_change_to_wallet' || (e.type === 'credit_issued' && e.memo === LATE_PROMISE_MEMO))
     .reduce((s, e) => s + e.amount, 0);
 }

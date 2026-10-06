@@ -32,6 +32,7 @@ import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/i
 import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
+import { InsightsModule, InsightsService } from '../modules/insights/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -79,6 +80,7 @@ export class TrpcService {
     private readonly zones: ZonesService,
     private readonly zoneChecks: ZoneChecksService,
     private readonly safety: SafetyService,
+    private readonly insights: InsightsService,
   ) {}
 
   /**
@@ -129,6 +131,7 @@ export class TrpcService {
       tracking: this.tracking,
       places: this.places,
       wallet: this.wallet,
+      insights: this.insights,
       topups: this.topups,
       households: this.households,
       partner: this.partner,
@@ -169,5 +172,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

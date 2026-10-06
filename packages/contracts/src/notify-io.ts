@@ -140,6 +140,8 @@ export const NotifyTemplateId = z.enum([
   'chat_message',
   'marketing_offer',
   'dish_pot_today',
+  'household_approval',
+  'month_ready',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -492,6 +494,24 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'dish_pot',
     app: 'customer',
     push: { title: 'push.dish_pot.title', body: 'push.dish_pot.body', androidChannel: 'marketing', deepLink: 'driver://restaurant/{merchantOrgId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Joy w4: an order on the household wallet over a limit waits for the payer's yes.
+  household_approval: {
+    id: 'household_approval',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.household_approval.title', body: 'push.household_approval.body', androidChannel: 'orders', deepLink: 'driver://household' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Joy w6: «شهرك» on the 1st — a gentle card, marketing (only with marketing on, quiet days and hours respected).
+  month_ready: {
+    id: 'month_ready',
+    category: 'marketing',
+    app: 'customer',
+    push: { title: 'push.month_ready.title', body: 'push.month_ready.body', androidChannel: 'marketing', deepLink: 'driver://month?month={month}' },
     primary: ['push'],
     quietHours: 'defer',
   },
