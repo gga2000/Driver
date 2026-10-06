@@ -6,6 +6,7 @@
  * source the Expo apps bundle with Metro.
  */
 import { fileURLToPath } from 'node:url';
+import { transformAsync } from '@babel/core';
 import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild, type Plugin } from 'vite';
 
@@ -58,6 +59,25 @@ function jsxInRnLibraries(): Plugin {
   };
 }
 
+/**
+ * Reanimated 4 checks in development that its own `'worklet'` functions went through the worklets
+ * Babel plugin. Metro runs that plugin over node_modules; Vite only over our source, so run it over
+ * react-native-worklets and react-native-reanimated here. Tests and the dev server only: a production
+ * gallery build has no development checks (and Babel over these libraries is slow).
+ */
+function workletsInRnLibraries(): Plugin {
+  const lib = /node_modules[\\/]react-native-(worklets|reanimated)[\\/]lib[\\/]module[\\/].*\.js$/;
+  return {
+    name: 'driver-rn-worklets-in-libraries',
+    apply: 'serve',
+    async transform(code, id) {
+      if (!lib.test(id) || !code.includes("'worklet'")) return null;
+      const out = await transformAsync(code, { filename: id, babelrc: false, configFile: false, sourceMaps: true, plugins: ['react-native-worklets/plugin'] });
+      return out?.code ? { code: out.code, map: out.map } : null;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL('./gallery', import.meta.url)),
   base: './',
@@ -65,8 +85,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     rnWebInterop(),
     jsxInRnLibraries(),
+    workletsInRnLibraries(),
     react({
-      babel: { plugins: ['react-native-reanimated/plugin'] },
+      babel: { plugins: ['react-native-worklets/plugin'] },
     }),
   ],
   define: {

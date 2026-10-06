@@ -12,7 +12,8 @@ const WEIGHT: Record<string, number> = {
 /**
  * On web @driver/ui styles text with the CSS family "IBM Plex Sans Arabic" plus `font-weight`
  * (not one family per weight like native). expo-font registers the bundled files under their
- * per-weight names, so once they load we alias them as weights of the CSS family. The files are
+ * per-weight names, so once they load we alias them as weights of the CSS family (expo-font ≥ 14
+ * quotes the family name and URL in its generated CSS; both forms are read). The files are
  * bundled assets: no network fetch to Google Fonts, works offline.
  */
 export function useAppFonts(): boolean {
@@ -22,7 +23,7 @@ export function useAppFonts(): boolean {
     if (!loaded || aliased || typeof document === 'undefined') return;
     const generated = document.getElementById('expo-generated-fonts')?.textContent ?? '';
     const rules: string[] = [];
-    for (const m of generated.matchAll(/font-family:([\w]+);src:url\(([^)]+)\)/g)) {
+    for (const m of generated.matchAll(/font-family:"?(\w+)"?;src:url\(([^)]+)\)/g)) {
       const weight = WEIGHT[m[1] ?? ''];
       if (weight) rules.push(`@font-face{font-family:"IBM Plex Sans Arabic";font-weight:${weight};font-display:swap;src:url(${m[2]})}`);
     }

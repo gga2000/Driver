@@ -29,7 +29,7 @@ config.resolver.unstable_enablePackageExports = true;
 // The console app uses React 19, and pnpm's hoisted store can hand that copy to a dependency of
 // ours. Two Reacts in one bundle = "Objects are not valid as a React child". Every import of these
 // packages (and their subpaths, e.g. react/jsx-runtime) resolves from this app instead.
-const SINGLETONS = ['react', 'react-dom', 'react-native', 'react-native-web', 'react-native-reanimated', 'react-native-safe-area-context', 'react-native-svg', 'react-native-gesture-handler', 'react-native-screens', '@tanstack/react-query'];
+const SINGLETONS = ['react', 'react-dom', 'react-native', 'react-native-web', 'react-native-reanimated', 'react-native-worklets', 'react-native-safe-area-context', 'react-native-svg', 'react-native-gesture-handler', 'react-native-screens', '@tanstack/react-query'];
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
