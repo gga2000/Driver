@@ -32,6 +32,9 @@ export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', p
 const LABEL_KEY = { home: 'onboarding.place_label_home', work: 'onboarding.place_label_work', custom: 'onboarding.place_label_other' } as const;
 /** The pin hint names the right door: home, work, or just «الباب» for any other place. */
 const MAP_HINT_KEY = { home: 'place.map_hint_home', work: 'place.map_hint_work', custom: 'place.map_hint_custom' } as const satisfies Record<SavedPlaceLabel, string>;
+/** «يم بيتكم» / «يم شغلك» / «يم المكان»: the landmark step names the same place the hint does. */
+const LANDMARK_HINT_KEY = { home: 'place.landmark_hint_home', work: 'place.landmark_hint_work', custom: 'place.landmark_hint_custom' } as const satisfies Record<SavedPlaceLabel, string>;
+const LANDMARK_CHOSEN_KEY = { home: 'place.landmark_chosen_home', work: 'place.landmark_chosen_work', custom: 'place.landmark_chosen_custom' } as const satisfies Record<SavedPlaceLabel, string>;
 
 export function defaultPlaceName(label: SavedPlaceLabel, t: TFn): string {
   return t(LABEL_KEY[label]);
@@ -316,7 +319,7 @@ function LandmarkStep({ value, onChange }: { value: PlaceEditorValue; onChange: 
       <View style={{ gap: theme.space[1] }}>
         <Text variant="title">{t('place.landmark_title')}</Text>
         <Text variant="footnote" color="textMuted">
-          {t('place.landmark_hint')}
+          {t(LANDMARK_HINT_KEY[value.label])}
         </Text>
       </View>
       {near.data ? (
@@ -334,7 +337,7 @@ function LandmarkStep({ value, onChange }: { value: PlaceEditorValue; onChange: 
           />
           {chosen ? (
             <Text variant="footnote" color="successText" testID="place-landmark-chosen">
-              {t('place.landmark_chosen', { name: landmarkName(chosen, locale), metres: chosen.distanceM })}
+              {t(LANDMARK_CHOSEN_KEY[value.label], { name: landmarkName(chosen, locale), metres: chosen.distanceM })}
             </Text>
           ) : null}
         </>
