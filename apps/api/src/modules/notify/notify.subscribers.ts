@@ -29,6 +29,8 @@ export const NOTIFY_EVENT_TYPES = [
   'order.delivered',
   'stop.courier_near',
   'order.completed',
+  'order.matched',
+  'stop.arrived',
   'merchant.paid_by_courier',
   'ops.cash_received',
   'wallet.topped_up',
@@ -113,6 +115,16 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!order || order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, 'ride_receipt')) ?? '';
       return [{ ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'order.matched':
+    case 'stop.arrived': {
+      // J1c f4: "لگينالك سايق: حيدر" when a driver takes the ride; "حيدر وصل" when he is at the pickup.
+      if (e.type === 'stop.arrived' && p['stopType'] !== 'pickup') return [];
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type !== 'ride') return [];
+      const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
+      const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

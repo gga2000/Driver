@@ -103,6 +103,8 @@ export const NotifyTemplateId = z.enum([
   'courier_arriving',
   'order_receipt',
   'ride_receipt',
+  'ride_matched',
+  'driver_arrived',
   'merchant_new_order',
   'partner_new_job',
   'partner_zone_nudge',
@@ -215,6 +217,23 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://driver.iq/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // J1c f4: the two ride peaks reach a phone in a pocket (the app plays them as moments when open).
+  ride_matched: {
+    id: 'ride_matched',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_matched.title', body: 'push.ride_matched.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  driver_arrived: {
+    id: 'driver_arrived',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.driver_arrived.title', body: 'push.driver_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   merchant_new_order: {

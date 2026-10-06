@@ -63,6 +63,12 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.accepted', {}, { orderId: 'gone' }))).toEqual([]);
     // M-12: the kitchen's one "+5 د" — the customer hears "المطعم زاد 5 دقايق".
     expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_prep_extended', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
+    // J1c f4: the two ride peaks reach a phone in a pocket — a driver took it, and he is at the pickup.
+    expect(await one(event('order.matched', { tripId: 'trp_1', driverId: 'drv' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_matched', to: 'cust', params: { driver: 'حيدر', orderId: 'ride_1' } }]);
+    expect(await one(event('order.matched', { driverId: 'drv' }, { orderId: 'ord_1', actorId: 'drv' }))).toEqual([]);
+    expect(await one(event('stop.arrived', { stopId: 's1', stopType: 'pickup' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'driver_arrived', to: 'cust', params: { driver: 'حيدر', orderId: 'ride_1' } }]);
+    expect(await one(event('stop.arrived', { stopId: 's2', stopType: 'dropoff' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
+    expect(await one(event('stop.arrived', { stopId: 's1', stopType: 'pickup' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([]);
     expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ride_1' }))).toEqual([]);
   });
 
