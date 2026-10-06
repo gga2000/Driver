@@ -8,7 +8,6 @@
     "updates": { "enabled": true, "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
     "orientation": "default",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "locales": { "ar": "./locales/native/ar.json" },
     "extra": {
       "apiUrl": "http://localhost:3000/trpc",
