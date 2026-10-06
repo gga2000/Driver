@@ -2563,6 +2563,7 @@
   "console.ev_stop_completed": "Stop completed",
   "console.ev_stop_skipped": "Stop skipped",
   "console.ev_order_change_to_wallet": "Change credited to the customer's wallet",
+  "console.ev_order_tipped": "Customer tipped the driver from the wallet",
   "console.ev_order_courier_unassigned": "Courier removed; finding another",
   "console.ev_order_driver_cancelled": "Courier cancelled",
   "console.ev_order_points_allocated": "Points allocated",

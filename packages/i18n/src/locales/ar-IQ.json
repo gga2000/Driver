@@ -2563,6 +2563,7 @@
   "console.ev_stop_completed": "خلّص الوقفة",
   "console.ev_stop_skipped": "عبر الوقفة",
   "console.ev_order_change_to_wallet": "الباقي انضاف لمحفظة الزبون",
+  "console.ev_order_tipped": "الزبون كرّم السايق: إكرامية من محفظته",
   "console.ev_order_courier_unassigned": "انشال السايق: ندوّر غيره",
   "console.ev_order_driver_cancelled": "السايق لغى",
   "console.ev_order_points_allocated": "انحسبت النقاط",
