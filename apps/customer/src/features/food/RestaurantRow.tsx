@@ -56,24 +56,24 @@ export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; tes
             {r.cuisine}
           </Text>
           {r.open ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexWrap: 'wrap' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <Icon name="star" size={14} color="accent" filled />
-                <Text variant="caption" weight={600} tabular>
-                  {r.rating === null ? t('list.new') : r.rating.toFixed(1)}
+            // D-12: two fixed lines, never a wrap that leaves a dot at a line end — rating · time, then the fee.
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="star" size={14} color="accent" filled />
+                  <Text variant="caption" weight={600} tabular>
+                    {r.rating === null ? t('list.new') : r.rating.toFixed(1)}
+                  </Text>
+                </View>
+                <Dot />
+                <Text variant="caption" color="textMuted" tabular numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {t('list.minutes', { range: time })}
                 </Text>
               </View>
-              <Dot />
-              <Text variant="caption" color="textMuted" tabular>
-                {t('list.minutes', { range: time })}
-              </Text>
               {r.deliveryFeeIqd !== null ? (
-                <>
-                  <Dot />
-                  <Text variant="caption" weight={free ? 600 : 400} color={free ? 'successText' : 'textMuted'} tabular>
-                    {free ? t('list.fee_free') : t('list.fee', { amount: amountParam(r.deliveryFeeIqd) })}
-                  </Text>
-                </>
+                <Text variant="caption" weight={free ? 600 : 400} color={free ? 'successText' : 'textMuted'} tabular numberOfLines={1}>
+                  {free ? t('list.fee_free') : t('list.fee', { amount: amountParam(r.deliveryFeeIqd) })}
+                </Text>
               ) : null}
             </View>
           ) : (
