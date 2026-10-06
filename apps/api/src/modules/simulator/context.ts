@@ -3,7 +3,7 @@ import type { DispatchService } from '../dispatch/index.js';
 import type { EventsService } from '../events/index.js';
 import type { IdentityService } from '../identity/index.js';
 import type { CatalogService } from '../catalog/index.js';
-import type { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
+import type { CapsService, LedgerService, MerchantCashService, ShiftGuaranteeService } from '../ledger/index.js';
 import type { OrdersService } from '../orders/index.js';
 import type { OrgsService } from '../orgs/index.js';
 import type { PricingService } from '../pricing/index.js';
@@ -29,6 +29,8 @@ export interface SimServices {
   ledger: LedgerService;
   caps: CapsService;
   merchantCash: MerchantCashService;
+  /** G-91 shift guarantee: the Sunday run's settlement, applied to the simulated day. */
+  guarantee: ShiftGuaranteeService;
   events: EventsService;
 }
 

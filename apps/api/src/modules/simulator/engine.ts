@@ -1,4 +1,4 @@
-import { TERMINAL_ORDER_STATES, type BoardCard, type Order, type RoleKind, type Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, TERMINAL_ORDER_STATES, peakWindows, type BoardCard, type Order, type RoleKind, type Trip } from '@driver/contracts';
 import { customerStep, placeOrder } from './actors/customer.js';
 import { dispatcherStep, newDispatcherState, type DispatcherState } from './actors/dispatcher.js';
 import { driverOffers, driverSettle, driverShift, driverWork } from './actors/driver.js';
@@ -18,7 +18,7 @@ import {
   type SimContext,
   type SimServices,
 } from './context.js';
-import type { QuarantinedEvent, SimSnapshot } from './invariants.js';
+import type { GuaranteeSnapshot, QuarantinedEvent, SimSnapshot } from './invariants.js';
 import { createRand } from './prng.js';
 import { DAY_MINUTES, type PlannedOrder } from './scenario.js';
 import { simDriverRoles, type World } from './world.js';
@@ -88,6 +88,8 @@ export class Simulation implements SimContext {
   private lastRetryDrainT = -Infinity;
   private unsubscribe: (() => void) | null = null;
   private cards: BoardCard[] = [];
+  /** The day's peak shifts were settled (in-process runs); a live run stops before any Sunday run. */
+  private guaranteeSettled = false;
 
   constructor(
     readonly s: SimServices,
@@ -350,6 +352,16 @@ export class Simulation implements SimContext {
       report();
     }
     await this.closeNight();
+    await this.settleGuarantees();
+  }
+
+  /**
+   * The Sunday run's G-91 settlement for the simulated day (in-process only: the fake clock is past
+   * the day): every covered courier's peak shifts that are over get their top-up, once.
+   */
+  async settleGuarantees(): Promise<void> {
+    this.guaranteeSettled = true;
+    await this.call('ledger.guarantee', () => this.s.guarantee.settle({ from: new Date(this.dayStart), to: new Date(this.dayEnd) }));
   }
 
   /** Nightly courier return route (decisions §3): every courier hands each merchant its cash. */
@@ -402,6 +414,20 @@ export class Simulation implements SimContext {
     for (const account of await this.s.ledger.accounts()) for (const e of await this.s.ledger.eventsFor(account)) ledgerById.set(e.id, e);
     const merchants = [];
     for (const r of this.restaurants) merchants.push({ merchantId: r.orgId, balanceIqd: (await this.s.merchantCash.balance(r.orgId)).balanceIqd });
+    // G-91: who the guarantee covers, their offer answers (from the log), and the peak shifts of the day.
+    const covered: string[] = [];
+    const offerAnswers: GuaranteeSnapshot['offers'] = [];
+    for (const d of this.drivers) {
+      if (await this.s.guarantee.covers(d.personId)) covered.push(d.personId);
+      for (const e of await this.s.events.forActor(d.personId)) {
+        if (e.quarantined || !['trip.accepted', 'trip.declined', 'trip.timed_out'].includes(e.type)) continue;
+        offerAnswers.push({ driverId: d.personId, at: e.occurredAt, accepted: e.type === 'trip.accepted' });
+      }
+    }
+    const now = this.appNow().getTime();
+    const windows = !this.guaranteeSettled ? [] : peakWindows({ from: new Date(this.dayStart), to: new Date(this.dayEnd) }, AZIZIYAH_MONEY_RULES.guarantee.peaks, AZIZIYAH_MONEY_RULES.nightly.utcOffsetMin)
+      .filter((w) => w.from.getTime() >= this.dayStart && w.to.getTime() <= Math.min(this.dayEnd, now))
+      .map((w) => ({ id: w.id, from: w.from, to: w.to }));
     return {
       orders,
       trips,
@@ -414,6 +440,7 @@ export class Simulation implements SimContext {
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
       merchants,
+      guarantee: { covered, offers: offerAnswers, windows },
       errors: [...this.errors],
     };
   }

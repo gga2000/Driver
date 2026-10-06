@@ -1,4 +1,4 @@
-import { TERMINAL_ORDER_STATES, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
@@ -15,6 +15,16 @@ export interface QuarantinedEvent {
   recordedAt: Date;
 }
 
+/** G-91 inputs the ledger does not hold: who is covered, their offer answers, the settled peak shifts. */
+export interface GuaranteeSnapshot {
+  /** Drivers the guarantee covers (city switch on, cap role covered: the bike couriers). */
+  covered: string[];
+  /** Every offer answer the drivers gave (accepted, declined, timed out), from the events log. */
+  offers: Array<{ driverId: string; at: Date; accepted: boolean }>;
+  /** The day's peak shifts that were over when the Sunday settlement ran (empty in live runs). */
+  windows: Array<{ id: string; from: Date; to: Date }>;
+}
+
 export interface SimSnapshot {
   orders: Order[];
   trips: Trip[];
@@ -28,6 +38,8 @@ export interface SimSnapshot {
   /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
   doorCash?: DoorCashRecord[];
   merchants: Array<{ merchantId: string; balanceIqd: number }>;
+  /** Absent in hand-built snapshots. */
+  guarantee?: GuaranteeSnapshot;
   errors: Array<{ where: string; message: string }>;
 }
 
@@ -319,6 +331,59 @@ export const INVARIANTS: readonly Definition[] = [
         if (pts > RULES.pointsCapPerOrder) bad.push(`${o.id}: ${pts} points`);
       }
       return { checked: food.length, bad };
+    },
+  },
+  {
+    name: 'shift_guarantee_once_and_exact',
+    description:
+      'G-91 shift guarantee (Ali, 2026-10-06): at most one top-up per driver per peak shift, platform-funded, only to covered drivers who met the conditions (≥ 85 % acceptance, ≤ 1 cancel after accept, ≥ 3 completed jobs), equal to max(0, 10,000 − what the shift’s jobs earned) — recounted here from the trips, offer answers and ledger rows',
+    run: (s) => {
+      const bad: string[] = [];
+      const g = AZIZIYAH_MONEY_RULES.guarantee;
+      const snap = s.guarantee ?? { covered: [], offers: [], windows: [] };
+      const rows = s.ledger.filter((e) => e.type === 'driver_incentive' && (e.memo ?? '').startsWith('guarantee:'));
+      const paid = new Map<string, number>();
+      const count = new Map<string, number>();
+      for (const e of rows) {
+        if (e.fromAccount !== 'platform' || !e.toAccount.startsWith('driver:')) bad.push(`${e.id}: guarantee ${e.fromAccount} → ${e.toAccount} (must be platform → driver)`);
+        const key = `${e.toAccount.slice('driver:'.length)}|${(e.memo ?? '').slice('guarantee:'.length)}`;
+        paid.set(key, (paid.get(key) ?? 0) + e.amount);
+        count.set(key, (count.get(key) ?? 0) + 1);
+      }
+      for (const [key, n] of count) if (n > 1) bad.push(`${key.replace('|', ' ')} paid ${n} times`);
+      const covered = new Set(snap.covered);
+      const settled = new Set(snap.windows.map((w) => w.id));
+      for (const key of paid.keys()) {
+        const [driverId, windowId] = key.split('|') as [string, string];
+        if (!covered.has(driverId)) bad.push(`${driverId} is not covered but was paid for ${windowId}`);
+        else if (!settled.has(windowId)) bad.push(`${driverId} paid for ${windowId}, not a settled peak shift of the day`);
+      }
+      let checked = rows.length;
+      for (const driverId of snap.covered) {
+        for (const w of snap.windows) {
+          checked += 1;
+          const inW = (at: Date | null) => at !== null && at.getTime() >= w.from.getTime() && at.getTime() < w.to.getTime();
+          const answers = snap.offers.filter((o) => o.driverId === driverId && inW(o.at));
+          const jobs = new Set(s.trips.filter((t) => t.courierId === driverId && t.state === 'completed' && inW(t.completedAt)).map((t) => t.id));
+          const cancels = s.trips.filter((t) => t.courierId === driverId && t.state === 'driver_cancelled' && inW(t.cancelledAt)).length;
+          const acct = `driver:${driverId}`;
+          let earningsIqd = 0;
+          for (const e of s.ledger) {
+            if (!e.tripId || !jobs.has(e.tripId) || e.kind !== 'money' || ['driver_payout', 'driver_settlement', 'debt_settled'].includes(e.type)) continue;
+            if (e.type === 'driver_incentive' && (e.memo ?? '').startsWith('guarantee')) continue;
+            const signed = (e.toAccount === acct ? e.amount : 0) - (e.fromAccount === acct ? e.amount : 0);
+            if (signed > 0 || (e.type === 'commission_accrued' && signed < 0)) earningsIqd += signed;
+          }
+          const check = shiftGuarantee({ offers: answers.length, accepted: answers.filter((a) => a.accepted).length, cancelsAfterAccept: cancels, completedJobs: jobs.size, earningsIqd }, g);
+          const got = paid.get(`${driverId}|${w.id}`) ?? 0;
+          if (got !== check.topUpIqd) {
+            bad.push(
+              `${driverId} ${w.id}: paid ${got}, rule gives ${check.topUpIqd} (${answers.filter((a) => a.accepted).length}/${answers.length} accepted, ${cancels} cancels, ${jobs.size} jobs, earned ${earningsIqd})`,
+            );
+          }
+        }
+      }
+      return { checked, bad };
     },
   },
   {
