@@ -29,6 +29,25 @@ export function gatePhotoFor(dropoff: DeliveryPoint | null, places: ReadonlyArra
   return best?.url ?? null;
 }
 
+/** Opening a delivered order this soon after delivery still plays the moment (joy f2, L-04). */
+export const ARRIVAL_REPLAY_MS = 10 * 60_000;
+
+/** Storage key marking that this phone already played an order's delivered moment. */
+export function arrivalSeenKey(orderId: string): string {
+  return `driver.customer.arrival-seen.${orderId.replace(/[^\w.-]/g, '_')}`;
+}
+
+/**
+ * Joy f2 (L-04): the delivered moment is a peak, so it plays once per order — when the screen saw it
+ * happen, or when the customer opens the order within ten minutes of delivery (he tapped the push).
+ * Once played on this phone it never replays; afterwards the order opens on its calm receipt.
+ */
+export function arrivalPlays(i: { seen: boolean; liveTransition: boolean; deliveredAt: Date | null; now: number }): boolean {
+  if (i.seen) return false;
+  if (i.liveTransition) return true;
+  return i.deliveredAt !== null && i.now - i.deliveredAt.getTime() <= ARRIVAL_REPLAY_MS;
+}
+
 /**
  * C-11 / d-1: what the customer hands over at the door. Cash: the order's total (already rounded up
  * to 250 by the server) and the change in it that comes back to his wallet ("الباقي رصيد"). Wallet:

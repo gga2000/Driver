@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cashAtDoor, gatePhotoFor } from './arrival-logic';
+import { ARRIVAL_REPLAY_MS, arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
 
 const HOME = { lat: 32.9097, lng: 45.0633 };
 
@@ -27,5 +27,25 @@ describe('arrival: the saved gate photo and the cash at the door (C-11)', () => 
     // The exact amount needs no change line.
     expect(cashAtDoor({ paymentMethod: 'cash', totalIqd: 17750, statedTenderIqd: 17750 })).toMatchObject({ tender: null });
     expect(cashAtDoor({ paymentMethod: 'cash', totalIqd: 17750, statedTenderIqd: 25000, changeToWalletIqd: 7250 })).toMatchObject({ creditedIqd: 7250, paidIqd: 25000 });
+  });
+});
+
+describe('arrival: the delivered moment plays once per order (f2, L-04)', () => {
+  const DELIVERED = new Date('2026-10-06T12:00:00Z');
+  const at = (min: number) => DELIVERED.getTime() + min * 60_000;
+  it('plays on the live transition, or when the screen opens within 10 minutes of delivery', () => {
+    expect(arrivalPlays({ seen: false, liveTransition: true, deliveredAt: DELIVERED, now: at(30) })).toBe(true);
+    expect(arrivalPlays({ seen: false, liveTransition: false, deliveredAt: DELIVERED, now: at(9) })).toBe(true);
+    expect(arrivalPlays({ seen: false, liveTransition: false, deliveredAt: DELIVERED, now: at(10) })).toBe(true);
+    expect(arrivalPlays({ seen: false, liveTransition: false, deliveredAt: DELIVERED, now: at(11) })).toBe(false);
+  });
+  it('never again once seen on this phone, and not without a delivery time unless live', () => {
+    expect(arrivalPlays({ seen: true, liveTransition: true, deliveredAt: DELIVERED, now: at(1) })).toBe(false);
+    expect(arrivalPlays({ seen: false, liveTransition: false, deliveredAt: null, now: at(1) })).toBe(false);
+    expect(ARRIVAL_REPLAY_MS).toBe(10 * 60_000);
+  });
+  it('the key is per order and safe for every platform store', () => {
+    expect(arrivalSeenKey('ord_1a2b')).toBe('driver.customer.arrival-seen.ord_1a2b');
+    expect(arrivalSeenKey('ord/../x y')).toMatch(/^[\w.-]+$/);
   });
 });

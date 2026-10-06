@@ -1,6 +1,6 @@
 import * as Linking from 'expo-linking';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
@@ -15,7 +15,7 @@ import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
 import { SosControl } from '@/features/safety/SosControl';
 import { PrePromptGate } from '@/features/notify/PrePrompt';
-import { ArrivalOverlay, RatingPanel } from '@/features/track/Arrival';
+import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
@@ -114,12 +114,11 @@ export default function OrderLiveScreen() {
   const [arrivalSeen, setArrivalSeen] = useState(false);
   const [rating, setRating] = useState(false);
   const arrived = phase === 'arrived' && !v?.order.rating;
-  const prevPhase = useRef(phase);
-  useEffect(() => {
-    // The arrival moment fires once, live or on opening a delivered, unrated order.
-    if (phase === 'arrived' && prevPhase.current !== 'arrived') setArrivalSeen(false);
-    prevPhase.current = phase;
-  }, [phase]);
+  // Joy f2: the delivered moment plays once per order (live, or opened within 10 min); afterwards the
+  // order opens on its calm receipt — the sheet at its middle detent with the rating offered on top.
+  const arrivalPlays = useArrivalOnce(v, phase, clock);
+  const showArrival = Boolean(v && arrived && arrivalPlays === true && !arrivalSeen && !rating);
+  const receipt = arrived && arrivalPlays === false;
 
   // Chat, masked call and share-trip (notifications & support §2; safety §5).
   const client = useApiClient();
@@ -238,8 +237,10 @@ export default function OrderLiveScreen() {
       ) : null}
 
       <Sheet
+        // The calm receipt (f2) opens the sheet at its middle detent: remount once it is decided.
+        key={receipt ? 'receipt' : 'live'}
         snapPoints={[collapsed, 0.62, 0.9]}
-        initialSnap={sheet === '2' ? 2 : sheet === '1' ? 1 : 0}
+        initialSnap={sheet === '2' ? 2 : sheet === '1' || receipt ? 1 : 0}
         testID="track-sheet"
         header={
           v && phase ? (
@@ -264,6 +265,12 @@ export default function OrderLiveScreen() {
         {v && timeline ? (
           <ScrollView contentContainerStyle={{ gap: theme.space[5], paddingBottom: theme.space[10] + insets.bottom }} showsVerticalScrollIndicator={false} testID="sheet-body">
             {statusHint ? <Text color="textMuted">{t(statusHint)}</Text> : null}
+            {arrived && !showArrival ? (
+              <View testID="receipt-rate" style={{ gap: theme.space[2] }}>
+                <Text variant="title">{t('order.rate_title')}</Text>
+                <Button label={t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
+              </View>
+            ) : null}
             {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
             {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
             {ride ? <RideRoute view={v} /> : null}
@@ -334,7 +341,7 @@ export default function OrderLiveScreen() {
       {v && panel === 'share' && shareLink ? (
         <SharePanel link={shareLink} message={(url) => t('share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
       ) : null}
-      {v && arrived && !arrivalSeen && !rating ? (
+      {v && showArrival ? (
         <ArrivalOverlay
           view={v}
           onRate={() => {

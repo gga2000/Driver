@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,13 +10,43 @@ import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
 import { amountParam } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
+import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
-import { cashAtDoor, gatePhotoFor } from './arrival-logic';
+import { arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
+import type { Phase } from './timeline';
+
+/**
+ * Joy f2 (L-04): whether this order's delivered moment plays, decided once when the screen first sees
+ * it delivered — live (it happened while watching) or on opening within ten minutes of delivery — and
+ * never again on this phone once played (`arrivalSeenKey`). `null` until decided.
+ */
+export function useArrivalOnce(view: OrderTracking | undefined, phase: Phase | null, clock: () => number): boolean | null {
+  const prev = useRef<Phase | null>(null);
+  const [decision, setDecision] = useState<{ orderId: string; plays: boolean } | null>(null);
+  const orderId = view?.order.id ?? null;
+  const deliveredAt = view ? (view.order.deliveredAt ?? view.trip?.completedAt ?? view.order.closedAt ?? null) : null;
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = phase;
+    if (!orderId || phase !== 'arrived' || decision?.orderId === orderId) return;
+    const liveTransition = was !== null && was !== 'arrived' && was !== 'done';
+    void (async () => {
+      const key = arrivalSeenKey(orderId);
+      const seen = (await storage.getItem(key).catch(() => null)) !== null;
+      const plays = arrivalPlays({ seen, liveTransition, deliveredAt, now: clock() });
+      if (plays) await storage.setItem(key, String(clock())).catch(() => undefined);
+      setDecision({ orderId, plays });
+    })();
+    // Decided once per order: later reads of the same delivered order change nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, phase]);
+  return decision && decision.orderId === orderId ? decision.plays : null;
+}
 
 /**
  * The arrival moment (spec §4, C-11): a success haptic and a full-screen "وصل طلبك" with the gate
