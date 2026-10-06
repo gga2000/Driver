@@ -42,10 +42,29 @@ export const PlaceZoneInput = z.object({
 });
 export type PlaceZoneInput = z.input<typeof PlaceZoneInput>;
 
+export const CreateZoneInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  key: z.string().trim().min(2).max(60).regex(/^[a-z0-9_]+$/),
+  name_ar: z.string().trim().min(1).max(100),
+  name_en: z.string().trim().min(1).max(100),
+  tier: ZoneTier,
+  centre: LatLng,
+});
+export const RenameZoneInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  key: z.string().trim().min(1).max(60),
+  name_ar: z.string().trim().min(1).max(100),
+  name_en: z.string().trim().min(1).max(100),
+});
+export const RemoveZoneInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60) });
+
 /** `ctx.zones`: zone outlines (`modules/zones`). */
 export interface ZonesPort {
   list(cityId: string): Promise<ZonePlacementView[]>;
   place(actor: Actor, input: z.output<typeof PlaceZoneInput>): Promise<ZonePlacementView>;
+  create?(actor: Actor, input: z.output<typeof CreateZoneInput>): Promise<ZonePlacementView>;
+  rename?(actor: Actor, input: z.output<typeof RenameZoneInput>): Promise<ZonePlacementView>;
+  remove?(actor: Actor, input: z.output<typeof RemoveZoneInput>): Promise<void>;
 }
 
 /** km² for people: two decimals under 1 km², one above. Western digits. */

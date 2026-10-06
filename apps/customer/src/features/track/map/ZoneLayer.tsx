@@ -1,10 +1,12 @@
 import { memo, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Platform, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
-import { buildZoneCentroidsGeoJSON, buildZonesGeoJSON, MAP_COLORS_LIGHT } from '@driver/map';
+import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, MAP_COLORS_LIGHT } from '@driver/map';
 import { layerTransform, pathD, project, type Camera, type Size } from '../geo';
 import type { CameraValues } from './types';
+import { useApi } from '@/lib/api';
 
 const ZONES = buildZonesGeoJSON();
 const CENTROIDS = buildZoneCentroidsGeoJSON();
@@ -29,24 +31,28 @@ export interface ZoneLayerProps {
  * MapLibre.
  */
 export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = true, labels = true, opacity }: ZoneLayerProps) {
+  const api = useApi();
+  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zones = useMemo(() => liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES, [liveZones.data]);
+  const centroids = useMemo(() => liveZones.data ? buildPlacedZoneCentroidsGeoJSON(liveZones.data) : CENTROIDS, [liveZones.data]);
   const shapes = useMemo(
     () =>
-      ZONES.features.map((f) => ({
+      zones.features.map((f) => ({
         id: f.properties.id,
         color: f.properties.color,
         d: pathD(f.geometry.coordinates[0]!.map(([lng, lat]) => project(lat!, lng!, drawn, size))) + 'Z',
       })),
-    [drawn, size],
+    [drawn, size, zones],
   );
   const names = useMemo(
     () =>
       labels && drawn.zoom >= 13.5
-        ? CENTROIDS.features.map((f) => {
+        ? centroids.features.map((f) => {
             const [lng, lat] = f.geometry.coordinates as [number, number];
             return { id: f.properties.id, name: f.properties.name_ar, ...project(lat, lng, drawn, size) };
           })
         : [],
-    [drawn, size, labels],
+    [drawn, size, labels, centroids],
   );
 
   const style = useAnimatedStyle(() => {

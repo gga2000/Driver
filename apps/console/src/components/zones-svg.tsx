@@ -1,4 +1,5 @@
-import { AZIZIYAH_BOUNDS, buildGaragesGeoJSON, buildZonesGeoJSON, MAP_COLORS, metresPerDegLng, M_PER_DEG_LAT } from '@driver/map';
+import { AZIZIYAH_BOUNDS, buildGaragesGeoJSON, buildPlacedZonesGeoJSON, buildZonesGeoJSON, MAP_COLORS, metresPerDegLng, M_PER_DEG_LAT } from '@driver/map';
+import type { ZonePlacementView } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { tierLabel } from '@/lib/labels';
 
@@ -17,10 +18,11 @@ const y = (lat: number) => ((N - lat) / (N - S)) * HEIGHT;
  * Plain SVG of the 34 zone hexagons and the town garages: the fallback when WebGL / MapLibre can't
  * start (old browsers, locked-down kiosks). No live layers.
  */
-export function ZonesSvg({ className = '' }: { className?: string }) {
+export function ZonesSvg({ className = '', placements }: { className?: string; placements?: readonly ZonePlacementView[] }) {
+  const drawnZones = placements ? buildPlacedZonesGeoJSON(placements) : zones;
   return (
     <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className={className} role="img" aria-label={t('console.legend_tiers')} style={{ background: MAP_COLORS.background }}>
-      {zones.features.map((f) => (
+      {drawnZones.features.map((f) => (
         <polygon
           key={f.properties.id}
           points={f.geometry.coordinates[0]!.map(([lng, lat]) => `${x(lng!).toFixed(1)},${y(lat!).toFixed(1)}`).join(' ')}

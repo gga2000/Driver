@@ -1,9 +1,11 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import type { Map as MlMap, StyleSpecification } from 'maplibre-gl';
-import { buildMapStyle, LAYER, MAP_COLORS_LIGHT } from '@driver/map';
+import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
+import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import { useApi } from '@/lib/api';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
@@ -31,6 +33,10 @@ const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
 function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, onFail }: BaseMapProps & { onFail: () => void }) {
+  const api = useApi();
+  const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zonesRef = useRef(zonesQuery.data);
+  zonesRef.current = zonesQuery.data;
   const container = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const driving = useRef(false);
@@ -64,6 +70,9 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, onFa
         }
         mapRef.current = map;
         const m = map;
+        m.once('load', () => {
+          if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
+        });
         m.touchZoomRotate.disableRotation();
         m.keyboard.disableRotation();
         // Attribution is drawn by the screen (`MapAttribution`) above the sheet, not as a MapLibre control.
@@ -115,6 +124,10 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, onFa
   useEffect(() => {
     mapRef.current?.resize();
   }, [size.w, size.h]);
+
+  useEffect(() => {
+    if (zonesQuery.data) mapRef.current?.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesQuery.data));
+  }, [zonesQuery.data]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>

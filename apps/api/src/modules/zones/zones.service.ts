@@ -3,6 +3,9 @@ import type { z } from 'zod';
 import {
   AZIZIYAH_ZONES,
   DriverError,
+  CreateZoneInput,
+  RenameZoneInput,
+  RemoveZoneInput,
   openRing,
   ringAreaM2,
   westernDigits,
@@ -23,16 +26,16 @@ import { ZONES_REPOSITORY, type ZoneRecord, type ZonesRepository } from './zones
 
 const SEEDS = new Map<string, readonly AziziyahZoneSeed[]>([['aziziyah', AZIZIYAH_ZONES]]);
 
-function view(seed: AziziyahZoneSeed, row: ZoneRecord, names: Record<string, string | null>): ZonePlacementView {
+function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record<string, string | null>): ZonePlacementView {
   return {
-    key: seed.id,
-    name_ar: westernDigits(seed.name_ar),
-    name_en: seed.name_en,
-    tier: seed.tier,
-    group: seed.group,
+    key: row.key,
+    name_ar: westernDigits(row.nameAr ?? seed?.name_ar ?? row.key),
+    name_en: row.nameEn ?? seed?.name_en ?? row.key,
+    tier: row.tier ?? seed?.tier ?? 'near',
+    group: seed?.group ?? row.tier ?? 'near',
     placement: row.placement,
     ring: row.ring,
-    centre: row.centre ?? { lat: seed.lat, lng: seed.lng },
+    centre: row.centre ?? { lat: seed?.lat ?? 32.905, lng: seed?.lng ?? 45.06 },
     areaM2: Math.round(ringAreaM2(row.ring)),
     placedBy: row.placedById ? (names[row.placedById] ?? null) : null,
     placedAt: row.placedAt,
@@ -58,17 +61,16 @@ export class ZonesService implements ZonesPort {
   async list(cityId: string): Promise<ZonePlacementView[]> {
     const rows = new Map((await this.repo.list(cityId)).map((r) => [r.key, r]));
     const names = await this.names.of([...rows.values()].flatMap((r) => (r.placedById ? [r.placedById] : [])));
-    return (SEEDS.get(cityId) ?? []).flatMap((seed) => {
-      const row = rows.get(seed.id);
-      return row ? [view(seed, row, names)] : [];
-    });
+    return [...rows.values()].filter((row) => row.active !== false).map((row) => view((SEEDS.get(cityId) ?? []).find((seed) => seed.id === row.key), row, names));
   }
 
   async place(actor: Actor, input: z.output<typeof PlaceZoneInput>): Promise<ZonePlacementView> {
     const seeds = SEEDS.get(input.cityId) ?? [];
     const seed = seeds.find((s) => s.id === input.key);
     const bounds = zoneServiceBounds(input.cityId);
-    if (!seed || !bounds) throw new DriverError('zone_unknown');
+    if (!bounds) throw new DriverError('zone_unknown');
+    const current = (await this.repo.list(input.cityId)).find((r) => r.key === input.key);
+    if (!current) throw new DriverError('zone_unknown');
     const ring = openRing(input.ring);
     const others = (await this.repo.list(input.cityId)).filter((r) => r.key !== input.key && r.placement !== 'draft').map((r) => ({ key: r.key, ring: r.ring }));
     const problem = zoneShapeProblem(ring, input.centre, bounds, others);
@@ -87,11 +89,47 @@ export class ZonesService implements ZonesPort {
         { name: 'zone', id: `${input.cityId}:${input.key}` },
       );
       await this.audits.record(
-        { cityId: input.cityId, actorId: actor.personId, action: 'zone.placed', subjectKind: 'zone', subjectId: input.key, summaryAr: `حط حدود ${westernDigits(seed.name_ar)} على الخريطة`, detail: { points: ring.length, areaM2 } },
+        { cityId: input.cityId, actorId: actor.personId, action: 'zone.placed', subjectKind: 'zone', subjectId: input.key, summaryAr: `حط حدود ${westernDigits(current.nameAr ?? seed?.name_ar ?? input.key)} على الخريطة`, detail: { points: ring.length, areaM2 } },
         tx,
       );
       return saved;
     });
     return view(seed, row, await this.names.of([actor.personId]));
+  }
+
+  async create(actor: Actor, input: z.output<typeof CreateZoneInput>): Promise<ZonePlacementView> {
+    const bounds = zoneServiceBounds(input.cityId);
+    if (!bounds || input.centre.lat < bounds.minLat || input.centre.lat > bounds.maxLat || input.centre.lng < bounds.minLng || input.centre.lng > bounds.maxLng) throw new DriverError('zone_shape_invalid');
+    const radiusM = ({ centre: 350, near: 400, mid: 450, far: 550, edge: 600 } as const)[input.tier];
+    const now = this.clock.now();
+    const row = await this.uow.run(async (tx) => {
+      if ((await this.repo.list(input.cityId, tx)).some((zone) => zone.key === input.key)) throw new DriverError('zone_key_taken');
+      const created = await this.repo.create({ cityId: input.cityId, key: input.key, nameAr: input.name_ar, nameEn: input.name_en, tier: input.tier, centre: input.centre, radiusM }, tx);
+      await this.events.emit(tx, { actorId: actor.personId, type: 'zone.created', occurredAt: now, payload: { cityId: input.cityId, key: input.key }, }, { name: 'zone', id: `${input.cityId}:${input.key}` });
+      await this.audits.record({ cityId: input.cityId, actorId: actor.personId, action: 'zone.created', subjectKind: 'zone', subjectId: input.key, summaryAr: `أضاف منطقة ${westernDigits(input.name_ar)}`, detail: { tier: input.tier } }, tx);
+      return created;
+    });
+    return view(undefined, row, await this.names.of([actor.personId]));
+  }
+
+  async rename(actor: Actor, input: z.output<typeof RenameZoneInput>): Promise<ZonePlacementView> {
+    const now = this.clock.now();
+    const row = await this.uow.run(async (tx) => {
+      const renamed = await this.repo.rename(input.cityId, input.key, input.name_ar, input.name_en, tx);
+      if (!renamed) throw new DriverError('zone_unknown');
+      await this.events.emit(tx, { actorId: actor.personId, type: 'zone.renamed', occurredAt: now, payload: { cityId: input.cityId, key: input.key }, }, { name: 'zone', id: `${input.cityId}:${input.key}` });
+      await this.audits.record({ cityId: input.cityId, actorId: actor.personId, action: 'zone.renamed', subjectKind: 'zone', subjectId: input.key, summaryAr: `غيّر اسم المنطقة إلى ${westernDigits(input.name_ar)}`, detail: {} }, tx);
+      return renamed;
+    });
+    return view((SEEDS.get(input.cityId) ?? []).find((seed) => seed.id === input.key), row, await this.names.of([actor.personId]));
+  }
+
+  async remove(actor: Actor, input: z.output<typeof RemoveZoneInput>): Promise<void> {
+    const now = this.clock.now();
+    await this.uow.run(async (tx) => {
+      if (!await this.repo.remove(input.cityId, input.key, tx)) throw new DriverError('zone_unknown');
+      await this.events.emit(tx, { actorId: actor.personId, type: 'zone.removed', occurredAt: now, payload: { cityId: input.cityId, key: input.key }, }, { name: 'zone', id: `${input.cityId}:${input.key}` });
+      await this.audits.record({ cityId: input.cityId, actorId: actor.personId, action: 'zone.removed', subjectKind: 'zone', subjectId: input.key, summaryAr: `حذف المنطقة ${input.key}`, detail: {} }, tx);
+    });
   }
 }

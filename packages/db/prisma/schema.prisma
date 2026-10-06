@@ -506,6 +506,7 @@ model Zone {
   centre     Unsupported("geography(Point, 4326)")?
   /// draft (AI hexagon) | placed (drawn in the Console) | confirmed (drivers agreed on the ground).
   placement  String                                  @default("draft")
+  isActive   Boolean                                 @default(true) @map("is_active")
   placedAt   DateTime?                               @map("placed_at")
   placedById String?                                 @map("placed_by_id")
   /// Edge zones: tuktuks opt in; cars default.

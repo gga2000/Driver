@@ -1,4 +1,4 @@
-import { AZIZIYAH_CENTRE, AZIZIYAH_ZONES, type AziziyahZoneSeed, type ZoneTier } from '@driver/contracts';
+import { AZIZIYAH_CENTRE, AZIZIYAH_ZONES, type AziziyahZoneSeed, type ZonePlacementView, type ZoneTier } from '@driver/contracts';
 import type { Feature, FeatureCollection, Point, Polygon } from 'geojson';
 import { TIER_COLORS } from './colors.js';
 import { M_PER_DEG_LAT, metresPerDegLng, regularPolygon, type LngLat } from './geo.js';
@@ -73,6 +73,22 @@ export function buildZoneCentroidsGeoJSON(zones: readonly AziziyahZoneSeed[] = A
       },
     })),
   };
+}
+
+/** GeoJSON for persisted Console zone outlines; shared by every app map. */
+export function buildPlacedZonesGeoJSON(zones: readonly ZonePlacementView[]): ZoneCollection {
+  return { type: 'FeatureCollection', features: zones.map((z, i) => ({
+    type: 'Feature', id: i,
+    geometry: { type: 'Polygon', coordinates: [[...z.ring.map((p) => [p.lng, p.lat] as [number, number]), [z.ring[0]!.lng, z.ring[0]!.lat]] ] },
+    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0 },
+  })) };
+}
+
+export function buildPlacedZoneCentroidsGeoJSON(zones: readonly ZonePlacementView[]): FeatureCollection<Point, ZoneProps> {
+  return { type: 'FeatureCollection', features: zones.map((z, i) => ({
+    type: 'Feature', id: i, geometry: { type: 'Point', coordinates: [z.centre.lng, z.centre.lat] },
+    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0 },
+  })) };
 }
 
 export function zoneById(id: string, zones: readonly AziziyahZoneSeed[] = AZIZIYAH_ZONES): AziziyahZoneSeed | undefined {

@@ -4,7 +4,9 @@ import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapGeoJSONFeatu
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, GARAGES, labelDigits, LAYER, SOURCE } from '@driver/map';
+import { useQuery } from '@tanstack/react-query';
+import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, buildPlacedZonesGeoJSON, GARAGES, labelDigits, LAYER, SOURCE } from '@driver/map';
+import { useTRPC } from '@/lib/trpc';
 import { MARKER_SHAPES } from '@/lib/marker-shapes';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LiveGeoJSON, OrderTag } from '@/lib/live-map';
@@ -111,6 +113,8 @@ interface LabelEntry {
  */
 export default function LiveMapCanvas(props: LiveMapCanvasProps) {
   const { live, selected, fitKey, focus, theme, orders, routes = 'focus', focusTripId, candidates, picked, followId } = props;
+  const trpc = useTRPC();
+  const zonesQuery = useQuery(trpc.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const cb = useRef(props);
@@ -278,6 +282,27 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
       setReady(false);
     };
   }, [theme]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const zones = zonesQuery.data;
+    if (!map || !ready || !zones) return;
+    map.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zones));
+    for (const [key, label] of labelsRef.current) {
+      if (label.kind === 'zone') { label.marker.remove(); labelsRef.current.delete(key); }
+    }
+    for (const z of zones) {
+      const node = document.createElement('div');
+      node.className = 'ops-label';
+      node.dataset['kind'] = 'zone';
+      node.textContent = labelDigits(z.name_ar);
+      node.setAttribute('aria-hidden', 'true');
+      const lngLat: [number, number] = [z.centre.lng, z.centre.lat];
+      const marker = new maplibregl.Marker({ element: node, anchor: 'top-left' }).setLngLat(lngLat).addTo(map);
+      labelsRef.current.set(`zone:${z.key}`, { marker, el: node, lngLat, kind: 'zone', size: null });
+    }
+    layoutRef.current();
+  }, [ready, zonesQuery.data]);
 
   // ── routes (style layers) ──
   useEffect(() => {
@@ -498,7 +523,7 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
         <p role="status" className="px-3 py-2 text-sm text-muted">
           {t('console.map_failed')}
         </p>
-        <ZonesSvg className="min-h-0 flex-1" />
+        <ZonesSvg className="min-h-0 flex-1" placements={zonesQuery.data} />
       </div>
     );
   }
