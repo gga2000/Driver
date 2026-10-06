@@ -195,6 +195,14 @@ export const ERROR_TABLE = {
   tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
   tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «عزيمة» (joy g1): a gift goes to someone else; hidden prices only when the sender pays from his wallet.
+  gift_needs_recipient: { retryHint: 'never', status: 'BAD_REQUEST' },
+  gift_hidden_prices_need_wallet: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Invite as a gift (joy g2): one invitation per new customer, never your own code.
+  invite_invalid: { retryHint: 'never', status: 'NOT_FOUND' },
+  invite_own: { retryHint: 'never', status: 'BAD_REQUEST' },
+  invite_not_new: { retryHint: 'never', status: 'CONFLICT' },
+  invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },

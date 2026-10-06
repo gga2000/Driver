@@ -140,6 +140,8 @@ export const BoardOrder = z.object({
   prepExtended: z.boolean().optional(),
   /** S-M4: when the kitchen tapped "سلّمته" (handed the bag to the courier at the pass); null = not yet. */
   handedOverAt: z.coerce.date().nullable().optional(),
+  /** «عزيمة» (joy g1): a gift; `hidePrices` → the ticket prints no amounts. Null/absent = not a gift. */
+  gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
 

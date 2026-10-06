@@ -270,6 +270,11 @@ export const PartnerJobStop = z.object({
   door: PartnerDoor.nullable().optional(),
   /** A pickup not yet done at a kitchen that set its pickup spot (maps program r7); null/absent otherwise. */
   pickupSpot: PartnerPickupSpot.nullable().optional(),
+  /**
+   * «عزيمة» (joy g1): the order is a gift. `hidePrices`: the sender paid and asked that the price is not
+   * mentioned at the door («هدية — لا تذكر السعر») and no receipt goes in the bag. Null/absent = not a gift.
+   */
+  gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

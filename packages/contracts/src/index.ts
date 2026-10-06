@@ -50,6 +50,7 @@ export * from './store-hours.js';
 export * from './topup-io.js';
 export * from './chat-io.js';
 export * from './share-io.js';
+export * from './referral-io.js';
 export * from './live-io.js';
 export * from './notify-io.js';
 export * from './control-room-io.js';

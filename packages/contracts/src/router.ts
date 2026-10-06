@@ -24,6 +24,7 @@ import { notifyRouter } from './routers/notify.js';
 import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, seasonProcedures } from './routers/control-room.js';
 import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
+import { referralRouter } from './routers/referral.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -84,6 +85,7 @@ export const appRouter = router({
   support: supportRouter,
   // SOS (scoring & safety §3): the person's alert and the Console's incident desk.
   safety: safetyRouter,
+  referral: referralRouter,
   finance: financeRouter,
   metrics: metricsRouter,
 });

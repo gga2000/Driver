@@ -1062,6 +1062,10 @@ model Order {
   heldForPayer       Boolean       @default(false) @map("held_for_payer")
   /// J5a «للسفرة»: placed with dishes for the family table (the household hub lists it).
   familyTable        Boolean       @default(false) @map("family_table")
+  /// «عزيمة» (joy g1): a gift for the recipient participant. The card message never reaches the server.
+  gift               Boolean       @default(false)
+  /// «عزيمة»: the sender paid from his wallet and asked that prices stay off the ticket and out of the courier's mouth.
+  giftHidePrices     Boolean       @default(false) @map("gift_hide_prices")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -2144,6 +2148,32 @@ model ChatRead {
 
   @@unique([threadId, readerKey])
   @@map("chat_reads")
+  @@schema("public")
+}
+
+/// Invite as a gift (joy g2): each person's own invite code (6 characters, no look-alikes), made on first ask.
+/// Ids and codes only; the inviter's first name is read from the vault (logged) when a friend opens the link.
+model InviteCode {
+  personId  String   @id @map("person_id")
+  code      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("invite_codes")
+  @@schema("public")
+}
+
+/// Invite as a gift (joy g2): who invited whom. One row per friend (the referee), written when a new
+/// customer accepts a code before his first order; the ledger's referral rule (decisions §1) reads the
+/// inviter from here through the orders module's closed-order fact.
+model Referral {
+  refereeId  String   @id @map("referee_id")
+  referrerId String   @map("referrer_id")
+  code       String
+  claimedAt  DateTime @map("claimed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([referrerId, claimedAt])
+  @@map("referrals")
   @@schema("public")
 }
 

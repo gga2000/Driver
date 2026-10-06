@@ -15,6 +15,15 @@ export type OrderType = z.infer<typeof OrderType>;
 export const PlaceableOrderType = z.enum(['food', 'grocery_catalog', 'errand', 'parcel', 'ride']);
 export type PlaceableOrderType = z.infer<typeof PlaceableOrderType>;
 
+/**
+ * «عزيمة» (joy g1): the order is a gift for the person who receives it (a `recipient` participant).
+ * `hidePrices` keeps amounts off the kitchen ticket and tells the courier not to mention the price;
+ * only when the sender pays from his wallet (with cash the person at the door must hear the amount).
+ * The card message never reaches the server: it travels in the sender's own WhatsApp/SMS heads-up.
+ */
+export const OrderGift = z.object({ hidePrices: z.boolean().default(false) });
+export type OrderGift = z.infer<typeof OrderGift>;
+
 /** Order machine (domain §2). `matched`/`completed` are the ride path. Mirrors the Prisma enum. */
 export const OrderState = z.enum([
   'placed',
@@ -140,6 +149,8 @@ export const PlaceOrderInput = z.object({
   usePoints: z.boolean().optional(),
   /** The points value `orders.quote` showed (0 = none): a different server figure is `price_changed`. */
   pointsIqd: Iqd.min(0).optional(),
+  /** «عزيمة» (joy g1): food and grocery only, with a recipient participant (`gift_needs_recipient`). */
+  gift: OrderGift.optional(),
 });
 export type PlaceOrderInput = z.input<typeof PlaceOrderInput>;
 
@@ -294,6 +305,8 @@ export const Order = z.object({
    * ("باقي الكاش"), on top of the rounding `changeIqd`; null/absent = none.
    */
   changeToWalletIqd: Iqd.nullable().optional(),
+  /** «عزيمة» (joy g1): a gift for the recipient participant; null/absent = an ordinary order. */
+  gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
 });
 export type Order = z.infer<typeof Order>;
 

@@ -32,6 +32,7 @@ import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
 import type { SafetyPort } from './safety-io.js';
+import type { ReferralsPort } from './referral-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -107,6 +108,8 @@ export interface AppContext {
   zoneChecks: ZoneChecksPort;
   /** SOS: the person's alert, the Console's incident desk (`modules/safety`). */
   safety: SafetyPort;
+  /** Invite as a gift (joy g2): my code, a friend's claim, the public landing read (`modules/referrals`). */
+  referrals: ReferralsPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
