@@ -42,3 +42,12 @@ small-order 500 = **4,500**.
 
 Example: items 15,000 + delivery 1,000 + service 500, 400 points free → 150 usable, 1,500 off
 (1,000 delivery + 500 service) → **15,000**. With a free-delivery deal: 50 points, 500 off the service fee.
+
+## Points this order earns (`orders.quote` → `pointsEarn`, joy o7)
+
+`pointsEarn` is what the order will be allocated when it closes: `orderPoints` on
+`platformRevenueIqd` (the service fee + the commission on the items after an items deal; a ride's take on
+its total), 1 point per 100 دينار, capped at 50 with the organiser bonus inside the cap. The close posts
+with the same function, so the estimate and the allocation agree (test: `points.test.ts`). The app shows
+it as «تكسب {n} نقطة» in the cart and at checkout (on a group order «هذا الطلب يجيب {n} نقطة، تتقسم
+عليكم»). Example above: 500 + 15 % of 15,000 = 2,750 → **27 points**. No money rule changes.

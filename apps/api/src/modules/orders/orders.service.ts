@@ -69,7 +69,7 @@ import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
 import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
-import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
+import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 
 /** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
 export interface OrdersTripsPort {
@@ -397,6 +397,19 @@ export class OrdersService implements OnModuleInit {
       roundingIqd: 0,
       nextDeal: next ? { dealId: next.promotionId, label_ar: next.label_ar, label_en: next.label_en, missingIqd: next.missingIqd } : null,
       latePromise: latePromiseOf(input.type, p.fees.deliveryFeeIqd, d),
+      // Joy o7: what this order earns when it closes, by the same formula the close posts with.
+      pointsEarn: p.merchantType
+        ? orderPoints({
+            type: input.type,
+            platformRevenueIqd: platformRevenueIqd({
+              type: input.type,
+              totalIqd: p.totalIqd,
+              serviceFeeIqd: p.fees.serviceFeeIqd,
+              commissionBaseIqd: Math.max(0, p.itemsTotal - (d?.meta.funder === 'merchant' && d.meta.target === 'items' ? d.amountIqd : 0)),
+              commissionPct: commissionPctOf(p.profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier),
+            }),
+          })
+        : 0,
     };
   }
 
@@ -1455,10 +1468,13 @@ export class OrdersService implements OnModuleInit {
     const closedPayload: DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to'> = { ...fact, reason, totalIqd: agg.order.totalIqd };
     const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, closedPayload);
     const profile = closed.merchantOrgId ? await this.merchants.profile(closed.merchantOrgId) : null;
-    const revenue =
-      closed.type === 'ride'
-        ? Math.round((closed.totalIqd * ORDERS_RULES.rideTakePct) / 100)
-        : closed.serviceFeeIqd + Math.round((commissionBaseOf(closed) * commissionPctOf(profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier)) / 100);
+    const revenue = platformRevenueIqd({
+      type: closed.type,
+      totalIqd: closed.totalIqd,
+      serviceFeeIqd: closed.serviceFeeIqd,
+      commissionBaseIqd: commissionBaseOf(closed),
+      commissionPct: commissionPctOf(profile?.commissionTier ?? ORDERS_RULES.defaultCommissionTier),
+    });
     const basePoints = orderPoints({ type: closed.type, platformRevenueIqd: revenue });
     const allocations = allocatePoints({
       type: closed.type,

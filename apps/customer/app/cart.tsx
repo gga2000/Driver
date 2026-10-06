@@ -10,6 +10,7 @@ import { cartStore, useCart } from '@/features/food/cart-store';
 import { checkoutTotals, lineSavings, otherDeals } from '@/features/food/checkout';
 import { DealBadges } from '@/features/food/DealBadge';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
+import { EarnPill } from '@/features/food/EarnPill';
 import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { minOrderProgress } from '@/features/food/min-order';
 import { MinOrderStrip } from '@/features/food/MinOrderStrip';
@@ -79,6 +80,7 @@ export default function CartScreen() {
   const footer = (
     <View style={{ gap: theme.space[3] }}>
       {progress ? <MinOrderStrip progress={progress} minOrderIqd={merchant.minOrderIqd} feeIqd={smallOrderFee} /> : null}
+      <EarnPill points={orderQuote.data?.pointsEarn} grouped={grouped} />
       <Button
         testID="cart-checkout"
         size="lg"

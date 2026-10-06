@@ -67,6 +67,16 @@ export interface PointsAllocation {
   pending: boolean;
 }
 
+/**
+ * The platform revenue points are counted from (edge-case §2): a ride's take on its total; otherwise
+ * the service fee plus the commission on the items after an items deal. One formula for the points
+ * posted at close and the estimate `orders.quote` shows (joy o7), so the two never disagree.
+ */
+export function platformRevenueIqd(input: { type: OrderType; totalIqd: number; serviceFeeIqd: number; commissionBaseIqd: number; commissionPct: number }): number {
+  if (input.type === 'ride') return Math.round((input.totalIqd * ORDERS_RULES.rideTakePct) / 100);
+  return input.serviceFeeIqd + Math.round((input.commissionBaseIqd * input.commissionPct) / 100);
+}
+
 /** Edge-case §2: points come from platform revenue — 1 per 100 IQD (rides and seats 1 per 200), capped per order. */
 export function orderPoints(input: { type: OrderType; platformRevenueIqd: number }): number {
   const per = input.type === 'ride' || input.type === 'seat' ? ORDERS_RULES.ridePointsPerIqd : ORDERS_RULES.pointsPerIqd;

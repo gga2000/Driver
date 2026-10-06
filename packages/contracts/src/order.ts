@@ -332,6 +332,12 @@ export const OrderQuote = z.object({
    * the fixed free-delivery credit (`flat`). Every food / catalog-grocery delivery carries one.
    */
   latePromise: z.object({ afterMin: z.number().int().positive(), creditIqd: Iqd.positive(), basis: LatePromiseBasis }).nullable().optional(),
+  /**
+   * Joy o7: the points this order earns when it closes (1 per 100 دينار of platform revenue, capped at
+   * 50, the organiser bonus inside the cap) — the same formula the close posts with; shared among the
+   * people on a group order. 0/absent when it earns none.
+   */
+  pointsEarn: z.number().int().min(0).optional(),
 });
 export type OrderQuote = z.infer<typeof OrderQuote>;
 
