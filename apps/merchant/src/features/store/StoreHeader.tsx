@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { isValidElement, useState, type ReactNode } from 'react';
+import { Pressable, View, type LayoutChangeEvent } from 'react-native';
 import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
 import { Button, ModalSheet, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
@@ -10,6 +10,7 @@ import { balanceState, moneyPill } from '@/features/money/logic';
 import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 import { color as palette } from '@driver/design-tokens';
+import { chipsFitInline } from './header-fit';
 
 export interface StoreHeaderProps {
   storeName: string;
@@ -44,7 +45,11 @@ const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warni
   info: 'infoText',
 };
 
-/** A tappable status chip (40 px tall: easy to hit with a wet finger). */
+/**
+ * A tappable status chip (40 px tall: easy to hit with a wet finger). Never wider than its row: on a
+ * narrow phone a long label ("خلّي الشاشة شاعلة من إعدادات التابلت") wraps to a second line instead
+ * of running off the edge.
+ */
 export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
   const theme = useTheme();
   return (
@@ -57,7 +62,9 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[2],
-        height: 40,
+        minHeight: 40,
+        maxWidth: '100%',
+        paddingVertical: 2,
         paddingHorizontal: theme.space[3],
         borderRadius: theme.radius.pill,
         backgroundColor: theme.colors[TONE_BG[tone]],
@@ -68,7 +75,7 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
     >
       {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors[tone === 'danger' ? 'danger' : tone === 'success' ? 'success' : 'warning'] }} /> : null}
       <MIcon name={icon} size={18} color={TONE_FG[tone]} strokeWidth={2} />
-      <Text variant="label" weight={600} color={TONE_FG[tone]} numberOfLines={1} tabular>
+      <Text variant="label" weight={600} color={TONE_FG[tone]} numberOfLines={2} tabular style={{ flexShrink: 1 }}>
         {label}
       </Text>
     </Pressable>
@@ -151,23 +158,111 @@ export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: Mon
         style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, flexShrink: 1 }}
       >
         <MIcon name={p.tone === 'success' ? 'clock' : 'cash'} size={20} color={p.tone === 'neutral' ? 'successText' : fg} />
-        <Text variant="label" tabular numberOfLines={wide ? 1 : 2} style={{ flexShrink: 1, lineHeight: 20 }}>
-          <Text variant="label" weight={700} tabular color={fg}>
-            {main}
-          </Text>
-          {sub ? (
-            <Text variant="label" weight={500} color={p.tone === 'neutral' ? 'textMuted' : fg}>
-              {` · ${sub}`}
+        {wide ? (
+          // Tablet (m1a): the amount on top, how it reaches him underneath — the pill stays narrow
+          // enough for the status chips to keep their room in the bar.
+          <View style={{ flexShrink: 1 }}>
+            <Text variant="label" weight={700} tabular color={fg} numberOfLines={1} style={{ lineHeight: 20 }}>
+              {main}
             </Text>
-          ) : null}
-        </Text>
+            {sub ? (
+              <Text variant="caption" weight={500} color={p.tone === 'neutral' ? 'textMuted' : fg} numberOfLines={1} style={{ lineHeight: 16 }}>
+                {sub}
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <Text variant="label" tabular numberOfLines={2} style={{ flexShrink: 1, lineHeight: 20 }}>
+            <Text variant="label" weight={700} tabular color={fg}>
+              {main}
+            </Text>
+            {sub ? (
+              <Text variant="label" weight={500} color={p.tone === 'neutral' ? 'textMuted' : fg}>
+                {` · ${sub}`}
+              </Text>
+            ) : null}
+          </Text>
+        )}
       </Pressable>
       {p.action === 'request' ? <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onRequest} /> : null}
     </View>
   );
 }
 
-export function StoreHeader({ storeName, status, balance, headline, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
+/** The store name never takes more than this on a tablet (a long name truncates, the chips keep their room). */
+const WIDE_NAME_MAX = 280;
+
+function chipKey(node: ReactNode, i: number): string {
+  return isValidElement(node) && node.key !== null ? String(node.key) : `chip-${i}`;
+}
+
+/**
+ * Tablet status bar (m1a): one row — store, open switch, chips, money — while everything fits at its
+ * natural width; otherwise the chips get a second row of their own and wrap there. Widths are measured
+ * (onLayout), so a longer money line, a new alert chip or a narrower tablet never clips a chip.
+ */
+function WideBar({ name, openSwitch, chips, money }: { name: ReactNode; openSwitch: ReactNode; chips: ReactNode[]; money: ReactNode }) {
+  const theme = useTheme();
+  const padding = theme.space[6];
+  const gap = theme.space[3];
+  const [row, setRow] = useState(0);
+  const [fixed, setFixed] = useState<{ name: number; open: number; money: number }>({ name: 0, open: 0, money: 0 });
+  const [chipW, setChipW] = useState<Record<string, number>>({});
+  const keys = chips.map(chipKey);
+  const measureFixed = (k: 'name' | 'open' | 'money') => (e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setFixed((f) => (f[k] === w ? f : { ...f, [k]: w }));
+  };
+  const measureChip = (k: string) => (e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setChipW((c) => (c[k] === w ? c : { ...c, [k]: w }));
+  };
+  const inline = chipsFitInline({
+    row,
+    padding,
+    gap,
+    fixed: [fixed.name, fixed.open, ...(money ? [fixed.money] : [])],
+    chips: keys.map((k) => chipW[k] ?? 0),
+  });
+  const wrapped = chips.map((c, i) => (
+    <View key={keys[i]} onLayout={measureChip(keys[i]!)} style={{ flexShrink: inline ? 0 : 1, maxWidth: '100%' }}>
+      {c}
+    </View>
+  ));
+  return (
+    <View
+      testID="store-header"
+      onLayout={(e) => setRow(Math.floor(e.nativeEvent.layout.width))}
+      style={{ gap: theme.space[2], paddingHorizontal: padding, paddingVertical: theme.space[3], borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap }}>
+        <View onLayout={measureFixed('name')} style={{ maxWidth: WIDE_NAME_MAX, flexShrink: 0 }}>
+          {name}
+        </View>
+        <View onLayout={measureFixed('open')}>{openSwitch}</View>
+        {inline ? (
+          <View testID="store-header-chips" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap, overflow: 'hidden' }}>
+            {wrapped}
+          </View>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        {money ? (
+          <View onLayout={measureFixed('money')} style={{ flexShrink: 0 }}>
+            {money}
+          </View>
+        ) : null}
+      </View>
+      {inline ? null : (
+        <View testID="store-header-chips" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.space[2] }}>
+          {wrapped}
+        </View>
+      )}
+    </View>
+  );
+}
+
+export function StoreHeader({storeName, status, balance, headline, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -287,15 +382,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
 
   if (wide) {
     return (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[6], paddingVertical: theme.space[3], borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
-        {name}
-        {status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />}
-        {/* Chips scroll rather than squeeze the money pill when alert chips join them. */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[3], alignItems: 'center' }}>
-          {chips}
-        </ScrollView>
-        {money}
-      </View>
+      <WideBar name={name} openSwitch={status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />} chips={chips} money={money} />
     );
   }
   // Phone (M-06): one 56-pt row — the store, open/closed, and "…" for busy mode, the printer and the
@@ -338,9 +425,10 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         </Pressable>
       </View>
       {(alerts ?? []).length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[2], alignItems: 'center' }}>
+        // m3a: the alert chips wrap onto another line rather than scroll off the left edge.
+        <View testID="store-header-alerts" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[2], alignItems: 'center' }}>
           {alerts}
-        </ScrollView>
+        </View>
       ) : null}
       <ModalSheet visible={menu} onClose={() => setMenu(false)} title={storeName} testID="header-menu">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>{chips.slice((alerts ?? []).length)}</View>
