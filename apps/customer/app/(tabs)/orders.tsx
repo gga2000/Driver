@@ -8,6 +8,9 @@ import { canReorder, sectionByDay } from '@/features/orders/history';
 import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
+import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
+import { pastTrips, upcomingTrips, withTrips } from '@/features/rajaa/trips';
+import { TripRow } from '@/features/rajaa/TripRow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
@@ -31,11 +34,15 @@ function Orders() {
   const reorder = useReorderFlow();
   const tick = useNow(true, 60_000);
   const now = useMemo(() => new Date(tick), [tick]);
-  const sections = useMemo(() => sectionByDay(history.data ?? [], now), [history.data, now]);
+  // r4: الرجعة seats live here too — coming trips pinned on top, past ones in their day.
+  const bookings = useMyBookings();
+  const network = useNetwork();
+  const upcoming = useMemo(() => upcomingTrips(bookings.data ?? [], now), [bookings.data, now]);
+  const sections = useMemo(() => withTrips(sectionByDay(history.data ?? [], now), pastTrips(bookings.data ?? []), now), [history.data, bookings.data, now]);
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
-    await history.refetch().catch(() => undefined);
+    await Promise.allSettled([history.refetch(), bookings.refetch()]);
     setRefreshing(false);
   };
 
@@ -61,31 +68,49 @@ function Orders() {
         </Card>
       ) : history.isError ? (
         <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
-      ) : sections.length === 0 ? (
+      ) : sections.length === 0 && upcoming.length === 0 ? (
         <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
       ) : (
-        sections.map((s) => (
+        <>
+        {upcoming.length > 0 ? (
+          <View style={{ gap: theme.space[2] }} testID="orders-section-trips">
+            <Text variant="label" weight={600} color="accentText" accessibilityRole="header">
+              {t('orders.section_trips')}
+            </Text>
+            <Card elevation={0} padding={0} tone="tint">
+              {upcoming.map((b, i) => (
+                <TripRow key={b.id} booking={b} network={network.data} now={now} divider={i < upcoming.length - 1} />
+              ))}
+            </Card>
+          </View>
+        ) : null}
+        {sections.map((s) => (
           <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
             <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
               {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
             </Text>
             <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
-              {s.rows.map((row, i) => (
-                <OrderRow
-                  key={row.order.id}
-                  row={row}
-                  now={now}
-                  divider={i < s.rows.length - 1}
-                  action={
-                    canReorder(row.order) && (!me || row.order.ordererId === me) ? (
-                      <ReorderButton testID={`reorder-${row.order.id}`} loading={reorder.busyOrderId === row.order.id} onPress={() => void reorder.start(row)} />
-                    ) : undefined
-                  }
-                />
-              ))}
+              {s.rows.map((item, i) =>
+                item.kind === 'trip' ? (
+                  <TripRow key={item.booking.id} booking={item.booking} network={network.data} now={now} divider={i < s.rows.length - 1} />
+                ) : (
+                  <OrderRow
+                    key={item.row.order.id}
+                    row={item.row}
+                    now={now}
+                    divider={i < s.rows.length - 1}
+                    action={
+                      canReorder(item.row.order) && (!me || item.row.order.ordererId === me) ? (
+                        <ReorderButton testID={`reorder-${item.row.order.id}`} loading={reorder.busyOrderId === item.row.order.id} onPress={() => void reorder.start(item.row)} />
+                      ) : undefined
+                    }
+                  />
+                ),
+              )}
             </Card>
           </View>
-        ))
+        ))}
+        </>
       )}
       {reorder.sheet}
     </Screen>

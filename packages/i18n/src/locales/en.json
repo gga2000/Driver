@@ -5803,5 +5803,9 @@
   "rajaa.safe_book_return": "Book your way back · {when}",
   "rajaa.safe_tuktuk": "A tuktuk from the garage home?",
   "rajaa.preset_title": "Trips around {when}",
-  "rajaa.preset_clear": "All trips"
+  "rajaa.preset_clear": "All trips",
+  "orders.section_trips": "Your coming trips",
+  "rajaa.trip_row_pin": "PIN {pin}",
+  "rajaa.trip_row_points": "+{n} points",
+  "help.trips_heading": "الرجعة trips"
 }

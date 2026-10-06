@@ -773,7 +773,7 @@ const rajaa = await (async () => {
   });
 
   // POST /demo/rajaa/arrived?personId=…[&told=1] — a whole trip that just ended (joy r2): a seat on a
-  // car from Baghdad to Aziziyah, the other seats walk-ups, checked in, departed and arrived. The pass
+  // car from Kut to Aziziyah, the other seats walk-ups, checked in, departed and arrived. The pass
   // then shows «وصلت بالسلامة». `told=1` first gives the person a trusted contact (أمي) with
   // «بلّغهم من أوصل» on, so the card says who was told and the WhatsApp ping goes out.
   let arrivedSeq = 0;
@@ -787,12 +787,13 @@ const rajaa = await (async () => {
       }
       const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
       const driverId = `drv_ARR${(++arrivedSeq).toString(36).toUpperCase()}`;
+      // From the Kut garage home to Aziziyah: no demand posts there to claim the seats first.
       const dep = await deps.announce(driverId, {
-        garageId: 'mp_garage_nahdha',
-        corridorId: 'aziziyah_baghdad',
+        garageId: 'mp_garage_kut',
+        corridorId: 'aziziyah_kut',
         departAt,
         latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
-        vehicle: saloon('12345 بغداد', 'كامري', 'بيضاء'),
+        vehicle: saloon('41187 واسط', 'كامري', 'بيضاء'),
         familyOnly: false,
       });
       const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'nisa', pickup: { kind: 'garage' }, largeBags: false });

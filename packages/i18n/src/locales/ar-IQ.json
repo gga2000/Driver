@@ -5803,5 +5803,9 @@
   "rajaa.safe_book_return": "احجز رجعتك · {when}",
   "rajaa.safe_tuktuk": "تكتك من الكراج للبيت؟",
   "rajaa.preset_title": "رحلات {when}",
-  "rajaa.preset_clear": "كل الرحلات"
+  "rajaa.preset_clear": "كل الرحلات",
+  "orders.section_trips": "رحلاتك الجاية",
+  "rajaa.trip_row_pin": "الرمز {pin}",
+  "rajaa.trip_row_points": "+{n} نقطة",
+  "help.trips_heading": "رحلات الرجعة"
 }

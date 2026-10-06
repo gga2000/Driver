@@ -10,6 +10,12 @@ import { dayKey } from '@/features/orders/history';
 import { dayLabel, OrderArt, orderTitle } from '@/features/orders/OrderRow';
 import { useOrderHistory } from '@/features/orders/queries';
 import { itemsSummary } from '@/features/orders/reorder';
+import { useSupportWhatsApp } from '@/features/help/HelpParts';
+import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
+import { pastTrips, upcomingTrips } from '@/features/rajaa/trips';
+import { tripRoute, TripRow } from '@/features/rajaa/TripRow';
+import { clockLabel } from '@/features/rajaa/logic';
+import { seatsList } from '@/features/rajaa/labels';
 import { useLocale, useT } from '@/lib/i18n';
 
 /** Recent orders offered for "عندي مشكلة". */
@@ -28,6 +34,11 @@ export default function Help() {
   const tick = useNow(true, 60_000);
   const now = useMemo(() => new Date(tick), [tick]);
   const recent = (history.data ?? []).slice(0, RECENT);
+  // r4: a الرجعة seat can reach help too: the WhatsApp line with the trip already typed.
+  const bookings = useMyBookings();
+  const network = useNetwork();
+  const support = useSupportWhatsApp();
+  const trips = useMemo(() => [...upcomingTrips(bookings.data ?? [], now), ...pastTrips(bookings.data ?? [])].slice(0, RECENT), [bookings.data, now]);
 
   return (
     <Screen testID="help" edges={[]} contentStyle={{ gap: theme.space[6] }}>
@@ -68,6 +79,27 @@ export default function Help() {
         </Card>
         {(history.data?.length ?? 0) > RECENT ? <Button variant="ghost" label={t('help.orders_all')} onPress={() => router.push('/orders')} /> : null}
       </View>
+
+      {trips.length > 0 ? (
+        <View style={{ gap: theme.space[3] }} testID="help-trips">
+          <SectionHeader title={t('help.trips_heading')} />
+          <Card elevation={0} padding={0}>
+            {trips.map((b, i) => (
+              <TripRow
+                key={b.id}
+                testID={`help-trip-${b.id}`}
+                booking={b}
+                network={network.data}
+                now={now}
+                divider={i < trips.length - 1}
+                onPress={() =>
+                  void support(t('rajaa.safe_problem_message', { route: tripRoute(t, b, network.data), day: dayLabel(t, dayKey(b.departure.departAt, now)), time: clockLabel(b.departure.departAt), seat: seatsList(t, b.seatIds) }))
+                }
+              />
+            ))}
+          </Card>
+        </View>
+      ) : null}
 
       <WhatsAppCard message={t('help.whatsapp_message')} />
 
