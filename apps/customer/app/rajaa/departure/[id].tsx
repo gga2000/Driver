@@ -23,7 +23,7 @@ import {
   type SelectRejection,
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { seatsList, TRAVELLING_AS, travellingAsLabel } from '@/features/rajaa/labels';
+import { seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import {
   blockedReason,
@@ -234,7 +234,7 @@ export default function BookSeat() {
         <ChipGroup
           accessibilityLabel={t('intercity.travelling_as')}
           required
-          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: 'user' as const }))}
+          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
           value={travellingAs ? [travellingAs] : []}
           onChange={(next) => {
             setTravellingAs((next[0] as TravellingAs | undefined) ?? null);

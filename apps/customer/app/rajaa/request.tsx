@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import type { RequestPostView, TravellingAs } from '@driver/contracts';
 import { Button, Card, Chip, ChipGroup, Icon, Rule, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { requestStateLabel, seatsCount, slotLabel, TRAVELLING_AS, travellingAsLabel } from '@/features/rajaa/labels';
+import { requestStateLabel, seatsCount, slotLabel, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, type RequestDay } from '@/features/rajaa/logic';
 import { RuleList, Section } from '@/features/rajaa/Option';
@@ -274,7 +274,7 @@ export default function RequestBoard() {
           <Section title={t('intercity.travelling_as')}>
             <ChipGroup
               required
-              items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: 'user' as const }))}
+              items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
               value={[travellingAs]}
               onChange={(next) => setTravellingAs((next[0] as TravellingAs | undefined) ?? 'aila')}
             />

@@ -238,7 +238,7 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
           {pickup ? (
             <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.success, borderWidth: 2, borderColor: withAlpha(theme.colors.success, 0.3) }} />
           ) : (
-            <Icon name={kind === 'destination' ? 'flag' : home ? 'home' : 'bag'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
+            <Icon name={kind === 'destination' ? 'flag' : home ? 'home' : 'food'} size={15} color={home ? 'surface' : 'text'} strokeWidth={2.2} />
           )}
           <Text variant="caption" weight={600} color={home ? 'surface' : 'text'} numberOfLines={1} style={{ maxWidth: PIN_W - 44 }}>
             {label}
