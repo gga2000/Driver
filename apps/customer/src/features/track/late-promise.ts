@@ -43,6 +43,14 @@ export function promiseBar(p: LatePromise | null | undefined, now: number): Prom
 }
 
 /**
+ * The new ETA already lands after the promise's deadline, so the credit is coming either way: say that
+ * plainly instead of "if it isn't there by …", which reads as a bet the customer has already won.
+ */
+export function etaPastDeadline(bar: PromiseBar | null, eta: Date | null | undefined): boolean {
+  return Boolean(bar && !bar.credited && eta && eta.getTime() >= bar.deadlineAt.getTime());
+}
+
+/**
  * Whether this screen should say "رجعنالك … رصيد" now: the server posted the credit and this device
  * has not told the person about this order yet (once per order per app run).
  */
@@ -61,6 +69,7 @@ export function promiseCopy(basis: LatePromiseBasis) {
     line: flat ? 'promise.line_flat' : 'promise.line',
     checkoutHint: flat ? 'promise.checkout_hint_flat' : 'promise.checkout_hint',
     barUntil: flat ? 'promise.bar_until_flat' : 'promise.bar_until',
+    barPast: flat ? 'promise.bar_past_flat' : 'promise.bar_past',
     credited: flat ? 'promise.credited_flat' : 'promise.credited',
     toast: flat ? 'promise.toast_flat' : 'promise.toast',
     receiptHint: flat ? 'promise.receipt_hint_flat' : 'promise.receipt_hint',

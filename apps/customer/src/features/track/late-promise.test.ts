@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LatePromise } from '@driver/contracts';
-import { creditToastDue, promiseBar, promiseCopy } from './late-promise';
+import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy } from './late-promise';
 
 const MIN = 60_000;
 const PROMISED = new Date('2026-10-05T18:00:00Z').getTime();
@@ -41,6 +41,19 @@ describe('promiseBar (audit d-5)', () => {
   });
 });
 
+describe('etaPastDeadline', () => {
+  it('only when the new ETA lands at or after the deadline and nothing was credited yet', () => {
+    const bar = promiseBar(promise(), PROMISED + 10 * MIN);
+    expect(etaPastDeadline(bar, new Date(PROMISED + 27 * MIN))).toBe(true);
+    expect(etaPastDeadline(bar, new Date(PROMISED + 20 * MIN))).toBe(true);
+    expect(etaPastDeadline(bar, new Date(PROMISED + 15 * MIN))).toBe(false);
+    expect(etaPastDeadline(bar, null)).toBe(false);
+    expect(etaPastDeadline(null, new Date(PROMISED + 27 * MIN))).toBe(false);
+    const paid = promiseBar(promise({ amountIqd: 1000, at: new Date(PROMISED + 21 * MIN) }), PROMISED + 21 * MIN);
+    expect(etaPastDeadline(paid, new Date(PROMISED + 27 * MIN))).toBe(false);
+  });
+});
+
 describe('creditToastDue', () => {
   it('fires once per order, only when the credit is posted', () => {
     const credited = promise({ amountIqd: 1000, at: new Date(PROMISED + 21 * MIN) });
@@ -54,6 +67,6 @@ describe('creditToastDue', () => {
 describe('promiseCopy', () => {
   it('names the delivery fee only when the credit is the fee', () => {
     expect(promiseCopy('delivery_fee')).toMatchObject({ line: 'promise.line', checkoutHint: 'promise.checkout_hint', toast: 'promise.toast', receiptHint: 'promise.receipt_hint', noteLateCredit: 'track.note_late_credit' });
-    expect(promiseCopy('flat')).toMatchObject({ line: 'promise.line_flat', checkoutHint: 'promise.checkout_hint_flat', barUntil: 'promise.bar_until_flat', credited: 'promise.credited_flat', toast: 'promise.toast_flat', receiptHint: 'promise.receipt_hint_flat', noteLateCredit: 'track.note_late_credit_flat' });
+    expect(promiseCopy('flat')).toMatchObject({ line: 'promise.line_flat', checkoutHint: 'promise.checkout_hint_flat', barUntil: 'promise.bar_until_flat', barPast: 'promise.bar_past_flat', credited: 'promise.credited_flat', toast: 'promise.toast_flat', receiptHint: 'promise.receipt_hint_flat', noteLateCredit: 'track.note_late_credit_flat' });
   });
 });

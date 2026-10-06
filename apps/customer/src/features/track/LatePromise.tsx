@@ -6,7 +6,7 @@ import { formatClock, Icon, Text, useTheme, useToast, withAlpha } from '@driver/
 import { color } from '@driver/design-tokens';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { creditToastDue, promiseBar, promiseCopy } from './late-promise';
+import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy } from './late-promise';
 
 /** Orders whose "رجعنالك … رصيد" toast this app run already showed. */
 const toasted = new Set<string>();
@@ -45,6 +45,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
   }, [bar?.progress, fill, theme.reduceMotion, theme.motion.duration.base]);
   const fillStyle = useAnimatedStyle(() => ({ width: `${Math.round(fill.value * 1000) / 10}%` }));
   const credited = Boolean(bar?.credited);
+  const past = etaPastDeadline(bar, eta);
   const copy = bar ? promiseCopy(bar.basis) : null;
   const tone = credited ? theme.colors.success : theme.colors.warning;
   return (
@@ -80,7 +81,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
         <View
           testID="late-promise"
           accessible
-          accessibilityLabel={`${credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}. ${t('promise.bar_a11y', { elapsed: bar.elapsedMin, minutes: bar.afterMin })}`}
+          accessibilityLabel={`${credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}. ${t('promise.bar_a11y', { elapsed: bar.elapsedMin, minutes: bar.afterMin })}`}
           style={{ gap: theme.space[1] }}
         >
           <View style={{ height: 6, borderRadius: 3, backgroundColor: withAlpha(tone, 0.18), overflow: 'hidden' }}>
@@ -89,7 +90,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
             {credited ? <Icon name="check" size={14} color="successText" strokeWidth={2.4} /> : null}
             <Text variant="caption" weight={600} color={credited ? 'successText' : 'text'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
-              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
+              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
             </Text>
           </View>
         </View>
