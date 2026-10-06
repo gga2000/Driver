@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { balanceText, lineAmount, lineWhen, pointsWorthText } from './wallet-format';
+import { balanceText, lineAmount, lineWhen, paidOutsideWallet, pointsWorthText } from './wallet-format';
 
 const t = createT('ar-IQ');
 const en = createT('en');
@@ -14,9 +14,18 @@ describe('wallet formatting', () => {
   });
 
   it('signed line amounts in IQD and points', () => {
-    expect(strip(lineAmount({ amount: -16_500, unit: 'iqd' }, 'ar-IQ', t))).toBe('−16,500 دينار');
-    expect(strip(lineAmount({ amount: 20_000, unit: 'iqd' }, 'ar-IQ', t))).toBe('+20,000 دينار');
-    expect(strip(lineAmount({ amount: 27, unit: 'points' }, 'ar-IQ', t))).toBe('+27 نقطة');
+    expect(strip(lineAmount({ amount: -16_500, unit: 'iqd', method: 'wallet' }, 'ar-IQ', t))).toBe('−16,500 دينار');
+    expect(strip(lineAmount({ amount: 20_000, unit: 'iqd', method: null }, 'ar-IQ', t))).toBe('+20,000 دينار');
+    expect(strip(lineAmount({ amount: 27, unit: 'points', method: null }, 'ar-IQ', t))).toBe('+27 نقطة');
+  });
+
+  it('a cash-at-the-door order reads as its price, not a wallet debit', () => {
+    const cash = { amount: -14_000, unit: 'iqd', method: 'cash' } as const;
+    expect(paidOutsideWallet(cash)).toBe(true);
+    expect(strip(lineAmount(cash, 'ar-IQ', t))).toBe('14,000 دينار');
+    expect(strip(lineAmount(cash, 'en', en))).toBe('14,000 IQD');
+    expect(paidOutsideWallet({ unit: 'iqd', method: 'wallet' })).toBe(false);
+    expect(paidOutsideWallet({ unit: 'iqd', method: null })).toBe(false);
   });
 
   it('balance reads as owed when negative', () => {
