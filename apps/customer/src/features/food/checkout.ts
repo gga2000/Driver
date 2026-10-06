@@ -14,7 +14,7 @@ import {
   type Quote,
   type QuoteComponent,
 } from '@driver/contracts';
-import { ME, itemsTotal, type CartState } from './cart';
+import { ME, TABLE, itemsTotal, type CartState } from './cart';
 
 /**
  * Checkout as plain data: the delivery quote request, the totals the cart and checkout show, and
@@ -186,7 +186,8 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
       qty: l.qty,
       unitPriceIqd: l.basePriceIqd,
       modifiers: l.modifiers.map((m) => ({ groupId: m.groupId, modifierId: m.modifierId, priceIqd: m.priceIqd })),
-      ...(l.personId !== ME ? { participantRef: l.personId } : {}),
+      // «للسفرة» lines are the organiser's (no participant): their points go to him (joy o5).
+      ...(l.personId !== ME && l.personId !== TABLE ? { participantRef: l.personId } : {}),
       ...(l.note ? { note: l.note.slice(0, 300) } : {}),
       merchantOrgId: merchant.id,
     })),

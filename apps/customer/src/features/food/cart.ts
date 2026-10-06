@@ -8,6 +8,11 @@ import type { DeliveryPoint, MenuCategory, MenuItem, RestaurantCard } from '@dri
 
 /** The orderer's own lines. Other people are `CartPerson.id`s. */
 export const ME = 'me';
+/**
+ * «للسفرة» (joy o5, audit F-12): shared dishes for the whole table (the kilo, the mixed grill). They
+ * belong to no one person, so their points go to the orderer — the rule for untagged lines.
+ */
+export const TABLE = 'table';
 
 export interface CartModifier {
   groupId: string;
@@ -143,16 +148,17 @@ export interface PersonGroup {
 }
 
 /**
- * Lines by person for the cart (spec §3): the orderer first, then people in the order they were
- * added. `grouped` is false when only one person is on the order — the cart then lists lines flat.
+ * Lines by person for the cart (spec §3): «للسفرة» first (the shared dishes, joy o5), then the
+ * orderer, then people in the order they were added. `grouped` is false when only one group is on
+ * the order — the cart then lists lines flat.
  */
 export function groupByPerson(cart: CartState): { grouped: boolean; groups: PersonGroup[] } {
   const ids = [...new Set(cart.lines.map((l) => l.personId))];
-  const order = [ME, ...cart.people.map((p) => p.id)].filter((id) => ids.includes(id));
+  const order = [TABLE, ME, ...cart.people.map((p) => p.id)].filter((id) => ids.includes(id));
   for (const id of ids) if (!order.includes(id)) order.push(id);
   const groups = order.map((personId) => {
     const lines = cart.lines.filter((l) => l.personId === personId);
-    return { personId, person: personId === ME ? null : (cart.people.find((p) => p.id === personId) ?? null), lines, subtotalIqd: lines.reduce((s, l) => s + lineTotal(l), 0) };
+    return { personId, person: personId === ME || personId === TABLE ? null : (cart.people.find((p) => p.id === personId) ?? null), lines, subtotalIqd: lines.reduce((s, l) => s + lineTotal(l), 0) };
   });
   return { grouped: groups.length > 1, groups };
 }

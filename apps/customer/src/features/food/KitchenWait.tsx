@@ -122,10 +122,10 @@ export function PersonLinesCard({ groups, myName, totalLine }: { groups: PersonL
         </View>
         {groups.map((g) => (
           <View key={g.personId} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-            <Avatar size={28} name={g.name ?? myName ?? t('item.for_me_chip')} tone={g.name ? undefined : 'accent'} />
+            {g.kind === 'table' ? <Avatar size={28} icon="family" tone="accent" /> : <Avatar size={28} name={g.name ?? myName ?? t('item.for_me_chip')} tone={g.name ? undefined : 'accent'} />}
             <Text variant="footnote" style={{ flex: 1 }}>
               <Text variant="footnote" weight={600}>
-                {g.name ?? t('cart.for_me_section')}:{' '}
+                {g.kind === 'table' ? t('cart.for_table_section') : (g.name ?? t('cart.for_me_section'))}:{' '}
               </Text>
               {g.lines.join('، ')}
             </Text>

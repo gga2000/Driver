@@ -1,5 +1,5 @@
 import type { PublicSeason } from '@driver/contracts';
-import { ME, groupByPerson, type CartState } from './cart';
+import { ME, TABLE, groupByPerson, type CartState } from './cart';
 
 /**
  * "The kitchen says yes" (joy o14, audit F-06/F-07/S-5) as plain data: the waiting screen's three
@@ -62,7 +62,9 @@ export function acceptFeedback(today: Pick<PublicSeason, 'celebrations' | 'sound
 
 export interface PersonLines {
   personId: string;
-  /** Null for the orderer ("إلي"). */
+  /** «للسفرة» (shared dishes), the orderer ("إلي") or a person by name. */
+  kind: 'table' | 'me' | 'person';
+  /** Null for the table and the orderer. */
   name: string | null;
   /** "لفة تكة ×2 · بدون بصل" — one entry per line, the note after a dot. */
   lines: string[];
@@ -72,7 +74,8 @@ export interface PersonLines {
 export function linesByPerson(cart: CartState): PersonLines[] {
   return groupByPerson(cart).groups.map((g) => ({
     personId: g.personId,
-    name: g.personId === ME ? null : (g.person?.name ?? null),
+    kind: g.personId === TABLE ? 'table' : g.personId === ME ? 'me' : 'person',
+    name: g.personId === ME || g.personId === TABLE ? null : (g.person?.name ?? null),
     lines: g.lines.map((l) => {
       const dish = l.qty > 1 ? `${l.name} ×${l.qty}` : l.name;
       return l.note ? `${dish} · ${l.note}` : dish;

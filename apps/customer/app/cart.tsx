@@ -4,7 +4,7 @@ import { ScrollView, View } from 'react-native';
 import type { MenuItem } from '@driver/contracts';
 import { Avatar, Button, Card, EmptyState, Icon, IconButton, PriceBreakdown, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { groupByPerson, itemsTotal, ME, minOrderShortfall } from '@/features/food/cart';
+import { groupByPerson, itemsTotal, ME, minOrderShortfall, TABLE } from '@/features/food/cart';
 import { CartLineRow } from '@/features/food/CartLineRow';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { checkoutTotals, lineSavings, otherDeals } from '@/features/food/checkout';
@@ -122,9 +122,13 @@ export default function CartScreen() {
           <View key={g.personId} style={{ gap: theme.space[2] }} testID={`cart-group-${g.personId}`}>
             {grouped ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                <Avatar size={32} name={g.person?.name ?? myName ?? t('item.for_me_chip')} tone={g.person ? undefined : 'accent'} />
+                {g.personId === TABLE ? (
+                  <Avatar size={32} icon="family" tone="accent" />
+                ) : (
+                  <Avatar size={32} name={g.person?.name ?? myName ?? t('item.for_me_chip')} tone={g.person ? undefined : 'accent'} />
+                )}
                 <Text variant="bodyStrong" style={{ flex: 1 }}>
-                  {g.person ? t('cart.for_person_section', { name: g.person.name }) : t('cart.for_me_section')}
+                  {g.personId === TABLE ? t('cart.for_table_section') : g.person ? t('cart.for_person_section', { name: g.person.name }) : t('cart.for_me_section')}
                 </Text>
                 <Text variant="label" color="textMuted" tabular>
                   {iqd(g.subtotalIqd, { locale })}
@@ -145,6 +149,11 @@ export default function CartScreen() {
               {t('cart.points_by_person')}
             </Text>
           </View>
+        ) : null}
+        {grouped ? (
+          <Text variant="footnote" color="textMuted" testID="cart-organizer">
+            {t('cart.organizer_bonus')}
+          </Text>
         ) : null}
       </View>
 

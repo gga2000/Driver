@@ -8,10 +8,12 @@ import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
-import { ME, type CartMerchant } from './cart';
+import { useHousehold } from '@/features/account/queries';
+import { ME, TABLE, type CartMerchant } from './cart';
 import { cartStore, useCartStore } from './cart-store';
 import { FoodArt, artOf } from './FoodArt';
-import { servesCopy } from './portions';
+import { HOUSEHOLD_PREFIX, defaultPersonFor, isFamilyOrder, personChips } from './family';
+import { servesChosen, servesCopy } from './portions';
 import { chosenModifiers, defaultSelection, selectionProblems, sheetCta, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
 
 /** The dish picture on top of the sheet: 16:9 (joy o2). */
@@ -37,7 +39,11 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   const locale = useLocale();
   const toast = useToast();
   const { name: myName } = useProfile();
-  const { people } = useCartStore();
+  const { people, cart } = useCartStore();
+  // o5 «سفرة العائلة»: the household from the account, and whether this is a family order.
+  const household = useHousehold().data?.members;
+  const family = isFamilyOrder({ household: household ?? [], cartPeople: cart.people.length, tableLines: cart.lines.filter((l) => l.personId === TABLE).length });
+  const personTouched = useRef(false);
   const [selection, setSelection] = useState<Selection>(() => defaultSelection(item));
   const [qty, setQty] = useState(1);
   const [personId, setPersonId] = useState<string>(ME);
@@ -59,7 +65,12 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
     setQty(1);
     setNote('');
     setConflict(null);
+    personTouched.current = false;
   }, [item]);
+  // A dish that feeds two or more starts on «للسفرة» in a family order, until the person picks.
+  useEffect(() => {
+    if (!personTouched.current) setPersonId(defaultPersonFor(servesChosen(item, selection), family));
+  }, [item, selection, family]);
 
   const problems = selectionProblems(item, selection);
   const price = sheetLinePrice(item, selection, qty);
@@ -67,13 +78,25 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   const dealPrice = dealLinePrice(price, item.deal);
   const person = people.find((p) => p.id === personId) ?? null;
 
+  const chips = useMemo(() => personChips({ household: household ?? [], saved: people, family }), [household, people, family]);
   const personItems = useMemo(
-    () => [
-      { id: ME, label: t('item.for_me_chip'), avatar: { name: myName ?? t('item.for_me_chip'), tone: 'accent' as const } },
-      ...people.map((p) => ({ id: p.id, label: p.name, avatar: { name: p.name } })),
-    ],
-    [people, myName, t],
+    () =>
+      chips.map((c) =>
+        c.kind === 'table'
+          ? { id: c.id, label: t('item.for_table_chip'), avatar: { icon: 'family' as const, tone: 'accent' as const } }
+          : c.kind === 'me'
+            ? { id: c.id, label: t('item.for_me_chip'), avatar: { name: myName ?? t('item.for_me_chip'), tone: 'accent' as const } }
+            : { id: c.id, label: c.name, avatar: { name: c.name } },
+      ),
+    [chips, myName, t],
   );
+  const pickPerson = (id: string) => {
+    personTouched.current = true;
+    const chip = chips.find((c) => c.id === id);
+    // A household member is saved as a cart person the first time they are picked.
+    if (chip?.kind === 'household' && id.startsWith(HOUSEHOLD_PREFIX)) setPersonId(cartStore.addPerson(chip.name, null).id);
+    else setPersonId(id);
+  };
 
   const onToggle = (group: MenuModifierGroup, modifierId: string) => {
     const res = toggleModifier(item, selection, group.id, modifierId);
@@ -199,7 +222,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
             items={personItems}
             value={[personId]}
             required
-            onChange={(next) => setPersonId(next[0] ?? ME)}
+            onChange={(next) => pickPerson(next[0] ?? ME)}
             accessibilityLabel={t('item.for_whom')}
             action={{ label: t('item.add_person'), icon: 'plus', onPress: () => setAdding((a) => !a) }}
           />
@@ -219,11 +242,12 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
               </View>
             </Card>
           ) : null}
-          {person ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          {/* Points reach a person only through their phone; the table's are the organiser's. */}
+          {(person && person.phone) || personId === TABLE ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="item-points-to">
               <Icon name="gift" size={16} color="successText" />
               <Text variant="footnote" color="successText">
-                {t('item.points_go_to', { name: person.name })}
+                {person ? t('item.points_go_to', { name: person.name }) : t('item.table_points')}
               </Text>
             </View>
           ) : null}

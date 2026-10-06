@@ -44,8 +44,8 @@ describe('linesByPerson', () => {
     add({ itemId: 'a', name: 'لفة تكة', basePriceIqd: 2500, modifiers: [], qty: 1, note: 'بدون بصل', personId: sara.id }, sara);
     add({ itemId: 'b', name: 'شوربة عدس', basePriceIqd: 1000, modifiers: [], qty: 2, note: null, personId: ME });
     expect(linesByPerson(cart)).toEqual([
-      { personId: ME, name: null, lines: ['شوربة عدس ×2'] },
-      { personId: 'pp_1', name: 'سارة', lines: ['لفة تكة · بدون بصل'] },
+      { personId: ME, kind: 'me', name: null, lines: ['شوربة عدس ×2'] },
+      { personId: 'pp_1', kind: 'person', name: 'سارة', lines: ['لفة تكة · بدون بصل'] },
     ]);
   });
 });
