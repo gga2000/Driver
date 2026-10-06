@@ -73,10 +73,15 @@ export const NotifyPreferences = z.object({
   smsFallback: z.boolean(),
   /** Offers (push and WhatsApp): opt-in, at most 2 a week, never 23:00–08:00. */
   marketing: z.boolean(),
+  /**
+   * «قدر اليوم» (joy h2): a dish the person follows is today's pot. On by default — following the dish
+   * is the opt-in; this switch silences all of them. Never 23:00–08:00, never on a quiet day, one a day.
+   */
+  dishPots: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -93,8 +98,14 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
+
+/**
+ * Promotional in tone: held on quiet days and before iftar (`promoHold`), deferred in quiet hours.
+ * Only `marketing` counts toward the weekly offer cap; `dish_pot` is one a day by its event key.
+ */
+export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot']);
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
@@ -128,6 +139,7 @@ export const NotifyTemplateId = z.enum([
   'trip_shared_contact',
   'chat_message',
   'marketing_offer',
+  'dish_pot_today',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -474,11 +486,21 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'defer',
   },
+  // Joy h2: a dish the person follows is a kitchen's «قدر اليوم» (one a day at most, quiet on quiet days).
+  dish_pot_today: {
+    id: 'dish_pot_today',
+    category: 'dish_pot',
+    app: 'customer',
+    push: { title: 'push.dish_pot.title', body: 'push.dish_pot.body', androidChannel: 'marketing', deepLink: 'driver://restaurant/{merchantOrgId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
 };
 
 /** Categories a preference can switch off, and which switch. */
 export function preferenceFor(category: NotifyCategory, channel: NotifyChannel): keyof NotifyPreferences | null {
   if (category === 'marketing') return 'marketing';
+  if (category === 'dish_pot') return 'dishPots';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

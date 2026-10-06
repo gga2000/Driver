@@ -6,6 +6,7 @@ import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
 import { DISH_LABELS, DishLabel } from './catalog-io.js';
+import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
  * `merchantAdmin.*` — the Merchant app's second wave (partner & merchant apps spec): menu, deals,
@@ -606,4 +607,11 @@ export interface MerchantAdminPort {
     actor: Actor,
     input: z.infer<typeof ResendStaffInviteInput>,
   ): Promise<StaffMember>;
+  /** Joy h2 «قدر اليوم»: today's pot, last week's and the recent ones (owner and staff). */
+  potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView>;
+  potSet(actor: Actor, input: z.output<typeof SetPotInput>): Promise<MerchantPotView>;
+  potClear(actor: Actor, input: MerchantScope): Promise<MerchantPotView>;
+  /** Joy h5 «مطاعمنا»: the kitchen's story (staff read; the owner writes and decides if it shows). */
+  storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView>;
+  storySet(actor: Actor, input: z.output<typeof SetKitchenStoryInput>): Promise<KitchenStoryView>;
 }

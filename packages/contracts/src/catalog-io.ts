@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { DealBadge } from './deals.js';
+import { MenuPot, MenuStory, type FollowDishInput, type MyDishFollows, type PotsTodayInput, type TodayPot } from './habits-io.js';
 import type { Actor } from './identity-io.js';
 import type { Quote } from './pricing.js';
 
@@ -76,6 +77,11 @@ export const RestaurantCard = z.object({
    * (`orders.place` checks the same hours at the scheduled time).
    */
   hours: z.array(z.object({ dow: z.number().int().min(0).max(6), start: z.string(), end: z.string() })).optional(),
+  /**
+   * Weekly pause windows on the city's clock (Friday prayer, or the kitchen's own): `orders.place`
+   * refuses a scheduled time inside one, so pre-order slots skip them (joy J7a «غدا الجمعة»).
+   */
+  pauses: z.array(z.object({ dow: z.number().int().min(0).max(6), start: z.string(), end: z.string() })).optional(),
   /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
   deals: z.array(DealBadge).optional(),
 });
@@ -175,6 +181,12 @@ export const RestaurantMenu = z.object({
   categories: z.array(MenuCategory),
   /** The kitchen's most ordered dishes (item ids, most first; `POPULAR_RULES`); empty when none qualify. */
   popular: z.array(z.string()).optional(),
+  /** Today's pot here (joy h2), while it shows; null when none. */
+  pot: MenuPot.nullable().optional(),
+  /** Dishes that were this kitchen's pot in the last `POT_RULES.followableDays` days (followable). */
+  potDishes: z.array(z.string()).optional(),
+  /** «مطاعمنا» (joy h5): the owner's lines, only when he chose to show them. */
+  story: MenuStory.nullable().optional(),
 });
 export type RestaurantMenu = z.infer<typeof RestaurantMenu>;
 
@@ -339,6 +351,10 @@ export interface CustomerCatalogPort {
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
   picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]>;
+  /** Joy h2: today's pots in the city (open kitchens first); `followed` for a signed-in reader. */
+  pots(reader: Actor | CatalogReader, input: z.infer<typeof PotsTodayInput>): Promise<TodayPot[]>;
+  dishFollows(actor: Actor): Promise<MyDishFollows>;
+  followDish(actor: Actor, input: FollowDishInput): Promise<MyDishFollows>;
   unmet(reader: Actor | CatalogReader, input: z.infer<typeof SearchUnmetInput>): Promise<{ ok: true }>;
   unmetSearches(actor: Actor, input: z.infer<typeof UnmetSearchesInput>): Promise<UnmetSearchRow[]>;
 }

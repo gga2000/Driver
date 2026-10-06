@@ -5932,5 +5932,7 @@
   "share.ended_safe": "The trip ended safely at {time}",
   "share.ended_safe_delivery": "The order arrived at {time}",
   "share.ended_safe_body": "Home safe. The link stopped after arrival",
-  "rajaa.kept_title": "Your trip"
+  "rajaa.kept_title": "Your trip",
+  "push.dish_pot.title": "{restaurant} is cooking {dish} today",
+  "push.dish_pot.body": "You asked us to tell you. It's today's pot."
 }

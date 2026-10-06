@@ -41,6 +41,7 @@ import {
   WeeklyStatement,
 } from '../merchant-admin-io.js';
 import { DecideMenuShotInput, MenuPhotoRequestRef, MenuPhotoRequestView, RequestMenuPhotosInput } from '../menu-photos-io.js';
+import { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from '../habits-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
@@ -109,5 +110,16 @@ export const merchantAdminRouter = router({
     remove: p.input(RemoveStaffInput).output(z.object({ removed: z.boolean() })).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRemove(ctx.actor, input)),
     /** A pending invite goes out again (owner only; once per 10 min; the row after). */
     resendInvite: p.input(ResendStaffInviteInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffResendInvite(ctx.actor, input)),
+  }),
+  /** «قدر اليوم» (joy h2): one dish a day, posted in one tap; followers get one push. Owner and staff. */
+  pot: router({
+    get: p.input(MerchantScope).output(MerchantPotView).query(({ ctx, input }) => ctx.merchantAdmin.potGet(ctx.actor, input)),
+    set: p.input(SetPotInput).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potSet(ctx.actor, input)),
+    clear: p.input(MerchantScope).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potClear(ctx.actor, input)),
+  }),
+  /** «مطاعمنا» (joy h5): the owner's lines and the year; shown to customers only when he says so (owner writes). */
+  story: router({
+    get: p.input(MerchantScope).output(KitchenStoryView).query(({ ctx, input }) => ctx.merchantAdmin.storyGet(ctx.actor, input)),
+    set: p.input(SetKitchenStoryInput).output(KitchenStoryView).mutation(({ ctx, input }) => ctx.merchantAdmin.storySet(ctx.actor, input)),
   }),
 });

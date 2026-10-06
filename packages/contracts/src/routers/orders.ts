@@ -22,6 +22,7 @@ import {
   SwitchRideVehicleInput,
 } from '../order.js';
 import { TipOffer, TipOrderInput, TipResult } from '../order-tip.js';
+import { Usual } from '../habits-io.js';
 import { CourierPosition, OrderFirsts, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -43,6 +44,8 @@ export const ordersRouter = router({
   history: protectedProcedure().output(z.array(OrderHistoryRow)).query(({ ctx }) => ctx.tracking.history(ctx.actor)),
   /** «أول مرة» (joy g8): the person's first delivered meal and first tuktuk ride, once in a lifetime. */
   firsts: protectedProcedure().output(OrderFirsts).query(({ ctx }) => ctx.tracking.firsts(ctx.actor)),
+  /** «طلبك المعتاد؟» (joy s3): the person's usuals from their own delivered orders, each with the reason. */
+  usuals: protectedProcedure().output(z.array(Usual)).query(({ ctx }) => ctx.tracking.usuals(ctx.actor)),
   cancellationPreview: protectedProcedure()
     .input(OrderIdInput)
     .output(CancellationFee)

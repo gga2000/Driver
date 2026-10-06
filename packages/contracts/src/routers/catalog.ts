@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CarryOverInput, CarryOverPreview, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { FollowDishInput, MyDishFollows, PotsTodayInput, TodayPot } from '../habits-io.js';
 import type { Actor } from '../identity-io.js';
 import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
 
@@ -47,6 +48,20 @@ export const catalogRouter = router({
     .input(CatalogPicksInput)
     .output(z.array(CatalogSearchDish))
     .query(({ ctx, input }) => ctx.catalog.picks(readerOf(ctx), input)),
+  /** «العزيزية اليوم» (joy h2): today's pots in the city, open kitchens first; `followed` for the signed in. */
+  pots: publicProcedure
+    .input(PotsTodayInput)
+    .output(z.array(TodayPot))
+    .query(({ ctx, input }) => ctx.catalog.pots(readerOf(ctx), input)),
+  /** The dishes this person follows («خبرني لمن يطبخوه»). */
+  dishFollows: protectedProcedure()
+    .output(MyDishFollows)
+    .query(({ ctx }) => ctx.catalog.dishFollows(ctx.actor)),
+  /** Follow or stop following a dish; its day as a pot comes as one push (at most one a day). */
+  followDish: protectedProcedure()
+    .input(FollowDishInput)
+    .output(MyDishFollows)
+    .mutation(({ ctx, input }) => ctx.catalog.followDish(ctx.actor, input)),
 });
 
 /**

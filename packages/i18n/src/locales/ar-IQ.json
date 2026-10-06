@@ -5932,5 +5932,7 @@
   "share.ended_safe": "المشوار خلص بالسلامة الساعة {time}",
   "share.ended_safe_delivery": "الطلب وصل الساعة {time}",
   "share.ended_safe_body": "الحمد لله على السلامة. الرابط وقف بعد الوصول",
-  "rajaa.kept_title": "رحلتك"
+  "rajaa.kept_title": "رحلتك",
+  "push.dish_pot.title": "اليوم {restaurant} طابخين {dish}",
+  "push.dish_pot.body": "گلتلنا خبرني لمن يطبخوه، وهذا قدر اليوم."
 }

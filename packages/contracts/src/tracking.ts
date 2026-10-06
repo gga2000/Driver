@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DeliveryPoint, Iqd, LatLng, Vertical } from './common.js';
+import type { Usual } from './habits-io.js';
 import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
@@ -307,6 +308,8 @@ export interface TrackingPort {
   history(actor: Actor): Promise<OrderHistoryRow[]>;
   /** Joy g8: which of the actor's orders were their first delivered meal and first tuktuk ride. */
   firsts(actor: Actor): Promise<OrderFirsts>;
+  /** Joy s3: the actor's usual orders (same kitchen and dishes, same weekday/time band), with why. */
+  usuals(actor: Actor): Promise<Usual[]>;
   /** The orderer or a participant only: the road still ahead for this order. */
   route(actor: Actor, input: { orderId: string }): Promise<OrderRoute>;
 }
