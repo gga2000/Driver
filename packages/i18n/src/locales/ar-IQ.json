@@ -3051,7 +3051,7 @@
   "reorder.swap_add": "ضيفه",
   "reorder.pay_cash": "كاش للدليفري لمن يوصل",
   "reorder.total_today": "المجموع اليوم {amount} دينار",
-  "reorder.total_was": "(كان {amount})",
+  "reorder.total_was": "(كان {amount} دينار)",
   "reorder.place": "اطلبه · {amount} دينار",
   "reorder.edit_in_cart": "عدّل بالسلة",
   "reorder.place_failed": "ما كمل الطلب من هنا. راجعه وأكّد",

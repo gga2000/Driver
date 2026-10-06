@@ -3051,7 +3051,7 @@
   "reorder.swap_add": "Add it",
   "reorder.pay_cash": "Cash to the courier on arrival",
   "reorder.total_today": "Total today {amount} IQD",
-  "reorder.total_was": "(was {amount})",
+  "reorder.total_was": "(was {amount} IQD)",
   "reorder.place": "Order it · {amount} IQD",
   "reorder.edit_in_cart": "Edit in the cart",
   "reorder.place_failed": "It didn't go through from here. Check it and confirm",
