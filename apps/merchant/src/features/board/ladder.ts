@@ -50,15 +50,33 @@ export interface AlarmPlan {
   mostUrgent: { id: string; number: string; msLeft: number | null } | null;
   /** When the earliest snooze ends (for "يرجع يرن بعد 24 ث"); null without one. */
   snoozeEndsAt: number | null;
+  /**
+   * Orders still waiting while the store is closed (m6a): shown on the board, quietly, never rung.
+   * Closing is the owner saying the day is over; the board must not keep ringing behind the
+   * end-of-day card. The kitchen can still accept or reject them until the 90-s window ends.
+   */
+  closed: string[];
+}
+
+/**
+ * Whether the store is closed for the alarm (m6a): closed by hand ("سد المحل", the end-of-day card),
+ * or outside its weekly hours / on a holiday. A prayer pause is not a close — orders that came just
+ * before it still ring — and neither is the 00:30 card for yesterday while a late grill is still open.
+ */
+export function alarmQuiet(status: { closed: unknown; schedule?: { inHours: boolean } | null | undefined } | undefined): boolean {
+  if (!status) return false;
+  return status.closed !== null || status.schedule?.inHours === false;
 }
 
 /**
  * What should ring now. `snoozedUntil` maps an order to the end of its snooze; `handling` holds
  * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes).
+ * `storeClosed`: nothing rings; waiting orders are listed under `closed` instead (m6a).
  */
-export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: ReadonlyMap<string, number>, handling: ReadonlySet<string>, now: number): AlarmPlan {
+export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: ReadonlyMap<string, number>, handling: ReadonlySet<string>, now: number, storeClosed = false): AlarmPlan {
   const ringing: string[] = [];
   const snoozed: string[] = [];
+  const closed: string[] = [];
   let stage: AlarmStage | null = null;
   let mostUrgent: AlarmPlan['mostUrgent'] = null;
   let snoozeEndsAt: number | null = null;
@@ -66,6 +84,10 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
     if (handling.has(c.id)) continue;
     const msLeft = c.acceptByMs === null ? null : c.acceptByMs - now;
     if (mostUrgent === null || (msLeft !== null && (mostUrgent.msLeft === null || msLeft < mostUrgent.msLeft))) mostUrgent = { id: c.id, number: c.number, msLeft };
+    if (storeClosed) {
+      closed.push(c.id);
+      continue;
+    }
     const until = snoozedUntil.get(c.id);
     const floorReached = msLeft !== null && msLeft <= SNOOZE_FLOOR_MS;
     if (until !== undefined && until > now && !floorReached) {
@@ -79,7 +101,7 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
     const s = stageFor(msLeft);
     if (stage === null || RANK[s] > RANK[stage]) stage = s;
   }
-  return { ringing, snoozed, stage, mostUrgent, snoozeEndsAt };
+  return { ringing, snoozed, stage, mostUrgent, snoozeEndsAt, closed };
 }
 
 /** Snoozes the given orders from `now`; expired entries for orders no longer waiting are dropped. */

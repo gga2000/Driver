@@ -8,6 +8,8 @@ import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { usePrefs } from '@/lib/prefs';
 import { alarm, useNewOrderAlarm } from '@/features/board/alarm';
+import { alarmQuiet } from '@/features/board/ladder';
+import { useStoreStatus } from '@/features/store/queries';
 import { summaryTitle } from '@/features/board/Banners';
 import { newOrderSummary } from '@/features/board/logic';
 import { useBoard, useHeartbeat, useLiveMerchantBoard } from '@/features/board/queries';
@@ -32,8 +34,10 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const offset = board.offset;
   const clock = useCallback(() => Date.now() + offset, [offset]);
   // The alarm ladder runs here, so it rings (and escalates) on every screen, not only the board.
-  const plan = useNewOrderAlarm(board.data?.orders, prefs.soundOn, clock);
-  const pending = [...plan.ringing, ...plan.snoozed];
+  // m6a: a closed store (by hand, the end-of-day card, or out of hours) never rings.
+  const status = useStoreStatus(storeId);
+  const plan = useNewOrderAlarm(board.data?.orders, prefs.soundOn, clock, alarmQuiet(status.data));
+  const pending = [...plan.ringing, ...plan.snoozed, ...plan.closed];
   // A tablet on the counter must never sleep through an order (native; the web asks on "ابدأ الشغل").
   useEffect(() => {
     if (Platform.OS === 'web') return;

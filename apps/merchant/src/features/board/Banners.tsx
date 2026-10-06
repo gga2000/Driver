@@ -45,6 +45,11 @@ export interface NewOrderBannerProps {
    * the column and the badge — "3 طلبات تنتظر · 1 مسكّت" — instead of counting only what rings.
    */
   summary?: NewOrderSummary;
+  /**
+   * m6a: the store is closed and orders still wait — the strip shows them quietly ("المحل مسدود · ما
+   * يرن") with no snooze button: closing already silenced the alarm.
+   */
+  storeClosed?: boolean;
 }
 
 /** "3 طلبات تنتظر · 1 مسكّت · 1 ينتظر الزبون" (or "طلب جديد!" for a single fresh order). */
@@ -60,7 +65,7 @@ export function summaryTitle(t: ReturnType<typeof useT>, s: NewOrderSummary): st
  * and counts down ("باقي 7 ثواني على #3912"). "سكّت 30 ثانية" snoozes; while snoozed it says when it
  * rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
  */
-export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary }: NewOrderBannerProps) {
+export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false }: NewOrderBannerProps) {
   const theme = useTheme();
   const t = useT();
   const p = useSharedValue(0);
@@ -92,12 +97,18 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         : total > 1
           ? t('merchant.board.alert_count', { count: total })
           : t('merchant.board.alert_new');
-  const sub = !ringing && snoozeSeconds !== null ? t('merchant.board.alert_snoozed', { seconds: Math.max(1, snoozeSeconds) }) : stage === 'urgent' && seconds !== null ? t('merchant.board.alert_left', { seconds }) : null;
+  const sub = storeClosed
+    ? t('merchant.board.alert_closed_quiet')
+    : !ringing && snoozeSeconds !== null
+      ? t('merchant.board.alert_snoozed', { seconds: Math.max(1, snoozeSeconds) })
+      : stage === 'urgent' && seconds !== null
+        ? t('merchant.board.alert_left', { seconds })
+        : null;
 
   const bg = !ringing ? theme.colors.warningTint : hot ? theme.colors.danger : theme.colors.accent;
   const glowColor = hot ? color.danger[700] : color.primary[400];
   const fg = !ringing ? theme.colors.warningText : hot ? theme.colors.onDanger : theme.colors.onAccent;
-  const action = soundBlocked ? (
+  const action = storeClosed ? null : soundBlocked ? (
     <StripButton testID="sound-enable" tone="ink" icon="volume" label={t('merchant.sound.enable')} onPress={onEnableSound} />
   ) : ringing ? (
     <StripButton testID="alarm-snooze" tone={hot ? 'light' : 'soft'} icon="volume-off" label={t('merchant.board.alert_snooze')} onPress={onSnooze} />
@@ -107,10 +118,10 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
   return (
     <View
       testID={stage === 'final' ? 'alarm-final-banner' : 'new-order-banner'}
-      accessibilityLiveRegion="assertive"
+      accessibilityLiveRegion={storeClosed ? 'polite' : 'assertive'}
       style={{ backgroundColor: bg, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: compact ? theme.space[4] : theme.space[5], paddingVertical: theme.space[3], overflow: 'hidden' }}
     >
-      <View testID={`alarm-stage-${ringing ? (stage ?? 'calm') : 'snoozed'}`} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
+      <View testID={`alarm-stage-${ringing ? (stage ?? 'calm') : storeClosed ? 'closed' : 'snoozed'}`} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
       {ringing ? <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: glowColor }, glow]} /> : null}
       <Animated.View style={[{ width: 40, height: 40, borderRadius: 20, backgroundColor: ringing ? theme.colors.text : withAlpha(theme.colors.warningText, 0.14), alignItems: 'center', justifyContent: 'center' }, bell]}>
         {ringing ? <Icon name="bell" size={22} color={theme.colors.surface} strokeWidth={2.2} /> : <MIcon name="volume-off" size={20} color={theme.colors.warningText} />}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alarmAction, alarmPlan, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
+import { alarmAction, alarmPlan, alarmQuiet, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
 
 const T0 = 1_790_000_000_000;
 const order = (id: string, acceptInMs: number | null, now = T0): RingCandidate => ({ id, number: id.replace('o', '1'), acceptByMs: acceptInMs === null ? null : now + acceptInMs });
@@ -108,5 +108,40 @@ describe('"سكّت 30 ثانية" is a snooze, never a silence', () => {
   it('drops snoozes of orders that left the board', () => {
     const s = snooze(new Map([['gone', T0 + 10_000]]), ['o1'], T0, ['o1']);
     expect([...s.keys()]).toEqual(['o1']);
+  });
+});
+
+describe('a closed store never rings (m6a)', () => {
+  it('waiting orders are listed as closed, quietly, with the most urgent still named; nothing rings, not even the final 10 s', () => {
+    const c = [order('o1', 80_000), order('o2', 8_000), order('o3', 60_000)];
+    const plan = alarmPlan(c, new Map(), new Set(['o3']), T0, true);
+    expect(plan).toEqual({ ringing: [], snoozed: [], closed: ['o1', 'o2'], stage: null, mostUrgent: { id: 'o2', number: '12', msLeft: 8_000 }, snoozeEndsAt: null });
+    expect(alarmAction(plan.stage, 0, T0, true)).toEqual({ kind: 'silent' });
+    // The whole 90-s window of an order left waiting at close: not one chime, no final loop.
+    const quiet = { chimes: 0, loops: 0 };
+    for (let now = T0; now <= T0 + 90_000; now += 250) {
+      const a = alarmAction(alarmPlan([order('o4', 90_000)], new Map(), new Set(), now, true).stage, 0, now, true);
+      if (a.kind === 'chime') quiet.chimes += 1;
+      if (a.kind === 'loop') quiet.loops += 1;
+    }
+    expect(quiet).toEqual({ chimes: 0, loops: 0 });
+  });
+
+  it('a snooze does not matter while closed, and opening again rings straight away', () => {
+    const c = [order('o1', 80_000)];
+    const s = snooze(new Map(), ['o1'], T0 - 10_000, ['o1']);
+    expect(alarmPlan(c, s, new Set(), T0, true)).toMatchObject({ ringing: [], snoozed: [], closed: ['o1'] });
+    expect(alarmPlan(c, new Map(), new Set(), T0, false)).toMatchObject({ ringing: ['o1'], closed: [], stage: 'calm' });
+  });
+
+  it('closed = closed by hand (the end-of-day card) or out of hours; a prayer pause or the 00:30 card of a store still open keeps ringing', () => {
+    const at = new Date('2026-10-06T19:00:00Z');
+    expect(alarmQuiet(undefined)).toBe(false);
+    expect(alarmQuiet({ closed: null, schedule: { inHours: true } })).toBe(false);
+    expect(alarmQuiet({ closed: null })).toBe(false);
+    expect(alarmQuiet({ closed: { reason: 'closing_early', note: null, at }, schedule: { inHours: true } })).toBe(true);
+    expect(alarmQuiet({ closed: null, schedule: { inHours: false } })).toBe(true);
+    // Friday prayer: the status carries `pause`, not `closed`.
+    expect(alarmQuiet({ closed: null, schedule: null })).toBe(false);
   });
 });

@@ -45,6 +45,7 @@
   "merchant.board.alert_snoozed": "Quiet · rings again in {seconds} s",
   "merchant.board.alert_unsnooze": "Sound back on",
   "merchant.board.alert_left": "{seconds} s left before it is cancelled",
+  "merchant.board.alert_closed_quiet": "The store is closed, so no ringing · accept or reject them if you can",
   "merchant.board.final_one": "1 second left on #{number}",
   "merchant.board.final_two": "2 seconds left on #{number}",
   "merchant.board.final_many": "{seconds} seconds left on #{number}",

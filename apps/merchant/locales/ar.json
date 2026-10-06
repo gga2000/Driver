@@ -45,6 +45,7 @@
   "merchant.board.alert_snoozed": "ساكت · يرجع يرن بعد {seconds} ثانية",
   "merchant.board.alert_unsnooze": "رجّع الصوت",
   "merchant.board.alert_left": "باقي {seconds} ثانية حتى ينلغي",
+  "merchant.board.alert_closed_quiet": "المحل مسدود فما يرن · اقبلها أو ارفضها إذا تگدر",
   "merchant.board.final_one": "باقي ثانية وحدة على #{number}",
   "merchant.board.final_two": "باقي ثانيتين على #{number}",
   "merchant.board.final_many": "باقي {seconds} ثواني على #{number}",

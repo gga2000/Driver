@@ -19,10 +19,12 @@ let handling = new Set<string>();
 let soundReady = canPlay();
 let lastChimeAt = 0;
 let finalBuzzing = false;
-const EMPTY: AlarmPlan = { ringing: [], snoozed: [], stage: null, mostUrgent: null, snoozeEndsAt: null };
+const EMPTY: AlarmPlan = { ringing: [], snoozed: [], stage: null, mostUrgent: null, snoozeEndsAt: null, closed: [] };
 let plan: AlarmPlan = EMPTY;
 let planKey = '';
 let candidates: RingCandidate[] = [];
+/** The store is closed (by hand or out of hours): waiting orders show, nothing rings (m6a). */
+let storeClosed = false;
 
 const listeners = new Set<() => void>();
 const emit = () => {
@@ -46,7 +48,7 @@ export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
 }
 
 function publish(next: AlarmPlan) {
-  const key = [next.ringing.join(','), next.snoozed.join(','), next.stage, next.mostUrgent?.id, next.mostUrgent?.msLeft === null || !next.mostUrgent ? '' : Math.ceil(next.mostUrgent.msLeft / 1000), next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.mostUrgent?.msLeft === null || !next.mostUrgent ? '' : Math.ceil(next.mostUrgent.msLeft / 1000), next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
   plan = next;
   if (key !== planKey) {
     planKey = key;
@@ -62,7 +64,7 @@ function quiet() {
 
 /** One check of the ladder: plays, loops or stays quiet. `serverNow` times the windows; spacing uses the device clock. */
 function tick(serverNow: number, soundOn: boolean) {
-  const next = alarmPlan(candidates, snoozedUntil, handling, serverNow);
+  const next = alarmPlan(candidates, snoozedUntil, handling, serverNow, storeClosed);
   publish(next);
   const action = alarmAction(next.stage, lastChimeAt, Date.now(), soundOn && soundReady);
   switch (action.kind) {
@@ -103,17 +105,17 @@ export const alarm = {
   snooze(now: number) {
     snoozedUntil = snoozeMap(snoozedUntil, plan.ringing, now, candidates.map((c) => c.id));
     quiet();
-    publish(alarmPlan(candidates, snoozedUntil, handling, now));
+    publish(alarmPlan(candidates, snoozedUntil, handling, now, storeClosed));
   },
   /** "رجّع الصوت": ends every snooze now. */
   unsnooze(now: number) {
     snoozedUntil = new Map();
     lastChimeAt = 0;
-    publish(alarmPlan(candidates, snoozedUntil, handling, now));
+    publish(alarmPlan(candidates, snoozedUntil, handling, now, storeClosed));
   },
   /** A new order arrived on the live channel: ring now, before the board is re-read. */
   ringNow(orderId: string, soundOn: boolean) {
-    if (!soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
+    if (storeClosed || !soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
     lastChimeAt = Date.now();
     chime(STAGE_VOLUME.calm);
     vibrate(VIBRATION.calm);
@@ -139,12 +141,15 @@ export function useSoundReady(): boolean {
 
 /**
  * Runs the ladder while the app is open on a store (mounted once, in MerchantRuntime). `clock` is the
- * server clock (board offset), so the 90-s windows match the server's auto-reject.
+ * server clock (board offset), so the 90-s windows match the server's auto-reject. `closed`: the
+ * store is closed (`alarmQuiet`), so waiting orders are shown without a sound (m6a).
  */
-export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soundOn: boolean, clock: () => number): AlarmPlan {
+export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soundOn: boolean, clock: () => number, closed = false): AlarmPlan {
   const clockRef = useRef(clock);
   clockRef.current = clock;
   candidates = orders ? ringCandidates(orders) : [];
+  storeClosed = closed;
+  // Re-armed when the store closes or opens: closing silences at once, opening rings straight away.
   useEffect(() => {
     tick(clockRef.current(), soundOn);
     const id = setInterval(() => tick(clockRef.current(), soundOn), ALARM_TICK_MS);
@@ -152,6 +157,6 @@ export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soun
       clearInterval(id);
       quiet();
     };
-  }, [soundOn]);
+  }, [soundOn, closed]);
   return useAlarmPlan();
 }
