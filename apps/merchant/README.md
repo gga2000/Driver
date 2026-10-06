@@ -78,7 +78,8 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   as a plain SVG map (`ZoneMap`, no tiles) coloured by the delivery fee a customer there pays for this store's food
   (`merchant.deliveryArea`, the server's checkout quote; read-only), a legend in دينار, paused zones dashed, and a list of every
   zone. Owner and staff. **منين زبائنك** (r6) is a panel on الإحصائيات (`merchant.customerZones`): delivered orders per area
-  for the chosen range, zones under 5 orders folded into «مناطق ثانية» (spec D7). Demo: Khalid's history carries drop-off zones.
+  for the chosen range, zones under 5 orders folded into «مناطق ثانية» (spec D7). Owner only (Ali 2026-10-07): the API refuses
+  staff like the money screens, and staff don't see the panel. Demo: Khalid's history carries drop-off zones.
 - **تصوير المنيو** (`app/menu-photos.tsx`, `src/features/menu-photos/`, maps program k3): المزيد → «تصوير المنيو». The owner asks
   Driver's field team to photograph the whole menu or picked dishes, with a note («الأفضل الصبح قبل الزحمة»), then follows it on
   four steps (طلبنا · موعد التصوير · تصوّرت · خلص) and «ألغي الطلب» until the photos are handed over. Then each dish shows today's

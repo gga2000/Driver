@@ -11,11 +11,14 @@ import { useLayout } from '@/lib/layout';
 
 type Range = '7' | '30' | '90';
 
-/** الإحصائيات (owner and staff): how honest the prep times are, rejections, peak hours, what sells, what customers say, and where they are (maps r6). */
+/**
+ * الإحصائيات (owner and staff): how honest the prep times are, rejections, peak hours, what sells, what
+ * customers say, and — for the owner only, like money (Ali 2026-10-07) — where they are (maps r6).
+ */
 export default function InsightsScreen() {
   const t = useT();
   const { wide } = useLayout();
-  const { store } = useCurrentStore();
+  const { store, canSeeMoney: owner } = useCurrentStore();
   const [range, setRange] = useState<Range>('30');
   const days = Number(range);
   const insights = useInsights(store?.orgId ?? null, days);
@@ -42,7 +45,7 @@ export default function InsightsScreen() {
     >
       {wide ? null : picker}
       <InsightsView data={insights.data} wide={wide} />
-      <CustomerZonesPanel merchantOrgId={store?.orgId ?? null} days={days} wide={wide} />
+      {owner ? <CustomerZonesPanel merchantOrgId={store?.orgId ?? null} days={days} wide={wide} /> : null}
     </Page>
   );
 }

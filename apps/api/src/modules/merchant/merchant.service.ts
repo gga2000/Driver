@@ -253,8 +253,7 @@ export class MerchantService implements MerchantPort {
    */
   async setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
-    if (!(await this.people.hasRole(actor.personId, OWNER, org.id)))
-      throw new DriverError('forbidden');
+    await this.assertOwner(actor, org.id);
     if (storeHoursProblems(input.days, input.holidays).length > 0)
       throw new DriverError('store_hours_invalid');
     const now = this.clock.now();
@@ -352,7 +351,7 @@ export class MerchantService implements MerchantPort {
    */
   async setPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
-    if (!(await this.people.hasRole(actor.personId, OWNER, org.id))) throw new DriverError('forbidden');
+    await this.assertOwner(actor, org.id);
     const before = (await this.stores.merchantSettings(org.id)).pickupSpot ?? null;
     const kept = new Set(before?.photoRefs ?? []);
     for (const id of input.photoIds) {
@@ -424,10 +423,12 @@ export class MerchantService implements MerchantPort {
 
   /**
    * «منين زبائنك»: the store's delivered orders over the last `days` per drop-off zone, from one grouped
-   * read. Zones under CUSTOMER_ZONE_MIN_ORDERS are not named (D7); owner and staff alike (no money).
+   * read. Zones under CUSTOMER_ZONE_MIN_ORDERS are not named (D7). Owner only (Ali 2026-10-07): who
+   * buys where is the business's own picture, kept like the money screens (staff get `forbidden`).
    */
   async customerZones(actor: Actor, input: { merchantOrgId: string; days: number }): Promise<MerchantCustomerZones> {
     const org = await this.assertStore(actor, input.merchantOrgId);
+    await this.assertOwner(actor, org.id);
     const to = this.clock.now();
     const from = new Date(to.getTime() - input.days * DAY_MS);
     const [counts, zones] = await Promise.all([this.orders.deliveredByDropoffZone(org.id, { from, to: new Date(to.getTime() + 1) }), this.area.zones(org.cityId)]);
@@ -492,6 +493,11 @@ export class MerchantService implements MerchantPort {
     // (r1) from the same fix.
     const etaMinutes = (await this.eta.minutes(position, kitchen, vehicleClass ?? 'bike')).minutes;
     return courierView(order.id, { ...facts, etaMinutes, radar: radarOf(kitchen, position) });
+  }
+
+  /** Owner-only reads and writes (the money screens' rule): staff and strangers get `forbidden`. */
+  private async assertOwner(actor: Actor, merchantOrgId: string): Promise<void> {
+    if (!(await this.people.hasRole(actor.personId, OWNER, merchantOrgId))) throw new DriverError('forbidden');
   }
 
   /** The actor works at this store (owner or staff), and it is a restaurant or grocer. */

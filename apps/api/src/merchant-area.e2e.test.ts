@@ -42,7 +42,7 @@ describe('merchant delivery area over tRPC (e2e)', () => {
     await app.close();
   });
 
-  it('staff read their store’s zones with server fees and their customers’ areas; others are refused', async () => {
+  it('staff read their store’s zones with server fees, the owner his customers’ areas; others are refused', async () => {
     const [store, other] = await seedStorefronts(app.get(OrgsService), app.get(CatalogService), AZIZIYAH_RESTAURANTS.slice(0, 2).map((r) => ({ ...r, hours: [] })), 'area-owner');
     await app.get(OrgsService).settled();
     const staff = await signIn('07715551001');
@@ -55,7 +55,11 @@ describe('merchant delivery area over tRPC (e2e)', () => {
     expect(area.zones.every((z) => z.feeIqd !== null && z.service === 'open' && z.feeIqd === area.bands[z.band!]!.feeIqd)).toBe(true);
     expect(area.zones.filter((z) => z.kitchen)).toHaveLength(1);
 
-    const customers = await staff.api.merchant.customerZones.query({ merchantOrgId: store!.orgId });
+    // «منين زبائنك» is the owner's (Ali 2026-10-07): staff are refused, the owner reads it.
+    expect(await staff.api.merchant.customerZones.query({ merchantOrgId: store!.orgId }).then(() => 'ok', codeOf)).toBe('forbidden');
+    const owner = await signIn('07715551003');
+    await app.get(IdentityService).grantRole(SYSTEM, { personId: owner.personId, kind: 'merchant_owner', orgId: store!.orgId });
+    const customers = await owner.api.merchant.customerZones.query({ merchantOrgId: store!.orgId });
     expect(customers).toMatchObject({ days: 30, minOrders: 5, zones: [], otherOrders: 0, totalOrders: 0 });
 
     expect(await staff.api.merchant.deliveryArea.query({ merchantOrgId: other!.orgId }).then(() => 'ok', codeOf)).toBe('forbidden');

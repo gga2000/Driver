@@ -16,7 +16,7 @@ export function useDeliveryArea(merchantOrgId: string | null) {
   });
 }
 
-/** `merchant.customerZones` (owner and staff): delivered orders per area, small zones hidden (maps r6). */
+/** `merchant.customerZones` (owner only; the panel is not shown to staff): delivered orders per area, small zones hidden (maps r6). */
 export function useCustomerZones(merchantOrgId: string | null, days: number) {
   const api = useApi();
   const signedIn = useSignedIn();

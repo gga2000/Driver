@@ -32,6 +32,6 @@ export const merchantRouter = router({
   setPickupSpot: protectedProcedure(MERCHANT_ROLES).input(SetPickupSpotInput).output(PickupSpotView).mutation(({ ctx, input }) => ctx.merchant.setPickupSpot(ctx.actor, input)),
   /** «منطقة التوصيل» (maps program r5): zones with the server's fee from this kitchen; read-only, owner and staff. */
   deliveryArea: protectedProcedure(MERCHANT_ROLES).input(MerchantOrgInput).output(MerchantDeliveryArea).query(({ ctx, input }) => ctx.merchant.deliveryArea(ctx.actor, input)),
-  /** «منين زبائنك» (maps program r6): delivered orders per area, zones under 5 orders hidden (D7). */
+  /** «منين زبائنك» (maps program r6): delivered orders per area, zones under 5 orders hidden (D7). Owner only (the API refuses staff, like money). */
   customerZones: protectedProcedure(MERCHANT_ROLES).input(CustomerZonesInput).output(MerchantCustomerZones).query(({ ctx, input }) => ctx.merchant.customerZones(ctx.actor, input)),
 });

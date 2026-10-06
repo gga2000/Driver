@@ -40,4 +40,4 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.7 (r5, r6) and decision D7
 ## Open questions
 
 - Should the fee map show the daytime fee with a "+250 at night" note instead of the fee at the current hour? Built as "what customers pay now" (same as the storefront card).
-- Should owners see «منين زبائنك» only (like money)? Built for owner and staff: it carries no money.
+- Should owners see «منين زبائنك» only (like money)? **Decided by Ali 2026-10-07: owner only.** The API refuses staff (the money screens' owner check) and the panel is hidden for them; «منطقة التوصيل» stays for staff.

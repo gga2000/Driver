@@ -607,7 +607,7 @@ describe('MerchantService — where my customers are (maps program r6)', () => {
   it('names zones with 5 or more delivered orders, sums the rest into “other”, most first', async () => {
     const base = await setup();
     await delivered(base, [...Array<string>(7).fill('zakur'), ...Array<string>(5).fill('hashimi'), ...Array<string>(4).fill('khamas'), 'deir']);
-    const view = await base.svc.customerZones(base.staff, { merchantOrgId: base.khalid.id, days: 30 });
+    const view = await base.svc.customerZones(base.owner, { merchantOrgId: base.khalid.id, days: 30 });
     expect(view.zones).toEqual([
       { key: 'zakur', name_ar: 'زاكور', name_en: 'Zakur', orders: 7 },
       { key: 'hashimi', name_ar: 'الهاشمي', name_en: 'Al-Hashimi', orders: 5 },
@@ -631,5 +631,12 @@ describe('MerchantService — where my customers are (maps program r6)', () => {
     const { svc, staff, other, khalid } = await setup();
     expect(await code(svc.customerZones({ personId: 'nobody', sessionId: 'z' }, { merchantOrgId: khalid.id, days: 30 }))).toBe('forbidden');
     expect(await code(svc.customerZones(staff, { merchantOrgId: other.id, days: 30 }))).toBe('forbidden');
+  });
+
+  it('is the owner’s alone, like the money screens (Ali 2026-10-07); staff keep the delivery area', async () => {
+    const { svc, staff, owner, khalid } = await setup();
+    expect(await code(svc.customerZones(staff, { merchantOrgId: khalid.id, days: 30 }))).toBe('forbidden');
+    expect(await code(svc.customerZones(owner, { merchantOrgId: khalid.id, days: 30 }))).toBe('ok');
+    expect(await code(svc.deliveryArea(staff, { merchantOrgId: khalid.id }))).toBe('ok');
   });
 });
