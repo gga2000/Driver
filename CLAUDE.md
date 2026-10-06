@@ -13,6 +13,11 @@ shift guarantee, the خطوط sweep alert and 3-second look, plus screenshot fix
 `tip_after_rating_once_and_to_the_driver`). **Tips after a good rating** (Ali: "do whatever is best"):
 after 4–5 stars the customer may tip 500 / 1,000 / 2,000 دينار from his wallet, 100 % to the driver,
 once per order, within 24 h — `docs/api/tips.md`.
+**Honest-delay promise on the learned ETA** (Ali, 2026-10-07: "yes learned data"): the promised time's
+kitchen → door ride is the same learned minutes the customer's ETA shows (factor clamped 0.7–1.6, router
+minutes when nothing is learned), locked into the order at placement (`orders.promised_ride_min`), so the
+deadline never moves after that; amounts, the 10/20-minute steps and once-per-delivery unchanged —
+`docs/api/late-promise.md`.
 **Shift guarantee (G-91): built, switched off by Ali on 2026-10-06** ("hold it, switch it off") — the
 money rule `MoneyRules.guarantee.enabled` is `false`: the server pays no top-up, the partner app shows no
 guarantee line, the sim asserts nothing is paid. Don't turn it on or show progress toward it until Ali

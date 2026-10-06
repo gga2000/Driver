@@ -13,6 +13,28 @@ the apps:
 Which orders: food and catalog-grocery deliveries with a promised time (kitchen accepted, kitchen and
 door pins known — `promisedArrival` in the tracking module). Every such order carries the promise.
 
+## The promised time — learned minutes, locked at placement (Ali, 2026-10-07)
+Decided by Ali on 2026-10-07 ("yes learned data"); before that the promise used the router's raw
+minutes.
+
+- Promised time = the kitchen's promised ready time (`promisedReadyAt`, accept + prep) + the kitchen →
+  door ride.
+- The ride is the **same learned minutes the customer's ETA shows** (`EtaService.minutes`, the one ETA):
+  the router's estimate × the correction learned from finished legs for that zone pair, Baghdad-time
+  bucket, vehicle and routing basis, **clamped 0.7–1.6**. Nothing learned yet (or a cell with fewer
+  than 5 legs, down the whole fallback chain) = factor 1 = the router's minutes.
+- **Locked when the order is placed**: `orders.place` stores the ride in whole minutes on the order
+  (`orders.promised_ride_min`, migration `20261007180000_order_promised_ride`). Every read after that
+  — `orders.track`, the apology sweep, the `order.delivered` subscriber, the at-risk list — uses the
+  stored minutes, so the promise and its deadline never move as the city keeps learning or the hour
+  bucket turns. A scheduled order is quoted for its slot's traffic bucket (`scheduledFor`), not the
+  hour it was ordered.
+- The late credit fires against that locked promise. Only the minutes changed: the amounts, the
+  10 / 20-minute steps and once-per-delivery are as below.
+- Fallbacks: orders placed before the column (null) and an order whose ETA could not be read at
+  placement (logged; placing never fails on an estimate) are promised on the router's own minutes
+  (`EtaService.baseMinutes`), as before.
+
 ## Step one — the apology (no money)
 - Due when the clock passes promised time + `apologyAfterMin`, the order is not delivered, not
   cancelled / rejected / failed, and the customer is not marked unreachable (`lateApologyDue`).
@@ -22,7 +44,7 @@ door pins known — `promisedArrival` in the tracking module). Every such order 
   `TrackingService.sweepLateApologies()` every `LATE_APOLOGY_SWEEP_MS` (default 30,000; 0 turns it off)
   over `orders.listActive`.
 - The new time (`etaAt`): the courier's live ETA when he is sharing a fix; otherwise the kitchen (ready
-  time, or now) plus the kitchen → door ride the promise used. Rounded up to the minute, at least a
+  time, or now) plus the kitchen → door ride the promise used (the locked learned minutes). Rounded up to the minute, at least a
   minute from now.
 - Notify: template `order_late_apology` (category `order_updates`, customer app, push with an SMS twin
   after 60 s undelivered, sent in quiet hours too). Title "آسفين، طلبك تأخر شوية", body "يوصلك تقريباً

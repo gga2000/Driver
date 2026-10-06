@@ -13,7 +13,7 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.4 "One ETA (f7)".
   - `eta-corrections.repository.ts` — `EtaCorrectionsRepository` (`learn`, `cells`); in-memory twin; Prisma version does the EWMA in one `INSERT … ON CONFLICT DO UPDATE` per cell so concurrent legs both count, after an `eta_samples` insert with `skipDuplicates` (unique stop).
   - `learned-eta-correction.ts` — `LearnedEtaCorrection` (the bound `ETA_CORRECTION`): pins → zones with the places module's `ZoneResolver` over `ConfigService.cityIds()`; reads a city's cells once per `cacheMs`; a store read failure is logged and the leg quoted uncorrected.
   - `eta-learner.ts` — `EtaLearner`, subscriber `eta:learn-legs` on `stop.arrived`, writing through the delivery's `tx`.
-- **Promise untouched:** `TrackingService.promise()` (the honest-delay promise, recomputed on every read; the late credit hangs on it) now calls `baseMinutes` — exactly the minutes it used before. The live ETA, at-risk list, apology's new time, share page, merchant radar/board, storefront minutes and nearby-vehicle minutes use the corrected `minutes` / `fromMany`.
+- **Promise on the learned minutes, locked at placement (Ali, 2026-10-07: "yes learned data"):** at first the honest-delay promise stayed on `baseMinutes` because `TrackingService.promise()` recomputes it on every read. Ali reversed that on 2026-10-07: `OrdersService.place` now locks the kitchen → door ride from `EtaService.minutes` (learned, clamped 0.7–1.6, factor 1 when nothing is learned; a scheduled order at its slot's bucket via the optional `at` on `minutes` / `EtaLegQuery`) into `orders.promised_ride_min`, and `promise()` adds those stored minutes to `promisedReadyAt` — so the promise agrees with the ETA the customer sees and never moves after placement. Orders placed before the column, or whose ETA could not be read at placement, keep `baseMinutes`. Amounts, the 10/20-minute steps and once-per-delivery are unchanged (`docs/api/late-promise.md`). The live ETA, at-risk list, apology's new time, share page, merchant radar/board, storefront minutes and nearby-vehicle minutes use the corrected `minutes` / `fromMany`.
 
 ## Which legs teach (and why)
 
@@ -57,6 +57,7 @@ Migration `20261007105000_eta_corrections` (ends with `driver_harden`):
 - [x] Prisma models `EtaCorrection`, `EtaSample` + migration.
 - [x] Routing: `EtaCorrection` port, `EtaService` applies it, `baseMinutes`.
 - [x] Tracking: the promise uses `baseMinutes` (no behaviour change for the honest-delay credit).
+- [x] 2026-10-07 (Ali: "yes learned data"): the promise's ride is the learned minutes, locked at placement (`orders.promised_ride_min`, migration `20261007180000_order_promised_ride`); tests in `modules/tracking/learned-promise.test.ts` (router minutes when nothing is learned, the clamp at both ends, agrees with the live ETA, a scheduled slot's bucket, locked against later learning and the hour turning, the late credit against the locked deadline) and the wiring test (orders gets the learned `EtaService`).
 - [x] `eta` module: maths, repositories, `LearnedEtaCorrection`, `EtaLearner`, wiring, `AppModule`.
 - [x] Tests (`modules/eta/eta.test.ts`): buckets, EWMA, clamp, outlier/too-short guard, fallback chain and `minSamples`, repository idempotency, a learned factor changes `minutes` / `fromMany` (basis unchanged) and nothing changes before `minSamples`, vehicle/basis/bucket separation, cache + `forget`, unreadable store → uncorrected, and the learner end to end on in-memory trips + events (both legs learned, redelivery `duplicate`, quarantined, no first fix, outside geofence, offline tap, outlier, intercity skipped, five slow rides grow the ETA).
 - [x] Wiring test (`apps/api/src/eta-wiring.e2e.test.ts`): on `AppModule`, `EtaService` consults the learned correction and `eta:learn-legs` is subscribed (the port is optional, so a miswired app would otherwise quote uncorrected silently).
@@ -64,7 +65,7 @@ Migration `20261007105000_eta_corrections` (ends with `driver_harden`):
 
 ## Open questions
 
-1. **Store the promise?** The promise stays on router minutes because it is recomputed on every read. Storing the promised arrival at acceptance (with the learned ride) would make promises honest too — a money-adjacent change for Ali to decide.
+1. ~~**Store the promise?**~~ Decided by Ali on 2026-10-07 ("yes learned data"): the promise uses the learned ride minutes, locked into the order at placement (see Architecture).
 2. **Batched couriers' first leg:** a courier handed a second trip while on his first goes on with the first job; that trip's first leg can look slow. The outlier guard catches the extreme cases; excluding them precisely needs dispatch's batching flag on the trip.
 3. **Retention of `eta_samples`:** small and position-free; no purge yet.
 4. **Console view** of the learned factors per zone pair (e.g. "streets here run 1.4× the estimate") is not built.
