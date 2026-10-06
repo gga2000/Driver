@@ -56,11 +56,18 @@ export const RestaurantCard = z.object({
   deliveryFeeIqd: Iqd.nullable(),
   serviceFeeIqd: Iqd.nullable(),
   minOrderIqd: Iqd.min(0),
+  /**
+   * J-D6: the fee an order below `minOrderIqd` carries (the city's small-order fee, 500); 0 when the
+   * kitchen has no minimum. The facts line «طلب أقل من 5,000 دينار عليه رسوم 500 دينار».
+   */
+  smallOrderFeeIqd: Iqd.min(0).optional(),
   open: z.boolean(),
   /** Why it is closed: outside opening hours, or a scheduled pause (Friday prayer). */
   closedReason: z.enum(['hours', 'paused']).nullable(),
   /** Next local opening time, 12-hour "7:00", when closed. */
   opensAt: z.string().nullable(),
+  /** f12: minutes until it opens (closed by hours or a pause window); null when open or unknown. */
+  opensInMin: z.number().int().min(0).nullable().optional(),
   /** Busy mode: prep takes longer. */
   busy: z.boolean(),
   /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
@@ -111,6 +118,12 @@ export const MenuItem = z.object({
   prepTimeMin: z.number().int().min(0),
   pointsEligible: z.boolean(),
   modifierGroups: z.array(MenuModifierGroup),
+  /**
+   * f10 (UI/UX audit F-02): the restaurant's live percent deal with no minimum that covers this dish
+   * — the price one plain unit costs under it (`menuDealOf`, the rule `orders.quote` applies). Null
+   * when no such deal; deals with a minimum show in the cart instead.
+   */
+  deal: z.object({ dealId: z.string(), percent: z.number().int().min(1).max(100), priceIqd: Iqd.min(0) }).nullable().optional(),
 });
 export type MenuItem = z.infer<typeof MenuItem>;
 

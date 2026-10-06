@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basePrepMin, etaRange, foldArabic, nextOpening, openState, pinOf, prepRange, twelveHour } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, minutesUntilLocal, nextOpening, nextOpeningIn, openState, pinOf, prepRange, twelveHour } from './storefront.js';
 
 const TZ = 'Asia/Baghdad';
 const every = (start: string, end: string) => [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start, end }));
@@ -24,6 +24,17 @@ describe('storefront helpers', () => {
     expect(openState(late, [], [], TZ).open).toBe(true);
     // Only a Monday window: from Saturday evening the next opening is Monday's start.
     expect(nextOpening(late, [{ dow: 1, start: '08:30', end: '12:00' }], TZ)).toBe('8:30');
+  });
+
+  it('minutes to the next opening (f12: the first kitchen to open at night)', () => {
+    // Sunday 01:00 Baghdad, 11:00–00:30 daily: 10 hours.
+    expect(nextOpeningIn(new Date('2026-10-03T22:00:00Z'), every('11:00', '00:30'), TZ)).toBe(600);
+    // Saturday 23:30, a Monday-only 08:30 window: 33 h.
+    expect(nextOpeningIn(new Date('2026-10-03T20:30:00Z'), [{ dow: 1, start: '08:30', end: '12:00' }], TZ)).toBe(33 * 60);
+    expect(nextOpeningIn(new Date('2026-10-03T20:30:00Z'), [], TZ)).toBeNull();
+    // A pause ending at 13:15 seen at 12:00 local; an end already past today is tomorrow's.
+    expect(minutesUntilLocal(new Date('2026-10-03T09:00:00Z'), '13:15', TZ)).toBe(75);
+    expect(minutesUntilLocal(new Date('2026-10-03T09:00:00Z'), '11:00', TZ)).toBe(23 * 60);
   });
 
   it('prep: storefront figure, else the median item, plus the busy buffer', () => {

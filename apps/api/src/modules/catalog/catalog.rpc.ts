@@ -5,6 +5,8 @@ import {
   CATALOG_SEARCH_LIMITS,
   DriverError,
   PriceRequest,
+  SMALL_ORDER_FEE_IQD,
+  menuDealOf,
   deliveryFeesOf,
   searchScore,
   type Actor,
@@ -30,7 +32,7 @@ import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
-import { basePrepMin, etaRange, foldArabic, menuItemView, menuSections, openState, pinOf, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The quote engine the fee preview uses: the same one `orders.place` locks fees with. */
 export interface StorefrontPricing {
@@ -137,7 +139,11 @@ export class CatalogRpc implements CustomerCatalogPort {
     if (!s) throw new DriverError('org_not_found');
     const now = this.clock.now();
     const items = await this.catalog.menu(s.orgId);
-    return { restaurant: await this.card(s, items, input.dropoff ?? null, now), categories: menuSections(items, now, this.merchants.timeZone) };
+    const restaurant = await this.card(s, items, input.dropoff ?? null, now);
+    // f10: each dish's price under a live percent deal with no minimum (the rule orders.quote applies).
+    const deals = restaurant.deals ?? [];
+    const categories = menuSections(items, now, this.merchants.timeZone).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
+    return { restaurant, categories };
   }
 
   /**
@@ -301,12 +307,21 @@ export class CatalogRpc implements CustomerCatalogPort {
       deliveryFeeIqd: fees?.deliveryFeeIqd ?? null,
       serviceFeeIqd: fees?.serviceFeeIqd ?? null,
       minOrderIqd: s.minOrderIqd,
+      smallOrderFeeIqd: s.minOrderIqd > 0 ? SMALL_ORDER_FEE_IQD : 0,
       open: state.open,
       closedReason: state.closedReason,
       opensAt: state.opensAt,
+      opensInMin: holiday || closed || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
       busy,
       deals: (await this.merchants.deals?.(s.orgId, now)) ?? [],
     };
+  }
+
+  /** f12: minutes until a closed kitchen opens — its next opening window, or the end of the pause it is in. */
+  private opensInMin(now: Date, hours: StorefrontRecord['hours'], pauses: ReadonlyArray<{ dow: number; start: string; end: string }>, reason: 'hours' | 'paused' | null): number | null {
+    if (reason === 'hours') return nextOpeningIn(now, hours, this.merchants.timeZone);
+    const pause = activeWindow(now, pauses, this.merchants.timeZone);
+    return pause ? minutesUntilLocal(now, pause.end, this.merchants.timeZone) : null;
   }
 
   /** The food quote from the kitchen's zone to the customer's, at the door; null when it cannot be priced. */

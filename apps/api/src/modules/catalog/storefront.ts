@@ -56,8 +56,8 @@ export function twelveHour(hhmm: string): string {
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}`;
 }
 
-/** Start of the next opening window after `at` (local), within a week; null when there is none. */
-export function nextOpening(at: Date, hours: readonly AvailabilityWindow[], timeZone: string): string | null {
+/** The next opening window's start after `at` (local) and the minutes until it, within a week; null when none. */
+function nextOpeningWindow(at: Date, hours: readonly AvailabilityWindow[], timeZone: string): { inMin: number; start: string } | null {
   const { dow, minutes } = localDowMinutes(at, timeZone);
   let best: { inMin: number; start: string } | null = null;
   for (const w of hours) {
@@ -69,7 +69,25 @@ export function nextOpening(at: Date, hours: readonly AvailabilityWindow[], time
       break;
     }
   }
-  return best ? twelveHour(best.start) : null;
+  return best;
+}
+
+/** Start of the next opening window after `at` (local), within a week; null when there is none. */
+export function nextOpening(at: Date, hours: readonly AvailabilityWindow[], timeZone: string): string | null {
+  const next = nextOpeningWindow(at, hours, timeZone);
+  return next ? twelveHour(next.start) : null;
+}
+
+/** f12: minutes from `at` to the next opening window's start (the night home's "first to open"); null when none. */
+export function nextOpeningIn(at: Date, hours: readonly AvailabilityWindow[], timeZone: string): number | null {
+  return nextOpeningWindow(at, hours, timeZone)?.inMin ?? null;
+}
+
+/** Minutes from `at` to the next local `hh:mm` (later today, else tomorrow): when a pause window ends. */
+export function minutesUntilLocal(at: Date, hhmm: string, timeZone: string): number {
+  const { minutes } = localDowMinutes(at, timeZone);
+  const diff = toMinutes(hhmm) - minutes;
+  return diff > 0 ? diff : diff + 1440;
 }
 
 export interface OpenState {

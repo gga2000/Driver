@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG_PUBLIC_RATE, PriceRequest, isDriverError, type AppContext, type MenuItem, type RestaurantCard } from '@driver/contracts';
+import { CATALOG_PUBLIC_RATE, PriceRequest, isDriverError, type AppContext, type DealBadge, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { FakeClock } from '../../shared/clock.js';
@@ -352,5 +352,50 @@ describe('catalog.today (welcome screen live proof, audit d-6)', () => {
     for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.today(guest, { cityId: 'aziziyah' });
     const err = await w.rpc.today(guest, { cityId: 'aziziyah' }).catch((e: unknown) => e);
     expect(isDriverError(err) && err.code).toBe('rate_limited');
+  });
+});
+
+describe('menu deal prices, the small-order fee and the first to open (J1d: f10, J-D6, f12)', () => {
+  const badge = (over: Partial<DealBadge> = {}): DealBadge => ({
+    dealId: 'deal_20',
+    type: 'percent',
+    value: 20,
+    minOrderIqd: 0,
+    itemIds: [],
+    label_ar: 'خصم 20% على كل المنيو',
+    label_en: '20% off the whole menu',
+    endsAt: new Date('2026-10-10T00:00:00Z'),
+    ...over,
+  });
+
+  async function withDeals(deals: DealBadge[]) {
+    const w = await world();
+    const base = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs));
+    const merchants = { timeZone: base.timeZone, profile: base.profile.bind(base), deals: async () => deals };
+    return { w, rpc: new CatalogRpc(w.catalog, merchants, w.pricing, w.clock) };
+  }
+
+  it('a 20 % all-menu deal gives every dish its deal price, the same rule orders.quote applies', async () => {
+    const { w, rpc } = await withDeals([badge()]);
+    const menu = await caller(rpc).menu({ merchantId: w.byKey('khalid').orgId });
+    const items = menu.categories.flatMap((c) => c.items);
+    const wrap = items.find((i) => i.name === 'لفة كباب')!;
+    expect(wrap.deal).toEqual({ dealId: 'deal_20', percent: 20, priceIqd: 1_600 });
+    for (const i of items) expect(i.deal?.priceIqd, i.name).toBe(i.priceIqd - Math.floor((i.priceIqd * 20) / 100));
+  });
+
+  it('a deal with a minimum or on other dishes leaves the menu price alone', async () => {
+    const { w, rpc } = await withDeals([badge({ minOrderIqd: 15_000 }), badge({ dealId: 'scoped', itemIds: ['nothing-here'] })]);
+    const menu = await caller(rpc).menu({ merchantId: w.byKey('khalid').orgId });
+    for (const i of menu.categories.flatMap((c) => c.items)) expect(i.deal ?? null, i.name).toBeNull();
+  });
+
+  it('the card carries the small-order fee below its minimum and minutes to opening when closed', async () => {
+    const w = await world();
+    const cards = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    const khalid = cards.find((c) => c.name === 'مطعم خالد')!;
+    expect(khalid).toMatchObject({ minOrderIqd: 5_000, smallOrderFeeIqd: 500, opensInMin: null });
+    // Saturday 18:12 → Sunday 05:00: 10 h 48 min.
+    expect(cards.find((c) => c.name === 'مطعم المسافر')).toMatchObject({ open: false, opensAt: '5:00', opensInMin: 648 });
   });
 });
