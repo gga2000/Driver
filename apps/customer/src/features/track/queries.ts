@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LIVE_RULES, type CourierPosition, type OrderRoute, type OrderTracking } from '@driver/contracts';
+import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import { useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
@@ -91,12 +92,14 @@ export function useCourierPosition(orderId: string, enabled: boolean) {
  */
 export function useOrderRoute(orderId: string, enabled: boolean, stage: string) {
   const api = useApi();
+  const lite = useLiteMode();
   const signedIn = useSignedIn();
   const q = useQuery({
     ...api.orders.route.queryOptions({ orderId }),
     enabled: signedIn && enabled,
     staleTime: ROUTE_STALE_MS,
-    refetchInterval: enabled ? ROUTE_STALE_MS : false,
+    // Low-data mode (maps program q2): the road is re-read three times less often.
+    refetchInterval: enabled ? liteInterval(ROUTE_STALE_MS, lite) : false,
     placeholderData: (prev: OrderRoute | undefined) => prev,
   });
   const { refetch } = q;

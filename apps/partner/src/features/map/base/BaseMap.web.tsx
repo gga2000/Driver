@@ -1,5 +1,6 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
+import { useLiteMode } from '@driver/ui';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
@@ -13,7 +14,9 @@ import { ZoneLayer } from './ZoneLayer';
 /** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
 export function BaseMap(props: BaseMapProps) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <SvgBase {...props} />;
+  // Low-data mode (maps program q2): the drawn town instead of downloading map tiles.
+  const lite = useLiteMode();
+  if (failed || lite) return <SvgBase {...props} />;
   return <MapLibreBase {...props} onFail={() => setFailed(true)} />;
 }
 

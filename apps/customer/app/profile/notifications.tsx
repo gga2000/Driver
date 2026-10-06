@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { AppState, Platform, Switch, View } from 'react-native';
 import type { NotifyPreferences } from '@driver/contracts';
-import { Button, Card, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
+import { saveDataSaverPref } from '@/lib/data-saver-pref';
 import { useTrackingSounds } from '@/lib/sound';
 
 type PrefKey = keyof NotifyPreferences;
@@ -138,6 +139,8 @@ export default function NotificationSettings() {
             }
           />
         </Card>
+        {/* Maps program q2: low-data mode. */}
+        <DataSaverCard onChange={(p) => void saveDataSaverPref(p)} />
       </View>
 
       <Card elevation={0} padding={0}>

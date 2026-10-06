@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useLiteMode } from '@driver/ui';
 import Svg, { Circle, Ellipse, G, Line, Path, Rect } from 'react-native-svg';
 import { art } from '@driver/design-tokens';
 import { ART_LOOKS, type Motif } from './food-art';
@@ -321,7 +322,9 @@ export interface FoodArtProps {
 }
 
 export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', style }: FoodArtProps) {
-  if (photoUrl) return <Image source={{ uri: photoUrl }} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
+  // Low-data mode (maps program q2): the drawn dish instead of downloading the photo.
+  const lite = useLiteMode();
+  if (photoUrl && !lite) return <Image source={{ uri: photoUrl }} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
   const hero = variant === 'hero';
   const l = lookOf(look);
   return (

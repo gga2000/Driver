@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { GeoJSONSource, Map as MlMap } from 'maplibre-gl';
 import { buildPlacedZonesGeoJSON, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import { useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
 import { SvgBase } from './SvgBase';
@@ -14,7 +15,9 @@ import { ZoneLayer } from './ZoneLayer';
 /** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
 export function BaseMap(props: BaseMapProps) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <SvgBase {...props} />;
+  // Low-data mode (maps program q2): the drawn town instead of downloading map tiles.
+  const lite = useLiteMode();
+  if (failed || lite) return <SvgBase {...props} />;
   return <MapLibreBase {...props} onFail={() => setFailed(true)} />;
 }
 

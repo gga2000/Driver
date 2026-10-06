@@ -2,7 +2,7 @@ import { router, type Href } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
-import { Avatar, Button, Card, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
@@ -11,6 +11,7 @@ import { unregisterPush } from '@/features/notify/Push';
 import { navAppName, NavChooser } from '@/features/work/JobSheets';
 import { setNavApp, useNavApp } from '@/features/work/nav';
 import { useMe, useStatus } from '@/features/work/queries';
+import { saveDataSaverPref } from '@/lib/data-saver-pref';
 import { playTestSound } from '@/lib/alert';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -120,6 +121,8 @@ export default function Account() {
           <ListRow testID="nav-app" leading="map-pin" title={t('partner.nav_setting')} subtitle={nav.app ? t(navAppName(nav.app)) : t('partner.nav_setting_none')} onPress={() => setChoosingNav(true)} />
         </Card>
       </View>
+      {/* Maps program q2: low-data mode. */}
+      <DataSaverCard onChange={(p) => void saveDataSaverPref(p)} />
       <NavChooser
         visible={choosingNav}
         current={nav.app}

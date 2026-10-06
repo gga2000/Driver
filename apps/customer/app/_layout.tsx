@@ -1,6 +1,7 @@
 import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -40,6 +41,8 @@ export default function RootLayout() {
   useEffect(() => {
     void session.hydrate();
     void profile.load();
+    // Low-data mode (maps program q2): the customer's stored choice.
+    void loadDataSaverPref();
   }, []);
 
   useEffect(() => {

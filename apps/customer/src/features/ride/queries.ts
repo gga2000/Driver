@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { NEARBY_RULES, type LatLng, type NearbyVehicles, type Quote } from '@driver/contracts';
+import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { CITY_ID, quoteMinute, rideQuoteRequest, RIDE_VERTICALS, spotPoint, type RideVertical, type Spot } from './logic';
@@ -32,13 +33,15 @@ export function useZoneFor(pin: LatLng | null) {
  */
 export function useNearbyVehicles(pin: LatLng | null, vertical: RideVertical) {
   const api = useApi();
+  // Low-data mode (maps program q2): free vehicles every 30 s instead of 10.
+  const lite = useLiteMode();
   const signedIn = useSignedIn();
   const key = { cityId: CITY_ID, pin: pin ? { lat: Math.round(pin.lat * 1e5) / 1e5, lng: Math.round(pin.lng * 1e5) / 1e5 } : { lat: 0, lng: 0 }, vertical };
   return useQuery({
     ...api.dispatch.nearby.queryOptions(key),
     enabled: signedIn && pin !== null,
     staleTime: NEARBY_RULES.refreshMs,
-    refetchInterval: NEARBY_RULES.refreshMs,
+    refetchInterval: liteInterval(NEARBY_RULES.refreshMs, lite),
     placeholderData: (prev: NearbyVehicles | undefined) => prev,
   });
 }
