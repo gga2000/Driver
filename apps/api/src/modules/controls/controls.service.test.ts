@@ -187,6 +187,6 @@ describe('launch controls', () => {
     expect((await h.svc.seasons()).map((q) => q.kind)).toEqual(['quiet', 'ramadan']);
     await h.svc.clearSeason(ALI, { seasonId: r.id });
     expect((await h.svc.season({})).ramadan).toBeNull();
-    expect((await h.svc.audit({ subjectKind: 'season', limit: 10 })).map((a) => a.action)).toEqual(['season.clear', 'season.iftar', 'season.iftar', 'season.set']);
+    expect((await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'season', limit: 10 })).map((a) => a.action)).toEqual(['season.clear', 'season.iftar', 'season.iftar', 'season.set']);
   });
 });

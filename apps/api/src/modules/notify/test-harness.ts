@@ -8,6 +8,14 @@ import { InMemoryNotifyRepository } from './notify.repository.js';
 import { NotifyService } from './notify.service.js';
 import { DevPushProvider, type PushMessage, type PushPort, type PushReceipt, type PushTicket } from './providers/push.js';
 import { DevWhatsAppProvider, type WhatsAppMessage, type WhatsAppPort, type WhatsAppResult } from './providers/whatsapp.js';
+import type { PromoHold } from '../controls/index.js';
+
+/** The engine's offer gate from a test's `quietDay` switch (J1a tests) or a full `promoHold` (J6). */
+function holdFrom(opts: { quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null> }): ((at: Date) => Promise<PromoHold | null>) | undefined {
+  if (opts.promoHold) return opts.promoHold;
+  const quietDay = opts.quietDay;
+  return quietDay ? async (at) => ((await quietDay(at)) ? { reason: 'quiet_day' } : null) : undefined;
+}
 
 /** A push port whose tickets and receipts a test scripts. */
 export class ScriptedPush implements PushPort {
@@ -64,7 +72,7 @@ export const PHONES: Record<string, string> = { cust: '+9647701110001', guardian
 /** 12:00 Baghdad. */
 export const NOON = '2026-10-04T09:00:00Z';
 
-export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean> } = {}) {
+export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null> } = {}) {
   const clock = new FakeClock(opts.start ?? NOON);
   const repo = new InMemoryNotifyRepository();
   const queue = new InMemoryQueue<NotifyJob>('notify', () => clock.now());
@@ -78,7 +86,7 @@ export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort; 
       return { locale: opts.locale?.[personId] ?? ('ar-IQ' as Locale), phoneE164: o.phone ? (PHONES[personId] ?? null) : null };
     },
   };
-  const engine = new NotifyEngine(repo, { push: { expo: push, fcm: push }, sms, whatsapp }, contacts, queue, clock, { retryBaseMs: 1000, maxAttempts: 3, receiptDelaySec: 60 }, opts.quietDay);
+  const engine = new NotifyEngine(repo, { push: { expo: push, fcm: push }, sms, whatsapp }, contacts, queue, clock, { retryBaseMs: 1000, maxAttempts: 3, receiptDelaySec: 60 }, holdFrom(opts));
   queue.process((job) => engine.process(job.data));
   const service = new NotifyService(undefined, engine, repo, clock);
   /** Advance the clock and run every job due. */

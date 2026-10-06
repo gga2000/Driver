@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderError } from '../../shared/messaging/http.js';
 import { inQuietHours, quietHoursEnd } from './notify.engine.js';
+import type { PromoHold } from '../controls/index.js';
 import { CallbackWhatsApp, notifyHarness, ScriptedPush } from './test-harness.js';
 
 const SEC = 1000;
@@ -158,6 +159,28 @@ describe('quiet hours and the marketing cap', () => {
       ['marketing_offer', 'suppressed', 'quiet_day'],
       ['order_accepted', 'sent', null],
     ]);
+  });
+
+  it('J6: an offer in the 20 minutes before iftar waits until after the latest iftar; a season with offers off drops it; order updates still go', async () => {
+    const until = new Date('2027-02-08T14:54:00Z'); // 17:54 Baghdad, the later timetable's iftar
+    let hold: PromoHold | null = { reason: 'iftar', until };
+    const h = notifyHarness({ start: '2027-02-08T14:25:00Z', promoHold: async (at) => (hold?.reason === 'iftar' && at >= hold.until ? null : hold) });
+    await h.register('cust');
+    await h.service.setPreferences(h.actor('cust'), { marketing: true });
+    const [held] = await h.service.dispatch({ eventId: 'm1', template: 'marketing_offer', to: 'cust', params: { title: 'عرض', body: 'خصم' } });
+    expect(held).toMatchObject({ status: 'deferred', reason: 'iftar', notBefore: until });
+    await h.service.dispatch({ eventId: 'o1', template: 'order_accepted', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'o1' } });
+    await h.run();
+    expect((await h.rows({ personId: 'cust' })).map((r) => [r.template, r.status])).toEqual([
+      ['marketing_offer', 'deferred'],
+      ['order_accepted', 'sent'],
+    ]);
+    h.clock.set('2027-02-08T14:55:00Z');
+    await h.run();
+    expect((await h.rows({ personId: 'cust' })).filter((r) => r.template === 'marketing_offer').map((r) => r.status)).toEqual(['sent']);
+    hold = { reason: 'season' };
+    const [dropped] = await h.service.dispatch({ eventId: 'm2', template: 'marketing_offer', to: 'cust', params: { title: 'عرض', body: 'خصم' } });
+    expect(dropped).toMatchObject({ status: 'suppressed', reason: 'season' });
   });
 });
 

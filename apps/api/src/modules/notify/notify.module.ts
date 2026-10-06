@@ -170,8 +170,8 @@ function envInt(name: string, fallback: number): number {
             maxAttempts: envInt('NOTIFY_MAX_ATTEMPTS', DEFAULT_ENGINE_OPTIONS.maxAttempts),
             receiptDelaySec: envInt('NOTIFY_RECEIPT_DELAY_SEC', DEFAULT_ENGINE_OPTIONS.receiptDelaySec),
           },
-          // Mourning days set in the Console: no offers then (customer joy J1a).
-          (at) => controls.isQuietDay(at),
+          // Seasons set in the Console: no offers on mourning days, none in the minutes before iftar (J1a, J6).
+          (at) => controls.promoHold(at),
         );
       },
       inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService],

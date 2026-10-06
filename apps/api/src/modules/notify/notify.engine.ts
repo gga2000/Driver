@@ -16,6 +16,7 @@ import {
 } from '@driver/contracts';
 import type { Locale } from '@driver/i18n';
 import type { Clock } from '../../shared/clock.js';
+import type { PromoHold } from '../controls/index.js';
 import { afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
 import { localHour, startOfLocalDay } from '../../shared/local-time.js';
 import { isProviderError } from '../../shared/messaging/http.js';
@@ -108,8 +109,11 @@ export class NotifyEngine {
     private readonly queue: Queue<NotifyJob>,
     private readonly clock: Clock,
     private readonly opts: NotifyEngineOptions = DEFAULT_ENGINE_OPTIONS,
-    /** Mourning days set in the Console (`ControlsService.isQuietDay`): no offers then. */
-    private readonly isQuietDay: (at: Date) => Promise<boolean> = async () => false,
+    /**
+     * The Console's seasons (`ControlsService.promoHold`): no offers on mourning days or in a season
+     * with offers off; offers wait from 20 minutes before iftar until after it (J6).
+     */
+    private readonly promoHold: (at: Date) => Promise<PromoHold | null> = async () => null,
   ) {}
 
   // ───────────────────────── routing ─────────────────────────
@@ -140,7 +144,7 @@ export class NotifyEngine {
     };
     const channels = req.channels ?? def.primary;
     const capped = def.category === 'marketing' && (await this.repo.countMarketingSince(req.to, new Date(now.getTime() - WEEK_MS))) >= MARKETING_MAX_PER_WEEK;
-    const quietDay = def.category === 'marketing' && (await this.isQuietDay(now));
+    const hold = def.category === 'marketing' ? await this.promoHold(now) : null;
     const deferred = def.quietHours === 'defer' && inQuietHours(now);
     const rows: NewDelivery[] = channels.map((channel) => {
       const pref = preferenceFor(def.category, channel);
@@ -149,8 +153,9 @@ export class NotifyEngine {
       let notBefore: Date | null = null;
       if (channel === 'whatsapp' && !def.whatsapp) [status, reason] = ['skipped', 'no_template'];
       else if (pref && !prefs[pref]) [status, reason] = ['suppressed', `preference:${pref}`];
-      else if (quietDay) [status, reason] = ['suppressed', 'quiet_day'];
+      else if (hold && hold.reason !== 'iftar') [status, reason] = ['suppressed', hold.reason];
       else if (capped) [status, reason] = ['suppressed', 'weekly_cap'];
+      else if (hold?.reason === 'iftar') [status, reason, notBefore] = ['deferred', 'iftar', hold.until];
       else if (deferred) [status, reason, notBefore] = ['deferred', 'quiet_hours', quietHoursEnd(now)];
       return { dedupeKey, eventId: req.eventId, template: req.template, personId: req.to, orderId: req.orderId ?? null, channel, status, reason, twin: false, payload: channel === 'whatsapp' && preview.whatsapp ? { ...payload, body: preview.whatsapp.text } : payload, notBefore };
     });
@@ -199,8 +204,15 @@ export class NotifyEngine {
         return;
       }
     }
-    if (def.category === 'marketing' && (await this.isQuietDay(now))) {
-      await this.repo.updateDelivery(row.id, { status: 'suppressed', reason: 'quiet_day' }, now);
+    const hold = def.category === 'marketing' ? await this.promoHold(now) : null;
+    if (hold?.reason === 'iftar') {
+      // Offers wait until after iftar (J6): the row is parked and the send job runs again then.
+      await this.repo.updateDelivery(row.id, { status: 'deferred', reason: 'iftar', notBefore: hold.until }, now);
+      await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, 'iftar', hold.until.getTime()), hold.until.getTime() - now.getTime());
+      return;
+    }
+    if (hold) {
+      await this.repo.updateDelivery(row.id, { status: 'suppressed', reason: hold.reason }, now);
       return;
     }
     try {
