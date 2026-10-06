@@ -1,4 +1,4 @@
-import { dealLabel, type DealBadge, type DealSchedule } from '@driver/contracts';
+import { dealLabel, percentDealSaving, type DealBadge, type DealSchedule } from '@driver/contracts';
 import { localDow, localMinutes } from '../../shared/local-time.js';
 import type { DealRecord } from './promotions.repository.js';
 
@@ -96,7 +96,7 @@ export function evaluateDeal(d: DealRecord, basket: Basket): DealOutcome | null 
     const coveredIqd = basket.lines.reduce((s, l, i) => s + (covered[i] ? l.lineIqd : 0), 0);
     let savings = zeros;
     if (coveredIqd > 0 && d.type === 'percent') {
-      savings = basket.lines.map((l, i) => (covered[i] ? Math.floor((l.lineIqd * d.value) / 100) : 0));
+      savings = basket.lines.map((l, i) => (covered[i] ? percentDealSaving(l.lineIqd, d.value) : 0));
     } else if (coveredIqd > 0 && d.type === 'fixed') {
       savings = allocateIqd(Math.min(d.value, coveredIqd), basket.lines.map((l, i) => (covered[i] ? l.lineIqd : 0)));
     } else if (d.type === 'bogo') {

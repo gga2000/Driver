@@ -102,14 +102,23 @@ describe('order closed — money §2 worked example', () => {
     expect(extra.money.lines.find((l) => l.type === 'cash_rounding_credit')?.amount).toBe(500);
   });
 
-  it('points redeem against the service fee first, then delivery; the platform funds them', () => {
+  it('points redeem against the delivery fee first, then the service fee (J-D10); the platform funds them', () => {
     const p = postOrderClosed(workedExample({ pointsRedeemed: 60 }), rules);
     validateGroup(p.money);
     const promo = p.money.lines.filter((l) => l.type === 'promo_funded');
-    expect(promo.map((l) => [l.memo, l.amount])).toEqual([
-      ['points:service_fee', 500],
-      ['points:delivery_fee', 100],
+    expect(promo.map((l) => [l.memo, l.amount])).toEqual([['points:delivery_fee', 600]]);
+    // Past the delivery fee (1,000) the rest comes off the service fee.
+    const more = postOrderClosed(workedExample({ pointsRedeemed: 130 }), rules);
+    validateGroup(more.money);
+    expect(more.money.lines.filter((l) => l.type === 'promo_funded').map((l) => [l.memo, l.amount])).toEqual([
+      ['points:delivery_fee', 1000],
+      ['points:service_fee', 300],
     ]);
+    // A free-delivery deal leaves only the service fee for points.
+    const free = postOrderClosed(workedExample({ pointsRedeemed: 80, merchantDeal: { promotionId: 'fd', target: 'delivery', amountIqd: 1000 } }), rules);
+    validateGroup(free.money);
+    expect(free.money.lines.filter((l) => l.memo?.startsWith('points:')).map((l) => [l.memo, l.amount])).toEqual([['points:service_fee', 500]]);
+    expect(free.redeem && nets(free.redeem)).toEqual({ 'points:c1': -50, points_pool: 50 });
     expect(nets(p.money)['platform']).toBe(2750 - 600);
     expect(p.totalIqd).toBe(16000); // 16,500 − 600 = 15,900 → hands over 16,000
     expect(nets(p.money)['customer:c1']).toBe(100); // the 100 change is his wallet credit

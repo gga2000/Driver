@@ -1,5 +1,6 @@
 import {
   cashToHand,
+  pointsRedemption,
   DepartureCancelledPayload,
   OrderCancelledPayload,
   ErrandMoneyPayload,
@@ -172,15 +173,13 @@ function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd
   return due;
 }
 
-/** Points value redeemed against the service fee first, then delivery (decisions §2). */
+/**
+ * Points value redeemed against the delivery fee first, then the service fee (J-D10, Ali
+ * 2026-10-05; decisions §2 said service fee first until then). The same rule `orders.quote` /
+ * `orders.place` apply (`pointsRedemption` in contracts), so the order's total and its posting agree.
+ */
 export function redemption(pointsRedeemed: number, serviceFeeIqd: number, deliveryFeeIqd: number, rules: MoneyRules) {
-  const value = pointsRedeemed * rules.points.pointValueIqd;
-  const maxPoints = Math.floor((serviceFeeIqd + deliveryFeeIqd) / rules.points.pointValueIqd);
-  const points = Math.min(pointsRedeemed, maxPoints);
-  const usable = Math.min(value, points * rules.points.pointValueIqd);
-  const againstService = Math.min(usable, serviceFeeIqd);
-  const againstDelivery = usable - againstService;
-  return { points, againstService, againstDelivery, valueIqd: usable };
+  return pointsRedemption(pointsRedeemed, { serviceFeeIqd, deliveryFeeIqd }, rules.points.pointValueIqd);
 }
 
 // ───────────────────────── order closed (food / grocery catalog) ─────────────────────────
@@ -234,8 +233,8 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
     b.add('tip', o.tipIqd, payer, Accounts.driver(o.courierId));
   }
   if (o.platformPromo) b.add('promo_funded', promo, Accounts.promo(o.platformPromo.promotionId), payer, `promo:${o.platformPromo.promotionId}`);
-  b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
+  b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
 
   const charged = o.itemsSubtotalIqd + serviceFee + o.smallOrderFeeIqd + o.deliveryFeeIqd + o.tipIqd - promo - itemDeal - deliveryDeal - red.valueIqd;
   const collector = o.courierId ? Accounts.cash(o.courierId) : merchant;
@@ -269,8 +268,8 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   b.add('errand_fee', e.errandFeeIqd, payer, shopper);
   b.add('service_fee', serviceFee, payer, Accounts.platform);
   b.add('tip', e.tipIqd, payer, shopper);
-  b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
+  b.add('promo_funded', red.againstService, Accounts.platform, payer, 'points:service_fee');
   const charged = e.actualCostIqd + e.errandFeeIqd + serviceFee + e.tipIqd - red.valueIqd;
   const total = settleCustomer(b, payer, e, charged, Accounts.cash(e.shopperId), rules);
   return {

@@ -22,7 +22,7 @@ left for the whole discount. Types (`promotions/deal-pricing.ts`, pure):
 `itemIds` empty = the whole menu; free-text requests are never covered. `minOrderIqd` is on the items total.
 
 **Stacking rule:** one merchant deal per order — the one that saves the customer most (ties: the older
-deal) — plus points redemption (ledger, service fee first, then what is left of delivery). Platform promo
+deal) — plus points redemption (delivery fee first — what is left of it after a free-delivery deal — then the service fee; J-D10). Platform promo
 codes (money §5) are not issued yet; when one resolves it competes with the merchant deal and the larger
 wins. No deal ever stacks with another.
 
