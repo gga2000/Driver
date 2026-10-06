@@ -12,6 +12,9 @@ import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/Restaurant
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { usePicks, useRestaurants } from '@/features/home/queries';
 import { toSummary } from '@/features/home/restaurant-summary';
+import { bandTitleKey, bandWords, daypart } from '@/features/home/daypart';
+import { DaypartBand } from '@/features/home/DaypartBand';
+import { FoodArt, motifForCuisine } from '@/features/food/FoodArt';
 import { DishResult } from '@/features/search/DishResult';
 import { searchIntents } from '@/features/search/intents';
 import { kitchensForMeal, MealResults } from '@/features/search/MealResults';
@@ -19,7 +22,10 @@ import { popularTerms, SEARCH_DEBOUNCE_MS } from '@/features/search/logic';
 import { searchRecents, useSearchRecents } from '@/features/search/recents';
 import { ServiceResults } from '@/features/search/ServiceResults';
 import { UnmetAsk } from '@/features/search/UnmetAsk';
+import { useViewedRestaurants } from '@/features/search/viewed';
+import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 
 function useDebounced(value: string, ms: number): string {
   const [v, setV] = useState(value);
@@ -52,6 +58,11 @@ export default function Search() {
   const recents = useSearchRecents();
   const restaurants = useRestaurants();
   const popular = useMemo(() => popularTerms((restaurants.data ?? []).map((r) => r.cuisine)), [restaurants.data]);
+  // The start screen (D-24): what I opened before, and dishes for this hour from kitchens open now.
+  const viewed = useViewedRestaurants();
+  const dp = useMemo(() => daypart(appNow()), []);
+  const quiet = useSeason().quiet;
+  const dayPicks = usePicks(bandWords(dp));
   const typed = query.trim().length > 0;
   const data = typed ? results.data : undefined;
   const settling = typed && (debounced.trim() !== query.trim() || results.isFetching);
@@ -155,7 +166,7 @@ export default function Search() {
           onChangeText={setQuery}
           onClear={() => setQuery('')}
           onSubmitEditing={remember}
-          placeholder={t('search.screen_placeholder')}
+          placeholder={t('search.placeholder')}
           accessibilityLabel={t('search.title')}
           style={{ flex: 1 }}
         />
@@ -180,6 +191,33 @@ export default function Search() {
               </Text>
             </View>
           )}
+          {viewed.length ? (
+            <View style={{ gap: theme.space[2] }} testID="search-viewed">
+              <SectionHeader title={t('search.viewed')} />
+              <Card elevation={0} padding={0}>
+                {viewed.map((r, i) => {
+                  const now = restaurants.data?.find((x) => x.id === r.id);
+                  return (
+                    <ListRow
+                      key={r.id}
+                      testID={`viewed-${i}`}
+                      leading={
+                        <View style={{ width: 40, height: 40, borderRadius: theme.radius.md, overflow: 'hidden' }}>
+                          <FoodArt motif={motifForCuisine(now?.cuisine ?? r.name)} />
+                        </View>
+                      }
+                      title={r.name}
+                      {...(now ? { subtitle: now.cuisine } : {})}
+                      chevron
+                      onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: r.id } })}
+                      divider={i < viewed.length - 1}
+                    />
+                  );
+                })}
+              </Card>
+            </View>
+          ) : null}
+          <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={dayPicks.data} testID="search-daypart" />
           {popular.length ? (
             <View style={{ gap: theme.space[3] }} testID="search-popular">
               <Text variant="title">{t('search.popular')}</Text>

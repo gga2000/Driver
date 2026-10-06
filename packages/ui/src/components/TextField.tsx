@@ -18,17 +18,22 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'placehol
   pill?: boolean;
   /** Dim the field when `editable` is false (default). Off for a field that is really a button. */
   dimWhenReadOnly?: boolean;
+  /**
+   * Filled (discovery D-23, the search bar): a 48 px sunken well with no border at rest — the outline
+   * only shows on focus, so the bar at rest never reads as already focused.
+   */
+  filled?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
-  { label, hint, error, leadingIcon, trailing, pill, dimWhenReadOnly = true, style, onFocus, onBlur, editable = true, ...input },
+  { label, hint, error, leadingIcon, trailing, pill, dimWhenReadOnly = true, filled = false, style, onFocus, onBlur, editable = true, ...input },
   ref,
 ) {
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
   // A field you can see at rest (audit S-04: 3.3–3.9:1, not 1.1:1), ink when focused, red on error.
-  const borderColor = error ? theme.colors.danger : focused ? theme.colors.focusRing : theme.colors.borderStrong;
+  const borderColor = error ? theme.colors.danger : focused ? theme.colors.focusRing : filled ? 'transparent' : theme.colors.borderStrong;
   const borderWidth = focused || error ? 2 : 1.5;
   // A multi-line box (a note, a message) reads from its top-start corner with breathing room, not a
   // line hugging the top border; it also grows into any height the caller gives the field.
@@ -42,7 +47,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
       ) : null}
       <View
         style={{
-          minHeight: 52,
+          minHeight: filled ? 48 : 52,
           flexGrow: multiline ? 1 : 0,
           flexDirection: 'row',
           alignItems: multiline ? 'stretch' : 'center',
@@ -78,7 +83,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               flex: 1,
               // Web inputs carry an intrinsic ~20ch width; let the row shrink them.
               minWidth: 0,
-              minHeight: 48,
+              minHeight: filled ? 44 : 48,
               color: theme.colors.text,
               fontSize: theme.type.body.size,
               writingDirection: theme.direction,
@@ -136,7 +141,7 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
         style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }, rest.style]}
       >
         <View pointerEvents="none">
-          <TextField ref={ref} value={value} leadingIcon="search" pill editable={false} dimWhenReadOnly={false} focusable={false} placeholder={rest.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+          <TextField ref={ref} value={value} leadingIcon="search" pill filled editable={false} dimWhenReadOnly={false} focusable={false} placeholder={rest.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
         </View>
       </Pressable>
     );
@@ -147,6 +152,7 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
       value={value}
       leadingIcon="search"
       pill
+      filled
       returnKeyType="search"
       accessibilityRole="search"
       trailing={

@@ -15,6 +15,7 @@ import { DishCard } from '@/features/food/DishCard';
 import { FoodArt, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { useMenu } from '@/features/food/queries';
+import { useRememberViewed } from '@/features/search/viewed';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -49,6 +50,8 @@ export default function RestaurantScreen() {
   const menuTop = useRef(0);
 
   const restaurant = menu.data?.restaurant;
+  // «فتحتها قبل» on the search start screen (D-24).
+  useRememberViewed(restaurant?.id, restaurant?.name);
   const categories = useMemo(() => menu.data?.categories ?? [], [menu.data]);
   // b3: a drawing per dish, in menu order, never the same one twice in a row.
   const artById = useMemo(() => {
