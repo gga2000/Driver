@@ -1,6 +1,7 @@
-import type { BannerAudience, BannerSeverity, KillScope, ThrottleMode, Vertical } from '@driver/contracts';
+import type { BannerAudience, BannerSeverity, KillScope, SeasonKind, ThrottleMode, Vertical } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
+import type { IftarOverrides } from './prayer-times.js';
 
 /** `ops_kill_switches`: one row per `<scope>:<key>:<vertical|*>` target in a city. */
 export interface KillSwitchRecord {
@@ -47,7 +48,7 @@ export interface BannerRecord {
   clearedById: string | null;
 }
 
-/** `quiet_periods` */
+/** `quiet_periods`: season periods (J1a quiet days, grown into J6 seasons). */
 export interface QuietRecord {
   id: string;
   cityId: string | null;
@@ -59,7 +60,32 @@ export interface QuietRecord {
   setAt: Date;
   clearedAt: Date | null;
   clearedById: string | null;
+  /** J6: the kind; quiet forces every switch off. */
+  kind: SeasonKind;
+  celebrations: boolean;
+  sounds: boolean;
+  promos: boolean;
+  accent: boolean;
+  homeCard: boolean;
+  homeCardAr: string | null;
+  /** Ramadan: minutes after sunset for the Shia maghrib (null = the rules' default). */
+  shiaOffsetMin: number | null;
+  /** Ramadan: ops' per-day iftar times. */
+  iftarOverrides: IftarOverrides;
 }
+
+/** The J6 fields of a quiet day as J1a sets it: everything off, no card. */
+export const QUIET_DEFAULTS = {
+  kind: 'quiet',
+  celebrations: false,
+  sounds: false,
+  promos: false,
+  accent: false,
+  homeCard: false,
+  homeCardAr: null,
+  shiaOffsetMin: null,
+  iftarOverrides: {},
+} as const satisfies Partial<QuietRecord>;
 
 /** `console_audit_log` */
 export interface AuditRecord {
@@ -97,6 +123,8 @@ export interface ControlsRepository {
   quiet(id: string, tx?: Tx): Promise<QuietRecord | null>;
   createQuiet(input: Omit<QuietRecord, 'id'>, tx?: Tx): Promise<QuietRecord>;
   clearQuiet(id: string, by: string, at: Date, tx?: Tx): Promise<QuietRecord>;
+  /** Replaces a Ramadan period's per-day iftar overrides. */
+  setIftarOverrides(id: string, overrides: IftarOverrides, tx?: Tx): Promise<QuietRecord>;
   addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord>;
   audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
 }
@@ -198,6 +226,13 @@ export class InMemoryControlsRepository implements ControlsRepository {
     return { ...q };
   }
 
+  async setIftarOverrides(id: string, overrides: IftarOverrides): Promise<QuietRecord> {
+    const q = this.quietRows.get(id);
+    if (!q) throw new Error(`season ${id} not found`);
+    q.iftarOverrides = structuredClone(overrides);
+    return { ...q, iftarOverrides: structuredClone(q.iftarOverrides) };
+  }
+
   async addAudit(input: Omit<AuditRecord, 'id'>): Promise<AuditRecord> {
     const row = { ...input, id: this.id('au') };
     this.auditRows.push(row);
@@ -254,6 +289,15 @@ const quietFrom = (r: any): QuietRecord => ({
   setAt: r.createdAt,
   clearedAt: r.clearedAt,
   clearedById: r.clearedById,
+  kind: r.kind,
+  celebrations: r.celebrations,
+  sounds: r.sounds,
+  promos: r.promos,
+  accent: r.accent,
+  homeCard: r.homeCard,
+  homeCardAr: r.homeCardAr ?? null,
+  shiaOffsetMin: r.shiaOffsetMin ?? null,
+  iftarOverrides: r.iftarOverrides ?? {},
 });
 const auditFrom = (r: any): AuditRecord => ({
   id: r.id,
@@ -332,11 +376,15 @@ export class PrismaControlsRepository implements ControlsRepository {
 
   async createQuiet(input: Omit<QuietRecord, 'id'>, tx?: Tx): Promise<QuietRecord> {
     const { setAt, ...rest } = input;
-    return quietFrom(await this.db(tx).quietPeriod.create({ data: { ...rest, createdAt: setAt } }));
+    return quietFrom(await this.db(tx).quietPeriod.create({ data: { ...rest, iftarOverrides: rest.iftarOverrides as never, createdAt: setAt } }));
   }
 
   async clearQuiet(id: string, by: string, at: Date, tx?: Tx): Promise<QuietRecord> {
     return quietFrom(await this.db(tx).quietPeriod.update({ where: { id }, data: { clearedAt: at, clearedById: by } }));
+  }
+
+  async setIftarOverrides(id: string, overrides: IftarOverrides, tx?: Tx): Promise<QuietRecord> {
+    return quietFrom(await this.db(tx).quietPeriod.update({ where: { id }, data: { iftarOverrides: overrides as never } }));
   }
 
   async addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord> {

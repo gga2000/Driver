@@ -138,12 +138,12 @@ describe('launch controls', () => {
 
   it('quiet days: by Baghdad date, every city or one city; cleared ones go; never in the past, at most 15 days', async () => {
     const h = await harness('2026-11-12T20:30:00Z'); // 23:30 Baghdad, 12 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null });
     const q = await h.svc.setQuietDays(ALI, { cityId: null, startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' });
     expect(q).toMatchObject({ active: false, setByName: 'علي', startsOn: '2026-11-13' });
     expect((await h.svc.season({ cityId: 'aziziyah' })).quiet).toBe(false);
     h.clock.advanceMinutes(31); // 00:01 Baghdad, 13 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13' });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13', kind: 'quiet', accent: false, ramadan: null, homeCard: null });
     expect(await h.svc.isQuietDay(h.clock.now())).toBe(true);
     expect((await h.svc.quietDays())[0]).toMatchObject({ id: q.id, active: true });
     h.clock.set('2026-11-13T21:00:00Z'); // 00:00 Baghdad, 14 Nov
@@ -157,5 +157,36 @@ describe('launch controls', () => {
     await expect(h.svc.setQuietDays(ALI, { startsOn: '2026-11-14', endsOn: '2026-11-29', label_ar: 'طويل' })).rejects.toMatchObject({ code: 'quiet_invalid' });
     await expect(h.svc.clearQuietDays(ALI, { quietId: 'qd_none' })).rejects.toMatchObject({ code: 'quiet_not_found' });
     expect((await h.svc.audit({ cityId: 'kut', subjectKind: 'quiet', limit: 10 })).map((a) => a.action)).toEqual(['quiet.clear', 'quiet.set', 'quiet.set']);
+  });
+
+  it('J6 seasons: Ramadan is not a quiet day; its times reach the apps; ops correct a day; quiet days still list only quiet', async () => {
+    const h = await harness('2027-01-20T09:00:00Z');
+    const r = await h.svc.setSeason(ALI, { kind: 'ramadan', startsOn: '2027-02-07', endsOn: '2027-03-09', label_ar: 'شهر رمضان' });
+    expect(r).toMatchObject({ kind: 'ramadan', celebrations: true, sounds: true, promos: true, accent: true, homeCard: true, shiaOffsetMin: null });
+    expect(r.days).toHaveLength(31);
+    expect(r.days[1]).toMatchObject({ day: '2027-02-08', sunni: { iftar: '17:39' }, shia: { iftar: '17:54' } });
+    await expect(h.svc.setSeason(ALI, { kind: 'ramadan', startsOn: '2027-03-01', endsOn: '2027-03-10', label_ar: 'مكرر' })).rejects.toMatchObject({ code: 'season_overlap' });
+    await expect(h.svc.setSeason(ALI, { kind: 'eid', startsOn: '2027-01-19', endsOn: '2027-01-20', label_ar: 'أمس' })).rejects.toMatchObject({ code: 'season_invalid' });
+
+    h.clock.set('2027-02-08T09:00:00Z'); // 12:00 Baghdad, 8 Feb
+    expect(await h.svc.isQuietDay(h.clock.now())).toBe(false);
+    const s = await h.svc.season({ cityId: 'aziziyah', timetable: 'sunni' });
+    expect(s).toMatchObject({ kind: 'ramadan', quiet: false, homeCard: { kind: 'ramadan', text_ar: null }, ramadan: { day: '2027-02-08', timetable: 'sunni' } });
+    expect(s.ramadan?.iftarAt).toEqual(new Date('2027-02-08T14:39:00Z'));
+
+    const fixed = await h.svc.setIftarTime(ALI, { seasonId: r.id, day: '2027-02-08', timetable: 'shia', time: '17:57' });
+    expect(fixed.days[1]).toMatchObject({ shia: { iftar: '17:57', overridden: true }, sunni: { overridden: false } });
+    expect((await h.svc.season({ timetable: 'shia' })).ramadan?.iftarAt).toEqual(new Date('2027-02-08T14:57:00Z'));
+    expect(await h.svc.promoHold(new Date('2027-02-08T14:50:00Z'))).toEqual({ reason: 'iftar', until: new Date('2027-02-08T14:57:00Z') });
+    const back = await h.svc.setIftarTime(ALI, { seasonId: r.id, day: '2027-02-08', timetable: 'shia', time: null });
+    expect(back.days[1]?.shia).toMatchObject({ iftar: '17:54', overridden: false });
+    await expect(h.svc.setIftarTime(ALI, { seasonId: r.id, day: '2027-03-10', timetable: 'shia', time: '18:20' })).rejects.toMatchObject({ code: 'season_invalid' });
+
+    await h.svc.setQuietDays(ALI, { startsOn: '2027-02-26', endsOn: '2027-02-28', label_ar: 'ليالي العزاء' });
+    expect((await h.svc.quietDays()).map((q) => q.label_ar)).toEqual(['ليالي العزاء']);
+    expect((await h.svc.seasons()).map((q) => q.kind)).toEqual(['quiet', 'ramadan']);
+    await h.svc.clearSeason(ALI, { seasonId: r.id });
+    expect((await h.svc.season({})).ramadan).toBeNull();
+    expect((await h.svc.audit({ subjectKind: 'season', limit: 10 })).map((a) => a.action)).toEqual(['season.clear', 'season.iftar', 'season.iftar', 'season.set']);
   });
 });

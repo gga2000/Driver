@@ -9,3 +9,5 @@ export type { OrderGate, ActiveOrdersByZone } from './controls.service.js';
 export { AuditLogService, StaffNames } from './audit.js';
 export { CONTROLS_REPOSITORY, InMemoryControlsRepository, PrismaControlsRepository, targetOf } from './controls.repository.js';
 export type { ControlsRepository, KillSwitchRecord, ZoneCapacityRecord, BannerRecord, QuietRecord, AuditRecord } from './controls.repository.js';
+export type { PromoHold } from './season.js';
+export { SEASON_RULES } from './season.config.js';
