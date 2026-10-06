@@ -1,5 +1,5 @@
 // Theme
-export { ThemeProvider, useTheme, createTheme, fontStyle } from './theme/ThemeProvider';
+export { ThemeProvider, useTheme, createTheme, fontStyle, faceStyle } from './theme/ThemeProvider';
 export type { Theme, ThemeProviderProps, HapticKind, HapticHandler, Direction, FontMode } from './theme/ThemeProvider';
 export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 
@@ -80,6 +80,7 @@ export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
+export * from './logic/voice';
 export * from './format';
 
 // Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.

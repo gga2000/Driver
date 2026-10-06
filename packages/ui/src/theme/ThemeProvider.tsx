@@ -2,18 +2,24 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'r
 import { I18nManager, Platform, View, type TextStyle } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
+  brandFace,
   elevation,
   fontFace,
   fontFamily,
   fontScale,
+  haptic as hapticTokens,
   hitTarget,
+  identity,
   motion,
   radius,
+  scheme,
   space,
   state,
   themes,
   type,
+  type BrandFace,
   type FontWeight,
+  type IdentityColor,
   type ThemeColors,
   type ThemeName,
 } from '@driver/design-tokens';
@@ -26,13 +32,20 @@ export type Direction = 'rtl' | 'ltr';
 
 /**
  * `plex`: IBM Plex Sans Arabic is loaded (expo-font on native, @font-face on web).
+ * `brand`: Plex plus the brand faces (Alexandria, Marhey: the customer app, joy J-D2).
  * `system`: fall back to the platform face with `fontWeight` (apps that have not loaded fonts yet).
  */
-export type FontMode = 'plex' | 'system';
+export type FontMode = 'plex' | 'brand' | 'system';
 
 export interface Theme {
   name: ThemeName;
+  /** Which way the theme leans (toasts, state layers, shadows): never test `name` for that. */
+  scheme: 'light' | 'dark';
   colors: ThemeColors;
+  /** Monogram colours (`Avatar` without a tone): non-semantic in istikan. */
+  identity: readonly IdentityColor[];
+  /** What a secondary or ghost `Button` buzzes: nothing in istikan (joy S2-18). */
+  secondaryButtonHaptic: HapticKind | null;
   space: typeof space;
   radius: typeof radius;
   type: typeof type;
@@ -49,18 +62,32 @@ export interface Theme {
   haptic: HapticHandler;
   /** Font family/weight style for a weight, correct for the platform and font mode. */
   font: (weight: FontWeight) => Pick<TextStyle, 'fontFamily' | 'fontWeight'>;
+  /** Font style for a brand face (Alexandria `display`, Marhey `voice`); Plex Bold until they load. */
+  face: (face: BrandFace) => Pick<TextStyle, 'fontFamily' | 'fontWeight'>;
 }
 
 const noopHaptic: HapticHandler = () => {};
 
-const webStack = fontFamily.sans.map((f) => (f.includes(' ') ? `"${f}"` : f)).join(', ');
+const cssStack = (stack: readonly string[]) => stack.map((f) => (f.includes(' ') ? `"${f}"` : f)).join(', ');
+const webStack = cssStack(fontFamily.sans);
+const webFace: Record<BrandFace, string> = { display: cssStack(fontFamily.display), voice: cssStack(fontFamily.voice) };
 
 export function fontStyle(weight: FontWeight, mode: FontMode): Pick<TextStyle, 'fontFamily' | 'fontWeight'> {
   const fontWeight = String(weight) as TextStyle['fontWeight'];
   if (Platform.OS === 'web') return { fontFamily: webStack, fontWeight };
   // Native: one family per weight file; setting fontWeight too would make Android fake-bold it.
-  if (mode === 'plex') return { fontFamily: fontFace[weight] };
+  if (mode === 'plex' || mode === 'brand') return { fontFamily: fontFace[weight] };
   return { fontWeight };
+}
+
+/**
+ * A brand face. Web: the CSS stack (Alexandria/Marhey first, Plex behind, so a page that never loads
+ * them looks as before). Native: the bundled file once loaded (`brand`), else Plex Bold.
+ */
+export function faceStyle(face: BrandFace, mode: FontMode): Pick<TextStyle, 'fontFamily' | 'fontWeight'> {
+  if (Platform.OS === 'web') return { fontFamily: webFace[face], fontWeight: '700' };
+  if (mode === 'brand') return { fontFamily: brandFace[face] };
+  return fontStyle(700, mode);
 }
 
 export function createTheme(
@@ -71,7 +98,10 @@ export function createTheme(
   const fonts = opts.fonts ?? 'plex';
   return {
     name,
+    scheme: scheme[name],
     colors: themes[name],
+    identity: identity[name],
+    secondaryButtonHaptic: hapticTokens.secondaryButton[name],
     space,
     radius,
     type,
@@ -86,13 +116,14 @@ export function createTheme(
     reduceMotion: opts.reduceMotion ?? false,
     haptic: opts.haptic ?? noopHaptic,
     font: (w) => fontStyle(w, fonts),
+    face: (f) => faceStyle(f, fonts),
   };
 }
 
 const ThemeContext = createContext<Theme>(createTheme('light'));
 
 export interface ThemeProviderProps {
-  /** Light is the launch default; dark is a stub built on the same token names. */
+  /** `light` for the Partner and Merchant apps, `istikan` for the customer app; dark is a stub on the same roles. */
   theme?: ThemeName;
   /** Defaults to the native layout direction (RTL in every Driver app). */
   direction?: Direction;

@@ -29,7 +29,7 @@ export function Card({ children, elevation = 1, padding = 4, tone = 'surface', o
     borderWidth: elevation === 0 || tone !== 'surface' ? 1 : 0,
     borderColor: tone === 'tint' ? theme.colors.accent : theme.colors.border,
     shadowColor: theme.colors.shadow,
-    shadowOpacity: theme.name === 'dark' ? 0 : e.shadowOpacity,
+    shadowOpacity: theme.scheme === 'dark' ? 0 : e.shadowOpacity,
     shadowRadius: e.shadowRadius,
     shadowOffset: e.shadowOffset,
     elevation: e.elevation,

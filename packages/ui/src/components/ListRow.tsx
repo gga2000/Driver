@@ -41,7 +41,7 @@ export function ListRow({ title, subtitle, leading, value, trailing, chevron, on
           backgroundColor: selected
             ? theme.colors.accentTint
             : pressed
-              ? withAlpha(theme.state.layer[theme.name], theme.state.pressedOpacity)
+              ? withAlpha(theme.state.layer[theme.scheme], theme.state.pressedOpacity)
               : 'transparent',
           borderBottomWidth: divider ? 1 : 0,
           borderBottomColor: theme.colors.border,
