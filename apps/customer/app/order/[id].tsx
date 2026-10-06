@@ -34,7 +34,7 @@ import { amountParam } from '@/lib/money';
 
 /** Collapsed sheet: handle + status line + ETA (plus the bottom safe area). */
 const COLLAPSED = 108;
-/** Each degraded-state banner over the map pushes the camera's top edge down by about this much. */
+/** Each degraded-state banner over the map pushes the camera's top edge down by about this much until the stack is measured. */
 const BANNER_H = 84;
 const TOP_BAR = 64;
 /** The inline notification ask in the collapsed sheet (rides, joy f1): two text lines and the buttons. */
@@ -67,6 +67,9 @@ export default function OrderLiveScreen() {
   useLiveOrder(id);
   const track = useTracking(id);
   const v = track.data;
+  // The banners' real height (the late banner grows with its promise bar): the camera and the
+  // almost-there card keep clear of all of it, so the minutes pill on the courier stays visible.
+  const [bannerStackH, setBannerStackH] = useState(0);
   const live = isLive(v);
   const pos = useCourierPosition(id, Boolean(live && v?.courier));
   const fix = live && v?.courier ? (pos.data ?? null) : null;
@@ -218,6 +221,7 @@ export default function OrderLiveScreen() {
   const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
+  const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? COURIER_FLOAT_H : 0);
@@ -239,9 +243,10 @@ export default function OrderLiveScreen() {
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} spotlight={phase === 'unreachable'} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + bannersH} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} spotlight={phase === 'unreachable'} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
       <TopBar
+        onBannersLayout={setBannerStackH}
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
         // SOS on a ride with a driver (scoring & safety §3): from the match until a little after arrival.
         sos={ride && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way' || phase === 'arrived' || phase === 'unreachable') ? <SosControl subject={{ kind: 'order', id }} /> : null}
@@ -275,7 +280,7 @@ export default function OrderLiveScreen() {
           variant={moments.card}
           name={courierName}
           photoUrl={v.courier?.photoUrl ?? null}
-          top={insets.top + TOP_BAR + banners * BANNER_H + 8}
+          top={insets.top + TOP_BAR + bannersH + 8}
           onClose={moments.closeCard}
         />
       ) : null}
@@ -409,7 +414,7 @@ function hintFor(state: string): MessageKey | null {
 }
 
 /** Back button over the map, the order number, and any degraded-state banners under them. */
-function TopBar({ orderNo, sos, children }: { orderNo?: string; sos?: ReactNode; children?: ReactNode }) {
+function TopBar({ orderNo, sos, children, onBannersLayout }: { orderNo?: string; sos?: ReactNode; children?: ReactNode; onBannersLayout?: (height: number) => void }) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -433,7 +438,7 @@ function TopBar({ orderNo, sos, children }: { orderNo?: string; sos?: ReactNode;
         ) : null}
         {sos ? <View style={{ marginStart: 'auto' }}>{sos}</View> : null}
       </View>
-      <View pointerEvents="none" style={{ gap: theme.space[2], maxWidth: 520 }}>
+      <View pointerEvents="none" style={{ gap: theme.space[2], maxWidth: 520 }} onLayout={onBannersLayout ? (e) => onBannersLayout(Math.round(e.nativeEvent.layout.height)) : undefined}>
         {children}
       </View>
     </View>
