@@ -1358,6 +1358,54 @@ model TrailPoint {
   @@schema("public")
 }
 
+/// The one ETA's learned correction (maps program f7, spec §5.4): per cell, the EWMA of actual ÷ predicted
+/// minutes over completed legs (`ETA_LEARNING_RULES`). A cell is a zone pair (`*` = any zone: the city
+/// level), a Baghdad-time bucket (its start hour; -1 = all day), a vehicle class and the routing basis the
+/// prediction had (`road` | `estimated`: a factor learned against straight lines never corrects OSRM).
+/// `factor` is stored as learned; the 0.7–1.6 clamp applies when it is used.
+model EtaCorrection {
+  id           String   @id @default(cuid())
+  cityId       String   @map("city_id")
+  fromZone     String   @map("from_zone")
+  toZone       String   @map("to_zone")
+  hourBucket   Int      @map("hour_bucket")
+  vehicleClass String   @map("vehicle_class")
+  basis        String
+  factor       Float
+  samples      Int
+  lastSampleAt DateTime @map("last_sample_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([cityId, fromZone, toZone, hourBucket, vehicleClass, basis])
+  @@map("eta_corrections")
+  @@schema("public")
+}
+
+/// One leg the ETA learned from: at most one per stop (the arrival it ended at), so an outbox redelivery
+/// never counts a leg twice. Pseudonymous and position-free: trip and stop ids, zones and minutes only.
+model EtaSample {
+  id           String   @id @default(cuid())
+  stopId       String   @unique @map("stop_id")
+  tripId       String   @map("trip_id")
+  cityId       String   @map("city_id")
+  fromZone     String   @map("from_zone")
+  toZone       String   @map("to_zone")
+  hourBucket   Int      @map("hour_bucket")
+  vehicleClass String   @map("vehicle_class")
+  basis        String
+  predictedMin Float    @map("predicted_min")
+  actualMin    Float    @map("actual_min")
+  startedAt    DateTime @map("started_at")
+  arrivedAt    DateTime @map("arrived_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([cityId, arrivedAt])
+  @@map("eta_samples")
+  @@schema("public")
+}
+
 // ═════════════════════════════ Routes, departures, seats, subscriptions ═════════════════════════════
 
 enum RouteType {

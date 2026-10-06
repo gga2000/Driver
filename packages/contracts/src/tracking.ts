@@ -202,6 +202,65 @@ export const ROAD_FACTOR = 1.4;
  */
 export const ROUTE_VEHICLE_FACTOR: Readonly<Record<VehicleClass, number>> = { bike: 1, tuktuk: 1.15, car: 1, suv: 1, van: 1.1, intercity: 1 };
 
+/**
+ * The one ETA learns from finished legs (maps program f7, spec §5.4): every leg's minutes are the
+ * router's estimate × a correction factor kept per zone pair, local-time bucket, vehicle and routing
+ * basis — an EWMA of actual ÷ predicted over completed legs. Until OSRM is deployed the router is the
+ * straight-line estimate, so this factor is what makes ETAs honest in Aziziyah's streets.
+ */
+export const ETA_LEARNING_RULES = {
+  /**
+   * EWMA weight of the newest leg. 0.2 ≈ the last ~10 legs carry the estimate (0.8^10 ≈ 0.11): fast
+   * enough to follow a new checkpoint or a closed bridge within a day, slow enough that one courier
+   * who took a detour does not swing everyone's ETA.
+   */
+  alpha: 0.2,
+  /** The applied factor never makes a leg faster than 0.7 × or slower than 1.6 × the router (spec §5.4). */
+  minFactor: 0.7,
+  maxFactor: 1.6,
+  /**
+   * Baghdad local start hours of the time buckets (each runs to the next start; the last to midnight).
+   * Six traffic regimes rather than 24 hours: Aziziyah has a few hundred legs a day, and a 24-way split
+   * of every zone pair would never reach `minSamples`. 00–06 empty streets · 06–11 work and the school
+   * run · 11–14 lunch and school out · 14–17 the afternoon lull · 17–21 market and the dinner peak ·
+   * 21–24 late dinner.
+   */
+  hourBuckets: [0, 6, 11, 14, 17, 21] as readonly number[],
+  /**
+   * Legs a cell needs before its factor is used; a younger cell defers to the next level (zone pair in
+   * this bucket → zone pair all day → the city in this bucket → the city all day → 1.0). Five legs make
+   * one courier's bad day at most a fifth of the start.
+   */
+  minSamples: 5,
+  /**
+   * Legs whose actual ÷ predicted falls outside [0.3, 4] are not traffic: a GPS gap, a tap forgotten
+   * until the next stop, a courier who stopped for lunch, or a straight line through a river.
+   */
+  minRatio: 0.3,
+  maxRatio: 4,
+  /** Legs predicted under 2 minutes are skipped: tap timing, not the street, decides their ratio. */
+  minPredictedMin: 2,
+  /**
+   * The first leg (acceptance → first stop) starts from the courier's first trail point on the trip;
+   * a point later than this after the acceptance is not where he accepted, so that leg is skipped.
+   */
+  firstFixMaxDelayMs: 120_000,
+  /**
+   * Stop taps are timed on receipt. One whose device time is further than this from its receipt was
+   * queued offline (or the phone's clock is off): its time is the network's, not the street's, and the
+   * leg it ends or starts is skipped.
+   */
+  maxTapDelayMs: 60_000,
+  /** How long an API instance reuses a city's cells before reading them again (learning on this instance clears it at once). */
+  cacheMs: 60_000,
+} as const;
+
+/**
+ * Verticals whose legs teach the ETA: on-demand trips that drive straight to the next stop. الرجعة
+ * (intercity) and خطوط (khat) runs wait at stops by timetable and leave the zones.
+ */
+export const ETA_LEARNING_VERTICALS: readonly Vertical[] = ['food', 'grocery', 'errand', 'parcel', 'taxi', 'tuktuk'];
+
 /** A batched courier's other drop before mine costs about this much (dispatch spec §3: ≤ 4 min). */
 export const MIN_PER_EARLIER_DROP = 4;
 

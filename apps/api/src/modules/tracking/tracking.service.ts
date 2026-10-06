@@ -446,7 +446,9 @@ export class TrackingService implements TrackingPort {
   private async promise(order: Parameters<typeof promisedArrival>[0], kitchen: LatLng | null, acceptedAt: Date | null): Promise<Date | null> {
     const door = order.dropoff?.pin ?? null;
     if (!kitchen || !door) return promisedArrival(order, kitchen, acceptedAt, null);
-    const ride = await this.eta.minutes(kitchen, door, order.minVehicleClass ?? 'bike');
+    // The router's own minutes, not the learned ones: this promise is recomputed on every read and the
+    // honest-delay credit hangs on it, so it must not move as the city learns or the hour bucket turns.
+    const ride = await this.eta.baseMinutes(kitchen, door, order.minVehicleClass ?? 'bike');
     return promisedArrival(order, kitchen, acceptedAt, ride.minutes);
   }
 

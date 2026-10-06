@@ -3,6 +3,7 @@ import { CatalogModule } from './modules/catalog/index.js';
 import { ChatModule } from './modules/chat/index.js';
 import { ConfigModule } from './modules/config/index.js';
 import { DispatchModule } from './modules/dispatch/index.js';
+import { EtaModule } from './modules/eta/index.js';
 import { EventsModule } from './modules/events/index.js';
 import { IdentityModule } from './modules/identity/index.js';
 import { DriverAccountModule } from './modules/driver-account/index.js';
@@ -50,6 +51,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     OrdersModule,
     DispatchModule,
     PricingModule,
+    EtaModule,
     LedgerModule,
     RoutesModule,
     ScoringModule,
