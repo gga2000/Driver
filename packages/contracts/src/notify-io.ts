@@ -99,6 +99,7 @@ export type NotifyCategory = z.infer<typeof NotifyCategory>;
 export const NotifyTemplateId = z.enum([
   'order_accepted',
   'order_prep_extended',
+  'order_late_apology',
   'order_picked_up',
   'courier_arriving',
   'order_receipt',
@@ -180,6 +181,17 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'customer',
     push: { title: 'push.order_prep_extended.title', body: 'push.order_prep_extended.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // The honest-delay promise, step one (Ali, 2026-10-06): promised time + `MoneyRules.latePromise.apologyAfterMin`
+  // and not at the door yet — one "آسفين" with the new time. SMS twin when the push is not delivered.
+  order_late_apology: {
+    id: 'order_late_apology',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_late_apology.title', body: 'push.order_late_apology.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
   order_picked_up: {

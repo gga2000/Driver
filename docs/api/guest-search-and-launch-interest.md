@@ -42,7 +42,7 @@ Public and guest-safe (counts and city facts only), rate-limited per IP like the
 open today (Baghdad day, both directions, not past their latest time); `tuktukFromIqd` is a tuktuk ride
 inside the centre priced now by the booking engine (null if it can't be priced); `baghdadGarage` is the
 Aziziyah garage of the next car to Baghdad (the first home garage when none is announced);
-`latePromiseMin` is `MoneyRules.latePromise.afterMin`.
+`latePromiseMin` is `MoneyRules.latePromise.afterMin` (the credit step; the apology at `apologyAfterMin` and the free-delivery amount are in `docs/api/late-promise.md`).
 
 ## "خبرني لمن تنفتح" (`notify.launchInterest`)
 

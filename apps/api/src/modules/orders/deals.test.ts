@@ -76,7 +76,7 @@ describe('merchant deals at checkout (domain §11, G-87)', () => {
   it('cash rounding edge cases: exact multiples, tips and partial accepts keep the 250 rule', async () => {
     const h = ordersHarness();
     // No deal: 16,500 is already on the step. The late promise gives back the 1,000 delivery fee (audit d-5).
-    expect(await h.orders.quote('c1', h.foodInput())).toMatchObject({ totalIqd: 16500, changeIqd: 0, latePromise: { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, creditIqd: 1000 } });
+    expect(await h.orders.quote('c1', h.foodInput())).toMatchObject({ totalIqd: 16500, changeIqd: 0, latePromise: { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, creditIqd: 1000, basis: 'delivery_fee' } });
     // A 100 tip makes 16,600 → 16,750 handed over, 150 back.
     expect(await h.orders.quote('c1', h.foodInput({ tipIqd: 100 }))).toMatchObject({ totalIqd: 16750, changeIqd: 150 });
     // Partial accept with a 7 % deal: the reduced total is the reduced price rounded up the same way.
@@ -137,8 +137,8 @@ describe('merchant deals at checkout (domain §11, G-87)', () => {
     const d = await h.promotions.addDeal({ type: 'free_delivery', minOrderIqd: 15000 });
     const q = await h.orders.quote('c1', h.foodInput());
     expect(q).toMatchObject({ discountIqd: 1000, totalIqd: 15500, lineSavingsIqd: [0, 0], discount: { target: 'delivery', label_ar: 'توصيل مجاني فوق 15,000 دينار' } });
-    // Audit d-5: nothing to give back when delivery is free, so checkout makes no late promise.
-    expect(q.latePromise).toBeNull();
+    // Audit d-5 (Ali, 2026-10-06): a free delivery still carries the promise — a fixed 1,000 credit, not the fee.
+    expect(q.latePromise).toEqual({ afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, creditIqd: AZIZIYAH_MONEY_RULES.latePromise.freeDeliveryCreditIqd, basis: 'flat' });
     const o = await h.orders.place('c1', h.foodInput({ discountIqd: 1000 }));
     const { fact } = await deliverCash(h, o.id, o.totalIqd);
     const posted = postOrderClosed(fact, AZIZIYAH_MONEY_RULES);

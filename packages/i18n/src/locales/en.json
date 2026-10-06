@@ -1081,6 +1081,8 @@
   "push.order_accepted.body": "Your order from {merchant} is being prepared",
   "push.order_prep_extended.title": "The restaurant added 5 minutes",
   "push.order_prep_extended.body": "{merchant} needs 5 more minutes to get your order right. The new time is on the order screen",
+  "push.order_late_apology.title": "Sorry, your order is running late",
+  "push.order_late_apology.body": "It should reach you around {time}. Follow it on the order screen",
   "push.order_picked_up.title": "Order on the way",
   "push.order_picked_up.body": "{courier} picked it up, arriving at {time}",
   "push.courier_arriving.title": "Courier 2 min away",
@@ -2871,6 +2873,7 @@
   "track.note_driver_coming": "{name} is coming to pick you up",
   "track.note_late": "We're {minutes} min late and that's on us. New time {time}.",
   "track.note_late_credit": "Past {minutes} min late, we credit the delivery fee back to your wallet.",
+  "track.note_late_credit_flat": "Past {minutes} min late, we add {amount} IQD credit to your wallet.",
   "track.step_arrive": "Arrives at your door",
   "track.eta_minutes": "{minutes} min",
   "track.eta_label": "Arrives",
@@ -5296,5 +5299,12 @@
   "promise.credited": "{amount} IQD is back in your wallet",
   "promise.toast": "{amount} IQD is back in your wallet. Sorry for the wait",
   "promise.receipt_line": "Late credit",
-  "promise.receipt_hint": "We were more than {minutes} min late, so the delivery fee went back to your wallet"
+  "promise.receipt_hint": "We were more than {minutes} min late, so the delivery fee went back to your wallet",
+  "promise.line_flat": "More than {minutes} min late and we make it up with credit",
+  "promise.checkout_hint_flat": "Your delivery is free, so we add {amount} IQD to your wallet",
+  "promise.bar_until_flat": "Not there by {time}? We add {amount} IQD credit",
+  "promise.credited_flat": "{amount} IQD credit is in your wallet",
+  "promise.toast_flat": "{amount} IQD credit is in your wallet. Sorry for the wait",
+  "promise.receipt_hint_flat": "We were more than {minutes} min late, so we added {amount} IQD to your wallet",
+  "promise.apology_title": "Sorry, your order is running late"
 }

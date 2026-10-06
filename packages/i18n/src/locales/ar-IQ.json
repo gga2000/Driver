@@ -1081,6 +1081,8 @@
   "push.order_accepted.body": "طلبك من {merchant} دا يتحضّر",
   "push.order_prep_extended.title": "المطعم زاد 5 دقايق",
   "push.order_prep_extended.body": "{merchant} يحتاج 5 دقايق زيادة حتى يطلع طلبك مضبوط. الوقت الجديد بصفحة الطلب",
+  "push.order_late_apology.title": "آسفين، طلبك تأخر شوية",
+  "push.order_late_apology.body": "يوصلك تقريباً الساعة {time}. تگدر تتابعه من صفحة الطلب",
   "push.order_picked_up.title": "طلبك بالطريق",
   "push.order_picked_up.body": "{courier} استلم طلبك ويوصلك الساعة {time}",
   "push.courier_arriving.title": "الدليفري يوصل بعد دقيقتين",
@@ -2871,6 +2873,7 @@
   "track.note_driver_coming": "{name} جاي ياخذك",
   "track.note_late": "تأخرنا {minutes} دقيقة وهذا غلطنا. الوقت الجديد {time}.",
   "track.note_late_credit": "إذا تعدّى التأخير {minutes} دقيقة، نرجعلك أجرة التوصيل رصيد.",
+  "track.note_late_credit_flat": "إذا تعدّى التأخير {minutes} دقيقة، نحطلك {amount} دينار رصيد.",
   "track.step_arrive": "يوصل لبابك",
   "track.eta_minutes": "{minutes} دقيقة",
   "track.eta_label": "يوصلك",
@@ -5296,5 +5299,12 @@
   "promise.credited": "رجعنالك {amount} دينار رصيد",
   "promise.toast": "رجعنالك {amount} دينار رصيد. آسفين على التأخير",
   "promise.receipt_line": "رصيد التأخير",
-  "promise.receipt_hint": "تأخرنا أكثر من {minutes} دقيقة، فرجعنالك أجرة التوصيل رصيد بمحفظتك"
+  "promise.receipt_hint": "تأخرنا أكثر من {minutes} دقيقة، فرجعنالك أجرة التوصيل رصيد بمحفظتك",
+  "promise.line_flat": "إذا تأخرنا أكثر من {minutes} دقيقة، نعوّضك برصيد",
+  "promise.checkout_hint_flat": "توصيلك مجاني، فنحطلك {amount} دينار رصيد بمحفظتك",
+  "promise.bar_until_flat": "إذا ما وصل قبل {time}، نحطلك {amount} دينار رصيد",
+  "promise.credited_flat": "حطينالك {amount} دينار رصيد",
+  "promise.toast_flat": "حطينالك {amount} دينار رصيد. آسفين على التأخير",
+  "promise.receipt_hint_flat": "تأخرنا أكثر من {minutes} دقيقة، فحطينالك {amount} دينار رصيد بمحفظتك",
+  "promise.apology_title": "آسفين، طلبك تأخر شوية"
 }

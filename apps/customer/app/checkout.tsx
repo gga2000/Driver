@@ -29,6 +29,7 @@ import { useMyOrders } from '@/features/home/queries';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { promiseCopy } from '@/features/track/late-promise';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
 
@@ -322,10 +323,10 @@ export default function CheckoutScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="footnote" weight={600} color="successText">
-                    {t('promise.line', { minutes: orderQuote.data.latePromise.afterMin })}
+                    {t(promiseCopy(orderQuote.data.latePromise.basis).line, { minutes: orderQuote.data.latePromise.afterMin })}
                   </Text>
                   <Text variant="caption" color="textMuted">
-                    {t('promise.checkout_hint', { amount: amountParam(orderQuote.data.latePromise.creditIqd) })}
+                    {t(promiseCopy(orderQuote.data.latePromise.basis).checkoutHint, { amount: amountParam(orderQuote.data.latePromise.creditIqd) })}
                   </Text>
                 </View>
               </View>

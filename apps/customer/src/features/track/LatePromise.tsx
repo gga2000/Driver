@@ -6,14 +6,14 @@ import { formatClock, Icon, Text, useTheme, useToast, withAlpha } from '@driver/
 import { color } from '@driver/design-tokens';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { creditToastDue, promiseBar } from './late-promise';
+import { creditToastDue, promiseBar, promiseCopy } from './late-promise';
 
 /** Orders whose "رجعنالك … رصيد" toast this app run already showed. */
 const toasted = new Set<string>();
 
 /**
  * Audit d-5: when the server posts the honest-delay credit, say so once — warm, not grovelling:
- * "رجعنالك 1,000 دينار رصيد. آسفين على التأخير".
+ * "رجعنالك 1,000 دينار رصيد. آسفين على التأخير" ("حطينالك …" for a free-delivery order).
  */
 export function useLatePromiseToast(view: OrderTracking | undefined): void {
   const toast = useToast();
@@ -23,15 +23,16 @@ export function useLatePromiseToast(view: OrderTracking | undefined): void {
   useEffect(() => {
     if (!orderId || !creditToastDue(toasted, orderId, p)) return;
     toasted.add(orderId);
-    toast.show({ message: t('promise.toast', { amount: amountParam(p!.credit!.amountIqd) }), tone: 'success', icon: 'gift' }, 6000);
+    toast.show({ message: t(promiseCopy(p!.basis).toast, { amount: amountParam(p!.credit!.amountIqd) }), tone: 'success', icon: 'gift' }, 6000);
   }, [orderId, p, toast, t]);
 }
 
 /**
  * The running-late banner over the map (customer spec §4 degraded states): how late, the new time,
  * and — when the order carries the honest-delay promise — a thin bar from the promised time to the
- * server's threshold with the deadline as a clock time. Once the credit is posted the bar turns
- * green and says what came back.
+ * server's threshold with the deadline as a clock time. Once the server sent its apology (promised
+ * time + `apologyAfterMin`, the same words as the push) the headline says sorry; once the credit is
+ * posted the bar turns green and says what came back.
  */
 export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; lateMin: number; eta: Date; now: number }) {
   const theme = useTheme();
@@ -44,6 +45,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
   }, [bar?.progress, fill, theme.reduceMotion, theme.motion.duration.base]);
   const fillStyle = useAnimatedStyle(() => ({ width: `${Math.round(fill.value * 1000) / 10}%` }));
   const credited = Boolean(bar?.credited);
+  const copy = bar ? promiseCopy(bar.basis) : null;
   const tone = credited ? theme.colors.success : theme.colors.warning;
   return (
     <View
@@ -67,18 +69,18 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
         <Icon name="clock" size={18} color="warningText" strokeWidth={2.2} />
         <View style={{ flex: 1 }}>
           <Text variant="label" weight={600} color="warningText">
-            {t('track.running_late', { minutes: lateMin })}
+            {bar?.apologized ? t('promise.apology_title') : t('track.running_late', { minutes: lateMin })}
           </Text>
           <Text variant="caption" color="textMuted">
             {t('track.note_late', { minutes: lateMin, time: formatClock(eta) })}
           </Text>
         </View>
       </View>
-      {bar ? (
+      {bar && copy ? (
         <View
           testID="late-promise"
           accessible
-          accessibilityLabel={`${credited ? t('promise.credited', { amount: amountParam(bar.amountIqd) }) : t('promise.bar_until', { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}. ${t('promise.bar_a11y', { elapsed: bar.elapsedMin, minutes: bar.afterMin })}`}
+          accessibilityLabel={`${credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}. ${t('promise.bar_a11y', { elapsed: bar.elapsedMin, minutes: bar.afterMin })}`}
           style={{ gap: theme.space[1] }}
         >
           <View style={{ height: 6, borderRadius: 3, backgroundColor: withAlpha(tone, 0.18), overflow: 'hidden' }}>
@@ -87,7 +89,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
             {credited ? <Icon name="check" size={14} color="successText" strokeWidth={2.4} /> : null}
             <Text variant="caption" weight={600} color={credited ? 'successText' : 'text'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
-              {credited ? t('promise.credited', { amount: amountParam(bar.amountIqd) }) : t('promise.bar_until', { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
+              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
             </Text>
           </View>
         </View>

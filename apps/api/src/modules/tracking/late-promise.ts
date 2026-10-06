@@ -1,8 +1,8 @@
-import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, type LedgerService } from '../ledger/index.js';
-import { TrackingService, type TrackingLateCreditPort } from './tracking.service.js';
+import { TrackingService, type TrackingLateApologyPort, type TrackingLateCreditPort } from './tracking.service.js';
 
 /** Memo on the honest-delay credit line, so wallets, receipts and finance can tell it apart. */
 export const LATE_PROMISE_MEMO = 'late_promise';
@@ -35,6 +35,86 @@ export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'even
       );
     },
   };
+}
+
+/** The honest-delay apology's event (step one): the notify module turns it into the push and its SMS twin. */
+export const LATE_APOLOGY_EVENT = 'order.late_apology';
+
+/** Its idempotency key: one apology per order, whoever (track read, sweep, another instance) gets there first. */
+export const lateApologyKey = (orderId: string): string => `late_apology:${orderId}`;
+
+/**
+ * The apology through the event log (Ali, 2026-10-06): one `order.late_apology` per order (idempotency
+ * key), carrying the new time. It goes on its own aggregate, not `order`, because it changes no order
+ * state — an offline courier's replay older than it must not read as a contradiction.
+ */
+export function eventsLateApology(events: Pick<EventsService, 'emit' | 'forOrder'>): TrackingLateApologyPort {
+  return {
+    sent: async (orderId) => {
+      const e = (await events.forOrder(orderId)).find((x) => x.type === LATE_APOLOGY_EVENT);
+      if (!e) return null;
+      const eta = typeof e.payload['etaAt'] === 'string' ? new Date(e.payload['etaAt']) : null;
+      return { at: e.occurredAt, etaAt: eta && !Number.isNaN(eta.getTime()) ? eta : e.occurredAt };
+    },
+    send: async (c, tx?: Tx) => {
+      await events.emit(
+        tx,
+        {
+          type: LATE_APOLOGY_EVENT,
+          actorId: 'system',
+          occurredAt: c.at,
+          orderId: c.orderId,
+          idempotencyKey: lateApologyKey(c.orderId),
+          payload: { customerId: c.customerId, promisedAt: c.promisedAt.toISOString(), etaAt: c.etaAt.toISOString() },
+        },
+        { name: 'late_promise', id: c.orderId },
+      );
+    },
+  };
+}
+
+/** How often the apology sweep runs: `LATE_APOLOGY_SWEEP_MS` (default 30 s; 0 turns it off). */
+export function lateApologySweepMs(env: Record<string, string | undefined> = process.env): number {
+  const raw = env['LATE_APOLOGY_SWEEP_MS'];
+  const n = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 30_000;
+}
+
+/**
+ * Sends the honest-delay apology to deliveries nobody is watching (`TrackingService.sweepLateApologies`)
+ * on a timer. A run that overlaps the previous one is skipped; a failed run is logged and the next
+ * one tries again (the apology is idempotent by order).
+ */
+@Injectable()
+export class LateApologySweeper implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(LateApologySweeper.name);
+  private timer: NodeJS.Timeout | undefined;
+  private running = false;
+
+  constructor(private readonly tracking: TrackingService) {}
+
+  onModuleInit(): void {
+    const every = lateApologySweepMs();
+    if (every <= 0) return;
+    this.timer = setInterval(() => void this.tick(), every);
+    this.timer.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  async tick(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    try {
+      await this.tracking.sweepLateApologies();
+    } catch (err) {
+      this.logger.error(`late apology sweep: ${(err as Error).message}`);
+    } finally {
+      this.running = false;
+    }
+  }
 }
 
 /** A delivery that reached the door past the promise gets its credit at `order.delivered`, watched or not. */

@@ -1,5 +1,7 @@
 import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
+import { amountParam } from '@/lib/money';
+import { promiseCopy } from './late-promise';
 import { rideMatchedFresh } from './moments';
 
 /**
@@ -132,7 +134,8 @@ export function buildTimeline(v: OrderTracking, input: TimelineInput, t: TFn, cl
 function lateNote(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string): Pick<Step, 'note' | 'late'> {
   if (input.lateMin <= 0 || !input.eta) return {};
   // The honest-delay threshold is the server's (MoneyRules.latePromise); no promise, no promise text.
-  const promise = v.latePromise && !v.latePromise.credit ? ` ${t('track.note_late_credit', { minutes: v.latePromise.afterMin })}` : '';
+  const p = v.latePromise;
+  const promise = p && !p.credit ? ` ${t(promiseCopy(p.basis).noteLateCredit, { minutes: p.afterMin, amount: amountParam(p.creditIqd) })}` : '';
   return { note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })}${promise}`, late: true };
 }
 

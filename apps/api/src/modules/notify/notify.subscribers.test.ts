@@ -70,6 +70,26 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('stop.arrived', { stopId: 's2', stopType: 'dropoff' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
     expect(await one(event('stop.arrived', { stopId: 's1', stopType: 'pickup' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([]);
     expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ride_1' }))).toEqual([]);
+    // The honest-delay promise, step one: "آسفين، طلبك تأخر شوية" with the new time (12:55 Baghdad).
+    expect(await one(event('order.late_apology', { customerId: 'cust', promisedAt: '2026-10-04T09:20:00Z', etaAt: '2026-10-04T09:55:00Z' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'order_late_apology', to: 'cust', params: { time: '12:55 م', orderId: 'ord_1' } },
+    ]);
+    expect(await one(event('order.late_apology', { customerId: 'cust', etaAt: 'not a time' }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+
+  it('the late apology is a push with an SMS twin: title, the new time, the order screen', async () => {
+    const h = notifyHarness();
+    let handler: EventHandler | undefined;
+    registerNotifySubscribers({ subscribe: (_n, _t, fn) => ((handler = fn), () => undefined) }, deps(h));
+    await h.register('cust', 'ExponentPushToken[c1]', 'customer', 's1');
+    const apology = event('order.late_apology', { customerId: 'cust', etaAt: '2026-10-04T09:55:00Z' }, { orderId: 'ord_1' });
+    const ctx = { tx: undefined as never, subscriber: NOTIFY_SUBSCRIBER };
+    await handler!(apology, ctx);
+    await handler!(apology, ctx); // at-least-once outbox: still one message
+    await h.run();
+    const rows = await h.rows({ orderId: 'ord_1' });
+    expect(rows.map((r) => [r.template, r.channel])).toEqual([['order_late_apology', 'push']]);
+    expect(rows[0]!.payload).toMatchObject({ title: 'آسفين، طلبك تأخر شوية', body: 'يوصلك تقريباً الساعة 12:55 م. تگدر تتابعه من صفحة الطلب' });
   });
 
   it('registers one named subscriber; a redelivered event notifies once; sign-out drops the session tokens', async () => {
