@@ -64,6 +64,9 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
 
   const focus = useMemo(() => [...(self ? [self] : []), ...pins.map((p) => p.at)], [self, pins]);
   const focusKey = focus.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|');
+  // Zone names keep clear of the puck and every pin (QA 2026-10-07); keyed like the camera.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const labelAvoid = useMemo(() => focus.map((at) => ({ at })), [focusKey]);
 
   useEffect(() => {
     if (size.w === 0) return;
@@ -102,14 +105,16 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
+          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} />
           {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} /> : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
-          {/* The puck under the pins: a pin's label must never hide behind him. */}
-          {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} /> : null}
+          {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
+              the way to the kitchen «مطعم خالد» hid him; where he is matters most). */}
+          {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} layer="pulse" /> : null}
           {pins.map((p) => (
             <Pin key={`${p.kind}-${p.at.lat}-${p.at.lng}`} cam={cam} size={sizeSV} pin={p} />
           ))}
+          {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} layer="disc" /> : null}
         </>
       ) : null}
     </View>
@@ -144,17 +149,18 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 const PUCK = 120;
 
-function SelfPuck({ cam, size, at, icon, online }: LayerProps & { at: LngLat; icon: IconName; online: boolean }) {
+/** The driver's puck in two layers: `pulse` (radar ring and halo) under the pins, `disc` (him) over them. */
+function SelfPuck({ cam, size, at, icon, online, layer }: LayerProps & { at: LngLat; icon: IconName; online: boolean; layer: 'pulse' | 'disc' }) {
   const theme = useTheme();
   const wave = useSharedValue(0);
   useEffect(() => {
-    if (!online || theme.reduceMotion) {
+    if (layer !== 'pulse' || !online || theme.reduceMotion) {
       wave.value = 0;
       return;
     }
     wave.value = 0;
     wave.value = withRepeat(withTiming(1, { duration: 2200, easing: Easing.out(Easing.quad) }), -1, false);
-  }, [online, theme.reduceMotion, wave]);
+  }, [layer, online, theme.reduceMotion, wave]);
 
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
@@ -163,28 +169,33 @@ function SelfPuck({ cam, size, at, icon, online }: LayerProps & { at: LngLat; ic
   const ring = useAnimatedStyle(() => ({ opacity: online ? 0.55 * (1 - wave.value) : 0, transform: [{ scale: 0.35 + wave.value * 0.65 }] }), [online]);
   const color = online ? theme.colors.accent : theme.colors.textMuted;
   return (
-    <Animated.View pointerEvents="none" testID="self-puck" style={[styles.anchor, { width: PUCK, height: PUCK, alignItems: 'center', justifyContent: 'center' }, place]}>
-      <Animated.View style={[{ position: 'absolute', width: PUCK, height: PUCK, borderRadius: PUCK / 2, backgroundColor: withAlpha(color, 0.35), borderWidth: 2, borderColor: withAlpha(color, 0.6) }, ring]} />
-      <View style={{ position: 'absolute', width: 54, height: 54, borderRadius: 27, backgroundColor: withAlpha(color, 0.18) }} />
-      <View
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: color,
-          borderWidth: 3,
-          borderColor: theme.colors.surface,
-          alignItems: 'center',
-          justifyContent: 'center',
-          shadowColor: palette.neutral[1000],
-          shadowOpacity: 0.22,
-          shadowRadius: 6,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 4,
-        }}
-      >
-        <Icon name={icon} size={21} color={online ? 'onAccent' : 'surface'} strokeWidth={2.2} />
-      </View>
+    <Animated.View pointerEvents="none" testID={layer === 'disc' ? 'self-puck' : 'self-puck-pulse'} style={[styles.anchor, { width: PUCK, height: PUCK, alignItems: 'center', justifyContent: 'center' }, place]}>
+      {layer === 'pulse' ? (
+        <>
+          <Animated.View style={[{ position: 'absolute', width: PUCK, height: PUCK, borderRadius: PUCK / 2, backgroundColor: withAlpha(color, 0.35), borderWidth: 2, borderColor: withAlpha(color, 0.6) }, ring]} />
+          <View style={{ position: 'absolute', width: 54, height: 54, borderRadius: 27, backgroundColor: withAlpha(color, 0.18) }} />
+        </>
+      ) : (
+        <View
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: color,
+            borderWidth: 3,
+            borderColor: theme.colors.surface,
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: palette.neutral[1000],
+            shadowOpacity: 0.22,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 4,
+          }}
+        >
+          <Icon name={icon} size={21} color={online ? 'onAccent' : 'surface'} strokeWidth={2.2} />
+        </View>
+      )}
     </Animated.View>
   );
 }

@@ -3,6 +3,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import type { LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
+import type { LabelObstacle } from '@driver/map';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { TILE_SIZE, type Camera, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
@@ -10,6 +11,11 @@ import { BaseMap } from '@/features/track/map/BaseMap';
 const EARTH_CIRCUMFERENCE_M = 40_075_016.686;
 /** Below this the ring hides under the pin head: not worth drawing. */
 const MIN_RING_PX = 20;
+/** The centre pin: a round head on a stem, its tip on the spot. */
+const PIN_HEAD = 34;
+const PIN_STEM = 20;
+/** Zone names keep clear of the centre pin, tip to head («شارع 30» was drawn under its stem). */
+const CENTRE_PIN_AVOID: readonly LabelObstacle[] = [{ centre: true, up: PIN_HEAD + PIN_STEM }];
 
 /** The map camera as shared values (the overlays and the base map read it on the UI thread). */
 export function useMapCamera(initial: Camera) {
@@ -93,6 +99,7 @@ export function PinPicker({
           drawn={drawn}
           cam={cam}
           size={size}
+          labelAvoid={CENTRE_PIN_AVOID}
           onUserGestureStart={() => {
             lift.value = withSpring(1, { damping: 16, stiffness: 260 });
             setRingM(null);
@@ -118,9 +125,9 @@ export function PinPicker({
         <Animated.View testID="pin-centre" style={[{ alignItems: 'center', marginBottom: 52 }, pinStyle]}>
           <View
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 17,
+              width: PIN_HEAD,
+              height: PIN_HEAD,
+              borderRadius: PIN_HEAD / 2,
               backgroundColor: head,
               borderWidth: 4,
               borderColor: theme.colors.surface,
@@ -135,7 +142,7 @@ export function PinPicker({
           >
             <View style={{ width: 10, height: 10, borderRadius: tone === 'pickup' ? 5 : 2, backgroundColor: theme.colors.surface }} />
           </View>
-          <View style={{ width: 3, height: 20, borderRadius: 2, backgroundColor: head }} />
+          <View style={{ width: 3, height: PIN_STEM, borderRadius: 2, backgroundColor: head }} />
         </Animated.View>
         <View style={{ position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: withAlpha(head, 0.3) }} />
       </View>

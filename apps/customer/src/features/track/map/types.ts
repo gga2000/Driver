@@ -1,4 +1,5 @@
 import type { SharedValue } from 'react-native-reanimated';
+import type { LabelObstacle } from '@driver/map';
 import type { Camera, Size } from '../geo';
 
 /** The camera every layer reads on the UI thread: centre + zoom as three shared values. */
@@ -17,4 +18,6 @@ export interface BaseMapProps {
   onUserGestureStart: () => void;
   /** The person let go: the camera stays where they left it. */
   onUserCamera: (c: Camera) => void;
+  /** Markers the zone names keep clear of (pins, the courier, the centre pin). Memoise it: a new array redraws the names. */
+  labelAvoid?: readonly LabelObstacle[];
 }

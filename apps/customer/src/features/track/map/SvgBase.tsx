@@ -10,7 +10,7 @@ import { ZoneLayer } from './ZoneLayer';
  * Tile-free base map: cream ground plus the zone layer, with pan and pinch. Used on native until
  * `@maplibre/maplibre-react-native` is in a dev-client build, and on the web when WebGL is missing.
  */
-export function SvgBase({ drawn, cam, size, onUserGestureStart, onUserCamera }: BaseMapProps) {
+export function SvgBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid }: BaseMapProps) {
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const startZoom = useSharedValue(0);
@@ -53,7 +53,7 @@ export function SvgBase({ drawn, cam, size, onUserGestureStart, onUserCamera }: 
   return (
     <GestureDetector gesture={Gesture.Simultaneous(pan, pinch)}>
       <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
-        <ZoneLayer drawn={drawn} cam={cam} size={size} />
+        <ZoneLayer drawn={drawn} cam={cam} size={size} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
       </View>
     </GestureDetector>
   );

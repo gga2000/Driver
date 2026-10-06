@@ -6,6 +6,7 @@ import { useTheme } from '@driver/ui';
 import { fitCamera, type Camera, type LngLat, type Size } from '@/features/track/geo';
 import type { Glide } from '@/features/track/motion';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import { useLabelAvoid } from '@/features/track/map/useLabelAvoid';
 import { PlacePin, RadarPulse, RouteLine } from '@/features/track/map/Overlay';
 import type { VehicleKind } from '@/features/track/map/Vehicle';
 import { MapCredit, useMapCamera } from '@/features/places/PinPicker';
@@ -82,6 +83,8 @@ export function RideMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  const labelAvoid = useLabelAvoid([pickup, dropoff]);
+
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     sizeSV.value = { w: width, h: height };
@@ -93,7 +96,7 @@ export function RideMap({
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} />
+          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} />
           {radar ? <RadarPulse cam={cam} size={sizeSV} at={pickup} testID="ride-radar" /> : null}
           {nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {dropoff ? <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={start} waypoints={waypoints} color={theme.colors.accent} /> : null}

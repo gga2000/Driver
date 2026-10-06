@@ -7,6 +7,7 @@ import { Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
+import { useLabelAvoid } from './map/useLabelAvoid';
 import { CourierMarker, HeadingArrow, PlacePin, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
 import { useFollowCamera } from './map/useFollowCamera';
@@ -120,6 +121,9 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
     setSize({ w: width, h: height });
   };
 
+  // Zone names keep clear of every marker on this map (QA 2026-10-07).
+  const labelAvoid = useLabelAvoid([fix?.pin, ridePickup, kitchen && !pickedUp ? kitchen : null, home]);
+
   const vehicle = vehicleKind(view.courier?.vehicleClass ?? (view.order.type === 'ride' ? 'car' : 'bike'));
   const cam = camera.cam;
 
@@ -128,7 +132,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} accessibilityLabel={t('track.map_label')} testID="track-map">
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} />
+          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} />
           {/* No straight line across the river without a road route (joy f19): a heading arrow instead. */}
           <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} straight={false} />
           <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />

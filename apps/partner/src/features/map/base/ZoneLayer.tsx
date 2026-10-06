@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Platform, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
-import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, MAP_COLORS_LIGHT } from '@driver/map';
+import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, labelsClearOf, MAP_COLORS_LIGHT, obstaclesOnScreen, ZONE_LABEL_FONT_PX, type LabelObstacle } from '@driver/map';
 import { layerTransform, pathD, project, type Camera, type Size } from '../geo';
 import { toWesternDigits } from '@/lib/phone';
 import type { CameraValues } from './types';
@@ -11,6 +11,7 @@ import { useApi } from '@/lib/api';
 
 const ZONES = buildZonesGeoJSON();
 const CENTROIDS = buildZoneCentroidsGeoJSON();
+const NO_OBSTACLES: readonly LabelObstacle[] = [];
 const LABEL_FONT = Platform.OS === 'web' ? 'IBM Plex Sans Arabic, sans-serif' : 'IBMPlexSansArabic_500Medium';
 
 export interface ZoneLayerProps {
@@ -23,6 +24,8 @@ export interface ZoneLayerProps {
   labels?: boolean;
   /** 0 hides the layer (labels while MapLibre is mid-pinch). */
   opacity?: SharedValue<number>;
+  /** Markers the names keep ~40 px clear of (pins, the courier, the centre pin); a name too close is not drawn. */
+  avoid?: readonly LabelObstacle[];
 }
 
 /**
@@ -31,7 +34,7 @@ export interface ZoneLayerProps {
  * settles. The map's floor when there are no tiles: the sandbox, a dead network, native without
  * MapLibre.
  */
-export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = true, labels = true, opacity }: ZoneLayerProps) {
+export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = true, labels = true, opacity, avoid = NO_OBSTACLES }: ZoneLayerProps) {
   const api = useApi();
   const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
   const zones = useMemo(() => liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES, [liveZones.data]);
@@ -45,16 +48,14 @@ export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = tru
       })),
     [drawn, size, zones],
   );
-  const names = useMemo(
-    () =>
-      labels && drawn.zoom >= 13.5
-        ? centroids.features.map((f) => {
-            const [lng, lat] = f.geometry.coordinates as [number, number];
-            return { id: f.properties.id, name: toWesternDigits(f.properties.name_ar), ...project(lat, lng, drawn, size) };
-          })
-        : [],
-    [drawn, size, labels, centroids],
-  );
+  const names = useMemo(() => {
+    if (!labels || drawn.zoom < 13.5) return [];
+    const placed = centroids.features.map((f) => {
+      const [lng, lat] = f.geometry.coordinates as [number, number];
+      return { id: f.properties.id, name: toWesternDigits(f.properties.name_ar), ...project(lat, lng, drawn, size) };
+    });
+    return labelsClearOf(placed, obstaclesOnScreen(avoid, size, (p) => project(p.lat, p.lng, drawn, size)));
+  }, [drawn, size, labels, centroids, avoid]);
 
   const style = useAnimatedStyle(() => {
     const live = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
@@ -80,7 +81,7 @@ export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = tru
               key={`${halo ? 'h' : 't'}-${n.id}`}
               x={n.x}
               y={n.y}
-              fontSize={11}
+              fontSize={ZONE_LABEL_FONT_PX}
               fontWeight="500"
               fontFamily={LABEL_FONT}
               fill={MAP_COLORS_LIGHT.muted}

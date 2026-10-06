@@ -5,6 +5,7 @@ import { LIVE_RULES, SHARE_LIVE_RULES, type SharedTrip } from '@driver/contracts
 import { Text, useTheme } from '@driver/ui';
 import { distanceM, type LngLat, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import { useLabelAvoid } from '@/features/track/map/useLabelAvoid';
 import { CourierMarker, PlacePin, RouteLine } from '@/features/track/map/Overlay';
 import { RecentreChip } from '@/features/track/map/RecentreChip';
 import { AZIZIYAH_CAMERA, useFollowCamera } from '@/features/track/map/useFollowCamera';
@@ -52,6 +53,9 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey]);
 
+  // Zone names keep clear of the car and the pin («شارع 30» was drawn under the restaurant).
+  const labelAvoid = useLabelAvoid([fix?.pin, target]);
+
   const close = fix && target ? distanceM(fix.pin, target) < CLOSE_IN_M : false;
   const focus = fix ? (target ? [fix.pin, target] : [fix.pin]) : [AZIZIYAH_CAMERA];
   const camera = useFollowCamera({
@@ -73,7 +77,7 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }]} onLayout={onLayout} testID="share-map">
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} />
+          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} />
           {fix && target ? <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} /> : null}
           {trip.target && target ? (
             <PlacePin cam={cam} size={sizeSV} at={target} kind={pinKind(trip)} label={pinLabel(trip, t)} testID="share-target" />
