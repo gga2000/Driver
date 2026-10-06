@@ -70,6 +70,12 @@ export const RestaurantCard = z.object({
   opensInMin: z.number().int().min(0).nullable().optional(),
   /** Busy mode: prep takes longer. */
   busy: z.boolean(),
+  /**
+   * Weekly opening hours on the city's clock ("HH:MM", `end` before `start` runs past midnight); empty
+   * = always open. Joy o11: a closed kitchen offers pre-order slots for today or tomorrow inside them
+   * (`orders.place` checks the same hours at the scheduled time).
+   */
+  hours: z.array(z.object({ dow: z.number().int().min(0).max(6), start: z.string(), end: z.string() })).optional(),
   /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
   deals: z.array(DealBadge).optional(),
 });

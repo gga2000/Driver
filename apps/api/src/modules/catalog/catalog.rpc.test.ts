@@ -57,6 +57,9 @@ describe('catalog.restaurants (customer read, M3)', () => {
     expect(cards.at(-1)?.name).toBe('مطعم المسافر');
     const musafir = cards.find((c) => c.name === 'مطعم المسافر')!;
     expect(musafir).toMatchObject({ open: false, closedReason: 'hours', opensAt: '5:00', minOrderIqd: 8000 });
+    // Joy o11: the hours travel with the card, for pre-order slots.
+    expect(musafir.hours).toHaveLength(7);
+    expect(musafir.hours?.[0]).toEqual({ dow: 0, start: '05:00', end: '15:00' });
     for (const c of cards.filter((x) => x.name !== 'مطعم المسافر')) expect(c.open, c.name).toBe(true);
 
     const kareem = cards.find((c) => c.name === 'مشويات الحاج كريم')!;

@@ -231,15 +231,6 @@ export function overNewCustomerCap(totalIqd: number, prior: number, paymentMetho
 
 export const NEW_CUSTOMER_CAP_IQD = AZIZIYAH_MONEY_RULES.newCustomerCash.maxOrderIqd;
 
-/** Next half-hour slots at least `leadMin` from now, for "schedule" (local device time). */
-export function scheduleSlots(now: Date, count = 6, leadMin = 45): Date[] {
-  const first = new Date(now.getTime() + leadMin * 60_000);
-  first.setSeconds(0, 0);
-  const m = first.getMinutes();
-  first.setMinutes(m === 0 || m === 30 ? m : m < 30 ? 30 : 60);
-  return Array.from({ length: count }, (_, i) => new Date(first.getTime() + i * 30 * 60_000));
-}
-
 /** "7:30 م" for a slot: the city's one clock (packages/i18n), whatever the phone's time zone. */
 export function clock12(d: Date): string {
   return formatClock(d);

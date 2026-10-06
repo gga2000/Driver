@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, scheduleSlots, validTender, walletChoice } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -255,10 +255,7 @@ describe('checkout rules and helpers', () => {
     expect(placeProblem(null)).toBe('other');
   });
 
-  it('schedule slots: half hours at least 45 minutes ahead; 12-hour labels', () => {
-    const now = new Date(2026, 9, 3, 18, 12);
-    const slots = scheduleSlots(now, 3);
-    expect(slots.map((d) => d.getMinutes())).toEqual([0, 30, 0]);
+  it('slot labels: 12-hour on the city clock (slots themselves: slots.test.ts)', () => {
     // Labels are on the city's clock (UTC+3) with ص/م, whatever the phone's zone.
     expect(clock12(new Date('2026-10-03T16:00:00Z'))).toBe('7:00 م');
     expect(clock12(new Date('2026-10-02T21:05:00Z'))).toBe('12:05 ص');

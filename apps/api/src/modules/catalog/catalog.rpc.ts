@@ -421,6 +421,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       opensAt: state.opensAt,
       opensInMin: holiday || closed || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
       busy,
+      hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       deals: (await this.merchants.deals?.(s.orgId, now)) ?? [],
     };
   }

@@ -17,7 +17,6 @@ import {
   overNewCustomerCap,
   placeProblem,
   priorCashOrders,
-  scheduleSlots,
   validTender,
   walletChoice,
   type Recipient,
@@ -25,6 +24,7 @@ import {
 import { useWalletBalance } from '@/features/account/queries';
 import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
+import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
 import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
@@ -82,8 +82,23 @@ export default function CheckoutScreen() {
   const [otherName, setOtherName] = useState('');
   const [otherPhone, setOtherPhone] = useState('');
   const [when, setWhen] = useState<'now' | 'later'>('now');
-  const slots = useMemo(() => scheduleSlots(new Date()), []);
+  // o11: slots for today or tomorrow inside the kitchen's hours; a closed kitchen starts on its first one.
+  const [day, setDay] = useState<0 | 1>(0);
+  const hours = menu.data?.restaurant.hours;
+  const slots = useMemo(() => preorderSlots(new Date(), hours ?? [], day), [hours, day]);
   const [slot, setSlot] = useState(0);
+  const preset = useRef(false);
+  useEffect(() => {
+    const r = menu.data?.restaurant;
+    if (!r || preset.current) return;
+    preset.current = true;
+    if (r.open) return;
+    const first = firstOpenSlot(new Date(), r.hours ?? []);
+    if (!first) return;
+    setWhen('later');
+    setDay(first.day);
+    setSlot(0);
+  }, [menu.data]);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');
@@ -269,7 +284,7 @@ export default function CheckoutScreen() {
   const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
   const payLine = payCopy(amountParam(totals?.totalIqd ?? 0), payment, receiver);
   const etaMax = restaurant?.etaMaxMinutes ?? null;
-  const whenValue = scheduledFor ? t('checkout.when_at', { time: clock12(scheduledFor) }) : t('checkout.when_now');
+  const whenValue = scheduledFor ? `${day === 1 ? t('time.tomorrow') : t('time.today')} ${t('checkout.when_at', { time: clock12(scheduledFor) })}` : t('checkout.when_now');
   const receiverValue = recipientId === 'me' ? t('checkout.recipient_me') : recipientId === 'other' ? otherName.trim() || t('checkout.recipient_other') : (recipientName ?? t('checkout.recipient_other'));
   const choosePayer = (payer: Payer) => {
     const next = paymentOf(payer);
@@ -515,7 +530,27 @@ export default function CheckoutScreen() {
               accessibilityLabel={t('checkout.when')}
             />
             {when === 'later' ? (
-              <ChipGroup items={slots.map((sl, i) => ({ id: String(i), label: t('checkout.when_at', { time: clock12(sl) }) }))} value={[String(slot)]} required onChange={(v) => setSlot(Number(v[0] ?? 0))} />
+              <>
+                <SegmentedControl
+                  accessibilityLabel={t('checkout.day')}
+                  value={String(day)}
+                  onChange={(v) => {
+                    setDay(v === '1' ? 1 : 0);
+                    setSlot(0);
+                  }}
+                  options={[
+                    { value: '0', label: t('time.today') },
+                    { value: '1', label: t('time.tomorrow') },
+                  ]}
+                />
+                {slots.length > 0 ? (
+                  <ChipGroup items={slots.map((sl, i) => ({ id: String(i), label: t('checkout.when_at', { time: clock12(sl) }) }))} value={[String(slot)]} required onChange={(v) => setSlot(Number(v[0] ?? 0))} />
+                ) : (
+                  <Text variant="footnote" color="textMuted" testID="checkout-no-slots">
+                    {t('checkout.no_slots_day')}
+                  </Text>
+                )}
+              </>
             ) : null}
           </View>
         ) : null}

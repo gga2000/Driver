@@ -224,8 +224,8 @@ export default function RestaurantScreen() {
                       ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
                       : t('error.merchant_closed', { time: restaurant.opensAt ?? '' })}
                   </Text>
-                  <Text variant="footnote" color="textMuted">
-                    {t('restaurant.closed_browse')}
+                  <Text variant="footnote" color="textMuted" testID="restaurant-preorder">
+                    {restaurant.opensAt ? t('restaurant.preorder_note', { time: restaurant.opensAt }) : t('restaurant.closed_browse')}
                   </Text>
                 </View>
               </View>
@@ -244,7 +244,6 @@ export default function RestaurantScreen() {
                       item={item}
                       art={artById.get(item.id)}
                       inCart={counts.get(item.id) ?? 0}
-                      disabled={closed}
                       onOpen={() => setOpen(item)}
                       onQuickAdd={(from) => quickAdd(item, from)}
                       onDecrement={() => removeOne(item)}
@@ -265,7 +264,7 @@ export default function RestaurantScreen() {
 
       <FlyToCart ref={flyRef} targetRef={bubbleRef} onLanded={land} />
 
-      {open && merchant ? <ItemSheet item={open} merchant={merchant} disabled={closed} onClose={() => setOpen(null)} onAdded={onAdded} /> : null}
+      {open && merchant ? <ItemSheet item={open} merchant={merchant} onClose={() => setOpen(null)} onAdded={onAdded} /> : null}
     </View>
   );
 }
