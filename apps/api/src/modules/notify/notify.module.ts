@@ -4,6 +4,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
@@ -53,7 +54,7 @@ function envInt(name: string, fallback: number): number {
  * turns domain events into notifications.
  */
 @Module({
-  imports: [EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TripsModule],
+  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TripsModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     {
@@ -121,7 +122,7 @@ function envInt(name: string, fallback: number): number {
     },
     {
       provide: NOTIFY_ENGINE,
-      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService) => {
+      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService) => {
         const contacts: NotifyContacts = {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
@@ -133,13 +134,22 @@ function envInt(name: string, fallback: number): number {
             return ec ? { locale: 'ar-IQ', phoneE164: ec.phoneE164 } : null;
           },
         };
-        return new NotifyEngine(repo, { push: pushPortsFromEnv(), sms: smsPortFromEnv(), whatsapp: whatsAppPortFromEnv() }, contacts, queue, clock, {
-          retryBaseMs: envInt('NOTIFY_RETRY_BASE_MS', DEFAULT_ENGINE_OPTIONS.retryBaseMs),
-          maxAttempts: envInt('NOTIFY_MAX_ATTEMPTS', DEFAULT_ENGINE_OPTIONS.maxAttempts),
-          receiptDelaySec: envInt('NOTIFY_RECEIPT_DELAY_SEC', DEFAULT_ENGINE_OPTIONS.receiptDelaySec),
-        });
+        return new NotifyEngine(
+          repo,
+          { push: pushPortsFromEnv(), sms: smsPortFromEnv(), whatsapp: whatsAppPortFromEnv() },
+          contacts,
+          queue,
+          clock,
+          {
+            retryBaseMs: envInt('NOTIFY_RETRY_BASE_MS', DEFAULT_ENGINE_OPTIONS.retryBaseMs),
+            maxAttempts: envInt('NOTIFY_MAX_ATTEMPTS', DEFAULT_ENGINE_OPTIONS.maxAttempts),
+            receiptDelaySec: envInt('NOTIFY_RECEIPT_DELAY_SEC', DEFAULT_ENGINE_OPTIONS.receiptDelaySec),
+          },
+          // Mourning days set in the Console: no offers then (customer joy J1a).
+          (at) => controls.isQuietDay(at),
+        );
       },
-      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService],
+      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService],
     },
     NotifyService,
   ],
