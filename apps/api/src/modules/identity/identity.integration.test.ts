@@ -84,6 +84,14 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     }
   });
 
+  it('a retired refresh token presented again revokes the session although the refresh rolls back', async () => {
+    const { session, tokens } = await sessions.open(personId, null);
+    const next = await service.refresh(tokens.refreshToken);
+    await expect(service.refresh(tokens.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
+    expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).not.toBeNull();
+    await expect(service.refresh(next.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
+  });
+
   it('profile read writes a vault access log row with the reason', async () => {
     const claims = await service.verifyAccessToken((await service.refresh((await sessions.open(personId, null)).tokens.refreshToken)).accessToken);
     await service.me({ personId: claims.sub, sessionId: claims.sid });

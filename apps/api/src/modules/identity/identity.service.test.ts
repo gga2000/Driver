@@ -226,9 +226,21 @@ describe('sessions', () => {
     const next = await h.service.refresh(tokens.refreshToken);
     expect(next.refreshToken).not.toBe(tokens.refreshToken);
     expect((await h.actorFor(next.accessToken)).sessionId).toBe(actor.sessionId);
-    // Reusing the rotated token is treated as theft: the session is gone.
-    await expectCode(h.service.refresh(tokens.refreshToken), 'token_invalid');
-    await expect(h.service.refresh(next.refreshToken)).resolves.toBeTruthy();
+    // Reusing the rotated token is treated as theft: the session is gone, for both holders.
+    await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused');
+    await expectCode(h.service.refresh(next.refreshToken), 'refresh_reused');
+    await expectCode(h.service.verifyAccessToken(next.accessToken), 'session_expired');
+  });
+
+  it('a stolen refresh token used first: the real owner coming back ends the thief\'s session too', async () => {
+    const h = harness();
+    const { tokens } = await h.login(PHONE);
+    const thief = await h.service.refresh(tokens.refreshToken); // the thief rotates first
+    await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused'); // the owner's old token
+    await expectCode(h.service.refresh(thief.refreshToken), 'refresh_reused');
+    await expectCode(h.service.verifyAccessToken(thief.accessToken), 'session_expired');
+    // Only the token just retired is remembered; an unknown token is simply invalid.
+    await expectCode(h.service.refresh('not-a-token'), 'token_invalid');
   });
 
   it('access tokens expire by the clock and logout kills the session', async () => {
