@@ -119,7 +119,8 @@ export default function Account() {
       <Section title={t('partner.hub_work')} rows={work} />
       {more.length > 0 ? <Section title={t('partner.hub_more')} rows={more} /> : null}
 
-      {/* "جرّب صوت الطلب" (S-01): the real offer doorbell, so he knows it rings before the first offer. */}
+      {/* "جرّب صوت الطلب" (S-01): the real offer doorbell, so he knows it rings before the first offer.
+          «شغّل» is the one tap target: the row itself is not a button, so no button sits inside a button. */}
       <View style={{ gap: theme.space[2] }}>
         <Text variant="label" color="textMuted" style={{ paddingHorizontal: theme.space[1] }}>
           {t('partner.hub_alerts')}
@@ -130,7 +131,6 @@ export default function Account() {
             leading="bell"
             title={t('partner.test_sound')}
             subtitle={t('partner.test_sound_sub')}
-            onPress={() => void testSound()}
             chevron={false}
             trailing={<Button testID="test-sound-play" label={t('partner.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void testSound()} />}
             divider

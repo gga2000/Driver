@@ -67,8 +67,7 @@ export function SegmentRing({ count, animateLast = true, size = 168, strokeWidth
             fill="none"
             strokeDasharray={`${circ} ${circ}`}
             strokeDashoffset={circ - a.length}
-            rotation={a.startDeg - 90}
-            origin={`${c}, ${c}`}
+            transform={rotateAbout(a.startDeg - 90, c)}
           />
         ))}
         {last ? (
@@ -81,8 +80,7 @@ export function SegmentRing({ count, animateLast = true, size = 168, strokeWidth
             strokeLinecap="round"
             fill="none"
             strokeDasharray={`${circ} ${circ}`}
-            rotation={last.startDeg - 90}
-            origin={`${c}, ${c}`}
+            transform={rotateAbout(last.startDeg - 90, c)}
             animatedProps={lastProps}
           />
         ) : null}
@@ -90,4 +88,13 @@ export function SegmentRing({ count, animateLast = true, size = 168, strokeWidth
       {children}
     </View>
   );
+}
+
+/**
+ * An SVG `rotate(deg cx cy)` about the ring's centre. A transform string instead of `rotation` +
+ * `origin`: on the web react-native-svg turns `origin` into a `transform-origin` DOM attribute, which
+ * React rejects ("Invalid DOM property transform-origin").
+ */
+function rotateAbout(deg: number, c: number): string {
+  return `rotate(${deg} ${c} ${c})`;
 }
