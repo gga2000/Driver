@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { decodePolyline } from '@driver/map';
+import { decodePolyline, pinLabelSide, pinLabelWidth, type PinLabelLayout, type PinLabelSide } from '@driver/map';
 import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import type { DemandLevel } from '@driver/contracts';
 import { BaseMap } from './base/BaseMap';
@@ -100,6 +100,14 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
     setSize({ w: width, h: height });
   };
 
+  // His disc is drawn over the pins: a name it would cover flips under its pin (QA 2026-10-07, «مطعم خ»).
+  const sides = useMemo<PinLabelSide[]>(() => {
+    if (!self || size.w === 0) return pins.map(() => 'above');
+    const me = project(self.lat, self.lng, drawn, size);
+    const disc = { left: me.x - DISC / 2, right: me.x + DISC / 2, top: me.y - DISC / 2, bottom: me.y + DISC / 2 };
+    return pins.map((p) => pinLabelSide(project(p.at.lat, p.at.lng, drawn, size), [disc], pinLayout(p.label)));
+  }, [self, pins, drawn, size]);
+
   return (
     // Map maths are physical (x grows rightwards): lay the map out LTR inside the RTL app.
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
@@ -111,8 +119,8 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
           {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
               the way to the kitchen «مطعم خالد» hid him; where he is matters most). */}
           {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} layer="pulse" /> : null}
-          {pins.map((p) => (
-            <Pin key={`${p.kind}-${p.at.lat}-${p.at.lng}`} cam={cam} size={sizeSV} pin={p} />
+          {pins.map((p, i) => (
+            <Pin key={`${p.kind}-${p.at.lat}-${p.at.lng}`} cam={cam} size={sizeSV} pin={p} side={sides[i] ?? 'above'} />
           ))}
           {self ? <SelfPuck cam={cam} size={sizeSV} at={self} icon={vehicleIcon} online={online} layer="disc" /> : null}
         </>
@@ -178,9 +186,9 @@ function SelfPuck({ cam, size, at, icon, online, layer }: LayerProps & { at: Lng
       ) : (
         <View
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
+            width: DISC,
+            height: DISC,
+            borderRadius: DISC / 2,
             backgroundColor: color,
             borderWidth: 3,
             borderColor: theme.colors.surface,
@@ -202,28 +210,44 @@ function SelfPuck({ cam, size, at, icon, online, layer }: LayerProps & { at: Lng
 
 const PIN_W = 150;
 const PIN_H = 66;
+/** His disc on the puck. */
+const DISC = 40;
+/** The pin's name pill, its stem and the tip dot (which tucks 3 px under the stem). */
+const PILL_H = 30;
+const STEM = 10;
+const TIP_DOT = 10;
+const DOT_TUCK = 3;
+/** Pill padding both sides, the icon and the gap to the text. */
+const PILL_CHROME = 10 * 2 + 15 + 4;
+const PILL_FONT = 12;
 
-function Pin({ cam, size, pin }: LayerProps & { pin: MapPin }) {
+/** Where a pin's pill sits for the side rule in `@driver/map` (`pinLabelSide`). */
+function pinLayout(label: string): PinLabelLayout {
+  return { width: pinLabelWidth(label, PILL_FONT, PILL_CHROME, PIN_W), height: PILL_H, gapAbove: STEM + TIP_DOT - DOT_TUCK, gapBelow: STEM - DOT_TUCK };
+}
+
+/** A pin anchored at its tip, its name over it or (`side` below) flipped under it. */
+function Pin({ cam, size, pin, side }: LayerProps & { pin: MapPin; side: PinLabelSide }) {
   const theme = useTheme();
   const place = useAnimatedStyle(() => {
     const p = project(pin.at.lat, pin.at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
-    return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: p.y - PIN_H }] };
-  }, [pin.at.lat, pin.at.lng]);
+    return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: side === 'below' ? p.y - TIP_DOT : p.y - PIN_H }] };
+  }, [pin.at.lat, pin.at.lng, side]);
   // Light pins (to collect: a kitchen, a garage, a rider on the run); the dark one is the door.
   const pickup = pin.kind !== 'dropoff';
   const fill = pickup ? theme.colors.surface : theme.colors.text;
   const icon: IconName = pin.kind === 'garage' ? 'garage' : pin.kind === 'dropoff' ? 'home' : 'bag';
   return (
-    <Animated.View pointerEvents="none" testID={`pin-${pin.kind}${pin.badge ? `-${pin.badge}` : ''}`} style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: 'flex-end' }, place]}>
-      <View style={{ alignItems: 'center' }}>
+    <Animated.View pointerEvents="none" testID={`pin-${pin.kind}${pin.badge ? `-${pin.badge}` : ''}`} style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: side === 'below' ? 'flex-start' : 'flex-end' }, place]}>
+      <View style={{ alignItems: 'center', flexDirection: side === 'below' ? 'column-reverse' : 'column' }}>
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
             gap: 4,
             paddingHorizontal: 10,
-            height: 30,
-            borderRadius: 15,
+            height: PILL_H,
+            borderRadius: PILL_H / 2,
             backgroundColor: fill,
             borderWidth: pickup ? 1.5 : 0,
             borderColor: theme.colors.borderStrong,
@@ -248,8 +272,8 @@ function Pin({ cam, size, pin }: LayerProps & { pin: MapPin }) {
             {pin.label}
           </Text>
         </View>
-        <View style={{ width: 2, height: 10, backgroundColor: pickup ? theme.colors.borderStrong : fill }} />
-        <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: -3, backgroundColor: pickup ? theme.colors.text : theme.colors.accent, borderWidth: 2, borderColor: theme.colors.surface }} />
+        <View style={{ width: 2, height: STEM, backgroundColor: pickup ? theme.colors.borderStrong : fill }} />
+        <View style={{ width: TIP_DOT, height: TIP_DOT, borderRadius: TIP_DOT / 2, ...(side === 'below' ? { marginBottom: -DOT_TUCK } : { marginTop: -DOT_TUCK }), backgroundColor: pickup ? theme.colors.text : theme.colors.accent, borderWidth: 2, borderColor: theme.colors.surface }} />
       </View>
     </Animated.View>
   );

@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
 import { useLabelAvoid } from './map/useLabelAvoid';
-import { CourierMarker, HeadingArrow, PlacePin, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
+import { CourierMarker, HeadingArrow, PlacePin, placePinSide, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
 import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
@@ -124,6 +124,12 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
   // Zone names keep clear of every marker on this map (QA 2026-10-07).
   const labelAvoid = useLabelAvoid([fix?.pin, ridePickup, kitchen && !pickedUp ? kitchen : null, home]);
 
+  // The courier is drawn over the pins: a name he would cover flips under its pin (QA 2026-10-07).
+  const courierAt = fix?.pin ?? null;
+  const kitchenLabel = view.merchant?.name ?? t('track.kitchen_pin');
+  const homeLabel = t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin');
+  const sideOf = (at: LngLat, label: string) => placePinSide(at, label, courierAt, Boolean(minutes), camera.drawn, size);
+
   const vehicle = vehicleKind(view.courier?.vehicleClass ?? (view.order.type === 'ride' ? 'car' : 'bike'));
   const cam = camera.cam;
 
@@ -138,10 +144,10 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
           <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />
           {searching && nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
-          {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} testID="pin-pickup" /> : null}
+          {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} side={sideOf(ridePickup, t('ride.pickup_here'))} testID="pin-pickup" /> : null}
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
-          {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
-          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind={view.order.type === 'ride' ? destinationKind : 'home'} label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
+          {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={kitchenLabel} side={sideOf(kitchen, kitchenLabel)} testID="pin-kitchen" /> : null}
+          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind={view.order.type === 'ride' ? destinationKind : 'home'} label={homeLabel} side={sideOf(home, homeLabel)} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicle} stale={stale} minutes={minutes} spotlight={spotlight} testID="courier-marker" />
         </>
       ) : null}

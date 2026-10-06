@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LABEL_MARKER_CLEARANCE_PX, labelBox, labelMarkerGap, labelsClearOf, obstaclesOnScreen, type PlacedLabel } from './labels.js';
+import { LABEL_MARKER_CLEARANCE_PX, labelBox, labelMarkerGap, labelsClearOf, obstaclesOnScreen, pinLabelRect, pinLabelSide, pinLabelWidth, rectsOverlap, type PinLabelLayout, type PlacedLabel } from './labels.js';
 
 const street30: PlacedLabel = { x: 195, y: 200, name: 'شارع 30' };
 
@@ -44,5 +44,42 @@ describe('zone labels keep clear of markers (QA 2026-10-07)', () => {
       { x: 200, y: 140, up: 60 },
       { x: 12, y: 34, up: 0 },
     ]);
+  });
+});
+
+describe('a pin name flips under its pin when the courier covers it (QA 2026-10-07)', () => {
+  // The partner pin: a 30 px pill, 17 px over the tip; flipped, 12 px under it.
+  const layout: PinLabelLayout = { width: 110, height: 30, gapAbove: 17, gapBelow: 12 };
+  const tip = { x: 318, y: 176 };
+  /** The courier's 40 px disc centred at (x, y). */
+  const disc = (x: number, y: number) => ({ left: x - 20, right: x + 20, top: y - 20, bottom: y + 20 });
+
+  it('the pill sits over the tip, or under it when flipped, centred on it', () => {
+    expect(pinLabelRect(tip, 'above', layout)).toEqual({ left: 263, right: 373, top: 129, bottom: 159 });
+    expect(pinLabelRect(tip, 'below', layout)).toEqual({ left: 263, right: 373, top: 188, bottom: 218 });
+  });
+
+  it('stays above with no courier, or with the courier well away', () => {
+    expect(pinLabelSide(tip, [], layout)).toBe('above');
+    expect(pinLabelSide(tip, [disc(100, 400)], layout)).toBe('above');
+  });
+
+  it('flips below when the disc sits on the start of «مطعم خالد» (the p5a pickup leg)', () => {
+    expect(pinLabelSide(tip, [disc(270, 140)], layout)).toBe('below');
+  });
+
+  it('stays above when the courier would cover it below too', () => {
+    expect(pinLabelSide(tip, [disc(270, 140), disc(318, 200)], layout)).toBe('above');
+  });
+
+  it('keeps a small margin: a disc 2 px off the pill still counts, 10 px off does not', () => {
+    const pill = pinLabelRect(tip, 'above', layout);
+    expect(rectsOverlap(pill, { left: pill.right + 2, right: pill.right + 42, top: 130, bottom: 170 }, 4)).toBe(true);
+    expect(rectsOverlap(pill, { left: pill.right + 10, right: pill.right + 50, top: 130, bottom: 170 }, 4)).toBe(false);
+  });
+
+  it('a pill grows with its name and stops at the cap', () => {
+    expect(pinLabelWidth('مطعم خالد', 12, 39, 150)).toBeGreaterThan(pinLabelWidth('الزبون', 12, 39, 150));
+    expect(pinLabelWidth('مطعم بيت الكبة والدولمة العراقية الأصيلة', 12, 39, 150)).toBe(150);
   });
 });

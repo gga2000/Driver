@@ -68,3 +68,60 @@ export function obstaclesOnScreen(obstacles: readonly LabelObstacle[], size: { w
     return { x: at.x, y: at.y, up: o.up ?? 0 };
   });
 }
+
+/** A box on screen, px (y grows down). */
+export interface ScreenRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Where a pin's name pill sits: over its tip (the default) or flipped under it. */
+export type PinLabelSide = 'above' | 'below';
+
+/** A pin's name pill: its size, and how far its near edge sits from the tip on each side. */
+export interface PinLabelLayout {
+  width: number;
+  height: number;
+  /** Tip to the pill's bottom edge when it sits above (the stem and the tip dot between). */
+  gapAbove: number;
+  /** Tip to the pill's top edge when it is flipped below. */
+  gapBelow: number;
+}
+
+/** Room kept between a pin's name and the courier before the name flips, px. */
+export const PIN_LABEL_CLEARANCE_PX = 4;
+
+/**
+ * How wide a pin's name pill draws: the text (estimated like the zone names) plus the icon, gap and
+ * padding around it, never wider than the pill's cap.
+ */
+export function pinLabelWidth(text: string, fontPx: number, chromePx: number, maxPx: number): number {
+  return Math.min(maxPx, chromePx + text.length * fontPx * GLYPH_WIDTH_EM);
+}
+
+/** The pill's box for a pin whose tip is at `tip`, on `side`. */
+export function pinLabelRect(tip: { x: number; y: number }, side: PinLabelSide, layout: PinLabelLayout): ScreenRect {
+  const half = layout.width / 2;
+  const top = side === 'above' ? tip.y - layout.gapAbove - layout.height : tip.y + layout.gapBelow;
+  return { left: tip.x - half, right: tip.x + half, top, bottom: top + layout.height };
+}
+
+/** True when two boxes come closer than `margin` px (touching counts when margin is 0). */
+export function rectsOverlap(a: ScreenRect, b: ScreenRect, margin = 0): boolean {
+  return a.left < b.right + margin && b.left < a.right + margin && a.top < b.bottom + margin && b.top < a.bottom + margin;
+}
+
+/**
+ * Which side of its pin a name goes (QA 2026-10-07: on the pickup leg the courier's disc, drawn over
+ * the pins, hid the start of «مطعم خالد»). Above unless the courier (`movers`) covers it there and
+ * not below; when both sides are covered it stays above, where people look for it.
+ */
+export function pinLabelSide(tip: { x: number; y: number }, movers: readonly ScreenRect[], layout: PinLabelLayout, margin = PIN_LABEL_CLEARANCE_PX): PinLabelSide {
+  const hit = (side: PinLabelSide) => {
+    const r = pinLabelRect(tip, side, layout);
+    return movers.some((m) => rectsOverlap(r, m, margin));
+  };
+  return hit('above') && !hit('below') ? 'below' : 'above';
+}

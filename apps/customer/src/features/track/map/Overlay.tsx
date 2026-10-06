@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { pinLabelSide, pinLabelWidth, type PinLabelLayout, type PinLabelSide } from '@driver/map';
 import { Icon, Text, useTheme, usePulse, withAlpha } from '@driver/ui';
 import { layerTransform, pathD, project, type Camera, type LngLat, type Size } from '../geo';
 import { glidePos, remainingFrom, type Glide, type Path as RoadPath } from '../motion';
@@ -200,31 +201,56 @@ export function CourierMarker({
 
 const PIN_W = 120;
 const PIN_H = 64;
+/** The pin's name pill, its stem and the tip dot (which tucks 3 px under the stem). */
+const PILL_H = 30;
+const STEM = 10;
+const TIP_DOT = 10;
+const DOT_TUCK = 3;
+/** Pill padding both sides, the icon and the gap to the text. */
+const PILL_CHROME = 10 * 2 + 15 + 4;
+const PILL_FONT = 12;
+/** The minutes pill over the courier's vehicle: its height and the gap above the vehicle. */
+const MINUTES_PILL = 22 + 2;
+
+/**
+ * Which side of its pin a place's name goes for one camera (the `@driver/map` rule): under the pin
+ * when the courier marker, drawn over the pins, would cover it above (QA 2026-10-07). `courier` is
+ * his last fix; between fixes the glide stays close to it.
+ */
+export function placePinSide(at: LngLat, label: string, courier: LngLat | null, withMinutes: boolean, cam: Camera, size: Size): PinLabelSide {
+  if (!courier || size.w === 0) return 'above';
+  const me = project(courier.lat, courier.lng, cam, size);
+  const half = VEHICLE_SIZE / 2;
+  const marker = { left: me.x - half, right: me.x + half, top: me.y - half - (withMinutes ? MINUTES_PILL : 0), bottom: me.y + half };
+  const layout: PinLabelLayout = { width: pinLabelWidth(label, PILL_FONT, PILL_CHROME, PIN_W), height: PILL_H, gapAbove: STEM + TIP_DOT - DOT_TUCK, gapBelow: STEM - DOT_TUCK };
+  return pinLabelSide(project(at.lat, at.lng, cam, size), [marker], layout);
+}
 
 /**
  * A place on the map: home or a ride's destination (dark pill with its label: a house only for the
- * saved home, a flag otherwise, L-15), the kitchen, or the ride pickup. Anchored at its tip.
+ * saved home, a flag otherwise, L-15), the kitchen, or the ride pickup. Anchored at its tip; the
+ * name sits over it, or under it when `side` is below (`placePinSide`).
  */
-export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { at: LngLat; kind: 'home' | 'destination' | 'kitchen' | 'pickup'; label: string; testID?: string }) {
+export function PlacePin({ cam, size, at, kind, label, side = 'above', testID }: LayerProps & { at: LngLat; kind: 'home' | 'destination' | 'kitchen' | 'pickup'; label: string; side?: PinLabelSide; testID?: string }) {
   const theme = useTheme();
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
-    return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: p.y - PIN_H }] };
-  }, [at.lat, at.lng]);
+    return { transform: [{ translateX: p.x - PIN_W / 2 }, { translateY: side === 'below' ? p.y - TIP_DOT : p.y - PIN_H }] };
+  }, [at.lat, at.lng, side]);
   const home = kind === 'home' || kind === 'destination';
   const pickup = kind === 'pickup';
   const fill = home ? theme.colors.text : theme.colors.surface;
   return (
-    <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: 'flex-end' }, place]}>
-      <View style={{ alignItems: 'center' }}>
+    <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: side === 'below' ? 'flex-start' : 'flex-end' }, place]}>
+      <View style={{ alignItems: 'center', flexDirection: side === 'below' ? 'column-reverse' : 'column' }}>
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
             gap: 4,
             paddingHorizontal: 10,
-            height: 30,
-            borderRadius: 15,
+            height: PILL_H,
+            borderRadius: PILL_H / 2,
             backgroundColor: fill,
             borderWidth: home ? 0 : 1.5,
             borderColor: theme.colors.borderStrong,
@@ -245,8 +271,8 @@ export function PlacePin({ cam, size, at, kind, label, testID }: LayerProps & { 
           </Text>
         </View>
         {/* Stem and the tip dot. */}
-        <View style={{ width: 2, height: 10, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
-        <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: -3, backgroundColor: home ? theme.colors.accent : pickup ? theme.colors.success : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
+        <View style={{ width: 2, height: STEM, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
+        <View style={{ width: TIP_DOT, height: TIP_DOT, borderRadius: TIP_DOT / 2, ...(side === 'below' ? { marginBottom: -DOT_TUCK } : { marginTop: -DOT_TUCK }), backgroundColor: home ? theme.colors.accent : pickup ? theme.colors.success : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
       </View>
     </Animated.View>
   );
