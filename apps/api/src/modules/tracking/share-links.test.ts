@@ -35,6 +35,8 @@ function setup(router: Router = new StraightLineRouter()) {
     travelMin: () => 120,
   };
   const repo = new InMemoryShareLinksRepository();
+  // The customer's own ETA (TrackingService.liveEta), 12 minutes out, and the calls it got.
+  const etaCalls: Array<{ orderId: string; pin: { lat: number; lng: number } }> = [];
   const share = new ShareLinksService(
     repo,
     h.orders,
@@ -50,8 +52,15 @@ function setup(router: Router = new StraightLineRouter()) {
     'test-secret',
     h.clock,
     new EtaService(router),
+    { merchant: (id) => (id === 'rest_1' ? { name: 'مطعم خالد', pin: null } : null), itemNames: async () => new Map() },
+    {
+      liveEta: async (order, _trip, pin, now) => {
+        etaCalls.push({ orderId: order.id, pin });
+        return { at: new Date(now.getTime() + 12 * MIN) };
+      },
+    },
   );
-  return { h, share, repo, reads, departures, bookings };
+  return { h, share, repo, reads, departures, bookings, etaCalls };
 }
 
 type S = ReturnType<typeof setup>;
@@ -62,12 +71,10 @@ async function ride(s: S) {
 }
 
 describe('ShareLinksService — rides', () => {
-  it('only the rider shares, only rides, and sharing twice hands back the same link', async () => {
+  it('only the rider shares, and sharing twice hands back the same link', async () => {
     const s = setup();
     const o = await ride(s);
     expect(await code(s.share.createShareLink(as('stranger'), { orderId: o.id }))).toBe('order_not_found');
-    const food = await s.h.orders.place('c1', s.h.foodInput());
-    expect(await code(s.share.createShareLink(as('c1'), { orderId: food.id }))).toBe('share_not_shareable');
     const a = await s.share.createShareLink(as('c1'), { orderId: o.id });
     expect(a.path).toBe(`/share/${a.token}`);
     expect(a.subject).toBe('ride');
@@ -92,7 +99,7 @@ describe('ShareLinksService — rides', () => {
     expect(coming.target).toEqual({ lat: pickupPin.lat, lng: pickupPin.lng, kind: 'pickup' });
     expect(coming.eta!.getTime()).toBeGreaterThan(s.h.clock.now().getTime());
     // Exactly the public shape: no phone, no full name, no address in words, no rider.
-    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
+    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
     expect(JSON.stringify(coming)).not.toMatch(/\+964|07\d{9}|c1|zakur/);
 
     await s.h.pickup(trip.id);
@@ -180,6 +187,55 @@ describe('ShareLinksService — rides', () => {
     const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
     expect(await s.share.liveChannels({ token: link.token })).toEqual([`order:${o.id}`]);
     expect(await code(s.share.liveChannels({ token: `${link.token.split('.')[0]}.forged` }))).toBe('share_link_invalid');
+  });
+});
+
+describe('ShareLinksService — deliveries (maps program SP3c)', () => {
+  it('the customer shares a delivery; the family follows it: preparing, collecting, on the way, delivered', async () => {
+    const s = setup();
+    const o = await s.h.orders.place('c1', s.h.foodInput());
+    expect(await code(s.share.createShareLink(as('stranger'), { orderId: o.id }))).toBe('order_not_found');
+    const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
+    expect(link.subject).toBe('delivery');
+    expect(await s.share.liveChannels({ token: link.token })).toEqual([`order:${o.id}`]);
+
+    // Being prepared: the store's name, no courier yet.
+    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'waiting', subject: 'delivery', storeName: 'مطعم خالد', driverFirstName: null, position: null, target: null, eta: null });
+
+    // A courier takes it: on his way to the store, the store's pin, the customer's own ETA.
+    const trip = await s.h.tripFor(o.id);
+    const car = { lat: 32.905, lng: 45.06 };
+    await s.h.trips.reportPosition('d1', { tripId: trip.id, pin: car, at: s.h.clock.now() });
+    const collecting = await s.share.shared({ token: link.token });
+    const kitchen = trip.stops.find((st) => st.type === 'pickup')!.target!;
+    expect(collecting).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', target: { lat: kitchen.lat, lng: kitchen.lng, kind: 'pickup' } });
+    expect(collecting.position).toMatchObject(car);
+    expect(collecting.eta).toEqual(new Date(s.h.clock.now().getTime() + 12 * MIN));
+    expect(s.etaCalls.at(-1)).toEqual({ orderId: o.id, pin: car });
+    // Coarse data only: no phone, no customer, no address in words, nothing ordered.
+    expect(JSON.stringify(collecting)).not.toMatch(/\+964|07\d{9}|c1|zakur|kebab|tikka/);
+    expect((await s.share.sharedRoute({ token: link.token })).from).toEqual(car);
+
+    // Collected: heading to the door.
+    await s.h.pickup(trip.id);
+    const door = trip.stops.find((st) => st.type === 'dropoff')!.target!;
+    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'on_trip', target: { lat: door.lat, lng: door.lng, kind: 'dropoff' } });
+
+    // Delivered: no car any more, the link lasts 30 minutes from the delivery.
+    await s.h.dropoff(trip.id, { cashCollectedIqd: (await s.h.orders.get(o.id)).totalIqd });
+    const done = await s.share.shared({ token: link.token });
+    const deliveredAt = (await s.h.trips.get(trip.id)).stops.find((st) => st.type === 'dropoff')!.completedAt!;
+    expect(done).toMatchObject({ status: 'arrived', position: null, eta: null, storeName: 'مطعم خالد' });
+    expect(done.expiresAt).toEqual(new Date(deliveredAt.getTime() + 30 * MIN));
+    expect(await code(s.share.createShareLink(as('c1'), { orderId: o.id }))).toBe('share_trip_over');
+  });
+
+  it('a cancelled delivery ends the page', async () => {
+    const s = setup();
+    const o = await s.h.orders.place('c1', s.h.foodInput());
+    const link = await s.share.createShareLink(as('c1'), { orderId: o.id });
+    await s.h.orders.cancel('c1', { orderId: o.id });
+    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'ended', endedReason: 'cancelled', storeName: null });
   });
 });
 

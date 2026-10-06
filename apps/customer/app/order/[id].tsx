@@ -1,4 +1,3 @@
-import * as Linking from 'expo-linking';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
@@ -189,20 +188,13 @@ export default function OrderLiveScreen() {
   const merchantThread = threadOf(threads.data, 'customer_merchant');
   const { call: maskedCall } = useMaskedCall(id, 'customer_courier', Boolean(ride));
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
+  // A ride or a delivery: a signed link the family can open without the app (maps program SP3c).
   const share = async () => {
-    if (ride) {
-      try {
-        setShareLink(shareLink && !shareLink.revokedAt ? shareLink : await client.tracking.createShareLink.mutate({ orderId: id }));
-        setPanel('share');
-      } catch (err) {
-        toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
-      }
-      return;
-    }
     try {
-      await Share.share({ message: t('track.share_message', { url: Linking.createURL(`/order/${id}`) }) });
-    } catch {
-      toast.show({ message: t('error.network'), tone: 'warning' });
+      setShareLink(shareLink && !shareLink.revokedAt ? shareLink : await client.tracking.createShareLink.mutate({ orderId: id }));
+      setPanel('share');
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
     }
   };
   const call = () => void maskedCall();
@@ -511,7 +503,7 @@ export default function OrderLiveScreen() {
       {v && panel === 'dispute' ? <DisputePanel view={v} onClose={() => setPanel(null)} /> : null}
       {v && panel === 'street' ? <StreetPanel onClose={() => setPanel(null)} /> : null}
       {v && panel === 'share' && shareLink ? (
-        <SharePanel link={shareLink} message={(url) => t('share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
+        <SharePanel link={shareLink} message={(url) => t(shareLink.subject === 'delivery' ? 'track.share_message' : 'share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
       ) : null}
       {v && showArrival ? (
         <ArrivalOverlay

@@ -12,6 +12,7 @@ import { CORRIDORS, DeparturesService, RoutesModule } from '../routes/index.js';
 import {
   InMemoryShareLinksRepository,
   PrismaShareLinksRepository,
+  SHARE_DELIVERY_ETA,
   SHARE_INTERCITY,
   SHARE_LINKS_REPOSITORY,
   SHARE_NAMES,
@@ -93,6 +94,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
       inject: [PrismaService],
     },
     { provide: SHARE_NAMES, useExisting: IdentityService },
+    { provide: SHARE_DELIVERY_ETA, useExisting: TrackingService },
     { provide: SHARE_SECRET, useFactory: () => shareSecret() },
     {
       provide: SHARE_INTERCITY,

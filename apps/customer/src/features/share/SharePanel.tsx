@@ -10,6 +10,7 @@ import { useLocale, useT } from '@/lib/i18n';
 /**
  * Share-trip sheet (scoring & safety §5; edge-case review C-126): what the person who opens the link
  * sees (and never sees), the link itself, how often it was opened, when it stops, and "وقّف المشاركة".
+ * A delivery (maps program SP3c) says what the family sees of an order instead of a ride.
  */
 export function SharePanel({ link, message, onClose, onChanged }: { link: ShareLink; message: (url: string) => string; onClose: () => void; onChanged: (l: ShareLink | null) => void }) {
   const theme = useTheme();
@@ -49,10 +50,10 @@ export function SharePanel({ link, message, onClose, onChanged }: { link: ShareL
           <Icon name="share" size={22} color="accentText" strokeWidth={2} />
         </View>
         <Text variant="heading" style={{ flex: 1 }}>
-          {t('share.sheet_title')}
+          {t(link.subject === 'delivery' ? 'share.sheet_title_delivery' : 'share.sheet_title')}
         </Text>
       </View>
-      <Text color="textMuted">{t('share.sheet_body')}</Text>
+      <Text color="textMuted">{t(link.subject === 'delivery' ? 'share.sheet_body_delivery' : 'share.sheet_body')}</Text>
       <View style={{ gap: theme.space[1], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
         <Text variant="label" weight={600} numberOfLines={1} style={{ writingDirection: 'ltr', textAlign: 'left' }} selectable testID="share-url">
           {url}

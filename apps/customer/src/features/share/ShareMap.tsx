@@ -76,7 +76,7 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
           <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} />
           {fix && target ? <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} /> : null}
           {trip.target && target ? (
-            <PlacePin cam={cam} size={sizeSV} at={target} kind={trip.target.kind === 'pickup' ? 'pickup' : 'home'} label={t(trip.target.kind === 'pickup' ? 'ride.pickup_here' : 'share.destination')} testID="share-target" />
+            <PlacePin cam={cam} size={sizeSV} at={target} kind={pinKind(trip)} label={pinLabel(trip, t)} testID="share-target" />
           ) : null}
           <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicleKind(trip.vehicleClass ?? 'car')} stale={stale} minutes={minutes} testID="share-car" />
         </>
@@ -94,4 +94,15 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
       ) : null}
     </View>
   );
+}
+
+/** A delivery heads to the store, then home; a ride to the rider, then the destination. */
+function pinKind(trip: SharedTrip): 'kitchen' | 'pickup' | 'home' {
+  if (trip.target?.kind !== 'pickup') return 'home';
+  return trip.subject === 'delivery' ? 'kitchen' : 'pickup';
+}
+
+function pinLabel(trip: SharedTrip, t: ReturnType<typeof useT>): string {
+  if (trip.target?.kind !== 'pickup') return t('share.destination');
+  return trip.subject === 'delivery' ? (trip.storeName ?? t('track.kitchen_pin')) : t('ride.pickup_here');
 }

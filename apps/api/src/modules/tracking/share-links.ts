@@ -17,6 +17,7 @@ import {
   type ShareLink,
   type ShareSubject,
   type TrackingSharePort,
+  type LatLng,
   type Trip,
   type VehicleClass,
 } from '@driver/contracts';
@@ -24,7 +25,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService } from '../routing/index.js';
-import { TRACKING_ORDERS, TRACKING_TRIPS, type TrackingOrdersPort, type TrackingTripsPort } from './tracking.service.js';
+import { TRACKING_MERCHANTS, TRACKING_ORDERS, TRACKING_TRIPS, type TrackingMerchantsPort, type TrackingOrdersPort, type TrackingTripsPort } from './tracking.service.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
 // ───────────────────────── storage ─────────────────────────
@@ -136,7 +137,13 @@ export interface ShareNamesPort {
   firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
 }
 
+/** The one ETA the customer sees (`TrackingService.liveEta`): the family page shows the same time. */
+export interface ShareDeliveryEtaPort {
+  liveEta(order: Order, trip: Trip, pin: LatLng, now: Date): Promise<{ at: Date } | null>;
+}
+
 export const SHARE_INTERCITY = Symbol('SHARE_INTERCITY');
+export const SHARE_DELIVERY_ETA = Symbol('SHARE_DELIVERY_ETA');
 export const SHARE_NAMES = Symbol('SHARE_NAMES');
 export const SHARE_SECRET = Symbol('SHARE_SECRET');
 
@@ -144,6 +151,9 @@ const MIN_MS = 60_000;
 const LIVE_BOOKING = new Set(['booked', 'checked_in', 'completed']);
 const RIDE_CANCELLED_ORDER: ReadonlySet<Order['state']> = new Set(['customer_cancelled', 'platform_cancelled', 'refunded', 'failed']);
 const RIDE_CANCELLED_TRIP: ReadonlySet<Trip['state']> = new Set(['customer_cancelled', 'platform_cancelled', 'failed']);
+const DELIVERY_CANCELLED_ORDER: ReadonlySet<Order['state']> = new Set(['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded', 'failed']);
+/** Orders a courier brings to the door: the family at home can follow them (maps program SP3c). */
+const DELIVERY_TYPES: ReadonlySet<Order['type']> = new Set(['food', 'grocery_catalog', 'errand', 'parcel']);
 const NAME_CACHE_MAX = 2000;
 
 /**
@@ -166,6 +176,8 @@ export class ShareLinksService implements TrackingSharePort {
     @Inject(SHARE_SECRET) private readonly secret: string,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly eta: EtaService,
+    @Inject(TRACKING_MERCHANTS) private readonly merchants: TrackingMerchantsPort,
+    @Inject(SHARE_DELIVERY_ETA) private readonly deliveryEta: ShareDeliveryEtaPort,
   ) {}
 
   async createShareLink(actor: Actor, input: CreateShareLinkInput): Promise<ShareLink> {
@@ -176,10 +188,11 @@ export class ShareLinksService implements TrackingSharePort {
       const agg = await this.orders.aggregate(input.orderId);
       const mine = agg.order.ordererId === actor.personId || agg.participants.some((p) => p.personId === actor.personId);
       if (!mine) throw new DriverError('order_not_found');
-      if (agg.order.type !== 'ride') throw new DriverError('share_not_shareable');
-      const s = await this.rideState(input.orderId, now);
+      if (agg.order.type === 'ride') subject = 'ride';
+      else if (DELIVERY_TYPES.has(agg.order.type)) subject = 'delivery';
+      else throw new DriverError('share_not_shareable');
+      const s = await this.state(subject, input.orderId, now);
       if (s.status === 'arrived' || s.status === 'ended') throw new DriverError('share_trip_over');
-      subject = 'ride';
       subjectId = input.orderId;
     } else {
       const booking = await this.intercity.booking(input.bookingId!);
@@ -223,11 +236,12 @@ export class ShareLinksService implements TrackingSharePort {
       target: null,
       eta: null,
       route: null,
+      storeName: null,
       expiresAt,
       serverNow: now,
     });
     if (rec.revokedAt) return ended('revoked', null);
-    const state = rec.subjectKind === 'ride' ? await this.rideState(rec.subjectId, now) : await this.intercityState(rec.subjectId, now);
+    const state = await this.state(rec.subjectKind, rec.subjectId, now);
     const expiresAt = expiryOf(rec.createdAt, state.completedAt);
     if (now.getTime() >= expiresAt.getTime()) return ended('expired', expiresAt);
     if (state.status === 'ended') return ended('cancelled', expiresAt);
@@ -244,6 +258,7 @@ export class ShareLinksService implements TrackingSharePort {
       target: state.target,
       eta: state.eta,
       route: state.route,
+      storeName: state.storeName,
       expiresAt,
       serverNow: now,
     };
@@ -253,8 +268,8 @@ export class ShareLinksService implements TrackingSharePort {
     const now = this.clock.now();
     const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
     const rec = await this.link(input.token);
-    if (rec.revokedAt || rec.subjectKind !== 'ride') return none;
-    const state = await this.rideState(rec.subjectId, now);
+    if (rec.revokedAt || rec.subjectKind === 'intercity') return none;
+    const state = await this.state(rec.subjectKind, rec.subjectId, now);
     if (now.getTime() >= expiryOf(rec.createdAt, state.completedAt).getTime()) return none;
     if (!state.position || !state.target) return none;
     const from = { lat: state.position.lat, lng: state.position.lng };
@@ -265,7 +280,7 @@ export class ShareLinksService implements TrackingSharePort {
   async liveChannels(input: SharedTripInput): Promise<string[]> {
     const rec = await this.link(input.token);
     // Intercity positions are not on the bus (the stream re-reads them on its timer).
-    return rec.subjectKind === 'ride' ? [liveChannel.order(rec.subjectId)] : [];
+    return rec.subjectKind === 'intercity' ? [] : [liveChannel.order(rec.subjectId)];
   }
 
   /** The link behind a token; `share_link_invalid` for a forged, unknown or malformed one. */
@@ -297,7 +312,7 @@ export class ShareLinksService implements TrackingSharePort {
   }
 
   private async view(rec: ShareLinkRecord, now: Date): Promise<ShareLink> {
-    const state = rec.subjectKind === 'ride' ? await this.rideState(rec.subjectId, now) : await this.intercityState(rec.subjectId, now);
+    const state = await this.state(rec.subjectKind, rec.subjectId, now);
     const token = this.tokenOf(rec.id);
     return { token, path: `/share/${token}`, subject: rec.subjectKind, createdAt: rec.createdAt, expiresAt: expiryOf(rec.createdAt, state.completedAt), revokedAt: rec.revokedAt, views: rec.views };
   }
@@ -313,14 +328,24 @@ export class ShareLinksService implements TrackingSharePort {
 
   // ───────────────────────── subjects ─────────────────────────
 
+  private state(kind: ShareSubject, id: string, now: Date): Promise<SubjectState> {
+    if (kind === 'ride') return this.rideState(id, now);
+    if (kind === 'delivery') return this.deliveryState(id, now);
+    return this.intercityState(id, now);
+  }
+
+  /** The trip carrying an order now, else the one that last carried it. */
+  private async tripOf(orderId: string): Promise<Trip | null> {
+    const active = await this.trips.activeForOrder(orderId);
+    if (active) return active;
+    const carried = await this.trips.courierOf(orderId);
+    return carried ? this.trips.get(carried.tripId) : null;
+  }
+
   private async rideState(orderId: string, now: Date): Promise<SubjectState> {
     const order = await this.orders.get(orderId);
-    let trip = await this.trips.activeForOrder(orderId);
-    if (!trip) {
-      const carried = await this.trips.courierOf(orderId);
-      trip = carried ? await this.trips.get(carried.tripId) : null;
-    }
-    const base: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, plate: null, position: null, target: null, eta: null, route: null };
+    const trip = await this.tripOf(orderId);
+    const base: SubjectState = { ...EMPTY_STATE };
     if (RIDE_CANCELLED_ORDER.has(order.state) || (trip && RIDE_CANCELLED_TRIP.has(trip.state))) {
       return { ...base, status: 'ended', completedAt: order.cancelledAt ?? trip?.cancelledAt ?? now };
     }
@@ -354,7 +379,41 @@ export class ShareLinksService implements TrackingSharePort {
       target,
       eta,
       route: null,
+      storeName: null,
     };
+  }
+
+  /**
+   * A delivery (maps program SP3c): preparing until a courier takes it, then the courier on his way to
+   * the store (the store's pin), then on the way to the door (the door's pin) with the customer's own
+   * ETA. Done at the order's delivery, even while the courier's batched trip goes on.
+   */
+  private async deliveryState(orderId: string, now: Date): Promise<SubjectState> {
+    const order = await this.orders.get(orderId);
+    const storeName = order.merchantOrgId ? ((await this.merchants.merchant(order.merchantOrgId))?.name ?? null) : null;
+    const base: SubjectState = { ...EMPTY_STATE, storeName };
+    if (DELIVERY_CANCELLED_ORDER.has(order.state)) return { ...base, status: 'ended', completedAt: order.cancelledAt ?? now };
+    const trip = await this.tripOf(orderId);
+    const stop = (type: 'pickup' | 'dropoff') => trip?.stops.find((st) => st.orderId === orderId && (st.type === type || (type === 'pickup' && st.type === 'shop')));
+    // A stop is done before the order's own picked-up / delivered marks land (they follow from the trip's events).
+    const delivered = order.deliveredAt ?? stop('dropoff')?.completedAt ?? (order.state === 'delivered' || order.state === 'closed' ? now : null);
+    if (!trip || !trip.courierId || !trip.acceptedAt || trip.state === 'driver_cancelled') {
+      return delivered ? { ...base, status: 'arrived', completedAt: delivered } : base;
+    }
+    const vehicle = await this.vehicles.forCourier(trip.courierId, trip.vehicleId);
+    const courier = { ...base, driverId: trip.courierId, vehicleClass: vehicle?.vehicleClass ?? order.minVehicleClass ?? 'bike', vehicleLabel: vehicle?.label ?? null, plate: vehicle?.plate ?? null };
+    if (delivered) return { ...courier, status: 'arrived', completedAt: delivered };
+    const collected = Boolean(order.pickedUpAt) || order.state === 'picked_up' || stop('pickup')?.state === 'completed';
+    const state: SubjectState = { ...courier, status: collected ? 'on_trip' : 'to_pickup' };
+    if (!positionVisible(trip.state)) return state;
+    const pin = stop(collected ? 'dropoff' : 'pickup')?.target ?? null;
+    state.target = pin ? { lat: pin.lat, lng: pin.lng, kind: collected ? 'dropoff' : 'pickup' } : null;
+    const p = await this.trips.lastPosition(trip.id);
+    if (p && p.driverId === trip.courierId) {
+      state.position = { lat: p.pin.lat, lng: p.pin.lng, at: p.at, bearing: p.bearing, speedKmh: p.speedKmh };
+      state.eta = (await this.deliveryEta.liveEta(order, trip, p.pin, now))?.at ?? null;
+    }
+    return state;
   }
 
   private async intercityState(bookingId: string, now: Date): Promise<SubjectState> {
@@ -371,6 +430,7 @@ export class ShareLinksService implements TrackingSharePort {
       target: null,
       eta: null,
       route: { fromCityId: dep.fromCityId, toCityId: dep.toCityId },
+      storeName: null,
     };
     if (!LIVE_BOOKING.has(booking.state) || dep.state.startsWith('cancelled')) return { ...base, status: 'ended', completedAt: dep.cancelledAt ?? now };
     if (dep.state === 'arrived' || dep.state === 'closed') return { ...base, status: 'arrived', completedAt: dep.arrivedAt ?? dep.closedAt ?? now };
@@ -398,7 +458,10 @@ interface SubjectState {
   target: SharedTrip['target'];
   eta: Date | null;
   route: { fromCityId: string; toCityId: string } | null;
+  storeName: string | null;
 }
+
+const EMPTY_STATE: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, plate: null, position: null, target: null, eta: null, route: null, storeName: null };
 
 /** Completion + 30 min, capped at creation + 24 h. */
 export function expiryOf(createdAt: Date, completedAt: Date | null): Date {

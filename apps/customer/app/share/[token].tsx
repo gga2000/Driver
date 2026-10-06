@@ -13,17 +13,18 @@ import { useLocale, useT } from '@/lib/i18n';
 
 const STALE_SEC = 90;
 const VEHICLE_KEY: Record<VehicleClass, MessageKey> = { bike: 'track.vehicle.bike', tuktuk: 'track.vehicle.tuktuk', car: 'track.vehicle.car', suv: 'track.vehicle.car', van: 'track.vehicle.car', intercity: 'track.vehicle.car' };
-const STATUS: Record<SharedTrip['status'], { key: MessageKey; tone: StatusTone; live: boolean }> = {
-  waiting: { key: 'share.status_waiting', tone: 'neutral', live: false },
-  to_pickup: { key: 'share.status_to_pickup', tone: 'accent', live: true },
-  on_trip: { key: 'share.status_on_trip', tone: 'accent', live: true },
-  arrived: { key: 'share.status_arrived', tone: 'success', live: false },
-  ended: { key: 'share.ended_expired', tone: 'neutral', live: false },
+const STATUS: Record<SharedTrip['status'], { key: MessageKey; delivery: MessageKey; tone: StatusTone; live: boolean }> = {
+  waiting: { key: 'share.status_waiting', delivery: 'share.delivery_waiting', tone: 'neutral', live: false },
+  to_pickup: { key: 'share.status_to_pickup', delivery: 'share.delivery_to_pickup', tone: 'accent', live: true },
+  on_trip: { key: 'share.status_on_trip', delivery: 'share.delivery_on_trip', tone: 'accent', live: true },
+  arrived: { key: 'share.status_arrived', delivery: 'share.delivery_arrived', tone: 'success', live: false },
+  ended: { key: 'share.ended_expired', delivery: 'share.ended_expired', tone: 'neutral', live: false },
 };
+const TITLE: Record<SharedTrip['subject'], MessageKey> = { ride: 'share.page_title', intercity: 'share.page_title_intercity', delivery: 'share.page_title_delivery' };
 
 /**
- * Public share-trip page (`/share/<token>`, no sign-in; scoring & safety §5; maps program SP5c). What
- * the rider's family sees, live: the driver's first name, the car and plate, the car moving on the map
+ * Public share-trip page (`/share/<token>`, no sign-in; scoring & safety §5; maps program SP5c, and
+ * deliveries in SP3c: the store's name and the courier instead of a ride). What the family sees, live: the driver's first name, the car and plate, the car moving on the map
  * inside the sharing window with the road to where it is heading (a pin, never an address in words)
  * and the ETA. Never a phone number or a full name — the API does not send them.
  */
@@ -44,7 +45,7 @@ export default function SharePage() {
   if (q.isError || (trip && trip.status === 'ended')) {
     const invalid = apiErrorCode(q.error) === 'share_link_invalid';
     const title = trip
-      ? t(trip.endedReason === 'revoked' ? 'share.ended_revoked' : trip.endedReason === 'cancelled' ? 'share.ended_cancelled' : 'share.ended_expired')
+      ? t(trip.endedReason === 'revoked' ? 'share.ended_revoked' : trip.endedReason === 'cancelled' ? (trip.subject === 'delivery' ? 'share.delivery_cancelled' : 'share.ended_cancelled') : 'share.ended_expired')
       : invalid
         ? t('share.invalid_title')
         : apiErrorMessage(q.error, t('error.network'), locale);
@@ -61,6 +62,8 @@ export default function SharePage() {
   }
 
   const status = trip ? STATUS[trip.status] : null;
+  const delivery = trip?.subject === 'delivery';
+  const statusKey = status ? (delivery ? status.delivery : status.key) : null;
   const ageMin = trip?.position ? Math.floor((trip.position.ageSec + Math.max(0, (now - q.dataUpdatedAt) / 1000)) / 60) : 0;
   const stale = Boolean(trip?.position && trip.position.ageSec > STALE_SEC);
   const etaMin = trip?.eta ? Math.max(1, Math.round((trip.eta.getTime() - (trip.serverNow.getTime() + (now - q.dataUpdatedAt))) / 60_000)) : null;
@@ -68,7 +71,7 @@ export default function SharePage() {
 
   return (
     <View testID="share-page" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <Stack.Screen options={{ headerShown: false, title: t('share.page_title') }} />
+      <Stack.Screen options={{ headerShown: false, title: t(trip ? TITLE[trip.subject] : 'share.page_title') }} />
       <View style={{ height: '50%' }}>
         {trip ? (
           <ShareMap token={token} trip={trip} stale={stale} live={q.live} minutes={trip.position && etaMin !== null && !stale ? t('track.map_minutes', { minutes: etaMin }) : null} />
@@ -93,14 +96,19 @@ export default function SharePage() {
           <>
             <View style={{ gap: theme.space[2] }}>
               <Text variant="caption" color="textMuted">
-                {t(trip.subject === 'intercity' ? 'share.page_title_intercity' : 'share.page_title')}
+                {t(TITLE[trip.subject])}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                 <View style={{ flex: 1, gap: theme.space[1] }}>
-                  <StatusPill size="sm" tone={status.tone} live={status.live} label={status.live ? t('share.live') : t(status.key)} style={{ alignSelf: 'flex-start' }} />
+                  <StatusPill size="sm" tone={status.tone} live={status.live} label={status.live ? t('share.live') : t(statusKey ?? status.key)} style={{ alignSelf: 'flex-start' }} />
                   <Text variant="heading" testID="share-status">
-                    {t(status.key)}
+                    {t(statusKey ?? status.key)}
                   </Text>
+                  {trip.storeName ? (
+                    <Text variant="label" color="textMuted" numberOfLines={1} testID="share-store">
+                      {t('share.store', { name: trip.storeName })}
+                    </Text>
+                  ) : null}
                   {trip.route ? (
                     <Text variant="label" color="textMuted" testID="share-route">
                       {t('share.route', { from: t(`rajaa.city_${trip.route.fromCityId}` as MessageKey), to: t(`rajaa.city_${trip.route.toCityId}` as MessageKey) })}
@@ -110,7 +118,7 @@ export default function SharePage() {
                 {trip.eta && etaMin !== null ? (
                   <View testID="share-eta" style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, minWidth: 92 }}>
                     <Text variant="caption" color="accentText" style={{ lineHeight: 16 }}>
-                      {trip.status === 'to_pickup' ? t('share.pickup_label') : t('share.eta_label')}
+                      {trip.status === 'to_pickup' && !delivery ? t('share.pickup_label') : t('share.eta_label')}
                     </Text>
                     <Text variant="amount" tabular color="accentText" style={{ lineHeight: 30 }}>
                       {formatClock(trip.eta)}
@@ -130,17 +138,17 @@ export default function SharePage() {
 
             <View style={{ borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4], gap: theme.space[4] }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                <Avatar name={trip.driverFirstName ?? t('share.driver')} size={52} />
+                <Avatar name={trip.driverFirstName ?? t(delivery ? 'share.courier' : 'share.driver')} size={52} />
                 <View style={{ flex: 1 }}>
                   <Text variant="caption" color="textMuted">
-                    {t('share.driver')}
+                    {t(delivery ? 'share.courier' : 'share.driver')}
                   </Text>
                   <Text variant="title" testID="share-driver">
                     {trip.driverFirstName ?? '—'}
                   </Text>
                 </View>
               </View>
-              <Line icon={trip.vehicleClass === 'tuktuk' ? 'tuktuk' : 'car'} label={t('share.vehicle')} value={vehicle || '—'} />
+              <Line icon={trip.vehicleClass === 'tuktuk' ? 'tuktuk' : trip.vehicleClass === 'bike' ? 'bike' : 'car'} label={t(delivery ? 'share.vehicle_any' : 'share.vehicle')} value={vehicle || '—'} />
               {trip.plate ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                   <Icon name="receipt" size={20} color="textMuted" />

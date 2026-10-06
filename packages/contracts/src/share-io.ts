@@ -6,7 +6,8 @@ import { VehicleClass } from './trip.js';
 /**
  * Share-trip links (scoring & safety §5 "plate + photo + share-trip before every ride"; customer
  * app spec §2 and §4; edge-case review C-126). A rider shares a signed link to a ride (taxi /
- * tuktuk) or a الرجعة seat. Whoever opens it — no sign-in — sees coarse data only: the driver's
+ * tuktuk) or a الرجعة seat; a customer shares a delivery (food, shop, errand, parcel) with the family
+ * at home (maps program SP3c). Whoever opens it — no sign-in — sees coarse data only: the driver's
  * first name, the vehicle and plate, the car's live position inside the sharing window, where a
  * city ride is heading (a pin and the road to it, never an address in words: maps program c9, Ali's
  * call) and the ETA. Never a phone, a full name or the rider's name. The page updates live
@@ -14,7 +15,7 @@ import { VehicleClass } from './trip.js';
  * latest) and the rider can revoke it at any time.
  */
 
-export const ShareSubject = z.enum(['ride', 'intercity']);
+export const ShareSubject = z.enum(['ride', 'intercity', 'delivery']);
 export type ShareSubject = z.infer<typeof ShareSubject>;
 
 /** A link lives at most this long after the ride is done… */
@@ -35,7 +36,7 @@ export const SHARE_LIVE_RULES = {
 
 export const CreateShareLinkInput = z
   .object({
-    /** A ride order (taxi / tuktuk) of the caller. */
+    /** A ride (taxi / tuktuk) or delivery order of the caller (orderer or household participant). */
     orderId: z.string().min(1).optional(),
     /** A الرجعة booking of the caller. */
     bookingId: z.string().min(1).optional(),
@@ -71,9 +72,11 @@ export const SharedTripInput = z.object({
 export type SharedTripInput = z.infer<typeof SharedTripInput>;
 
 /**
- * `waiting`: booked, the car is not moving yet (intercity before boarding) · `to_pickup`: the driver
- * is on his way to the rider · `on_trip`: the rider is in the car · `arrived`: done, the link
- * still opens until it expires · `ended`: cancelled, expired or revoked (nothing else is sent).
+ * `waiting`: booked, the car is not moving yet (intercity before boarding; a delivery being prepared
+ * with no courier yet) · `to_pickup`: the driver is on his way to the rider (a delivery: the courier
+ * is on his way to collect it) · `on_trip`: the rider is in the car (a delivery: on its way to the
+ * door) · `arrived`: done, the link still opens until it expires · `ended`: cancelled, expired or
+ * revoked (nothing else is sent).
  */
 export const SharedTripStatus = z.enum(['waiting', 'to_pickup', 'on_trip', 'arrived', 'ended']);
 export type SharedTripStatus = z.infer<typeof SharedTripStatus>;
@@ -101,13 +104,19 @@ export const SharedTrip = z.object({
     .nullable(),
   /**
    * City rides inside the sharing window: where the car is heading now — the rider's pickup until
-   * they are in, then the destination. A pin for the map, never an address. Null for intercity.
+   * they are in, then the destination (a delivery: the store until collected, then the door). A pin
+   * for the map, never an address. Null for intercity.
    */
   target: z.object({ lat: z.number(), lng: z.number(), kind: z.enum(['pickup', 'dropoff']) }).nullable(),
-  /** Arrival at the destination (ride on trip; intercity after departing); null when not known. */
+  /**
+   * Arrival at the destination (ride on trip; intercity after departing; a delivery: at the door, the
+   * same one ETA the customer sees); null when not known.
+   */
   eta: z.coerce.date().nullable(),
   /** Intercity: the two cities (the page says "العزيزية ← بغداد"); null for city rides (they show `target`). */
   route: z.object({ fromCityId: z.string(), toCityId: z.string() }).nullable(),
+  /** A delivery: the store it comes from ("من مطعم خالد", a business name, public); null otherwise. */
+  storeName: z.string().nullable(),
   expiresAt: z.coerce.date().nullable(),
   serverNow: z.coerce.date(),
 });
