@@ -221,6 +221,8 @@ enum PayerApprovalState {
   pending
   approved
   declined
+  /// Joy w4: the order was cancelled, or nobody answered in time, before a decision.
+  withdrawn
 
   @@schema("public")
 }
@@ -234,6 +236,8 @@ model PayerApproval {
   payerId     String             @map("payer_id")
   amountIqd   Int                @map("amount_iqd")
   state       PayerApprovalState @default(pending)
+  /// Joy w4: why it asks — order_limit | month_budget | both (null on requests made before J7c).
+  reason      String?
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
 
@@ -252,6 +256,8 @@ model OrgMember {
   role             OrgMemberRole @default(member)
   /// Household: orders above this ask the payer for one-tap approval. Null = no limit.
   spendingLimitIqd Int?          @map("spending_limit_iqd")
+  /// Joy w4: household monthly budget (Baghdad month); over it an order asks the payer. Null = none.
+  monthlyBudgetIqd Int?          @map("monthly_budget_iqd")
   title            String?
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
@@ -1052,6 +1058,10 @@ model Order {
   minVehicleClass    VehicleClass? @map("min_vehicle_class")
   /// M2 wiring: the customer's delivery point {zoneKey, pin?}; dispatch builds the courier trip's drop-off stop from it.
   dropoff            Json?
+  /// Joy w4: on the household wallet and over a limit — waiting for the payer's yes, not offered to the kitchen.
+  heldForPayer       Boolean       @default(false) @map("held_for_payer")
+  /// J5a «للسفرة»: placed with dishes for the family table (the household hub lists it).
+  familyTable        Boolean       @default(false) @map("family_table")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -1078,6 +1088,8 @@ model Order {
   @@index([merchantOrgId, state])
   /// Review 2026-10-04 #11: merchant money / insights / deal projection read one placed-at range.
   @@index([merchantOrgId, placedAt])
+  /// Joy w4: a household's month (spend per member, «سفرة البيت») reads one placed-at range.
+  @@index([householdOrgId, placedAt])
   @@map("orders")
   @@schema("public")
 }

@@ -1394,6 +1394,8 @@
   "error.no_payer": "Household has no payer yet",
   "error.household_payer_only": "Only a household payer can do this",
   "error.household_exists": "You already belong to a household",
+  "error.household_cannot_order": "Your household role uses shared places only and can't order on the household wallet. Ask the payer to change it",
+  "error.household_wallet_food_only": "The household wallet is for food and shop orders for now. Pay this trip in cash or from your wallet",
   "error.place_not_found": "Place not found",
   "error.place_entrance_too_far": "The entrance must be close to the home",
   "error.place_landmark_invalid": "That landmark isn't near the home. Pick another one",

@@ -13,7 +13,7 @@ import type { TripsPort } from './trip.js';
 import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
-import type { HouseholdsPort, PlacesPort, WalletPort } from './account-io.js';
+import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
 import type { DriverAccountPort } from './driver-account-io.js';
@@ -73,6 +73,8 @@ export interface AppContext {
   places: PlacesPort;
   /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
   wallet: WalletPort;
+  /** Joy w6 «شهرك»: the caller's month from orders, rides, الرجعة and the ledger (`modules/insights`). */
+  insights: InsightsPort;
   /** Wallet top-up with cash: customer codes, ops-agent / courier confirmation (`modules/topups`). */
   topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */

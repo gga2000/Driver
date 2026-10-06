@@ -17,6 +17,7 @@ export * from './ledger-io.js';
 export * from './cash-change.js';
 export * from './shift-guarantee.js';
 export * from './small-order.js';
+export * from './household-budget.js';
 export * from './points-redemption.js';
 export * from './domain-events.js';
 export * from './event.js';

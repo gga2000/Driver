@@ -7,6 +7,8 @@ import {
   HouseholdIdInput,
   HouseholdView,
   InviteMemberInput,
+  MonthInput,
+  MonthInsightsView,
   RiderLandmarksInput,
   LandmarkView,
   LandmarkNearView,
@@ -17,6 +19,7 @@ import {
   PlaceIdInput,
   SavedPlaceView,
   SavePlaceInput,
+  SetBudgetInput,
   SetLimitInput,
   TopupOptionsView,
   UpdatePlaceInput,
@@ -94,6 +97,11 @@ export const walletRouter = router({
   claimPoints: protectedProcedure()
     .output(ClaimPointsOutput)
     .mutation(({ ctx }) => ctx.wallet.claimPoints(ctx.actor)),
+  /** «شهرك» (joy w6): the caller's month — meals, kitchens, rides, الرجعة, what was saved, points. Private. */
+  month: protectedProcedure()
+    .input(MonthInput)
+    .output(MonthInsightsView)
+    .query(({ ctx, input }) => ctx.insights.month(ctx.actor, input)),
   /** "شحن المحفظة": a 6-digit code (+ QR) to hand over with the cash to an ops agent or the next courier. */
   requestTopUp: protectedProcedure()
     .input(RequestTopUpInput)
@@ -123,6 +131,11 @@ export const householdRouter = router({
     .input(SetLimitInput)
     .output(HouseholdView)
     .mutation(({ ctx, input }) => ctx.households.setLimit(ctx.actor, input)),
+  /** w4: a member's monthly budget on the household wallet (payer only). */
+  setBudget: protectedProcedure()
+    .input(SetBudgetInput)
+    .output(HouseholdView)
+    .mutation(({ ctx, input }) => ctx.households.setBudget(ctx.actor, input)),
   approvals: protectedProcedure()
     .input(HouseholdIdInput)
     .output(z.array(PayerApprovalView))

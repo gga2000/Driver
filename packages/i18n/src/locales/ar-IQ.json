@@ -1394,6 +1394,8 @@
   "error.no_payer": "ما أكو دافع بهذا البيت بعد",
   "error.household_payer_only": "بس الدافع بالبيت يگدر يسوي هذا",
   "error.household_exists": "إنت أصلاً عضو ببيت",
+  "error.household_cannot_order": "حسابك بالبيت يستخدم الأماكن بس، ما يطلب على حساب البيت. اطلب الدافع يغيّرها",
+  "error.household_wallet_food_only": "حساب البيت للأكل والتسوق بس هسة. ادفع المشوار كاش أو من محفظتك",
   "error.place_not_found": "ما لگينا المكان",
   "error.place_entrance_too_far": "باب الدخول لازم يكون قريب من البيت",
   "error.place_landmark_invalid": "المعلم اللي اخترته مو قريب من البيت، اختار واحد ثاني",

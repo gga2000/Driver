@@ -72,7 +72,14 @@ export const PlaceOrderInput = z.object({
   merchantOrgId: z.string().optional(),
   /** The merchant branch whose menu overrides (price/availability) apply; the main menu when absent. */
   branchKey: z.string().max(64).optional(),
+  /**
+   * Pay from the household wallet (domain §12, joy w4): kitchen and shop orders only, by a payer or an
+   * orderer of that household. Over the member's per-order limit or monthly budget the order waits
+   * for the payer's yes (`Order.heldForPayer`) before the kitchen sees it.
+   */
   householdOrgId: z.string().optional(),
+  /** J5a «للسفرة»: the cart has dishes for the family table (the household hub lists the order). */
+  familyTable: z.boolean().optional(),
   quoteId: z.string().optional(),
   lines: z.array(OrderLineInput).default([]),
   participants: z.array(ParticipantInput).max(20).default([]),
@@ -274,6 +281,10 @@ export const Order = z.object({
   clientRequestId: z.string().nullable().optional(),
   /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */
   rating: OrderRating.nullable().optional(),
+  /** Joy w4: on the household wallet and over a limit — waiting for the payer, not yet with the kitchen. */
+  heldForPayer: z.boolean().optional(),
+  /** J5a «للسفرة»: placed with dishes for the family table. */
+  familyTable: z.boolean().optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */

@@ -149,6 +149,9 @@ export const ERROR_TABLE = {
   no_payer: { retryHint: 'never', status: 'CONFLICT' },
   household_payer_only: { retryHint: 'never', status: 'FORBIDDEN' },
   household_exists: { retryHint: 'never', status: 'CONFLICT' },
+  // joy w4: only payers and orderers spend the household wallet, on kitchen and shop orders
+  household_cannot_order: { retryHint: 'never', status: 'FORBIDDEN' },
+  household_wallet_food_only: { retryHint: 'never', status: 'BAD_REQUEST' },
 
   // places / uploads (domain §7)
   location_weak: { retryHint: 'now', status: 'BAD_REQUEST' },

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { t, type Locale, type MessageKey } from '@driver/i18n';
 import { CityId, Iqd, LatLng } from './common.js';
+import { HouseholdApprovalReason, MonthKey } from './household-budget.js';
 import type { Actor } from './identity-io.js';
 import { orderTicketNumber } from './order.js';
 
@@ -307,6 +308,46 @@ export interface WalletPort {
   claimPoints(actor: Actor): Promise<ClaimPointsOutput>;
 }
 
+// ───────────────────────── «شهرك» (joy w6) ─────────────────────────
+
+/** A month to read; the current Baghdad month when absent. At most `HOUSEHOLD_RULES.monthsBack` back. */
+export const MonthInput = z.object({ month: MonthKey.optional() });
+export type MonthInput = z.input<typeof MonthInput>;
+
+/**
+ * «شهرك ويا درايفر» (joy w6, audit S-5): the caller's own month, counted by the server from real
+ * orders, rides, الرجعة bookings and ledger lines. Discovery, family and travel, never eating volume
+ * (delight strategy "What not to do"). Private: nothing here is shared.
+ */
+export const MonthInsightsView = z.object({
+  month: MonthKey,
+  /** The earliest month the page can step back to. */
+  earliestMonth: MonthKey,
+  /** Food and shop orders delivered this month (as the orderer). */
+  meals: z.number().int().nonnegative(),
+  /** Different kitchens and shops those came from. */
+  kitchens: z.number().int().nonnegative(),
+  /** The kitchen ordered from most (ties: the latest). */
+  topKitchen: z.object({ name: z.string(), orders: z.number().int().positive() }).nullable(),
+  /** The dish on the most orders (ties: more portions, then the latest). */
+  topDish: z.object({ name: z.string(), kitchen: z.string().nullable(), orders: z.number().int().positive() }).nullable(),
+  /** Taxi and tuktuk rides completed. */
+  rides: z.number().int().nonnegative(),
+  /** الرجعة seats travelled (bookings completed). */
+  rajaaTrips: z.number().int().nonnegative(),
+  /** «وفّرت»: the same ledger sum as the account header's year (w10), over this month. */
+  savedIqd: Iqd.nonnegative(),
+  /** Points earned this month (orders, rides, seats and the organiser bonus). */
+  pointsEarned: z.number().int().nonnegative(),
+  /** Anything at all happened this month. */
+  hasActivity: z.boolean(),
+});
+export type MonthInsightsView = z.infer<typeof MonthInsightsView>;
+
+export interface InsightsPort {
+  month(actor: Actor, input: z.infer<typeof MonthInput>): Promise<MonthInsightsView>;
+}
+
 // ───────────────────────── households (domain §12) ─────────────────────────
 
 export const HouseholdRole = z.enum(['payer', 'orderer', 'member']);
@@ -320,6 +361,13 @@ export const HouseholdMemberView = z.object({
   role: HouseholdRole,
   spendingLimitIqd: Iqd.nullable(),
   isMe: z.boolean(),
+  /** w4: the member's monthly budget on the household wallet (null = none; payers have none). */
+  monthlyBudgetIqd: Iqd.nullable().default(null),
+  /**
+   * w4: what the member spent on the household wallet this Baghdad month (orders not refused or
+   * cancelled, waiting ones included). Payers see everyone's; others only their own (null otherwise).
+   */
+  monthSpentIqd: Iqd.nullable().default(null),
 });
 export type HouseholdMemberView = z.infer<typeof HouseholdMemberView>;
 
@@ -346,7 +394,13 @@ export const PayerApprovalView = z.object({
   amountIqd: Iqd,
   /** The requester's current spending limit (null = none). */
   limitIqd: Iqd.nullable(),
-  state: z.enum(['pending', 'approved', 'declined']),
+  /** `withdrawn`: the order was cancelled, or nobody answered in time, before a decision. */
+  state: z.enum(['pending', 'approved', 'declined', 'withdrawn']),
+  /** w4: why it asks (over the order limit, over the month, both); null on requests made before J7c. */
+  reason: HouseholdApprovalReason.nullable().default(null),
+  /** w4: the requester's monthly budget and what they spent this month before this order. */
+  monthBudgetIqd: Iqd.nullable().default(null),
+  monthSpentIqd: Iqd.nullable().default(null),
   state_ar: z.string(),
   createdAt: z.coerce.date(),
   /** True when the caller is a payer and the request is pending. */
@@ -356,6 +410,25 @@ export const PayerApprovalView = z.object({
 });
 export type PayerApprovalView = z.infer<typeof PayerApprovalView>;
 
+/**
+ * One shared order of the household this month: a «للسفرة» order of any member (J5a family table), or
+ * an order on the household wallet (payers see everyone's, others their own). Refused and cancelled
+ * orders are left out.
+ */
+export const HouseholdTableOrder = z.object({
+  orderId: z.string(),
+  orderedBy: z.string(),
+  orderedByName: z.string().nullable(),
+  merchantName: z.string().nullable(),
+  totalIqd: Iqd,
+  placedAt: z.coerce.date(),
+  onHouseholdWallet: z.boolean(),
+  familyTable: z.boolean(),
+  /** `waiting`: held for the payer; `live`: with the kitchen or on the way; `done`: delivered. */
+  status: z.enum(['waiting', 'live', 'done']),
+});
+export type HouseholdTableOrder = z.infer<typeof HouseholdTableOrder>;
+
 export const HouseholdView = z.object({
   id: z.string(),
   name: z.string(),
@@ -364,8 +437,17 @@ export const HouseholdView = z.object({
   members: z.array(HouseholdMemberView),
   /** Payers see every pending request; other members see their own. */
   pendingApprovals: z.array(PayerApprovalView),
+  /** w4 «سفرة البيت»: this Baghdad month's shared orders (null when the server could not read them). */
+  month: z
+    .object({
+      month: MonthKey,
+      tableOrders: z.array(HouseholdTableOrder),
+    })
+    .nullable()
+    .default(null),
 });
 export type HouseholdView = z.infer<typeof HouseholdView>;
+
 
 export const CreateHouseholdInput = z.object({ name: z.string().trim().min(1).max(60), cityId: CityId.default('aziziyah') });
 export type CreateHouseholdInput = z.input<typeof CreateHouseholdInput>;
@@ -378,6 +460,9 @@ export const InviteMemberInput = z.object({
 export type InviteMemberInput = z.input<typeof InviteMemberInput>;
 export const SetLimitInput = z.object({ householdId: z.string().min(1), personId: z.string().min(1), spendingLimitIqd: Iqd.nonnegative().nullable() });
 export type SetLimitInput = z.infer<typeof SetLimitInput>;
+/** w4: a member's monthly budget on the household wallet (payer only; null = none). */
+export const SetBudgetInput = z.object({ householdId: z.string().min(1), personId: z.string().min(1), monthlyBudgetIqd: Iqd.nonnegative().nullable() });
+export type SetBudgetInput = z.infer<typeof SetBudgetInput>;
 export const HouseholdIdInput = z.object({ householdId: z.string().min(1) });
 export type HouseholdIdInput = z.infer<typeof HouseholdIdInput>;
 export const ApprovalIdInput = z.object({ requestId: z.string().min(1) });
@@ -388,6 +473,7 @@ export interface HouseholdsPort {
   create(actor: Actor, input: z.infer<typeof CreateHouseholdInput>): Promise<HouseholdView>;
   inviteMember(actor: Actor, input: z.infer<typeof InviteMemberInput>): Promise<HouseholdView>;
   setLimit(actor: Actor, input: SetLimitInput): Promise<HouseholdView>;
+  setBudget(actor: Actor, input: SetBudgetInput): Promise<HouseholdView>;
   approvals(actor: Actor, input: HouseholdIdInput): Promise<PayerApprovalView[]>;
   approve(actor: Actor, input: ApprovalIdInput): Promise<PayerApprovalView>;
   decline(actor: Actor, input: ApprovalIdInput): Promise<PayerApprovalView>;
