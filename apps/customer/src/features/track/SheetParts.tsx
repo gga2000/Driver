@@ -291,6 +291,8 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
   if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
+  // J-D6: the small-order fee the order was placed with.
+  if ((o.smallOrderFeeIqd ?? 0) > 0) items.push({ key: 'small_order', label: t('quote.small_order_fee'), amount: o.smallOrderFeeIqd ?? 0 });
   // The deal at its exact promised saving. A cash total's change is PriceBreakdown's "الباقي رصيد" strip; orders
   // placed before 2026-10-04 (deal trimmed onto 500) still show their difference as a small "تقريب" line.
   if (o.discountIqd > 0) {
@@ -298,6 +300,8 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
     const label = merchantDeal ? t(o.discount?.target === 'delivery' ? 'quote.deal_free_delivery' : 'quote.deal_discount') : t('quote.promo');
     items.push({ key: 'discount', label, amount: -Math.max(o.discountIqd, o.discount?.dealIqd ?? 0) });
   }
+  // W-02: the points spent on it (delivery first, then the service fee).
+  if ((o.pointsIqd ?? 0) > 0) items.push({ key: 'points', label: t('quote.points'), amount: -(o.pointsIqd ?? 0) });
   if (o.tipIqd > 0) items.push({ key: 'tip', label: t('quote.tip'), amount: o.tipIqd });
   if (o.cancellationFeeIqd > 0) items.push({ key: 'cancel', label: t('quote.cancellation'), amount: o.cancellationFeeIqd });
   return items;

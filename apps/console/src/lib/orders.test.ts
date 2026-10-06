@@ -76,6 +76,18 @@ describe('price components', () => {
     expect(priceCheck(o)).toEqual({ sumIqd: 10000, matches: true });
     expect(priceCheck({ ...o, totalIqd: 10250 }).matches).toBe(false);
   });
+
+  it('shows the small-order fee and the points the customer spent (J-D6, W-02)', () => {
+    const o = order({ id: 's', itemsTotalIqd: 3000, deliveryFeeIqd: 1000, serviceFeeIqd: 500, smallOrderFeeIqd: 500, discountIqd: 0, pointsRedeemed: 50, pointsIqd: 500, tipIqd: 0, totalIqd: 4500 });
+    expect(priceRows(o)).toEqual([
+      { key: 'items', amountIqd: 3000 },
+      { key: 'delivery', amountIqd: 1000 },
+      { key: 'service', amountIqd: 500 },
+      { key: 'small_order', amountIqd: 500 },
+      { key: 'points', amountIqd: -500 },
+    ]);
+    expect(priceCheck(o)).toEqual({ sumIqd: 4500, matches: true });
+  });
 });
 
 describe('history search input', () => {

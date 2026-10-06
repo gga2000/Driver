@@ -259,7 +259,7 @@ export function groupLinesByParticipant(o: Pick<Order, 'lines' | 'participants'>
 
 // ───────────────────────── price components ─────────────────────────
 
-export type PriceKey = 'items' | 'delivery' | 'service' | 'discount' | 'tip' | 'cancellation_fee';
+export type PriceKey = 'items' | 'delivery' | 'service' | 'small_order' | 'discount' | 'points' | 'tip' | 'cancellation_fee';
 
 export interface PriceRow {
   key: PriceKey;
@@ -272,7 +272,10 @@ export function priceRows(o: Order): PriceRow[] {
     { key: 'items', amountIqd: o.itemsTotalIqd },
     { key: 'delivery', amountIqd: o.deliveryFeeIqd },
     { key: 'service', amountIqd: o.serviceFeeIqd },
+    // J-D6 small-order fee and W-02 points spent (delivery first, then service fee).
+    { key: 'small_order', amountIqd: o.smallOrderFeeIqd ?? 0 },
     { key: 'discount', amountIqd: -Math.abs(o.discountIqd) },
+    { key: 'points', amountIqd: -Math.abs(o.pointsIqd ?? 0) },
     { key: 'tip', amountIqd: o.tipIqd },
     { key: 'cancellation_fee', amountIqd: o.cancellationFeeIqd },
   ];
