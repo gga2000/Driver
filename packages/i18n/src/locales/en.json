@@ -5175,7 +5175,7 @@
   "partner.shiftsum_title": "Shift done",
   "partner.shiftsum_range": "{from} to {to} · {duration}",
   "partner.shiftsum_net_label": "Shift net",
-  "partner.shiftsum_per_hour": "{amount} IQD an hour",
+  "partner.shiftsum_per_hour": "About {amount} IQD an hour",
   "partner.shiftsum_per_hour_short": "Too short for an hourly rate",
   "partner.shiftsum_jobs": "Jobs",
   "partner.shiftsum_online": "Time online",

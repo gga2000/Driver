@@ -17,9 +17,12 @@ describe('end of shift (Partner S-4): window, per hour, best hour, tomorrow', ()
     expect(clampShift({ from: new Date('2026-10-05T17:00:00Z') }, late).from.toISOString()).toBe('2026-10-05T17:00:00.000Z');
   });
 
-  it('per hour: net over online time, in 250 steps; null under 30 minutes', () => {
+  it('per hour: net over the exact online minutes, to the nearest 50; null under 30 minutes', () => {
     expect(perHour(15_000, 240)).toBe(3_750);
-    expect(perHour(10_000, 180)).toBe(3_250); // 3,333 → 3,250
+    expect(perHour(10_000, 180)).toBe(3_350); // 3,333 → 3,350
+    // The review case: 11,500 from 7:49 to 12:50 (301 min) is 2,292 an hour → ≈ 2,300, not 2,250.
+    expect(perHour(11_500, 301)).toBe(2_300);
+    expect(perHour(7_400, 240)).toBe(1_850);
     expect(perHour(5_000, 29)).toBeNull();
     expect(perHour(0, 120)).toBe(0);
   });

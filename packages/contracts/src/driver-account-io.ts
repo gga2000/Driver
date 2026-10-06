@@ -321,6 +321,11 @@ export type GuaranteeView = z.infer<typeof GuaranteeView>;
 export const SHIFT_MAX_HOURS = 24;
 /** Below this much online time "per hour" would be noise: null. */
 export const SHIFT_PER_HOUR_MIN_MINUTES = 30;
+/**
+ * Per hour is a rate, not a payment: it is rounded to the nearest 50 (from the exact minutes) so it
+ * reads like the sum a driver does in his head — 11,500 over 5 h 1 min is ≈ 2,300, never "2,250".
+ */
+export const SHIFT_PER_HOUR_STEP_IQD = 50;
 
 export const ShiftSummaryInput = z.object({
   from: z.coerce.date().optional(),
@@ -337,7 +342,7 @@ export const ShiftSummary = z.object({
   /** Net for the shift (pay + tips + incentives − take − penalties). */
   netIqd: Iqd,
   tipsIqd: Iqd,
-  /** Net per online hour, rounded to 250; null under `SHIFT_PER_HOUR_MIN_MINUTES`. */
+  /** Net per online minute × 60, to the nearest `SHIFT_PER_HOUR_STEP_IQD`; null under `SHIFT_PER_HOUR_MIN_MINUTES`. */
   perHourIqd: Iqd.nullable(),
   /** The Baghdad clock hour that paid most in the shift; null without jobs. */
   bestHour: z.object({ from: z.coerce.date(), to: z.coerce.date(), netIqd: Iqd, jobs: z.number().int() }).nullable(),

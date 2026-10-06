@@ -1,4 +1,4 @@
-import { SHIFT_MAX_HOURS, SHIFT_PER_HOUR_MIN_MINUTES, type EarningsJobLine } from '@driver/contracts';
+import { SHIFT_MAX_HOURS, SHIFT_PER_HOUR_MIN_MINUTES, SHIFT_PER_HOUR_STEP_IQD, type EarningsJobLine } from '@driver/contracts';
 import { BAGHDAD_OFFSET_MIN, startOfLocalDay } from '../../shared/local-time.js';
 
 /**
@@ -8,8 +8,6 @@ import { BAGHDAD_OFFSET_MIN, startOfLocalDay } from '../../shared/local-time.js'
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
-/** Per hour is shown in the money step the rest of the app uses. */
-const STEP = 250;
 /** Tomorrow's window is two clock hours wide. */
 export const BUSY_WINDOW_HOURS = 2;
 /** Fewer orders than this in the busiest window last week: too thin to promise anything. */
@@ -27,10 +25,13 @@ export function clampShift(input: { from?: Date | undefined; to?: Date | undefin
   return { from, to };
 }
 
-/** Net per online hour rounded to the 250 step; null when he was online too little to say. */
+/**
+ * Net per online hour from the exact minutes, to the nearest `SHIFT_PER_HOUR_STEP_IQD` (the screen says
+ * «تقريباً»); null when he was online too little to say. Not a money step: nothing is paid from it.
+ */
 export function perHour(netIqd: number, onlineMinutes: number): number | null {
   if (onlineMinutes < SHIFT_PER_HOUR_MIN_MINUTES) return null;
-  return Math.round((netIqd * 60) / onlineMinutes / STEP) * STEP;
+  return Math.round((netIqd * 60) / onlineMinutes / SHIFT_PER_HOUR_STEP_IQD) * SHIFT_PER_HOUR_STEP_IQD;
 }
 
 /** Start of the Baghdad clock hour containing `at`. */

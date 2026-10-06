@@ -48,7 +48,7 @@ describe('end of shift words (S-4)', () => {
 
   it('the shared picture says the same numbers, and is named by the Baghdad date', () => {
     const m = shareCardModel(summary(), t, new Date('2026-10-05T17:00:00Z'));
-    expect(m).toMatchObject({ title: 'يومي ويا درايفر', net: '15,000', currency: 'دينار', perHour: '3,750 دينار بالساعة' });
+    expect(m).toMatchObject({ title: 'يومي ويا درايفر', net: '15,000', currency: 'دينار', perHour: 'تقريباً 3,750 دينار بالساعة' });
     expect(m.date).toBe('اليوم · من 3:00 م لـ 7:00 م · 4 ساعات');
     expect(m.stats.map((x) => x.label)).toEqual(['الطلبات', 'وقت الشغل', 'أحسن ساعة']);
     expect(shareCardModel(summary({ perHourIqd: null }), t).perHour).toBeNull();

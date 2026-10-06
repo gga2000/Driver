@@ -319,7 +319,7 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     expect(s.tipsIqd).toBe(1000);
     // 1,000 + 1,000 delivery, 1,000 tip, 5,000 fare − 600 take.
     expect(s.netIqd).toBe(1000 + 1000 + 1000 + 5000 - 600);
-    expect(s.perHourIqd).toBe(1750); // 7,400 over 4 h = 1,850 → 1,750 (250 steps)
+    expect(s.perHourIqd).toBe(1850); // 7,400 over 4 h = 1,850 an hour, to the nearest 50
     // The 6–7 م hour (the ride, 4,400 net) beats 4–5 م (3,000).
     expect(s.bestHour).toMatchObject({ from: new Date('2026-10-03T15:00:00Z'), to: new Date('2026-10-03T16:00:00Z'), netIqd: 4400, jobs: 1 });
     expect(s.day).toEqual({ netIqd: s.netIqd + 1000, jobs: 4 });
