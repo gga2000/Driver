@@ -137,7 +137,7 @@ child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006
 Console demo: `POST /demo/khat-sweep[?late=1]`. Not built: a dispatcher "close" for an alert the
 driver never confirms (it leaves the strip after `sweepOpenShowHours`, 12; the record stays).
 
-Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
+Children's names: first name only, read through identity for the run's own driver (`childCardsForRun`, which also carries the guardian's photo of the child — see docs/api/driver-photos.md),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,
 `khat_child_not_on_trip`, `khat_child_absent`, `khat_child_not_tapped_in` (tap-out before tap-in), `stop_state_conflict` (absence after tap-in), `forbidden`.
 

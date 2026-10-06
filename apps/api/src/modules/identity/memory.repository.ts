@@ -118,7 +118,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return [...new Set(personIds)].map((id) => this.identities.get(id)).filter((i): i is IdentityRecord => i !== undefined);
   }
 
-  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact'>>, tx?: Tx) {
+  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx) {
     const idn = this.identities.get(personId);
     if (!idn) throw new Error(`identity ${personId} not found`);
     if (patch.phoneHash) for (const other of this.identities.values()) if (other.personId !== personId && other.phoneHash === patch.phoneHash) throw new Error('unique violation: phone_hash');
@@ -164,6 +164,13 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async childIdentitiesOf(guardianId: string) {
     return this.children.filter((c) => c.guardianId === guardianId).map((c) => ({ ...c }));
+  }
+
+  async setChildPhoto(childRef: string, photoRef: string | null, tx?: Tx) {
+    const c = this.children.find((x) => x.childRef === childRef);
+    if (!c) throw new Error(`child ${childRef} not found`);
+    this.keep(tx, c);
+    c.photoRef = photoRef;
   }
 
   /** Twin of the vault row's document / selfie storage refs, by personId. */

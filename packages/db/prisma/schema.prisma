@@ -360,6 +360,11 @@ model PersonIdentity {
   selfieDroppedAt  DateTime? @map("selfie_dropped_at")
   /// Customer spec §10 safety: {name, phoneE164} of the person we call in an emergency.
   emergencyContact Json?     @map("emergency_contact")
+  /// The driver's main photo customers see (Ali, 2026-10-06): the storage ref of his latest approved
+  /// `photo` driver document. Only an approved photo lands here; customers get short-lived signed URLs
+  /// and every read is a VaultAccessLog row (`main_photo`).
+  mainPhotoRef     String?   @map("main_photo_ref")
+  mainPhotoAt      DateTime? @map("main_photo_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -377,6 +382,9 @@ model ChildIdentity {
   /// The guardian who enrolled the child; null only for names moved here from stops.child_name.
   guardianId String?  @map("guardian_id")
   name       String
+  /// A photo the guardian added (storage ref): shown only to the خطوط driver of the child's run, every
+  /// read logged (`child_photo`); the guardian removes it at any time (the bytes are deleted).
+  photoRef   String?  @map("photo_ref")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
