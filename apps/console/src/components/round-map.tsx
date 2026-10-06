@@ -2,6 +2,7 @@ import { AZIZIYAH_CENTRE, AZIZIYAH_ZONES, type RoundStop } from '@driver/contrac
 import { AZIZIYAH_BOUNDS, buildZonesGeoJSON, metresPerDegLng, M_PER_DEG_LAT } from '@driver/map';
 import { t } from '@driver/i18n';
 import { formatMoney } from '@/lib/format';
+import { spreadBadges } from '@/lib/round';
 
 const zones = buildZonesGeoJSON();
 const CENTROIDS = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z] as const));
@@ -46,6 +47,15 @@ export function RoundMap({ stops, className = '' }: { stops: readonly RoundStop[
   const k = vw / 520; // marks keep the same size on screen whatever the zoom
   const labels = placed.length <= 5;
   const path = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const radius = (s: RoundStop) => (14 + Math.round((s.totalIqd / max) * 8)) * k;
+  // Stops in neighbouring zones (and the ones next to the office) would stack their numbers: each
+  // badge moves just clear of the others and of the office square, with a leader back to its zone.
+  const spread = spreadBadges(
+    placed.map((s, i) => ({ x: pts[i + 1]![0], y: pts[i + 1]![1], r: radius(s) })),
+    [{ x: pts[0]![0], y: pts[0]![1], r: 12 * k }],
+    2 * k,
+  );
+  const at = new Map(placed.map((s, i) => [s.zoneKey, spread[i]!] as const));
   return (
     <svg viewBox={`${vx} ${vy} ${vw} ${vh}`} className={className} role="img" aria-label={t('console.fin_round_map_aria', { n: placed.length })}>
       <rect x={vx} y={vy} width={vw} height={vh} className="fill-surface-2" />
@@ -64,20 +74,32 @@ export function RoundMap({ stops, className = '' }: { stops: readonly RoundStop[
         );
       })}
       {placed.length > 0 && <polyline points={path} fill="none" className="stroke-accent-text" strokeWidth={3 * k} strokeDasharray={`${8 * k} ${6 * k}`} strokeLinejoin="round" strokeLinecap="round" />}
+      {/* Where each stop really is: a dot on its zone, and a leader to its badge when the badge moved. */}
+      {placed.map((s, i) => {
+        const b = at.get(s.zoneKey)!;
+        const [zx, zy] = pts[i + 1]!;
+        if (Math.hypot(b.x - zx, b.y - zy) < 1) return null;
+        return (
+          <g key={`leader-${s.zoneKey}`}>
+            <line x1={zx} y1={zy} x2={b.x} y2={b.y} className="stroke-accent-text" strokeWidth={1.5 * k} />
+            <circle cx={zx} cy={zy} r={3 * k} className="fill-accent-text" />
+          </g>
+        );
+      })}
       {/* Later stops first, so the first stops sit on top where the route doubles back. */}
       {[...placed].reverse().map((s) => {
-        const c = CENTROIDS.get(s.zoneKey)!;
-        const r = (14 + Math.round((s.totalIqd / max) * 8)) * k;
+        const b = at.get(s.zoneKey)!;
+        const r = radius(s);
         const over = s.couriers.some((q) => q.overCap);
         return (
           <g key={s.zoneKey}>
-            <circle cx={x(c.lng)} cy={y(c.lat)} r={r} className={over ? 'fill-bad-solid stroke-surface' : 'fill-accent stroke-surface'} strokeWidth={3 * k} />
-            <text x={x(c.lng)} y={y(c.lat)} textAnchor="middle" dominantBaseline="central" fontSize={15 * k} fontWeight={700} className={over ? 'fill-on-bad' : 'fill-on-accent'}>
+            <circle cx={b.x} cy={b.y} r={r} className={over ? 'fill-bad-solid stroke-surface' : 'fill-accent stroke-surface'} strokeWidth={3 * k} />
+            <text x={b.x} y={b.y} textAnchor="middle" dominantBaseline="central" fontSize={15 * k} fontWeight={700} className={over ? 'fill-on-bad' : 'fill-on-accent'}>
               {s.seq}
             </text>
             {/* Names only while they fit; a long round is read from the numbered list beside the map. */}
             {labels && (
-              <text x={x(c.lng)} y={y(c.lat) + r + 13 * k} textAnchor="middle" fontSize={12 * k} fontWeight={600} className="fill-text" style={{ paintOrder: 'stroke' }} stroke="rgb(var(--c-surface))" strokeWidth={4 * k}>
+              <text x={b.x} y={b.y + r + 13 * k} textAnchor="middle" fontSize={12 * k} fontWeight={600} className="fill-text" style={{ paintOrder: 'stroke' }} stroke="rgb(var(--c-surface))" strokeWidth={4 * k}>
                 {s.zone_ar}
               </text>
             )}

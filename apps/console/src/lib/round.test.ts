@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RoundStop } from '@driver/contracts';
-import { codeValid, collectAmountProblem, courierRoundState, normalizeCode, parseAmount, printRows, receiptKey, roundProgress, stopDone } from './round';
+import { t } from '@driver/i18n';
+import { codeValid, spreadBadges, collectAmountProblem, courierRoundState, normalizeCode, parseAmount, printRows, receiptKey, roundProgress, stopDone } from './round';
 
 const at = new Date('2026-10-05T20:10:00Z');
 const stop = (seq: number, zone: string, couriers: RoundStop['couriers']): RoundStop => ({ seq, zoneKey: zone, zone_ar: zone, couriers, totalIqd: couriers.reduce((a, c) => a + c.heldIqd, 0), collectedIqd: couriers.reduce((a, c) => a + (c.collected?.amountIqd ?? 0), 0) });
@@ -48,5 +49,30 @@ describe('cash round mode (S-K5)', () => {
       [1, false, 'a', true],
       [2, true, 'c', false],
     ]);
+  });
+
+  it('the header counts stops in Iraqi plurals: وقفة وحدة · وقفتين · 3–10 وقفات · 11+ وقفة', () => {
+    const say = (n: number) => t('console.fin_round_summary', { amount: '988,980 دينار', n: 28, stops: t('console.fin_round_stops', { n }) });
+    expect(say(21)).toBe('نجمع 988,980 دينار من 28 دليفري على 21 وقفة');
+    expect([1, 2, 3, 10, 11].map((n) => t('console.fin_round_stops', { n }))).toEqual(['وقفة وحدة', 'وقفتين', '3 وقفات', '10 وقفات', '11 وقفة']);
+    expect(t('console.fin_round_map_aria', { n: 5 })).toBe('خريطة الجولة: المكتب ثم 5 وقفات');
+  });
+
+  it('round map: stacked stop badges spread until every number stands alone, and off the office square', () => {
+    const office = { x: 0, y: 0, r: 10 };
+    const badges = [
+      { x: 0, y: 0, r: 15 },
+      { x: 4, y: 2, r: 18 },
+      { x: 4, y: 2, r: 14 },
+      { x: 200, y: 200, r: 14 },
+    ];
+    const out = spreadBadges(badges, [office], 2);
+    for (let i = 0; i < out.length; i++) {
+      expect(Math.hypot(out[i]!.x - office.x, out[i]!.y - office.y)).toBeGreaterThanOrEqual(badges[i]!.r + office.r + 2 - 0.5);
+      for (let j = i + 1; j < out.length; j++) expect(Math.hypot(out[i]!.x - out[j]!.x, out[i]!.y - out[j]!.y)).toBeGreaterThanOrEqual(badges[i]!.r + badges[j]!.r + 2 - 0.5);
+    }
+    // A stop far from the others stays exactly on its zone; the same input gives the same map.
+    expect(out[3]).toEqual({ x: 200, y: 200 });
+    expect(spreadBadges(badges, [office], 2)).toEqual(out);
   });
 });

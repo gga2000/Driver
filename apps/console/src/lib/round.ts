@@ -95,3 +95,53 @@ export function printRows(r: Pick<Round, 'stops'>): PrintRow[] {
 export function receiptKey(driverId: string, openedAt: number, rand: () => number = Math.random): string {
   return `console-round:${driverId}:${openedAt.toString(36)}:${Math.floor(rand() * 1e9).toString(36)}`;
 }
+
+/** A round-map badge: where its zone is, and its radius (map units). */
+export interface Badge {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * Numbered stop badges that would sit on each other (zones next to the ops base, a dense centre)
+ * are pushed apart until each number reads on its own, and off the base's square. Pure and
+ * deterministic: pairwise relaxation, each overlapping pair moved apart by half the overlap; a badge
+ * on the exact same spot as another leaves at a fixed angle by its index. The map draws a short
+ * leader from the zone to a moved badge, so where the stop is stays true.
+ */
+export function spreadBadges(badges: readonly Badge[], fixed: readonly Badge[] = [], gap = 0, iterations = 80): Array<{ x: number; y: number }> {
+  const out = badges.map((b) => ({ x: b.x, y: b.y }));
+  const apart = (dx: number, dy: number, i: number) => {
+    const d = Math.hypot(dx, dy);
+    if (d > 1e-6) return { ux: dx / d, uy: dy / d, d };
+    const a = (i * 2.399963) % (2 * Math.PI); // golden angle: distinct directions for stacked badges
+    return { ux: Math.cos(a), uy: Math.sin(a), d: 0 };
+  };
+  for (let it = 0; it < iterations; it++) {
+    let moved = false;
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const need = badges[i]!.r + badges[j]!.r + gap;
+        const v = apart(out[j]!.x - out[i]!.x, out[j]!.y - out[i]!.y, j);
+        if (v.d >= need - 1e-6) continue;
+        const push = (need - v.d) / 2;
+        out[i]!.x -= v.ux * push;
+        out[i]!.y -= v.uy * push;
+        out[j]!.x += v.ux * push;
+        out[j]!.y += v.uy * push;
+        moved = true;
+      }
+      for (const f of fixed) {
+        const need = badges[i]!.r + f.r + gap;
+        const v = apart(out[i]!.x - f.x, out[i]!.y - f.y, i);
+        if (v.d >= need - 1e-6) continue;
+        out[i]!.x += v.ux * (need - v.d);
+        out[i]!.y += v.uy * (need - v.d);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return out;
+}
