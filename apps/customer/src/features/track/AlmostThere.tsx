@@ -6,13 +6,11 @@ import { color as palette } from '@driver/design-tokens';
 import { Avatar, Icon, IconButton, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { season } from '@/lib/season';
 import { playCue } from '@/lib/sound';
 import { cashAtDoor } from './arrival-logic';
-import { almostThere, momentsBetween, type Moment, type MomentSnapshot } from './moments';
+import { almostThere, DRIVER_HERE_GAP_MS, momentFeedback, momentsBetween, type MomentSnapshot } from './moments';
 import { courierAtDoor, type Phase } from './timeline';
-
-/** The delivered moment's buzz comes from the arrival screen itself; the others buzz here. */
-const HAPTIC: Record<Moment, 'success' | 'medium' | 'light' | null> = { accepted: 'light', picked_up: 'medium', near: 'success', at_door: 'medium', delivered: null };
 
 export type DoorCardVariant = 'near' | 'door';
 
@@ -34,6 +32,7 @@ export function useTrackingMoments(
   const prev = useRef<MomentSnapshot | null>(null);
   const [nearFor, setNearFor] = useState<string | null>(null);
   const [closed, setClosed] = useState<string | null>(null);
+  const ride = Boolean(v && v.order.type === 'ride');
   const orderId = v?.order.id ?? null;
   const myDrop = v?.trip?.stops.find((s) => s.mine && s.type === 'dropoff');
   const card =
@@ -54,19 +53,19 @@ export function useTrackingMoments(
 
   useEffect(() => {
     if (!orderId || !phase) return;
-    const next: MomentSnapshot = { orderId, phase, near, door };
+    const next: MomentSnapshot = { orderId, phase, near, door, ride };
     for (const m of momentsBetween(prev.current, next)) {
-      const buzz = HAPTIC[m];
-      if (buzz) theme.haptic(buzz);
-      // The door has no sound of its own: the knock is enough, and "near" already chimed.
-      if (m !== 'at_door') playCue(m);
+      // Quiet days (J1a): no sound, no celebratory buzz; the door has no sound of its own (the knock is enough).
+      const f = momentFeedback(m, season.current);
+      f.haptics.forEach((h, i) => (i === 0 ? theme.haptic(h) : setTimeout(() => theme.haptic(h), i * DRIVER_HERE_GAP_MS)));
+      if (f.cue) playCue(f.cue);
     }
     // The card also shows when the screen opens with him already close (the customer tapped the push).
     if (near) setNearFor(orderId);
     prev.current = next;
     // `theme` is stable for the screen's life; re-running on it would replay nothing anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, phase, near, door]);
+  }, [orderId, phase, near, door, ride]);
 
   const variant: DoorCardVariant | null = door ? 'door' : orderId && nearFor === orderId && phase === 'on_the_way' ? 'near' : null;
   const key = variant && orderId ? `${orderId}:${variant}` : null;

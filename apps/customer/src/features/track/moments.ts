@@ -1,9 +1,13 @@
-import { NEAR_DROPOFF_M, type LatLng } from '@driver/contracts';
+import { NEAR_DROPOFF_M, type LatLng, type PublicSeason } from '@driver/contracts';
 import { distanceM } from './geo';
 import type { Phase } from './timeline';
 
-/** The tracking screen's moments (maps program SP5b, joy f3): each gets a buzz (and most a soft sound) once. */
-export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered';
+/**
+ * The tracking screen's moments (maps program SP5b, joy f3; rides J1c f4): each gets a buzz (and most
+ * a soft sound) once. Rides add the two peaks a stranger brings: `matched` (a driver took it) and
+ * `driver_here` (he is at the pickup, the free wait is running).
+ */
+export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered' | 'matched' | 'driver_here';
 
 /** What one read of the order says, for comparing with the previous read. */
 export interface MomentSnapshot {
@@ -13,11 +17,15 @@ export interface MomentSnapshot {
   near: boolean;
   /** He pressed "وصلت" at my door (no other drop before mine). */
   door: boolean;
+  /** A taxi / tuktuk ride (its own two moments). */
+  ride?: boolean;
 }
 
 const BEFORE_ACCEPT: ReadonlySet<Phase> = new Set(['waiting_merchant']);
 const ENDED: ReadonlySet<Phase> = new Set(['cancelled', 'failed', 'disputed']);
 const AT_DOOR: ReadonlySet<Phase> = new Set(['arrived', 'done']);
+const SEARCHING: ReadonlySet<Phase> = new Set(['searching', 'reassigning']);
+const DRIVER_COMING: ReadonlySet<Phase> = new Set(['to_pickup', 'at_pickup']);
 
 /**
  * Moments between two reads of the same order. The first read of an order (screen opened, app
@@ -27,6 +35,8 @@ const AT_DOOR: ReadonlySet<Phase> = new Set(['arrived', 'done']);
 export function momentsBetween(prev: MomentSnapshot | null, next: MomentSnapshot): Moment[] {
   if (!prev || prev.orderId !== next.orderId || ENDED.has(next.phase)) return [];
   const out: Moment[] = [];
+  if (next.ride && SEARCHING.has(prev.phase) && DRIVER_COMING.has(next.phase)) out.push('matched');
+  if (next.ride && prev.phase !== 'at_pickup' && next.phase === 'at_pickup') out.push('driver_here');
   if (BEFORE_ACCEPT.has(prev.phase) && !BEFORE_ACCEPT.has(next.phase) && !AT_DOOR.has(next.phase)) out.push('accepted');
   if (prev.phase !== 'on_the_way' && !AT_DOOR.has(prev.phase) && next.phase === 'on_the_way') out.push('picked_up');
   if (!prev.near && !prev.door && next.near && !next.door && !AT_DOOR.has(next.phase)) out.push('near');
@@ -64,4 +74,44 @@ export function almostThere(i: {
   if (i.nearAt) return 'near';
   if (i.eta && i.eta.getTime() - i.now <= ALMOST_THERE_ETA_MS) return 'near';
   return isNear(i.phase, i.courier, i.door, i.food) ? 'near' : null;
+}
+
+/** The two firm buzzes of "your driver is here" are this far apart (L-02). */
+export const DRIVER_HERE_GAP_MS = 120;
+/** "لگينالك سايق: عباس" stays this long after the accept, then "عباس بالطريق إلك". */
+export const MATCHED_STATUS_MS = 4_000;
+
+export type MomentHaptic = 'success' | 'medium' | 'light' | 'heavy';
+export type MomentCue = 'accepted' | 'picked_up' | 'near' | 'delivered';
+
+/**
+ * The delivered moment's buzz comes from the arrival screen itself; the others buzz here. The door
+ * has no sound of its own: the knock is enough, and "near" already chimed.
+ */
+const FEEDBACK: Record<Moment, { haptics: MomentHaptic[]; cue: MomentCue | null }> = {
+  accepted: { haptics: ['light'], cue: 'accepted' },
+  picked_up: { haptics: ['medium'], cue: 'picked_up' },
+  near: { haptics: ['success'], cue: 'near' },
+  at_door: { haptics: ['medium'], cue: null },
+  delivered: { haptics: [], cue: 'delivered' },
+  matched: { haptics: ['success'], cue: 'accepted' },
+  driver_here: { haptics: ['heavy', 'heavy'], cue: 'near' },
+};
+
+/**
+ * What a moment does to the senses. On a quiet day (Console, J1a) no sound plays and the celebratory
+ * success buzz becomes a plain one; the driver-here alarm keeps its two firm buzzes (it is
+ * information: the free wait is running).
+ */
+export function momentFeedback(m: Moment, today: Pick<PublicSeason, 'celebrations' | 'sounds'>): { haptics: MomentHaptic[]; cue: MomentCue | null } {
+  const f = FEEDBACK[m];
+  return {
+    haptics: f.haptics.map((h) => (h === 'success' && !today.celebrations ? 'medium' : h)),
+    cue: today.sounds ? f.cue : null,
+  };
+}
+
+/** Within the first seconds after a driver accepted (server time), the status says who was found. */
+export function rideMatchedFresh(acceptedAt: Date | null | undefined, now: number): boolean {
+  return acceptedAt != null && now - acceptedAt.getTime() < MATCHED_STATUS_MS;
 }

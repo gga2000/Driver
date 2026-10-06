@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ALMOST_THERE_ETA_MS, almostThere, isNear, momentsBetween, type MomentSnapshot } from './moments';
+import type { PublicSeason } from '@driver/contracts';
+import { ALMOST_THERE_ETA_MS, almostThere, isNear, momentFeedback, momentsBetween, rideMatchedFresh, type MomentSnapshot } from './moments';
 
 const snap = (phase: MomentSnapshot['phase'], near = false, orderId = 'o1', door = false): MomentSnapshot => ({ orderId, phase, near, door });
+const ride = (phase: MomentSnapshot['phase'], orderId = 'r1'): MomentSnapshot => ({ orderId, phase, near: false, door: false, ride: true });
+const LOUD: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null };
+const QUIET: PublicSeason = { quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: null };
 const DOOR = { lat: 32.9, lng: 45.07 };
 /** About `m` metres north of the door. */
 const north = (m: number) => ({ lat: DOOR.lat + m / 111_320, lng: DOOR.lng });
@@ -54,5 +58,34 @@ describe('tracking moments', () => {
       expect(almostThere({ ...base, phase: 'to_pickup', nearAt: new Date(NOW) })).toBeNull();
       expect(almostThere({ ...base, phase: 'arrived', atDoor: true })).toBeNull();
     });
+  });
+  it('ride: matched when a driver takes it, driver_here at the pickup, picked_up when the trip starts', () => {
+    expect(momentsBetween(ride('searching'), ride('to_pickup'))).toEqual(['matched']);
+    expect(momentsBetween(ride('searching'), ride('at_pickup'))).toEqual(['matched', 'driver_here']);
+    expect(momentsBetween(ride('to_pickup'), ride('at_pickup'))).toEqual(['driver_here']);
+    expect(momentsBetween(ride('at_pickup'), ride('at_pickup'))).toEqual([]);
+    expect(momentsBetween(ride('at_pickup'), ride('on_the_way'))).toEqual(['picked_up']);
+    expect(momentsBetween(ride('reassigning'), ride('to_pickup'))).toEqual(['matched']);
+    expect(momentsBetween(null, ride('at_pickup'))).toEqual([]);
+    expect(momentsBetween(ride('searching'), ride('cancelled'))).toEqual([]);
+  });
+  it('a food order never gets ride moments', () => {
+    expect(momentsBetween(snap('preparing'), snap('at_pickup'))).toEqual([]);
+    expect(momentsBetween(snap('preparing'), snap('to_pickup'))).toEqual([]);
+  });
+  it('feedback: matched buzzes success with the accepted cue; quiet days drop the cue and the celebration', () => {
+    expect(momentFeedback('matched', LOUD)).toEqual({ haptics: ['success'], cue: 'accepted' });
+    expect(momentFeedback('matched', QUIET)).toEqual({ haptics: ['medium'], cue: null });
+    expect(momentFeedback('driver_here', LOUD)).toEqual({ haptics: ['heavy', 'heavy'], cue: 'near' });
+    expect(momentFeedback('driver_here', QUIET)).toEqual({ haptics: ['heavy', 'heavy'], cue: null });
+    expect(momentFeedback('near', QUIET)).toEqual({ haptics: ['medium'], cue: null });
+    expect(momentFeedback('accepted', LOUD)).toEqual({ haptics: ['light'], cue: 'accepted' });
+    expect(momentFeedback('delivered', LOUD)).toEqual({ haptics: [], cue: 'delivered' });
+    expect(momentFeedback('at_door', LOUD)).toEqual({ haptics: ['medium'], cue: null });
+  });
+  it('matched is fresh for 4 s from the server accept', () => {
+    expect(rideMatchedFresh(new Date(10_000), 13_999)).toBe(true);
+    expect(rideMatchedFresh(new Date(10_000), 14_000)).toBe(false);
+    expect(rideMatchedFresh(null, 0)).toBe(false);
   });
 });
