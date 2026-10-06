@@ -8,6 +8,7 @@ import {
   BannerInput,
   ClearBannerInput,
   ClearQuietDaysInput,
+  ClearSeasonInput,
   ControlsInput,
   ControlsView,
   DecideApprovalInput,
@@ -21,6 +22,9 @@ import {
   PublicSeason,
   QuietDaysView,
   SeasonInput,
+  SeasonView,
+  SetIftarTimeInput,
+  SetSeasonInput,
   SetBannerInput,
   SetKillSwitchInput,
   SetQuietDaysInput,
@@ -100,6 +104,22 @@ export const seasonProcedures = {
     .input(ClearQuietDaysInput)
     .output(QuietDaysView)
     .mutation(({ ctx, input }) => ctx.controls.clearQuietDays(ctx.actor, input)),
+  /** J6: every kind of season period (quiet, Ramadan, Eid, a special Friday), with Ramadan's day times. */
+  seasons: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(z.array(SeasonView))
+    .query(({ ctx }) => ctx.controls.seasons()),
+  setSeason: protectedProcedure(BANNER_ROLES)
+    .input(SetSeasonInput)
+    .output(SeasonView)
+    .mutation(({ ctx, input }) => ctx.controls.setSeason(ctx.actor, input)),
+  clearSeason: protectedProcedure(BANNER_ROLES)
+    .input(ClearSeasonInput)
+    .output(SeasonView)
+    .mutation(({ ctx, input }) => ctx.controls.clearSeason(ctx.actor, input)),
+  setIftarTime: protectedProcedure(BANNER_ROLES)
+    .input(SetIftarTimeInput)
+    .output(SeasonView)
+    .mutation(({ ctx, input }) => ctx.controls.setIftarTime(ctx.actor, input)),
 };
 
 /** `approvals.*` — driver documents, merchant deals, landmark photos, onboarding drafts, fleet vehicles. */

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
-import { LocalDate } from './store-hours.js';
+import { HhMm, LocalDate } from './store-hours.js';
 
 /**
  * Launch-week control room (launch playbook §3 controls, §4 rota, §6 metrics): kill switches,
@@ -186,9 +186,55 @@ export const ClearBannerInput = z.object({ bannerId: z.string().min(1) });
 export const QUIET_MAX_DAYS = 15;
 
 /**
+ * The kinds of season period ops set (customer joy J6). `quiet` = mourning days (J1a): no
+ * celebrations, sounds, offers or festive accent. `ramadan` adds iftar and suhoor times; `eid` a
+ * greeting; `friday_special` a Friday card with ops' own line. Days are inclusive Baghdad dates.
+ */
+export const SeasonKind = z.enum(['quiet', 'ramadan', 'eid', 'friday_special']);
+export type SeasonKind = z.infer<typeof SeasonKind>;
+
+/** The longest period of each kind set in one go (Ramadan spans the union of both start days). */
+export const SEASON_MAX_DAYS: Record<SeasonKind, number> = { quiet: QUIET_MAX_DAYS, ramadan: 31, eid: 5, friday_special: 1 };
+
+/**
+ * The maghrib timetable a person follows (picked once, on the device). Sunni and Shia maghrib
+ * differ (Shia maghrib is later); the app never assumes one.
+ */
+export const Timetable = z.enum(['sunni', 'shia']);
+export type Timetable = z.infer<typeof Timetable>;
+
+/** Today's times on one timetable. */
+export const TimetableTimes = z.object({
+  /** Maghrib today: the fast ends. */
+  iftarAt: z.coerce.date(),
+  /** The next fajr after now while it still opens a Ramadan day (null on the last evening). */
+  suhoorUntil: z.coerce.date().nullable(),
+  /** The «على الفطور» delivery slot: a little before the adhan. */
+  slotAt: z.coerce.date(),
+});
+export type TimetableTimes = z.infer<typeof TimetableTimes>;
+
+/** A Ramadan day: both timetables, plus the picked one's times when the caller said which. */
+export const RamadanToday = z.object({
+  day: LocalDate,
+  timetable: Timetable.nullable(),
+  iftarAt: z.coerce.date().nullable(),
+  suhoorUntil: z.coerce.date().nullable(),
+  timetables: z.object({ sunni: TimetableTimes, shia: TimetableTimes }),
+});
+export type RamadanToday = z.infer<typeof RamadanToday>;
+
+/** The calm home card a season shows (null text = the app's own words for the kind). */
+export const SeasonHomeCard = z.object({
+  kind: z.enum(['ramadan', 'eid', 'friday_special']),
+  text_ar: z.string().nullable(),
+});
+export type SeasonHomeCard = z.infer<typeof SeasonHomeCard>;
+
+/**
  * What an open app may do today (public read, every app polls it). On a quiet day (mourning, set by
- * ops in the Console) there are no celebrations, no moment sounds and no offers. The J6 season system
- * adds fields here; clients ignore what they don't know.
+ * ops in the Console) there are no celebrations, no moment sounds and no offers. J6 adds the kind,
+ * the accent switch, the Ramadan times and the home card; clients ignore what they don't know.
  */
 export const PublicSeason = z.object({
   quiet: z.boolean(),
@@ -197,10 +243,17 @@ export const PublicSeason = z.object({
   promos: z.boolean(),
   /** The last quiet day (inclusive) while quiet, else null. */
   quietUntil: LocalDate.nullable(),
+  /** The period that sets today's switches (quiet wins); `ordinary` when none. */
+  kind: z.enum(['ordinary', 'quiet', 'ramadan', 'eid', 'friday_special']),
+  /** False on quiet days: the accent is subdued, nothing festive. */
+  accent: z.boolean(),
+  /** Present on every day of a Ramadan period, quiet or not (iftar is service, not celebration). */
+  ramadan: RamadanToday.nullable(),
+  homeCard: SeasonHomeCard.nullable(),
 });
 export type PublicSeason = z.infer<typeof PublicSeason>;
 
-export const SeasonInput = z.object({ cityId: CityId.optional() });
+export const SeasonInput = z.object({ cityId: CityId.optional(), timetable: Timetable.optional() });
 export type SeasonInput = z.infer<typeof SeasonInput>;
 
 export const QuietDaysView = z.object({
@@ -229,6 +282,59 @@ export const SetQuietDaysInput = z
 export type SetQuietDaysInput = z.input<typeof SetQuietDaysInput>;
 
 export const ClearQuietDaysInput = z.object({ quietId: z.string().min(1) });
+
+/** One Ramadan day in the Console: both timetables, HH:MM Baghdad, and whether ops overrode it. */
+export const SeasonDayTimes = z.object({
+  day: LocalDate,
+  sunni: z.object({ iftar: HhMm, suhoor: HhMm, overridden: z.boolean() }),
+  shia: z.object({ iftar: HhMm, suhoor: HhMm, overridden: z.boolean() }),
+});
+export type SeasonDayTimes = z.infer<typeof SeasonDayTimes>;
+
+export const SeasonView = QuietDaysView.extend({
+  kind: SeasonKind,
+  celebrations: z.boolean(),
+  sounds: z.boolean(),
+  promos: z.boolean(),
+  accent: z.boolean(),
+  homeCard: z.boolean(),
+  homeCardAr: z.string().nullable(),
+  /** Ramadan: minutes after sunset for the Shia maghrib (null = the default). */
+  shiaOffsetMin: z.number().int().nullable(),
+  /** Ramadan: every day of the period; empty for other kinds. */
+  days: z.array(SeasonDayTimes),
+});
+export type SeasonView = z.infer<typeof SeasonView>;
+
+/** Shia maghrib offsets ops may set (minutes after sunset). */
+export const SHIA_OFFSET_RANGE = { min: 0, max: 40 } as const;
+
+export const SetSeasonInput = z
+  .object({
+    /** null/absent = every city. */
+    cityId: CityId.nullable().optional(),
+    kind: SeasonKind,
+    startsOn: LocalDate,
+    endsOn: LocalDate,
+    label_ar: z.string().trim().min(3).max(80),
+    /** Switches for non-quiet kinds (quiet forces them off). Absent = on. */
+    celebrations: z.boolean().optional(),
+    sounds: z.boolean().optional(),
+    promos: z.boolean().optional(),
+    accent: z.boolean().optional(),
+    /** Show a home card (Ramadan and Eid default on; a special Friday needs `homeCardAr`). */
+    homeCard: z.boolean().optional(),
+    homeCardAr: z.string().trim().min(3).max(80).nullable().optional(),
+    shiaOffsetMin: z.number().int().min(SHIA_OFFSET_RANGE.min).max(SHIA_OFFSET_RANGE.max).nullable().optional(),
+  })
+  .refine((v) => v.endsOn >= v.startsOn, { message: 'endsOn is before startsOn', path: ['endsOn'] });
+export type SetSeasonInput = z.input<typeof SetSeasonInput>;
+
+export const ClearSeasonInput = z.object({ seasonId: z.string().min(1) });
+
+/** Ops correct one day's iftar on one timetable (the local mosque's time); null removes the override. */
+export const SetIftarTimeInput = z.object({ seasonId: z.string().min(1), day: LocalDate, timetable: Timetable, time: HhMm.nullable() });
+export type SetIftarTimeInput = z.infer<typeof SetIftarTimeInput>;
 
 // ───────────────────────── approvals queue ─────────────────────────
 
@@ -449,6 +555,10 @@ export interface ControlsPort {
   quietDays(): Promise<QuietDaysView[]>;
   setQuietDays(actor: Actor, input: z.output<typeof SetQuietDaysInput>): Promise<QuietDaysView>;
   clearQuietDays(actor: Actor, input: { quietId: string }): Promise<QuietDaysView>;
+  seasons(): Promise<SeasonView[]>;
+  setSeason(actor: Actor, input: z.output<typeof SetSeasonInput>): Promise<SeasonView>;
+  clearSeason(actor: Actor, input: { seasonId: string }): Promise<SeasonView>;
+  setIftarTime(actor: Actor, input: SetIftarTimeInput): Promise<SeasonView>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */

@@ -52,6 +52,7 @@ const switchView = { id: 'ks_1', cityId: 'aziziyah', scope: 'vertical' as const,
 const zoneView = { zoneKey: 'zakur', name_ar: 'زاكور', tier: 'mid', maxActive: 5, mode: 'refuse' as const, etaMin: 15, active: 2, load: 0.4, state: 'ok' as const, killed: false, setBy: 'p_staff', setAt: AT };
 const bannerView = { id: 'bn_1', severity: 'info' as const, message_ar: 'هلا', message_en: null, expiresAt: LATER, cityId: null, audiences: ['customer' as const], startsAt: AT, active: true, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
 const quietView = { id: 'qd_1', cityId: 'aziziyah', startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء', active: false, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
+const seasonView = { ...quietView, kind: 'ramadan' as const, celebrations: true, sounds: true, promos: true, accent: true, homeCard: true, homeCardAr: null, shiaOffsetMin: null, days: [] };
 
 function ports() {
   const controls: ControlsPort = {
@@ -63,10 +64,14 @@ function ports() {
     banners: vi.fn(async () => [bannerView]),
     setBanner: vi.fn(async () => bannerView),
     clearBanner: vi.fn(async () => bannerView),
-    season: vi.fn(async () => ({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null })),
+    season: vi.fn(async () => ({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary' as const, accent: true, ramadan: null, homeCard: null })),
     quietDays: vi.fn(async () => [quietView]),
     setQuietDays: vi.fn(async () => quietView),
     clearQuietDays: vi.fn(async () => quietView),
+    seasons: vi.fn(async () => [seasonView]),
+    setSeason: vi.fn(async () => seasonView),
+    clearSeason: vi.fn(async () => seasonView),
+    setIftarTime: vi.fn(async () => seasonView),
   };
   const controlRoom: ControlRoomPort = {
     approvals: vi.fn(async () => ({ at: AT, items: [], counts: { driver_document: 0, merchant_deal: 0, landmark_photo: 0, merchant_onboarding: 0, fleet_vehicle: 0 } })),
@@ -136,6 +141,10 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['system.quietDays', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.system.quietDays()],
   ['system.setQuietDays', ['admin'], (c) => c.system.setQuietDays({ startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' })],
   ['system.clearQuietDays', ['admin'], (c) => c.system.clearQuietDays({ quietId: 'qd_1' })],
+  ['system.seasons', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.system.seasons()],
+  ['system.setSeason', ['admin'], (c) => c.system.setSeason({ kind: 'ramadan', startsOn: '2027-02-07', endsOn: '2027-03-09', label_ar: 'رمضان' })],
+  ['system.clearSeason', ['admin'], (c) => c.system.clearSeason({ seasonId: 'qd_1' })],
+  ['system.setIftarTime', ['admin'], (c) => c.system.setIftarTime({ seasonId: 'qd_1', day: '2027-02-08', timetable: 'shia', time: '17:55' })],
   ['approvals.list', ['field_ops', 'support', 'admin'], (c) => c.approvals.list({})],
   ['approvals.decide', ['field_ops', 'support', 'admin'], (c) => c.approvals.decide({ kind: 'driver_document', refId: 'd1', decision: 'approve' })],
   ['support.list', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.list({})],
@@ -177,6 +186,20 @@ describe('launch control room routers: role gates', () => {
     expect(await codeOf(admin.call.system.setQuietDays({ startsOn: '13-11-2026', endsOn: '2026-11-13', label_ar: 'يوم عزاء' }))).toBe('BAD_REQUEST');
     expect(await codeOf(admin.call.system.setQuietDays({ startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يو' }))).toBe('BAD_REQUEST');
     expect(admin.controls.setQuietDays).not.toHaveBeenCalled();
+  });
+
+  it('J6: the season read takes the picked timetable; season periods and iftar times are validated before the port', async () => {
+    const anon = caller(null);
+    await anon.call.system.season({ cityId: 'aziziyah', timetable: 'shia' });
+    expect(anon.controls.season).toHaveBeenCalledWith({ cityId: 'aziziyah', timetable: 'shia' });
+    expect(await codeOf(anon.call.system.season({ timetable: 'other' as never }))).toBe('BAD_REQUEST');
+    const admin = caller(['admin']);
+    expect(await codeOf(admin.call.system.setSeason({ kind: 'feast' as never, startsOn: '2027-02-07', endsOn: '2027-03-09', label_ar: 'رمضان' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(admin.call.system.setSeason({ kind: 'ramadan', startsOn: '2027-03-09', endsOn: '2027-02-07', label_ar: 'رمضان' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(admin.call.system.setSeason({ kind: 'ramadan', startsOn: '2027-02-07', endsOn: '2027-03-09', label_ar: 'رمضان', shiaOffsetMin: 90 }))).toBe('BAD_REQUEST');
+    expect(await codeOf(admin.call.system.setIftarTime({ seasonId: 'qd_1', day: '2027-02-08', timetable: 'shia', time: '5:55' }))).toBe('BAD_REQUEST');
+    expect(admin.controls.setSeason).not.toHaveBeenCalled();
+    expect(admin.controls.setIftarTime).not.toHaveBeenCalled();
   });
 
   it('inputs are validated before the port: a refusal needs a reason, refunds come in 250s, capacity and banners are bounded', async () => {
