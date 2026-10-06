@@ -418,7 +418,7 @@ export function OrderCard(props: OrderCardProps) {
           // A narrow board column has no room for three buttons in a row: «صار جاهز» takes the full
           // width on top, «+5 د» and «التفاصيل» share the line under it.
           <View style={{ gap: theme.space[2] }}>
-            <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} />
+            <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} fullWidth />
             <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
               {onExtend && canExtendPrep(order) ? (
                 <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
