@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { describe, expect, it } from 'vitest';
 import type { AppContext, RoleKind } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
+import { RoutesRpc } from './routes.rpc.js';
 import { BAB1, NAHDHA, routesHarness, type RoutesHarness } from './test-harness.js';
 
 /**
@@ -248,5 +249,55 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     // Closed rides drop off after 12 hours.
     h.advance(13 * 60);
     expect(await driver.requestBoard.myRides()).toEqual([]);
+  });
+});
+
+describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider\'s call', () => {
+  it('checkIn with bookingId boards only that rider: another rider\'s PIN on this seat is pin_invalid', async () => {
+    const h = routesHarness();
+    const driver = as(h, 'd1', ['intercity_driver']);
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    const b = await h.book('r2', dep.id, ['back_left']);
+    expect(await codeOf(driver.driver.checkIn({ departureId: dep.id, pin: b.pin!, bookingId: a.id }))).toBe('BAD_REQUEST');
+    expect((await h.departures.booking(b.id)).state).toBe('booked');
+    const after = await driver.driver.checkIn({ departureId: dep.id, pin: a.pin!, bookingId: a.id });
+    expect(after.bookings.find((x) => x.bookingId === a.id)?.state).toBe('checked_in');
+    // Without bookingId the PIN pad still finds its rider (the old flow).
+    await driver.driver.checkIn({ departureId: dep.id, pin: b.pin! });
+    expect((await h.departures.booking(b.id)).state).toBe('checked_in');
+  });
+
+  it('callRider: a masked call to his own rider on a live run, logged without numbers; refused otherwise', async () => {
+    const h = routesHarness();
+    const opened: Array<{ orderId: string; callerId: string; calleeId: string }> = [];
+    const calls = {
+      open: async (req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date) => {
+        opened.push(req);
+        return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
+      },
+    };
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const ctx = (personId: string, roles: readonly RoleKind[]) =>
+      t.createCallerFactory(appRouter)({
+        auth: { sub: personId, sid: `s_${personId}`, iss: 'driver-api', iat: 0, exp: 0 },
+        authError: null,
+        identity: { hasRole: async (_: string, kind: RoleKind) => roles.includes(kind) },
+        routes: rpc,
+      } as unknown as AppContext).routes;
+    const driver = ctx('d1', ['intercity_driver']);
+    const rival = ctx('d2', ['intercity_driver']);
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    const s = await driver.driver.callRider({ departureId: dep.id, bookingId: a.id });
+    expect(s).toMatchObject({ mode: 'proxy', dial: '+9647800000000', counterpart: 'customer' });
+    expect(opened).toEqual([expect.objectContaining({ orderId: dep.id, callerId: 'd1', calleeId: 'r1' })]);
+    const logged = h.events.last('departure.rider_call_requested');
+    expect(logged?.payload).toMatchObject({ departureId: dep.id, bookingId: a.id, riderId: 'r1' });
+    expect(JSON.stringify(logged?.payload)).not.toContain('+964');
+    expect(await codeOf(rival.driver.callRider({ departureId: dep.id, bookingId: a.id }))).toBe('FORBIDDEN');
+    expect(await codeOf(driver.driver.callRider({ departureId: dep.id, bookingId: 'bk_nope' }))).toBe('NOT_FOUND');
+    // The harness's own RPC has no bridge: call_unavailable.
+    expect(await codeOf(as(h, 'd1', ['intercity_driver']).driver.callRider({ departureId: dep.id, bookingId: a.id }))).toBe('CONFLICT');
   });
 });

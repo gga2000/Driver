@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
+import { CallSession } from '../chat-io.js';
 import {
   AnnounceInput,
   BoardingPass,
@@ -203,6 +204,11 @@ export const routesRouter = router({
       .input(CheckInInput)
       .output(DriverDepartureView)
       .mutation(({ ctx, input }) => ctx.routes.checkIn(ctx.actor, input)),
+    /** Masked call to one of his riders (garage mode: a late rider's "اتصل"); never a raw number in production. */
+    callRider: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(DepartureBookingInput)
+      .output(CallSession)
+      .mutation(({ ctx, input }) => ctx.routes.callRider(ctx.actor, input)),
     markNoShow: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(DepartureBookingInput)
       .output(DriverDepartureView)

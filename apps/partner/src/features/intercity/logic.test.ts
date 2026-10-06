@@ -6,9 +6,13 @@ import {
   clockLabel,
   dayOffset,
   dayPeriod,
+  departBlockerNote,
   departReadiness,
   depositFor,
   fullCarEarnings,
+  garageCell,
+  legendStates,
+  walkUpCash,
   manifestOrder,
   meterMoney,
   minutesUntil,
@@ -138,6 +142,30 @@ describe('the departure', () => {
     });
     expect(r).toEqual({ canDepart: false, notCheckedIn: 2, pickupPending: 1, tooEarly: true });
     expect(departReadiness({ state: 'departed', departBlockers: [] }).canDepart).toBe(false);
+  });
+
+  it('garage mode: the slide names the first blocker ("3 ركاب بعدهم"), then the pickup, then the time', () => {
+    expect(departBlockerNote({ canDepart: false, notCheckedIn: 3, pickupPending: 1, tooEarly: true })).toEqual({ kind: 'riders', n: 3 });
+    expect(departBlockerNote({ canDepart: false, notCheckedIn: 0, pickupPending: 1, tooEarly: true })).toEqual({ kind: 'pickup' });
+    expect(departBlockerNote({ canDepart: false, notCheckedIn: 0, pickupPending: 0, tooEarly: true })).toEqual({ kind: 'early' });
+    expect(departBlockerNote({ canDepart: true, notCheckedIn: 0, pickupPending: 0, tooEarly: false })).toBeNull();
+  });
+
+  it('garage mode: a walk-up pays the server seat price plus that seat\'s premium', () => {
+    const d = { seatPriceIqd: 10_000, seats: dep.seats };
+    expect(walkUpCash(d, 'front')).toBe(12_000);
+    expect(walkUpCash(d, 'back_middle')).toBe(10_000);
+  });
+
+  it('garage mode: three seat columns fit the phone (360 and 390 wide), capped on tablets', () => {
+    expect(garageCell(390)).toEqual({ w: 104, h: 100 });
+    const small = garageCell(360);
+    expect(small.w * 3 + 8 * 2 + 14 * 2).toBeLessThanOrEqual(360 - 32);
+    expect(garageCell(1280).w).toBe(124);
+  });
+
+  it('garage mode: the legend lists only the states on the map, in a fixed order', () => {
+    expect(legendStates(seatOccupants(dep, []))).toEqual(['checked_in', 'late', 'walkup', 'free']);
   });
 
   it('pickup run: garage, accepted doors nearest first, then meeting points by distance', () => {

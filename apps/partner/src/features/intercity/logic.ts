@@ -334,6 +334,50 @@ export function departReadiness(dep: Pick<DriverDepartureView, 'state' | 'depart
   return { canDepart: open && dep.departBlockers.length === 0, notCheckedIn, pickupPending, tooEarly };
 }
 
+// ───────────────────────── garage mode (partner S-5) ─────────────────────────
+
+/** What the "انطلقنا" slide names when it is locked: the first thing still in the way. */
+export type DepartBlockerNote = { kind: 'riders'; n: number } | { kind: 'pickup' } | { kind: 'early' } | null;
+
+export function departBlockerNote(r: DepartReadiness): DepartBlockerNote {
+  if (r.canDepart) return null;
+  if (r.notCheckedIn > 0) return { kind: 'riders', n: r.notCheckedIn };
+  if (r.pickupPending > 0) return { kind: 'pickup' };
+  if (r.tooEarly) return { kind: 'early' };
+  return null;
+}
+
+/**
+ * The cash a walk-up pays for this seat: the run's seat price plus the seat's premium, both as the
+ * server quoted them on the departure (never a price made up on the phone).
+ */
+export function walkUpCash(dep: Pick<DriverDepartureView, 'seatPriceIqd' | 'seats'>, seatId: IntercitySeatId): number {
+  return dep.seatPriceIqd + (dep.seats.find((s) => s.id === seatId)?.premiumIqd ?? 0);
+}
+
+/** Seat cell size for the full-screen map: three columns across the phone, 84–124 px wide. */
+export function garageCell(screenWidth: number, opts: { gutter?: number; padX?: number; gap?: number } = {}): { w: number; h: number } {
+  const { gutter = 16, padX = 14, gap = 8 } = opts;
+  const usable = Math.min(screenWidth, 520) - gutter * 2 - padX * 2 - gap * 2;
+  const w = Math.max(84, Math.min(124, Math.floor(usable / 3)));
+  return { w, h: Math.round(w * 0.96) };
+}
+
+/** Seat states drawn on the map, in legend order (only those present are listed). */
+export const LEGEND_ORDER = ['checked_in', 'at_garage', 'waiting', 'late', 'held', 'pickup_pending', 'walkup', 'free'] as const;
+export type LegendState = (typeof LEGEND_ORDER)[number];
+
+export function legendStates(occupants: Map<IntercitySeatId, SeatOccupant>): LegendState[] {
+  const present = new Set<LegendState>();
+  for (const o of occupants.values()) {
+    if (o.kind === 'free') present.add('free');
+    else if (o.kind === 'walkup') present.add('walkup');
+    else if (o.status === 'completed') present.add('checked_in');
+    else if (o.status !== 'no_show') present.add(o.status);
+  }
+  return LEGEND_ORDER.filter((s) => present.has(s));
+}
+
 // ───────────────────────── late meter ─────────────────────────
 
 /** Late-meter money as the ledger posts it: blocks after the grace, up to the cap (money spec §3). */

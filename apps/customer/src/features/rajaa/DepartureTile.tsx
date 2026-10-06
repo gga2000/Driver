@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
-import { Card, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
+import { Card, DepartureTime, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { seatsLeftLabel } from './labels';
@@ -50,15 +50,9 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
       <View style={{ gap: theme.space[3] }}>
         {/* Time first: the one thing a rider scans for. */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-          <View style={{ flex: 1, gap: 0 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2], flexWrap: 'wrap' }}>
-              <Text variant="heading" tabular>
-                {clockLabel(dep.departAt)}
-              </Text>
-              <Text variant="footnote" color={boarding ? 'accentText' : 'textMuted'} weight={boarding ? 600 : 400}>
-                {boarding ? t('rajaa.boarding_now') : mins > 0 && mins < 120 ? t('rajaa.in_minutes', { n: mins }) : ''}
-              </Text>
-            </View>
+          <View style={{ flex: 1, gap: theme.space[1] }}>
+            {/* The board itself (audit d-2): split-flap time, then "بعد 25 دقيقة" or "الصعود بدأ". */}
+            <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="card" note={boarding ? t('rajaa.boarding_now') : undefined} countdown={mins > 0 && mins < 120} />
             <Text variant="footnote" color="textMuted">
               {t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
             </Text>

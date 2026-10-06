@@ -21,3 +21,14 @@ export const ROUTES_CONTROLS = Symbol('ROUTES_CONTROLS');
 export interface RoutesControlsPort {
   assertCorridorOpen(input: { cityId: string; corridorId: string }): Promise<void>;
 }
+
+/**
+ * Masked calls from a driver to his riders (garage mode "اتصل"): the chat module's call bridge — a
+ * platform number in production, the other party's own number only in development. Optional:
+ * without it every call is refused with `call_unavailable`.
+ */
+export const ROUTES_CALLS = Symbol('ROUTES_CALLS');
+
+export interface RoutesCallPort {
+  open(req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date): Promise<{ mode: 'proxy' | 'dev_direct'; dial: string; expiresAt: Date }>;
+}

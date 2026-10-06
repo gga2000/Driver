@@ -6,6 +6,7 @@ import type { MessageKey } from '@driver/i18n';
 import {
   Avatar,
   Chip,
+  DepartureTime,
   DriverChip,
   formatClock,
   Icon,
@@ -87,17 +88,12 @@ export function SheetHeader({
       ) : eta && minutes !== null ? (
         <View
           testID="eta"
-          style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: lateMin > 0 ? theme.colors.warningTint : theme.colors.accentTint, minWidth: 84 }}
+          accessible
+          accessibilityLabel={`${t('track.eta_label')} ${formatClock(eta)}، ${t('track.eta_minutes', { minutes })}`}
+          style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: lateMin > 0 ? theme.colors.warningTint : theme.colors.accentTint, minWidth: 84 }}
         >
-          <Text variant="caption" color={lateMin > 0 ? 'warningText' : 'accentText'} style={{ lineHeight: 16 }}>
-            {t('track.eta_label')}
-          </Text>
-          <Text variant="amount" tabular color={lateMin > 0 ? 'warningText' : 'accentText'} style={{ lineHeight: 30 }}>
-            {formatClock(eta)}
-          </Text>
-          <Text variant="caption" color="textMuted" tabular style={{ lineHeight: 16 }}>
-            {t('track.eta_minutes', { minutes })}
-          </Text>
+          {/* "يوصلك 7:00" on the same split-flap tiles as a الرجعة departure (audit d-2). */}
+          <DepartureTime at={eta} now={now} size="compact" align="center" label={t('track.eta_label')} tone={lateMin > 0 ? 'warning' : 'ink'} countdown={false} note={t('track.eta_minutes', { minutes })} testID="eta-time" />
         </View>
       ) : null}
     </View>

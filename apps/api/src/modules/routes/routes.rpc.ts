@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
+  type CallSession,
   type BoardInput,
   type BoardingPass,
   type BookingView,
@@ -26,7 +28,7 @@ import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord } from '
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
-import { ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesControlsPort } from './tokens.js';
+import { ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesCallPort, type RoutesControlsPort } from './tokens.js';
 import { HOME_CITY } from './intercity.config.js';
 import {
   bookingView,
@@ -63,6 +65,7 @@ export class RoutesRpc implements RoutesPort {
     @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
     @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
     @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
+    @Optional() @Inject(ROUTES_CALLS) private readonly calls: RoutesCallPort | null = null,
   ) {}
 
   /** Seats booked (held seats that were booked, any later state but cancelled) since `since` — launch wall. */
@@ -301,8 +304,17 @@ export class RoutesRpc implements RoutesPort {
 
   async checkIn(actor: Actor, input: In<'checkIn'>): Promise<DriverDepartureView> {
     return this.driverView(
-      await this.departures.checkIn(actor.personId, input.departureId, input.pin),
+      await this.departures.checkIn(actor.personId, input.departureId, input.pin, input.bookingId),
     );
+  }
+
+  /** Masked call to a rider on his own live run (garage mode "اتصل"); refused without a bridge. */
+  async callRider(actor: Actor, input: In<'callRider'>): Promise<CallSession> {
+    const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const riderId = await this.departures.riderForCall(actor.personId, input.departureId, input.bookingId, callId);
+    if (!this.calls) throw new DriverError('call_unavailable');
+    const session = await this.calls.open({ callId, orderId: input.departureId, callerId: actor.personId, calleeId: riderId }, this.departures.now());
+    return { callId, mode: session.mode, dial: session.dial, counterpart: 'customer', expiresAt: session.expiresAt };
   }
 
   async markNoShow(actor: Actor, input: In<'markNoShow'>): Promise<DriverDepartureView> {

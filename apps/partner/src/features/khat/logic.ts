@@ -98,6 +98,31 @@ export function activeRunIndex(trips: readonly KhatRunTrip[]): number {
   return i === -1 ? Math.max(0, trips.length - 1) : i;
 }
 
+/** The header chips (partner S-6): "بالسيارة 2 · وصلوا 0 من 5 · غايب 1". */
+export function runChips(trip: Pick<KhatRunTrip, 'childrenTotal' | 'onBoard' | 'delivered' | 'absent'>): { onBoard: number; delivered: number; total: number; absent: number } {
+  return { onBoard: trip.onBoard, delivered: trip.delivered, total: Math.max(0, trip.childrenTotal - trip.absent), absent: trip.absent };
+}
+
+/**
+ * A run is under way from the first tap (or a child on board) until the car is confirmed empty.
+ * While any run is under way, substitute offers stay out of sight (audit P-15): he is driving children.
+ */
+export function runUnderway(trip: Pick<KhatRunTrip, 'stops' | 'state' | 'onBoard' | 'emptyCarCheckedAt'>): boolean {
+  if (trip.emptyCarCheckedAt) return false;
+  if (trip.onBoard > 0) return true;
+  return trip.stops.some((s) => s.tappedInAt !== null || s.tappedOutAt !== null);
+}
+
+/** Every child is dropped or absent but nobody has checked the back seats yet: the two-step sweep. */
+export function needsSweep(trip: Pick<KhatRunTrip, 'stops' | 'state' | 'emptyCarCheckedAt'>): boolean {
+  return runFinished(trip) && !trip.emptyCarCheckedAt;
+}
+
+/** The next time on the run: the current place's window (the stop he is driving to). */
+export function nextStopAt(places: readonly KhatPlace[]): Date | null {
+  return places.find((p) => p.status === 'current')?.windowStart ?? null;
+}
+
 /** Progress share for the header bar (delivered of children who travel today). */
 export function deliveredShare(trip: Pick<KhatRunTrip, 'childrenTotal' | 'delivered' | 'absent'>): number {
   const travelling = trip.childrenTotal - trip.absent;

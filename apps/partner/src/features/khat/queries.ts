@@ -33,5 +33,6 @@ export function useKhatActions() {
     tapOut: useMutation({ ...api.khat.tapOut.mutationOptions(), ...opts }),
     reportAbsence: useMutation({ ...api.khat.reportAbsence.mutationOptions(), ...opts }),
     acceptSubstitute: useMutation({ ...api.khat.acceptSubstitute.mutationOptions(), ...opts }),
+    confirmEmptyCar: useMutation({ ...api.khat.confirmEmptyCar.mutationOptions(), ...opts }),
   };
 }

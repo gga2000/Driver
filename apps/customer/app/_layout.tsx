@@ -9,6 +9,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
+import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
@@ -140,6 +141,8 @@ function RootNavigator() {
         <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title') }} />
         <Stack.Screen name="rajaa/request" options={{ title: t('request.title') }} />
       </Stack>
+      {/* الرجعة boarding pass on the lock screen from T−30 (audit d-8; Android). */}
+      {lockScreenPassSupported ? <LockScreenPass /> : null}
       {ready ? null : <Splash />}
     </View>
   );

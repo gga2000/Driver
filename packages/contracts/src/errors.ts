@@ -65,6 +65,8 @@ export const ERROR_TABLE = {
   khat_child_not_on_trip: { retryHint: 'never', status: 'NOT_FOUND' },
   khat_child_not_tapped_in: { retryHint: 'never', status: 'CONFLICT' },
   khat_child_absent: { retryHint: 'never', status: 'CONFLICT' },
+  // khat.confirmEmptyCar before every child stop is settled (partner S-6 sweep)
+  khat_run_not_finished: { retryHint: 'never', status: 'CONFLICT' },
   fleet_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   fleet_ambiguous: { retryHint: 'never', status: 'BAD_REQUEST' },
   vehicle_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

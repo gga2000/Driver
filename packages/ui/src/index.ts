@@ -80,3 +80,6 @@ export { AmountPad, amountPadNext, AMOUNT_PAD_KEYS, type AmountPadProps, type Am
 // Phase 3 — Partner money moments (end of job, shift summary)
 export { SegmentRing, type SegmentRingProps } from './components/SegmentRing';
 export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';
+// Phase 3 · garage board (customer audit d-2): the departure-board time
+export { DepartureTime, type DepartureTimeProps, type DepartureTimeSize, type DepartureTimeTone } from './components/DepartureTime';
+export * from './logic/departure';

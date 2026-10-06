@@ -183,6 +183,11 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
   (30-s polling when SSE does not get through). الرجعة, خطوط, fleet and ops screens still poll.
 - The customer's first name is not on the job card (no vault read for drivers yet).
 
+الرجعة garage mode and the child-safe خطوط run (Phase 3, 2026-10-05): `SHOTS=intercity` now walks
+the seat map (walk-up sheet, a rider's PIN sheet, the late seat and its call, no-show, التفاصيل) and
+`SHOTS=khat` the guardian call and the two-step "no child left in the car" sweep. Calls use the
+development bridge in the demo API, so the toast shows the other party's real (demo) number.
+
 ## Known gaps (wave 2, driver account)
 
 - Liveness is the API's stub: the app sends no SDK score (web/native), so any stored selfie passes; the

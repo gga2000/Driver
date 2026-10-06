@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import {
   ChipGroup,
   CountdownButton,
   CountdownRing,
+  DepartureTime,
   EmptyState,
   formatAmount,
   formatIqd,
@@ -891,6 +892,66 @@ function TimersSection() {
   );
 }
 
+/* ───────────────────────── departure board time ───────────────────────── */
+
+/** A clock that moves a minute every 2.5 s so the split-flap tick can be seen (and a 9:59 → 10:00 roll). */
+function useDemoClock(startMs: number) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setN((x) => x + 1), 2500);
+    return () => clearInterval(id);
+  }, []);
+  return startMs + n * 60_000;
+}
+
+/** The garage-board time (customer audit d-2): the motif on الرجعة, khat and the food ETA. */
+function DepartureTimeSection() {
+  const theme = useTheme();
+  const [now] = useState(() => Date.now());
+  // 9:58 م in Baghdad today (UTC+3), rolling forward a minute at a time.
+  const base = useMemo(() => {
+    const d = new Date(now);
+    d.setUTCHours(18, 58, 0, 0);
+    return d.getTime();
+  }, [now]);
+  const rolling = useDemoClock(base);
+  return (
+    <Section title="وقت الكراج" note="الوقت مثل لوحة الكراج: أرقام كبيرة على مربعات، ص/م، واليوم إذا مو اليوم، و«بعد 52 دقيقة». الرقم اللي يتغير ينگلب (180 ملي ثانية)؛ إذا الحركة مخففة يتبدل بلا حركة. نفس الوقت للرجعة والخطوط ووقت وصول الأكل.">
+      <Panel gap={5}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[6], alignItems: 'flex-start' }}>
+          <View style={{ gap: theme.space[2] }}>
+            <DepartureTime at={rolling} now={base - 52 * 60_000} size="hero" label={t('departure_time.leaves')} countdown={false} testID="gallery-dt-roll" />
+            <Caption>كبير · ينگلب كل دقيقة</Caption>
+          </View>
+          <View style={{ gap: theme.space[2] }}>
+            <DepartureTime at={now + 52 * 60_000} now={now} size="card" label={t('departure_time.leaves')} />
+            <Caption>بطاقة · اليوم</Caption>
+          </View>
+          <View style={{ gap: theme.space[2] }}>
+            {/* 9:58 م + 9 h 30 min: 7:28 ص the next morning. */}
+            <DepartureTime at={base + 9.5 * 3600_000} now={now} size="card" note="أو من تكمل" />
+            <Caption>بطاقة · باچر</Caption>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[6], alignItems: 'flex-start' }}>
+          <View style={{ gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+            <DepartureTime at={now + 18 * 60_000} now={now} size="compact" label={t('track.eta_label')} />
+          </View>
+          <View style={{ gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+            <DepartureTime at={now + 31 * 60_000} now={now} size="compact" label={t('track.eta_label')} tone="warning" />
+          </View>
+          <View style={{ gap: theme.space[2] }}>
+            <DepartureTime at={now + 9 * 60_000} now={now} size="compact" label={t('partner.kh2_next_stop')} tone="quiet" />
+          </View>
+          <View style={{ gap: theme.space[2] }}>
+            <DepartureTime at={now + 3 * 60_000} now={now} size="compact" tone="success" note={t('rajaa.boarding_now')} />
+          </View>
+        </View>
+      </Panel>
+    </Section>
+  );
+}
+
 /* ───────────────────────── confirm ───────────────────────── */
 
 /** Accept, slide and hold (partner P-03, P-08) and the one modal sheet (S-12). */
@@ -1018,6 +1079,7 @@ function Page() {
           <CardsSection />
           <TrackingSection />
           <GarageSection />
+          <DepartureTimeSection />
           <FieldsSection />
           <StatesSection />
           <TimersSection />

@@ -446,10 +446,11 @@ export class DeparturesService {
   }
 
   /** PIN check-in; settles the rider's late meter if it ran (decisions §8). */
-  checkIn(driverId: string, departureId: string, pin: string): Promise<DepartureRecord> {
+  checkIn(driverId: string, departureId: string, pin: string, bookingId?: string): Promise<DepartureRecord> {
     return this.driverWrite(driverId, departureId, async (tx, dep, bookings) => {
       this.requireState(dep, ['scheduled', 'boarding', 'departed']);
-      const b = bookings.find((x) => x.pin === pin && x.state === 'booked');
+      // Garage mode types the PIN on one rider's seat: then it has to be that rider's PIN.
+      const b = bookings.find((x) => x.pin === pin && x.state === 'booked' && (bookingId === undefined || x.id === bookingId));
       if (!b) throw new DriverError('pin_invalid');
       const now = this.now();
       const minutes = meterApplies(b) ? riderMeterMinutes(dep, bookings, b, now) : null;
@@ -467,6 +468,21 @@ export class DeparturesService {
       if (minutes !== null) await this.settleRiderMeter(tx, dep, bookings, b, minutes);
       return dep;
     });
+  }
+
+  /**
+   * Who a masked call from the driver reaches (garage mode "اتصل"): a rider still on his live run
+   * (booked or on board, departure not finished). The call is logged as
+   * `departure.rider_call_requested` (ids only, never a number).
+   */
+  async riderForCall(driverId: string, departureId: string, bookingId: string, callId: string): Promise<string> {
+    const dep = await this.departure(departureId);
+    if (dep.driverId !== driverId) throw new DriverError('not_departure_driver');
+    if (!['scheduled', 'boarding', 'departed'].includes(dep.state)) throw new DriverError('departure_state_conflict');
+    const b = (await this.repo.bookingsFor(dep.id)).find((x) => x.id === bookingId);
+    if (!b || (b.state !== 'booked' && b.state !== 'checked_in')) throw new DriverError('booking_not_found');
+    await this.writer.run((tx) => this.emit(tx, 'departure.rider_call_requested', driverId, dep, { bookingId: b.id, riderId: b.riderId, callId }));
+    return b.riderId;
   }
 
   /** The driver leaves without a rider: a forfeit (prepaid, meter at the cap) moves her; a no-show ends the seat. */

@@ -1,11 +1,16 @@
-// Wave-2 intercity shots: the garage board (both corridors/sides), announce, the boarding departure
-// (seat map, PIN check-in, walk-up, no-show, late meter, blockers), the evening run with a door-pickup
-// request, a request-board offer and the picked private ride.
+// Wave-2 intercity shots: the garage board (both corridors/sides), announce, the boarding departure in
+// garage mode (S-5: the seat map is the page — walk-up sheet, the rider's PIN sheet, the late seat with
+// its meter and call, no-show, "انطلقنا" naming the blocker, التفاصيل), the evening run
+// with a door-pickup request, a request-board offer and the picked private ride.
 export const name = 'intercity';
 
 export default async function run(s) {
   const seed = await s.demoPost('/demo/intercity/seed?who=intercity');
   const p = await s.signIn('0770 111 0003');
+  const escape = async () => {
+    await p.page.keyboard.press('Escape');
+    await p.page.waitForTimeout(500);
+  };
 
   await p.goto('/intercity');
   await p.wait('intercity-board');
@@ -23,37 +28,56 @@ export default async function run(s) {
   await p.shot('announce', { settle: 1500 });
   await p.shot('announce-full', { full: true, settle: 400 });
 
-  // Run A: boarding at the garage.
+  // Run A: boarding at the garage — garage mode.
   await p.goto(`/intercity/departure/${seed.runA}`);
-  await p.wait('driver-seatmap');
+  await p.wait('garage-seatmap');
   await p.page.getByText('زهراء').first().waitFor({ timeout: 15_000 });
   await p.shot('departure', { settle: 1500 });
   await p.shot('departure-full', { full: true, settle: 400 });
 
-  // A walk-up on the free middle seat.
-  await p.byTestId('dseat-middle_middle').click();
-  await p.wait('seat-panel');
+  // A walk-up on the free middle seat: the sheet with the server's cash amount.
+  await p.byTestId('gseat-middle_middle').click();
+  await p.wait('walkup-cash');
   await p.shot('walkup-panel', { settle: 600 });
-  await p.byTestId('seat-panel').scrollIntoViewIfNeeded();
-  await p.shot('walkup-panel-scrolled', { settle: 400 });
-  await p.byTestId('dseat-middle_middle').click();
+  await escape();
 
-  // PIN check-in for مريم.
+  // مريم's seat → her PIN sheet (another rider's PIN here is refused: "هذا مو رمز مريم"; not shot,
+  // the refused request would count as a console error).
+  await p.byTestId('gseat-rear_left').click();
+  await p.wait('rider-sheet');
   const pin = seed.pins.maryam;
-  await p.byTestId('pin-pad').scrollIntoViewIfNeeded();
   for (const d of pin.slice(0, 3)) await p.byTestId(`pin-key-${d}`).click();
   await p.shot('pin-typing', { settle: 300 });
   await p.byTestId(`pin-key-${pin[3]}`).click();
   await p.page.getByText('صعد مريم').first().waitFor({ timeout: 10_000 });
+  await p.page.waitForTimeout(1200);
   await p.shot('pin-ok', { settle: 600 });
 
-  // أحمد (cash) never came: no-show is allowed.
-  await p.byTestId(`noshow-${seed.bookings.ahmed}`).scrollIntoViewIfNeeded();
-  await p.byTestId(`noshow-${seed.bookings.ahmed}`).click();
+  // حسين is late: red seat with the meter; his sheet has the call.
+  await p.byTestId('gseat-middle_left').click();
+  await p.wait('rider-late');
+  await p.shot('late-seat', { settle: 600 });
+  await p.byTestId('rider-call').click();
+  await p.page.waitForTimeout(1200);
+  await p.shot('late-call', { settle: 300 });
+
+  // أحمد (cash) never came: no-show from his sheet.
+  await p.byTestId('gseat-rear_right').click();
+  await p.wait('sheet-noshow');
+  await p.byTestId('sheet-noshow').click();
   await p.page.getByText('ما إجا').first().waitFor();
-  await p.shot('after-noshow', { full: true, settle: 1200 });
+  await p.page.waitForTimeout(800);
+  await p.shot('after-noshow', { settle: 1200 });
+
+  // التفاصيل: riders, money and the run.
+  await p.byTestId('segment-details').click();
+  await p.page.waitForTimeout(600);
+  await p.shot('details', { full: true, settle: 800 });
+  await p.byTestId('segment-seats').click();
 
   // حسين checks in late → nothing blocks: انطلقنا.
+  await p.byTestId('gseat-middle_left').click();
+  await p.wait('rider-sheet');
   for (const d of seed.pins.hussein) await p.byTestId(`pin-key-${d}`).click();
   await p.page.getByText('صعد حسين').first().waitFor({ timeout: 10_000 });
   await p.page.waitForTimeout(1500);
@@ -67,9 +91,12 @@ export default async function run(s) {
 
   // Run B: a door pickup waiting for his answer, the pickup run, a hold.
   await p.goto(`/intercity/departure/${seed.runB}`);
-  await p.wait('driver-seatmap');
+  await p.wait('garage-seatmap');
   await p.page.getByText('سجاد').first().waitFor({ timeout: 15_000 });
   await p.shot('evening-run', { full: true, settle: 1500 });
+  await p.byTestId('segment-details').click();
+  await p.page.waitForTimeout(600);
+  await p.shot('evening-run-details', { full: true, settle: 800 });
 
   // Request board: offer on the family trip to الحلة, then the stranded rider (price cap).
   await p.goto(`/intercity/request/${seed.posts.hilla}`);

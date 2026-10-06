@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KhatRunTrip, KhatStopView } from '@driver/contracts';
-import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, runFinished, runStart } from './logic';
+import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, needsSweep, nextStopAt, runChips, runFinished, runStart, runUnderway } from './logic';
 
 const T = (min: number) => new Date(Date.UTC(2026, 9, 4, 4, min));
 
@@ -9,7 +9,7 @@ function stop(seq: number, type: 'pickup' | 'dropoff', zoneKey: string, ref: str
 }
 
 function trip(stops: KhatStopView[], over: Partial<KhatRunTrip> = {}): KhatRunTrip {
-  return { tripId: 't1', state: 'accepted', stops, childrenTotal: 4, onBoard: 0, delivered: 0, absent: 0, ...over };
+  return { tripId: 't1', state: 'accepted', stops, childrenTotal: 4, onBoard: 0, delivered: 0, absent: 0, emptyCarCheckedAt: null, ...over };
 }
 
 describe('khat run', () => {
@@ -63,5 +63,32 @@ describe('khat run', () => {
     expect(deliveredShare({ childrenTotal: 4, delivered: 3, absent: 1 })).toBe(1);
     expect(deliveredShare({ childrenTotal: 4, delivered: 1, absent: 0 })).toBe(0.25);
     expect(deliveredShare({ childrenTotal: 1, delivered: 0, absent: 1 })).toBe(1);
+  });
+});
+
+describe('child-safe run (partner S-6)', () => {
+  const fresh = trip([stop(0, 'pickup', 'hashimi', 'zainab'), stop(1, 'dropoff', 'centre', 'zainab')], { childrenTotal: 5, absent: 1 });
+
+  it('header chips: in the car, arrived of travelling, absent', () => {
+    expect(runChips({ childrenTotal: 5, onBoard: 2, delivered: 0, absent: 1 })).toEqual({ onBoard: 2, delivered: 0, total: 4, absent: 1 });
+  });
+
+  it('a run is under way from the first tap until the car is confirmed empty (offers stay hidden meanwhile)', () => {
+    expect(runUnderway(fresh)).toBe(false);
+    const boarded = { ...fresh, onBoard: 1, stops: [{ ...fresh.stops[0]!, tappedInAt: T(1), state: 'completed' as const }, fresh.stops[1]!] };
+    expect(runUnderway(boarded)).toBe(true);
+    const dropped = { ...boarded, onBoard: 0, delivered: 1, stops: [boarded.stops[0]!, { ...fresh.stops[1]!, tappedOutAt: T(20), state: 'completed' as const }] };
+    expect(runUnderway(dropped)).toBe(true);
+    expect(needsSweep(dropped)).toBe(true);
+    const swept = { ...dropped, emptyCarCheckedAt: T(22) };
+    expect(runUnderway(swept)).toBe(false);
+    expect(needsSweep(swept)).toBe(false);
+    expect(needsSweep(boarded)).toBe(false);
+  });
+
+  it('the next time on the run is the current place window', () => {
+    expect(nextStopAt(groupPlaces(fresh))).toEqual(T(0));
+    expect(nextStopAt(groupPlaces({ stops: [{ ...fresh.stops[0]!, tappedInAt: T(1), state: 'completed' }, fresh.stops[1]!] }))).toEqual(T(5));
+    expect(nextStopAt([])).toBeNull();
   });
 });

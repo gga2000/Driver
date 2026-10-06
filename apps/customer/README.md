@@ -31,6 +31,8 @@ scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (P
 الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
 POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…). `SHOTS=rajaa`
 limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
+Lock-screen pass (audit d-8): `src/features/rajaa/lockscreen/` — Android only (a no-op on the web
+and iOS), so it shows on a development build, not in the web studio; `content.test.ts` covers what it says.
 ```
 
 ## Guest browsing (audit C-18, Ali 2026-10-04)

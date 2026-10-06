@@ -1,0 +1,115 @@
+import { router } from 'expo-router';
+import { useEffect, useMemo, useRef } from 'react';
+import { useToast } from '@driver/ui';
+import { cityName } from '@/features/rajaa/labels';
+import { endpoints, publicPlaceName } from '@/features/rajaa/logic';
+import { currentLocation } from '@/features/rajaa/location';
+import { garageName, useBoardingPass, useImHere, useMyBookings, useNetwork } from '@/features/rajaa/queries';
+import { useNow } from '@/features/rajaa/useNow';
+import { useT } from '@/lib/i18n';
+import { amountParam } from '@/lib/money';
+import { useSignedIn } from '@/lib/session';
+import { passBooking, passCard, passCardKey, passNotificationId, passPhase, passShowAt } from './content';
+import { ongoingPass, type OngoingLabels } from './ongoing';
+
+/**
+ * Keeps the الرجعة boarding pass on the lock screen (customer audit d-8; Android only, a no-op on the
+ * web and iOS). Mounted once at the root: it follows the rider's next live booking, schedules the card
+ * for T−30 so it appears with the app closed, replaces it as the trip moves on (boarding, on board, on
+ * the road), ends with "وصلت بالسلامة" and the fare, and answers the card's "أني بالكراج".
+ *
+ * While the app is closed the card does not change by itself (it says what it said at T−30); a data
+ * push that re-posts it, and the iOS Live Activity, are the follow-ups (docs/research/ui-ux-audit/customer.md d-8).
+ */
+export function useLockScreenPass() {
+  const signedIn = useSignedIn();
+  const t = useT();
+  const toast = useToast();
+  const now = useNow(30_000);
+  const bookings = useMyBookings();
+  const network = useNetwork();
+  const imHere = useImHere();
+  const enabled = ongoingPass.supported && signedIn;
+  const booking = enabled ? passBooking(bookings.data ?? [], now) : null;
+  const phase = booking ? passPhase(booking, now) : 'gone';
+  const pass = useBoardingPass(booking?.id ?? '', enabled && !!booking && (phase === 'upcoming' || phase === 'boarding'));
+  const posted = useRef<{ id: string; key: string } | null>(null);
+  // "وصلت بالسلامة" only follows a trip this session watched live (never on a cold start hours later).
+  const watched = useRef(new Set<string>());
+  const arrived = useRef(new Set<string>());
+
+  const labels = useMemo<OngoingLabels>(
+    () => ({ channel: t('rajaa.lock_channel'), channelDesc: t('rajaa.lock_channel_desc'), imHereGarage: t('intercity.im_at_garage'), imHerePoint: t('rajaa.im_at_point') }),
+    [t],
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const drop = () => {
+      if (posted.current) void ongoingPass.dismiss(posted.current.id);
+      posted.current = null;
+    };
+    if (!booking) return drop();
+    const corridor = network.data?.corridors.find((c) => c.id === booking.departure.corridorId);
+    const toCity = corridor ? cityName(t, endpoints(corridor.cityId, booking.departure.direction).to) : '';
+    const stopName = booking.pickup.kind === 'garage' ? garageName(network.data, booking.departure.garageId) : booking.pickup.nameAr ? publicPlaceName(booking.pickup.nameAr) : t('rajaa.pickup_door');
+    const input = { booking, pass: pass.data ?? null, stopName, toCity, amount: (n: number) => amountParam(n), now };
+    if (phase === 'none') {
+      // Before T−30: the card is scheduled to appear by itself at T−30.
+      const at = passShowAt(booking);
+      const card = passCard({ ...input, now: at }, t);
+      const key = `scheduled|${passCardKey(card)}`;
+      if (card && posted.current?.key !== key) {
+        if (posted.current && posted.current.id !== card.id) void ongoingPass.dismiss(posted.current.id);
+        void ongoingPass.schedule(card, at, labels);
+        posted.current = { id: card.id, key };
+      }
+      return;
+    }
+    if (phase === 'arrived') {
+      // Shown once: a dismissible "وصلت بالسلامة" is not re-posted after he swipes it away.
+      if (arrived.current.has(booking.id)) return;
+      if (!watched.current.has(booking.id)) return drop();
+      arrived.current.add(booking.id);
+    }
+    const card = passCard(input, t);
+    if (!card) return drop();
+    if (card.sticky) watched.current.add(booking.id);
+    const key = passCardKey(card);
+    if (posted.current?.key === key) return;
+    if (posted.current && posted.current.id !== card.id) void ongoingPass.dismiss(posted.current.id);
+    void ongoingPass.show(card, labels);
+    posted.current = { id: card.id, key };
+  }, [enabled, booking, phase, pass.data, network.data, now, t, labels]);
+
+  // "أني بالكراج" from the lock screen: the app opens on the pass and pings with his position.
+  useEffect(() => {
+    if (!enabled) return;
+    return ongoingPass.onImHere((bookingId) => {
+      router.push(`/rajaa/pass/${bookingId}` as never);
+      void (async () => {
+        const at = await currentLocation();
+        if (!at) {
+          toast.show({ message: t('error.location_off'), tone: 'warning', icon: 'location-arrow' }, 5000);
+          return;
+        }
+        imHere.mutate(
+          { bookingId, lat: at.lat, lng: at.lng },
+          { onSuccess: (r) => toast.show({ message: r.atGarage ? t('rajaa.im_here_ok') : t('rajaa.im_here_far'), tone: r.atGarage ? 'success' : 'warning' }, 5000) },
+        );
+      })();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+
+  return { booking, phase, notificationId: booking ? passNotificationId(booking.id) : null };
+}
+
+/** Root mount point; renders nothing. Mounted only where the device supports the card (Android). */
+export function LockScreenPass(): null {
+  useLockScreenPass();
+  return null;
+}
+
+/** Whether to mount `LockScreenPass` at all (no polling on the web or iOS). */
+export const lockScreenPassSupported = ongoingPass.supported;

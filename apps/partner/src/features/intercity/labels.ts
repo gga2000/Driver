@@ -4,7 +4,7 @@ import { ltr } from '@driver/ui';
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
-import { clockBare, dayOffset, dayPeriod, minutesUntil, windowLabel, type RiderStatus } from './logic';
+import { clockBare, clockLabel, dayOffset, dayPeriod, minutesUntil, windowLabel, type DepartBlockerNote, type LegendState, type RiderStatus } from './logic';
 
 /** Copy helpers for the intercity screens (every string from @driver/i18n). */
 
@@ -108,6 +108,22 @@ export function childrenCount(t: TFn, n: number): string {
   if (form === 'one') return t('partner.kh_children_one');
   if (form === 'many') return t('partner.kh_children_many', { n });
   return t('partner.kh_children_few', { n });
+}
+
+/** The locked "انطلقنا" slide's note (garage mode): "3 ركاب بعدهم" / the door pickup / the time. */
+export function blockerText(t: TFn, note: DepartBlockerNote, departAt: Date): string | null {
+  if (!note) return null;
+  if (note.kind === 'riders') return t('partner.gm_block_riders', { n: note.n });
+  if (note.kind === 'pickup') return t('partner.gm_block_pickup');
+  return t('partner.gm_block_early', { time: clockLabel(departAt) });
+}
+
+/** Legend words for the seat states on the garage map. */
+export function legendLabel(t: TFn, s: LegendState): string {
+  if (s === 'free') return t('partner.ic_seat_free');
+  if (s === 'walkup') return t('partner.ic_seat_walkup');
+  if (s === 'late') return t('partner.gm_legend_late');
+  return t(`partner.ic_status_${s}` as MessageKey);
 }
 
 export function rideState(t: TFn, s: RequestState): string {

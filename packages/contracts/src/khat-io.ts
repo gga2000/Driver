@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Iqd, LatLng } from './common.js';
+import type { CallSession } from './chat-io.js';
 import type { Actor } from './identity-io.js';
 import { StopState, StopType, TripState } from './trip.js';
 
@@ -41,8 +42,21 @@ export const KhatRunTrip = z.object({
   onBoard: z.number().int(),
   delivered: z.number().int(),
   absent: z.number().int(),
+  /**
+   * The end-of-run "no child left in the car" sweep (partner S-6): when the driver confirmed the car
+   * is empty (`khat.confirmEmptyCar`, logged as `khat.empty_car_confirmed`); null until then.
+   */
+  emptyCarCheckedAt: z.coerce.date().nullable(),
 });
 export type KhatRunTrip = z.infer<typeof KhatRunTrip>;
+
+/** "تأكدت، السيارة فاضية": every child stop is settled and the driver checked the seats. */
+export const ConfirmEmptyCarInput = z.object({ tripId: z.string().min(1) });
+export type ConfirmEmptyCarInput = z.infer<typeof ConfirmEmptyCarInput>;
+
+/** A masked call to the guardian of a child on today's run (never a raw number in production). */
+export const CallGuardianInput = z.object({ tripId: z.string().min(1), childRef: z.string().min(1) });
+export type CallGuardianInput = z.infer<typeof CallGuardianInput>;
 
 export const TodayRunInput = z.object({ date: z.coerce.date().optional() });
 export const TodayRunView = z.object({
@@ -100,4 +114,6 @@ export interface KhatPort {
   reportAbsence(actor: Actor, input: ReportAbsenceInput): Promise<AbsenceView>;
   substituteOffers(actor: Actor, input: z.infer<typeof SubstituteOffersInput>): Promise<SubstituteOffer[]>;
   acceptSubstitute(actor: Actor, input: z.infer<typeof AcceptSubstituteInput>): Promise<z.infer<typeof AcceptSubstituteOutput>>;
+  confirmEmptyCar(actor: Actor, input: ConfirmEmptyCarInput): Promise<KhatRunTrip>;
+  callGuardian(actor: Actor, input: CallGuardianInput): Promise<CallSession>;
 }

@@ -292,6 +292,13 @@ or the clock.
 - Bottom: a slide "انطلقنا" that names the blocker when locked ("3 ركاب بعدهم").
 - Riders, route and money move to a "التفاصيل" tab.
 
+> **2026-10-05 — built (Phase 3, brief C).** Garage mode in `apps/partner/app/intercity/departure`
+> (`GarageParts.tsx`). A PIN typed on a seat checks in only that rider (`checkIn.bookingId`, server
+> refuses another rider's PIN). "اتصل" is a masked call (`routes.driver.callRider`, same bridge as
+> chat, moved to `apps/api/src/shared/call-bridge.ts`). The meter "إلك 1,000 دينار" is the existing
+> late-meter rule (money spec §3), no new money rule. Walk-up cash = the run's server seat price +
+> that seat's premium. The PIN pad (64 px keys) stays partner-local, not a shared `NumberPad`.
+
 ### S-6 خطوط child-safe run
 - Header: "بالسيارة 2 · وصلوا 0 من 5 · غايب 1" as big tabular chips.
 - Rows show the child's photo, name and the guardian call icon. "صعد" is a 56-px button; once
@@ -300,6 +307,15 @@ or the clock.
 - Finish: a two-step "تأكد ما بقى طفل بالسيارة" sweep. A short illustration of the back seats, then
   a slide "تأكدت، السيارة فاضية". It is logged for ops.
 - Guardians get "{child} وصل {place} بالسلامة الساعة {time}" (voice spec #21).
+
+> **2026-10-05 — built (Phase 3, brief C).** `apps/partner/app/khat`: next-stop time on the board
+> tiles, tiles "2 بالسيارة · 0 من 5 وصلوا · 1 غايب", 56 px "صعد", guardian call
+> (`khat.callGuardian`, masked, vault read logged), offers hidden from the first tap until the car is
+> swept. Sweep: "باوعت، كمّل" then slide "تأكدت، السيارة فاضية" → `khat.confirmEmptyCar`, logged
+> once per run as the trip event `khat.empty_car_confirmed` (counts, seconds after the last drop;
+> the run's `emptyCarCheckedAt` reads it back). The guardian message already existed
+> (`khat_child_arrived`, on the school tap-out). No child photos exist in the vault yet: rows show
+> the initial. Open for Ali: alert ops when a run ends without a sweep within N minutes.
 
 ### S-7 "Why was I paid this" receipt
 - Any job in earnings opens a receipt: each component with its `quote.reason.*` line ("الجو مطر،
