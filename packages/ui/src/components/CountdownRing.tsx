@@ -162,6 +162,7 @@ function AcceptRing({
 
   const seconds = Math.ceil(s.remainingMs / 1000);
   const color = s.urgent || s.expired ? theme.colors.danger : theme.colors.accent;
+  const tier = format === 'clock' ? (size >= 96 ? 3 : size >= 52 ? 2 : 1) : size >= 56 ? 3 : size >= 40 ? 2 : 1;
   return (
     <View
       testID={testID}
@@ -180,14 +181,14 @@ function AcceptRing({
           durationToFull={paused ? undefined : s.remainingMs}
         />
       </View>
-      {/* Mini rings (a rush queue chip, a sticky bar) scale the number down so it stays inside. */}
+      {/* Mini rings (a rush queue chip, a sticky bar) scale the number down so it stays inside; "4:58" is wider than "45", so a clock needs a bigger ring for each step. */}
       <Text
-        variant={size >= 56 ? 'display' : size >= 40 ? 'title' : 'label'}
-        weight={size >= 56 ? undefined : 700}
+        variant={tier === 3 ? 'display' : tier === 2 ? 'title' : 'label'}
+        weight={tier === 3 ? undefined : 700}
         tabular
         color={s.urgent ? 'dangerText' : 'text'}
         testID={`${testID}-value`}
-        style={{ lineHeight: size >= 56 ? 40 : size >= 40 ? 24 : 18 }}
+        style={{ lineHeight: tier === 3 ? 40 : tier === 2 ? 24 : 18 }}
       >
         {format === 'clock' ? formatCountdown(s.remainingMs) : seconds}
       </Text>

@@ -292,7 +292,8 @@ export default function OrderLiveScreen() {
               phase={phase}
               status={statusLine(v, t)}
               pill={[ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
-              eta={eta}
+              // At the door there is no time left to show (f3): the card says what to do instead.
+              eta={atDoor ? null : eta}
               now={now}
               lateMin={lateMin}
               note={searching ? searchNote : null}
