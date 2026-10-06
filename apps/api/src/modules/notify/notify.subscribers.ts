@@ -4,6 +4,7 @@ import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import type { NotifyRepository } from './notify.repository.js';
+import { trustedContactRecipient } from './notify.service.js';
 import { iqd, localDate, localTime } from './render.js';
 
 /** Iraqi count of dishes: صنف واحد · صنفين · 3 أصناف · 11 صنف (the kitchen reads it at a glance). */
@@ -42,6 +43,7 @@ export const NOTIFY_EVENT_TYPES = [
   'seat.booked',
   // الرجعة lock-screen pass updates (data-only), customer d-8 follow-up.
   ...RAJAA_PASS_EVENTS,
+  'seat.completed',
   'khat.child_tapped_out',
   'khat.sweep_missed',
   'dispatch.offer_sent',
@@ -105,6 +107,26 @@ export async function passUpdatesFor(e: PublishedEvent, lookups: Pick<NotifyLook
     out.push({ eventId: e.id, template: 'rajaa_pass_update', to: b.riderId, params: { bookingId: b.bookingId, phase }, data });
   }
   return out;
+}
+
+/** Night for the auto-share switch (w9): 9 المسا – 6 الصبح, Baghdad (UTC+3, no DST). */
+export function isNight(at: Date): boolean {
+  const h = (at.getUTCHours() + 3) % 24;
+  return h >= 21 || h < 6;
+}
+
+/**
+ * A trip link for each trusted person when the rider turned that switch on (w9): one share link,
+ * made for the rider, sent to `tc:<rider>:<i>`. Nothing when the switch is off or nobody is set.
+ */
+async function sharedWithPeople(deps: NotifySubscriberDeps, e: PublishedEvent, riderId: string, subject: { bookingId: string } | { orderId: string }, key: 'autoShareRajaa' | 'autoShareNight', what: string): Promise<NotifyRequest[]> {
+  const L = deps.lookups;
+  const safety = L.safety ? await L.safety(riderId) : null;
+  if (!safety?.prefs[key] || safety.contacts === 0 || !L.shareLink) return [];
+  const link = await L.shareLink(riderId, subject);
+  if (!link) return [];
+  const name = (await L.firstName(riderId, 'notify_trip_shared')) ?? '';
+  return Array.from({ length: safety.contacts }, (_, i) => ({ eventId: e.id, template: 'trip_shared_contact' as const, to: trustedContactRecipient(riderId, i), params: { name, what, link }, data: { ...subject } }));
 }
 
 /** Turns one event into the notifications it implies. Exported for tests. */
@@ -188,7 +210,10 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!order || order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
       const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
-      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }];
+      const own: NotifyRequest = { ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } };
+      // w9: a night ride (21:00–06:00 Baghdad) is shared with the trusted people when the rider asked.
+      const shared = e.type === 'order.matched' && isNight(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
+      return [own, ...shared];
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);
@@ -238,6 +263,24 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !jobKey || !jobAt) return [];
       const template = e.type === 'support.replied' ? ('driver_pay_reply' as const) : ('driver_pay_resolved' as const);
       return [{ ...base, template, to: driverId, params: { text: clip(text ?? ''), key: encodeURIComponent(jobKey), at: encodeURIComponent(jobAt) } }];
+    case 'seat.checked_in': {
+      // w9: «شارك رحلات الرجعة تلقائياً» — on boarding, each trusted person gets the trip's link.
+      const bookingId = str(p['bookingId']);
+      const b = bookingId ? await L.booking(bookingId) : null;
+      if (!b || !bookingId) return [];
+      return sharedWithPeople(deps, e, b.riderId, { bookingId }, 'autoShareRajaa', `الرجعة ${b.route}`);
+    }
+    case 'seat.completed': {
+      // r2 + w9 «بلّغهم من أوصل»: once per booking (on its first seat), to each trusted person.
+      const seatRef = str(p['seatId']);
+      const bookingId = seatRef?.split('.')[0] ?? null;
+      const b = bookingId ? await L.booking(bookingId) : null;
+      if (!b || !seatRef || (b.firstSeat && seatRef !== `${bookingId}.${b.firstSeat}`)) return [];
+      const safety = L.safety ? await L.safety(b.riderId) : null;
+      if (!safety?.prefs.notifyOnArrival || safety.contacts === 0) return [];
+      const name = (await L.firstName(b.riderId, 'notify_rajaa_arrived')) ?? '';
+      const params = { name, route: b.route, time: localTime(e.occurredAt) };
+      return Array.from({ length: safety.contacts }, (_, i) => ({ ...base, template: 'rajaa_arrived_contact' as const, to: trustedContactRecipient(b.riderId, i), params, data: { bookingId: bookingId! } }));
     }
     case 'seat.booked': {
       const bookingId = str(p['bookingId']);

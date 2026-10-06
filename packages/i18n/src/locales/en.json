@@ -5780,5 +5780,7 @@
   "safety.protect_pin": "The boarding PIN: nobody takes your seat but you",
   "safety.protect_sos": "The SOS button on every trip reaches our team and your emergency contact at once",
   "account.safety_people": "Your people: {names}",
-  "account.safety_sharing_on": "Sharing is on"
+  "account.safety_sharing_on": "Sharing is on",
+  "wa.rajaa_arrived_contact": "{{1}}'s trip ({{2}}) arrived safely at {{3}}. — Driver",
+  "wa.trip_shared_contact": "{{1}} shared a trip with you: {{2}}. Follow it until arrival: {{3}}"
 }

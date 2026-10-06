@@ -160,6 +160,44 @@ describe('notify subscribers: events → notifications', () => {
     await expect(handler!(event('order.delivered', {}, { orderId: 'ord_1' }), { tx: undefined as never, subscriber: NOTIFY_SUBSCRIBER })).resolves.toBeUndefined();
     expect(await h.rows()).toEqual([]);
   });
+
+  it('w9 + r2: the trusted people hear «وصلت بالسلامة» and get auto-shared links only when the rider turned it on', async () => {
+    const h = notifyHarness();
+    const on = { autoShareRajaa: true, autoShareNight: true, notifyOnArrival: true };
+    const off = { autoShareRajaa: false, autoShareNight: false, notifyOnArrival: false };
+    const make = (prefs: typeof on, contacts = 2) => ({
+      ...deps(h),
+      lookups: {
+        ...lookups,
+        booking: async (id: string) => (id === 'bk_1' ? { ...(await lookups.booking('bk_1'))!, firstSeat: 'back_left' } : null),
+        firstName: async (personId: string) => (personId === 'cust' ? 'زينب' : null),
+        safety: async () => ({ prefs, contacts }),
+        shareLink: async (_p: string, s: { bookingId: string } | { orderId: string }) => `https://driver.iq/share/shr_${'bookingId' in s ? s.bookingId : s.orderId}`,
+      },
+    });
+    const one = async (e: PublishedEvent, d = make(on)) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+    // Arrival (09:30Z = 12:30 Baghdad): once per booking, on its first seat, to each trusted person.
+    const arrived = event('seat.completed', { seatId: 'bk_1.back_left', customerId: 'cust' });
+    expect(await one(arrived)).toEqual([
+      { template: 'rajaa_arrived_contact', to: 'tc:cust:0', params: { name: 'زينب', route: 'العزيزية ← بغداد', time: '12:30 م' } },
+      { template: 'rajaa_arrived_contact', to: 'tc:cust:1', params: { name: 'زينب', route: 'العزيزية ← بغداد', time: '12:30 م' } },
+    ]);
+    expect(await one(event('seat.completed', { seatId: 'bk_1.back_right', customerId: 'cust' }))).toEqual([]);
+    expect(await one(arrived, make(off))).toEqual([]);
+    expect(await one(arrived, make(on, 0))).toEqual([]);
+
+    // Boarding: the trip's link when «شارك رحلات الرجعة تلقائياً» is on.
+    expect(await one(event('seat.checked_in', { bookingId: 'bk_1', riderId: 'cust' }), make(on, 1))).toEqual([
+      { template: 'trip_shared_contact', to: 'tc:cust:0', params: { name: 'زينب', what: 'الرجعة العزيزية ← بغداد', link: 'https://driver.iq/share/shr_bk_1' } },
+    ]);
+    expect(await one(event('seat.checked_in', { bookingId: 'bk_1', riderId: 'cust' }), make(off))).toEqual([]);
+
+    // A ride matched at night (22:00 Baghdad) is shared; by day it is not.
+    const night = event('order.matched', { driverId: 'drv' }, { orderId: 'ride_1', actorId: 'drv', occurredAt: new Date('2026-10-04T19:00:00Z') });
+    expect((await one(night, make(on, 1))).map((r) => r.template)).toEqual(['ride_matched', 'trip_shared_contact']);
+    expect((await one(event('order.matched', { driverId: 'drv' }, { orderId: 'ride_1', actorId: 'drv' }), make(on, 1))).map((r) => r.template)).toEqual(['ride_matched']);
+  });
 });
 
 describe('الرجعة lock-screen pass updates (customer d-8 follow-up)', () => {

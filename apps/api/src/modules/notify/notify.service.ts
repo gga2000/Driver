@@ -60,6 +60,18 @@ export function emergencyContactOwner(recipient: string): string | null {
   return recipient.startsWith('ec:') && recipient.length > 3 ? recipient.slice(3) : null;
 }
 
+/**
+ * A trusted person of the safety page (joy w9): `tc:<personId>:<index>`, resolved like the emergency
+ * contact through identity's logged vault read. They get «وصل بالسلامة» and auto-shared trip links.
+ */
+export const trustedContactRecipient = (personId: string, index: number): string => `tc:${personId}:${index}`;
+
+/** The person and list position a trusted-contact recipient names, or null for anything else. */
+export function trustedContactOwner(recipient: string): { personId: string; index: number } | null {
+  const m = /^tc:(.+):(\d)$/.exec(recipient);
+  return m ? { personId: m[1]!, index: Number(m[2]) } : null;
+}
+
 /** Expo push tokens look like `ExponentPushToken[…]` (or `ExpoPushToken[…]`). */
 const EXPO_TOKEN = /^Expo(nent)?PushToken\[[^\]]+\]$/;
 

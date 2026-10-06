@@ -599,6 +599,12 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /** How many trusted people a person has (w9): a count, no names or numbers, so not logged. */
+  async trustedContactCount(personId: string): Promise<number> {
+    const identity = await this.repo.readIdentity(personId);
+    return identity ? trustedOf(identity).length : 0;
+  }
+
   /** The person's safety switches (w9); not personal data, so the read is not logged. */
   async safetyPrefsOf(personId: string): Promise<SafetyPrefs> {
     return (await this.repo.readIdentity(personId))?.safetyPrefs ?? { ...DEFAULT_SAFETY_PREFS };

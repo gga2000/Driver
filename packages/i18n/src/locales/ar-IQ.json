@@ -5780,5 +5780,7 @@
   "safety.protect_pin": "رمز الصعود: محد يصعد بمقعدك إلا إنت",
   "safety.protect_sos": "زر الطوارئ بكل رحلة: يوصل لفريقنا ولرقم الطوارئ بنفس اللحظة",
   "account.safety_people": "ناسك: {names}",
-  "account.safety_sharing_on": "المشاركة شغّالة"
+  "account.safety_sharing_on": "المشاركة شغّالة",
+  "wa.rajaa_arrived_contact": "رحلة {{1}} ({{2}}) وصلت بالسلامة الساعة {{3}}. — درايفر",
+  "wa.trip_shared_contact": "وصلك رابط من {{1}}: {{2}}. تابع الطريق لحد الوصول: {{3}}"
 }

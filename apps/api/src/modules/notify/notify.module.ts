@@ -11,11 +11,12 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
 import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
+import { ShareLinksService, TrackingModule } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
-import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService } from './notify.service.js';
+import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService, trustedContactOwner } from './notify.service.js';
 import { registerNotifySubscribers } from './notify.subscribers.js';
 import { pushPortsFromEnv } from './providers/push.js';
 import { whatsAppPortFromEnv } from './providers/whatsapp.js';
@@ -54,7 +55,7 @@ function envInt(name: string, fallback: number): number {
  * turns domain events into notifications.
  */
 @Module({
-  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TripsModule],
+  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     {
@@ -69,7 +70,7 @@ function envInt(name: string, fallback: number): number {
     },
     {
       provide: NOTIFY_LOOKUPS,
-      useFactory: (orders: OrdersService, orgs: OrgsService, identity: IdentityService, departures: DeparturesService, trips: TripsService, places: PlacesService): NotifyLookups => ({
+      useFactory: (orders: OrdersService, orgs: OrgsService, identity: IdentityService, departures: DeparturesService, trips: TripsService, places: PlacesService, shares: ShareLinksService): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
             const o = await orders.get(orderId);
@@ -98,6 +99,7 @@ function envInt(name: string, fallback: number): number {
                     : (garage?.nameAr ?? ''),
               vehicle,
               pin: b.pin,
+              ...(b.seatIds[0] ? { firstSeat: b.seatIds[0] } : {}),
             };
           }),
         departurePasses: (departureId) =>
@@ -125,6 +127,14 @@ function envInt(name: string, fallback: number): number {
               fareIqd: bookingTotal(b),
             }));
           }),
+        // w9: the switches and how many trusted people (no names or numbers leave identity here).
+        safety: (personId) => orNull(async () => ({ prefs: await identity.safetyPrefsOf(personId), contacts: await identity.trustedContactCount(personId) })),
+        // w9 auto-share: the same signed link the rider's own «شارك» makes, created for the rider.
+        shareLink: (personId, subject) =>
+          orNull(async () => {
+            const link = await shares.createShareLink({ personId, sessionId: 'system:notify' }, subject);
+            return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
+          }),
         child: (childRef) => orNull(() => identity.childNotice(childRef)),
         stopPlace: (tripId, stopId) =>
           orNull(async () => {
@@ -143,7 +153,7 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService],
     },
     {
       provide: NOTIFY_ENGINE,
@@ -152,6 +162,14 @@ function envInt(name: string, fallback: number): number {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
             // (logged vault read against the person, accessor system:notify).
+            const trusted = trustedContactOwner(to);
+            if (trusted) {
+              // w9: a trusted person of the safety page, by list position (logged vault read).
+              if (!opts.phone) return { locale: 'ar-IQ', phoneE164: null };
+              const list = await identity.trustedContactsOf(trusted.personId, 'system:notify', opts.purpose);
+              const c = list[trusted.index];
+              return c ? { locale: 'ar-IQ', phoneE164: c.phoneE164 } : null;
+            }
             const owner = emergencyContactOwner(to);
             if (!owner) return identity.notifyContact(to, opts);
             if (!opts.phone) return { locale: 'ar-IQ', phoneE164: null };

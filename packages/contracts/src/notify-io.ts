@@ -123,6 +123,8 @@ export const NotifyTemplateId = z.enum([
   'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
   'sos_emergency_contact',
+  'rajaa_arrived_contact',
+  'trip_shared_contact',
   'chat_message',
   'marketing_offer',
 ]);
@@ -422,6 +424,27 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://driver.iq/sos/abc.def']),
     primary: ['whatsapp'],
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  // Joy r2 + w9 «بلّغهم من أوصل»: each trusted person (a number, not an account) when the rider's
+  // الرجعة trip arrives. Gender-free: «رحلة زينب (بغداد ← العزيزية) وصلت بالسلامة الساعة 7:42 المسا».
+  rajaa_arrived_contact: {
+    id: 'rajaa_arrived_contact',
+    category: 'safety',
+    app: 'customer',
+    whatsapp: wa('rajaa_arrived_contact', 'wa.rajaa_arrived_contact', ['name', 'route', 'time'], ['زينب', 'بغداد ← العزيزية', '7:42 المسا']),
+    primary: ['whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // Joy w9 auto-share: a الرجعة trip at boarding, a taxi/tuktuk ride at night once a driver took it.
+  trip_shared_contact: {
+    id: 'trip_shared_contact',
+    category: 'safety',
+    app: 'customer',
+    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://driver.iq/share/shr_abc']),
+    primary: ['whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
   chat_message: {

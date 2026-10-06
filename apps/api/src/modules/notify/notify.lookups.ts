@@ -1,4 +1,4 @@
-import type { RoleKind } from '@driver/contracts';
+import type { RoleKind, SafetyPrefs } from '@driver/contracts';
 
 export interface OrderFacts {
   id: string;
@@ -17,6 +17,8 @@ export interface BookingFacts {
   place: string;
   vehicle: string;
   pin: string;
+  /** The booking's first seat id: a booking with several seats completes once per seat. */
+  firstSeat?: string;
 }
 
 /** One booking on a الرجعة departure as its lock-screen card needs it (customer d-8 follow-up). */
@@ -57,6 +59,10 @@ export interface NotifyLookups {
   stopPlace(tripId: string, stopId: string): Promise<string | null>;
   /** Pickup and drop-off zone names of a trip (the partner's offer push). */
   tripZones(tripId: string): Promise<{ pickup: string; dropoff: string } | null>;
+  /** Joy w9: the person's safety switches and how many trusted people they have (no names or numbers). */
+  safety?(personId: string): Promise<{ prefs: SafetyPrefs; contacts: number } | null>;
+  /** Joy w9 auto-share: a share-trip link (full URL) on the person's booking or ride; null when it can't be made. */
+  shareLink?(personId: string, subject: { bookingId: string } | { orderId: string }): Promise<string | null>;
 }
 
 export const NOTIFY_LOOKUPS = Symbol('NOTIFY_LOOKUPS');
