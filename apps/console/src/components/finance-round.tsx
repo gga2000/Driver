@@ -87,8 +87,9 @@ export function CollectionRound({ desk }: { desk: FinanceDeskView }) {
           </>
         )}
       </Card>
-      {/* The dialog follows the desk as it refreshes: what he holds can change while it is open. */}
-      <CollectDialog courier={collecting ? (r.stops.flatMap((st) => st.couriers).find((c) => c.driverId === collecting.driverId) ?? collecting) : null} onClose={() => setCollecting(null)} />
+      {/* The dialog follows the desk as it refreshes: what he holds can change while it is open (he
+          hands a restaurant its cash, pays at an agent). Gone from the round means he holds nothing. */}
+      <CollectDialog courier={collecting ? (r.stops.flatMap((st) => st.couriers).find((c) => c.driverId === collecting.driverId) ?? { ...collecting, heldIqd: 0 }) : null} onClose={() => setCollecting(null)} />
       <RoundPrint desk={desk} />
     </section>
   );
