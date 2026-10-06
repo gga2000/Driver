@@ -9,7 +9,9 @@ import { guaranteeGroupId, postShiftGuarantee } from './postings.js';
 import { MONEY_RULES } from './tokens.js';
 
 /**
- * G-91 launch shift guarantee, server side (money §2, edge-case review #91). For each peak shift of the city (`MoneyRules.guarantee.peaks`) the driver's offers,
+ * G-91 launch shift guarantee, server side (money §2, edge-case review #91). For each shift of the
+ * city (`MoneyRules.guarantee.peaks`: Ali's 06:00–15:00 and 15:00–02:00, the second past midnight and
+ * belonging to the day it starts on) the driver's offers,
  * cancels after accept, completed jobs and the earnings of those jobs are counted from the real
  * record — his own trip events and his ledger lines — and `shiftGuarantee` decides the top-up. The
  * Sunday run of the nightly close posts each top-up once (`settleWeek`); the Partner app reads the
@@ -154,7 +156,10 @@ export class ShiftGuaranteeService {
     return g.roles.includes((await this.caps.status(driverId)).role);
   }
 
-  /** The peak shifts overlapping `[from, to)` that have begun by now, each with his numbers, oldest first. */
+  /**
+   * The shifts overlapping `[from, to)` that have begun by now, each with his numbers, oldest first
+   * (at 00:30 the shift still live is yesterday's 15:00–02:00).
+   */
   async windows(driverId: string, range: { from: Date; to: Date }): Promise<GuaranteeWindowView[]> {
     const now = this.clock.now();
     const shifts = peakWindows(range, this.rules.guarantee.peaks, this.offsetMin).filter((w) => w.from.getTime() < now.getTime());
@@ -204,14 +209,19 @@ export class ShiftGuaranteeService {
   }
 
   /**
-   * Posts the top-up of every covered driver for every peak shift that started in `[from, to)` and
-   * is over by now: platform-funded, one posting group per driver per shift (a re-run posts nothing
+   * Posts the top-up of every covered driver for every shift that started in `[from, to)` and is over
+   * by now: platform-funded, one posting group per driver per shift (a re-run posts nothing twice).
+   * A shift is over at its end (`[from, to)`, the end excluded), even when that is after `to`: the
+   * Saturday 15:00–02:00 shift belongs to the week it started in and is over at Sunday 02:00:00 exactly,
+   * so the Sunday 02:00 run settles it; a run before 02:00 leaves it to the next Sunday (late, never
    * twice). Returns what this call posted.
    */
   async settle(range: { from: Date; to: Date }): Promise<GuaranteePayout[]> {
     if (!this.rules.guarantee.enabled) return [];
     const now = this.clock.now();
-    const over = peakWindows(range, this.rules.guarantee.peaks, this.offsetMin).filter((w) => w.from.getTime() >= range.from.getTime() && w.to.getTime() <= Math.min(range.to.getTime(), now.getTime()));
+    const over = peakWindows(range, this.rules.guarantee.peaks, this.offsetMin).filter(
+      (w) => w.from.getTime() >= range.from.getTime() && w.from.getTime() < range.to.getTime() && w.to.getTime() <= now.getTime(),
+    );
     if (over.length === 0) return [];
     const drivers = new Set<string>();
     for (const account of await this.ledger.accounts()) {
@@ -233,7 +243,10 @@ export class ShiftGuaranteeService {
     return out;
   }
 
-  /** The Sunday run: the local week that just ended, and the one before it (late, never twice). */
+  /**
+   * The Sunday run: shifts that started in the local week that just ended (its Saturday 15:00–02:00
+   * included, over at 02:00), and in the one before it (late, never twice).
+   */
   settleWeek(runAt: Date): Promise<GuaranteePayout[]> {
     const weekStart = startOfLocalWeek(runAt, this.offsetMin);
     return this.settle({ from: new Date(weekStart.getTime() - GUARANTEE_SETTLE_LOOKBACK_DAYS * DAY_MS), to: weekStart });

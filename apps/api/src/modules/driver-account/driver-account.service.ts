@@ -183,7 +183,7 @@ export class DriverAccountService implements DriverAccountPort {
   // ───────────────────────── G-91 shift guarantee ─────────────────────────
 
   /**
-   * The peak shift now and this week's, counted on the server from his events and ledger (the
+   * The shift now and this week's, counted on the server from his events and ledger (the
    * Partner app's progress line and pending/paid lines show exactly these numbers). Top-ups that
    * ended last week and wait for the Sunday run count in `pendingIqd` too.
    */
@@ -197,13 +197,16 @@ export class DriverAccountService implements DriverAccountPort {
     if (!(await this.ledger.guaranteeCovers(driverId))) return { enabled: false, ...rule, current: null, week: [], pendingIqd: 0 };
     const now = this.clock.now();
     const week = localPeriod('week', now);
-    const windows = await this.ledger.guaranteeWindows({ driverId, from: new Date(week.from.getTime() - 7 * DAY_MS), to: week.to });
+    const lastWeek = new Date(week.from.getTime() - 7 * DAY_MS);
+    const windows = await this.ledger.guaranteeWindows({ driverId, from: lastWeek, to: week.to });
     return {
       enabled: true,
       ...rule,
+      // At 00:30 the live shift is yesterday's 15:00–02:00 (a Saturday's runs into the new week).
       current: windows.find((w) => w.status === 'live') ?? null,
       week: windows.filter((w) => w.from.getTime() >= week.from.getTime()).reverse(),
-      pendingIqd: windows.filter((w) => w.status === 'ended' && w.qualified).reduce((sum, w) => sum + w.topUpIqd, 0),
+      // What the next Sunday run pays: shifts that started since last week's Sunday (not the one still running into it).
+      pendingIqd: windows.filter((w) => w.status === 'ended' && w.qualified && w.from.getTime() >= lastWeek.getTime()).reduce((sum, w) => sum + w.topUpIqd, 0),
     };
   }
 
@@ -547,7 +550,7 @@ export class DriverAccountService implements DriverAccountPort {
     };
   }
 
-  /** G-91: the peak shifts his shift overlapped (none when the guarantee does not cover him). */
+  /** G-91: the guarantee shifts his work shift overlapped (none when the guarantee does not cover him). */
   private async shiftGuarantees(driverId: string, from: Date, to: Date): Promise<ShiftSummary['guarantee']> {
     if (!(await this.ledger.guaranteeCovers(driverId))) return [];
     return this.ledger.guaranteeWindows({ driverId, from, to });

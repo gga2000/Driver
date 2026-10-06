@@ -38,26 +38,41 @@ export type SettlementMode = z.infer<typeof SettlementMode>;
 const CapsByTier = z.object({ bronze: Iqd.positive(), silver: Iqd.positive(), gold: Iqd.positive() });
 
 /**
- * A peak shift on the city's clock (G-91 shift guarantee): `[startMin, endMin)` minutes after local
- * midnight, inside one local day. `key` names it in the ledger memo (`guarantee:2026-10-04:lunch`).
+ * A shift on the city's clock (G-91 shift guarantee): `[startMin, endMin)` minutes after the local
+ * midnight of the day it starts on. A shift that crosses midnight runs past 1440: 15:00–02:00 is
+ * `{ startMin: 900, endMin: 1560 }` (26 × 60), and it belongs to the day it starts on — its ledger memo
+ * is `guarantee:<start date>:<key>` (`guarantee:2026-10-04:evening`, ending 02:00 on the 5th). At most
+ * 24 hours long. `key` names it in the memo.
  */
 export const PeakShift = z
   .object({
     key: z.string().regex(/^[a-z][a-z_]*$/),
     startMin: z.number().int().min(0).max(1439),
-    endMin: z.number().int().min(1).max(1440),
+    endMin: z.number().int().min(1).max(2880),
   })
-  .refine((p) => p.endMin > p.startMin, { message: 'a peak shift ends after it starts, on the same local day' });
+  .refine((p) => p.endMin > p.startMin && p.endMin - p.startMin <= 1440, { message: 'a shift ends after it starts, at most 24 hours later' });
 export type PeakShift = z.infer<typeof PeakShift>;
 
+/** Two of the city's shifts overlap on the daily clock (a shift past midnight is checked against the next day's too). */
+export function peakShiftsOverlap(peaks: readonly PeakShift[]): boolean {
+  for (let i = 0; i < peaks.length; i++) {
+    for (let j = i + 1; j < peaks.length; j++) {
+      const a = peaks[i]!;
+      const b = peaks[j]!;
+      for (const shift of [-1440, 0, 1440]) if (a.startMin < b.endMin + shift && b.startMin + shift < a.endMin) return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Aziziyah's two 4-hour peak shifts (2026-10-06, for Ali's G-91 decision): the guarantee is "per
- * 4-hour peak shift" and the city's peaks are lunch 13:00–15:00 and dinner 19:30–22:30 (edge-case
- * review #21), so each shift is the 4 hours around its peak: lunch 12:00–16:00, dinner 19:00–23:00.
+ * Aziziyah's guarantee shifts (Ali, 2026-10-06), Baghdad time: the first shift 06:00–15:00 (`day`,
+ * «شفت النهار») and the second 15:00–02:00 the next morning (`evening`, «شفت الليل»). Together they cover
+ * 06:00–02:00. Replaces the 4-hour peaks (lunch 12–16, dinner 19–23) chosen for him the same day.
  */
-export const AZIZIYAH_PEAK_SHIFTS: readonly PeakShift[] = [
-  { key: 'lunch', startMin: 12 * 60, endMin: 16 * 60 },
-  { key: 'dinner', startMin: 19 * 60, endMin: 23 * 60 },
+export const AZIZIYAH_GUARANTEE_SHIFTS: readonly PeakShift[] = [
+  { key: 'day', startMin: 6 * 60, endMin: 15 * 60 },
+  { key: 'evening', startMin: 15 * 60, endMin: 26 * 60 },
 ];
 
 export const MoneyRules = z.object({
@@ -122,7 +137,8 @@ export const MoneyRules = z.object({
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
   /**
-   * G-91 launch shift guarantee (money §2, edge-case review #91): per peak shift, a driver whose cap
+   * G-91 launch shift guarantee (money §2, edge-case review #91): per shift (`peaks`, Ali's 06:00–15:00
+   * and 15:00–02:00), a driver whose cap
    * role is in `roles` and who met the three conditions in it is topped up by the platform to
    * `amountIqd` (the difference, never a flat bonus), paid on the Sunday run with the scorecard.
    * See `shiftGuarantee` and docs/api/shift-guarantee.md.
@@ -130,7 +146,7 @@ export const MoneyRules = z.object({
    * `enabled` is the city's money-rule switch, **off by default**. Ali, 2026-10-06: "hold it, switch it
    * off" until he decides — the code is built and tested, but while it is off the server posts no
    * top-up, covers nobody (`driverAccount.guarantee` says `enabled: false`, the shift summary lists no
-   * peak shifts) and the Partner app shows no progress, pending or paid guarantee line.
+   * shifts) and the Partner app shows no progress, pending or paid guarantee line.
    */
   guarantee: z.object({
     enabled: z.boolean().default(false),
@@ -138,7 +154,12 @@ export const MoneyRules = z.object({
     minAcceptance: Rate,
     maxCancelsAfterAccept: z.number().int().nonnegative(),
     minCompletedJobs: z.number().int().nonnegative(),
-    peaks: z.array(PeakShift).min(1).default([...AZIZIYAH_PEAK_SHIFTS]),
+    peaks: z
+      .array(PeakShift)
+      .min(1)
+      .refine((ps) => new Set(ps.map((p) => p.key)).size === ps.length, { message: 'shift keys are unique' })
+      .refine((ps) => !peakShiftsOverlap(ps), { message: 'shifts do not overlap' })
+      .default([...AZIZIYAH_GUARANTEE_SHIFTS]),
     /** Money §2 / §5 "courier shift guarantees": food couriers at launch. */
     roles: z.array(CapRole).min(1).default(['courier']),
   }),
@@ -203,7 +224,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   adjustments: { secondApproverAboveIqd: 25000 },
   driverPayoutAboveIqd: 20000,
   // G-91 switched off by Ali on 2026-10-06 (open decision): no top-ups, nothing shown in the apps.
-  guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_PEAK_SHIFTS], roles: ['courier'] },
+  guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_GUARANTEE_SHIFTS], roles: ['courier'] },
   lateMeter: {
     graceMin: 5,
     blockMin: 10,

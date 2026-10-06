@@ -263,13 +263,14 @@ export type HandoverCode = z.infer<typeof HandoverCode>;
 // ───────────────────────── G-91 shift guarantee ─────────────────────────
 
 /**
- * One peak shift of his, as the server counts it (docs/api/shift-guarantee.md). `live`: now inside
+ * One guarantee shift of his (06:00–15:00 `day` or 15:00–02:00 `evening`), as the server counts it (docs/api/shift-guarantee.md). `live`: now inside
  * it, the numbers so far; `ended`: over, the top-up (if any) is paid on `paysOn`; `paid`: the
  * top-up line is in his earnings (`topUpIqd` is what was paid).
  */
 export const GuaranteeWindowView = z.object({
-  /** `2026-10-04:lunch`: the ledger line's memo is `guarantee:<id>`. */
+  /** `2026-10-04:evening` (the date the shift starts on, even past midnight): the ledger line's memo is `guarantee:<id>`. */
   id: z.string(),
+  /** The shift's key in `MoneyRules.guarantee.peaks`: `day` | `evening` in Aziziyah. */
   peak: z.string(),
   from: z.coerce.date(),
   to: z.coerce.date(),
