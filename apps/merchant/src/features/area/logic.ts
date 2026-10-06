@@ -1,5 +1,6 @@
 import type { DeliveryAreaZone, MerchantCustomerZones, MerchantDeliveryArea } from '@driver/contracts';
 import { color } from '@driver/design-tokens';
+import { fitProjection, SVG_FIT_PADDING_PX, type GeoPoint, type SvgProjection } from '@driver/map';
 
 /**
  * «منطقة التوصيل» and «منين زبائنك» (maps program r5, r6), free of React Native so they are unit-tested:
@@ -89,6 +90,26 @@ export function mapPoints(
 
 /** A ring with fewer points is not an outline: the map draws a dot at the zone's centre instead. */
 export const MIN_RING_POINTS = 3;
+
+/** The zones' own shape: no panel-shaped aspect limits, so the frame hugs the outer zones. */
+const HUG = { minAspect: 0, maxAspect: Number.POSITIVE_INFINITY } as const;
+
+/**
+ * The zone map's box and projection. The box takes the zones' real shape (north up, to scale) with
+ * only the fit padding around the outer zones — no empty bands beside a town stretched along the
+ * river — and is as wide as the panel unless that would make it taller than `maxHeight`; then it is
+ * narrower (the screen centres it), so the whole town and the hint under it stay on one screen.
+ */
+export function fitZoneMap(points: readonly GeoPoint[], maxWidth: number, maxHeight?: number): SvgProjection {
+  const pad = SVG_FIT_PADDING_PX;
+  if (points.length === 0) return fitProjection(points, maxWidth);
+  const full = fitProjection(points, maxWidth, HUG);
+  if (maxHeight === undefined || full.height <= maxHeight || maxWidth <= 2 * pad) return full;
+  // Height ÷ width of the drawing; one px of slack absorbs fitProjection's rounding of the height.
+  const aspect = (full.height - 2 * pad) / (maxWidth - 2 * pad);
+  const inner = Math.max(1, Math.floor((maxHeight - 2 * pad - 1) / aspect));
+  return fitProjection(points, inner + 2 * pad, HUG);
+}
 
 // ───────────────────────── where my customers are ─────────────────────────
 

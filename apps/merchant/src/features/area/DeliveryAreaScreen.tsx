@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react';
-import { Linking, View } from 'react-native';
+import { useRef, useState, type ReactNode } from 'react';
+import { Linking, View, type LayoutChangeEvent } from 'react-native';
 import type { DeliveryAreaZone, MerchantDeliveryArea } from '@driver/contracts';
 import { EmptyState, RetryState, Skeleton, Text, useNetwork, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
-import { Page } from '@/components/Page';
+import { Page, usePageScroll } from '@/components/Page';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
 import { useCurrentStore } from '@/features/store/queries';
 import { SUPPORT_PHONE } from '@/lib/env';
@@ -13,10 +13,13 @@ import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { feeShade, legendRows, pausedCount, PAUSED_FILL, selectedZone, zoneName, zoneRows } from './logic';
 import { useDeliveryArea } from './queries';
+import { useRowReveal } from './useRowReveal';
 import { ZoneMap } from './ZoneMap';
 
 /** Legend swatch size, px. */
 const SWATCH = 18;
+/** The map never shrinks below this to fit a short screen (a phone on its side), px. */
+const MAP_MIN_HEIGHT = 240;
 
 /**
  * «منطقة التوصيل» (maps program r5): every zone of the town coloured by the delivery fee a customer
@@ -81,18 +84,42 @@ function AreaBody({ data, stale }: { data: MerchantDeliveryArea; stale: boolean 
   const selected = selectedZone(data.zones, selectedKey);
   const kitchenZone = data.zones.find((z) => z.kitchen);
   const kitchenPin = data.kitchen?.pin ?? kitchenZone?.centre ?? null;
+  const { rowRef, revealRow } = useRowReveal();
+  const onMapSelect = (key: string) => {
+    setSelectedKey(key);
+    revealRow(key);
+  };
+
+  // The map fits the visible scroll area: from its own top (measured once per layout, before any
+  // scroll) down to the bottom, less the hint under it and the panel's padding.
+  const page = usePageScroll();
+  const mapBox = useRef<View>(null);
+  const [mapTop, setMapTop] = useState<{ wide: boolean; y: number } | null>(null);
+  const [hintHeight, setHintHeight] = useState(0);
+  const measureMapTop = () => {
+    if (mapTop?.wide === wide) return;
+    mapBox.current?.measureInWindow((_x, y) => setMapTop({ wide, y }));
+  };
+  const viewport = page?.viewport;
+  const maxHeight =
+    viewport && mapTop?.wide === wide
+      ? Math.max(MAP_MIN_HEIGHT, Math.floor(viewport.top + viewport.height - mapTop.y - (theme.space[4] + hintHeight + theme.space[5] + theme.space[3])))
+      : undefined;
 
   const map = (
     <Panel testID="delivery-area-map" style={wide ? { flex: 1.35 } : undefined}>
-      <ZoneMap
-        zones={data.zones}
-        kitchen={kitchenPin}
-        shade={(z) => feeShade(z, data.bands.length)}
-        selectedKey={selected?.key ?? null}
-        onSelect={setSelectedKey}
-        label={t('merchant.area.map_label')}
-      />
-      <Text variant="footnote" color="textMuted">
+      <View ref={mapBox} onLayout={measureMapTop}>
+        <ZoneMap
+          zones={data.zones}
+          kitchen={kitchenPin}
+          shade={(z) => feeShade(z, data.bands.length)}
+          selectedKey={selected?.key ?? null}
+          onSelect={onMapSelect}
+          maxHeight={maxHeight}
+          label={t('merchant.area.map_label')}
+        />
+      </View>
+      <Text variant="footnote" color="textMuted" onLayout={(e: LayoutChangeEvent) => setHintHeight(Math.ceil(e.nativeEvent.layout.height))} testID="delivery-area-hint">
         {t('merchant.area.tap_hint')}
       </Text>
     </Panel>
@@ -127,7 +154,7 @@ function AreaBody({ data, stale }: { data: MerchantDeliveryArea; stale: boolean 
           {side}
         </>
       )}
-      <ZoneList zones={data.zones} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} />
+      <ZoneList zones={data.zones} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} rowRef={rowRef} />
       <Text variant="caption" color="textMuted" align="center">
         {t('merchant.area.priced_at', { time: clock12(data.pricedAt) })}
       </Text>
@@ -200,7 +227,17 @@ function Legend({ data }: { data: MerchantDeliveryArea }) {
   );
 }
 
-function ZoneList({ zones, selectedKey, onSelect }: { zones: readonly DeliveryAreaZone[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+function ZoneList({
+  zones,
+  selectedKey,
+  onSelect,
+  rowRef,
+}: {
+  zones: readonly DeliveryAreaZone[];
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
+  rowRef: (key: string) => (node: View | null) => void;
+}) {
   const t = useT();
   const locale = useLocale();
   const theme = useTheme();
@@ -209,8 +246,15 @@ function ZoneList({ zones, selectedKey, onSelect }: { zones: readonly DeliveryAr
       {zoneRows(zones).map((z, i) => {
         const selected = z.key === selectedKey;
         return (
-          <PanelRow key={z.key} first={i === 0} onPress={() => onSelect(z.key)} testID={`delivery-area-row-${z.key}`} accessibilityLabel={zoneName(z, locale)}>
-            <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: selected ? theme.colors.accent : 'transparent' }} />
+          <PanelRow
+            key={z.key}
+            ref={rowRef(z.key)}
+            first={i === 0}
+            selected={selected}
+            onPress={() => onSelect(z.key)}
+            testID={`delivery-area-row-${z.key}`}
+            accessibilityLabel={zoneName(z, locale)}
+          >
             <Text variant={selected ? 'bodyStrong' : 'body'} numberOfLines={1} style={{ flex: 1 }}>
               {zoneName(z, locale)}
             </Text>

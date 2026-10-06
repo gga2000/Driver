@@ -1,14 +1,23 @@
 import { useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { Button, Skeleton, Text, useNetwork, useTheme } from '@driver/ui';
+import { usePageScroll } from '@/components/Page';
 import { Meter, Panel, PanelRow } from '@/components/Panel';
 import { useLocale, useT } from '@/lib/i18n';
 import { CUSTOMER_HEAT, customerFills, customerRows, sharePercent, UNPRICED_FILL, zoneName, type CustomerRow } from './logic';
 import { useCustomerZones, useDeliveryArea } from './queries';
+import { useRowReveal } from './useRowReveal';
 import { ZoneMap } from './ZoneMap';
 
 /** Heat legend swatch, px. */
 const SWATCH = 14;
+/**
+ * Room the map leaves in the visible area for the panel's title and the legend under it, so the
+ * whole map and its legend fit one screen when scrolled to, px.
+ */
+const MAP_SCREEN_RESERVE = 160;
+/** The map never shrinks below this to fit a short screen, px. */
+const MAP_MIN_HEIGHT = 240;
 
 /**
  * «منين زبائنك» (maps program r6) on the insights screen: the town's zones shaded by how many of this
@@ -23,6 +32,8 @@ export function CustomerZonesPanel({ merchantOrgId, days, wide }: { merchantOrgI
   const customers = useCustomerZones(merchantOrgId, days);
   const area = useDeliveryArea(merchantOrgId);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const { rowRef, revealRow } = useRowReveal();
+  const viewport = usePageScroll()?.viewport;
   const caption = t('merchant.customers.caption', { days });
 
   const shell = (children: ReactNode) => (
@@ -74,21 +85,27 @@ export function CustomerZonesPanel({ merchantOrgId, days, wide }: { merchantOrgI
           kitchen={kitchen}
           shade={(z) => ({ fill: fills.get(z.key) ?? UNPRICED_FILL, dashed: false })}
           selectedKey={selectedKey}
-          onSelect={setSelectedKey}
+          onSelect={(key) => {
+            setSelectedKey(key);
+            // Grey zones (too few orders to name) have no row to find.
+            if (fills.has(key)) revealRow(key);
+          }}
+          maxHeight={viewport ? Math.max(MAP_MIN_HEIGHT, viewport.height - MAP_SCREEN_RESERVE) : undefined}
           label={t('merchant.customers.map_label')}
           testID="insights-customers-map"
         />
-        <HeatLegend />
+        <HeatLegend minOrders={data.minOrders} />
       </View>
     ) : null;
   const list = (
     // Rows run edge to edge on a phone (like a flush panel); beside the map on a tablet they keep the inset.
     <View style={{ flex: wide ? 1 : undefined, marginHorizontal: wide ? 0 : -theme.space[5] }}>
       {rows.map((r, i) => (
-        <CustomerZoneRow key={r.key} row={r} rank={i + 1} first={i === 0} selected={r.key === selectedKey} onPress={() => setSelectedKey(r.key)} />
+        <CustomerZoneRow key={r.key} rowRef={rowRef(r.key)} row={r} rank={i + 1} first={i === 0} selected={r.key === selectedKey} onPress={() => setSelectedKey(r.key)} />
       ))}
       {data.otherOrders > 0 ? (
-        <PanelRow testID="insights-customers-other">
+        // `selected={false}`: keeps the picked-bar slot so «مناطق ثانية» lines up with the ranked rows.
+        <PanelRow testID="insights-customers-other" selected={false}>
           <Text variant="body" color="textMuted" style={{ flex: 1 }}>
             {t('merchant.customers.other')}
           </Text>
@@ -117,12 +134,26 @@ export function CustomerZonesPanel({ merchantOrgId, days, wide }: { merchantOrgI
   );
 }
 
-function CustomerZoneRow({ row, rank, first, selected, onPress }: { row: CustomerRow; rank: number; first: boolean; selected: boolean; onPress: () => void }) {
+function CustomerZoneRow({
+  row,
+  rank,
+  first,
+  selected,
+  onPress,
+  rowRef,
+}: {
+  row: CustomerRow;
+  rank: number;
+  first: boolean;
+  selected: boolean;
+  onPress: () => void;
+  rowRef: (node: View | null) => void;
+}) {
   const t = useT();
   const locale = useLocale();
   const theme = useTheme();
   return (
-    <PanelRow first={first} onPress={onPress} testID={`insights-customers-row-${row.key}`} accessibilityLabel={zoneName(row, locale)}>
+    <PanelRow ref={rowRef} first={first} selected={selected} onPress={onPress} testID={`insights-customers-row-${row.key}`} accessibilityLabel={zoneName(row, locale)}>
       <Text variant="label" color="textMuted" tabular style={{ width: 20 }}>
         {rank}
       </Text>
@@ -144,20 +175,28 @@ function CustomerZoneRow({ row, rank, first, selected, onPress }: { row: Custome
   );
 }
 
-function HeatLegend() {
+/** The heat scale (أقل … أكثر) and, after it, the grey of zones with too few orders to name. */
+function HeatLegend({ minOrders }: { minOrders: number }) {
   const t = useT();
   const theme = useTheme();
+  const swatch = (c: string) => <View key={c} style={{ width: SWATCH, height: SWATCH, borderRadius: theme.radius.sm, backgroundColor: c }} />;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-      <Text variant="caption" color="textMuted">
-        {t('merchant.insights.peak_less')}
-      </Text>
-      {CUSTOMER_HEAT.slice(1).map((c) => (
-        <View key={c} style={{ width: SWATCH, height: SWATCH, borderRadius: 4, backgroundColor: c }} />
-      ))}
-      <Text variant="caption" color="textMuted">
-        {t('merchant.insights.peak_more')}
-      </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.space[5], rowGap: theme.space[2] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <Text variant="caption" color="textMuted">
+          {t('merchant.insights.peak_less')}
+        </Text>
+        {CUSTOMER_HEAT.slice(1).map(swatch)}
+        <Text variant="caption" color="textMuted">
+          {t('merchant.insights.peak_more')}
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="insights-customers-legend-hidden">
+        {swatch(UNPRICED_FILL)}
+        <Text variant="caption" color="textMuted" tabular>
+          {t('merchant.customers.legend_hidden', { min: minOrders })}
+        </Text>
+      </View>
     </View>
   );
 }

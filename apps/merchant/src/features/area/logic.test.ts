@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DeliveryAreaZone } from '@driver/contracts';
 import { color } from '@driver/design-tokens';
+import { M_PER_DEG_LAT, metresPerDegLng, SVG_FIT_PADDING_PX } from '@driver/map';
 import {
   bandColor,
   CUSTOMER_HEAT,
@@ -9,6 +10,7 @@ import {
   customerRows,
   FEE_RAMP,
   feeShade,
+  fitZoneMap,
   legendRows,
   mapPoints,
   PAUSED_FILL,
@@ -136,5 +138,47 @@ describe('where my customers are', () => {
     expect(sharePercent(0)).toBe(0);
     expect(sharePercent(0.002)).toBe(1);
     expect(customerRows({ zones: [], totalOrders: 3 })).toEqual([]);
+  });
+});
+
+describe('fitZoneMap', () => {
+  // A town about 1.9 km east–west and 3.3 km north–south around Aziziyah's latitude.
+  const town = [
+    { lat: 32.89, lng: 45.05 },
+    { lat: 32.92, lng: 45.07 },
+  ];
+  const hugs = (p: ReturnType<typeof fitZoneMap>) => {
+    expect(p.x(45.05)).toBeCloseTo(SVG_FIT_PADDING_PX, 0);
+    expect(p.x(45.07)).toBeCloseTo(p.width - SVG_FIT_PADDING_PX, 0);
+    expect(p.y(32.92)).toBeCloseTo(SVG_FIT_PADDING_PX, 0);
+    expect(p.y(32.89)).toBeCloseTo(p.height - SVG_FIT_PADDING_PX, 0);
+  };
+
+  it('frames the zones tightly: their own shape, only the fit padding around them', () => {
+    const p = fitZoneMap(town, 600);
+    expect(p.width).toBe(600);
+    // Taller than the panel-shaped limit (1.25) would allow: the town is ~1.75 times taller than wide.
+    expect(p.height).toBeGreaterThan(600 * 1.25);
+    hugs(p);
+  });
+
+  it('keeps the whole map inside the height it is given, narrower and still to scale', () => {
+    const p = fitZoneMap(town, 600, 500);
+    expect(p.height).toBeLessThanOrEqual(500);
+    expect(p.height).toBeGreaterThan(495);
+    expect(p.width).toBeLessThan(600);
+    hugs(p);
+    // A kilometre east is as long as a kilometre north (cos(latitude) on longitude).
+    const kmEast = p.x(45.05 + 1000 / metresPerDegLng(32.905)) - p.x(45.05);
+    const kmNorth = p.y(32.89) - p.y(32.89 + 1000 / M_PER_DEG_LAT);
+    expect(kmEast).toBeCloseTo(kmNorth, 0);
+  });
+
+  it('stays full width when the map already fits the height', () => {
+    expect(fitZoneMap(town, 300, 2000).width).toBe(300);
+  });
+
+  it('never exceeds the height across many sizes (rounding)', () => {
+    for (let h = 150; h < 900; h += 37) expect(fitZoneMap(town, 1000, h).height).toBeLessThanOrEqual(h);
   });
 });

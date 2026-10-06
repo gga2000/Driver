@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import { View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, G, Polygon } from 'react-native-svg';
 import type { LatLng } from '@driver/contracts';
-import { fitProjection, svgPoints } from '@driver/map';
+import { svgPoints } from '@driver/map';
 import { useTheme } from '@driver/ui';
-import { mapPoints, MIN_RING_POINTS, type ZoneShade } from './logic';
+import { fitZoneMap, mapPoints, MIN_RING_POINTS, type ZoneShade } from './logic';
 
 /** The geometry a zone needs on the map (both the fee map and the customers' map pass their zones). */
 export interface MapZone {
@@ -28,6 +28,7 @@ const BORDER_STROKE = 1.25;
  * stays light), north up and to scale, the kitchen as a pin. Each zone is painted by `shade` — fee bands
  * on «منطقة التوصيل», customers per zone on «منين زبائنك» — and tapping one selects it; the screens
  * also list every zone in rows of 44 px or more, so the small zones are never only a tiny tap target.
+ * The drawing hugs the zones and, given `maxHeight`, shrinks (centred) to stay within it.
  */
 export function ZoneMap<Z extends MapZone>({
   zones,
@@ -35,6 +36,7 @@ export function ZoneMap<Z extends MapZone>({
   shade,
   selectedKey,
   onSelect,
+  maxHeight,
   label,
   testID,
 }: {
@@ -43,18 +45,20 @@ export function ZoneMap<Z extends MapZone>({
   shade: (zone: Z) => ZoneShade;
   selectedKey?: string | null;
   onSelect?: (key: string) => void;
+  /** Tallest the map may be, px (the rest of the screen's height); unbounded when left out. */
+  maxHeight?: number;
   label: string;
   testID?: string;
 }) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
   const onLayout = (e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width));
-  const projection = useMemo(() => (width > 0 ? fitProjection(mapPoints(zones, kitchen), width) : null), [zones, kitchen, width]);
+  const projection = useMemo(() => (width > 0 ? fitZoneMap(mapPoints(zones, kitchen), width, maxHeight) : null), [zones, kitchen, width, maxHeight]);
   // The selected zone is drawn last so its outline sits on top of its neighbours'.
   const ordered = useMemo(() => [...zones].sort((a, b) => Number(a.key === selectedKey) - Number(b.key === selectedKey)), [zones, selectedKey]);
   return (
     // Physical directions (east is right) inside the RTL app.
-    <View testID={testID} onLayout={onLayout} accessibilityRole="image" accessibilityLabel={label} style={{ width: '100%', direction: 'ltr' }}>
+    <View testID={testID} onLayout={onLayout} accessibilityRole="image" accessibilityLabel={label} style={{ width: '100%', alignItems: 'center', direction: 'ltr' }}>
       {projection ? (
         <Svg width={projection.width} height={projection.height}>
           {ordered.map((z) => {

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Text, useTheme, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from './MIcon';
@@ -113,13 +113,39 @@ export function Meter({ value, color, height = 8, track = 'surfaceSunken' }: { v
   );
 }
 
-/** A pressable row inside a flush Panel: hairline between rows, 64 px tall. */
-export function PanelRow({ children, onPress, first, testID, accessibilityLabel }: { children: ReactNode; onPress?: () => void; first?: boolean; testID?: string; accessibilityLabel?: string }) {
+/** Width of the accent bar at the start of a picked row, px. */
+const PICKED_BAR_W = 4;
+
+/**
+ * A pressable row inside a flush Panel: hairline between rows, 64 px tall. Rows of a list that picks
+ * one item (a zone in «منطقة التوصيل» and «منين زبائنك») pass `selected`: every row then keeps a slot
+ * at its start for the accent bar the picked row shows (so nothing shifts when the pick moves), and
+ * the row's own title goes bold.
+ */
+export function PanelRow({
+  children,
+  onPress,
+  first,
+  selected,
+  ref,
+  testID,
+  accessibilityLabel,
+}: {
+  children: ReactNode;
+  onPress?: () => void;
+  first?: boolean;
+  selected?: boolean;
+  ref?: Ref<View>;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
   const theme = useTheme();
   return (
     <Pressable
+      ref={ref}
       testID={testID}
       accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={selected === undefined ? undefined : { selected }}
       accessibilityLabel={accessibilityLabel}
       disabled={!onPress}
       onPress={onPress}
@@ -135,6 +161,12 @@ export function PanelRow({ children, onPress, first, testID, accessibilityLabel 
         backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent',
       })}
     >
+      {selected === undefined ? null : (
+        <View
+          testID={testID && selected ? `${testID}-picked` : undefined}
+          style={{ width: PICKED_BAR_W, alignSelf: 'stretch', borderRadius: PICKED_BAR_W / 2, backgroundColor: selected ? theme.colors.accent : 'transparent' }}
+        />
+      )}
       {children}
     </Pressable>
   );

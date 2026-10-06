@@ -1213,6 +1213,7 @@
   "merchant.customers.other": "مناطق ثانية",
   "merchant.customers.privacy": "المناطق اللي بيها أقل من {min} طلبات ما تنعرض بالاسم، حتى نحمي خصوصية الزباين.",
   "merchant.customers.empty": "بعده ماكو منطقة بيها {min} طلبات أو أكثر بهالفترة.",
+  "merchant.customers.legend_hidden": "أقل من {min} طلبات",
   "merchant.customers.map_label": "خريطة المناطق حسب عدد الطلبات",
   "merchant.customers.load_failed": "ما گدرنا نجيب مناطق زبائنك",
   "merchant.customers.offline": "انت بدون نت. نجيبها لمن يرجع النت."

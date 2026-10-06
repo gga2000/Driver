@@ -1213,6 +1213,7 @@
   "merchant.customers.other": "Other areas",
   "merchant.customers.privacy": "Areas with fewer than {min} orders aren't named, to protect customers' privacy.",
   "merchant.customers.empty": "No area has {min} or more orders in this period yet.",
+  "merchant.customers.legend_hidden": "Fewer than {min} orders",
   "merchant.customers.map_label": "Map of areas by number of orders",
   "merchant.customers.load_failed": "We couldn't load where your customers are",
   "merchant.customers.offline": "You're offline. We'll load it when you're back."
