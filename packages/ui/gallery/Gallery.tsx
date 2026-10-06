@@ -50,6 +50,7 @@ import {
   type SeatInfo,
   type TimelineStep,
 } from '../src';
+import { SketchbookDishes, SketchbookPage, SketchbookScenes } from './Sketchbook';
 
 /* ───────────────────────── layout helpers ───────────────────────── */
 
@@ -1104,6 +1105,12 @@ function Page() {
           <SosSection />
           <TypeSection />
           <IconsSection />
+          <Section wide title="دفتر رسم العزيزية" note="Joy J4: every dish drawing (three looks each) and every arch-topped scene. Open #sketchbook for this page alone.">
+            <View style={{ gap: theme.space[6] }}>
+              <SketchbookDishes />
+              <SketchbookScenes />
+            </View>
+          </Section>
         </View>
       </View>
     </ScrollView>
@@ -1116,7 +1123,13 @@ export function Gallery() {
       <SafeAreaProvider>
         <ThemeProvider theme="light" direction="rtl">
           <ToastProvider bottomOffset={32}>
-            <Page />
+            {typeof window !== 'undefined' && window.location.hash.startsWith('#sketchbook') ? (
+              <ScrollView style={{ flex: 1 }}>
+                <SketchbookPage dishSize={Number(window.location.hash.split('-')[1]) || 96} />
+              </ScrollView>
+            ) : (
+              <Page />
+            )}
           </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>

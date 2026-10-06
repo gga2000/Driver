@@ -25,7 +25,9 @@ Decided by Ali on 2026-10-06 (see the dated section at the end of
 `docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
 tender limit) and extra cash must be named; honest delay in two steps (10 min apology + new time, 20
 min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee was built to be paid by
-the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen, 3-second pause before the sweep.
+the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen
+(every PIN typed is logged; cross-use and 3 wrong PINs on a seat alert ops on the Console safety strip), 3-second pause before the sweep.
+All 23 Phase 3 review problems are fixed (review board: Ali's artifact, see memory). Open: guardian messages (`khat.guardian_*`, `push.khat_dropped.body`, WhatsApp `wa.khat_dropped`) still say «صعد/وصل» for every child; child records have no gender (the partner app uses neutral copy); changing the WhatsApp template needs re-approval — ask Ali.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,
 and the Console zones/map pages — check recent commits (`git log --oneline -20`) before touching those.

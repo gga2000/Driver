@@ -274,4 +274,33 @@ describe('control room pages render', () => {
     const html = wrap(<Wall data={data} />);
     for (const text of ['الأسبوع الأول', 'وسيط وقت التوصيل', '31 د', 'على الهدف', 'بعيد عن الهدف', 'بعد وكت', 'الطلبات باليوم', '4 من 6', 'الهدف 30 طلب باليوم', 'اليوم']) expect(html).toContain(text);
   });
+
+  it('wall in TV mode (K3a, K3b): every tile with a figure compares with yesterday; one screen, no scrolling', () => {
+    const previous: Record<string, number> = { median_delivery: 36, acceptance: 0.7, disputes_24h: 1, orders_day: 28, rajaa_seats: 9 };
+    const data: LaunchMetricsView = {
+      cityId: 'aziziyah',
+      at: AT,
+      since: new Date('2026-09-28T21:00:00Z'),
+      day: 7,
+      metrics: [
+        { key: 'median_delivery', label_ar: 'وسيط وقت التوصيل', value: 31, display: '31 دقيقة', target_ar: 'أقل من 35 دقيقة', ok: true, hint_ar: null, better: 'down' },
+        { key: 'acceptance', label_ar: 'نسبة القبول', value: 0.8, display: '80%', target_ar: 'أكثر من 85%', ok: false, hint_ar: null, better: 'up' },
+        { key: 'disputes_24h', label_ar: 'شكاوى معلّقة فوق 24 ساعة', value: 0, display: '0', target_ar: 'صفر', ok: true, hint_ar: null, better: 'down' },
+        { key: 'orders_day', label_ar: 'طلبات اليوم', value: 34, display: '34', target_ar: '30+ باليوم السابع', ok: true, hint_ar: null, better: 'up' },
+        { key: 'rajaa_seats', label_ar: 'مقاعد الرجعة المحجوزة', value: 12, display: '12', target_ar: '20+ بالأسبوع', ok: null, hint_ar: null, better: 'up' },
+        { key: 'ledger', label_ar: 'الدفتر', value: 0, display: 'متوازن', target_ar: 'متوازن كل ليلة', ok: true, hint_ar: null },
+      ].map((m) => ({ ...m, previous: previous[m.key] ?? null })) as LaunchMetricsView['metrics'],
+      ordersByDay: [{ date: '2026-10-03', orders: 28 }, { date: '2026-10-04', orders: 34 }],
+      deliverySamples: 120,
+      offers: { accepted: 80, answered: 100 },
+      openTickets: 2,
+    };
+    const html = wrap(<Wall data={data} tv />);
+    expect(html.match(/<span class="num">أمس بهالوقت/g)).toHaveLength(5);
+    for (const text of ['أمس بهالوقت 36 دقيقة', 'أمس بهالوقت 70%', 'أمس بهالوقت 1', 'أمس بهالوقت 28', 'أمس بهالوقت 9']) expect(html).toContain(text);
+    // The TV frame is the screen's height and never scrolls; sizes follow the viewport.
+    expect(html).toContain('data-tv="true"');
+    expect(html).toMatch(/h-screen overflow-hidden/);
+    expect(html).toContain('text-[clamp(52px,min(8.9vh,5vw),96px)]');
+  });
 });

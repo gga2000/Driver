@@ -6,7 +6,7 @@ import type {
   RequestState,
 } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { BookingRecord, DemandPostRecord, DepartureRecord, RequestRecord } from './model.js';
+import type { BookingRecord, DemandPostRecord, DepartureRecord, PinAttemptRecord, RequestRecord } from './model.js';
 
 /**
  * Persistence of the routes module: departures (with their run state), seat bookings, demand posts
@@ -72,6 +72,14 @@ export interface RoutesRepository {
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
 
+  /** Appends one seat-PIN attempt (the log is never updated or deleted). */
+  addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void>;
+  /** A departure's PIN attempts, oldest first. */
+  pinAttemptsFor(departureId: string, tx?: Tx): Promise<PinAttemptRecord[]>;
+  /** The city's attempts that raised an ops alert at or after `since`, newest first. */
+  pinAlertsSince(cityId: string, since: Date, tx?: Tx): Promise<PinAttemptRecord[]>;
+  getPinAttempt(id: string, tx?: Tx): Promise<PinAttemptRecord | null>;
+
   /** Cross-instance write lock held until `tx` ends (Postgres advisory lock); a no-op in memory. */
   lock(tx?: Tx): Promise<void>;
 }
@@ -87,6 +95,7 @@ export class InMemoryRoutesRepository implements RoutesRepository {
   private readonly bookings = new Map<string, BookingRecord>();
   private readonly demand = new Map<string, DemandPostRecord>();
   private readonly requests = new Map<string, RequestRecord>();
+  private readonly pinAttempts: PinAttemptRecord[] = [];
 
   async saveDeparture(d: DepartureRecord): Promise<void> {
     this.departures.set(d.id, clone(d));
@@ -199,6 +208,31 @@ export class InMemoryRoutesRepository implements RoutesRepository {
           a.when.getTime() - b.when.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
       )
       .map(clone);
+  }
+
+  async addPinAttempt(a: PinAttemptRecord): Promise<void> {
+    this.pinAttempts.push(clone(a));
+  }
+
+  async pinAttemptsFor(departureId: string): Promise<PinAttemptRecord[]> {
+    return this.pinAttempts
+      .filter((a) => a.departureId === departureId)
+      .sort((a, b) => a.at.getTime() - b.at.getTime())
+      .map(clone);
+  }
+
+  async pinAlertsSince(cityId: string, since: Date): Promise<PinAttemptRecord[]> {
+    // Latest written first among equal times (the Prisma twin orders by created_at too).
+    return [...this.pinAttempts]
+      .reverse()
+      .filter((a) => a.cityId === cityId && a.alert !== null && a.at.getTime() >= since.getTime())
+      .sort((a, b) => b.at.getTime() - a.at.getTime())
+      .map(clone);
+  }
+
+  async getPinAttempt(id: string): Promise<PinAttemptRecord | null> {
+    const a = this.pinAttempts.find((x) => x.id === id);
+    return a ? clone(a) : null;
   }
 
   async lock(): Promise<void> {}

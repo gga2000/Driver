@@ -145,6 +145,9 @@ const DRIVER: Array<[string, (c: Call) => Promise<unknown>]> = [
 
 const OPS: Array<[string, (c: Call) => Promise<unknown>]> = [
   ['ops.garage', (c) => c.routes.ops.garage({ garageId: 'mp_garage_bab1' })],
+  ['ops.pinAlerts', (c) => c.routes.ops.pinAlerts({ cityId: 'aziziyah' })],
+  ['ops.pinAttempts', (c) => c.routes.ops.pinAttempts({ departureId: 'dep_1' })],
+  ['ops.callPinAlertDriver', (c) => c.routes.ops.callPinAlertDriver({ alertId: 'pa_1' })],
 ];
 
 describe('routes router: role gating', () => {

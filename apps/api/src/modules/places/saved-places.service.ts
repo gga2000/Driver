@@ -1,19 +1,22 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  DOOR_RULES,
   DriverError,
   PLACE_AGREE_RADIUS_M,
   PLACE_CONFIRM_MAX_ACCURACY_M,
   PLACE_CONFIRMED_CONFIDENCE,
   type ConfirmPlaceInput,
+  type DoorSample,
   type LatLng,
   type SavedPlaceLabel,
   type SavedPlaceView,
   type SavePlaceInput,
   type UpdatePlaceInput,
 } from '@driver/contracts';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { EventsService } from '../events/index.js';
+import { doorPoint, withSample } from './door-point.js';
 import { BLOB_STORE, type BlobStore } from './uploads.js';
 import { distanceM, ZoneResolver } from './zones.js';
 
@@ -27,6 +30,8 @@ export interface SavedPlaceRecord {
   pin: LatLng;
   note: string | null;
   photoIds: string[];
+  /** Couriers' arrival fixes at delivered drop-offs (maps program a3), newest `DOOR_RULES.keep`. */
+  arrivalSamples: DoorSample[];
   confidence: number;
   confirmedAt: Date | null;
   shareWithHousehold: boolean;
@@ -42,6 +47,8 @@ export interface SavedPlaceRecord {
 export interface SavedPlacesRepository {
   get(id: string): Promise<SavedPlaceRecord | null>;
   byOwners(ownerIds: readonly string[]): Promise<SavedPlaceRecord[]>;
+  /** Writes the place's arrival samples only (never races an owner's edit of the rest). */
+  setArrivalSamples(id: string, samples: readonly DoorSample[]): Promise<void>;
   put(rec: SavedPlaceRecord): Promise<void>;
   delete(id: string): Promise<void>;
 }
@@ -68,7 +75,14 @@ export class InMemorySavedPlacesRepository implements SavedPlacesRepository {
   }
 
   async put(rec: SavedPlaceRecord) {
-    this.rows.set(rec.id, structuredClone(rec));
+    // Like the database: an edit never writes the arrival samples (they have their own writer).
+    const samples = this.rows.get(rec.id)?.arrivalSamples ?? rec.arrivalSamples;
+    this.rows.set(rec.id, structuredClone({ ...rec, arrivalSamples: samples }));
+  }
+
+  async setArrivalSamples(id: string, samples: readonly DoorSample[]) {
+    const r = this.rows.get(id);
+    if (r) r.arrivalSamples = structuredClone([...samples]);
   }
 
   async delete(id: string) {
@@ -97,13 +111,19 @@ export function courierMaySeePlaceDetails(input: {
   return !trip.completedAt || input.now.getTime() <= trip.completedAt.getTime() + 3_600_000;
 }
 
+/** Subscriber name for the door learning (maps program a3). */
+export const PLACES_DOOR_SUBSCRIBER = 'places:door-learning';
+
+/** The `door` part of a `stop.completed` payload (trips adds it for drop-offs at saved places). */
+const DoorPayload = z.object({ stopId: z.string(), door: z.object({ placeId: z.string(), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }) });
+
 /**
  * Customers' saved places (domain §7, customer spec §10): owner-only writes, zone resolved from the
  * pin on the server, photos referenced by finished uploads the owner made, "موقعي هنا" confirmation,
  * and opt-in household sharing (read-only for the other members).
  */
 @Injectable()
-export class SavedPlacesService {
+export class SavedPlacesService implements OnModuleInit {
   private readonly logger = new Logger(SavedPlacesService.name);
   private readonly clock: Clock;
   private readonly inflight = new Set<Promise<void>>();
@@ -117,6 +137,18 @@ export class SavedPlacesService {
     @Optional() @Inject(CLOCK) clock?: Clock,
   ) {
     this.clock = clock ?? new SystemClock();
+  }
+
+  /** Delivered drop-offs at saved places teach them their door (maps program a3), through the outbox. */
+  onModuleInit(): void {
+    this.events?.subscribe(PLACES_DOOR_SUBSCRIBER, ['stop.completed'], async (e) => {
+      if (e.quarantined) return;
+      const p = DoorPayload.safeParse(e.payload);
+      // Pickups, rides and drop-offs without a saved place or a precise arrival carry no door.
+      if (!p.success) return;
+      const { door, stopId } = p.data;
+      await this.learnDoor(door.placeId, { stopId, lat: door.lat, lng: door.lng, accuracyM: door.accuracyM, at: e.occurredAt });
+    });
   }
 
   /** Mine first (home, work, then by name), then places household members shared with me. */
@@ -148,6 +180,7 @@ export class SavedPlacesService {
       pin: input.pin,
       note: input.note?.trim() || null,
       photoIds,
+      arrivalSamples: [],
       confidence: INITIAL_CONFIDENCE,
       confirmedAt: null,
       shareWithHousehold: input.shareWithHousehold,
@@ -235,15 +268,38 @@ export class SavedPlacesService {
   }
 
   /**
+   * The place an order goes to, when the orderer may use it (maps program SP3d): its learned door
+   * (a3), where the courier navigates and arrives; null when the place is not theirs or gone.
+   */
+  async deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null> {
+    if (!(await this.usableBy(personId, placeId))) return null;
+    const r = await this.repo.get(placeId);
+    return r ? { door: doorPoint(r.arrivalSamples, r.pin) } : null;
+  }
+
+  /**
    * The door as the courier on the job sees it (maps program f6): the place's standing note and its
    * photos as signed links — only for the assigned courier, from accepting until an hour after the
    * trip (domain §7, `courierMaySeePlaceDetails`); null otherwise or when the place is gone.
    */
-  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }> } | null> {
+  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean } | null> {
     if (!courierMaySeePlaceDetails(input)) return null;
     const r = await this.repo.get(placeId);
     if (!r) return null;
-    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })) };
+    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null };
+  }
+
+  /**
+   * One delivered arrival at a saved place (maps program a3, from `stop.completed`). Why only
+   * precise ones: a fix blurrier than `DOOR_RULES.maxAccuracyM` would teach the wrong door. A
+   * redelivered event adds nothing (one sample per drop-off). Returns whether it was kept.
+   */
+  async learnDoor(placeId: string, sample: DoorSample): Promise<boolean> {
+    if (sample.accuracyM > DOOR_RULES.maxAccuracyM) return false;
+    const r = await this.repo.get(placeId);
+    if (!r || r.arrivalSamples.some((s) => s.stopId === sample.stopId)) return false;
+    await this.repo.setArrivalSamples(placeId, withSample(r.arrivalSamples, sample));
+    return true;
   }
 
   zoneFor(cityId: string, pin: LatLng): { zoneId: string | null; zoneName_ar: string | null; zoneName_en: string | null; inService: boolean } {
@@ -315,6 +371,7 @@ export class SavedPlacesService {
       confidence: r.confidence,
       confirmed: r.confidence >= PLACE_CONFIRMED_CONFIDENCE,
       confirmedAt: r.confirmedAt,
+      doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null,
       sharedWithHousehold: r.shareWithHousehold,
       access: r.ownerId === viewerId ? 'owner' : 'household',
       createdAt: r.createdAt,

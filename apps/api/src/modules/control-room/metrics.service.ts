@@ -70,7 +70,7 @@ export class LaunchMetricsService {
     // S-K6: each tile as it stood 24 hours ago (same window, cut at now − 24 h), for the trend arrow.
     const dayAgo = new Date(now.getTime() - DAY_MS);
     const hadYesterday = dayAgo.getTime() > since.getTime();
-    const [durations, offers, tickets, perDay, seats, nightly, prevDurations, prevOffers, prevPerDay, prevSeats] = await Promise.all([
+    const [durations, offers, tickets, perDay, seats, nightly, prevDurations, prevOffers, prevPerDay, prevSeats, prevOverdue] = await Promise.all([
       this.orders.deliveryDurations(input.cityId, since, now),
       this.dispatch.offerOutcomes(since),
       this.support.overdue(input.cityId),
@@ -81,6 +81,7 @@ export class LaunchMetricsService {
       hadYesterday ? this.dispatch.offerOutcomes(since, dayAgo) : Promise.resolve(null),
       this.orders.placedPerDay(input.cityId, startOfLocalDay(dayAgo), dayAgo),
       hadYesterday ? this.routes.seatsBookedSince(since, dayAgo) : Promise.resolve(null),
+      this.support.overdueAt(input.cityId, dayAgo),
     ]);
     const prev = yesterdayValues({ durations: prevDurations, offers: prevOffers, ordersByNow: [...prevPerDay.values()].reduce((a, n) => a + n, 0), seats: prevSeats });
     const med = median(durations);
@@ -125,8 +126,8 @@ export class LaunchMetricsService {
         target_ar: 'صفر',
         ok: tickets.overdue24h <= WEEK_ONE_TARGETS.disputesOver24h,
         hint_ar: `${tickets.open} تذكرة مفتوحة`,
-        // Tickets closed since then are gone from the open list: yesterday's count can't be rebuilt.
-        previous: null,
+        // Rebuilt from the tickets still open and those resolved since then (support.overdueAt).
+        previous: prevOverdue,
         better: 'down',
       },
       {

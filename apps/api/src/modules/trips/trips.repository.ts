@@ -57,6 +57,8 @@ export interface StopRecord {
   arrivedOutsideGeofence: boolean;
   arrivalPin: LatLng | null;
   arrivalDistanceM: number | null;
+  /** GPS accuracy of the arrival fix, metres (maps program a3); null when unknown. */
+  arrivalAccuracyM: number | null;
   completedAt: Date | null;
   skippedAt: Date | null;
   skipReason: string | null;
@@ -119,6 +121,7 @@ export type StopPatch = Partial<
     | 'arrivedOutsideGeofence'
     | 'arrivalPin'
     | 'arrivalDistanceM'
+    | 'arrivalAccuracyM'
     | 'completedAt'
     | 'skippedAt'
     | 'skipReason'
@@ -215,6 +218,7 @@ interface StopRow {
   arrivedAt: Date | null;
   arrivedOutsideGeofence: boolean;
   arrivalDistanceM: number | null;
+  arrivalAccuracyM: number | null;
   completedAt: Date | null;
   skippedAt: Date | null;
   skipReason: string | null;
@@ -563,6 +567,7 @@ export class InMemoryTripsRepository implements TripsRepository {
         arrivedOutsideGeofence: false,
         arrivalPin: null,
         arrivalDistanceM: null,
+        arrivalAccuracyM: null,
         completedAt: null,
         skippedAt: null,
         skipReason: null,

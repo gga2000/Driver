@@ -467,6 +467,15 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     return { open: active.length, overdue24h: active.filter((t) => now.getTime() - t.openedAt.getTime() > DAY_MS).length };
   }
 
+  /**
+   * How many tickets were open and older than 24 h at `at` (the wall's "أمس بهالوقت" for that tile):
+   * the ones still open plus those resolved after `at`, opened more than a day before it.
+   */
+  async overdueAt(cityId: string, at: Date): Promise<number> {
+    const rows = await this.repo.list({ cityId, statuses: ACTIVE, resolvedSince: at, limit: 2000 });
+    return rows.filter((t) => at.getTime() - t.openedAt.getTime() > DAY_MS && (t.status !== 'resolved' || (t.resolvedAt !== null && t.resolvedAt.getTime() > at.getTime()))).length;
+  }
+
   private async load(id: string, tx?: Tx): Promise<TicketRecord> {
     const t = await this.repo.get(id, tx);
     if (!t) throw new DriverError('ticket_not_found');

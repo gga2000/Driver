@@ -55,12 +55,22 @@ push reminder at the same moment. His late confirm turns the row calm ("تأكد
 it leaves after 30 minutes. Procedures, timer and table: `docs/api/partner-merchant-wave2.md`
 (`khat.sweepAlerts`, "The late sweep").
 
+## الرجعة: a seat PIN on the wrong seat (2026-10-06)
+
+The same strip carries الرجعة seat-PIN rows (`PinAlertRow`): a driver typed one rider's PIN on
+another rider's seat (red, refused, nobody boarded), or typed a wrong PIN 3 times on one seat
+(amber). Each row names the driver, the car and when it leaves, unfolds every PIN typed on that car
+(times, seats, what happened; never the PIN) and calls the driver through the masked line
+(`routes.ops.callPinAlertDriver`). It leaves after 60 minutes. Details: `docs/api/partner-merchant-wave2.md`
+("Seat PIN safeguards").
+
 ## Demo
 
 - Partner: hold طوارئ on any job, departure, private ride or خطوط run (`SHOTS=sos` shoots it).
 - Customer: a ride with a driver, or `POST /demo/rajaa/onboard?personId=…` for a seat checked in at the garage.
 - Console: `POST /demo/sos[?who=driver|customer]` on the console demo API (or `DEMO_SOS=1`);
-  `POST /demo/khat-sweep[?late=1]` for the خطوط sweep row.
+  `POST /demo/khat-sweep[?late=1]` for the خطوط sweep row; `POST /demo/pin-alert[?kind=wrong]` for a
+  الرجعة seat-PIN row.
 
 ## Not done yet
 

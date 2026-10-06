@@ -18,7 +18,8 @@ describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
     expect(motifForDish('لفة كبد')).toBe('wrap');
     expect(motifForDish('وجبة كبد')).toBe('liver');
     expect(motifForDish('وجبة تكة')).toBe('tikka');
-    expect(motifForDish('وجبة كباب')).toBe('kebab');
+    expect(motifForDish('وجبة كباب')).toBe('plate');
+    expect(motifForDish('كباب عراقي')).toBe('kebab');
     expect(motifForDish('نص دجاجة مشوية')).toBe('chicken');
     expect(motifForDish('تمن ومرق')).toBe('rice');
     expect(motifForDish('شوربة عدس')).toBe('soup');
@@ -28,6 +29,25 @@ describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
     expect(motifForDish('شاورما لحم')).toBe('shawarma');
     expect(motifForDish('فلافل')).toBe('falafel');
     expect(motifForDish('صمون حجري')).toBe('bread');
+  });
+
+  it('J4: the Iraqi dishes with their own drawing', () => {
+    expect(motifForDish('باچة')).toBe('pacha');
+    expect(motifForDish('تشريب باچة')).toBe('pacha');
+    expect(motifForDish('دولمة')).toBe('dolma');
+    expect(motifForDish('مسگوف')).toBe('fish');
+    expect(motifForDish('سمچ مسكوف')).toBe('fish');
+    expect(motifForDish('كبة حلب')).toBe('kubba');
+    expect(motifForDish('تمن وبامية')).toBe('okra');
+    expect(motifForDish('تمن وفاصوليا')).toBe('beans');
+    expect(motifForDish('تمن وقيمة')).toBe('rice');
+    expect(motifForDish('حمص')).toBe('hummus');
+    expect(motifForDish('كباب بالكيلو')).toBe('tray');
+    expect(motifForDish('مشكّل خالد')).toBe('tray');
+    expect(motifForDish('لفة فلافل')).toBe('falafel');
+    expect(motifForDish('طماطة مشوية')).toBe('salad');
+    expect(motifForDish('شيش طاووق')).toBe('chicken');
+    expect(motifForDish('كاهي وقيمر')).toBe('bread');
   });
 
   it('an unknown name falls back to its menu section, then a plate', () => {

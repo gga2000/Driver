@@ -8,6 +8,8 @@ import type {
   IntercitySeatLayout,
   IntercityVehicleKind,
   PickupStatus,
+  PinAlertKind,
+  PinAttemptResult,
   RequestState,
   SeatPayment,
   TravellingAs,
@@ -171,6 +173,28 @@ export interface RequestRecord {
   driverArrivedPin: { lat: number; lng: number } | null;
   closedAt: Date | null;
   createdAt: Date;
+}
+
+/**
+ * One seat PIN a driver typed at a departure (`intercity_pin_attempts`, append-only; ids only, never
+ * the PIN). Ali 2026-10-06: record who typed which rider's PIN, and on whose seat.
+ */
+export interface PinAttemptRecord {
+  id: string;
+  departureId: string;
+  /** The ops desk that watches the car. */
+  cityId: string;
+  driverId: string;
+  /** The seat's booking it was typed on (garage mode); null on the plain PIN pad. */
+  targetBookingId: string | null;
+  /** The booking on this car that the PIN belongs to, if any. */
+  matchedBookingId: string | null;
+  result: PinAttemptResult;
+  /** Set on the attempt that raised an ops alert. */
+  alert: PinAlertKind | null;
+  /** Refused PINs on that seat (or the pad) in this departure, this one included (0 when it boarded). */
+  refusedOnSeat: number;
+  at: Date;
 }
 
 /** Booking states that occupy their seats. */

@@ -19,7 +19,9 @@
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
-// check (the red row under the SOS banner; `late=1`: confirmed late).
+// check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
+// → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
+// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat.
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,6 +33,9 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const PORT = Number(process.env.PORT ?? 3395);
 const SIM_SECONDS = Number(process.env.DEMO_SIM_SECONDS ?? 45);
 
+// The 23:00 round counts receipts from 18:00 Baghdad; the demo counts them from midnight so «استلمت»
+// moves "جمعنا … من …" at any hour of the day (CASH_ROUND_FROM_HOUR=18 for the real window).
+process.env.CASH_ROUND_FROM_HOUR ??= '0';
 // Outlines drawn in the demo Console (Zones page) are written here so they survive restarts.
 process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-placements.json', import.meta.url));
 const { createApp } = await load('bootstrap.js');
@@ -78,6 +83,19 @@ app.use('/demo/khat-sweep', async (req, res) => {
     if (!raiseDemoSweep) throw new Error('still seeding');
     const late = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('late') === '1';
     res.end(JSON.stringify(await raiseDemoSweep(late)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/pin-alert[?kind=wrong] (registered before listen; filled in below by `raiseDemoPinAlert`).
+let raiseDemoPinAlert = null;
+app.use('/demo/pin-alert', async (req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!raiseDemoPinAlert) throw new Error('still seeding');
+    const kind = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('kind') === 'wrong' ? 'wrong' : 'cross';
+    res.end(JSON.stringify(await raiseDemoPinAlert(kind)));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -262,6 +280,53 @@ if (process.env.DEMO_HISTORY !== '0') {
 // DEMO_LIVE=0 stops the simulator here instead.
 if (process.env.DEMO_LIVE === '0') await sim.stop();
 else if (process.env.DEMO_LIVE_SPEED && sim.live) sim.live.speed = Number(process.env.DEMO_LIVE_SPEED);
+
+// ───────────────────────── yesterday (the wall's «أمس بهالوقت») ─────────────────────────
+// The launch wall compares each tile with the same clock time yesterday (S-K6). The demo starts
+// today, so it writes a yesterday as the evening goes: four in five delivered orders again 24 hours
+// earlier (a little slower: +3 minutes to the door), the dispatch offers too (one in four accepted
+// ones declined), every 30 s so yesterday keeps pace with the live traffic; and الرجعة seats booked
+// yesterday further down. Copies only, with their own ids; DEMO_YESTERDAY=0 skips it.
+const DAY_MS = 86_400_000;
+const seedYesterday = process.env.DEMO_YESTERDAY !== '0';
+if (seedYesterday) {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const { DISPATCH_REPOSITORY } = await load('modules/dispatch/dispatch.repository.js');
+  const ordersRepo = get(ORDERS_REPOSITORY);
+  const offersRepo = app.get(DISPATCH_REPOSITORY, { strict: false });
+  const back = (v) => (v instanceof Date ? new Date(v.getTime() - DAY_MS) : v);
+  const shift = (rec) => Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, back(v)]));
+  const seen = new Set();
+  let n = 0;
+  let accepted = 0;
+  const copyToYesterday = () => {
+    for (const o of [...(ordersRepo.orders?.values?.() ?? [])]) {
+      if (!o.deliveredAt || o.id.endsWith('_y') || seen.has(o.id)) continue;
+      seen.add(o.id);
+      n += 1;
+      if (n % 5 === 0) continue;
+      const y = { ...shift(o), id: `${o.id}_y` };
+      y.deliveredAt = new Date(y.deliveredAt.getTime() + 3 * 60_000);
+      ordersRepo.orders.set(y.id, y);
+      const lines = (ordersRepo.linesByOrder?.get(o.id) ?? []).map((l) => ({ ...l, id: `${l.id}_y`, orderId: y.id }));
+      const parts = (ordersRepo.participantsByOrder?.get(o.id) ?? []).map((p) => ({ ...p, id: `${p.id}_y`, orderId: y.id }));
+      ordersRepo.lines?.push(...lines);
+      ordersRepo.participants?.push(...parts);
+      ordersRepo.linesByOrder?.set(y.id, lines);
+      ordersRepo.participantsByOrder?.set(y.id, parts);
+    }
+    for (const row of [...(offersRepo?.rows?.values?.() ?? [])]) {
+      if (row.state === 'sent' || row.state === 'seen' || row.id.endsWith('_y') || seen.has(row.id)) continue;
+      seen.add(row.id);
+      const y = { ...shift(row), id: `${row.id}_y`, tripId: `${row.tripId}_y` };
+      if (y.state === 'accepted' && accepted++ % 4 === 3) y.state = 'declined';
+      offersRepo.rows.set(y.id, y);
+    }
+  };
+  copyToYesterday();
+  setInterval(copyToYesterday, 30_000).unref?.();
+  console.log(`yesterday: ${n} delivered orders so far, copied 24 h back (and every 30 s)`);
+}
 
 // ───────────────────────── restaurants, orders and zone caps ─────────────────────────
 
@@ -491,5 +556,76 @@ raiseDemoSweep = async function raiseDemoSweep(late = false) {
   if (late) await khatRepo.confirmSweepAlert(tripId, new Date(ended.getTime() + 9 * 60_000 + 20_000));
   return { alertId: alert.id, tripId, driverId: khatDriver };
 };
+
+// ───────────────────────── الرجعة seat PIN alert ─────────────────────────
+// POST /demo/pin-alert — a الرجعة car at كراج البوابة 1 leaving in 40 minutes, two riders booked
+// (قدام and ورا يسار). The driver first types a PIN that is nobody's on the front seat, then the
+// back-left rider's PIN on the front seat (refused: the cross-use row under the SOS banner), then
+// the front rider's own PIN (he boards). `?kind=wrong`: three wrong PINs on the front seat. Real
+// check-ins through the routes module, so the attempt history is the one ops would see.
+const { DeparturesService } = await load('modules/routes/index.js');
+const { AnnounceInput, HoldSeatInput } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts')).href);
+const departures = get(DeparturesService);
+let pinDemoN = 0;
+raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
+  pinDemoN += 1;
+  const tag = String(pinDemoN).padStart(2, '0');
+  const driverId = await person(`078144404${tag}`, ['حيدر كاظم', 'مهدي صالح', 'عمار جبار'][pinDemoN % 3], ['intercity_driver']);
+  const riderA = await person(`077155505${tag}`, 'رقية حسن');
+  const riderB = await person(`077155506${tag}`, 'سجاد علي');
+  const now = Date.now();
+  const dep = await departures.announce(
+    driverId,
+    AnnounceInput.parse({ garageId: 'mp_garage_bab1', corridorId: 'aziziyah_baghdad', departAt: new Date(now + 40 * 60_000), latestDepartureAt: new Date(now + 70 * 60_000), vehicle: { kind: 'saloon', layout: 4, plate: `واسط ${52000 + pinDemoN}` } }),
+  );
+  const seat = async (riderId, seatId) => {
+    const held = await departures.hold(riderId, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal' }));
+    return departures.book(riderId, held.id, 'cash');
+  };
+  const a = await seat(riderA, 'front');
+  const b = await seat(riderB, 'back_left');
+  const nobody = ['0000', '1111', '2222', '3333', '4444', '5555'].filter((p) => p !== a.pin && p !== b.pin);
+  const type = async (pin, bookingId) => {
+    try {
+      await departures.checkIn(driverId, dep.id, pin, bookingId);
+    } catch (err) {
+      if (err?.code !== 'pin_invalid') throw err;
+    }
+  };
+  if (kind === 'wrong') for (const pin of nobody.slice(0, 3)) await type(pin, a.id);
+  else {
+    await type(nobody[0], a.id);
+    await type(b.pin, a.id);
+    await type(a.pin, a.id);
+  }
+  const attempts = await departures.pinAttempts(dep.id);
+  return { departureId: dep.id, driverId, alertIds: attempts.filter((x) => x.alert).map((x) => x.id), attempts: attempts.map((x) => x.result) };
+};
+
+// الرجعة seats for the wall: a car at كراج البوابة 2 with 5 seats booked today, and (with the
+// yesterday above) 3 of them as if booked yesterday at this time, so «مقاعد الرجعة» has a comparison.
+{
+  const now = Date.now();
+  const driverId = await person('07814440300', 'جاسم محمد', ['intercity_driver']);
+  const dep = await departures.announce(
+    driverId,
+    AnnounceInput.parse({ garageId: 'mp_garage_bab2', corridorId: 'aziziyah_baghdad', departAt: new Date(now + 3 * 3_600_000), latestDepartureAt: new Date(now + 3 * 3_600_000 + 30 * 60_000), vehicle: { kind: 'van', layout: 7, plate: 'واسط 61880' } }),
+  );
+  const seatIds = ['front', 'middle_left', 'middle_right', 'rear_left', 'rear_right', 'rear_middle', 'middle_middle'];
+  const booked = [];
+  for (let i = 0; i < (seedYesterday ? 7 : 4); i += 1) {
+    const rider = await person(`07715550${String(300 + i).padStart(3, '0')}`, ['نور', 'حسين', 'فاطمة', 'مصطفى', 'زهراء', 'علي', 'مريم'][i]);
+    const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatIds[i]] }, travellingAs: 'rijal' }));
+    booked.push(await departures.book(rider, held.id, 'cash'));
+  }
+  if (seedYesterday) {
+    const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+    const routesRepo = get(ROUTES_REPOSITORY);
+    for (const b of booked.slice(4)) {
+      const rec = routesRepo.bookings?.get(b.id);
+      if (rec) routesRepo.bookings.set(b.id, { ...rec, bookedAt: new Date(now - DAY_MS - 20 * 60_000) });
+    }
+  }
+}
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

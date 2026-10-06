@@ -53,10 +53,46 @@ Errors: `document_not_found`, `checkin_challenge_invalid`, `checkin_locked`, `up
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
-| `checkIn` | mutation | `{departureId, pin, bookingId?}` — with `bookingId` (the PIN typed on that rider's seat) only that booking can match; another rider's PIN is `pin_invalid` | `DriverDepartureView` |
+| `checkIn` | mutation | `{departureId, pin, bookingId?}` — with `bookingId` (the PIN typed on that rider's seat) only that booking can match; another rider's PIN is `pin_invalid`. Every PIN typed is logged (see "Seat PIN safeguards" below) | `DriverDepartureView` |
 | `callRider` | mutation | `{departureId, bookingId}` | `CallSession` (as `chat.requestCall`) — masked call to a booked or boarded rider on his own live run; event `departure.rider_call_requested` (ids only); `not_departure_driver`, `booking_not_found`, `departure_state_conflict`, `call_unavailable` |
 
 The bridge is the chat module's, now in `apps/api/src/shared/call-bridge.ts` (`callBridgeFor`).
+
+### Seat PIN safeguards (Ali, 2026-10-06)
+
+The seat PIN stays on the rider's lock-screen boarding pass, so every PIN a driver types at a
+departure is recorded and misuse reaches ops:
+
+```
+driver types a PIN (routes.driver.checkIn, with or without the seat's bookingId)
+   └─ one intercity_pin_attempts row in the same write (append-only, ids only, never the PIN):
+        driver, departure, target booking (the seat; null on the plain PIN pad), the booking the
+        PIN belongs to on this car (if any), result, refused-on-this-seat count, alert, time
+        ├─ checked_in ──────────► the rider boards (as before)
+        ├─ other_booking ───────► pin_invalid + alert cross_use        (always)
+        ├─ wrong_pin / not_boardable ► pin_invalid; at the 3rd refusal on one seat
+        │                              (PIN_ATTEMPT_RULES.wrongOnSeatAlertAt) alert wrong_repeated, once
+        └─ an alert is also seat.pin_alert on the departure's log (ids and seat ids only)
+              └─ Console strip under the SOS banner, with the خطوط sweep rows (routes.ops.pinAlerts,
+                 polled 5 s) for PIN_ATTEMPT_RULES.alertShowMin (60) minutes; the log stays
+```
+
+A refused PIN is committed before `pin_invalid` goes back (the driver's app is unchanged). The plain
+PIN pad has its own count. Another driver's PIN typing on a car that is not his is refused before
+anything is read (`not_departure_driver`) and not logged.
+
+| Procedure | Kind | Input | Output |
+|---|---|---|---|
+| `routes.ops.pinAlerts` | query (dispatcher, support, admin) | `{cityId}` | `PinAlertView[]` `{alertId, kind: cross_use\|wrong_repeated, cityId, departureId, garageNameAr, corridorNameAr, departAt, driver {personId, displayName, phoneMasked}, targetBookingId, targetSeatIds, matchedBookingId, matchedSeatIds, refusedOnSeat, raisedAt, attempts[] PinAttemptView}` — cross-use first in the Console. The drivers' cards are one logged vault read (`intercity_pin_alert`); riders' names are never read |
+| `routes.ops.pinAttempts` | query (dispatcher, support, admin) | `{departureId}` | `PinAttemptView[]` `{attemptId, at, driverId, targetBookingId, targetSeatIds, matchedBookingId, matchedSeatIds, result: checked_in\|wrong_pin\|other_booking\|not_boardable, alert}`, oldest first |
+| `routes.ops.callPinAlertDriver` | mutation (dispatcher, support, admin) | `{alertId}` | `{mode, dial, expiresAt}` (as `khat.callSweepDriver`) — masked call to the car's driver; event `departure.pin_alert_call_requested` (no numbers); `not_found`, `call_unavailable` |
+
+Table `intercity_pin_attempts` (UPDATE/DELETE rejected by the `reject_mutation` trigger), migration
+`20261006161000_intercity_pin_attempts`. Console: `PinAlertRow` in `components/safety/sweep-strip.tsx`
+("حيدر ك. كتب رمز راكب «ورا يسار» على مقعد «قدام»", the car, "شوف الرموز اللي انكتبت (3)" unfolds
+the history, "اتصل ب…"). Console demo: `POST /demo/pin-alert[?kind=wrong]`. Not built: a dispatcher
+"handled" button (the row leaves after an hour), and a PIN of a rider on another car (only this car's
+bookings are matched).
 
 ## `khat.*` — خطوط driver side
 
