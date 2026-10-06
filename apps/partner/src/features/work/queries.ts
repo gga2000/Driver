@@ -144,6 +144,26 @@ export function useOfferSeen() {
   return useMutation(api.dispatch.offerSeen.mutationOptions());
 }
 
+/**
+ * «انت بمنطقة X؟» (maps program SP3): read when a job ends. The server creates the question from the
+ * finished drop-off, so a read that started after the job is the one that can see it.
+ */
+export function useZoneCheck(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.partner.zoneCheck.queryOptions(), enabled: signedIn && enabled, staleTime: 0, retry: false });
+}
+
+/** His answer. The card hides on the tap; once sent (or refused) the question leaves the cache too. */
+export function useAnswerZoneCheck() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.partner.answerZoneCheck.mutationOptions(),
+    onSettled: () => qc.setQueryData(api.partner.zoneCheck.queryKey(), null),
+  });
+}
+
 export function useTripActions() {
   const api = useApi();
   return {

@@ -42,6 +42,11 @@ export interface ZonesRepository {
   create(input: CreateZoneRecord, tx?: Tx): Promise<ZoneRecord>;
   rename(cityId: string, key: string, nameAr: string, nameEn: string, tx?: Tx): Promise<ZoneRecord | null>;
   remove(cityId: string, key: string, tx?: Tx): Promise<boolean>;
+  /**
+   * placed → confirmed, only while the outline is still the one placed at `outlineAt` (a redraw since
+   * the drivers answered wins). Null when the zone moved on.
+   */
+  confirm(cityId: string, key: string, outlineAt: Date, at: Date, tx?: Tx): Promise<ZoneRecord | null>;
 }
 
 export const ZONES_REPOSITORY = Symbol('ZONES_REPOSITORY');
@@ -72,8 +77,10 @@ export class InMemoryZonesRepository implements ZonesRepository {
   async savePlacement(input: SavePlacement): Promise<ZoneRecord | null> {
     this.ensure(input.cityId);
     const k = rowKey(input.cityId, input.key);
-    if (!this.rows.has(k)) return null;
-    const row: ZoneRecord = { cityId: input.cityId, key: input.key, ring: input.ring.map((p) => ({ ...p })), centre: { ...input.centre }, placement: 'placed', placedAt: input.placedAt, placedById: input.placedById };
+    const current = this.rows.get(k);
+    if (!current) return null;
+    // Names, tier and the active flag stay (a zone added in the Console has no seed to fall back on).
+    const row: ZoneRecord = { ...current, ring: input.ring.map((p) => ({ ...p })), centre: { ...input.centre }, placement: 'placed', placedAt: input.placedAt, placedById: input.placedById };
     this.rows.set(k, row);
     this.afterWrite();
     return copy(row);
@@ -109,6 +116,17 @@ export class InMemoryZonesRepository implements ZonesRepository {
     this.rows.set(k, { ...row, active: false });
     this.afterWrite();
     return true;
+  }
+
+  async confirm(cityId: string, key: string, outlineAt: Date): Promise<ZoneRecord | null> {
+    this.ensure(cityId);
+    const k = rowKey(cityId, key);
+    const row = this.rows.get(k);
+    if (!row || row.active === false || row.placement !== 'placed' || row.placedAt?.getTime() !== outlineAt.getTime()) return null;
+    const updated: ZoneRecord = { ...row, placement: 'confirmed' };
+    this.rows.set(k, updated);
+    this.afterWrite();
+    return copy(updated);
   }
 
   /** Hook for the file-backed store. */
@@ -231,6 +249,14 @@ export class PrismaZonesRepository implements ZonesRepository {
     const rows = await this.db(tx).$queryRaw<ZoneRow[]>`
       UPDATE "public"."zones" SET "name_ar" = ${nameAr}, "name_en" = ${nameEn}, "updated_at" = NOW()
       WHERE "city_id" = ${cityId} AND "key" = ${key} AND "is_active" = true RETURNING ${COLUMNS}`;
+    return rows[0] ? fromRow(cityId, rows[0]) : null;
+  }
+
+  async confirm(cityId: string, key: string, outlineAt: Date, at: Date, tx?: Tx): Promise<ZoneRecord | null> {
+    const rows = await this.db(tx).$queryRaw<ZoneRow[]>`
+      UPDATE "public"."zones" SET "placement" = 'confirmed', "verified_at" = ${at}, "updated_at" = ${at}
+      WHERE "city_id" = ${cityId} AND "key" = ${key} AND "is_active" = true AND "placement" = 'placed' AND "placed_at" = ${outlineAt}
+      RETURNING ${COLUMNS}`;
     return rows[0] ? fromRow(cityId, rows[0]) : null;
   }
 

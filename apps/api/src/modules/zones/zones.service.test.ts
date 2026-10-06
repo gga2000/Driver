@@ -4,6 +4,7 @@ import { FakeClock } from '../../shared/clock.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import type { IdentityService } from '../identity/index.js';
+import { InMemoryZoneChecksRepository } from './zone-checks.repository.js';
 import { InMemoryZonesRepository } from './zones.repository.js';
 import { ZonesService } from './zones.service.js';
 
@@ -19,7 +20,7 @@ function harness() {
   const audit = new InMemoryControlsRepository();
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : null])) } as unknown as IdentityService;
   const names = new StaffNames(identity, clock);
-  const svc = new ZonesService(new InMemoryZonesRepository(), ev.events, new AuditLogService(audit, names, clock), names, ev.uow, clock);
+  const svc = new ZonesService(new InMemoryZonesRepository(), ev.events, new AuditLogService(audit, names, clock), names, ev.uow, clock, new InMemoryZoneChecksRepository());
   return { svc, ev, audit };
 }
 

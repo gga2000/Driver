@@ -23,6 +23,29 @@ export function inZone(zoneId: string, t: T, locale: Locale = 'ar-IQ'): string {
 }
 
 /**
+ * The done screen's «انت بمنطقة X؟» (maps program SP3). Only a read that started after the job ended
+ * can see the question the finished drop-off raised, so until that read settles the count home is
+ * held (a failed read lets go); then the card shows until he taps, and the count holds for it.
+ */
+export function zoneCheckMoment<C extends { checkId: string }>(p: {
+  /** The job ended online and counted (not saved offline, not failed). */
+  counted: boolean;
+  doneAt: number;
+  /** When the zone question was last read (0 = never). */
+  readAt: number;
+  readFailed: boolean;
+  check: C | null | undefined;
+  /** The question he already answered on this screen. */
+  answeredId: string | null;
+}): { check: C | null; hold: boolean } {
+  if (!p.counted) return { check: null, hold: false };
+  const read = p.readFailed || p.readAt >= p.doneAt;
+  if (!read) return { check: null, hold: true };
+  const check = p.check && p.check.checkId !== p.answeredId ? p.check : null;
+  return { check, hold: check !== null };
+}
+
+/**
  * Iraqi number agreement for counted nouns: واحد · 2–10 plural · 11+ singular ("14 طلب"), on the
  * shared Arabic categories (packages/i18n `pluralCategory`). These key families have no `_two`
  * form, so 2 reads as few; 100+ reads as many ("100 طلب").

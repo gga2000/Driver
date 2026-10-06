@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import type { GuaranteeWindowView, HandoverProof, PartnerCash, UnreachableStatus } from '@driver/contracts';
@@ -372,6 +372,9 @@ export const DONE_AUTO_HOME_SEC = 4;
  * stop or have stopped. Near or over the cap: a card that says when offers stop and a "سلّم الفلوس"
  * button (the hand-over sheet with the amount). Over the cap that card replaces the auto-return;
  * otherwise it counts down home in 4 s ("نرجعك للطلبات…") with a "خليني هنا" escape.
+ *
+ * `ask` is the rare «انت بمنطقة X؟» card (maps program SP3); `hold` stops the count home while it is
+ * being read or waits for his tap, so the question is never whisked away mid-thought.
  */
 export function DonePanel({
   earnedIqd,
@@ -383,6 +386,8 @@ export function DonePanel({
   today,
   guarantee = null,
   demand = null,
+  ask = null,
+  hold = false,
 }: {
   earnedIqd: number;
   failed: boolean;
@@ -397,6 +402,10 @@ export function DonePanel({
   /** G-91: the live peak shift, re-read after this job (null = no line). */
   guarantee?: GuaranteeWindowView | null;
   demand?: JobEndDemand | null;
+  /** A question to show above the buttons (the zone check card), or null. */
+  ask?: ReactNode;
+  /** True holds the auto-return home (the zone question is loading or open). */
+  hold?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -406,7 +415,7 @@ export function DonePanel({
   const autoHome = !failed && !(truth?.over ?? false);
   const [stay, setStay] = useState(false);
   const [left, setLeft] = useState(DONE_AUTO_HOME_SEC);
-  const counting = autoHome && !stay && !handover;
+  const counting = autoHome && !stay && !handover && !hold;
   const home = useRef(onHome);
   home.current = onHome;
   useEffect(() => {
@@ -454,6 +463,7 @@ export function DonePanel({
       ) : null}
       {/* Where the jobs are, only when he can take them: not while the cash card asks him to settle. */}
       {autoHome && !urgent ? <JobEndNext demand={demand} /> : null}
+      {ask}
       <View style={{ gap: theme.space[2] }}>
         <Button testID="job-done-home" label={t('partner.job_done_cta')} size="lg" variant={urgent ? 'secondary' : 'primary'} fullWidth onPress={onHome} />
         {counting ? (

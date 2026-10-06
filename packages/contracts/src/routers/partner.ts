@@ -3,6 +3,7 @@ import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerDemandMap, PartnerGoOnline
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { AnswerZoneCheckInput, ZoneCheckPrompt } from '../zones-io.js';
 
 /**
  * Driver Partner reads and presence (partner & merchant apps spec). Everything goes through
@@ -42,6 +43,15 @@ export const partnerRouter = router({
   demandMap: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerDemandMap)
     .query(({ ctx }) => ctx.partner.demandMap(ctx.actor)),
+  /** "انت بمنطقة X؟" after a delivery (maps program SP3): his one open question, or null. */
+  zoneCheck: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .output(ZoneCheckPrompt.nullable())
+    .query(({ ctx }) => ctx.zoneChecks.open(ctx.actor)),
+  /** His answer to that question (إي / لا / ما أعرف); only his own, only while it is open. */
+  answerZoneCheck: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .input(AnswerZoneCheckInput)
+    .output(z.void())
+    .mutation(({ ctx, input }) => ctx.zoneChecks.answer(ctx.actor, input)),
   /** Courier path of the cash top-up: only for a customer whose order he is carrying now. */
   topUpLookup: protectedProcedure(['courier'])
     .input(TopUpLookupInput)

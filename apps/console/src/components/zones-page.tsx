@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   formatAreaKm2,
+  ZONE_CHECK_RULES,
   ZONE_EDIT_ROLES,
   zoneProblemText,
   zoneServiceBounds,
@@ -37,6 +38,27 @@ const ZonesMapCanvas = dynamic(() => import('./zones-map-canvas'), {
 
 const STATE_TONE: Record<ZonePlacement, ChipTone> = { draft: 'warn', placed: 'done', confirmed: 'live' };
 const stateLabel = (p: ZonePlacement): string => t(`console.zones_state_${p}`);
+
+/** Drivers' "إي" so far against the count that confirms a placed outline (maps program SP3 §5.3). */
+function ChecksChip({ zone }: { zone: ZonePlacementView }) {
+  if (zone.placement !== 'placed' || !zone.checks) return null;
+  const { yes, drivers } = zone.checks;
+  return (
+    <Chip size="sm" tone="neutral" title={t('console.zones_checks_hint', { need: ZONE_CHECK_RULES.yesToConfirm, minDrivers: ZONE_CHECK_RULES.distinctDrivers, drivers })}>
+      {t('console.zones_checks', { yes, need: ZONE_CHECK_RULES.yesToConfirm })}
+    </Chip>
+  );
+}
+
+/** A driver said "لا" about this outline: the field team should go and look. */
+function FlagChip({ zone }: { zone: ZonePlacementView }) {
+  if (!zone.checks?.flaggedAt) return null;
+  return (
+    <Chip size="sm" tone="bad" dot title={t('console.zones_flagged_hint')}>
+      {t('console.zones_flagged')}
+    </Chip>
+  );
+}
 
 /**
  * Console › النظام › المناطق (maps program SP3): Ali and field ops draw each zone's real outline over
@@ -245,7 +267,10 @@ export function ZonesBoard(p: ZonesBoardProps) {
                         <div className="flex items-center gap-1">
                           <button type="button" onClick={() => p.onPick(z.key)} aria-current={z.key === p.editor.key ? 'true' : undefined} className={cx('flex min-h-[44px] min-w-0 flex-1 items-center justify-between gap-2 px-3 py-1.5 text-start text-sm hover:bg-surface-2', z.key === p.editor.key && 'bg-accent-tint')}>
                             <span className="min-w-0 truncate">{z.name_ar}</span>
-                            <Chip size="sm" tone={STATE_TONE[z.placement]}>{stateLabel(z.placement)}</Chip>
+                            <span className="flex shrink-0 items-center gap-1">
+                              <FlagChip zone={z} />
+                              <Chip size="sm" tone={STATE_TONE[z.placement]}>{stateLabel(z.placement)}</Chip>
+                            </span>
                           </button>
                           {p.canManage ? <span className="flex shrink-0 items-center gap-1 pe-2"><button type="button" className="rounded px-1 text-xs text-muted hover:bg-surface-2" aria-label={t('console.zones_rename')} onClick={() => p.onRename?.(z)}>✎</button><button type="button" className="rounded px-1 text-xs text-bad hover:bg-surface-2" aria-label={t('console.zones_remove')} onClick={() => p.onRemove?.(z)}>×</button></span> : null}
                         </div>
@@ -269,6 +294,8 @@ export function ZonesBoard(p: ZonesBoardProps) {
                     <Chip size="sm" tone={STATE_TONE[open.placement]}>
                       {stateLabel(open.placement)}
                     </Chip>
+                    <ChecksChip zone={open} />
+                    <FlagChip zone={open} />
                     {open.placedBy ? <span className="text-xs text-muted">{t('console.zones_placed_by', { name: open.placedBy })}</span> : null}
                   </div>
                   <p role="status" className={cx('mt-0.5 text-sm', p.problemText || p.saveError ? 'text-bad' : p.dirty ? 'text-warn' : 'text-muted')}>

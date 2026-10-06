@@ -96,6 +96,8 @@ export const ERROR_TABLE = {
   zone_key_taken: { retryHint: 'never', status: 'CONFLICT' },
   zone_shape_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_overlap: { retryHint: 'never', status: 'CONFLICT' },
+  zone_check_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  zone_check_expired: { retryHint: 'never', status: 'CONFLICT' },
   banner_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   banner_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   quiet_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },

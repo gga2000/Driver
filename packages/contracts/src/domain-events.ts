@@ -240,6 +240,12 @@ export const StopCompletedPayload = z.object({
    * places module learns the door from it. Coordinates of the courier's tap, never the customer's pin.
    */
   door: z.object({ placeId: z.string().min(1), courierId: z.string().min(1), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).optional(),
+  /**
+   * Only on the drop-off that ends the trip, when the courier's arrival fix is known (maps program
+   * SP3, drivers confirm zones): the zones module may ask him whether he is in the zone whose outline
+   * holds this point. The courier's own position, never the customer's pin.
+   */
+  finalDrop: z.object({ cityId: z.string().min(1), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).optional(),
 });
 export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 

@@ -76,4 +76,13 @@ describe('Zones page', () => {
     expect(html).toContain('للقراءة بس');
     expect(html).not.toContain('احفظ الحدود');
   });
+
+  it('drivers\' checks: the count toward confirmed on the open zone, and a flag after a "no"', () => {
+    const editor = editorReducer(closedEditor, { type: 'open', key: 'centre', ring: RING, centre: { lat: 32.903, lng: 45.06 } });
+    const counting = board({ editor, zones: [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt: new Date('2026-10-05T10:00:00Z'), checks: { yes: 2, no: 0, drivers: 1, flaggedAt: null } })] });
+    expect(counting).toContain('2/3 تأكيد');
+    expect(counting).not.toContain('سايق قال لا');
+    const flagged = board({ editor, zones: [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt: new Date('2026-10-05T10:00:00Z'), checks: { yes: 1, no: 1, drivers: 1, flaggedAt: new Date('2026-10-06T08:00:00Z') } })] });
+    expect(flagged).toContain('سايق قال لا');
+  });
 });

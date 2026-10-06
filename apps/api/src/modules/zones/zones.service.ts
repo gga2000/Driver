@@ -15,18 +15,29 @@ import {
   type Actor,
   type AziziyahZoneSeed,
   type PlaceZoneInput,
+  type ZoneCheckTally,
   type ZonePlacementView,
   type ZonesPort,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
+import { tallyChecks } from './zone-checks.logic.js';
+import { ZONE_CHECKS_REPOSITORY, type ZoneChecksRepository, type ZoneOutline } from './zone-checks.repository.js';
 import { ZONES_REPOSITORY, type ZoneRecord, type ZonesRepository } from './zones.repository.js';
+
+/** Who confirms a zone when drivers' answers add up (shows as «النظام» in the audit log). */
+export const ZONE_CHECKS_ACTOR = 'system:zone-checks';
 
 const SEEDS = new Map<string, readonly AziziyahZoneSeed[]>([['aziziyah', AZIZIYAH_ZONES]]);
 
-function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record<string, string | null>): ZonePlacementView {
+/** The outline drivers are asked about: drawn zones only (a draft has nothing drawn to confirm). */
+function outlineOf(row: ZoneRecord): ZoneOutline | null {
+  return row.placement !== 'draft' && row.placedAt ? { zoneKey: row.key, outlineAt: row.placedAt } : null;
+}
+
+function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record<string, string | null>, checks?: ZoneCheckTally): ZonePlacementView {
   return {
     key: row.key,
     name_ar: westernDigits(row.nameAr ?? seed?.name_ar ?? row.key),
@@ -39,6 +50,7 @@ function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record
     areaM2: Math.round(ringAreaM2(row.ring)),
     placedBy: row.placedById ? (names[row.placedById] ?? null) : null,
     placedAt: row.placedAt,
+    ...(checks ? { checks } : {}),
   };
 }
 
@@ -56,12 +68,56 @@ export class ZonesService implements ZonesPort {
     private readonly names: StaffNames,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(ZONE_CHECKS_REPOSITORY) private readonly checks: ZoneChecksRepository,
   ) {}
 
   async list(cityId: string): Promise<ZonePlacementView[]> {
     const rows = new Map((await this.repo.list(cityId)).map((r) => [r.key, r]));
     const names = await this.names.of([...rows.values()].flatMap((r) => (r.placedById ? [r.placedById] : [])));
-    return [...rows.values()].filter((row) => row.active !== false).map((row) => view((SEEDS.get(cityId) ?? []).find((seed) => seed.id === row.key), row, names));
+    const outlines = [...rows.values()].flatMap((r) => outlineOf(r) ?? []);
+    const answers = await this.checks.answers(cityId, outlines);
+    const tallyOf = (row: ZoneRecord): ZoneCheckTally | undefined => {
+      const outline = outlineOf(row);
+      return outline ? tallyChecks(answers.filter((a) => a.zoneKey === row.key && a.outlineAt.getTime() === outline.outlineAt.getTime())) : undefined;
+    };
+    return [...rows.values()].filter((row) => row.active !== false).map((row) => view((SEEDS.get(cityId) ?? []).find((seed) => seed.id === row.key), row, names, tallyOf(row)));
+  }
+
+  /** A zone's names for the driver's question (Western digits), or null if the city has no such zone. */
+  async namesOf(cityId: string, key: string, tx?: Tx): Promise<{ name_ar: string; name_en: string } | null> {
+    const row = (await this.repo.list(cityId, tx)).find((r) => r.key === key);
+    if (!row) return null;
+    const seed = (SEEDS.get(cityId) ?? []).find((s) => s.id === key);
+    return { name_ar: westernDigits(row.nameAr ?? seed?.name_ar ?? key), name_en: row.nameEn ?? seed?.name_en ?? key };
+  }
+
+  /**
+   * Drivers' answers added up (maps program SP3 §5.3): the outline placed at `outlineAt` becomes
+   * `confirmed`, audited and evented as the system. A no-op when the outline was redrawn or confirmed
+   * meanwhile. Runs in the caller's transaction (the answer that tipped it).
+   */
+  async confirmByDrivers(cityId: string, key: string, outlineAt: Date, tally: ZoneCheckTally, tx: Tx): Promise<boolean> {
+    const now = this.clock.now();
+    const row = await this.repo.confirm(cityId, key, outlineAt, now, tx);
+    if (!row) return false;
+    const name = westernDigits(row.nameAr ?? (SEEDS.get(cityId) ?? []).find((s) => s.id === key)?.name_ar ?? key);
+    await this.events.emit(tx, { actorId: ZONE_CHECKS_ACTOR, type: 'zone.confirmed', occurredAt: now, payload: { cityId, key, yes: tally.yes, drivers: tally.drivers } }, { name: 'zone', id: `${cityId}:${key}` });
+    await this.audits.record(
+      { cityId, actorId: ZONE_CHECKS_ACTOR, action: 'zone.confirmed', subjectKind: 'zone', subjectId: key, summaryAr: `السواق أكدوا حدود ${name}`, detail: { yes: tally.yes, drivers: tally.drivers } },
+      tx,
+    );
+    return true;
+  }
+
+  /**
+   * A driver said he is not in this zone: the zone tool shows the flag (from the answers) and the
+   * audit log keeps who and when, so the field team can go and look.
+   */
+  async flagByDriver(driverId: string, cityId: string, key: string, tx: Tx): Promise<void> {
+    const now = this.clock.now();
+    const name = (await this.namesOf(cityId, key, tx))?.name_ar ?? key;
+    await this.events.emit(tx, { actorId: driverId, type: 'zone.flagged', occurredAt: now, payload: { cityId, key } }, { name: 'zone', id: `${cityId}:${key}` });
+    await this.audits.record({ cityId, actorId: driverId, action: 'zone.flagged', subjectKind: 'zone', subjectId: key, summaryAr: `سايق جاوب إنه مو بمنطقة ${name}`, detail: {} }, tx);
   }
 
   async place(actor: Actor, input: z.output<typeof PlaceZoneInput>): Promise<ZonePlacementView> {
