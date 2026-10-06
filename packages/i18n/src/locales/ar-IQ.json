@@ -379,7 +379,7 @@
   "checkout.pickup_mode": "شلون تستلم؟",
   "checkout.pickup_door": "للباب",
   "checkout.pickup_door_hint": "الدليفري يجيك لحد الباب",
-  "checkout.pickup_street": "بالشارع",
+  "checkout.pickup_street_save": "بالشارع · توفّر {amount}",
   "checkout.pickup_street_hint": "تلاقيه بنقطة قريبة وتوفّر {amount} دينار",
   "checkout.meeting_point": "نقطة اللقاء",
   "checkout.choose_meeting_point": "اختار نقطة اللقاء",

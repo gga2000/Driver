@@ -8,7 +8,7 @@ import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { useClaimPoints, useHousehold, useTopUpStatus, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
-import { balanceText, lineAmount, lineWhen, pointsWorthText } from '@/features/account/wallet-format';
+import { balanceText, lineAmount, lineWhen, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -252,13 +252,15 @@ function LineRow({ line, divider }: { line: WalletLine; divider: boolean }) {
   const locale = useLocale();
   const detail = locale === 'en' ? line.detail_en : line.detail_ar;
   const positive = line.amount > 0;
+  // Paid in cash at the door: the price for the record, muted, never a red-letter debit.
+  const outside = paidOutsideWallet(line);
   return (
     <ListRow
       leading={KIND_ICON[line.kind]}
       title={locale === 'en' ? line.title_en : line.title_ar}
       subtitle={[detail, lineWhen(line.occurredAt, new Date(), t)].filter(Boolean).join(' · ')}
       trailing={
-        <Text variant="label" tabular color={positive ? (line.unit === 'points' ? theme.colors.accentText : theme.colors.successText) : theme.colors.text}>
+        <Text variant="label" tabular color={outside ? theme.colors.textMuted : positive ? (line.unit === 'points' ? theme.colors.accentText : theme.colors.successText) : theme.colors.text}>
           {lineAmount(line, locale, t)}
         </Text>
       }

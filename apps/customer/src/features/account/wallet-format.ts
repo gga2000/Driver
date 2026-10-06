@@ -19,9 +19,18 @@ export function lineWhen(at: Date, now: Date, t: T): string {
   return `${p.day}/${p.month}`;
 }
 
-/** Signed amount: "+20,000 دينار", "−16,500 دينار", "+27 نقطة". */
-export function lineAmount(line: Pick<WalletLine, 'amount' | 'unit'>, locale: MoneyLocale, t: T): string {
+/**
+ * A purchase paid in cash at the door never came out of the wallet: the API lists it for the record
+ * (with any change or shortfall as lines of their own), so it reads as a plain price, not a debit.
+ */
+export function paidOutsideWallet(line: Pick<WalletLine, 'method' | 'unit'>): boolean {
+  return line.unit === 'iqd' && line.method === 'cash';
+}
+
+/** Signed amount: "+20,000 دينار", "−16,500 دينار", "+27 نقطة"; a cash purchase unsigned: "14,000 دينار". */
+export function lineAmount(line: Pick<WalletLine, 'amount' | 'unit' | 'method'>, locale: MoneyLocale, t: T): string {
   if (line.unit === 'points') return t('wallet.points_signed', { n: amountParam(line.amount, { sign: true }) });
+  if (paidOutsideWallet(line)) return iqd(Math.abs(line.amount), { locale });
   return iqd(line.amount, { locale, sign: true });
 }
 

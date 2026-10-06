@@ -344,7 +344,7 @@ export default function CheckoutScreen() {
           onChange={(v) => setStreet(v === 'street')}
           options={[
             { value: 'door', label: t('checkout.pickup_door') },
-            { value: 'street', label: `${t('checkout.pickup_street')} ${amountParam(-STREET_SAVING_IQD)}` },
+            { value: 'street', label: t('checkout.pickup_street_save', { amount: amountParam(STREET_SAVING_IQD) }) },
           ]}
         />
         <Text variant="footnote" color="textMuted">
