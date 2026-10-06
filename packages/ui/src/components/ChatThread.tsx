@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CHAT_TEXT_MAX, quickReplyText, type CallSession, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
+import { CHAT_TEXT_MAX, quickReplyText, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
 import type { Locale, MessageKey } from '@driver/i18n';
 import { formatClock, ltr } from '../format';
 import { Icon } from '../icons/Icon';
@@ -61,6 +61,10 @@ export interface ChatThreadProps {
   attachPhoto: () => Promise<ChatPhotoResult>;
   /** The phone's position for "send my location"; omit to hide the button (the kitchen). */
   currentLocation?: () => Promise<LatLng | 'denied' | null>;
+  /** Joy l7: live status in the header instead of the role line («بالطريق · 4 دقايق» / «عند بابك»), tapping back to the map. */
+  liveStatus?: { text: string; onPress?: () => void } | null;
+  /** Joy l7: the server's quick replies reordered for the moment (at the door «طالع هسة» first). */
+  orderReplies?: (keys: readonly QuickReplyKey[]) => QuickReplyKey[];
 }
 
 /**
@@ -87,6 +91,8 @@ export function ChatThread({
   photoUri,
   attachPhoto,
   currentLocation,
+  liveStatus,
+  orderReplies,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
@@ -175,9 +181,26 @@ export function ChatThread({
                   <Text variant="title" numberOfLines={1} testID="chat-title" accessibilityRole="header">
                     {title}
                   </Text>
-                  <Text variant="caption" color="textMuted" numberOfLines={1}>
-                    {t('chat.subtitle', { role: counterpartLabel, order: t('order.number', { id: orderNumber ?? orderId.replace(/^ord_/, '').slice(-6).toUpperCase() }) })}
-                  </Text>
+                  {liveStatus ? (
+                    <Pressable
+                      testID="chat-live-status"
+                      accessibilityRole={liveStatus.onPress ? 'button' : 'text'}
+                      accessibilityLiveRegion="polite"
+                      onPress={liveStatus.onPress}
+                      disabled={!liveStatus.onPress}
+                      hitSlop={8}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                    >
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.live }} />
+                      <Text variant="caption" color="liveText" weight={600} numberOfLines={1}>
+                        {liveStatus.text}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Text variant="caption" color="textMuted" numberOfLines={1}>
+                      {t('chat.subtitle', { role: counterpartLabel, order: t('order.number', { id: orderNumber ?? orderId.replace(/^ord_/, '').slice(-6).toUpperCase() }) })}
+                    </Text>
+                  )}
                 </>
               ) : (
                 <Skeleton width={140} height={20} />
@@ -229,7 +252,7 @@ export function ChatThread({
               <>
                 {v.quickReplies.length > 0 ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
-                    {v.quickReplies.map((k) => (
+                    {(orderReplies ? orderReplies(v.quickReplies) : v.quickReplies).map((k) => (
                       <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
                     ))}
                   </ScrollView>

@@ -5834,5 +5834,8 @@
   "household.approval_items_few": "{n} أصناف",
   "household.approval_place": "لـ {place}",
   "household.approve_once": "وافق هالمرة",
-  "household.change_limit": "غيّر حد {name}"
+  "household.change_limit": "غيّر حد {name}",
+  "chat.live_on_the_way": "بالطريق · {time}",
+  "chat.live_at_door": "عند بابك",
+  "chat.live_at_pickup": "وصل لمكانك"
 }

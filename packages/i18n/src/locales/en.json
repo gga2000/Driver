@@ -5834,5 +5834,8 @@
   "household.approval_items_few": "{n} items",
   "household.approval_place": "to {place}",
   "household.approve_once": "Approve this once",
-  "household.change_limit": "Change {name}'s limit"
+  "household.change_limit": "Change {name}'s limit",
+  "chat.live_on_the_way": "On the way · {time}",
+  "chat.live_at_door": "At your door",
+  "chat.live_at_pickup": "At your pickup"
 }

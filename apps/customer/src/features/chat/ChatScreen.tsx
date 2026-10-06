@@ -5,6 +5,10 @@ import { ChatThread } from '@driver/ui';
 import { currentFix, photoUri, pickGatePhoto, uploadPhoto } from '@/features/account/device';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { useCourierPosition, useTracking } from '@/features/track/queries';
+import { formatMinuteCount } from '@driver/i18n';
+import { useNow } from '@driver/ui';
+import { chatLive, orderQuickReplies } from './live-status';
 import { useChatActions, useChatThread } from './queries';
 import { useMaskedCall } from './useMaskedCall';
 
@@ -19,6 +23,18 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const thread = useChatThread(orderId, kind);
   const actions = useChatActions(orderId, kind);
   const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
+  // l7: with the courier (or driver), the header says where he is and the replies follow the moment.
+  const withCourier = kind === 'customer_courier';
+  const track = useTracking(withCourier ? orderId : '');
+  const pos = useCourierPosition(orderId, withCourier && Boolean(track.data?.courier));
+  const tick = useNow(true, 30_000);
+  const live = withCourier ? chatLive(track.data, pos.data?.pin ?? null, new Date(tick)) : null;
+  const liveStatus = live
+    ? {
+        text: live.kind === 'at_door' ? t(thread.data?.ride ? 'chat.live_at_pickup' : 'chat.live_at_door') : t('chat.live_on_the_way', { time: formatMinuteCount(live.minutes, { locale }) }),
+        onPress: () => (router.canGoBack() ? router.back() : router.replace(`/order/${orderId}`)),
+      }
+    : null;
   return (
     <ChatThread
       orderId={orderId}
@@ -42,6 +58,8 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         const uploadId = await uploadPhoto(picked, (input) => client.places.photoUpload.mutate(input));
         return { uploadId, localUri: picked.uri };
       }}
+      liveStatus={liveStatus}
+      orderReplies={(keys) => orderQuickReplies(keys, live)}
       currentLocation={async () => {
         const fix = await currentFix();
         return fix === 'denied' || fix === null ? fix : fix.pin;
