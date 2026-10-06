@@ -1,9 +1,11 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
-import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Rule, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
+import { passPhase } from '@/features/rajaa/pass';
+import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
 import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
@@ -146,6 +148,15 @@ export default function BoardingPassScreen() {
       },
     );
 
+  // After the trip (r3): the stub is kept; nothing live (car, meter, check-in, cancel) is left on it.
+  if (passPhase(b, now) === 'kept') {
+    return (
+      <Screen testID="rajaa-pass" edges={['bottom']}>
+        <KeptStub booking={b} route={route} garage={garage} driver={driverCard} />
+      </Screen>
+    );
+  }
+
   const cancelText =
     rule.kind === 'prepaid'
       ? rule.canCancel
@@ -190,25 +201,25 @@ export default function BoardingPassScreen() {
             {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
           </Text>
         </View>
-        <Rule kind="dashed" color="borderStrong" />
+        <Perforation />
         <View style={{ padding: theme.space[5], alignItems: 'center', gap: theme.space[1], backgroundColor: theme.colors.accentTint }}>
           <Text variant="caption" color="accentText" weight={600}>
             {t('rajaa.pin_label')}
           </Text>
-          <Text testID="rajaa-pin" variant="numeralLg" style={{ letterSpacing: 14, paddingStart: 14 }}>
+          <Text testID="rajaa-pin" variant="numeralLg" face="display" style={{ letterSpacing: 14, paddingStart: 14 }}>
             {p?.pin ?? b.pin ?? '····'}
           </Text>
           <Text variant="footnote" color="accentText">
             {t('rajaa.pin_hint')}
           </Text>
         </View>
-        <Rule kind="dashed" color="borderStrong" />
+        <Perforation />
         <View style={{ padding: theme.space[5], flexDirection: 'row', flexWrap: 'wrap', rowGap: theme.space[4], columnGap: theme.space[3] }}>
           <Field icon="seat" label={t('rajaa.seat_label')} value={seatsList(t, b.seatIds)} />
           <Field icon={atPoint ? 'map-pin' : 'garage'} label={atPoint ? t('rajaa.stop_label') : t('rajaa.garage_label')} value={stopName} />
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
-        <Rule kind="dashed" color="borderStrong" />
+        <Perforation />
         <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
         {b.pickup.status === 'pending' ? (
           <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
