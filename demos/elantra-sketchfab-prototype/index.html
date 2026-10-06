@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Driver — معاينة السيارة ثلاثية الأبعاد</title>
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}
+  </script>
+  <style>
+    :root{color-scheme:dark;--bg:#101318;--panel:rgba(29,34,42,.88);--line:rgba(255,255,255,.09);--muted:#a4adba;--text:#f5f7fa;--gold:#e89b35;--mint:#79d6b5;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(ellipse at 22% 18%,rgba(193,121,47,.15),transparent 34%),radial-gradient(ellipse at 84% 78%,rgba(54,126,135,.14),transparent 34%),var(--bg)}
+    .page{max-width:1280px;margin:auto;padding:30px clamp(16px,4vw,54px) 50px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:32px}.brand{display:flex;align-items:center;gap:11px;font-weight:750;letter-spacing:.02em}.brand-mark{display:grid;place-items:center;width:38px;height:38px;border-radius:13px;color:#19130c;background:var(--gold);font-size:20px}.demo-tag{border:1px solid rgba(232,155,53,.28);color:#f2c27f;background:rgba(232,155,53,.08);padding:8px 12px;border-radius:99px;font-size:12px}
+    .eyebrow{color:var(--gold);font-size:12px;font-weight:750;letter-spacing:.09em;margin-bottom:9px}h1{font-size:clamp(27px,4vw,42px);line-height:1.16;margin:0;letter-spacing:-.04em}.intro{color:var(--muted);margin:12px 0 28px;max-width:680px;line-height:1.75}.layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(310px,.8fr);gap:18px;align-items:stretch}.card{background:var(--panel);border:1px solid var(--line);border-radius:24px;box-shadow:0 22px 60px rgba(0,0,0,.25);overflow:hidden;backdrop-filter:blur(18px)}
+    .viewer-card{display:flex;flex-direction:column;min-height:590px}.card-head{padding:21px 23px 15px;display:flex;justify-content:space-between;align-items:center;gap:14px}.card-head h2{margin:0;font-size:16px}.live{color:#a8e5cd;display:flex;align-items:center;gap:7px;font-size:12px}.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#58ca9a;box-shadow:0 0 12px #58ca9a}
+    .viewer-wrap{margin:0 14px;overflow:hidden;border-radius:17px;background:radial-gradient(ellipse at 48% 44%,#62656a 0%,#383c42 57%,#202329 100%);min-height:360px;flex:1;position:relative;isolation:isolate}.viewer-wrap canvas{display:block;width:100%;height:100%;min-height:360px;outline:0;touch-action:pan-y}.load-state{position:absolute;inset:0;z-index:2;display:grid;place-content:center;gap:12px;text-align:center;color:#e4e8ee;background:radial-gradient(ellipse at center,rgba(69,73,80,.82),rgba(26,29,34,.96));transition:opacity .35s ease}.load-state.done{opacity:0;pointer-events:none}.spinner{width:27px;height:27px;border-radius:50%;border:2px solid #ffffff30;border-top-color:var(--gold);margin:auto;animation:turn .85s linear infinite}@keyframes turn{to{transform:rotate(360deg)}}
+    .viewer-caption{color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px 10px;font-size:12px}.viewer-caption a{color:#f3c37f;text-decoration:none}.viewer-actions{display:flex;gap:9px;padding:0 20px 18px}.viewer-actions .button{font-size:12px;padding:10px 12px}.viewer-status{color:var(--muted);font-size:11px;margin-inline-start:auto;align-self:center;text-align:left}
+    .details{padding:24px;display:flex;flex-direction:column}.driver-row{display:flex;align-items:center;gap:14px;padding-bottom:21px;border-bottom:1px solid var(--line)}.avatar{width:54px;height:54px;border-radius:18px;display:grid;place-items:center;color:#1a1712;background:linear-gradient(145deg,#ffd18b,#d78327);font-size:21px;font-weight:800}.driver-name{font-size:18px;font-weight:730}.driver-sub{color:var(--muted);font-size:13px;margin-top:5px}.rating{margin-inline-start:auto;color:#f2bd68;font-size:13px;white-space:nowrap}.arrival{display:flex;align-items:center;justify-content:space-between;padding:20px 0}.arrival strong{display:block;font-size:18px}.arrival span{color:var(--muted);font-size:12px;display:block;margin-top:5px}.arrival-time{color:var(--mint);font-size:23px;font-weight:750;direction:ltr}.car-spec{background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:15px;padding:14px 15px;display:flex;justify-content:space-between;gap:12px;font-size:13px}.car-spec span{color:var(--muted)}.car-spec strong{font-weight:650}
+    .seats-head{display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px}.seats-head h3{margin:0;font-size:15px}.seat-count{color:var(--mint);font-size:12px}.seat-map{background:rgba(8,11,15,.38);border:1px solid var(--line);border-radius:17px;padding:15px}.seat-map-top{display:flex;justify-content:center;color:var(--muted);font-size:10px;margin-bottom:10px}.seat-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.seat{border:1px solid rgba(121,214,181,.28);background:rgba(121,214,181,.09);color:#c4f0df;border-radius:12px;min-height:47px;cursor:pointer;font:inherit;transition:.18s ease}.seat:hover{transform:translateY(-2px);border-color:var(--mint)}.seat.taken{color:#98a0aa;border-color:var(--line);background:rgba(255,255,255,.035);cursor:not-allowed;text-decoration:line-through}.seat.selected{color:#18130c;background:var(--gold);border-color:var(--gold);box-shadow:0 7px 22px rgba(232,155,53,.22)}.seat-label{display:block;font-size:10px;margin-top:3px;opacity:.78}.note{margin-top:14px;color:var(--muted);font-size:11px;line-height:1.65}.mode-note{color:#f1c987;background:rgba(232,155,53,.08);border:1px solid rgba(232,155,53,.18);border-radius:12px;padding:10px 12px;font-size:11px;line-height:1.6;margin-top:10px}.actions{display:flex;gap:10px;margin-top:auto;padding-top:22px}.button{border:0;border-radius:13px;padding:13px 16px;font:inherit;font-weight:700;cursor:pointer;transition:.2s ease}.button-primary{color:#1a140d;background:var(--gold);flex:1}.button-primary:hover{background:#f1ae51;transform:translateY(-1px)}.button-secondary{color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line)}.button:disabled{opacity:.45;cursor:not-allowed;transform:none}.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,18px);opacity:0;pointer-events:none;background:#f5f7fa;color:#16191e;padding:12px 17px;border-radius:12px;box-shadow:0 12px 30px #0008;font-size:13px;transition:.25s ease;z-index:5}.toast.show{opacity:1;transform:translate(-50%,0)}.legal{color:#8e97a4;font-size:10px;line-height:1.55;padding:14px 4px 0}[hidden]{display:none!important}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}@media(max-width:850px){.layout{grid-template-columns:1fr}.viewer-card{min-height:440px}.viewer-wrap,.viewer-wrap canvas{min-height:310px}.details{min-height:570px}}@media(max-width:480px){.page{padding:18px 13px 34px}header{margin-bottom:24px}.card-head{padding:18px}.details{padding:19px}.viewer-caption{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header><div class="brand"><span class="brand-mark">د</span><span>درايفر</span></div><span class="demo-tag">نموذج تجريبي · عرض ثلاثي الأبعاد مباشر</span></header>
+    <div class="eyebrow">محاكاة تفاعلية</div>
+    <h1>سيارتك القادمة،<br />وتفاصيلها بلمحة.</h1>
+    <p class="intro">السيارة تبقى ثابتة أثناء الانتظار. عند القبول تدور بسلاسة، وبعدها تستطيع فتح منظور المقاعد واختيار مقعدك.</p>
+    <section class="layout" aria-label="تفاصيل السائق والسيارة">
+      <article class="card viewer-card">
+        <div class="card-head"><h2>سيارة السائق</h2><span class="live" id="liveState">بانتظار السائق</span></div>
+        <div class="viewer-wrap" id="viewerWrap" aria-label="سيارة ثلاثية الأبعاد قابلة للتدوير">
+          <div class="load-state" id="loadState"><span class="spinner"></span><span>يتم تجهيز السيارة ثلاثية الأبعاد…</span></div>
+        </div>
+        <div class="viewer-caption"><span>السيارة ثابتة حتى قبول السائق · اسحبها لتدويرها يدوياً</span><span>Three.js · GLB محلي</span></div>
+        <div class="viewer-actions">
+          <button class="button button-primary" id="acceptRide" disabled>محاكاة قبول السائق</button>
+          <button class="button button-secondary" id="seatMode" disabled>عرض المقاعد من الأعلى</button>
+          <button class="button button-secondary" id="showExterior" hidden>العودة إلى السيارة</button>
+          <span class="viewer-status" id="viewerStatus" role="status" aria-live="polite">بانتظار تحميل النموذج</span>
+        </div>
+      </article>
+      <article class="card details">
+        <div class="driver-row"><div class="avatar" aria-hidden="true">ع</div><div><div class="driver-name">علي كريم</div><div class="driver-sub" id="driverStatus">سائق موثّق · بانتظار القبول</div></div><div class="rating">★ ٤٫٩</div></div>
+        <div class="arrival"><div><strong>يصل خلال دقائق</strong><span>المسافة التقريبية 1.2 كم</span></div><div class="arrival-time">4 <small style="font-size:12px">د</small></div></div>
+        <div class="car-spec"><span>السيارة</span><strong>هيونداي إلنترا N · أبيض</strong></div>
+        <div class="car-spec" style="margin-top:8px"><span>رقم اللوحة</span><strong dir="ltr">بغداد · ٢٤٥١٧</strong></div>
+        <div id="seatControls" hidden>
+          <div class="seats-head"><h3>المقاعد المتاحة</h3><span class="seat-count" id="seatCount">مقعدان متاحان</span></div>
+          <div class="seat-map" aria-label="مخطط مقاعد السيارة"><div class="seat-map-top">الأمام · السائق</div><div class="seat-grid">
+            <button class="seat taken" aria-label="مقعد السائق غير متاح" disabled>السائق<span class="seat-label">غير متاح</span></button>
+            <button class="seat" data-seat="front" aria-pressed="false">الأمامي<span class="seat-label">متاح</span></button>
+            <button class="seat taken" aria-label="المقعد الخلفي الأيسر مشغول" disabled>خلفي يسار<span class="seat-label">مشغول</span></button>
+            <button class="seat" data-seat="rear" aria-pressed="false">خلفي يمين<span class="seat-label">متاح</span></button>
+          </div></div>
+          <div class="mode-note" id="roofNote" hidden></div>
+          <p class="note">المقاعد هنا نموذج تفاعلي. في التطبيق الفعلي، تأتي الحالة من بيانات الرحلة ويؤكدها السائق.</p>
+        </div>
+        <div class="actions"><button class="button button-primary" id="requestSeat" disabled>اختر مقعداً من الأعلى أولاً</button><button class="button button-secondary" id="callDriver" aria-label="اتصل بالسائق">اتصال</button></div>
+        <div class="legal">نموذج Elantra من Ddiaz Design على Sketchfab · CC BY-NC · غير مرخّص للاستخدام التجاري دون إذن. مادة السيارة تصبح شفافة في وضع المقاعد لأن السقف ليس جزءاً منفصلاً في هذا الملف.</div>
+      </article>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const wrap = document.getElementById('viewerWrap');
+    const loaderState = document.getElementById('loadState');
+    const toast = document.getElementById('toast');
+    const acceptButton = document.getElementById('acceptRide');
+    const seatModeButton = document.getElementById('seatMode');
+    const exteriorButton = document.getElementById('showExterior');
+    const seatControls = document.getElementById('seatControls');
+    const roofNote = document.getElementById('roofNote');
+    const viewerStatus = document.getElementById('viewerStatus');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const scene = new THREE.Scene();
+    scene.background = null;
+    scene.fog = new THREE.FogExp2(0x30343a, 0.035);
+
+    const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 100);
+    camera.position.set(5.4, 3.2, 7.4);
+    const initialPosition = new THREE.Vector3(5.4, 3.2, 7.4);
+    const initialTarget = new THREE.Vector3(0, 0, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.setAttribute('aria-label', 'اسحب لتدوير السيارة ثلاثية الأبعاد');
+    wrap.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xdfeaff, 0x353943, 2.05));
+    const keyLight = new THREE.DirectionalLight(0xffe0b9, 3.1);
+    keyLight.position.set(5, 8, 5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    scene.add(keyLight);
+    const rimLight = new THREE.DirectionalLight(0x8ecbd2, 2.3);
+    rimLight.position.set(-6, 3, -5);
+    scene.add(rimLight);
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.2 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.02;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 5.5;
+    controls.maxDistance = 13;
+    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.target.copy(initialTarget);
+    controls.update();
+
+    const carPivot = new THREE.Group();
+    scene.add(carPivot);
+    const bodyMaterials = new Map();
+    let modelReady = false;
+    let accepted = false;
+    let selectedSeat = null;
+    let activeTransition = null;
+    let spinTransition = null;
+    let bodyFadeTransition = null;
+    let seatView = false;
+
+    function setStatus(message) {
+      viewerStatus.textContent = message;
+      document.getElementById('driverStatus').textContent = accepted ? 'سائق موثّق · قبل طلبك الآن' : 'سائق موثّق · بانتظار القبول';
+    }
+    function announce(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(announce.timer);
+      announce.timer = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+    function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+    function easeInOutCubic(t) { return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+    function transitionCamera(position, target, seconds = .8) {
+      controls.enabled = false;
+      activeTransition = {
+        start: performance.now(), duration: (reducedMotion ? 0 : seconds) * 1000,
+        fromPosition: camera.position.clone(), toPosition: position.clone(),
+        fromTarget: controls.target.clone(), toTarget: target.clone()
+      };
+      if (activeTransition.duration === 0) {
+        camera.position.copy(position);
+        controls.target.copy(target);
+        controls.update();
+        activeTransition = null;
+        controls.enabled = true;
+      }
+    }
+    function finishSpin() {
+      spinTransition = null;
+      carPivot.rotation.y = -0.44;
+      controls.enabled = true;
+      seatModeButton.disabled = false;
+      setStatus('قبل السائق طلبك · سيصل خلال 4 دقائق');
+    }
+    function playAcceptanceSpin() {
+      if (!modelReady || reducedMotion) {
+        finishSpin();
+        return;
+      }
+      controls.enabled = false;
+      const duration = 1120;
+      spinTransition = { start: performance.now(), duration, from: carPivot.rotation.y, to: carPivot.rotation.y - Math.PI * 2 - .44 };
+      setStatus('قبل السائق طلبك · تدور السيارة');
+    }
+    function setBodyTransparency(enabled) {
+      const entries = [...bodyMaterials.values()].map((state) => {
+        state.material.transparent = enabled || state.transparent;
+        if (enabled) state.material.depthWrite = false;
+        state.material.needsUpdate = true;
+        return { ...state, from: state.material.opacity, to: enabled ? Math.min(state.opacity, .26) : state.opacity };
+      });
+      bodyFadeTransition = { start: performance.now(), duration: reducedMotion ? 0 : 500, entries };
+      if (!bodyFadeTransition.duration) finishBodyFade();
+    }
+    function finishBodyFade() {
+      if (!bodyFadeTransition) return;
+      for (const entry of bodyFadeTransition.entries) {
+        entry.material.opacity = entry.to;
+        if (entry.to === entry.opacity) {
+          entry.material.transparent = entry.transparent;
+          entry.material.depthWrite = entry.depthWrite;
+        }
+        entry.material.needsUpdate = true;
+      }
+      bodyFadeTransition = null;
+    }
+    function enterSeatView() {
+      if (!modelReady || !accepted) return;
+      seatView = true;
+      seatControls.hidden = false;
+      seatModeButton.hidden = true;
+      exteriorButton.hidden = false;
+      setBodyTransparency(true);
+      roofNote.hidden = false;
+      roofNote.textContent = 'وضع توضيحي: جسم السيارة يصبح شفافاً لكشف المقصورة. هذا الملف لا يفصل السقف كقطعة مستقلة.';
+      const topPosition = new THREE.Vector3(0, 9, .02);
+      transitionCamera(topPosition, new THREE.Vector3(0, 0, 0), .9);
+      controls.maxPolarAngle = Math.PI * .5;
+      setStatus('من الأعلى · اختر مقعدك');
+      document.getElementById('requestSeat').disabled = true;
+      document.getElementById('requestSeat').textContent = 'اختر مقعداً متاحاً أولاً';
+    }
+    function returnToExterior() {
+      seatView = false;
+      setBodyTransparency(false);
+      seatControls.hidden = true;
+      seatModeButton.hidden = false;
+      exteriorButton.hidden = true;
+      roofNote.hidden = true;
+      controls.maxPolarAngle = Math.PI * .49;
+      transitionCamera(initialPosition.clone(), initialTarget.clone(), .75);
+      setStatus(accepted ? 'قبل السائق طلبك · سيصل خلال 4 دقائق' : 'السيارة ثابتة · بانتظار قبول السائق');
+    }
+
+    new GLTFLoader().load('./assets/2024_hyundai_elantra_n.glb', (gltf) => {
+      const car = gltf.scene;
+      const bounds = new THREE.Box3().setFromObject(car);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const scale = 5.9 / Math.max(size.x, size.y, size.z);
+      car.position.sub(center);
+      car.scale.setScalar(scale);
+      floor.position.y = -(size.y * scale) / 2 - .025;
+      car.traverse((node) => {
+        if (!node.isMesh) return;
+        node.castShadow = true;
+        node.receiveShadow = true;
+        if (/paint|window/i.test(node.name)) {
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          materials.forEach((material) => bodyMaterials.set(material.uuid, {
+            material, opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite
+          }));
+        }
+      });
+      carPivot.add(car);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      modelReady = true;
+      acceptButton.disabled = false;
+      loaderState.classList.add('done');
+      setStatus('السيارة ثابتة · بانتظار قبول السائق');
+      setTimeout(() => loaderState.remove(), 450);
+    }, (event) => {
+      if (event.total) loaderState.querySelector('span:last-child').textContent = `تحميل النموذج… ${Math.round(event.loaded / event.total * 100)}٪`;
+    }, () => {
+      loaderState.querySelector('span:last-child').textContent = 'تعذّر تحميل النموذج. افتح الصفحة عبر خادم محلي.';
+      setStatus('تعذّر تحميل ملف السيارة');
+    });
+
+    function resize() {
+      const width = wrap.clientWidth;
+      const height = wrap.clientHeight;
+      if (!width || !height) return;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(wrap);
+    resize();
+
+    renderer.setAnimationLoop((now) => {
+      if (spinTransition) {
+        const t = Math.min((now - spinTransition.start) / spinTransition.duration, 1);
+        carPivot.rotation.y = THREE.MathUtils.lerp(spinTransition.from, spinTransition.to, easeOutCubic(t));
+        if (t >= 1) finishSpin();
+      }
+      if (bodyFadeTransition) {
+        const t = Math.min((now - bodyFadeTransition.start) / bodyFadeTransition.duration, 1);
+        const eased = easeInOutCubic(t);
+        bodyFadeTransition.entries.forEach((entry) => {
+          entry.material.opacity = THREE.MathUtils.lerp(entry.from, entry.to, eased);
+        });
+        if (t >= 1) finishBodyFade();
+      }
+      if (activeTransition) {
+        const t = Math.min((now - activeTransition.start) / activeTransition.duration, 1);
+        const eased = easeInOutCubic(t);
+        camera.position.lerpVectors(activeTransition.fromPosition, activeTransition.toPosition, eased);
+        controls.target.lerpVectors(activeTransition.fromTarget, activeTransition.toTarget, eased);
+        if (t >= 1) {
+          activeTransition = null;
+          controls.enabled = true;
+        }
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    });
+
+    acceptButton.addEventListener('click', () => {
+      if (!modelReady || accepted) return;
+      accepted = true;
+      acceptButton.disabled = true;
+      acceptButton.textContent = 'تم قبول الطلب';
+      seatModeButton.disabled = true;
+      document.getElementById('liveState').textContent = 'تم قبول الطلب';
+      playAcceptanceSpin();
+    });
+    seatModeButton.addEventListener('click', enterSeatView);
+    exteriorButton.addEventListener('click', returnToExterior);
+    document.querySelectorAll('[data-seat]').forEach((seat) => seat.addEventListener('click', () => {
+      document.querySelectorAll('[data-seat]').forEach((item) => { item.classList.remove('selected'); item.setAttribute('aria-pressed', 'false'); });
+      seat.classList.add('selected');
+      seat.setAttribute('aria-pressed', 'true');
+      selectedSeat = seat;
+      document.getElementById('seatCount').textContent = seat.dataset.seat === 'front' ? 'اخترت المقعد الأمامي' : 'اخترت المقعد الخلفي';
+      const request = document.getElementById('requestSeat');
+      request.disabled = false;
+      request.textContent = 'تأكيد اختيار المقعد';
+    }));
+    document.getElementById('requestSeat').addEventListener('click', () => announce(selectedSeat ? 'تم تسجيل اختيارك التجريبي للمقعد' : 'اختر مقعداً متاحاً أولاً'));
+    document.getElementById('callDriver').addEventListener('click', () => announce('زر الاتصال للعرض فقط'));
+  </script>
+</body>
+</html>
