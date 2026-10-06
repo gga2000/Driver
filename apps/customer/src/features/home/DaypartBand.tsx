@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { Pressable, useWindowDimensions, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { CatalogSearchDish } from '@driver/contracts';
 import { Text, useMotionPresets, useTheme } from '@driver/ui';
@@ -18,15 +18,18 @@ import { BAND_MAX_DISHES, BAND_MIN_DISHES } from './daypart';
 export function DaypartBand({ title, dishes, testID = 'home-daypart' }: { title: string; dishes: readonly CatalogSearchDish[] | undefined; testID?: string }) {
   const theme = useTheme();
   const presets = useMotionPresets();
+  const { width } = useWindowDimensions();
   const shown = (dishes ?? []).slice(0, BAND_MAX_DISHES);
   if (shown.length < BAND_MIN_DISHES) return null;
+  // Three tiles across the screen's content width (gutters `space[5]`, the column capped like Screen's).
+  const tile = Math.floor((Math.min(width, MAX_CONTENT) - theme.space[5] * 2 - theme.space[3] * (BAND_MAX_DISHES - 1)) / BAND_MAX_DISHES);
   return (
     <View testID={testID} style={{ gap: theme.space[3] }}>
       <SectionHeader voice title={title} />
       <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
         {shown.map((d, i) => (
-          <Animated.View key={d.id} entering={presets.panelIn(presets.staggerDelay(i))} style={{ flex: 1, maxWidth: shown.length < BAND_MAX_DISHES ? '50%' : undefined }}>
-            <DishTile d={d} testID={`${testID}-${i}`} />
+          <Animated.View key={d.id} entering={presets.panelIn(presets.staggerDelay(i))} style={{ width: tile }}>
+            <DishTile d={d} size={tile} testID={`${testID}-${i}`} />
           </Animated.View>
         ))}
       </View>
@@ -34,7 +37,10 @@ export function DaypartBand({ title, dishes, testID = 'home-daypart' }: { title:
   );
 }
 
-function DishTile({ d, testID }: { d: CatalogSearchDish; testID: string }) {
+/** Screen's content column never grows past this (tablets): the tiles stay dish-sized. */
+const MAX_CONTENT = 560;
+
+function DishTile({ d, size, testID }: { d: CatalogSearchDish; size: number; testID: string }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -50,7 +56,7 @@ function DishTile({ d, testID }: { d: CatalogSearchDish; testID: string }) {
       }}
       style={({ pressed }) => ({ gap: theme.space[1], opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}
     >
-      <View style={{ width: '100%', aspectRatio: 1, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+      <View style={{ width: size, height: size, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
         <FoodArt {...artOf(d)} photoUrl={d.photoUrl} />
       </View>
       <Text variant="label" weight={600} numberOfLines={2} style={{ minHeight: 40 }}>
