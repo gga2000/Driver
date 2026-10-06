@@ -65,3 +65,11 @@ Phase 3 "الخردة علينا" (UI/UX audit customer d-1, partner S-2; builds
 
 ## Shift guarantee switched off (Ali, 2026-10-06) — open decision
 Ali, later on 2026-10-06: "hold it, switch it off" until he decides. The G-91 guarantee stays **built** (server counting and Sunday payment, Partner progress/pending/paid lines, simulator invariant) but is **switched off** by the money rule `MoneyRules.guarantee.enabled: false` (Aziziyah, and the default for any city). Off: the server posts no top-up and covers nobody, the Partner app shows no guarantee line that promises money, the demo posts none, and the simulator asserts nothing is paid. Still open for Ali: whether to pay it at all, and if so couriers only, a minimum online time, and the amount for the longer shifts (10,000 was set for 4-hour peaks) — `docs/api/shift-guarantee.md`. The shift times are decided: 06:00–15:00 and 15:00–02:00 (above).
+
+## Restaurant map, menu photos and promises (Ali, 2026-10-07)
+- **Food night fee starts at midnight:** +250 دينار from 00:00 to 05:00 Baghdad time (was 23:00–05:00). Taxi and tuktuk keep +1,000 from 23:00. The merchant «منطقة التوصيل» map shows the fee a customer pays right now, so the +250 appears after midnight.
+- **«منين زبائنك»** (where a restaurant's customers are) is for the store owner only; staff don't see it. «منطقة التوصيل» stays visible to staff.
+- **Menu photo shoots are free.** Later Ali plans AI-made menu photos; a push to field ops on a new shoot request is parked in `docs/before-launch.md` §5.
+- **The promised delivery time uses learned travel times** (the same minutes the customer sees), locked when the order is placed; the honest-delay steps and amounts are unchanged.
+- **Field ops can set a restaurant's pickup spot from the Console.** The pickup photo is not shown on the job offer.
+- **Overlapping draft zones:** wait for the real outlines drawn in the Console; the drafts are not shrunk.

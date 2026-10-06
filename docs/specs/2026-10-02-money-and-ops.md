@@ -16,7 +16,7 @@ Delivery fees pass through to the courier in full.
 | Street-point handover | −250 | −250 | 0 |
 | Door pickup (errands, parcels) | +500 | +500 | 0 |
 
-Rules: small-order fee +500 on orders under 5,000 (own line); batched second order pays the courier 70% of its fee, customer pays full; night +250, rain +250 as named components; pickup compensation when pickup is more than 2 km from the courier; cars doing food +500. Launch guarantee: 10,000 per 4-hour peak shift at ≥ 85% acceptance, topped up by platform; switches off per zone when average shift earnings exceed it.
+Rules: small-order fee +500 on orders under 5,000 (own line); batched second order pays the courier 70% of its fee, customer pays full; night +250 (food: 00:00–05:00, Ali 2026-10-07), rain +250 as named components; pickup compensation when pickup is more than 2 km from the courier; cars doing food +500. Launch guarantee: 10,000 per 4-hour peak shift at ≥ 85% acceptance, topped up by platform; switches off per zone when average shift earnings exceed it.
 
 Worked example, 15,000 order across town: commission 2,250 + service fee 500 = 2,750 to platform; courier 1,000; restaurant 12,750.
 

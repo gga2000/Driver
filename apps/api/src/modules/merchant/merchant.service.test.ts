@@ -537,7 +537,10 @@ describe('MerchantService — delivery area and fees (maps program r5)', () => {
 
   it('a night hour quotes the night fee, like checkout at that hour', async () => {
     const { h, svc, staff, khalid } = await setup();
-    h.clock.set('2026-10-03T20:30:00Z'); // 23:30 Baghdad
+    h.clock.set('2026-10-03T20:30:00Z'); // 23:30 Baghdad: food's night fee starts at midnight
+    const late = await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
+    expect(late.zones.find((z) => z.key === 'centre')?.feeIqd).toBe(500);
+    h.clock.set('2026-10-03T21:30:00Z'); // 00:30 Baghdad
     const view = await svc.deliveryArea(staff, { merchantOrgId: khalid.id });
     expect(view.zones.find((z) => z.key === 'centre')?.feeIqd).toBe(750);
   });

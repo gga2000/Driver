@@ -2196,7 +2196,7 @@
   "console.pricing_zero_hint": "صفر بالمسافة أو المدة = نحسبها من المناطق.",
   "console.pricing_pick_time": "وقت ثاني",
   "console.pricing_priced_at": "نحسب على: {when}",
-  "console.pricing_night_rule": "سعر الليل بعد الساعة 11",
+  "console.pricing_night_rule": "سعر الليل: التكسي بعد الساعة 11، الأكل بعد 12",
   "console.pricing_route": "{vertical} · {from} ← {to}",
   "console.quote_clamped_short": "انحصر",
   "console.badge_shadow_hint": "بند محسوب بس ما يدخل بالسعر هسة",

@@ -2196,7 +2196,7 @@
   "console.pricing_zero_hint": "Zero distance or time = worked out from the zones.",
   "console.pricing_pick_time": "Other time",
   "console.pricing_priced_at": "Priced for: {when}",
-  "console.pricing_night_rule": "Night price after 11",
+  "console.pricing_night_rule": "Night price: rides after 11, food after 12",
   "console.pricing_route": "{vertical} · {from} → {to}",
   "console.quote_clamped_short": "clamped",
   "console.badge_shadow_hint": "Computed but not charged yet",

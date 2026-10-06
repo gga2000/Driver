@@ -88,10 +88,15 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
   Wallet pass; group order link, home-screen widgets, «شنو آكل اليوم؟»; Ramadan mode (to be live by
   mid-January 2027). See `docs/specs/2026-10-05-customer-joy.md` §5–§7.
 - **Maps, later wave:** lock-screen tracking, journey recap, the school-run route map for parents,
-  best route for two orders, cook-on-time, where a restaurant's customers are, missing streets. Parked:
+  best route for two orders, cook-on-time, missing streets («where a restaurant's customers are»
+  was built on 2026-10-07). Parked:
   incident layer, TV-wall map, weather, delivery PIN, driver goals, shift booking, new-area launch kit.
   See `docs/specs/2026-10-05-maps-world-class.md` §5.5–§5.8 and §10.
-- **Server:** road-time dispatch and learned travel times; a separate worker process (only needed at
+- **Menu photos** (Ali, 2026-10-07): the menu photo shoot service is built and stays visible
+  (merchant «تصوير المنيو», partner field-ops shoots, Console list; free, no fee). Later: a push to
+  field ops when a restaurant asks for a shoot (today only the count on their Ops tile), and menu
+  photos made with AI instead of shoots («we will use ai»).
+- **Server:** road-time dispatch (learned travel times were built on 2026-10-07); a separate worker process (only needed at
   thousands of orders a day); the Console's sign-in token in a secure cookie.
 
 ## 6. Small known gaps, fix when convenient

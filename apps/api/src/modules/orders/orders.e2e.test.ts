@@ -196,7 +196,7 @@ describe('orders × trips — end to end', () => {
   it('a night delivery fee (+250): the 250-step total is collected as is and nobody owes (simulator regression)', async () => {
     // Found by the Aziziyah simulator: the ledger rounded a 16,750 night order up to 17,000 and the
     // customer, who paid the 16,750 he was shown, was left owing 250. The server quotes the +250 at night.
-    const h = ordersHarness('2026-10-03T20:30:00Z'); // 23:30 Baghdad
+    const h = ordersHarness('2026-10-03T21:30:00Z'); // 00:30 Baghdad
     const night = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: 1250 }));
     expect(night.totalIqd % 500).toBe(250);
     await h.orders.merchantAccept('m1', { orderId: night.id, prepMinutes: 15 });

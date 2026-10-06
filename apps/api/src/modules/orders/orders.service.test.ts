@@ -165,7 +165,7 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
   });
 
   it('night delivery: the server adds the +250 night component itself', async () => {
-    const h = ordersHarness('2026-10-03T20:30:00Z'); // 23:30 Baghdad
+    const h = ordersHarness('2026-10-03T21:30:00Z'); // 00:30 Baghdad (food's night fee starts at midnight)
     const o = await h.orders.place('c1', h.foodInput({ deliveryFeeIqd: undefined }));
     expect(o).toMatchObject({ deliveryFeeIqd: 1250, totalIqd: 16750 });
   });

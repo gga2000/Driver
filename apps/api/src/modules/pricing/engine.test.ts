@@ -140,6 +140,17 @@ describe('PricingEngine — Aziziyah', () => {
     expect(amountOf(night, 'night')).toBe(1000);
   });
 
+  it("food's +250 night fee starts at midnight, rides' at 23:00 (Ali, 2026-10-07)", () => {
+    const at = (iso: string) => new Date(iso);
+    const food = (iso: string) => engine.quote(req({ vertical: 'food', stops: stops('centre', 'zakur'), at: at(iso) }), aziziyah);
+    const taxi = (iso: string) => engine.quote(req({ stops: stops('centre', 'zakur'), at: at(iso) }), aziziyah);
+    expect(amountOf(food('2026-10-02T20:30:00Z'), 'night')).toBe(0); // 23:30 Baghdad
+    expect(amountOf(taxi('2026-10-02T20:30:00Z'), 'night')).toBe(1000);
+    expect(amountOf(food('2026-10-02T21:00:00Z'), 'night')).toBe(250); // 00:00
+    expect(amountOf(food('2026-10-03T01:59:00Z'), 'night')).toBe(250); // 04:59
+    expect(amountOf(food('2026-10-03T02:00:00Z'), 'night')).toBe(0); // 05:00
+  });
+
   it('every component carries Arabic and English labels and a driver share rule', () => {
     const q = engine.quote(
       req({ stops: stops('centre', 'zakur'), options: { doorPickup: true, waitMinutes: 2, promoIqd: 500 } }),

@@ -121,8 +121,10 @@ export function PricingSimulator() {
       setNowDate(new Date());
       patch({ at: '', when });
     } else if (when === 'night') {
+      // 00:30 is inside both night windows (rides from 23:00, food from midnight).
       const d = new Date();
-      d.setHours(23, 30, 0, 0);
+      if (d.getHours() >= 5) d.setDate(d.getDate() + 1);
+      d.setHours(0, 30, 0, 0);
       patch({ at: toLocalInputValue(d), when });
     } else patch({ at: s.at || toLocalInputValue(at), when });
   };

@@ -142,7 +142,8 @@ const rideNight: ComponentRule = {
   amount: 1000,
   hours: [23, 5],
 };
-const deliveryNight: ComponentRule = { ...rideNight, amount: 250 };
+/** Food's night fee starts at midnight, not 23:00 like rides (Ali, 2026-10-07: «250 after 12am»). */
+const deliveryNight: ComponentRule = { ...rideNight, amount: 250, hours: [0, 5] };
 const promo: ComponentRule = {
   key: 'promo',
   label_ar: 'خصم',
