@@ -1,4 +1,4 @@
-import { TERMINAL_ORDER_STATES, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import { latePromiseTerms, TERMINAL_ORDER_STATES, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
@@ -48,6 +48,8 @@ export const RULES = {
 };
 
 const MAX_EXAMPLES = 5;
+/** Posting group prefix of the honest-delay credit (tracking's `latePromiseGroupId`). */
+const LATE_PROMISE_GROUP = 'late_promise:';
 const TERMINAL_TRIPS = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
 
 export const isPointsAccount = (a: string) => a.startsWith('points:') || a.startsWith('points_pending:') || a === 'points_pool';
@@ -319,6 +321,36 @@ export const INVARIANTS: readonly Definition[] = [
         if (pts > RULES.pointsCapPerOrder) bad.push(`${o.id}: ${pts} points`);
       }
       return { checked: food.length, bad };
+    },
+  },
+  {
+    name: 'late_credit_once_per_delivery',
+    description:
+      'the honest-delay credit (late_promise:<order>) is posted at most once per order, only on food / catalog-grocery deliveries, platform → the orderer’s wallet, for the delivery fee he paid — or the fixed free-delivery credit when he paid none (Ali, 2026-10-06)',
+    run: (s) => {
+      const bad: string[] = [];
+      const orders = new Map(s.orders.map((o) => [o.id, o]));
+      const byGroup = new Map<string, LedgerEvent[]>();
+      for (const e of s.ledger) {
+        if (!e.postingGroupId?.startsWith(LATE_PROMISE_GROUP)) continue;
+        byGroup.set(e.postingGroupId, [...(byGroup.get(e.postingGroupId) ?? []), e]);
+      }
+      for (const [group, lines] of byGroup) {
+        const orderId = group.slice(LATE_PROMISE_GROUP.length);
+        const o = orders.get(orderId);
+        if (!o) {
+          bad.push(`${group}: no such order`);
+          continue;
+        }
+        if (o.type !== 'food' && o.type !== 'grocery_catalog') bad.push(`${o.id} (${o.type}): late credit on a non-delivery`);
+        if (lines.length !== 1) bad.push(`${o.id}: ${lines.length} late-credit lines (one per order)`);
+        const expected = latePromiseTerms(o)?.creditIqd ?? 0;
+        for (const e of lines) {
+          if (e.type !== 'credit_issued' || e.fromAccount !== 'platform' || e.toAccount !== `customer:${o.ordererId}`) bad.push(`${o.id}: late credit ${e.type} ${e.fromAccount} → ${e.toAccount} (must be platform → customer:${o.ordererId})`);
+          if (e.amount !== expected) bad.push(`${o.id}: late credit ${e.amount} ≠ ${expected} (fee ${o.deliveryFeeIqd}${o.discount?.target === 'delivery' ? `, free-delivery deal ${o.discount.amountIqd}` : ''})`);
+        }
+      }
+      return { checked: byGroup.size, bad };
     },
   },
   {
