@@ -30,7 +30,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, itemOnSale, itemPhotoUrl, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -51,18 +51,6 @@ const STAFF_KINDS: readonly MerchantStaffRole[] = ['merchant_owner', 'merchant_s
 export const DISPUTE_LOOKBACK_DAYS = 30;
 /** The merchant answers a dispute within this; after it the default outcome stands. */
 export const DISPUTE_RESPONSE_HOURS = 48;
-/** Stored as the item's `photo_url` until a public CDN path exists; the admin view signs it. */
-export const UPLOAD_PHOTO_PREFIX = 'upload:';
-
-/**
- * A stored item photo as a link an app can load: our own uploads (`upload:<id>`) are signed, outside
- * links pass through. Shared with the menu photo service, which shows the dish's photo of today next
- * to the one just taken.
- */
-export function itemPhotoUrl(blobs: Pick<BlobStore, 'readUrl'>, stored: string | null): string | null {
-  if (!stored) return null;
-  return stored.startsWith(UPLOAD_PHOTO_PREFIX) ? blobs.readUrl(stored.slice(UPLOAD_PHOTO_PREFIX.length)) : stored;
-}
 
 /**
  * Merchant app wave 2 (`merchantAdmin.*`). Every call is scoped to one merchant org the caller holds

@@ -1,5 +1,9 @@
 import { AZIZIYAH_ZONES, DISH_LABELS, servesOf, type DeliveryPoint, type DishLabel, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import type { AvailabilityWindow, CatalogItemRecord } from './catalog.repository.js';
+import { photoLink, type PhotoLink } from './photos.js';
+
+/** No signer: plain photo URLs pass, uploads are left out (an app can't load `upload:<id>`). */
+const UNSIGNED: PhotoLink = photoLink(null);
 
 /**
  * Pure pieces of the customer catalog read (M3): open/closed from opening hours and pause windows,
@@ -136,7 +140,8 @@ function isGroupVariant(g: CatalogItemRecord['modifierGroups'][number]): boolean
   return min === 1 && g.maxSelect === 1 && g.modifiers.some((m) => m.priceIqd > 0);
 }
 
-export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string): MenuItem {
+/** The customer's view of one dish; `photo` turns its stored photo into a link the app can load. */
+export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string, photo: PhotoLink = UNSIGNED): MenuItem {
   const soldOut = !item.available || item.stock === 0;
   const outOfSchedule = item.availability.length > 0 && activeWindow(at, item.availability, timeZone) === null;
   const groups: MenuModifierGroup[] = item.modifierGroups.map((g) => ({
@@ -155,7 +160,7 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     name: item.nameAr,
     description: item.description,
     priceIqd: item.priceIqd,
-    photoUrl: item.photoUrl,
+    photoUrl: photo(item.photoUrl),
     available: !soldOut && !outOfSchedule,
     unavailableReason: soldOut ? 'sold_out' : outOfSchedule ? 'schedule' : null,
     prepTimeMin: item.prepTimeMin,
@@ -180,11 +185,11 @@ export function popularItems(counts: ReadonlyMap<string, number>, menuOrder: rea
 }
 
 /** Sections in menu order (first item of each); items without a section go last under `otherLabel`. */
-export function menuSections(items: readonly CatalogItemRecord[], at: Date, timeZone: string, otherLabel = 'أصناف ثانية'): MenuCategory[] {
+export function menuSections(items: readonly CatalogItemRecord[], at: Date, timeZone: string, photo: PhotoLink = UNSIGNED, otherLabel = 'أصناف ثانية'): MenuCategory[] {
   const sections = new Map<string, MenuItem[]>();
   const loose: MenuItem[] = [];
   for (const item of items) {
-    const view = menuItemView(item, at, timeZone);
+    const view = menuItemView(item, at, timeZone, photo);
     if (!item.categoryAr) {
       loose.push(view);
       continue;

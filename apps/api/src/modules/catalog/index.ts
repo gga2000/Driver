@@ -4,6 +4,8 @@ export { CatalogRpc, STOREFRONT_MERCHANTS, STOREFRONT_TODAY } from './catalog.rp
 export type { StorefrontMerchants, StorefrontPricing, StorefrontToday } from './catalog.rpc.js';
 export { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository } from './catalog.repository.js';
 export { seedStorefronts } from './seed.js';
+export { UPLOAD_PHOTO_PREFIX, STOREFRONT_PHOTOS, itemPhotoUrl, photoLink } from './photos.js';
+export type { PhotoLink, PhotoLinks } from './photos.js';
 export type { SeededStorefront } from './seed.js';
 export { STOREFRONT_RULES, openState, nextOpening, twelveHour, pinOf, etaRange, prepRange, basePrepMin, menuSections, menuItemView, foldArabic, activeWindow, localDowMinutes } from './storefront.js';
 export type {

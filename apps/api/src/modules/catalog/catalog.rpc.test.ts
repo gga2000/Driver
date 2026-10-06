@@ -19,6 +19,8 @@ import { InMemoryCatalogRepository } from './catalog.repository.js';
 import { CatalogRpc } from './catalog.rpc.js';
 import { CatalogService } from './catalog.service.js';
 import { seedStorefronts } from './seed.js';
+import { DevBlobStore, type BlobStore } from '../places/index.js';
+import { UPLOAD_PHOTO_PREFIX } from './photos.js';
 
 /** Saturday 2026-10-03 18:12 Baghdad: the three dinner kitchens are open, المسافر (5:00–15:00) is not. */
 const SAT_EVENING = '2026-10-03T15:12:00Z';
@@ -521,5 +523,73 @@ describe('search.unmet (joy h4: what the town asks for that nobody serves yet)',
     w.clock.advance(31 * 86_400_000);
     expect(await w.rpc.unmetSearches(ACTOR, { cityId: 'aziziyah', days: 30, limit: 30 })).toEqual([]);
     expect(await w.rpc.unmetSearches(ACTOR, { cityId: 'aziziyah', days: 60, limit: 30 })).toHaveLength(1);
+  });
+});
+
+describe('merchant-uploaded dish photos reach customers as working links', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+
+  /** A stored upload, as the item editor or a field ops shoot makes it (ticket + PUT). */
+  async function upload(blobs: BlobStore, ownerId: string): Promise<string> {
+    const ticket = await blobs.createUpload({ ownerId, contentType: 'image/png', sizeBytes: PNG.length });
+    const url = new URL(ticket.uploadUrl, 'http://local');
+    await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/png', bytes: PNG });
+    return ticket.uploadId;
+  }
+
+  /** The link loads: it is the blob store's own signed read URL for those bytes. */
+  async function loads(blobs: BlobStore, link: string | null): Promise<boolean> {
+    if (!link) return false;
+    const url = new URL(link, 'http://local');
+    const id = url.pathname.split('/').pop();
+    if (!id) return false;
+    const file = await blobs.read({ id, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined });
+    return file !== null && file.bytes.equals(PNG);
+  }
+
+  async function photoWorld(opts: { signer: boolean }) {
+    const w = await world();
+    const blobs = new DevBlobStore(w.clock, { secret: 'blob' });
+    const rpc = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, null, opts.signer ? blobs : null);
+    const khalid = w.byKey('khalid');
+    const itemId = `${khalid.orgId}_liver_plate`;
+    const uploadId = await upload(blobs, 'owner_khalid');
+    // Exactly what the owner's «غيّر الصورة» (merchantAdmin.menu.replacePhoto) and an accepted menu-photo-service shot write.
+    await w.catalog.replacePhoto(khalid.orgId, itemId, `${UPLOAD_PHOTO_PREFIX}${uploadId}`);
+    return { ...w, rpc, blobs, khalid, itemId, uploadId };
+  }
+
+  it('on the menu, in search and in meal picks — never the raw `upload:` ref', async () => {
+    const w = await photoWorld({ signer: true });
+    const c = caller(w.rpc, null);
+    const dish = (await c.menu({ merchantId: w.khalid.orgId, dropoff: ZAKUR })).categories.flatMap((x) => x.items).find((i) => i.id === w.itemId);
+    expect(dish?.photoUrl).toContain(`/files/${w.uploadId}?`);
+    expect(await loads(w.blobs, dish?.photoUrl ?? null)).toBe(true);
+
+    const found = (await c.search({ cityId: 'aziziyah', query: 'كبد', dropoff: ZAKUR })).dishes.find((d) => d.id === w.itemId);
+    expect(await loads(w.blobs, found?.photoUrl ?? null)).toBe(true);
+
+    const picked = (await c.picks({ cityId: 'aziziyah', words: ['كبد'], limit: 6 })).find((d) => d.id === w.itemId);
+    expect(await loads(w.blobs, picked?.photoUrl ?? null)).toBe(true);
+
+    expect(JSON.stringify(await c.menu({ merchantId: w.khalid.orgId }))).not.toContain(UPLOAD_PHOTO_PREFIX);
+  });
+
+  it('a kitchen photo stored as an upload is signed on the card too; plain URLs pass untouched', async () => {
+    const w = await photoWorld({ signer: true });
+    const front = await w.catalog.storefront(w.khalid.orgId);
+    if (!front) throw new Error('no storefront');
+    const kitchen = await upload(w.blobs, 'owner_khalid');
+    await w.catalog.saveStorefront({ ...front, photoUrl: `${UPLOAD_PHOTO_PREFIX}${kitchen}` });
+    await w.catalog.replacePhoto(w.khalid.orgId, `${w.khalid.orgId}_salad`, 'https://cdn.example/salad.jpg');
+    const menu = await caller(w.rpc, null).menu({ merchantId: w.khalid.orgId });
+    expect(await loads(w.blobs, menu.restaurant.photoUrl)).toBe(true);
+    expect(menu.categories.flatMap((x) => x.items).find((i) => i.id === `${w.khalid.orgId}_salad`)?.photoUrl).toBe('https://cdn.example/salad.jpg');
+  });
+
+  it('with no blob store to sign with, the upload is left out (the app draws the dish) rather than sent raw', async () => {
+    const w = await photoWorld({ signer: false });
+    const dish = (await caller(w.rpc, null).menu({ merchantId: w.khalid.orgId })).categories.flatMap((x) => x.items).find((i) => i.id === w.itemId);
+    expect(dish?.photoUrl).toBeNull();
   });
 });

@@ -20,10 +20,9 @@ import {
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { CatalogService, type CatalogItemRecord } from '../catalog/index.js';
+import { CatalogService, itemPhotoUrl, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord } from '../catalog/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
-import { itemPhotoUrl, UPLOAD_PHOTO_PREFIX } from '../merchant-admin/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, ownsStoredUpload, type BlobStore } from '../places/index.js';
 import { MENU_PHOTOS_REPOSITORY, type MenuPhotoRequestRecord, type MenuPhotoShotRecord, type MenuPhotosRepository } from './menu-photos.repository.js';

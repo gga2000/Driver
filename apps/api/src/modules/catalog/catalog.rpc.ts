@@ -44,6 +44,7 @@ import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
+import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
 import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** Unmet searches one caller may send per minute (joy h4). */
@@ -133,6 +134,8 @@ export class CatalogRpc implements CustomerCatalogPort {
   private readonly clock: Clock;
   private readonly guests: WindowCounter;
   private readonly eta: EtaService;
+  /** Merchant uploads (`upload:<id>`) as signed links: the owner's photo edits and accepted menu-photo-service shots. */
+  private readonly photo: PhotoLink;
 
   constructor(
     private readonly catalog: CatalogService,
@@ -142,7 +145,9 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() @Inject(WINDOW_COUNTER) guests?: WindowCounter,
     @Optional() eta?: EtaService,
     @Optional() @Inject(STOREFRONT_TODAY) private readonly todayFacts: StorefrontToday | null = null,
+    @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
   ) {
+    this.photo = photoLink(photos);
     this.clock = clock ?? new SystemClock();
     this.guests = guests ?? new InMemoryWindowCounter(this.clock);
     this.eta = eta ?? new EtaService(new StraightLineRouter());
@@ -182,7 +187,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const restaurant = await this.card(s, items, input.dropoff ?? null, now);
     // f10: each dish's price under a live percent deal with no minimum (the rule orders.quote applies).
     const deals = restaurant.deals ?? [];
-    const categories = menuSections(items, now, this.merchants.timeZone).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
+    const categories = menuSections(items, now, this.merchants.timeZone, this.photo).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
     // o8: «الأكثر طلباً بالعزيزية» from the kitchen's real orders (≥ 20 orders a dish, last 30 days).
     const since = new Date(now.getTime() - POPULAR_RULES.windowDays * 86_400_000);
     const counts = (await this.merchants.dishOrderCounts?.(s.orgId, since, now)) ?? new Map<string, number>();
@@ -209,7 +214,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const picked = similarKitchens({ id: input.merchantId, tags: rejected?.tags ?? [] }, cards.map((c) => c.card));
     const options = picked.map((card) => {
       const items = cards.find((c) => c.card.id === card.id)!.items;
-      const menu = menuSections(items, now, this.merchants.timeZone).flatMap((c) => c.items);
+      const menu = menuSections(items, now, this.merchants.timeZone, this.photo).flatMap((c) => c.items);
       let itemsIqd = 0;
       let moved = 0;
       const missing: string[] = [];
@@ -260,7 +265,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       // A kitchen that only matches by its dishes still shows in the kitchen list, after the rest.
       restaurants.push({ card, score: kitchenScore > 0 ? kitchenScore : 0.5 });
       for (const { item, score } of hits) {
-        const view = menuItemView(item, now, this.merchants.timeZone);
+        const view = menuItemView(item, now, this.merchants.timeZone, this.photo);
         dishes.push({
           score,
           dish: {
@@ -327,7 +332,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       for (const item of items) {
         const rank = words.findIndex((w) => searchScore(w, item.nameAr) >= 2);
         if (rank === -1) continue;
-        const view = menuItemView(item, now, this.merchants.timeZone);
+        const view = menuItemView(item, now, this.merchants.timeZone, this.photo);
         if (!view.available) continue;
         found.push({
           rank,
@@ -459,7 +464,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       name: s.nameAr,
       cuisine: s.cuisineAr,
       tags: [...s.tags],
-      photoUrl: s.photoUrl,
+      photoUrl: this.photo(s.photoUrl),
       rating: s.ratingPlaceholder,
       pickup: location,
       prepMinMinutes: prep.min,

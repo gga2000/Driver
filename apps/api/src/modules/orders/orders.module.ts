@@ -6,7 +6,7 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
@@ -21,7 +21,7 @@ import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } fro
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
 import { ORDERS_CASH_RISK, ORDERS_PLACES, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
-import { PlacesModule, SavedPlacesService } from '../places/index.js';
+import { BLOB_STORE, PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
@@ -91,6 +91,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       useFactory: (routes: RoutesRpc): StorefrontToday => ({ rajaa: () => routes.today(), latePromiseMin: () => AZIZIYAH_MONEY_RULES.latePromise.afterMin }),
       inject: [RoutesRpc],
     },
+    // Merchant-uploaded dish photos (`upload:<id>`) reach customers as signed links from the blob store.
+    { provide: STOREFRONT_PHOTOS, useExisting: BLOB_STORE },
     CatalogRpc,
     OrdersService,
     // «تحب تكرم عباس؟»: the tip after a 4–5 rating, wallet → driver (docs/api/tips.md).

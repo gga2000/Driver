@@ -59,4 +59,4 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.7 (k3).
 
 1. Should a shoot ever cost the restaurant money? Built free (no fee exists).
 2. Should field ops get a push when a restaurant asks? Today they see the count on the Ops home.
-3. Customer menus pass a merchant-uploaded photo through as `upload:<id>` without signing it (`catalog.rpc` / `storefront.ts` `menuItemView`) — true for the owner's own photo edit before this feature too, so accepted photos show in the Merchant app but not yet on the customer menu. Needs its own fix (sign `upload:` refs in the customer read).
+3. ~~Customer menus passed a merchant-uploaded photo through as `upload:<id>`~~ — fixed in the follow-up: the customer catalog read (menu, search, meal picks, kitchen cards) signs `upload:` refs through `catalog/photos.ts` (`itemPhotoUrl`, `STOREFRONT_PHOTOS` bound to the blob store in the orders module), and the customer app's `FoodArt` resolves the relative dev link against the API origin. This also fixed the owner's own photo edits, which had the same gap.
