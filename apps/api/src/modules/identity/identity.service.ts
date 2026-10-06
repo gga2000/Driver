@@ -833,7 +833,7 @@ export class IdentityService implements IdentityPort {
 
   /**
    * خطوط guardian notice (domain §8 "child dropped"): the child's guardian and first name for the
-   * "نزول {child} عند {place} بالسلامة" message (gender-neutral: child records carry no gender). Logged as a vault read against the guardian.
+   * "{child} وصل {place} بالسلامة" message. Logged as a vault read against the guardian.
    */
   async childNotice(childRef: string): Promise<{ guardianId: string; childFirstName: string } | null> {
     return this.uow.run(async (tx) => {
