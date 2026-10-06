@@ -754,6 +754,11 @@ model CatalogItem {
   sortOrder       Int       @default(0) @map("sort_order")
   /// "خلص اليوم" (merchant app): off sale until this instant (the next local midnight), then back by itself.
   soldOutUntil    DateTime? @map("sold_out_until")
+  /// How many the dish feeds, set by the kitchen («يشبّع 2–3», joy o3); null = not said.
+  servesMin       Int?      @map("serves_min")
+  servesMax       Int?      @map("serves_max")
+  /// The kitchen's dish labels (joy o8): spicy, new, family.
+  labels          String[]  @default([])
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -798,6 +803,9 @@ model Modifier {
   priceIqd  Int      @default(0) @map("price_iqd")
   available Boolean  @default(true)
   sortOrder Int      @default(0) @map("sort_order")
+  /// How many this version feeds («نص كيلو · يشبّع 2–3», joy o3); null = not said.
+  servesMin Int?     @map("serves_min")
+  servesMax Int?     @map("serves_max")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

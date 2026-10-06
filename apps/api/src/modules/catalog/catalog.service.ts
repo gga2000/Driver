@@ -170,6 +170,9 @@ export class CatalogService {
           sortOrder: rest.sortOrder ?? 0,
           ...(rest.prepTimeMin !== undefined ? { prepTimeMin: rest.prepTimeMin } : {}),
           available: rest.available ?? true,
+          servesMin: rest.servesMin ?? null,
+          servesMax: rest.servesMax ?? null,
+          labels: [...(rest.labels ?? [])],
         },
         tx,
       );
@@ -231,6 +234,8 @@ export class CatalogService {
   async setModifiers(orgId: string, itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
     for (const g of groups) if ((g.minSelect ?? 0) > (g.maxSelect ?? 1)) throw new DriverError('invalid_input');
+    // «يشبّع» (joy o3): a range the kitchen typed must read low to high.
+    for (const g of groups) for (const m of g.modifiers) if (m.servesMin != null && m.servesMax != null && m.servesMin > m.servesMax) throw new DriverError('invalid_input');
     return this.repo.replaceModifierGroups(itemId, groups, tx);
   }
 

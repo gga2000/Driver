@@ -5,6 +5,7 @@ import { SettlementRequestReason } from './ledger-io.js';
 import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
+import { DISH_LABELS, DishLabel } from './catalog-io.js';
 
 /**
  * `merchantAdmin.*` — the Merchant app's second wave (partner & merchant apps spec): menu, deals,
@@ -24,7 +25,16 @@ export const MyMerchant = z.object({ merchantOrgId: z.string(), role: MerchantSt
 
 // ───────────────────────── menu ─────────────────────────
 
-export const AdminModifier = z.object({ id: z.string(), nameAr: z.string(), nameEn: z.string().nullable(), priceIqd: Iqd, available: z.boolean() });
+export const AdminModifier = z.object({
+  id: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  priceIqd: Iqd,
+  available: z.boolean(),
+  /** «يشبّع» for this version (joy o3); null = not said. */
+  servesMin: z.number().int().nullable().optional(),
+  servesMax: z.number().int().nullable().optional(),
+});
 export const AdminModifierGroup = z.object({
   id: z.string(),
   nameAr: z.string(),
@@ -52,6 +62,11 @@ export const AdminMenuItem = z.object({
   /** What customers see right now (toggle, sold-out-today, stock). */
   onSale: z.boolean(),
   modifierGroups: z.array(AdminModifierGroup),
+  /** «يشبّع» for the dish as it comes (joy o3); null = not said. */
+  servesMin: z.number().int().nullable().optional(),
+  servesMax: z.number().int().nullable().optional(),
+  /** The kitchen's dish labels (joy o8). */
+  labels: z.array(DishLabel).optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 
@@ -81,6 +96,11 @@ export const UpsertItemInput = MerchantScope.extend({
   sortOrder: z.number().int().min(0).max(10_000).optional(),
   prepTimeMin: z.number().int().min(1).max(240).optional(),
   available: z.boolean().optional(),
+  /** «يشبّع 2–3» for the dish as it comes (joy o3); null clears it. */
+  servesMin: z.number().int().min(1).max(50).nullable().optional(),
+  servesMax: z.number().int().min(1).max(50).nullable().optional(),
+  /** The kitchen's dish labels (joy o8). */
+  labels: z.array(DishLabel).max(DISH_LABELS.length).optional(),
 });
 export type UpsertItemInput = z.infer<typeof UpsertItemInput>;
 
@@ -110,7 +130,17 @@ export const SetModifiersInput = MenuItemIdInput.extend({
         maxSelect: z.number().int().min(1).max(20).default(1),
         required: z.boolean().default(false),
         modifiers: z
-          .array(z.object({ nameAr: z.string().trim().min(1).max(60), nameEn: z.string().trim().max(60).nullable().optional(), priceIqd: Iqd.min(0).max(1_000_000), available: z.boolean().default(true) }))
+          .array(
+            z.object({
+              nameAr: z.string().trim().min(1).max(60),
+              nameEn: z.string().trim().max(60).nullable().optional(),
+              priceIqd: Iqd.min(0).max(1_000_000),
+              available: z.boolean().default(true),
+              /** «يشبّع» for this version (joy o3): both or neither, min ≤ max. */
+              servesMin: z.number().int().min(1).max(50).nullable().optional(),
+              servesMax: z.number().int().min(1).max(50).nullable().optional(),
+            }),
+          )
           .min(1)
           .max(30),
       }),

@@ -810,6 +810,8 @@
   "merchant.item.group_no_options": "ضيف خيار واحد على الأقل",
   "merchant.item.group_max_over": "أكثر عدد يختاره لازم يكون أقل من عدد الخيارات أو يساويه",
   "merchant.item.option_name": "اسم الخيار",
+  "merchant.item.option_serves": "يشبّع كم؟ مثلاً 2–3 (اختياري)",
+  "merchant.item.option_serves_invalid": "اكتب رقم أو مدى، مثلاً 2–3",
   "merchant.item.option_name_missing": "اكتب الاسم",
   "merchant.item.option_add": "ضيف خيار",
   "merchant.item.option_available": "{name} متوفر",

@@ -25,6 +25,9 @@ export interface CatalogModifierRecord {
   /** Price delta added to the item's unit price when chosen. */
   priceIqd: number;
   available: boolean;
+  /** How many this version feeds (joy o3, «يشبّع 2–3»); null = not said. */
+  servesMin?: number | null;
+  servesMax?: number | null;
 }
 
 export interface CatalogModifierGroupRecord {
@@ -60,6 +63,11 @@ export interface CatalogItemRecord {
   sortOrder: number;
   /** Wave 2 "خلص اليوم": off sale until this instant (next local midnight); absent/null = not sold out. */
   soldOutUntil?: Date | null;
+  /** How many the dish feeds, set by the kitchen (joy o3); null = not said. */
+  servesMin?: number | null;
+  servesMax?: number | null;
+  /** The kitchen's dish labels (joy o8): `DISH_LABELS`. */
+  labels?: string[];
 }
 
 /** Wave 2: one price edit (merchant app "price edit with history"). */
@@ -95,7 +103,7 @@ export interface MenuImportJobRecord {
   appliedCount: number;
 }
 
-export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available'>> & {
+export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
   soldOutUntil?: Date | null;
 };
 
@@ -142,13 +150,16 @@ export interface NewCatalogItem {
   photoUrl?: string | null;
   categoryAr?: string | null;
   sortOrder?: number;
+  servesMin?: number | null;
+  servesMax?: number | null;
+  labels?: string[];
   modifierGroups?: Array<{
     nameAr: string;
     nameEn?: string | null;
     minSelect?: number;
     maxSelect?: number;
     required?: boolean;
-    modifiers: Array<{ nameAr: string; nameEn?: string | null; priceIqd: number; available?: boolean }>;
+    modifiers: Array<{ nameAr: string; nameEn?: string | null; priceIqd: number; available?: boolean; servesMin?: number | null; servesMax?: number | null }>;
   }>;
 }
 
@@ -296,6 +307,9 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       photoUrl: input.photoUrl ?? null,
       categoryAr: input.categoryAr ?? null,
       sortOrder: input.sortOrder ?? 0,
+      servesMin: input.servesMin ?? null,
+      servesMax: input.servesMax ?? null,
+      labels: [...(input.labels ?? [])],
       modifierGroups: (input.modifierGroups ?? []).map((g, gi) => {
         const groupId = `${id}_mg_${gi + 1}`;
         return {
@@ -306,7 +320,7 @@ export class InMemoryCatalogRepository implements CatalogRepository {
           minSelect: g.minSelect ?? (g.required ? 1 : 0),
           maxSelect: g.maxSelect ?? 1,
           required: g.required ?? false,
-          modifiers: g.modifiers.map((m, mi) => ({ id: `${groupId}_m_${mi + 1}`, groupId, nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true })),
+          modifiers: g.modifiers.map((m, mi) => ({ id: `${groupId}_m_${mi + 1}`, groupId, nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })),
         };
       }),
     };
@@ -352,7 +366,7 @@ export class InMemoryCatalogRepository implements CatalogRepository {
         required: g.required ?? false,
         modifiers: g.modifiers.map((m, mi) => {
           assertPrice(m.priceIqd, 'modifier priceIqd');
-          return { id: `${groupId}_m_${mi + 1}`, groupId, nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true };
+          return { id: `${groupId}_m_${mi + 1}`, groupId, nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null };
         }),
       };
     });
@@ -420,6 +434,9 @@ type ItemRow = {
   categoryAr: string | null;
   sortOrder: number;
   soldOutUntil?: Date | null;
+  servesMin?: number | null;
+  servesMax?: number | null;
+  labels?: string[];
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -428,7 +445,7 @@ type ItemRow = {
     minSelect: number;
     maxSelect: number;
     required: boolean;
-    modifiers: Array<{ id: string; groupId: string; nameAr: string; nameEn: string | null; priceIqd: number; available: boolean }>;
+    modifiers: Array<{ id: string; groupId: string; nameAr: string; nameEn: string | null; priceIqd: number; available: boolean; servesMin?: number | null; servesMax?: number | null }>;
   }>;
 };
 
@@ -453,6 +470,9 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     categoryAr: r.categoryAr ?? null,
     sortOrder: r.sortOrder ?? 0,
     ...(r.soldOutUntil ? { soldOutUntil: r.soldOutUntil } : {}),
+    servesMin: r.servesMin ?? null,
+    servesMax: r.servesMax ?? null,
+    labels: [...(r.labels ?? [])],
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -461,7 +481,7 @@ function fromRow(r: ItemRow): CatalogItemRecord {
       minSelect: g.minSelect,
       maxSelect: g.maxSelect,
       required: g.required,
-      modifiers: g.modifiers.map((m) => ({ id: m.id, groupId: m.groupId, nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available })),
+      modifiers: g.modifiers.map((m) => ({ id: m.id, groupId: m.groupId, nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })),
     })),
   };
 }
@@ -565,6 +585,9 @@ export class PrismaCatalogRepository implements CatalogRepository {
         photoUrl: input.photoUrl ?? null,
         categoryAr: input.categoryAr ?? null,
         sortOrder: input.sortOrder ?? 0,
+        servesMin: input.servesMin ?? null,
+        servesMax: input.servesMax ?? null,
+        labels: [...(input.labels ?? [])],
         modifierGroups: {
           create: (input.modifierGroups ?? []).map((g, gi) => ({
             nameAr: g.nameAr,
@@ -573,7 +596,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
             maxSelect: g.maxSelect ?? 1,
             required: g.required ?? false,
             sortOrder: gi,
-            modifiers: { create: g.modifiers.map((m, mi) => ({ nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, sortOrder: mi })) },
+            modifiers: { create: g.modifiers.map((m, mi) => ({ nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, sortOrder: mi, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })) },
           })),
         },
       },
@@ -620,7 +643,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
           maxSelect: g.maxSelect ?? 1,
           required: g.required ?? false,
           sortOrder: gi,
-          modifiers: { create: g.modifiers.map((m, mi) => ({ nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, sortOrder: mi })) },
+          modifiers: { create: g.modifiers.map((m, mi) => ({ nameAr: m.nameAr, nameEn: m.nameEn ?? null, priceIqd: m.priceIqd, available: m.available ?? true, sortOrder: mi, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })) },
         },
       });
     }

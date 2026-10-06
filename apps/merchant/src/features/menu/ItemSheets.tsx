@@ -7,7 +7,7 @@ import { amountParam, iqd, roundToStep } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { dayMonth } from '@/features/deals/logic';
 import { Glyph } from './Glyph';
-import { draftKey, groupProblems, offStep, parseDelta, parsePrice, priceChange, setMinMax, setRequired, type DraftGroup } from './logic';
+import { draftKey, groupProblems, offStep, parseDelta, parsePrice, parseServes, priceChange, setMinMax, setRequired, type DraftGroup } from './logic';
 import { GlyphButton, Pill, Toggle } from './parts';
 
 /** New price: typed by staff, with what the customer will see and the last change for context. */
@@ -180,36 +180,48 @@ export function GroupSheet({ visible, group, isNew, busy, onClose, onSave, onDel
         {g.modifiers.map((m, i) => {
           const badPrice = parseDelta(m.price) === null;
           return (
-            <View key={m.key} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-              <TextField
-                testID={`option-name-${i}`}
-                placeholder={t('merchant.item.option_name')}
-                value={m.nameAr}
-                onChangeText={(v) => patchOption(m.key, { nameAr: v })}
-                style={{ flex: 2 }}
-                maxLength={60}
-                error={tried && !m.nameAr.trim() ? t('merchant.item.option_name_missing') : undefined}
-              />
-              <TextField
-                testID={`option-price-${i}`}
-                placeholder="0"
-                value={m.price}
-                onChangeText={(v) => patchOption(m.key, { price: v })}
-                keyboardType="number-pad"
-                style={{ flex: 1, minWidth: 110 }}
-                trailing={
-                  <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[2] }}>
-                    +
-                  </Text>
-                }
-                error={badPrice ? t('merchant.item.price_invalid') : undefined}
-              />
-              <View style={{ height: 52, justifyContent: 'center' }}>
-                <Toggle label={t('merchant.item.option_available', { name: m.nameAr })} value={m.available} onChange={(v) => patchOption(m.key, { available: v })} />
+            <View key={m.key} style={{ gap: theme.space[1] }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+                <TextField
+                  testID={`option-name-${i}`}
+                  placeholder={t('merchant.item.option_name')}
+                  value={m.nameAr}
+                  onChangeText={(v) => patchOption(m.key, { nameAr: v })}
+                  style={{ flex: 2 }}
+                  maxLength={60}
+                  error={tried && !m.nameAr.trim() ? t('merchant.item.option_name_missing') : undefined}
+                />
+                <TextField
+                  testID={`option-price-${i}`}
+                  placeholder="0"
+                  value={m.price}
+                  onChangeText={(v) => patchOption(m.key, { price: v })}
+                  keyboardType="number-pad"
+                  style={{ flex: 1, minWidth: 110 }}
+                  trailing={
+                    <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[2] }}>
+                      +
+                    </Text>
+                  }
+                  error={badPrice ? t('merchant.item.price_invalid') : undefined}
+                />
+                <View style={{ height: 52, justifyContent: 'center' }}>
+                  <Toggle label={t('merchant.item.option_available', { name: m.nameAr })} value={m.available} onChange={(v) => patchOption(m.key, { available: v })} />
+                </View>
+                <View style={{ height: 52, justifyContent: 'center' }}>
+                  <GlyphButton glyph="trash" size={40} variant="plain" color="textMuted" label={t('merchant.item.option_remove', { name: m.nameAr })} onPress={() => setG({ ...g, modifiers: g.modifiers.filter((x) => x.key !== m.key) })} />
+                </View>
               </View>
-              <View style={{ height: 52, justifyContent: 'center' }}>
-                <GlyphButton glyph="trash" size={40} variant="plain" color="textMuted" label={t('merchant.item.option_remove', { name: m.nameAr })} onPress={() => setG({ ...g, modifiers: g.modifiers.filter((x) => x.key !== m.key) })} />
-              </View>
+              {/* Joy o3: how many this option feeds, shown to customers as «يشبّع 2–3». */}
+              <TextField
+                testID={`option-serves-${i}`}
+                placeholder={t('merchant.item.option_serves')}
+                accessibilityLabel={t('merchant.item.option_serves')}
+                value={m.serves ?? ''}
+                onChangeText={(v) => patchOption(m.key, { serves: v })}
+                maxLength={7}
+                error={parseServes(m.serves) === 'invalid' ? t('merchant.item.option_serves_invalid') : undefined}
+              />
             </View>
           );
         })}

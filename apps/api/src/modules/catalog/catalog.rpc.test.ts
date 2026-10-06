@@ -229,6 +229,27 @@ describe('catalog.menu', () => {
     expect(wrap.modifierGroups[0]!.modifiers[0]!.id).toBe(`${khalid.orgId}_kebab_wrap_mg_1_m_1`);
   });
 
+  it('says how many a dish or its version feeds and carries the kitchen’s labels (joy o3, o8)', async () => {
+    const w = await world();
+    const menu = await caller(w.rpc).menu({ merchantId: w.byKey('khalid').orgId });
+    const items = menu.categories.flatMap((c) => c.items);
+    const byName = (n: string) => items.find((i) => i.name === n)!;
+    expect(byName('كباب بالكيلو').modifierGroups[0]!.modifiers.map((m) => [m.name, m.serves])).toEqual([
+      ['نص كيلو', { min: 2, max: 3 }],
+      ['كيلو', { min: 4, max: 5 }],
+    ]);
+    expect(byName('مشكّل خالد')).toMatchObject({ serves: { min: 2, max: 2 }, labels: ['family'] });
+    expect(byName('لفة كباب')).toMatchObject({ serves: null, labels: [] });
+  });
+
+  it('a kitchen’s «يشبّع» typed high to low is refused', async () => {
+    const w = await world();
+    const khalid = w.byKey('khalid');
+    await expect(
+      w.catalog.setModifiers(khalid.orgId, khalid.itemIds.get('kebab_kilo')!, [{ nameAr: 'الكمية', required: true, minSelect: 1, maxSelect: 1, modifiers: [{ nameAr: 'كيلو', priceIqd: 0, servesMin: 5, servesMax: 4 }] }]),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
   it('a sold-out item stays on the menu, marked; an unknown merchant is org_not_found', async () => {
     const w = await world();
     const sham = w.byKey('sham');

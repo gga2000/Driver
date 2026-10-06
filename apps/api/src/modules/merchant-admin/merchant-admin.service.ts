@@ -1,5 +1,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  DISH_LABELS,
+  type DishLabel,
   AZIZIYAH_MONEY_RULES,
   DriverError,
   STAFF_INVITE_RULES,
@@ -131,8 +133,11 @@ export class MerchantAdminService implements MerchantAdminPort {
         minSelect: g.minSelect,
         maxSelect: g.maxSelect,
         required: g.required,
-        modifiers: g.modifiers.map((m) => ({ id: m.id, nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available })),
+        modifiers: g.modifiers.map((m) => ({ id: m.id, nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })),
       })),
+      servesMin: i.servesMin ?? null,
+      servesMax: i.servesMax ?? null,
+      labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
     };
   }
 
@@ -231,6 +236,9 @@ export class MerchantAdminService implements MerchantAdminPort {
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(input.prepTimeMin !== undefined ? { prepTimeMin: input.prepTimeMin } : {}),
             ...(input.available !== undefined ? { available: input.available } : {}),
+            ...(input.servesMin !== undefined ? { servesMin: input.servesMin } : {}),
+            ...(input.servesMax !== undefined ? { servesMax: input.servesMax } : {}),
+            ...(input.labels !== undefined ? { labels: [...input.labels] } : {}),
           },
         },
         actor.personId,
@@ -271,7 +279,7 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.menuView(input.merchantOrgId);
   }
 
-  async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean }> }> }): Promise<AdminMenuItem> {
+  async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx));
   }

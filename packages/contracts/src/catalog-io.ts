@@ -81,12 +81,31 @@ export const MenuInput = z.object({
 });
 export type MenuInput = z.input<typeof MenuInput>;
 
+/** How many people a dish (or one of its versions) feeds, as the kitchen says (joy o3: «يشبّع 2–3»). */
+export const Serves = z.object({ min: z.number().int().min(1).max(50), max: z.number().int().min(1).max(50) }).refine((s) => s.min <= s.max, { message: 'min ≤ max' });
+export type Serves = z.infer<typeof Serves>;
+
+/** The kitchen's own dish labels (joy o8): «حار», «جديد», «للعائلة». */
+export const DISH_LABELS = ['spicy', 'new', 'family'] as const;
+export const DishLabel = z.enum(DISH_LABELS);
+export type DishLabel = z.infer<typeof DishLabel>;
+
+/** The kitchen's two numbers as a range, or null when it said nothing (or said something impossible). */
+export function servesOf(min: number | null | undefined, max: number | null | undefined): Serves | null {
+  const lo = min ?? max ?? null;
+  const hi = max ?? min ?? null;
+  if (lo === null || hi === null || lo < 1 || hi < lo) return null;
+  return { min: lo, max: hi };
+}
+
 export const MenuModifier = z.object({
   id: z.string(),
   name: z.string(),
   /** Added to the item's unit price when chosen. */
   priceIqd: Iqd.min(0),
   available: z.boolean(),
+  /** How many this version feeds (a variant's «نص كيلو · يشبّع 2–3»); null/absent = not said. */
+  serves: Serves.nullable().optional(),
 });
 export type MenuModifier = z.infer<typeof MenuModifier>;
 
@@ -124,6 +143,10 @@ export const MenuItem = z.object({
    * when no such deal; deals with a minimum show in the cart instead.
    */
   deal: z.object({ dealId: z.string(), percent: z.number().int().min(1).max(100), priceIqd: Iqd.min(0) }).nullable().optional(),
+  /** How many the dish feeds as it comes (a tray «لنفرين»); its versions may say their own. Null/absent = not said. */
+  serves: Serves.nullable().optional(),
+  /** The kitchen's labels for the dish (joy o8). */
+  labels: z.array(DishLabel).optional(),
 });
 export type MenuItem = z.infer<typeof MenuItem>;
 

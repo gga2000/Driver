@@ -50,13 +50,16 @@ export async function seedStorefronts(
           prepTimeMin: item.prepTimeMin,
           categoryAr: category.nameAr,
           sortOrder: sortOrder++,
+          servesMin: item.servesMin ?? null,
+          servesMax: item.servesMax ?? null,
+          labels: [...(item.labels ?? [])],
           modifierGroups: (item.modifierGroups ?? []).map((g) => ({
             nameAr: g.nameAr,
             nameEn: g.nameEn,
             required: g.required,
             minSelect: g.min ?? (g.required ? 1 : 0),
             maxSelect: g.max,
-            modifiers: g.options.map((o) => ({ nameAr: o.nameAr, nameEn: o.nameEn, priceIqd: o.priceIqd })),
+            modifiers: g.options.map((o) => ({ nameAr: o.nameAr, nameEn: o.nameEn, priceIqd: o.priceIqd, servesMin: o.servesMin ?? null, servesMax: o.servesMax ?? null })),
           })),
         });
         itemIds.set(item.key, created.id);

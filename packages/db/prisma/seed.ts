@@ -221,6 +221,9 @@ async function seedLaunchRestaurants(tx: Tx, taxonomy: Map<string, string>): Pro
           categoryAr: category.nameAr,
           sortOrder: sortOrder++,
           hot: item.taxonomy !== 'soft_drinks' && item.taxonomy !== 'juice',
+          servesMin: item.servesMin ?? null,
+          servesMax: item.servesMax ?? null,
+          labels: [...(item.labels ?? [])],
         };
         await tx.catalogItem.upsert({ where: { id: itemId }, update: fields, create: { id: itemId, catalogId: catalog.id, orgId, ...fields } });
         for (const [g, group] of (item.modifierGroups ?? []).entries()) {
@@ -230,7 +233,7 @@ async function seedLaunchRestaurants(tx: Tx, taxonomy: Map<string, string>): Pro
           await tx.modifierGroup.upsert({ where: { id: groupId }, update: gFields, create: { id: groupId, itemId, ...gFields } });
           for (const [o, opt] of group.options.entries()) {
             const modId = `${groupId}_m_${o + 1}`;
-            const mFields = { nameAr: opt.nameAr, nameEn: opt.nameEn, priceIqd: opt.priceIqd, sortOrder: o };
+            const mFields = { nameAr: opt.nameAr, nameEn: opt.nameEn, priceIqd: opt.priceIqd, sortOrder: o, servesMin: opt.servesMin ?? null, servesMax: opt.servesMax ?? null };
             await tx.modifier.upsert({ where: { id: modId }, update: mFields, create: { id: modId, groupId, ...mFields } });
           }
         }

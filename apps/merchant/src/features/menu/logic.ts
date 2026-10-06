@@ -7,6 +7,9 @@ export interface MenuModifierLike {
   nameAr: string;
   priceIqd: number;
   available: boolean;
+  /** «يشبّع» for this option (joy o3); null/absent = not said. */
+  servesMin?: number | null;
+  servesMax?: number | null;
 }
 
 export interface MenuGroupLike {
@@ -174,6 +177,32 @@ export interface DraftModifier {
   nameAr: string;
   price: string;
   available: boolean;
+  /** «يشبّع» as typed: "2", "2-3", "2–3" (Arabic digits fine); empty = not said. */
+  serves?: string;
+}
+
+/** Most people a single option can say it feeds. */
+const SERVES_MAX = 50;
+
+/**
+ * «يشبّع» as staff type it (joy o3): "" → not said (null); "3" → 3–3; "2-3" / "2–3" / "٢-٣" → 2–3;
+ * anything else, zero, a range read high to low or above 50 → "invalid" (the field shows it).
+ */
+export function parseServes(text: string | undefined): { min: number; max: number } | null | 'invalid' {
+  const t = westernDigits(text ?? '').trim();
+  if (t === '') return null;
+  const m = /^(\d{1,2})\s*(?:[-–—]\s*(\d{1,2}))?$/.exec(t);
+  if (!m) return 'invalid';
+  const min = Number(m[1]);
+  const max = m[2] !== undefined ? Number(m[2]) : min;
+  if (min < 1 || max < min || max > SERVES_MAX) return 'invalid';
+  return { min, max };
+}
+
+/** The draft field for a saved option: "2–3", "2", or "". */
+export function servesText(min: number | null | undefined, max: number | null | undefined): string {
+  if (min == null) return '';
+  return max == null || max === min ? String(min) : `${min}–${max}`;
 }
 
 export interface DraftGroup {
@@ -185,7 +214,7 @@ export interface DraftGroup {
   modifiers: DraftModifier[];
 }
 
-export type GroupProblem = 'name' | 'no_options' | 'option_name' | 'option_price' | 'min_over_max' | 'max_over_options' | 'required_min';
+export type GroupProblem = 'name' | 'no_options' | 'option_name' | 'option_price' | 'option_serves' | 'min_over_max' | 'max_over_options' | 'required_min';
 
 /** What is wrong with a group as staff typed it (empty = fine). */
 export function groupProblems(g: DraftGroup): GroupProblem[] {
@@ -194,6 +223,7 @@ export function groupProblems(g: DraftGroup): GroupProblem[] {
   if (g.modifiers.length === 0) out.push('no_options');
   if (g.modifiers.some((m) => !m.nameAr.trim())) out.push('option_name');
   if (g.modifiers.some((m) => parseDelta(m.price) === null)) out.push('option_price');
+  if (g.modifiers.some((m) => parseServes(m.serves) === 'invalid')) out.push('option_serves');
   if (g.minSelect > g.maxSelect) out.push('min_over_max');
   if (g.modifiers.length > 0 && g.maxSelect > g.modifiers.length) out.push('max_over_options');
   if (g.required && g.minSelect < 1) out.push('required_min');
@@ -225,17 +255,20 @@ export function toDraftGroups(groups: readonly MenuGroupLike[]): DraftGroup[] {
     required: g.required,
     minSelect: g.minSelect,
     maxSelect: g.maxSelect,
-    modifiers: g.modifiers.map((m) => ({ key: draftKey('m'), nameAr: m.nameAr, price: m.priceIqd ? String(m.priceIqd) : '0', available: m.available })),
+    modifiers: g.modifiers.map((m) => ({ key: draftKey('m'), nameAr: m.nameAr, price: m.priceIqd ? String(m.priceIqd) : '0', available: m.available, ...(m.servesMin != null ? { serves: servesText(m.servesMin, m.servesMax) } : {}) })),
   }));
 }
 
-export function fromDraftGroups(groups: readonly DraftGroup[]): Array<{ nameAr: string; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; priceIqd: number; available: boolean }> }> {
+export function fromDraftGroups(groups: readonly DraftGroup[]): Array<{ nameAr: string; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; priceIqd: number; available: boolean; servesMin?: number | null; servesMax?: number | null }> }> {
   return groups.map((g) => ({
     nameAr: g.nameAr.trim(),
     minSelect: g.minSelect,
     maxSelect: g.maxSelect,
     required: g.required,
-    modifiers: g.modifiers.map((m) => ({ nameAr: m.nameAr.trim(), priceIqd: parseDelta(m.price) ?? 0, available: m.available })),
+    modifiers: g.modifiers.map((m) => {
+      const serves = parseServes(m.serves);
+      return { nameAr: m.nameAr.trim(), priceIqd: parseDelta(m.price) ?? 0, available: m.available, ...(serves && serves !== 'invalid' ? { servesMin: serves.min, servesMax: serves.max } : {}) };
+    }),
   }));
 }
 

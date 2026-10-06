@@ -11,6 +11,7 @@ import { useProfile } from '@/lib/profile';
 import { ME, type CartMerchant } from './cart';
 import { cartStore, useCartStore } from './cart-store';
 import { FoodArt, artOf } from './FoodArt';
+import { servesCopy } from './portions';
 import { chosenModifiers, defaultSelection, selectionProblems, sheetCta, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
 
 /** The dish picture on top of the sheet: 16:9 (joy o2). */
@@ -108,6 +109,8 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   };
 
   const missing = problems.find((p) => p.problem === 'too_few');
+  const itemServesCopy = servesCopy(item.serves, locale);
+  const itemServes = itemServesCopy ? t(itemServesCopy.key, 'params' in itemServesCopy ? itemServesCopy.params : undefined) : null;
   const cta = sheetCta(problems, item.available && !disabled);
   const goToMissing = (groupId: string) => {
     const y = groupY.current[groupId];
@@ -169,6 +172,14 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
       }
     >
       <View style={{ gap: theme.space[5], paddingTop: theme.space[1] }} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
+        {itemServes ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="item-serves">
+            <Icon name="family" size={18} color="textMuted" />
+            <Text variant="label" color="textMuted">
+              {itemServes}
+            </Text>
+          </View>
+        ) : null}
         {item.modifierGroups.map((g) => (
           <View key={g.id} onLayout={(e) => (groupY.current[g.id] = e.nativeEvent.layout.y)}>
             <ModifierGroupBlock group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} flash={flash?.groupId === g.id ? flash.n : 0} />
@@ -261,6 +272,10 @@ function ModifierGroupBlock({
   const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
   const t = useT();
   const locale = useLocale();
+  const servesOf = (serves: MenuModifierGroup['modifiers'][number]['serves']) => {
+    const c = servesCopy(serves, locale);
+    return c ? t(c.key, 'params' in c ? c.params : undefined) : null;
+  };
   const rule = group.max === 1 ? t('item.choose_one') : group.min > 0 ? t('item.choose_at_least', { n: group.min }) : t('item.choose_up_to', { n: group.max });
   return (
     <View style={{ gap: theme.space[3] }} testID={`group-${group.id}`}>
@@ -310,9 +325,16 @@ function ModifierGroupBlock({
                 <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? theme.colors.accent : theme.colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
                   {on ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accent }} /> : null}
                 </View>
-                <Text variant="body" weight={on ? 600 : 400} style={{ flex: 1 }}>
-                  {m.name}
-                </Text>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text variant="body" weight={on ? 600 : 400}>
+                    {m.name}
+                  </Text>
+                  {servesOf(m.serves) ? (
+                    <Text variant="caption" color="textMuted" testID={`variant-serves-${m.id}`}>
+                      {servesOf(m.serves)}
+                    </Text>
+                  ) : null}
+                </View>
                 <Text variant="label" tabular color={on ? 'text' : 'textMuted'}>
                   {iqd(basePrice + m.priceIqd, { locale })}
                 </Text>

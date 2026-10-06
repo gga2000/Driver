@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, type DeliveryPoint, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
+import { AZIZIYAH_ZONES, DISH_LABELS, servesOf, type DeliveryPoint, type DishLabel, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import type { AvailabilityWindow, CatalogItemRecord } from './catalog.repository.js';
 
 /**
@@ -146,7 +146,7 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     min: Math.max(g.minSelect, g.required ? 1 : 0),
     max: Math.max(1, g.maxSelect),
     variant: isGroupVariant(g),
-    modifiers: g.modifiers.map((m) => ({ id: m.id, name: m.nameAr, priceIqd: m.priceIqd, available: m.available })),
+    modifiers: g.modifiers.map((m) => ({ id: m.id, name: m.nameAr, priceIqd: m.priceIqd, available: m.available, serves: servesOf(m.servesMin, m.servesMax) })),
   }));
   // Variants first: the sheet reads "which version" before "what on it".
   groups.sort((a, b) => Number(b.variant) - Number(a.variant));
@@ -161,6 +161,8 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     prepTimeMin: item.prepTimeMin,
     pointsEligible: item.pointsEligible,
     modifierGroups: groups,
+    serves: servesOf(item.servesMin, item.servesMax),
+    labels: (item.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
   };
 }
 

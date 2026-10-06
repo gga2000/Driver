@@ -18,7 +18,8 @@ export interface SeedModifierGroup {
   /** Defaults to 1 when required, else 0. */
   min?: number;
   max: number;
-  options: Array<{ nameAr: string; nameEn: string; priceIqd: number }>;
+  /** `servesMin`/`servesMax`: how many this version feeds (joy o3 «يشبّع»), when the kitchen says. */
+  options: Array<{ nameAr: string; nameEn: string; priceIqd: number; servesMin?: number; servesMax?: number }>;
 }
 
 export interface SeedMenuItem {
@@ -31,6 +32,11 @@ export interface SeedMenuItem {
   /** Shared taxonomy slug (`TAXONOMY` in the db seed). */
   taxonomy: string;
   modifierGroups?: SeedModifierGroup[];
+  /** How many the dish feeds as it comes (joy o3), when the kitchen says. */
+  servesMin?: number;
+  servesMax?: number;
+  /** The kitchen's labels (joy o8). */
+  labels?: Array<'spicy' | 'new' | 'family'>;
 }
 
 export interface SeedMenuCategory {
@@ -102,8 +108,8 @@ const servings = (pairIqd: number): SeedModifierGroup => ({
   required: true,
   max: 1,
   options: [
-    { nameAr: 'نفر', nameEn: 'One person', priceIqd: 0 },
-    { nameAr: 'نفرين', nameEn: 'Two people', priceIqd: pairIqd },
+    { nameAr: 'نفر', nameEn: 'One person', priceIqd: 0, servesMin: 1, servesMax: 1 },
+    { nameAr: 'نفرين', nameEn: 'Two people', priceIqd: pairIqd, servesMin: 2, servesMax: 2 },
   ],
 });
 
@@ -113,8 +119,8 @@ const byWeight = (kiloExtraIqd: number): SeedModifierGroup => ({
   required: true,
   max: 1,
   options: [
-    { nameAr: 'نص كيلو', nameEn: 'Half kilo', priceIqd: 0 },
-    { nameAr: 'كيلو', nameEn: 'One kilo', priceIqd: kiloExtraIqd },
+    { nameAr: 'نص كيلو', nameEn: 'Half kilo', priceIqd: 0, servesMin: 2, servesMax: 3 },
+    { nameAr: 'كيلو', nameEn: 'One kilo', priceIqd: kiloExtraIqd, servesMin: 4, servesMax: 5 },
   ],
 });
 
@@ -176,7 +182,7 @@ export const AZIZIYAH_RESTAURANTS: readonly SeedRestaurant[] = [
           { key: 'kebab_wrap', nameAr: 'لفة كباب', nameEn: 'Kebab wrap', descriptionAr: 'شيش كباب غنم على الفحم، بصل بالسماق وطماطة', priceIqd: 2000, prepTimeMin: 10, taxonomy: 'grill', modifierGroups: [bread(), grillExtras] },
           { key: 'tikka_wrap', nameAr: 'لفة تكة', nameEn: 'Tikka wrap', descriptionAr: 'تكة لحم متبّلة، مشوية على الفحم', priceIqd: 2500, prepTimeMin: 12, taxonomy: 'grill', modifierGroups: [bread(), grillExtras] },
           { key: 'liver_wrap', nameAr: 'لفة كبد', nameEn: 'Liver wrap', descriptionAr: 'كبد غنم طازج على الفحم، ويا بصل ونعناع', priceIqd: 1500, prepTimeMin: 8, taxonomy: 'grill', modifierGroups: [bread(), grillExtras] },
-          { key: 'chicken_tikka_wrap', nameAr: 'لفة تكة دجاج', nameEn: 'Chicken tikka wrap', descriptionAr: 'صدر دجاج متبّل بالليمون والثوم', priceIqd: 2000, prepTimeMin: 10, taxonomy: 'grill', modifierGroups: [bread(), grillExtras] },
+          { key: 'chicken_tikka_wrap', nameAr: 'لفة تكة دجاج', nameEn: 'Chicken tikka wrap', descriptionAr: 'صدر دجاج متبّل بالليمون والثوم', priceIqd: 2000, prepTimeMin: 10, taxonomy: 'grill', modifierGroups: [bread(), grillExtras], labels: ['new'] },
         ],
       },
       {
@@ -186,8 +192,8 @@ export const AZIZIYAH_RESTAURANTS: readonly SeedRestaurant[] = [
           { key: 'kebab_plate', nameAr: 'وجبة كباب', nameEn: 'Kebab plate', descriptionAr: '4 شيش كباب، تمن، شوربة، سلطة وصمون', priceIqd: 7000, prepTimeMin: 20, taxonomy: 'grill', modifierGroups: [servings(6000)] },
           { key: 'tikka_plate', nameAr: 'وجبة تكة', nameEn: 'Tikka plate', descriptionAr: '3 شيش تكة، تمن، شوربة، سلطة وصمون', priceIqd: 8000, prepTimeMin: 22, taxonomy: 'grill', modifierGroups: [servings(7000)] },
           { key: 'liver_plate', nameAr: 'وجبة كبد', nameEn: 'Liver plate', descriptionAr: 'كبد وقلوب على الفحم ويا تمن وسلطة', priceIqd: 5000, prepTimeMin: 15, taxonomy: 'grill' },
-          { key: 'kebab_kilo', nameAr: 'كباب بالكيلو', nameEn: 'Kebab by weight', descriptionAr: 'ويا خبز تنور، طماطة وبصل مشوي', priceIqd: 12000, prepTimeMin: 25, taxonomy: 'grill', modifierGroups: [byWeight(11000)] },
-          { key: 'khalid_mix', nameAr: 'مشكّل خالد', nameEn: 'Khalid mixed grill', descriptionAr: 'كباب، تكة، كبد ودجاج، ويا تمن وخبز لنفرين', priceIqd: 15000, prepTimeMin: 30, taxonomy: 'grill' },
+          { key: 'kebab_kilo', nameAr: 'كباب بالكيلو', nameEn: 'Kebab by weight', descriptionAr: 'ويا خبز تنور، طماطة وبصل مشوي', priceIqd: 12000, prepTimeMin: 25, taxonomy: 'grill', modifierGroups: [byWeight(11000)], labels: ['family'] },
+          { key: 'khalid_mix', nameAr: 'مشكّل خالد', nameEn: 'Khalid mixed grill', descriptionAr: 'كباب، تكة، كبد ودجاج، ويا تمن وخبز لنفرين', priceIqd: 15000, prepTimeMin: 30, taxonomy: 'grill', servesMin: 2, servesMax: 2, labels: ['family'] },
         ],
       },
       {
@@ -232,7 +238,7 @@ export const AZIZIYAH_RESTAURANTS: readonly SeedRestaurant[] = [
             prepTimeMin: 30,
             taxonomy: 'grill',
             modifierGroups: [
-              { nameAr: 'الحجم', nameEn: 'Size', required: true, max: 1, options: [{ nameAr: 'نص دجاجة', nameEn: 'Half chicken', priceIqd: 0 }, { nameAr: 'دجاجة كاملة', nameEn: 'Whole chicken', priceIqd: 5000 }] },
+              { nameAr: 'الحجم', nameEn: 'Size', required: true, max: 1, options: [{ nameAr: 'نص دجاجة', nameEn: 'Half chicken', priceIqd: 0, servesMin: 1, servesMax: 2 }, { nameAr: 'دجاجة كاملة', nameEn: 'Whole chicken', priceIqd: 5000, servesMin: 3, servesMax: 4 }] },
             ],
           },
           {
@@ -247,7 +253,7 @@ export const AZIZIYAH_RESTAURANTS: readonly SeedRestaurant[] = [
               { nameAr: 'الصوص', nameEn: 'Sauce', required: false, max: 2, options: [{ nameAr: 'ثومية', nameEn: 'Garlic sauce', priceIqd: 0 }, { nameAr: 'حار', nameEn: 'Hot sauce', priceIqd: 0 }] },
             ],
           },
-          { key: 'haj_mix', nameAr: 'مشكّل الحاج', nameEn: 'Haj mixed grill', descriptionAr: 'كيلو مشكّل: كباب، تكة، طاووق وكبد، ويا تمن وخبز وسلطات لـ 3–4 أشخاص', priceIqd: 25000, prepTimeMin: 35, taxonomy: 'grill' },
+          { key: 'haj_mix', nameAr: 'مشكّل الحاج', nameEn: 'Haj mixed grill', descriptionAr: 'كيلو مشكّل: كباب، تكة، طاووق وكبد، ويا تمن وخبز وسلطات لـ 3–4 أشخاص', priceIqd: 25000, prepTimeMin: 35, taxonomy: 'grill', servesMin: 3, servesMax: 4, labels: ['family'] },
         ],
       },
       {

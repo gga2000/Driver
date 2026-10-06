@@ -5,6 +5,8 @@ import {
   filterMenu,
   foldArabic,
   fromDraftGroups,
+  parseServes,
+  servesText,
   groupProblems,
   groupRule,
   itemStatus,
@@ -112,6 +114,24 @@ describe('modifier groups', () => {
     expect(groupProblems({ ...g, modifiers: [] })).toEqual(['no_options']);
     expect(groupProblems({ ...g, modifiers: [{ key: 'm', nameAr: 'x', price: 'abc', available: true }] })).toEqual(['option_price']);
     expect(groupProblems({ ...g, required: true, minSelect: 0 })).toEqual(['required_min']);
+  });
+
+  it('«يشبّع» as staff type it, and back (joy o3)', () => {
+    expect(parseServes('')).toBeNull();
+    expect(parseServes('3')).toEqual({ min: 3, max: 3 });
+    expect(parseServes('2-3')).toEqual({ min: 2, max: 3 });
+    expect(parseServes('٢–٣')).toEqual({ min: 2, max: 3 });
+    expect(parseServes('3-2')).toBe('invalid');
+    expect(parseServes('0')).toBe('invalid');
+    expect(parseServes('كثير')).toBe('invalid');
+    expect(servesText(2, 3)).toBe('2–3');
+    expect(servesText(2, 2)).toBe('2');
+    expect(servesText(null, null)).toBe('');
+    const kilo: DraftGroup = { ...g, nameAr: 'الكمية', modifiers: [{ key: 'a', nameAr: 'نص كيلو', price: '0', available: true, serves: '2-3' }, { key: 'b', nameAr: 'كيلو', price: '11000', available: true, serves: 'x' }] };
+    expect(groupProblems(kilo)).toEqual(['option_serves']);
+    const api = fromDraftGroups([{ ...kilo, modifiers: [kilo.modifiers[0]!] }]);
+    expect(api[0]!.modifiers[0]).toEqual({ nameAr: 'نص كيلو', priceIqd: 0, available: true, servesMin: 2, servesMax: 3 });
+    expect(toDraftGroups(api)[0]!.modifiers[0]!.serves).toBe('2–3');
   });
 
   it('keeps required and min in step, and round-trips with the API shape', () => {
