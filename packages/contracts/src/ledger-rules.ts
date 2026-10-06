@@ -122,14 +122,18 @@ export const MoneyRules = z.object({
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
   /**
-   * G-91 launch shift guarantee (money §2, edge-case review #91; Ali decided 2026-10-06 to pay it):
-   * per peak shift, a driver whose cap role is in `roles` and who met the three conditions in it is
-   * topped up by the platform to `amountIqd` (the difference, never a flat bonus), paid on the Sunday
-   * run with the scorecard. `enabled` is the city's switch. See `shiftGuarantee` and
-   * docs/api/shift-guarantee.md.
+   * G-91 launch shift guarantee (money §2, edge-case review #91): per peak shift, a driver whose cap
+   * role is in `roles` and who met the three conditions in it is topped up by the platform to
+   * `amountIqd` (the difference, never a flat bonus), paid on the Sunday run with the scorecard.
+   * See `shiftGuarantee` and docs/api/shift-guarantee.md.
+   *
+   * `enabled` is the city's money-rule switch, **off by default**. Ali, 2026-10-06: "hold it, switch it
+   * off" until he decides — the code is built and tested, but while it is off the server posts no
+   * top-up, covers nobody (`driverAccount.guarantee` says `enabled: false`, the shift summary lists no
+   * peak shifts) and the Partner app shows no progress, pending or paid guarantee line.
    */
   guarantee: z.object({
-    enabled: z.boolean().default(true),
+    enabled: z.boolean().default(false),
     amountIqd: Iqd.nonnegative(),
     minAcceptance: Rate,
     maxCancelsAfterAccept: z.number().int().nonnegative(),
@@ -198,7 +202,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
   adjustments: { secondApproverAboveIqd: 25000 },
   driverPayoutAboveIqd: 20000,
-  guarantee: { enabled: true, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_PEAK_SHIFTS], roles: ['courier'] },
+  // G-91 switched off by Ali on 2026-10-06 (open decision): no top-ups, nothing shown in the apps.
+  guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_PEAK_SHIFTS], roles: ['courier'] },
   lateMeter: {
     graceMin: 5,
     blockMin: 10,

@@ -1,7 +1,7 @@
 // Driver account (wave 2): earnings history, documents, the daily check-in and the scorecard.
 //
 //   who=courier  0770 111 0001  checked in; two months of deliveries (tips, night/rain extras, batch, shift
-//                               guarantee top-ups paid on the Sunday after the shift, cash orders paid to restaurants and settled daily);
+//                               guarantee top-ups only while MoneyRules.guarantee.enabled — off since 2026-10-06 —, cash orders paid to restaurants and settled daily);
 //                               today ≈ 72 % of his 75,000 cap; scorecard day 65, bronze, 2 nudges
 //   who=tuktuk   0770 111 0002  checked in; rides with the platform take; licence expiring in 12 days,
 //                               registration rejected (reason), insurance under review
@@ -48,6 +48,8 @@ export default async function register(demo) {
   const reviewer = { personId: 'demo-field-ops', sessionId: 'demo' };
   const now = Date.now();
   const today = startOfLocalDay(now);
+  const { AZIZIYAH_MONEY_RULES } = await import('@driver/contracts');
+  const guaranteeOn = AZIZIYAH_MONEY_RULES.guarantee.enabled;
 
   async function photo(ownerId) {
     const ticket = await blobs.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: JPEG.length });
@@ -165,8 +167,9 @@ export default async function register(demo) {
     // G-91 shift guarantee (money §2): a few slow dinner shifts topped up, paid like the server pays
     // them — on the Sunday 02:00 run after the shift, one group per driver per shift, memo
     // `guarantee:<date>:dinner` (shifts whose Sunday has not come yet are left to the real run).
+    // Switched off by Ali on 2026-10-06 (MoneyRules.guarantee.enabled false): no top-ups in the demo either.
     const paidAt = day + (7 - dow) * DAY + 2 * HOUR;
-    if (d % 6 === 2) {
+    if (guaranteeOn && d % 6 === 2) {
       const top = pick(r, [1500, 2000, 2500]);
       const windowId = `${new Date(day + OFF).toISOString().slice(0, 10)}:dinner`;
       if (paidAt <= now) {

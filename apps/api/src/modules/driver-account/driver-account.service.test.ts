@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Actor, Order, RoleKind, Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type Actor, type MoneyRules, type Order, type RoleKind, type Trip } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { EventsShiftActivity } from '../ledger/index.js';
@@ -26,12 +26,12 @@ async function storedUpload(blobs: BlobStore, ownerId: string): Promise<string> 
 }
 
 /** DriverAccountService on in-memory identity, ledger, events and blob store; trips and orders scripted. */
-function setup(start = '2026-10-03T09:00:00Z') {
+function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONEY_RULES) {
   const id = identityHarness(start);
   const clock = id.clock;
   const ev = createInMemoryEvents({ clock });
   // G-91: the guarantee reads his trip events from the same log the service writes to.
-  const ledger = ledgerHarness({ start, clock, activity: new EventsShiftActivity(ev.events) });
+  const ledger = ledgerHarness({ start, clock, rules, activity: new EventsShiftActivity(ev.events) });
   const blobs = new DevBlobStore(clock, { secret: 'test-blob-secret' });
   const repo = new InMemoryDriverAccountRepository();
   const trips: Trip[] = [];
@@ -361,9 +361,11 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
 });
 
 describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
+  /** Aziziyah ships it switched off (Ali, 2026-10-06); the reads are tested with the switch on too. */
+  const ON: MoneyRules = { ...AZIZIYAH_MONEY_RULES, guarantee: { ...AZIZIYAH_MONEY_RULES.guarantee, enabled: true } };
   /** A courier on Sunday 4 Oct lunch (12:00–16:00 Baghdad = 09:00Z–13:00Z): 3 accepted and completed jobs, one declined offer. */
-  async function lunch(now: string, roles: RoleKind[] = ['courier']) {
-    const h = setup('2026-10-04T08:00:00Z');
+  async function lunch(now: string, roles: RoleKind[] = ['courier'], rules: MoneyRules = ON) {
+    const h = setup('2026-10-04T08:00:00Z', rules);
     const d = await h.person('07700000021', roles);
     if (!roles.includes('courier')) h.ledger.profiles.set(d.personId, { role: 'driver', tier: 'bronze' });
     const emit = (type: string, actorId: string, tripId: string, at: string, payload: Record<string, unknown> = {}) =>
@@ -400,6 +402,14 @@ describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
     expect(g.current).toBeNull();
     expect(g.week[0]).toMatchObject({ id: '2026-10-04:lunch', status: 'ended', accepted: 9, offers: 10, qualified: true, topUpIqd: 7000, paysOn: new Date('2026-10-10T21:00:00Z') });
     expect(g.pendingIqd).toBe(7000);
+  });
+
+  it('switched off (Aziziyah as shipped, Ali 2026-10-06): a covered courier sees nothing, no pending money', async () => {
+    const { h, d } = await lunch('2026-10-04T12:00:00Z', ['courier'], AZIZIYAH_MONEY_RULES);
+    expect(await h.service.guarantee(d)).toMatchObject({ enabled: false, current: null, week: [], pendingIqd: 0 });
+    expect((await h.service.shiftSummary(d, { from: new Date('2026-10-04T09:00:00Z') })).guarantee).toEqual([]);
+    h.clock.set('2026-10-04T14:00:00Z');
+    expect(await h.service.guarantee(d)).toMatchObject({ enabled: false, week: [], pendingIqd: 0 });
   });
 
   it('not covered (a car driver at launch): nothing to show', async () => {

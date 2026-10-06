@@ -274,9 +274,11 @@ or the clock.
   condition at risk (acceptance below 85 %, too many cancels), or "ضمنت شفت الغدا: … نكمّلها لك يوم
   الأحد". Nothing outside a peak or for drivers the guarantee does not cover. The shift summary shows
   "ضمان الشفت" (earned and paid on Sunday, or paid) and the earnings tab what waits for Sunday.
+- **Switched off 2026-10-06 (Ali: "hold it, switch it off"):** `MoneyRules.guarantee.enabled` is `false`
+  until he decides, so the server pays nothing and none of these lines show; the code stays.
 
 ### S-4 End-of-shift summary (on hold-to-go-offline)
-- Online time, jobs, net, **per hour** ("3,750 دينار بالساعة"), tips, best hour, cash to hand over
+- Online time, jobs, net, **per hour** ("تقريباً 3,750 دينار لكل ساعة شغل", to the nearest 50 from the exact minutes), tips, best hour, cash to hand over
   today with the code button, and tomorrow's busiest window from last week's data.
 - A share-to-WhatsApp image of the day (drivers already share screenshots) with the brand mark.
 - Shift-end is also where a single nudge goes (one scorecard item below the Silver line), never

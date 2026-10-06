@@ -31,7 +31,9 @@ export default function EarningsTab() {
   const canDrive = status?.canDrive ?? true;
   const withDay = e.period !== 'day';
   // G-91: top-ups earned in peak shifts that wait for the Sunday run (paid ones are in the breakdown).
-  const pendingGuarantee = useGuarantee().data?.pendingIqd ?? 0;
+  // Switched off (Ali, 2026-10-06) the server says `enabled: false`: nothing that promises money.
+  const guarantee = useGuarantee().data;
+  const pendingGuarantee = guarantee?.enabled ? guarantee.pendingIqd : 0;
 
   const options: { value: EarningsPeriod; label: string }[] = [
     { value: 'day', label: t('partner.earn_period_day') },

@@ -9,12 +9,14 @@ import { guaranteeGroupId, postShiftGuarantee } from './postings.js';
 import { MONEY_RULES } from './tokens.js';
 
 /**
- * G-91 launch shift guarantee, server side (money §2, edge-case review #91; Ali decided 2026-10-06
- * to pay it). For each peak shift of the city (`MoneyRules.guarantee.peaks`) the driver's offers,
+ * G-91 launch shift guarantee, server side (money §2, edge-case review #91). For each peak shift of the city (`MoneyRules.guarantee.peaks`) the driver's offers,
  * cancels after accept, completed jobs and the earnings of those jobs are counted from the real
  * record — his own trip events and his ledger lines — and `shiftGuarantee` decides the top-up. The
  * Sunday run of the nightly close posts each top-up once (`settleWeek`); the Partner app reads the
  * same numbers live (`windows`). docs/api/shift-guarantee.md.
+ *
+ * Switched off by Ali on 2026-10-06 (`MoneyRules.guarantee.enabled: false`, an open decision): off,
+ * `covers` is false for everyone and `settle` posts nothing, so no top-up is paid and nothing is shown.
  */
 
 const DAY_MS = 86_400_000;

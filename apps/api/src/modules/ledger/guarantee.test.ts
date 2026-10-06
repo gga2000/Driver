@@ -5,7 +5,12 @@ import { EventsShiftActivity, windowStats, type ShiftActivity } from './guarante
 import { guaranteeGroupId } from './postings.js';
 import { ledgerHarness, ScriptedShiftActivity, workedExample } from './test-harness.js';
 
-const g = rules.guarantee;
+/**
+ * Aziziyah ships the guarantee switched off (Ali, 2026-10-06: "hold it, switch it off"); the rule and
+ * the service are tested with the switch on, so turning it on later pays exactly this.
+ */
+const g: MoneyRules['guarantee'] = { ...rules.guarantee, enabled: true };
+const on: MoneyRules = { ...rules, guarantee: g };
 const ok = { offers: 20, accepted: 18, cancelsAfterAccept: 1, completedJobs: 3, earningsIqd: 6000 };
 /** Sunday 2026-10-04, Baghdad (UTC+3): lunch 12:00–16:00 = 09:00Z–13:00Z, dinner 19:00–23:00 = 16:00Z–20:00Z. */
 const at = (iso: string) => new Date(iso);
@@ -45,6 +50,14 @@ describe('shiftGuarantee: the G-91 rule for one peak shift', () => {
 
   it('the city switch off qualifies nobody', () => {
     expect(shiftGuarantee(ok, { ...g, enabled: false })).toMatchObject({ qualified: false, topUpIqd: 0 });
+  });
+
+  it('Aziziyah ships it switched off (Ali, 2026-10-06), and off is the default for any city', () => {
+    expect(rules.guarantee.enabled).toBe(false);
+    expect(shiftGuarantee(ok, rules.guarantee)).toMatchObject({ qualified: false, topUpIqd: 0 });
+    const withoutSwitch: Partial<MoneyRules['guarantee']> = { ...rules.guarantee };
+    delete withoutSwitch.enabled;
+    expect(MoneyRules.parse({ ...rules, guarantee: withoutSwitch }).guarantee.enabled).toBe(false);
   });
 });
 
@@ -138,9 +151,9 @@ describe('EventsShiftActivity: from the real events log', () => {
 
 describe('ShiftGuaranteeService: counted live, paid once on the Sunday run', () => {
   /** k1 (courier) on Sunday lunch: 18/20 accepted, 1 cancel, 3 jobs paying 1,000 + 1,000 + 1,000 + a 500 tip. */
-  async function lunchShift(start = '2026-10-04T08:00:00Z') {
+  async function lunchShift(start = '2026-10-04T08:00:00Z', cityRules: MoneyRules = on) {
     const activity = new ScriptedShiftActivity();
-    const h = ledgerHarness({ start, activity });
+    const h = ledgerHarness({ start, activity, rules: cityRules });
     const a = activity.of('k1');
     for (let i = 0; i < 20; i++) a.offers.push({ at: new Date(at('2026-10-04T09:05:00Z').getTime() + i * 10 * 60_000), accepted: i >= 2 });
     a.cancelsAfterAccept.push({ at: at('2026-10-04T09:30:00Z'), tripId: 'tc' });
@@ -192,6 +205,19 @@ describe('ShiftGuaranteeService: counted live, paid once on the Sunday run', () 
     h.clock.set('2026-10-10T23:00:00Z');
     expect(await h.guarantee.covers('k1')).toBe(false);
     expect((await h.nightly.run()).guaranteePaid).toEqual([]);
+  });
+
+  it('Aziziyah as shipped (switched off): the same qualifying shift covers nobody, shows nothing and pays nothing', async () => {
+    const h = await lunchShift('2026-10-04T08:00:00Z', rules);
+    h.clock.set('2026-10-10T23:00:00Z'); // Sunday 02:00 local
+    expect(await h.guarantee.covers('k1')).toBe(false);
+    expect(await h.facade.guaranteeCovers('k1')).toBe(false);
+    const report = await h.nightly.run();
+    expect(report.guaranteePaid).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(await h.guarantee.settle({ from: at('2026-10-04T00:00:00Z'), to: at('2026-10-10T00:00:00Z') })).toEqual([]);
+    expect(await h.ledger.eventsForGroups([guaranteeGroupId('k1', '2026-10-04:lunch')])).toEqual([]);
+    expect((await h.caps.status('k1')).earningsIqd).toBe(3500);
   });
 
   it('the city switch off pays nobody', async () => {

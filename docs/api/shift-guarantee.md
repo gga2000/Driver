@@ -1,8 +1,26 @@
-# Shift guarantee "ضمان الشفت" (G-91) — counted and paid by the server (2026-10-06)
+# Shift guarantee "ضمان الشفت" (G-91) — built, **switched off** (Ali, 2026-10-06)
+
+> **Status: switched off.** Built and tested on 2026-10-06 to be counted and paid by the server, then
+> Ali said the same day "hold it, switch it off" until he decides. It is an **open decision**. The switch
+> is the money rule `MoneyRules.guarantee.enabled`, now `false` for Aziziyah and `false` by default for
+> any city. While it is off:
+> - the server pays **no** top-up (the Sunday run's `settle` posts nothing) and covers nobody;
+> - `driverAccount.guarantee` returns `enabled: false`, `current: null`, `week: []`, `pendingIqd: 0`, and
+>   `driverAccount.shiftSummary` returns `guarantee: []`;
+> - the Partner app shows **no** progress, pending or paid guarantee line (job end, shift summary,
+>   earnings tab), so nothing promises money; the demo API posts no top-ups;
+> - the simulator invariant `shift_guarantee_once_and_exact` asserts that nothing is paid to anyone.
+>
+> Turning it on is the one-line config change `enabled: true` (after Ali decides, together with the
+> readings at the end of this page); the enabled path stays covered by unit tests
+> (`apps/api/src/modules/ledger/guarantee.test.ts`, `driver-account.service.test.ts`).
+>
+> Everything below describes the rule **as it works when switched on**.
 
 Rule: money & ops spec §2 ("10,000 per 4-hour peak shift at ≥ 85% acceptance, topped up by platform"),
 edge-case review #91 (≥ 85 % acceptance **and** ≤ 1 cancel after accept **and** ≥ 3 completed jobs in the
-shift; paid Sunday with the scorecard, not nightly). Ali decided on 2026-10-06 that the server pays it.
+shift; paid Sunday with the scorecard, not nightly). Ali decided on 2026-10-06 that the server pays it,
+then switched it off the same day until he decides (see the status above).
 Config: `MoneyRules.guarantee` (`packages/contracts/src/ledger-rules.ts`). Shared rule:
 `packages/contracts/src/shift-guarantee.ts` (`peakWindows`, `shiftGuarantee`), used by the API and the
 simulator. Server: `apps/api/src/modules/ledger/guarantee.ts` (`ShiftGuaranteeService`).
@@ -10,7 +28,7 @@ simulator. Server: `apps/api/src/modules/ledger/guarantee.ts` (`ShiftGuaranteeSe
 ## Config (`MoneyRules.guarantee`, Aziziyah)
 | Field | Value | Meaning |
 |---|---|---|
-| `enabled` | `true` | The city's switch. Off → nobody qualifies, nothing is shown. |
+| `enabled` | **`false`** (switched off by Ali, 2026-10-06; schema default `false`) | The city's switch. Off → nobody is covered or qualifies, nothing is paid, nothing is shown. |
 | `amountIqd` | 10,000 | What a qualified shift is topped up to. |
 | `minAcceptance` | 0.85 | Accepted ÷ offers answered or let expire in the shift. Compared in whole basis points, so exactly 85 % passes. |
 | `maxCancelsAfterAccept` | 1 | Jobs he cancelled after accepting, in the shift. |
@@ -64,10 +82,13 @@ For each peak shift (id `2026-10-04:lunch`):
 - Earnings tab: "ضمان الشفت: 6,500 دينار تنزل بحسابك يوم الأحد" while top-ups wait for the Sunday run.
 
 ## Simulator
-`shift_guarantee_once_and_exact` recounts every covered courier's peak shift from the trips, offer answers
-and ledger rows after the day is settled: at most one platform-funded top-up per driver per shift, only to
-covered drivers who met the conditions, equal to `max(0, 10,000 − earnings)`. `pnpm sim --orders 500 --seed
-1 --ci` on 2026-10-06: 3 top-ups, 24,500 دينار, 19/19 invariants.
+`shift_guarantee_once_and_exact`, switched off (today): no `guarantee:` top-up for any driver in any peak
+shift of the day and nobody covered — it checks every driver who answered an offer against every settled
+peak shift. Switched on: it recounts every covered courier's peak shift from the trips, offer answers and
+ledger rows after the day is settled: at most one platform-funded top-up per driver per shift, only to
+covered drivers who met the conditions, equal to `max(0, 10,000 − earnings)` (`pnpm sim --orders 500 --seed
+1 --ci` with it on, 2026-10-06: 3 top-ups, 24,500 دينار). The report's "Shift-guarantee top-ups" row says
+"switched off".
 
 ## Readings chosen where the rule was silent (conservative; for Ali)
 1. Peak shifts are 12:00–16:00 and 19:00–23:00 (the 4 hours around the review #21 peaks). The specs name

@@ -8,20 +8,24 @@ pushed. Verified on 2026-10-06 at `b66c9c5` from a fresh install: build, typeche
 test suite and `pnpm sim --orders 2000 --seed 1 --ci` (18/18 invariants, change-to-wallet exercised)
 all pass. The Phase 3 merge had broken `apps/customer/scripts/demo-api.mjs` (fixed in `70c128e`).
 Phase 3 follow-ups (Ali's 2026-10-06 decisions: two-step honest delay, free-delivery credit, the G-91
-shift guarantee paid by the server, the خطوط sweep alert and 3-second look, plus screenshot fixes) are
-merged; the sim now has 20 invariants (`late_credit_once_per_delivery`, `shift_guarantee_once_and_exact`).
-Shift-guarantee details Ali has not confirmed (conservative defaults, config): peak shifts 12–16 and
-19–23, couriers only, no minimum online time — see `docs/api/shift-guarantee.md`.
+shift guarantee, the خطوط sweep alert and 3-second look, plus screenshot fixes) are merged; the sim now has
+20 invariants (`late_credit_once_per_delivery`, `shift_guarantee_once_and_exact`).
+**Shift guarantee (G-91): built, switched off by Ali on 2026-10-06** ("hold it, switch it off") — the
+money rule `MoneyRules.guarantee.enabled` is `false`: the server pays no top-up, the partner app shows no
+guarantee line, the sim asserts nothing is paid. Don't turn it on or show progress toward it until Ali
+decides — see `docs/api/shift-guarantee.md`.
 
 Open product decisions Ali has not yet made (ask before building further on these):
 tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
-for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit.
+for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit;
+the shift guarantee (G-91: built but switched off — pay it at all? and if so peak shifts 12–16 and 19–23,
+couriers only, a minimum online time?).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of
 `docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
 tender limit) and extra cash must be named; honest delay in two steps (10 min apology + new time, 20
-min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee is paid by the server;
-خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen, 3-second pause before the sweep.
+min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee was built to be paid by
+the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen, 3-second pause before the sweep.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,
 and the Console zones/map pages — check recent commits (`git log --oneline -20`) before touching those.

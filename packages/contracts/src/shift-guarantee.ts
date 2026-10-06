@@ -2,7 +2,8 @@ import type { MoneyRules, PeakShift } from './ledger-rules.js';
 
 /**
  * G-91 launch shift guarantee (money §2, edge-case review #91), pure: the city's peak shifts as
- * instants, and what one shift earns a driver. Ali decided on 2026-10-06 that the server pays it:
+ * instants, and what one shift earns a driver. Built on 2026-10-06 for the server to pay, then
+ * switched off by Ali the same day until he decides (`MoneyRules.guarantee.enabled: false`). The rule:
  * per peak shift, if he accepted ≥ 85 % of the offers he answered or let expire, cancelled at most
  * once after accepting and completed at least 3 jobs, the platform tops his earnings for the jobs of
  * that shift up to 10,000 دينار (the difference, never a flat bonus), paid on the Sunday run.

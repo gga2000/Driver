@@ -1,4 +1,4 @@
-import type { Order, Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type Order, type Trip } from '@driver/contracts';
 import { checkInvariants, type InvariantResult, type SimSnapshot } from './invariants.js';
 
 /**
@@ -215,7 +215,7 @@ export function summaryTable(r: SimulationReport): string {
     ['أحداث محجوزة', 'Quarantined late replays', fmt(r.activity.quarantinedEvents)],
     ['تسليم فلوس المطاعم', 'Merchant hand-overs', `${fmt(r.activity.merchantHandovers)} (${fmt(r.activity.merchantHandoverIqd)} IQD)`],
     ['باقي الكاش للمحفظة', 'No-change credits to wallets', `${fmt(r.activity.noChangeCredits)} (${fmt(r.activity.noChangeCreditIqd)} IQD)`],
-    ['تكملة ضمان الشفت', 'Shift-guarantee top-ups', `${fmt(r.activity.guaranteeTopUps)} (${fmt(r.activity.guaranteeTopUpIqd)} IQD)`],
+    ['تكملة ضمان الشفت', 'Shift-guarantee top-ups', `${fmt(r.activity.guaranteeTopUps)} (${fmt(r.activity.guaranteeTopUpIqd)} IQD)${AZIZIYAH_MONEY_RULES.guarantee.enabled ? '' : ' · switched off'}`],
     ['الثوابت', 'Invariants passed', `${r.invariants.length - r.violations.length}/${r.invariants.length}`],
   ];
   const w1 = Math.max(...rows.map((x) => x[0].length));

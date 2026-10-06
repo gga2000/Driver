@@ -368,12 +368,19 @@ export const INVARIANTS: readonly Definition[] = [
   {
     name: 'shift_guarantee_once_and_exact',
     description:
-      'G-91 shift guarantee (Ali, 2026-10-06): at most one top-up per driver per peak shift, platform-funded, only to covered drivers who met the conditions (≥ 85 % acceptance, ≤ 1 cancel after accept, ≥ 3 completed jobs), equal to max(0, 10,000 − what the shift’s jobs earned) — recounted here from the trips, offer answers and ledger rows',
+      'G-91 shift guarantee: switched off (Ali, 2026-10-06; MoneyRules.guarantee.enabled false) → no top-up for any driver in any peak shift and nobody covered; when on, at most one top-up per driver per peak shift, platform-funded, only to covered drivers who met the conditions (≥ 85 % acceptance, ≤ 1 cancel after accept, ≥ 3 completed jobs), equal to max(0, 10,000 − what the shift’s jobs earned) — recounted here from the trips, offer answers and ledger rows',
     run: (s) => {
       const bad: string[] = [];
       const g = AZIZIYAH_MONEY_RULES.guarantee;
       const snap = s.guarantee ?? { covered: [], offers: [], windows: [] };
       const rows = s.ledger.filter((e) => e.type === 'driver_incentive' && (e.memo ?? '').startsWith('guarantee:'));
+      if (!g.enabled) {
+        // Switched off: every driver who answered an offer, in every settled peak shift of the day, got nothing.
+        for (const e of rows) bad.push(`${e.id}: guarantee ${e.amount} paid to ${e.toAccount} for ${(e.memo ?? '').slice('guarantee:'.length)} while the guarantee is switched off`);
+        for (const driverId of snap.covered) bad.push(`${driverId} is covered while the guarantee is switched off`);
+        const drivers = new Set(snap.offers.map((o) => o.driverId));
+        return { checked: rows.length + snap.covered.length + drivers.size * snap.windows.length, bad };
+      }
       const paid = new Map<string, number>();
       const count = new Map<string, number>();
       for (const e of rows) {
