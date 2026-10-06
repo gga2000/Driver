@@ -12,6 +12,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LiveGeoJSON, OrderTag } from '@/lib/live-map';
 import { around, placeLabels, stackTags, type Box, type LabelIn } from '@/lib/map-labels';
 import { ZonesSvg } from './zones-svg';
+import { FLEET_RULES, glideAt, isQuiet, type LngLatTuple } from '@/lib/fleet-motion';
+
+/** The person asked the system for less motion: pins jump to each fix. */
+const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export type MapSelection =
   | { kind: 'driver'; id: string; tripId: string }
@@ -51,6 +55,8 @@ export interface LiveMapCanvasProps {
   driverLabel?: ((driverId: string) => string | null) | undefined;
   renderHover?: ((h: MapHoverTarget) => ReactNode) | undefined;
   onDropTrip?: ((tripId: string, driverId: string) => void) | undefined;
+  /** Couriers carrying an order predicted to be late (maps program o4): a pulsing ring. */
+  atRiskDrivers?: ReadonlySet<string> | undefined;
 }
 
 const CLICKABLE = [LAYER.tripStops, LAYER.tripLines, LAYER.garages, LAYER.zoneFill];
@@ -87,6 +93,8 @@ interface PinEntry {
   el: HTMLDivElement;
   look: string;
   lngLat: [number, number];
+  /** Moving to `lngLat` from here since `start` (maps program o1). */
+  glide?: { from: LngLatTuple; start: number };
 }
 interface TagEntry extends PinEntry {
   /** Orders at this spot. */
@@ -324,7 +332,28 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
     map.setPaintProperty(LAYER.tripStops, 'circle-radius', ['case', isFocus, 5, 3] as never);
   }, [live.trips, live.stops, ready, routes, focusTripId, selected, theme]);
 
+  // ── pin glides (maps program o1): one animation loop for every pin on the move ──
+  const glideRaf = useRef(0);
+  const startGlides = () => {
+    if (glideRaf.current) return;
+    const step = (now: number) => {
+      glideRaf.current = 0;
+      let moving = false;
+      for (const e of pinsRef.current.values()) {
+        if (!e.glide) continue;
+        const k = (now - e.glide.start) / FLEET_RULES.glideMs;
+        e.marker.setLngLat(k >= 1 ? e.lngLat : glideAt(e.glide.from, e.lngLat, k));
+        if (k >= 1) delete e.glide;
+        else moving = true;
+      }
+      if (moving) glideRaf.current = requestAnimationFrame(step);
+    };
+    glideRaf.current = requestAnimationFrame(step);
+  };
+  useEffect(() => () => cancelAnimationFrame(glideRaf.current), []);
+
   // ── driver markers ──
+  const atRiskDrivers = props.atRiskDrivers;
   const selectedDriver = selected?.kind === 'driver' ? selected.id : null;
   useEffect(() => {
     const map = mapRef.current;
@@ -378,9 +407,24 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
       }
       entry.el.dataset['tripId'] = p.tripId;
       if (entry.lngLat[0] !== lngLat[0] || entry.lngLat[1] !== lngLat[1]) {
-        entry.marker.setLngLat(lngLat);
+        // Maps program o1: glide from where the pin is drawn to the new fix instead of jumping.
+        if (reduceMotion()) entry.marker.setLngLat(lngLat);
+        else {
+          const at = entry.marker.getLngLat();
+          entry.glide = { from: [at.lng, at.lat], start: performance.now() };
+          startGlides();
+        }
         entry.lngLat = lngLat;
       }
+      // Heading arrow, quiet fade and the at-risk ring (maps program o1, o4): outside `look`, they change on their own.
+      const heading = typeof p.heading === 'number' ? Math.round(p.heading) : null;
+      entry.el.style.setProperty('--heading', heading === null ? '' : `${heading}deg`);
+      if (heading === null) delete entry.el.dataset['heading'];
+      else entry.el.dataset['heading'] = '';
+      if (isQuiet(p.seenAt ?? null, Date.now())) entry.el.dataset['quiet'] = '';
+      else delete entry.el.dataset['quiet'];
+      if (atRiskDrivers?.has(id)) entry.el.dataset['risk'] = '';
+      else delete entry.el.dataset['risk'];
       if (entry.look !== look) {
         entry.look = look;
         entry.el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${MARKER_SHAPES[p.state]}</svg>${rank ? `<span class="ops-rank">${rank}</span>` : ''}`;
@@ -437,7 +481,7 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
       labels.set(key, { marker, el: node, lngLat: at, kind: 'driver', size: null });
     }
     layoutRef.current();
-  }, [live.drivers, ready, candidates, picked, selectedDriver, followId, theme]);
+  }, [live.drivers, ready, candidates, picked, selectedDriver, followId, theme, atRiskDrivers]);
 
   // ── waiting orders ──
   useEffect(() => {

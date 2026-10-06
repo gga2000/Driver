@@ -11,6 +11,7 @@ import { eventKey, isTypingTarget } from '@/lib/hotkeys';
 import { capTierLabel, pinStateLabel, tierLabel, tripStateLabel, vehicleLabel, verticalLabel, zoneName } from '@/lib/labels';
 import { buildLiveGeoJSON, countMarkers, driverPosition, filterLive, markerStateForPin, orderTags, type MapFilter } from '@/lib/live-map';
 import { LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins } from '@/lib/live';
+import { useAtRiskDrivers } from '@/lib/at-risk';
 import { orderLabel, personText, useNames } from '@/lib/names';
 import { useTheme } from '@/lib/prefs';
 import { useSignedIn } from '@/lib/session';
@@ -54,6 +55,8 @@ export function MapPage() {
   const [tab, setTab] = useState<'drivers' | 'trips'>('drivers');
 
   const tripList = useMemo(() => trips.data ?? [], [trips.data]);
+  // Maps program o4: ring the couriers whose order is predicted to be late.
+  const riskDrivers = useAtRiskDrivers(tripList);
   const tripsById = useMemo(() => new Map<string, Trip>(tripList.map((x) => [x.id, x])), [tripList]);
   const cards = useMemo(() => board.data?.cards ?? [], [board.data]);
   const cardById = useMemo(() => new Map(cards.map((c) => [c.tripId, c])), [cards]);
@@ -209,6 +212,7 @@ export function MapPage() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative h-[60vh] min-h-[360px] lg:h-auto lg:min-w-0 lg:flex-1">
           <LiveMapCanvas
+            atRiskDrivers={riskDrivers}
             live={live}
             theme={theme}
             selected={selected}

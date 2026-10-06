@@ -128,7 +128,8 @@ export class ConsoleReadService implements ConsolePort {
       cityId: p.cityId,
       lat: p.lat,
       lng: p.lng,
-      heading: null,
+      // From his own movement (maps program c10/o1); null until he has moved.
+      heading: p.heading ?? null,
       state: pinState(d.state, cap.overCap),
       vehicleClass: p.vehicle,
       tier: p.tier,

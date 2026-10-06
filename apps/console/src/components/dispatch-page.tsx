@@ -22,6 +22,7 @@ import {
 import { eventKey, isTypingTarget } from '@/lib/hotkeys';
 import { buildLiveGeoJSON, orderTags } from '@/lib/live-map';
 import { LIVE_POLL_MS, useActiveOrders, useActiveTrips, useDispatchBoard, useDriverPins, useRightNow } from '@/lib/live';
+import { useAtRiskDrivers } from '@/lib/at-risk';
 import { orderLabel, personText, useNames } from '@/lib/names';
 import { useConsoleNetwork } from '@/lib/network';
 import { readJson, useTheme, writeJson } from '@/lib/prefs';
@@ -33,7 +34,7 @@ import { setMuted, useMuted, useNeedsAlert } from './dispatch/sound';
 import { TriageBar } from './dispatch/triage-bar';
 import type { MapHoverTarget, MapSelection } from './live-map-canvas';
 import { DriverHoverCard, OrderHoverCard, StateGlyph, TierLegend } from './map-cards';
-import { EmptyState, Kbd, LiveBadge, NeedLogin, NetworkBanner, QueryError, SkeletonBlock, useSecondsSince, useToast } from './ui';
+import { Button, EmptyState, Kbd, LiveBadge, NeedLogin, NetworkBanner, QueryError, SkeletonBlock, useSecondsSince, useToast } from './ui';
 
 const LiveMapCanvas = dynamic(() => import('./live-map-canvas'), {
   ssr: false,
@@ -46,6 +47,9 @@ const LiveMapCanvas = dynamic(() => import('./live-map-canvas'), {
 
 const COLLAPSED_KEY = 'driver.console.dispatch.collapsed';
 const DIGIT_CODES: Record<string, DeskKey> = { Digit1: '1', Digit2: '2', Digit3: '3', Digit4: '4', Digit5: '5', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4', Numpad5: '5' };
+
+/** Dropping an order on a driver sends it after this long, unless the dispatcher takes it back (maps program o3). */
+const DROP_UNDO_MS = 3_000;
 
 /**
  * /dispatch (K-03, K-04, K-05, K-07): the live map on the start side, the queue on the end side,
@@ -69,6 +73,9 @@ export function DispatchPage() {
 
   const [desk, setDesk] = useState<DeskState>(DESK_START);
   const [dropped, setDropped] = useState<string | null>(null);
+  // Maps program o3: a dropped order goes to that driver after a short undo window.
+  const [undo, setUndo] = useState<{ tripId: string; driverId: string; until: number } | null>(null);
+  const [undoNow, setUndoNow] = useState(0);
   const [force, setForce] = useState<Candidate | null>(null);
   const [other, setOther] = useState<BoardCard | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<BoardColumn>>(() => new Set<BoardColumn>(['assigned']));
@@ -89,6 +96,8 @@ export function DispatchPage() {
   const tri = useMemo(() => triage(queue), [queue]);
   const order = useMemo(() => queueOrder(queue, collapsed), [queue, collapsed]);
   const tripList = useMemo(() => trips.data ?? [], [trips.data]);
+  // Maps program o4: ring the couriers whose order is predicted to be late.
+  const riskDrivers = useAtRiskDrivers(tripList);
   const tripsById = useMemo(() => new Map<string, Trip>(tripList.map((x) => [x.id, x])), [tripList]);
   const pins = useMemo(() => (positions.isSuccess ? positions.data.drivers : null), [positions.isSuccess, positions.data]);
   const pinsById = useMemo(() => new Map((pins ?? []).map((p) => [p.driverId, p])), [pins]);
@@ -212,12 +221,38 @@ export function DispatchPage() {
     },
     [cardById],
   );
-  // After a drop, pick the dropped driver once the list includes him.
+  // After a drop, pick the dropped driver once the list includes him, and start the undo window.
   useEffect(() => {
     if (!dropped) return;
     const i = candidates.findIndex((c) => c.driverId === dropped);
     if (i >= 0 && desk.pick !== i) setDesk((d) => ({ ...d, pick: i }));
-  }, [dropped, candidates, desk.pick]);
+    if (i >= 0 && selectedCard && (!undo || undo.driverId !== dropped || undo.tripId !== selectedCard.tripId)) {
+      setUndo({ tripId: selectedCard.tripId, driverId: dropped, until: Date.now() + DROP_UNDO_MS });
+    }
+  }, [dropped, candidates, desk.pick, selectedCard, undo]);
+
+  // The undo window: a countdown, then the same send as the button (blockers still ask for a reason).
+  useEffect(() => {
+    if (!undo) return;
+    setUndoNow(Date.now());
+    const tick = setInterval(() => setUndoNow(Date.now()), 250);
+    const fire = setTimeout(() => {
+      const c = candidates.find((x) => x.driverId === undo.driverId);
+      setUndo(null);
+      if (c && selectedCard?.tripId === undo.tripId) send(c);
+    }, Math.max(0, undo.until - Date.now()));
+    return () => {
+      clearInterval(tick);
+      clearTimeout(fire);
+    };
+    // Re-armed only when a new drop starts; the candidate list refreshing must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undo]);
+  const cancelDrop = () => {
+    setUndo(null);
+    setDropped(null);
+    setDesk((d) => ({ ...d, pick: -1 }));
+  };
 
   const renderHover = useCallback(
     (h: MapHoverTarget) => {
@@ -272,6 +307,7 @@ export function DispatchPage() {
         {/* Map: the start side (right in RTL), two-thirds. */}
         <div className="relative h-[46vh] min-h-[320px] lg:h-auto lg:min-w-0 lg:flex-[2]">
           <LiveMapCanvas
+            atRiskDrivers={riskDrivers}
             live={live}
             theme={theme}
             selected={selectedCard ? { kind: 'trip', id: selectedCard.tripId } : null}
@@ -289,6 +325,14 @@ export function DispatchPage() {
             onDropTrip={onDropTrip}
           />
           <MapLegend theme={theme} />
+          {undo ? (
+            <div role="status" data-testid="drop-undo" className="absolute inset-x-0 top-4 z-20 mx-auto flex w-fit items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 shadow-card">
+              <span className="text-sm font-semibold">{t('console.drop_sending', { name: nameOf(undo.driverId), seconds: Math.max(1, Math.ceil((undo.until - undoNow) / 1000)) })}</span>
+              <Button size="sm" variant="secondary" onClick={cancelDrop} data-testid="drop-undo-cancel">
+                {t('console.drop_undo')}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* Queue: the end side, one-third. */}

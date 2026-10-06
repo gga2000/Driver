@@ -1736,6 +1736,8 @@
   "console.sup_order_type": "Type",
   "console.sup_order_merchant": "Merchant",
   "console.sup_order_total": "Total",
+  "console.drop_sending": "Sending to {name} in {seconds} s",
+  "console.drop_undo": "Undo",
   "console.replay_title": "Replay",
   "console.replay_play": "Play",
   "console.replay_pause": "Pause",

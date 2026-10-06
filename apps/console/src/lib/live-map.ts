@@ -53,6 +53,10 @@ export interface DriverMarkerProps {
   approx: boolean;
   /** From presence; null for approximate markers. */
   vehicle?: VehicleClass | null;
+  /** Degrees from north (maps program o1); null when unknown. */
+  heading?: number | null;
+  /** His last fix (ms); the pin fades after `FLEET_RULES.quietMs`. */
+  seenAt?: number | null;
 }
 
 export interface TripLineProps {
@@ -138,7 +142,7 @@ export function buildLiveGeoJSON(trips: readonly Trip[], cards: readonly BoardCa
       type: 'Feature',
       id: featureId(pin.driverId),
       geometry: { type: 'Point', coordinates: [pin.lng, pin.lat] },
-      properties: { kind: 'driver', driverId: pin.driverId, tripId: pin.tripId ?? '', state, color: MARKER_COLORS[state], approx: false, vehicle: pin.vehicleClass },
+      properties: { kind: 'driver', driverId: pin.driverId, tripId: pin.tripId ?? '', state, color: MARKER_COLORS[state], approx: false, vehicle: pin.vehicleClass, heading: pin.heading, seenAt: pin.lastSeenAt.getTime() },
     });
   }
 

@@ -1736,6 +1736,8 @@
   "console.sup_order_type": "النوع",
   "console.sup_order_merchant": "المطعم",
   "console.sup_order_total": "المجموع",
+  "console.drop_sending": "نرسل الطلب لـ {name} بعد {seconds} ثانية",
+  "console.drop_undo": "تراجع",
   "console.replay_title": "إعادة المشوار",
   "console.replay_play": "شغّل",
   "console.replay_pause": "وقّف",
