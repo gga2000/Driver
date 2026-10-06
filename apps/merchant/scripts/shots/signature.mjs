@@ -58,10 +58,16 @@ export default {
       await shot('at-pass', { element: card() });
     });
     await step('ready-column', async () => shot('ready-column'));
+    // The hook only moves his arrival time back (no live event), so reload rather than wait for the
+    // board's slow safety poll; the card must say "حيدر ينتظر من 4 دقايق" before the shot.
     await post('/demo/signature/at-pass?waited=4');
-    await page.waitForTimeout(2500);
+    await page.reload({ waitUntil: 'load' });
+    await h.startShift();
+    await byTestId('board').waitFor({ timeout: 15_000 });
+    await readyTab();
     await step('at-pass-waiting', async () => {
-      await byTestId(`pass-${pass.number}`).waitFor({ timeout: 4000 });
+      await byTestId(`pass-${pass.number}`).filter({ hasText: 'ينتظر من' }).waitFor({ timeout: 15_000 });
+      await page.waitForTimeout(600);
       await card().scrollIntoViewIfNeeded();
       await shot('at-pass-waiting', { element: card() });
     });
