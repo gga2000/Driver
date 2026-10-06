@@ -4,8 +4,9 @@
 As of commit `b702d90` on `main`: Phase 1 (launch blockers), Phase 2 (system polish) and Phase 3
 (signature moments — "الخردة علينا" cash hand-off, driver money moments, الرجعة garage mode, merchant/
 Console moments, the honest-delay promise) of `docs/research/ui-ux-audit/README.md` are built and
-pushed. Typecheck is clean; **lint, the full test suite and `pnpm sim --orders 2000 --seed 1 --ci`
-have not been re-run since the last merge** — run them before trusting anything further.
+pushed. Verified on 2026-10-06 at `b66c9c5` from a fresh install: build, typecheck, lint, the full
+test suite and `pnpm sim --orders 2000 --seed 1 --ci` (18/18 invariants, change-to-wallet exercised)
+all pass. The Phase 3 merge had broken `apps/customer/scripts/demo-api.mjs` (fixed in `70c128e`).
 
 Open product decisions Ali has not yet made (ask before building further on these):
 tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
