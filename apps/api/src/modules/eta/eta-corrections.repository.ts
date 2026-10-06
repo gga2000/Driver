@@ -60,7 +60,7 @@ export class InMemoryEtaCorrectionsRepository implements EtaCorrectionsRepositor
   }
 }
 
-/** Postgres (`eta_corrections`, `eta_samples`; migration 20261007110000_eta_corrections). */
+/** Postgres (`eta_corrections`, `eta_samples`; migration 20261007105000_eta_corrections). */
 export class PrismaEtaCorrectionsRepository implements EtaCorrectionsRepository {
   constructor(private readonly prisma: PrismaService) {}
 

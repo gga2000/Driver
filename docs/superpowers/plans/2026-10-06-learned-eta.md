@@ -46,7 +46,7 @@ Idempotent: the outbox's per-subscriber dedupe plus `eta_samples.stop_id` unique
 
 ## Data
 
-Migration `20261007110000_eta_corrections` (ends with `driver_harden`):
+Migration `20261007105000_eta_corrections` (ends with `driver_harden`):
 
 - `eta_corrections`: id, city_id, from_zone, to_zone, hour_bucket, vehicle_class, basis, factor (unclamped EWMA), samples, last_sample_at, created_at, updated_at; unique (city_id, from_zone, to_zone, hour_bucket, vehicle_class, basis).
 - `eta_samples`: one row per learned leg — stop_id (unique), trip_id, city_id, zones, hour_bucket, vehicle_class, basis, predicted_min, actual_min, started_at, arrived_at; index (city_id, arrived_at). Pseudonymous, no positions.
