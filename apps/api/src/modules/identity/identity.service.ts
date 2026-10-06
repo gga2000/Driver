@@ -619,6 +619,21 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * The referral fingerprint (decisions §1, joy g2): the person's peppered phone hash and a peppered
+   * mark of each device fingerprint he signed in from. One-way values only: the referrals module compares
+   * them and never sees a number or a device id.
+   */
+  async referralMarks(personId: string): Promise<{ phoneHash: string | null; deviceMarks: string[] }> {
+    const [phoneHash, devices] = await Promise.all([this.phoneHashOf(personId), this.repo.devicesOf(personId)]);
+    return { phoneHash, deviceMarks: [...new Set(devices.map((d) => this.pepperedMark(`device:${d.fingerprint}`)))] };
+  }
+
+  /** A one-way peppered mark of a value (a home's map cell for the referral fingerprint). */
+  pepperedMark(value: string): string {
+    return hashPhone(`mark:${value}`, this.pepper);
+  }
+
+  /**
    * Household cards (domain §12): name and masked phone of each member for another member to see.
    * Every read is logged against the member read (purpose household_view). Deleted people are left
    * out — no vault read, nothing shown — like `firstNamesFor` / `courierCard` (review 2026-10-04 #23);

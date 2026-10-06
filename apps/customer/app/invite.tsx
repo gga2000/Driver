@@ -1,9 +1,9 @@
 import { router, Stack } from 'expo-router';
 import { Linking, Share, View } from 'react-native';
-import { Button, Card, Icon, RetryState, retryKindFor, SketchScene, Skeleton, Text, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { Screen } from '@/components/Screen';
-import { inviteMessage, progressCopy, ruleLines } from '@/features/invite/invite';
+import { friendLabel, friendTone, inviteMessage, progressCopy, ruleLines } from '@/features/invite/invite';
 import { useInvite } from '@/features/invite/queries';
 import { shareUrl } from '@/features/rajaa/share';
 import { useLocale, useT } from '@/lib/i18n';
@@ -131,6 +131,23 @@ export default function InviteScreen() {
             </Text>
           ) : null}
         </View>
+      ) : null}
+      {data && data.friends.length > 0 ? (
+        <Card elevation={0} padding={0} testID="invite-friends">
+          <View style={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[3] }}>
+            <Text variant="label" weight={600}>
+              {t('invite.friends_title')}
+            </Text>
+          </View>
+          {data.friends.map((f, i) => (
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 48, paddingHorizontal: theme.space[4], borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.colors.border }}>
+              <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
+                {f.firstName ?? t('invite.friend_no_name')}
+              </Text>
+              <StatusPill size="sm" tone={friendTone(f.state)} label={t(friendLabel(f.state))} />
+            </View>
+          ))}
+        </Card>
       ) : null}
       <Button variant="ghost" icon="heart" label={t('invite.stickers_link')} onPress={() => router.push('/stickers')} testID="invite-stickers" style={{ alignSelf: 'center' }} />
     </Screen>

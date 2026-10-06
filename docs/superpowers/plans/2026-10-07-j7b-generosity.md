@@ -160,5 +160,6 @@ merged — only one-line hook points here), packages/map, tips and driver photos
 - **The card message stays on the sender's phone** (in the WhatsApp/SMS text), not on the server.
 - **Household members as gift recipients:** the household view only has masked phones, so a member is
   offered once they are a saved person with a phone (the existing «لمنو؟» flow); not new server reads.
-- **Referral fingerprint (device + phone + home place, decisions §1):** not built; this slice checks one
-  claim per person, never your own code, and only before the friend's first order. Question for Ali.
+- **Referral fingerprint (device + phone + home place, decisions §1):** built after review (coordinator,
+  2026-10-07): checked at claim and at payout, recorded as `blocked_reason`, «ما انحسبت» on the inviter's list
+  (`docs/api/gifts-invites-share.md`).

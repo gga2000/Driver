@@ -187,6 +187,11 @@ export class SavedPlacesService implements OnModuleInit {
     });
   }
 
+  /** The pins of the person's own saved home(s): the referral fingerprint's «same home» (decisions §1). */
+  async homePins(personId: string): Promise<LatLng[]> {
+    return (await this.repo.byOwners([personId])).filter((r) => r.ownerId === personId && r.label === 'home').map((r) => r.pin);
+  }
+
   /** Mine first (home, work, then by name), then places household members shared with me. */
   async mine(personId: string): Promise<SavedPlaceView[]> {
     const peers = await this.peers.peersOf(personId);

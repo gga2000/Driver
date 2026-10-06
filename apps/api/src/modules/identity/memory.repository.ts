@@ -256,6 +256,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.devices.find((d) => d.id === id) ?? null;
   }
 
+  async devicesOf(personId: string) {
+    return this.devices.filter((d) => d.personId === personId);
+  }
+
   async createDevice(input: { personId: string; fingerprint: string; platform: string; appVersion: string | null; verifiedAt: Date | null; now: Date }, tx?: Tx) {
     const d: DeviceRecord = { id: this.id('dev'), personId: input.personId, fingerprint: input.fingerprint, platform: input.platform, appVersion: input.appVersion, verifiedAt: input.verifiedAt, lastSeenAt: input.now };
     this.devices.push(d);

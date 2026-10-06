@@ -39,7 +39,7 @@ order's money fact (`OrdersService.bindReferrals`), and the ledger decides as be
 
 | Procedure | Who | What |
 |---|---|---|
-| `referral.mine` | signed in | `{ code, path: '/i/<code>', rule, invited, rewarded }`; the code (6 characters, no 0/O/1/I/L) is made on the first ask. `rewarded` = the inviter's own `referral_bonus` lines. |
+| `referral.mine` | signed in | `{ code, path: '/i/<code>', rule, invited, rewarded, friends }`; the code (6 characters, no 0/O/1/I/L) is made on the first ask. `rewarded` = the inviter's own `referral_bonus` lines. |
 | `referral.preview({ code })` | public | `{ valid, inviterFirstName, rule }` for the landing page. The first name is the inviter's own choice to share (read as himself). |
 | `referral.claim({ code })` | signed in | Once per person, never your own code, only before your first order: `invite_invalid`, `invite_own`, `invite_already_claimed`, `invite_not_new`. Claiming the same code again answers like the first time. Returns the inviter's first name (a logged vault read, `invite_claim`). |
 
@@ -50,7 +50,23 @@ Web: `scripts/deploy/prepare-web.mjs` writes `invite.html` (the app with a previ
 `og:image` = `<base>/invite-card.png`) and `_redirects` (`/i/* /invite.html 200`), so WhatsApp shows the card
 when an invitation is sent. Base URL: `--base-url` or `EXPO_PUBLIC_SHARE_BASE_URL`.
 
-Not built (question for Ali): the device + phone + home-place fingerprint of decisions §1.
+### The fingerprint: device + phone + home place (decisions §1)
+
+A referral pays only when the friend shares none of these with the inviter, nor with anyone on a referral
+that already paid (either side). Marks are one-way and peppered; nothing raw leaves its module:
+
+| Part | Source | Mark |
+|---|---|---|
+| phone | identity (`phoneHashOf`) | `p:` the peppered phone hash |
+| device | identity `devices.fingerprint` (every device the person signed in from) | `d:` peppered by identity (`referralMarks`) |
+| home | places, the person's own `label = home` pins | `h:` the pin's map cells (≈ 44 × 37 m, four grids shifted by half a cell so pins under half a cell apart always share one), peppered by identity |
+
+Checked when the claim is accepted and again at payout (each closed order of the friend, until
+`referral:<friend>` exists in the ledger). Stored on `referrals.referee_marks` / `referrer_marks`; a block sets
+`blocked_reason` (`shared_device|shared_phone|shared_home|device_earned|phone_earned|home_earned`) and
+`blocked_at` once, never cleared, and the closed order then carries no `referredBy` (no points). The friend
+sees no error; `referral.mine.friends[]` lists each friend as `waiting` («بعده»), `counted` («انحسبت») or
+`not_counted` («ما انحسبت»), first names by a logged vault read (`invite_list`).
 
 ## Stickers (g7)
 

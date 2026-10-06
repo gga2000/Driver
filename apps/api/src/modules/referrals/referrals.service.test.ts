@@ -6,6 +6,10 @@ import { inviteRuleOf, newInviteCode, ReferralsService } from './referrals.servi
 
 const actor = (personId: string) => ({ personId, sessionId: `s_${personId}` });
 
+type Parts = { phoneHash: string | null; deviceMarks: readonly string[]; homeMarks: readonly string[] };
+/** Everyone has their own phone, device and home unless a test says otherwise. */
+const own = (id: string): Parts => ({ phoneHash: `ph_${id}`, deviceMarks: [`dev_${id}`], homeMarks: [`home_${id}`] });
+
 function harness(opts: { placed?: Record<string, number>; lines?: Record<string, Array<{ type: string; toAccount: string; memo?: string }>> } = {}) {
   const repo = new InMemoryReferralsRepository();
   const reads: Array<{ ids: readonly string[]; accessor: string; purpose: string }> = [];
@@ -15,16 +19,19 @@ function harness(opts: { placed?: Record<string, number>; lines?: Record<string,
       return Object.fromEntries(ids.map((id) => [id, id === 'ali' ? 'علي' : null]));
     },
   };
-  const ledger = { eventsFor: async (account: string) => opts.lines?.[account] ?? [] };
+  const groups = new Set<string>();
+  const ledger = { eventsFor: async (account: string) => opts.lines?.[account] ?? [], hasGroup: async (id: string) => groups.has(id) };
+  const parts = new Map<string, Parts>();
+  const fingerprint = { partsOf: async (id: string) => parts.get(id) ?? own(id) };
   let seed = 7;
   // A tiny deterministic generator: the codes are stable across runs.
   const random = (n: number) => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed % n;
   };
-  const service = new ReferralsService(repo, names, ledger, AZIZIYAH_MONEY_RULES, random, new FakeClock('2026-10-07T09:00:00Z'));
+  const service = new ReferralsService(repo, names, ledger, AZIZIYAH_MONEY_RULES, random, new FakeClock('2026-10-07T09:00:00Z'), fingerprint);
   service.bindOrders({ placedCount: async (id) => opts.placed?.[id] ?? 0 });
-  return { service, repo, reads };
+  return { service, repo, reads, parts, groups };
 }
 
 const code = async (p: Promise<unknown>) => {
@@ -92,6 +99,88 @@ describe('invite as a gift (joy g2)', () => {
     expect(await service.preview({ code: c })).toMatchObject({ valid: true, inviterFirstName: 'علي' });
     expect(reads.at(-1)).toMatchObject({ accessor: 'ali', purpose: 'invite_preview' });
     expect(await service.preview({ code: 'nothing' })).toMatchObject({ valid: false, inviterFirstName: null });
+  });
+
+  describe('the fingerprint on device + phone + home place (decisions §1)', () => {
+    /** Ali invites Zaid with these fingerprints; returns what the claim, the list and the payout say. */
+    async function invite(setup: (h: ReturnType<typeof harness>) => void | Promise<void>) {
+      const h = harness();
+      await setup(h);
+      const { code: c } = await h.service.mine(actor('ali'));
+      const claimed = await h.service.claim(actor('zaid'), { code: c });
+      return { h, claimed, payout: await h.service.referrerOf('zaid'), row: await h.repo.referralOf('zaid'), list: (await h.service.mine(actor('ali'))).friends };
+    }
+
+    it('a friend with his own phone, device and home counts', async () => {
+      const r = await invite(() => undefined);
+      expect(r.payout).toBe('ali');
+      expect(r.row?.blockedReason).toBeNull();
+      expect(r.row?.refereeMarks).toEqual(['p:ph_zaid', 'd:dev_zaid', 'h:home_zaid']);
+      expect(r.list).toEqual([{ firstName: null, state: 'waiting' }]);
+    });
+
+    for (const [name, patch, reason] of [
+      ['the same device as the inviter', { deviceMarks: ['dev_ali'] }, 'shared_device'],
+      ['the same phone as the inviter', { phoneHash: 'ph_ali' }, 'shared_phone'],
+      ['the same home as the inviter', { homeMarks: ['home_ali'] }, 'shared_home'],
+    ] as const) {
+      it(`blocks ${name}: no points, no error, «ما انحسبت» on the list`, async () => {
+        const r = await invite((h) => {
+          h.parts.set('zaid', { ...own('zaid'), ...patch });
+        });
+        expect(r.claimed.ok).toBe(true);
+        expect(r.row?.blockedReason).toBe(reason);
+        expect(r.row?.blockedAt).toBeInstanceOf(Date);
+        expect(r.payout).toBeNull();
+        expect(r.list).toEqual([{ firstName: null, state: 'not_counted' }]);
+      });
+    }
+
+    for (const [name, patch, reason] of [
+      ['a device', { deviceMarks: ['dev_hasan'] }, 'device_earned'],
+      ['a phone', { phoneHash: 'ph_hasan' }, 'phone_earned'],
+      ['a home', { homeMarks: ['home_hasan'] }, 'home_earned'],
+    ] as const) {
+      it(`blocks ${name} of someone who already earned a referral`, async () => {
+        const r = await invite(async (h) => {
+          // Sara invited Hasan earlier and it paid.
+          const { code: s } = await h.service.mine(actor('sara'));
+          await h.service.claim(actor('hasan'), { code: s });
+          h.groups.add('referral:hasan');
+          h.parts.set('zaid', { ...own('zaid'), ...patch });
+        });
+        expect(r.row?.blockedReason).toBe(reason);
+        expect(r.payout).toBeNull();
+      });
+    }
+
+    it('a referral that has not paid yet does not block anyone', async () => {
+      const r = await invite(async (h) => {
+        const { code: s } = await h.service.mine(actor('sara'));
+        await h.service.claim(actor('hasan'), { code: s });
+        h.parts.set('zaid', { ...own('zaid'), deviceMarks: ['dev_hasan'] });
+      });
+      expect(r.row?.blockedReason).toBeNull();
+      expect(r.payout).toBe('ali');
+    });
+
+    it('is checked again at payout: a home shared after the claim stops it, and the block stays', async () => {
+      const r = await invite(() => undefined);
+      expect(r.payout).toBe('ali');
+      r.h.parts.set('zaid', { ...own('zaid'), homeMarks: ['home_ali'] });
+      expect(await r.h.service.referrerOf('zaid')).toBeNull();
+      expect((await r.h.repo.referralOf('zaid'))?.blockedReason).toBe('shared_home');
+      r.h.parts.set('zaid', own('zaid'));
+      expect(await r.h.service.referrerOf('zaid')).toBeNull();
+    });
+
+    it('once paid, the closed orders keep naming the inviter (the ledger posts once)', async () => {
+      const r = await invite(() => undefined);
+      r.h.groups.add('referral:zaid');
+      r.h.parts.set('zaid', { ...own('zaid'), deviceMarks: ['dev_ali'] });
+      expect(await r.h.service.referrerOf('zaid')).toBe('ali');
+      expect((await r.h.service.mine(actor('ali'))).friends).toEqual([{ firstName: null, state: 'counted' }]);
+    });
   });
 
   it('rewarded counts the inviter’s own referral lines', async () => {

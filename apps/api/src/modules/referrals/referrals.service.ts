@@ -10,13 +10,15 @@ import {
   type ClaimInviteOutput,
   type InvitePreview,
   type InvitePreviewInput,
+  type InviteFriend,
   type InviteRule,
   type InviteView,
   type MoneyRules,
   type ReferralsPort,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { REFERRALS_REPOSITORY, type ReferralsRepository } from './referrals.repository.js';
+import { blockReason, marksOf, type FingerprintParts } from './fingerprint.js';
+import { REFERRALS_REPOSITORY, type ReferralRecord, type ReferralsRepository } from './referrals.repository.js';
 
 /** First names from the vault (identity's logged read; the inviter's own invitation is not logged). */
 export interface ReferralNamesPort {
@@ -26,6 +28,16 @@ export interface ReferralNamesPort {
 /** The inviter's points lines (the ledger): his side of a referral is a `referral_bonus` memo'd `referrer_of:`. */
 export interface ReferralLedgerPort {
   eventsFor(accountId: string): Promise<ReadonlyArray<{ type: string; toAccount: string; memo?: string | null }>>;
+  /** Whether a posting group exists: `referral:<friend>` = that referral already paid. */
+  hasGroup(groupId: string): Promise<boolean>;
+}
+
+/**
+ * The fingerprint parts of a person (decisions §1), one-way values only: identity's peppered phone hash
+ * and device marks, and peppered marks of the map cells of his saved home(s) (places).
+ */
+export interface ReferralFingerprintPort {
+  partsOf(personId: string): Promise<FingerprintParts>;
 }
 
 /** Bound by the orders module (no import cycle): how many orders a person has placed. */
@@ -40,6 +52,7 @@ export const REFERRAL_NAMES = Symbol('REFERRAL_NAMES');
 export const REFERRAL_LEDGER = Symbol('REFERRAL_LEDGER');
 export const REFERRAL_RULES = Symbol('REFERRAL_RULES');
 export const REFERRAL_RANDOM = Symbol('REFERRAL_RANDOM');
+export const REFERRAL_FINGERPRINT = Symbol('REFERRAL_FINGERPRINT');
 
 /** Attempts at a fresh code before giving up (31^6 ≈ 887 million codes: a clash is rare). */
 const CODE_ATTEMPTS = 8;
@@ -79,6 +92,7 @@ export class ReferralsService implements ReferralsPort {
     @Inject(REFERRAL_RULES) private readonly rules: MoneyRules,
     @Inject(REFERRAL_RANDOM) private readonly random: RandomInt,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(REFERRAL_FINGERPRINT) private readonly fingerprint: ReferralFingerprintPort,
   ) {}
 
   bindOrders(port: ReferralOrdersPort): void {
@@ -106,9 +120,15 @@ export class ReferralsService implements ReferralsPort {
 
   async mine(actor: Actor): Promise<InviteView> {
     const code = await this.codeFor(actor.personId);
-    const [invited, lines] = await Promise.all([this.repo.countInvited(actor.personId), this.ledger.eventsFor(`points:${actor.personId}`)]);
+    const [rows, lines] = await Promise.all([this.repo.byReferrer(actor.personId), this.ledger.eventsFor(`points:${actor.personId}`)]);
     const rewarded = lines.filter((e) => e.type === 'referral_bonus' && e.toAccount === `points:${actor.personId}` && (e.memo ?? '').startsWith('referrer_of:')).length;
-    return { code, path: invitePath(code), rule: this.rule, invited, rewarded };
+    const names = rows.length ? await this.names.firstNamesFor(rows.map((r) => r.refereeId), actor.personId, 'invite_list') : {};
+    const friends: InviteFriend[] = [];
+    for (const r of rows) {
+      const state: InviteFriend['state'] = r.blockedReason ? 'not_counted' : (await this.paid(r.refereeId)) ? 'counted' : 'waiting';
+      friends.push({ firstName: names[r.refereeId] ?? null, state });
+    }
+    return { code, path: invitePath(code), rule: this.rule, invited: rows.length, rewarded, friends };
   }
 
   async preview(input: InvitePreviewInput): Promise<InvitePreview> {
@@ -136,7 +156,33 @@ export class ReferralsService implements ReferralsPort {
       const won = await this.repo.referralOf(actor.personId);
       if (won?.referrerId !== referrerId) throw new DriverError('invite_already_claimed');
     }
+    // Decisions §1: the fingerprint is checked now and again at payout. A block is recorded, never shown
+    // to the friend as an error (the inviter's list says «ما انحسبت»).
+    const row = await this.repo.referralOf(actor.personId);
+    if (row) await this.assess(row);
     return this.claimed(actor.personId, referrerId);
+  }
+
+  /** `referral:<friend>` exists in the ledger: this referral already paid. */
+  private paid(refereeId: string): Promise<boolean> {
+    return this.ledger.hasGroup(`referral:${refereeId}`);
+  }
+
+  /**
+   * Refreshes both sides' marks and blocks the referral when the friend shares a device, phone or home
+   * with the inviter, or with anyone on a referral that already paid (either side of it). Returns the
+   * row as stored (a block, once set, stays).
+   */
+  private async assess(row: ReferralRecord): Promise<ReferralRecord> {
+    const [friendParts, inviterParts] = await Promise.all([this.fingerprint.partsOf(row.refereeId), this.fingerprint.partsOf(row.referrerId)]);
+    const friend = marksOf(friendParts);
+    const inviter = marksOf(inviterParts);
+    const earners: string[] = [];
+    for (const other of await this.repo.sharingAny(friend, row.refereeId)) {
+      if (await this.paid(other.refereeId)) earners.push(...other.refereeMarks, ...other.referrerMarks);
+    }
+    const reason = row.blockedReason ? null : blockReason({ friend, inviter, earners });
+    return this.repo.updateFingerprint(row.refereeId, { refereeMarks: friend, referrerMarks: inviter, block: reason ? { reason, at: this.clock.now() } : null });
   }
 
   private async claimed(refereeId: string, referrerId: string): Promise<ClaimInviteOutput> {
@@ -144,8 +190,16 @@ export class ReferralsService implements ReferralsPort {
     return { ok: true, inviterFirstName: name, rule: this.rule };
   }
 
-  /** Who invited this person (the orders module sends it with the closed order), or null. */
+  /**
+   * Who invited this person, for the closed order's money fact — or null when there is none or the
+   * referral is blocked. Until it has paid, the fingerprint is checked again here (payout), so a home or
+   * device shared after the claim still stops it.
+   */
   async referrerOf(personId: string): Promise<string | null> {
-    return (await this.repo.referralOf(personId))?.referrerId ?? null;
+    const row = await this.repo.referralOf(personId);
+    if (!row || row.blockedReason) return null;
+    if (await this.paid(personId)) return row.referrerId;
+    const now = await this.assess(row);
+    return now.blockedReason ? null : now.referrerId;
   }
 }

@@ -2168,13 +2168,21 @@ model InviteCode {
 /// customer accepts a code before his first order; the ledger's referral rule (decisions §1) reads the
 /// inviter from here through the orders module's closed-order fact.
 model Referral {
-  id         String   @id @default(cuid())
-  refereeId  String   @unique @map("referee_id")
-  referrerId String   @map("referrer_id")
-  code       String
-  claimedAt  DateTime @map("claimed_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id            String    @id @default(cuid())
+  refereeId     String    @unique @map("referee_id")
+  referrerId    String    @map("referrer_id")
+  code          String
+  claimedAt     DateTime  @map("claimed_at")
+  /// The fingerprint (decisions §1) as one-way marks only: `p:` peppered phone hash, `d:` peppered device
+  /// mark, `h:` peppered home-cell mark — the friend's and the inviter's, refreshed at claim and at payout.
+  refereeMarks  String[]  @default([]) @map("referee_marks")
+  referrerMarks String[]  @default([]) @map("referrer_marks")
+  /// Why it will not pay (`ReferralBlockReason`: shared_device|shared_phone|shared_home|device_earned|
+  /// phone_earned|home_earned); null = counts. Set once, never cleared.
+  blockedReason String?   @map("blocked_reason")
+  blockedAt     DateTime? @map("blocked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([referrerId, claimedAt])
   @@map("referrals")

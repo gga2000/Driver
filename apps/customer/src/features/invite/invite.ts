@@ -49,6 +49,18 @@ export function progressCopy(invited: number, rewarded: number): Copy {
   return { key: 'invite.progress_rewarded', params: { n: invited, m: rewarded } };
 }
 
+/**
+ * A friend on my list (decisions §1): «بعده» while on the way, «انحسبت» once the points came, and
+ * «ما انحسبت» when the fingerprint stopped it (a shared device, phone or home) — never more detail.
+ */
+export function friendLabel(state: 'waiting' | 'counted' | 'not_counted'): MessageKey {
+  return state === 'counted' ? 'invite.friend_counted' : state === 'not_counted' ? 'invite.friend_not_counted' : 'invite.friend_waiting';
+}
+
+export function friendTone(state: 'waiting' | 'counted' | 'not_counted'): 'neutral' | 'success' {
+  return state === 'counted' ? 'success' : 'neutral';
+}
+
 /** The claim answer the landing page shows for an error code (null = a network problem, retry). */
 export function claimProblem(code: string | null): MessageKey | null {
   switch (code) {

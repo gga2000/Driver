@@ -6,7 +6,9 @@
 --
 -- Invite as a gift (g2): each person's invite code, and who invited whom, so the referral rule that the
 -- ledger already has (decisions §1: 200 points per side after the friend's 2nd cash order ≥ 10,000)
--- learns the inviter from the closed order. Ids and codes only (names stay in the vault).
+-- learns the inviter from the closed order. Ids and codes only (names stay in the vault). The fingerprint
+-- of decisions §1 (device + phone + home place) is kept as one-way peppered marks on each referral; a
+-- referral sharing one with the inviter or with someone who already earned is blocked (`blocked_reason`).
 
 ALTER TABLE "public"."orders" ADD COLUMN     "gift" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN     "gift_hide_prices" BOOLEAN NOT NULL DEFAULT false;
@@ -27,6 +29,10 @@ CREATE TABLE "public"."referrals" (
     "referrer_id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "claimed_at" TIMESTAMP(3) NOT NULL,
+    "referee_marks" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "referrer_marks" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "blocked_reason" TEXT,
+    "blocked_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 

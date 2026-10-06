@@ -26,14 +26,22 @@ describe('the closed order names the inviter, and the existing rule pays', () =>
 
   it('sends referredBy for an invited friend only; two qualifying cash orders unlock 200 points each', async () => {
     const h = ordersHarness();
-    const referrals = new ReferralsService(new InMemoryReferralsRepository(), { firstNamesFor: async () => ({}) }, { eventsFor: async () => [] }, AZIZIYAH_MONEY_RULES, () => 0, new FakeClock());
+    const lh = ledgerHarness();
+    const referrals = new ReferralsService(
+      new InMemoryReferralsRepository(),
+      { firstNamesFor: async () => ({}) },
+      { eventsFor: async () => [], hasGroup: (id) => lh.ledger.hasGroup(id) },
+      AZIZIYAH_MONEY_RULES,
+      () => 0,
+      new FakeClock(),
+      { partsOf: async (id) => ({ phoneHash: `ph_${id}`, deviceMarks: [`dev_${id}`], homeMarks: [] }) },
+    );
     referrals.bindOrders({ placedCount: (id) => h.orders.placedCount(id) });
     h.orders.bindReferrals({ referrerOf: (id) => referrals.referrerOf(id) });
 
     const { code } = await referrals.mine({ personId: 'ali', sessionId: 's' });
     await referrals.claim({ personId: 'zaid', sessionId: 's' }, { code });
 
-    const lh = ledgerHarness();
     const first = await closedFact(h, 'zaid');
     expect(first.referredBy).toBe('ali');
     expect(first.itemsSubtotalIqd).toBeGreaterThanOrEqual(10_000);
@@ -49,9 +57,36 @@ describe('the closed order names the inviter, and the existing rule pays', () =>
     expect(stranger.referredBy).toBeUndefined();
   });
 
+  it('a friend on the inviter’s device is never sent as referred: no points after two orders', async () => {
+    const h = ordersHarness();
+    const lh = ledgerHarness();
+    const referrals = new ReferralsService(
+      new InMemoryReferralsRepository(),
+      { firstNamesFor: async () => ({}) },
+      { eventsFor: async () => [], hasGroup: (id) => lh.ledger.hasGroup(id) },
+      AZIZIYAH_MONEY_RULES,
+      () => 0,
+      new FakeClock(),
+      { partsOf: async (id) => ({ phoneHash: `ph_${id}`, deviceMarks: ['the_same_phone_in_the_house'], homeMarks: [] }) },
+    );
+    referrals.bindOrders({ placedCount: (id) => h.orders.placedCount(id) });
+    h.orders.bindReferrals({ referrerOf: (id) => referrals.referrerOf(id) });
+    const { code } = await referrals.mine({ personId: 'ali', sessionId: 's' });
+    expect((await referrals.claim({ personId: 'zaid', sessionId: 's' }, { code })).ok).toBe(true);
+    for (let i = 0; i < 2; i += 1) {
+      const fact = await closedFact(h, 'zaid');
+      expect(fact.referredBy).toBeUndefined();
+      await lh.posting.orderClosed(fact);
+    }
+    expect((await lh.ledger.eventsFor(Accounts.points('ali'))).filter((e) => e.type === 'referral_bonus')).toHaveLength(0);
+    expect((await lh.ledger.eventsFor(Accounts.points('zaid'))).filter((e) => e.type === 'referral_bonus')).toHaveLength(0);
+  });
+
   it('a person who already ordered cannot accept an invitation', async () => {
     const h = ordersHarness();
-    const referrals = new ReferralsService(new InMemoryReferralsRepository(), { firstNamesFor: async () => ({}) }, { eventsFor: async () => [] }, AZIZIYAH_MONEY_RULES, () => 0, new FakeClock());
+    const referrals = new ReferralsService(new InMemoryReferralsRepository(), { firstNamesFor: async () => ({}) }, { eventsFor: async () => [], hasGroup: async () => false }, AZIZIYAH_MONEY_RULES, () => 0, new FakeClock(), {
+      partsOf: async (id) => ({ phoneHash: `ph_${id}`, deviceMarks: [], homeMarks: [] }),
+    });
     referrals.bindOrders({ placedCount: (id) => h.orders.placedCount(id) });
     await h.orders.place('old', h.foodInput());
     const { code } = await referrals.mine({ personId: 'ali', sessionId: 's' });

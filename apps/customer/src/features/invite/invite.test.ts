@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { claimProblem, inviteMessage, pointsWorthIqd, progressCopy, ruleLines } from './invite';
+import { claimProblem, friendLabel, inviteMessage, pointsWorthIqd, progressCopy, ruleLines } from './invite';
 
 /** The rule exactly as the server gives it (`inviteRuleOf(AZIZIYAH_MONEY_RULES)`). */
 const rule = {
@@ -48,6 +48,12 @@ describe('invite as a gift (joy g2)', () => {
     expect(progressCopy(0, 0).key).toBe('invite.progress_none');
     expect(progressCopy(3, 0)).toEqual({ key: 'invite.progress_invited', params: { n: 3 } });
     expect(progressCopy(3, 1)).toEqual({ key: 'invite.progress_rewarded', params: { n: 3, m: 1 } });
+  });
+
+  it('a blocked friend reads «ما انحسبت», nothing more', () => {
+    expect(t(friendLabel('not_counted'))).toBe('ما انحسبت');
+    expect(t(friendLabel('counted'))).toBe('انحسبت');
+    expect(t(friendLabel('waiting'))).toBe('بعده');
   });
 
   it('claim refusals have their own words; anything else is a retry', () => {

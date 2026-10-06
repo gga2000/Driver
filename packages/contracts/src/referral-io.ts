@@ -35,6 +35,22 @@ export function invitePath(code: string): string {
   return `/i/${code}`;
 }
 
+/**
+ * Why a referral will not pay (decisions §1, the fingerprint on device + phone + home place): the friend
+ * shares one with the inviter (`shared_*`) or with someone who already earned a referral (`*_earned`).
+ * Recorded on the referral; the person never sees an error, the inviter's list says «ما انحسبت».
+ */
+export const ReferralBlockReason = z.enum(['shared_device', 'shared_phone', 'shared_home', 'device_earned', 'phone_earned', 'home_earned']);
+export type ReferralBlockReason = z.infer<typeof ReferralBlockReason>;
+
+/** One friend on the inviter's list: still on the way, counted (paid), or not counted (blocked). */
+export const InviteFriend = z.object({
+  /** The friend's first name (logged vault read); null when none was set. */
+  firstName: z.string().nullable(),
+  state: z.enum(['waiting', 'counted', 'not_counted']),
+});
+export type InviteFriend = z.infer<typeof InviteFriend>;
+
 /** `referral.mine`: my code, the rule in numbers, and how my invitations are going. */
 export const InviteView = z.object({
   code: z.string(),
@@ -45,6 +61,8 @@ export const InviteView = z.object({
   invited: z.number().int().min(0),
   /** Friends whose invitation already paid (my side of the points arrived). */
   rewarded: z.number().int().min(0),
+  /** My friends, newest first: on the way, counted, or «ما انحسبت» (the fingerprint said no). */
+  friends: z.array(InviteFriend),
 });
 export type InviteView = z.infer<typeof InviteView>;
 

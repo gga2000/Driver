@@ -170,6 +170,8 @@ export interface IdentityRepository {
   // devices
   findDevice(personId: string, fingerprint: string, tx?: Tx): Promise<DeviceRecord | null>;
   findDeviceById(id: string, tx?: Tx): Promise<DeviceRecord | null>;
+  /** Every device a person signed in from (the referral fingerprint, decisions §1). */
+  devicesOf(personId: string, tx?: Tx): Promise<DeviceRecord[]>;
   createDevice(input: { personId: string; fingerprint: string; platform: string; appVersion: string | null; verifiedAt: Date | null; now: Date }, tx?: Tx): Promise<DeviceRecord>;
   updateDevice(id: string, patch: Partial<Pick<DeviceRecord, 'verifiedAt' | 'lastSeenAt' | 'appVersion'>>, tx?: Tx): Promise<DeviceRecord>;
 
@@ -377,6 +379,10 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async findDevice(personId: string, fingerprint: string, tx?: Tx) {
     return this.db(tx).device.findUnique({ where: { personId_fingerprint: { personId, fingerprint } } });
+  }
+
+  async devicesOf(personId: string, tx?: Tx) {
+    return this.db(tx).device.findMany({ where: { personId } });
   }
 
   async findDeviceById(id: string, tx?: Tx) {

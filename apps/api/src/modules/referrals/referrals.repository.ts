@@ -1,17 +1,25 @@
+import type { ReferralBlockReason } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
-/** Who invited whom (joy g2): one row per friend. */
+/** Who invited whom (joy g2): one row per friend, with the fingerprint marks and any block. */
 export interface ReferralRecord {
   refereeId: string;
   referrerId: string;
   code: string;
   claimedAt: Date;
+  /** One-way marks (`p:`/`d:`/`h:`) of the friend and of the inviter (decisions §1). */
+  refereeMarks: string[];
+  referrerMarks: string[];
+  blockedReason: ReferralBlockReason | null;
+  blockedAt: Date | null;
 }
 
+export type NewReferral = Pick<ReferralRecord, 'refereeId' | 'referrerId' | 'code' | 'claimedAt'>;
+
 /**
- * `invite_codes` and `referrals` (public schema; ids and codes only). Writes that lose a race return
- * false instead of throwing, so the service can read what won.
+ * `invite_codes` and `referrals` (public schema; ids, codes and one-way marks only). Writes that lose
+ * a race return false instead of throwing, so the service can read what won.
  */
 export interface ReferralsRepository {
   codeOf(personId: string): Promise<string | null>;
@@ -20,7 +28,13 @@ export interface ReferralsRepository {
   saveCode(personId: string, code: string, now: Date): Promise<boolean>;
   referralOf(refereeId: string): Promise<ReferralRecord | null>;
   /** False when the friend already accepted an invitation. */
-  saveReferral(r: ReferralRecord): Promise<boolean>;
+  saveReferral(r: NewReferral): Promise<boolean>;
+  /** Fresh marks, and a block the first time one is found (a block is never cleared). */
+  updateFingerprint(refereeId: string, patch: { refereeMarks: string[]; referrerMarks: string[]; block: { reason: ReferralBlockReason; at: Date } | null }): Promise<ReferralRecord>;
+  /** Other friends' rows that share any of these marks, on either side. */
+  sharingAny(marks: readonly string[], exceptRefereeId: string): Promise<ReferralRecord[]>;
+  /** An inviter's friends, newest first. */
+  byReferrer(referrerId: string): Promise<ReferralRecord[]>;
   countInvited(referrerId: string): Promise<number>;
 }
 
@@ -45,22 +59,59 @@ export class InMemoryReferralsRepository implements ReferralsRepository {
   }
   async referralOf(refereeId: string): Promise<ReferralRecord | null> {
     const r = this.referrals.get(refereeId);
-    return r ? { ...r } : null;
+    return r ? copy(r) : null;
   }
-  async saveReferral(r: ReferralRecord): Promise<boolean> {
+  async saveReferral(r: NewReferral): Promise<boolean> {
     if (this.referrals.has(r.refereeId)) return false;
-    this.referrals.set(r.refereeId, { ...r });
+    this.referrals.set(r.refereeId, { ...r, refereeMarks: [], referrerMarks: [], blockedReason: null, blockedAt: null });
     return true;
+  }
+  async updateFingerprint(refereeId: string, patch: { refereeMarks: string[]; referrerMarks: string[]; block: { reason: ReferralBlockReason; at: Date } | null }): Promise<ReferralRecord> {
+    const r = this.referrals.get(refereeId);
+    if (!r) throw new Error(`no referral for ${refereeId}`);
+    r.refereeMarks = [...patch.refereeMarks];
+    r.referrerMarks = [...patch.referrerMarks];
+    if (patch.block && !r.blockedReason) {
+      r.blockedReason = patch.block.reason;
+      r.blockedAt = patch.block.at;
+    }
+    return copy(r);
+  }
+  async sharingAny(marks: readonly string[], exceptRefereeId: string): Promise<ReferralRecord[]> {
+    const set = new Set(marks);
+    return [...this.referrals.values()].filter((r) => r.refereeId !== exceptRefereeId && [...r.refereeMarks, ...r.referrerMarks].some((m) => set.has(m))).map(copy);
+  }
+  async byReferrer(referrerId: string): Promise<ReferralRecord[]> {
+    return [...this.referrals.values()]
+      .filter((r) => r.referrerId === referrerId)
+      .sort((a, b) => b.claimedAt.getTime() - a.claimedAt.getTime())
+      .map(copy);
   }
   async countInvited(referrerId: string): Promise<number> {
     return [...this.referrals.values()].filter((r) => r.referrerId === referrerId).length;
   }
 }
 
+function copy(r: ReferralRecord): ReferralRecord {
+  return { ...r, refereeMarks: [...r.refereeMarks], referrerMarks: [...r.referrerMarks] };
+}
+
 /** Prisma's unique-constraint failure (P2002). */
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
 }
+
+type ReferralRow = { refereeId: string; referrerId: string; code: string; claimedAt: Date; refereeMarks: string[]; referrerMarks: string[]; blockedReason: string | null; blockedAt: Date | null };
+const recordOf = (r: ReferralRow): ReferralRecord => ({
+  refereeId: r.refereeId,
+  referrerId: r.referrerId,
+  code: r.code,
+  claimedAt: r.claimedAt,
+  refereeMarks: r.refereeMarks,
+  referrerMarks: r.referrerMarks,
+  blockedReason: r.blockedReason as ReferralBlockReason | null,
+  blockedAt: r.blockedAt,
+});
 
 export class PrismaReferralsRepository implements ReferralsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -86,9 +137,9 @@ export class PrismaReferralsRepository implements ReferralsRepository {
   }
   async referralOf(refereeId: string): Promise<ReferralRecord | null> {
     const r = await this.db.referral.findUnique({ where: { refereeId } });
-    return r ? { refereeId: r.refereeId, referrerId: r.referrerId, code: r.code, claimedAt: r.claimedAt } : null;
+    return r ? recordOf(r) : null;
   }
-  async saveReferral(r: ReferralRecord): Promise<boolean> {
+  async saveReferral(r: NewReferral): Promise<boolean> {
     try {
       await this.db.referral.create({ data: { refereeId: r.refereeId, referrerId: r.referrerId, code: r.code, claimedAt: r.claimedAt } });
       return true;
@@ -96,6 +147,21 @@ export class PrismaReferralsRepository implements ReferralsRepository {
       if (isUniqueViolation(err)) return false;
       throw err;
     }
+  }
+  async updateFingerprint(refereeId: string, patch: { refereeMarks: string[]; referrerMarks: string[]; block: { reason: ReferralBlockReason; at: Date } | null }): Promise<ReferralRecord> {
+    await this.db.referral.update({ where: { refereeId }, data: { refereeMarks: patch.refereeMarks, referrerMarks: patch.referrerMarks } });
+    // The first block wins and stays: only a row without a reason takes one.
+    if (patch.block) await this.db.referral.updateMany({ where: { refereeId, blockedReason: null }, data: { blockedReason: patch.block.reason, blockedAt: patch.block.at } });
+    return recordOf((await this.db.referral.findUnique({ where: { refereeId } }))!);
+  }
+  async sharingAny(marks: readonly string[], exceptRefereeId: string): Promise<ReferralRecord[]> {
+    if (marks.length === 0) return [];
+    const list = [...marks];
+    const rows = await this.db.referral.findMany({ where: { refereeId: { not: exceptRefereeId }, OR: [{ refereeMarks: { hasSome: list } }, { referrerMarks: { hasSome: list } }] } });
+    return rows.map(recordOf);
+  }
+  async byReferrer(referrerId: string): Promise<ReferralRecord[]> {
+    return (await this.db.referral.findMany({ where: { referrerId }, orderBy: { claimedAt: 'desc' } })).map(recordOf);
   }
   async countInvited(referrerId: string): Promise<number> {
     return this.db.referral.count({ where: { referrerId } });
