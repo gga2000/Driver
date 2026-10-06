@@ -1,20 +1,28 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, RefreshControl, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import type { WalletLine, WalletLineKind } from '@driver/contracts';
 import type { IconName } from '@driver/ui';
-import { Button, Card, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Card, Chip, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { useClaimPoints, useHousehold, useTopUpStatus, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
-import { balanceText, lineAmount, lineWhen, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
+import { balanceText, lineAmount, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
+import { MoneyIn } from '@/features/account/MoneyIn';
+import { lineHref, WALLET_FILTERS, walletDays, type WalletFilter } from '@/features/account/wallet-lines';
+import { dayLabel } from '@/features/orders/OrderRow';
+import { formatClock } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { color } from '@driver/design-tokens';
 import { GuestGate } from '@/components/GuestGate';
 import { useSignedIn } from '@/lib/session';
+
+/** w1: pending points this close to lapsing get the warning strip. */
+const EXPIRY_WARN_DAYS = 14;
 
 const KIND_ICON: Record<WalletLineKind, IconName> = {
   food: 'food',
@@ -59,7 +67,19 @@ function Wallet() {
   const claim = useClaimPoints();
   const pendingTopUp = useTopUpStatus().data;
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<WalletFilter>('all');
   const b = balance.data;
+  const allLines = lines.data?.lines ?? [];
+  // w7: a brand-new wallet says so in words — no lone «0» in display type (it reads like ٥).
+  const fresh = !!b && b.moneyIqd === 0 && lines.isSuccess && allLines.length === 0;
+  const noPoints = !!b && b.points === 0 && b.pendingPoints === 0;
+  const now = new Date();
+  const days = walletDays(allLines, filter, now);
+  const open = (l: WalletLine) => {
+    const href = lineHref(l);
+    if (href) router.push(href as never);
+  };
+  const expiresSoon = b?.pendingExpiresAt && b.pendingPoints > 0 && b.pendingExpiresAt.getTime() - now.getTime() <= EXPIRY_WARN_DAYS * 86_400_000 ? b.pendingExpiresAt : null;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -92,15 +112,19 @@ function Wallet() {
               {t('wallet.balance')}
             </Text>
           </View>
-          {b ? (
+          {!b ? (
+            <Skeleton height={40} width="60%" />
+          ) : fresh ? (
+            <Text testID="wallet-new" variant="heading" color={theme.colors.bg}>
+              {t('wallet.new_title')}
+            </Text>
+          ) : (
             <Text testID="wallet-balance" variant="display" color={b.moneyIqd < 0 ? theme.colors.warning : theme.colors.bg} tabular>
               {balanceText(b.moneyIqd, locale, t)}
             </Text>
-          ) : (
-            <Skeleton height={40} width="60%" />
           )}
           <Text variant="footnote" color={theme.colors.border}>
-            {b && b.moneyIqd < 0 ? t('wallet.owe_body') : t('wallet.balance_body')}
+            {b && b.moneyIqd < 0 ? t('wallet.owe_body') : fresh ? t('wallet.new_body') : t('wallet.balance_body')}
           </Text>
           <Button testID="wallet-topup" icon="plus" label={t('wallet.topup_cta')} onPress={() => router.push('/topup')} style={{ marginTop: theme.space[2] }} />
           {pendingTopUp?.state === 'pending' ? (
@@ -130,7 +154,23 @@ function Wallet() {
         </View>
       </Card>
 
+      <MoneyIn lines={allLines} onOpen={open} />
+
       <Card padding={5} tone="tint" testID="wallet-points">
+        {noPoints ? (
+          // w7/w1: before the first points, what they are — not «0 نقطة = 0 دينار».
+          <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'flex-start' }} testID="wallet-points-first">
+            <Icon name="star" size={22} color="starOutline" filled fillColor="star" />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="label" weight={700}>
+                {t('points.first_title')}
+              </Text>
+              <Text variant="footnote" color="textMuted">
+                {t('points.redeem_rule')}
+              </Text>
+            </View>
+          </View>
+        ) : (
         <View style={{ gap: theme.space[3] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Icon name="star" size={20} color="accentText" />
@@ -145,9 +185,25 @@ function Wallet() {
           ) : (
             <Skeleton height={32} width="70%" />
           )}
-          <Text variant="footnote" color="textMuted">
-            {t('points.redeem_rule')}
-          </Text>
+          {/* w1: how points come and go, from the city's rules (no threshold exists: any number of points pays). */}
+          <View style={{ gap: theme.space[1] }} testID="wallet-points-rules">
+            {b ? (
+              <Text variant="footnote">
+                {t('points.earn_rules', { max: amountParam(b.pointsMaxPerOrder) })}
+              </Text>
+            ) : null}
+            <Text variant="footnote" color="textMuted">
+              {t('points.redeem_rule')}
+            </Text>
+          </View>
+          {expiresSoon && b ? (
+            <View testID="wallet-points-expiry" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.text }}>
+              <Icon name="clock" size={18} color="deal" />
+              <Text variant="footnote" weight={600} color={theme.colors.bg} style={{ flex: 1 }}>
+                {t('points.expiring_soon', { n: amountParam(b.pendingPoints), date: `${expiresSoon.getDate()}/${expiresSoon.getMonth() + 1}` })}
+              </Text>
+            </View>
+          ) : null}
           {b && b.pendingPoints > 0 ? (
             <Card padding={4} elevation={0} testID="wallet-pending">
               <View style={{ gap: theme.space[3] }}>
@@ -160,6 +216,7 @@ function Wallet() {
             </Card>
           ) : null}
         </View>
+        )}
       </Card>
 
       <View style={{ gap: theme.space[3] }}>
@@ -234,21 +291,44 @@ function Wallet() {
         <SectionHeader title={t('wallet.history')} />
         {lines.isPending ? (
           <Skeleton height={120} />
-        ) : (lines.data?.lines ?? []).length === 0 ? (
-          <EmptyState icon="receipt" title={t('empty.wallet')} body={t('empty.points')} />
+        ) : lines.isError ? (
+          <EmptyState icon="x" title={apiErrorMessage(lines.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void lines.refetch() }} />
+        ) : allLines.length === 0 ? (
+          <EmptyState icon="receipt" title={t('wallet.lines_empty_title')} body={t('wallet.lines_empty_body')} />
         ) : (
-          <Card elevation={0} padding={0} testID="wallet-lines">
-            {lines.data!.lines.map((l, i, list) => (
-              <LineRow key={l.id} line={l} divider={i < list.length - 1} />
-            ))}
-          </Card>
+          <>
+            {/* w8: filters, then one card per day; each line opens what it was. */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="wallet-filters">
+              {WALLET_FILTERS.map((f) => (
+                <Chip key={f} testID={`wallet-filter-${f}`} role="radio" label={t(`wallet.filter_${f}` as MessageKey)} selected={filter === f} onPress={() => setFilter(f)} />
+              ))}
+            </ScrollView>
+            {days.length === 0 ? (
+              <Text variant="footnote" color="textMuted" testID="wallet-filter-empty">
+                {t('wallet.filter_empty')}
+              </Text>
+            ) : (
+              days.map((d) => (
+                <View key={d.id} style={{ gap: theme.space[2] }} testID={`wallet-day-${d.id}`}>
+                  <Text variant="label" weight={600} color="textMuted" accessibilityRole="header">
+                    {dayLabel(t, d.day)}
+                  </Text>
+                  <Card elevation={0} padding={0} testID="wallet-lines">
+                    {d.lines.map((l, i) => (
+                      <LineRow key={l.id} line={l} divider={i < d.lines.length - 1} onPress={lineHref(l) ? () => open(l) : undefined} />
+                    ))}
+                  </Card>
+                </View>
+              ))
+            )}
+          </>
         )}
       </View>
     </Screen>
   );
 }
 
-function LineRow({ line, divider }: { line: WalletLine; divider: boolean }) {
+function LineRow({ line, divider, onPress }: { line: WalletLine; divider: boolean; onPress?: () => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -260,13 +340,14 @@ function LineRow({ line, divider }: { line: WalletLine; divider: boolean }) {
     <ListRow
       leading={KIND_ICON[line.kind]}
       title={locale === 'en' ? line.title_en : line.title_ar}
-      subtitle={[detail, lineWhen(line.occurredAt, new Date(), t)].filter(Boolean).join(' · ')}
+      subtitle={[detail, line.reference ? t('wallet.money_in_ref', { ref: line.reference }) : null, formatClock(line.occurredAt)].filter(Boolean).join(' · ')}
       trailing={
         <Text variant="label" tabular color={outside ? theme.colors.textMuted : positive ? (line.unit === 'points' ? theme.colors.accentText : theme.colors.successText) : theme.colors.text}>
           {lineAmount(line, locale, t)}
         </Text>
       }
-      chevron={false}
+      chevron={Boolean(onPress)}
+      onPress={onPress}
       divider={divider}
     />
   );

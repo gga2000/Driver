@@ -5807,5 +5807,21 @@
   "orders.section_trips": "Your coming trips",
   "rajaa.trip_row_pin": "PIN {pin}",
   "rajaa.trip_row_points": "+{n} points",
-  "help.trips_heading": "الرجعة trips"
+  "help.trips_heading": "الرجعة trips",
+  "wallet.new_title": "No balance yet",
+  "wallet.new_body": "Top up once and pay with a tap on your next order",
+  "wallet.money_in": "{amount} دينار reached your wallet",
+  "wallet.money_in_ref": "Ref {ref}",
+  "wallet.lines_empty_title": "Your first order or top-up shows here",
+  "wallet.lines_empty_body": "Each line opens its order, ticket or receipt",
+  "wallet.filter_all": "All",
+  "wallet.filter_food": "Food",
+  "wallet.filter_rides": "Rides",
+  "wallet.filter_rajaa": "الرجعة",
+  "wallet.filter_topup": "Top-ups",
+  "wallet.filter_points": "Points",
+  "wallet.filter_empty": "No lines of this kind",
+  "points.first_title": "Your first order earns points",
+  "points.earn_rules": "Every food order, ride or الرجعة seat earns points, up to {max} per order",
+  "points.expiring_soon": "{n} points lapse on {date} · claim them now"
 }

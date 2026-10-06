@@ -1,5 +1,5 @@
 import { cityParts, formatClock } from '@driver/i18n';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { TOPUP_RULES, type TopUpView } from '@driver/contracts';
@@ -35,7 +35,9 @@ export default function TopUpScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const [topUpId, setTopUpId] = useState<string | undefined>(undefined);
+  // w8: a wallet line opens its receipt (`?id=`).
+  const params = useLocalSearchParams<{ id?: string }>();
+  const [topUpId, setTopUpId] = useState<string | undefined>(params.id || undefined);
   const status = useTopUpStatus(topUpId);
   const request = useRequestTopUp();
   const [mode, setMode] = useState<'pick' | 'code' | null>(null);
