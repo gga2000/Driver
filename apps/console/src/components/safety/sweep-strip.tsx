@@ -96,7 +96,8 @@ function SweepCallButton({ alert }: { alert: KhatSweepAlert }) {
     trpc.khat.callSweepDriver.mutationOptions({
       onSuccess: (s) =>
         toast({
-          title: t('console.safety.call_dial', { number: s.dial }),
+          // Isolated so "+964…" keeps its plus in front inside the Arabic sentence.
+          title: t('console.safety.call_dial', { number: `\u2066${s.dial}\u2069` }),
           body: s.mode === 'dev_direct' ? t('console.safety.call_dev') : t('console.safety.call_proxy'),
           action: { label, onClick: () => window.open(`tel:${s.dial}`, '_self') },
         }),
