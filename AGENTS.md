@@ -15,11 +15,14 @@ money rule `MoneyRules.guarantee.enabled` is `false`: the server pays no top-up,
 guarantee line, the sim asserts nothing is paid. Don't turn it on or show progress toward it until Ali
 decides — see `docs/api/shift-guarantee.md`.
 
-Open product decisions Ali has not yet made (ask before building further on these):
-tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
-for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit;
-the shift guarantee (G-91: built but switched off — pay it at all? and if so peak shifts 12–16 and 19–23,
-couriers only, a minimum online time?).
+**Postponed until before launch: `docs/before-launch.md`** (Ali, 2026-10-06: "I don't want to work on
+them now"). Don't start anything listed there unless Ali asks; update the file when an item is done.
+It holds the real WhatsApp support number, SOS on-duty/escalation, calls (Ali: no outside masked-call
+provider, "we carry them"), the parents' WhatsApp messages for خطوط, the brand symbol, accounts and
+store setup, and the gaps that need real phones.
+Being decided/built in another window (2026-10-06): tips after a good rating, public driver photos,
+the emergency number (Ali chose 911; main still says 104), shift-guarantee hours, and switching the
+guarantee on (Ali: "yes pay"; that window confirms with him before it starts paying).
 
 Decided by Ali on 2026-10-06 (see the dated section at the end of
 `docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
@@ -27,7 +30,7 @@ tender limit) and extra cash must be named; honest delay in two steps (10 min ap
 min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee was built to be paid by
 the server, then switched off by Ali the same day (open decision); خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen
 (every PIN typed is logged; cross-use and 3 wrong PINs on a seat alert ops on the Console safety strip), 3-second pause before the sweep.
-All 23 Phase 3 review problems are fixed (review board: Ali's artifact, see memory). Open: guardian messages (`khat.guardian_*`, `push.khat_dropped.body`, WhatsApp `wa.khat_dropped`) still say «صعد/وصل» for every child; child records have no gender (the partner app uses neutral copy); changing the WhatsApp template needs re-approval — ask Ali.
+All 23 Phase 3 review problems are fixed (review board: Ali's artifact, see memory). Guardian messages (`khat.guardian_*`, `push.khat_dropped.body`, WhatsApp `wa.khat_dropped`) still say «صعد/وصل» for every child; postponed to the parents' WhatsApp work in `docs/before-launch.md` §4.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,
 and the Console zones/map pages — check recent commits (`git log --oneline -20`) before touching those.
