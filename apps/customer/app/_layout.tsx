@@ -11,6 +11,7 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { ApiProvider } from '@/lib/api';
+import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
@@ -63,6 +64,8 @@ export default function RootLayout() {
               <StatusBar style="dark" />
               {/* Launch status banner from the Console (system.banner), above every screen. */}
               <SystemBanner />
+              {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
+              <SeasonWatcher />
               <RootNavigator />
             </ApiProvider>
           </ToastProvider>

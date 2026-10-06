@@ -10,6 +10,7 @@ import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
 import { amountParam } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
 import { cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { ChangeCreditStrip } from './ChangeCredited';
@@ -31,8 +32,11 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   const ride = view.order.type === 'ride';
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
   const pay = cashAtDoor(view.order);
+  const today = useSeason();
+  // On a quiet day (mourning, set in the Console) the moment is calm: no burst, no bounce, no success buzz.
+  const celebrate = today.celebrations && !theme.reduceMotion;
   useEffect(() => {
-    theme.haptic('success');
+    if (today.celebrations) theme.haptic('success');
     // Once per arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -45,9 +49,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
     >
       <View style={{ flex: 1, alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <View style={{ width: 88, height: 88, alignItems: 'center', justifyContent: 'center' }}>
-          {theme.reduceMotion ? null : <Burst />}
+          {celebrate ? <Burst /> : null}
           <Animated.View
-            entering={theme.reduceMotion ? undefined : ZoomIn.springify().damping(11)}
+            entering={celebrate ? ZoomIn.springify().damping(11) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
             style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.accent, shadowOpacity: 0.45, shadowRadius: 22, shadowOffset: { width: 0, height: 8 } }}
           >
             <Icon name="check" size={48} color="onAccent" strokeWidth={3} />
@@ -350,6 +354,7 @@ function reasonLabel(t: ReturnType<typeof useT>, tag: RatingTag, ride: boolean):
 function PointsEarned({ points }: { points: number | null }) {
   const theme = useTheme();
   const t = useT();
+  const today = useSeason();
   const [target, setTarget] = useState(0);
   const shown = useCountUp(target);
   const fly = useSharedValue(0);
@@ -359,8 +364,8 @@ function PointsEarned({ points }: { points: number | null }) {
     setTarget(points);
     fly.value = withDelay(700, withTiming(1, { duration: 650, easing: Easing.in(Easing.cubic) }));
     pop.value = withDelay(1300, withSequence(withSpring(1.25, { damping: 6 }), withSpring(1)));
-    theme.haptic('success');
-  }, [points, fly, pop, theme]);
+    if (today.celebrations) theme.haptic('success');
+  }, [points, fly, pop, theme, today.celebrations]);
   // The coin travels from the number to the wallet badge on the end side.
   const coin = useAnimatedStyle(() => ({
     opacity: fly.value === 0 || fly.value === 1 ? 0 : 1,

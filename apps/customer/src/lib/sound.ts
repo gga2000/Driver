@@ -1,5 +1,6 @@
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useEffect, useState } from 'react';
+import { cueAllowed, season } from './season';
 import { soundPref } from './sound-pref';
 
 /** The tracking screen's moments (maps program SP5b). */
@@ -21,9 +22,10 @@ let mode: Promise<void> | null = null;
  * Soft cues while the tracking screen is open (scripts/dev/make-alert-sounds.mjs, ≤ 30 KB each). Unlike
  * the kitchen and courier alarms they respect the iPhone's silent switch and only duck other audio;
  * the in-app switch turns them off. A cue that cannot play (web before a tap, no audio) is skipped.
+ * On a quiet day (Console) no cue plays.
  */
 export function playCue(cue: Cue): void {
-  if (!soundPref.enabled) return;
+  if (!cueAllowed(soundPref.enabled, season.current)) return;
   mode ??= Audio.setAudioModeAsync({
     playsInSilentModeIOS: false,
     staysActiveInBackground: false,
