@@ -24,7 +24,7 @@ minutes.
   bucket, vehicle and routing basis, **clamped 0.7–1.6**. Nothing learned yet (or a cell with fewer
   than 5 legs, down the whole fallback chain) = factor 1 = the router's minutes.
 - **Locked when the order is placed**: `orders.place` stores the ride in whole minutes on the order
-  (`orders.promised_ride_min`, migration `20261007180000_order_promised_ride`). Every read after that
+  (`orders.promised_ride_min`, migration `20261007195500_order_promised_ride`). Every read after that
   — `orders.track`, the apology sweep, the `order.delivered` subscriber, the at-risk list — uses the
   stored minutes, so the promise and its deadline never move as the city keeps learning or the hour
   bucket turns. A scheduled order is quoted for its slot's traffic bucket (`scheduledFor`), not the
