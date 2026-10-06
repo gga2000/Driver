@@ -169,6 +169,41 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(await repo.riderStats(ids.r2)).toEqual({ completedBookings: 0, cashStrikes: 1 });
   });
 
+  it('seat PIN attempts: a refused cross-use PIN is committed with its alert, and the log is append-only', async () => {
+    const dep = await departures.announce(
+      ids.driver,
+      AnnounceInput.parse({
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(400),
+        latestDepartureAt: at(430),
+        vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 2' },
+      }),
+    );
+    const book = async (riderId: string, seat: 'front' | 'back_left') => {
+      const held = await departures.hold(riderId, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seat] }, travellingAs: 'rijal' }));
+      wallet.set(riderId, 100_000);
+      return departures.book(riderId, held.id, 'wallet');
+    };
+    const a = await book(ids.r1, 'front');
+    const b = await book(ids.r2, 'back_left');
+    await expect(departures.checkIn(ids.driver, dep.id, b.pin, a.id)).rejects.toMatchObject({ code: 'pin_invalid' });
+    await departures.checkIn(ids.driver, dep.id, a.pin, a.id);
+    const log = await repo.pinAttemptsFor(dep.id);
+    expect(log.map((x) => [x.result, x.targetBookingId, x.matchedBookingId, x.alert, x.refusedOnSeat])).toEqual([
+      ['other_booking', a.id, b.id, 'cross_use', 1],
+      ['checked_in', a.id, a.id, null, 0],
+    ]);
+    const alerts = await repo.pinAlertsSince('aziziyah', at(-1));
+    expect(alerts.find((x) => x.departureId === dep.id)).toMatchObject({ driverId: ids.driver, alert: 'cross_use' });
+    expect(await repo.getPinAttempt(log[0]!.id)).toMatchObject({ id: log[0]!.id, result: 'other_booking' });
+    // The table holds no PIN column at all, and rejects edits and deletes.
+    const row = await prisma.prisma.intercityPinAttempt.findUniqueOrThrow({ where: { id: log[0]!.id } });
+    expect(JSON.stringify(row)).not.toContain(`"${b.pin}"`);
+    await expect(prisma.prisma.intercityPinAttempt.update({ where: { id: log[0]!.id }, data: { result: 'checked_in' } })).rejects.toThrow(/append-only/);
+    await expect(prisma.prisma.intercityPinAttempt.delete({ where: { id: log[0]!.id } })).rejects.toThrow(/append-only/);
+  });
+
   it('the request board keeps offers and the deposit', async () => {
     const r = await requests.post(
       ids.r1,

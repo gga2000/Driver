@@ -8,6 +8,9 @@ import {
   type IntercitySeatId,
   type MoneyRules,
   type PickupChoice,
+  type PinAlertKind,
+  PIN_ATTEMPT_RULES,
+  type PinAttemptResult,
   type SeatPayment,
   type TravellingAs,
 } from '@driver/contracts';
@@ -41,6 +44,7 @@ import {
   type DepartureRecord,
   type Fix,
   type PickupRecord,
+  type PinAttemptRecord,
 } from './model.js';
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
@@ -75,6 +79,37 @@ export type DepartBlocker = {
 export type AnnounceListener = (tx: Tx, dep: DepartureRecord) => Promise<void>;
 
 const TRAIL_MAX = 300;
+
+/** Whose PIN a typed PIN is on this car, and what it may do. */
+export interface PinVerdict {
+  result: PinAttemptResult;
+  matched: BookingRecord | null;
+}
+
+/**
+ * What a typed seat PIN does on this car (Ali 2026-10-06 PIN safeguards). It boards a rider only when
+ * it is a booked rider's PIN and, typed on a seat (garage mode), that seat's rider; otherwise it says
+ * whose PIN it was: nobody's, another booking's (cross-use), or a booking that cannot board now.
+ */
+export function pinVerdict(bookings: readonly BookingRecord[], pin: string, bookingId?: string): PinVerdict {
+  const boards = bookings.find((x) => x.pin === pin && x.state === 'booked' && (bookingId === undefined || x.id === bookingId));
+  if (boards) return { result: 'checked_in', matched: boards };
+  // Whose PIN it is: a live booking first (PINs are unique among those), else any earlier one.
+  const matched = bookings.find((x) => x.pin === pin && LIVE.includes(x.state)) ?? bookings.find((x) => x.pin === pin) ?? null;
+  if (!matched) return { result: 'wrong_pin', matched: null };
+  if (bookingId !== undefined && matched.id !== bookingId) return { result: 'other_booking', matched };
+  return { result: 'not_boardable', matched };
+}
+
+/**
+ * The ops alert a refused PIN raises: another booking's PIN on this seat always does; otherwise the
+ * seat's `PIN_ATTEMPT_RULES.wrongOnSeatAlertAt`-th refusal does, once per seat and departure.
+ */
+export function pinAlertFor(result: PinAttemptResult, refusedOnSeat: number, seatAlreadyAlerted: boolean): PinAlertKind | null {
+  if (result === 'checked_in') return null;
+  if (result === 'other_booking') return 'cross_use';
+  return refusedOnSeat >= PIN_ATTEMPT_RULES.wrongOnSeatAlertAt && !seatAlreadyAlerted ? 'wrong_repeated' : null;
+}
 
 /**
  * Departures and seats (domain §2, decisions §8–§9, review C). The driver announces a run from a
@@ -445,14 +480,28 @@ export class DeparturesService {
     });
   }
 
-  /** PIN check-in; settles the rider's late meter if it ran (decisions §8). */
-  checkIn(driverId: string, departureId: string, pin: string, bookingId?: string): Promise<DepartureRecord> {
-    return this.driverWrite(driverId, departureId, async (tx, dep, bookings) => {
+  /**
+   * PIN check-in; settles the rider's late meter if it ran (decisions §8). Every PIN typed here is
+   * logged in the same write (`intercity_pin_attempts`, ids only; Ali 2026-10-06 safeguards): a
+   * refused one is committed before `pin_invalid` goes back, and it raises an ops alert when it was
+   * another booking's PIN typed on this seat (cross-use) or the `PIN_ATTEMPT_RULES.wrongOnSeatAlertAt`-th
+   * refused PIN on one seat.
+   */
+  async checkIn(driverId: string, departureId: string, pin: string, bookingId?: string): Promise<DepartureRecord> {
+    const outcome = await this.driverWrite(driverId, departureId, async (tx, dep, bookings) => {
       this.requireState(dep, ['scheduled', 'boarding', 'departed']);
       // Garage mode types the PIN on one rider's seat: then it has to be that rider's PIN.
-      const b = bookings.find((x) => x.pin === pin && x.state === 'booked' && (bookingId === undefined || x.id === bookingId));
-      if (!b) throw new DriverError('pin_invalid');
+      const verdict = pinVerdict(bookings, pin, bookingId);
       const now = this.now();
+      const b = verdict.result === 'checked_in' ? verdict.matched : null;
+      if (!b) {
+        await this.recordRefusedPin(tx, dep, bookings, driverId, bookingId ?? null, verdict, now);
+        return null;
+      }
+      await this.repo.addPinAttempt(
+        { id: this.ids.id('pa'), departureId: dep.id, cityId: HOME_CITY, driverId, targetBookingId: bookingId ?? null, matchedBookingId: b.id, result: 'checked_in', alert: null, refusedOnSeat: 0, at: now },
+        tx,
+      );
       const minutes = meterApplies(b) ? riderMeterMinutes(dep, bookings, b, now) : null;
       b.state = 'checked_in';
       b.checkedInAt = now;
@@ -467,6 +516,69 @@ export class DeparturesService {
       });
       if (minutes !== null) await this.settleRiderMeter(tx, dep, bookings, b, minutes);
       return dep;
+    });
+    // The refusal is logged (and alerted) with the write above committed; the driver still hears no.
+    if (!outcome) throw new DriverError('pin_invalid');
+    return outcome;
+  }
+
+  /** A staff member's masked call to the driver of a PIN alert: `departure.pin_alert_call_requested` (ids only). */
+  async logPinAlertCall(staffId: string, alert: PinAttemptRecord, callId: string, mode: 'proxy' | 'dev_direct'): Promise<void> {
+    await this.writer.run(async (tx) => {
+      const dep = await this.departure(alert.departureId, tx);
+      await this.emit(tx, 'departure.pin_alert_call_requested', staffId, dep, { attemptId: alert.id, driverId: alert.driverId, callId, mode });
+    });
+  }
+
+  /** A departure's PIN attempts, oldest first (the Console's history behind a PIN alert). */
+  pinAttempts(departureId: string): Promise<PinAttemptRecord[]> {
+    return this.repo.pinAttemptsFor(departureId);
+  }
+
+  /**
+   * Logs a refused PIN and decides its ops alert (ids and seats only, never the PIN or a name):
+   * `cross_use` when it belonged to another booking than the seat it was typed on; otherwise
+   * `wrong_repeated` once per seat (or the plain pad) when its refusals reach the limit. An alert is
+   * also `seat.pin_alert` on the departure's event log.
+   */
+  private async recordRefusedPin(
+    tx: Tx,
+    dep: DepartureRecord,
+    bookings: readonly BookingRecord[],
+    driverId: string,
+    targetBookingId: string | null,
+    verdict: PinVerdict,
+    now: Date,
+  ): Promise<void> {
+    const earlier = (await this.repo.pinAttemptsFor(dep.id, tx)).filter((a) => a.targetBookingId === targetBookingId);
+    const refusedOnSeat = earlier.filter((a) => a.result !== 'checked_in').length + 1;
+    const alert = pinAlertFor(verdict.result, refusedOnSeat, earlier.some((a) => a.alert === 'wrong_repeated'));
+    const attempt: PinAttemptRecord = {
+      id: this.ids.id('pa'),
+      departureId: dep.id,
+      cityId: HOME_CITY,
+      driverId,
+      targetBookingId,
+      matchedBookingId: verdict.matched?.id ?? null,
+      result: verdict.result,
+      alert,
+      refusedOnSeat,
+      at: now,
+    };
+    await this.repo.addPinAttempt(attempt, tx);
+    if (!alert) return;
+    const seatsOf = (id: string | null) => (id ? (bookings.find((x) => x.id === id)?.seatIds ?? []) : []);
+    await this.emit(tx, 'seat.pin_alert', driverId, dep, {
+      // The ops desk that watches every garage (Kut and Baghdad ones included) is Aziziyah's.
+      cityId: HOME_CITY,
+      alert,
+      attemptId: attempt.id,
+      targetBookingId,
+      targetSeatIds: seatsOf(targetBookingId),
+      matchedBookingId: attempt.matchedBookingId,
+      matchedSeatIds: seatsOf(attempt.matchedBookingId),
+      result: attempt.result,
+      refusedOnSeat,
     });
   }
 

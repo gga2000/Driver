@@ -83,6 +83,14 @@ export function routesHarness(
       }
       return out;
     },
+    memberCards: async (ids, accessorId, purpose) => {
+      const out: Record<string, { name: string | null; phoneMasked: string }> = {};
+      for (const id of new Set(ids)) {
+        nameReads.push({ personId: id, accessorId, purpose });
+        out[id] = { name: riderNames.get(id) ?? null, phoneMasked: '0770 ••• ••01' };
+      }
+      return out;
+    },
   });
   const scheduler = new RoutesScheduler(writer, departures, demand, requests);
 

@@ -13,6 +13,10 @@ import {
   type DriverDepartureView,
   type DriverRequestRide,
   type GarageOpsView,
+  type PinAlertView,
+  type PinAttemptView,
+  PIN_ATTEMPT_RULES,
+  type SafetyCallSession,
   type ImHereOutput,
   type IntercityBoard,
   type IntercityNetwork,
@@ -21,11 +25,12 @@ import {
   type RequestPostView,
   type RoutesPort,
 } from '@driver/contracts';
+import { shortDisplayName } from '../identity/index.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { directionFrom } from './intercity.config.js';
 import { riderMeterMinutes } from './late-meter.js';
-import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type RequestRecord } from './model.js';
+import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
@@ -564,6 +569,68 @@ export class RoutesRpc implements RoutesPort {
     return { garage: garageView(g), departures, demand, openRequests, stranded };
   }
 
+  /**
+   * The Console safety strip's PIN rows (Ali 2026-10-06): the city's attempts that alerted ops in the
+   * last `PIN_ATTEMPT_RULES.alertShowMin`, newest first, each with its car and the car's whole PIN
+   * history. The drivers' names and masked numbers are one logged vault read for the staff member.
+   */
+  async pinAlerts(actor: Actor, input: In<'pinAlerts'>): Promise<PinAlertView[]> {
+    const s = this.departures;
+    const since = new Date(s.now().getTime() - PIN_ATTEMPT_RULES.alertShowMin * MIN_MS);
+    const alerts = await this.repo.pinAlertsSince(input.cityId, since);
+    if (alerts.length === 0) return [];
+    const cards = this.names ? await this.names.memberCards([...new Set(alerts.map((a) => a.driverId))], actor.personId, 'intercity_pin_alert') : {};
+    const out: PinAlertView[] = [];
+    const history = new Map<string, { dep: DepartureRecord; bookings: BookingRecord[]; attempts: PinAttemptRecord[] }>();
+    for (const a of alerts) {
+      if (a.alert === null) continue;
+      let h = history.get(a.departureId);
+      if (!h) {
+        const dep = await s.departure(a.departureId);
+        h = { dep, bookings: await this.repo.bookingsFor(dep.id), attempts: await s.pinAttempts(dep.id) };
+        history.set(a.departureId, h);
+      }
+      const seats = seatsOfBooking(h.bookings);
+      const card = cards[a.driverId];
+      out.push({
+        alertId: a.id,
+        kind: a.alert,
+        cityId: a.cityId,
+        departureId: h.dep.id,
+        garageNameAr: s.garage(h.dep.garageId).nameAr,
+        corridorNameAr: s.corridor(h.dep.corridorId).nameAr,
+        departAt: h.dep.departAt,
+        driver: { personId: a.driverId, displayName: card?.name ? shortDisplayName(card.name) || null : null, phoneMasked: card?.phoneMasked ?? null },
+        targetBookingId: a.targetBookingId,
+        targetSeatIds: seats(a.targetBookingId),
+        matchedBookingId: a.matchedBookingId,
+        matchedSeatIds: seats(a.matchedBookingId),
+        refusedOnSeat: a.refusedOnSeat,
+        raisedAt: a.at,
+        attempts: h.attempts.map((x) => pinAttemptView(x, seats)),
+      });
+    }
+    return out;
+  }
+
+  /** Any departure's PIN history for ops, oldest first (ids and seats only). */
+  async pinAttempts(_actor: Actor, input: In<'pinAttempts'>): Promise<PinAttemptView[]> {
+    const dep = await this.departures.departure(input.departureId);
+    const seats = seatsOfBooking(await this.repo.bookingsFor(dep.id));
+    return (await this.departures.pinAttempts(dep.id)).map((a) => pinAttemptView(a, seats));
+  }
+
+  /** The PIN row's call button: a masked call from the staff member to the car's driver, on the departure's log. */
+  async callPinAlertDriver(actor: Actor, input: In<'callPinAlertDriver'>): Promise<SafetyCallSession> {
+    const alert = await this.repo.getPinAttempt(input.alertId);
+    if (!alert || alert.alert === null) throw new DriverError('not_found');
+    if (!this.calls) throw new DriverError('call_unavailable');
+    const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const session = await this.calls.open({ callId, orderId: alert.departureId, callerId: actor.personId, calleeId: alert.driverId }, this.departures.now());
+    await this.departures.logPinAlertCall(actor.personId, alert, callId, session.mode);
+    return { mode: session.mode, dial: session.dial, expiresAt: session.expiresAt };
+  }
+
   // ───────────────────────── helpers ─────────────────────────
 
   private async view(b: BookingRecord, owner: boolean): Promise<BookingView> {
@@ -574,4 +641,23 @@ export class RoutesRpc implements RoutesPort {
   private async driverView(dep: DepartureRecord): Promise<DriverDepartureView> {
     return driverDepartureView(this.departures, dep, await this.repo.bookingsFor(dep.id));
   }
+}
+
+/** Seats each booking on the car holds (empty for the plain PIN pad or an unknown booking). */
+function seatsOfBooking(bookings: readonly BookingRecord[]): (id: string | null) => BookingRecord['seatIds'] {
+  return (id) => (id ? (bookings.find((b) => b.id === id)?.seatIds ?? []) : []);
+}
+
+function pinAttemptView(a: PinAttemptRecord, seats: (id: string | null) => BookingRecord['seatIds']): PinAttemptView {
+  return {
+    attemptId: a.id,
+    at: a.at,
+    driverId: a.driverId,
+    targetBookingId: a.targetBookingId,
+    targetSeatIds: seats(a.targetBookingId),
+    matchedBookingId: a.matchedBookingId,
+    matchedSeatIds: seats(a.matchedBookingId),
+    result: a.result,
+    alert: a.alert,
+  };
 }
