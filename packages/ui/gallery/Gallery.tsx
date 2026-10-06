@@ -337,7 +337,7 @@ function ChoiceSection() {
             onChange={setPickup}
             options={[
               { value: 'door', label: t('checkout.pickup_door') },
-              { value: 'street', label: `${t('checkout.pickup_street')} ${formatAmount(-250)}` },
+              { value: 'street', label: t('checkout.pickup_street_save', { amount: formatAmount(250) }) },
             ]}
           />
         </View>
