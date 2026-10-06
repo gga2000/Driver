@@ -141,22 +141,47 @@ function OnionRing({ p, x, y, rx = 13, ry = 8 }: { p: Pen; x: number; y: number;
  * vermicelli flecks Iraqi rice has, so it never reads as a plain white half-disc.
  */
 function Rice({ p, x0, x1, base, top }: { p: Pen; x0: number; x1: number; base: number; top: number }) {
-  const w = x1 - x0;
+  const cx = (x0 + x1) / 2;
+  const rx = (x1 - x0) / 2;
   const h = base - top;
-  const k = h * 1.3;
+  const n = 7;
+  // A heap, not a smooth dome: the outline bumps out between points on the arc, like piled grains.
+  let d = `M${x0} ${base}`;
+  for (let i = 1; i <= n; i++) {
+    const t0 = (Math.PI * (i - 1)) / n;
+    const t1 = (Math.PI * i) / n;
+    const tm = (t0 + t1) / 2;
+    const bulge = 1.12;
+    const qx = cx - rx * bulge * Math.cos(tm);
+    const qy = base - h * bulge * Math.sin(tm);
+    d += `Q${qx.toFixed(1)} ${qy.toFixed(1)} ${(cx - rx * Math.cos(t1)).toFixed(1)} ${(base - h * Math.sin(t1)).toFixed(1)}`;
+  }
+  d += 'Z';
   let flecks = '';
   let grains = '';
-  for (let i = 0; i < 7; i++) {
-    const fx = x0 + w * (0.2 + ((i * 37) % 60) / 100);
-    const fy = base - h * (0.12 + ((i * 23) % 62) / 100);
-    if (i % 2) flecks += `M${fx} ${fy}l5 -2`;
-    else grains += `M${fx} ${fy}l4 1`;
+  for (let i = 0; i < 12; i++) {
+    const fx = x0 + (x1 - x0) * (0.16 + ((i * 37) % 68) / 100);
+    const fy = base - h * (0.1 + ((i * 23) % 64) / 100);
+    if (i % 3 === 0) flecks += `M${fx.toFixed(1)} ${fy.toFixed(1)}l6 -2`;
+    else grains += `M${fx.toFixed(1)} ${fy.toFixed(1)}l4 1.5`;
   }
   return (
     <G>
-      <Shape d={`M${x0} ${base}C${x0} ${base - k} ${x1} ${base - k} ${x1} ${base}Z`} fill={K.rice} w={p.w} />
-      <Path d={flecks} stroke={K.fried} strokeWidth={p.w * 0.8} strokeLinecap="round" opacity={0.75} />
-      <Path d={grains} stroke={K.bread} strokeWidth={p.w * 0.8} strokeLinecap="round" />
+      <Shape d={d} fill={K.rice} w={p.w} />
+      <Path d={grains} stroke={K.bread} strokeWidth={p.w * 0.9} strokeLinecap="round" />
+      <Path d={flecks} stroke={K.fried} strokeWidth={p.w} strokeLinecap="round" />
+    </G>
+  );
+}
+
+/** A stew bowl (باميا, فاصوليا) with the kashi glaze band; the contents are drawn by the caller. */
+function Stew({ p, stew, children }: { p: Pen; stew: string; children: ReactElement }) {
+  return (
+    <G>
+      <Bowl p={p} cx={96} top={106} rx={70} depth={58} fill={stew} band />
+      {children}
+      <Steam x={88} y={86} h={34} w={p.w * 0.8} />
+      <Steam x={120} y={84} h={28} w={p.w * 0.8} />
     </G>
   );
 }
@@ -164,18 +189,6 @@ function Rice({ p, x0, x1, base, top }: { p: Pen; x0: number; x1: number; base: 
 /** A side-view glass, wider at the top. */
 function glassD(cx: number, top: number, bottom: number, wTop: number, wBottom: number): string {
   return `M${cx - wTop / 2} ${top}L${cx + wTop / 2} ${top}L${cx + wBottom / 2} ${bottom - 4}Q${cx + wBottom / 2} ${bottom} ${cx + wBottom / 2 - 4} ${bottom}L${cx - wBottom / 2 + 4} ${bottom}Q${cx - wBottom / 2} ${bottom} ${cx - wBottom / 2} ${bottom - 4}Z`;
-}
-
-/** A stew bowl (باميا, فاصوليا, مرق) with a little rice dome behind it. */
-function Stew({ p, stew, children }: { p: Pen; stew: string; children: ReactElement }) {
-  return (
-    <G>
-      <Rice p={p} x0={104} x1={186} base={108} top={46} />
-      <Bowl p={p} cx={90} top={108} rx={64} depth={56} fill={stew} band />
-      {children}
-      <Steam x={84} y={92} h={32} w={p.w * 0.8} />
-    </G>
-  );
 }
 
 /* ───────────────────────── the dishes ───────────────────────── */
