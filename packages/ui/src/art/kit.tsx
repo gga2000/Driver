@@ -6,36 +6,11 @@ import { art } from '@driver/design-tokens';
  * one date-brown ink line that sits a little off its fill (a hand-inked print, slightly misregistered),
  * arch-topped frames like shanasheel windows, and fixed pigments that look the same by day and by night.
  *
- * `art.*` (design tokens) holds the food pigments. The scene pigments below (kashi tiles, saffron light,
- * palm green, the green Iraqi door, the Tigris) are illustration-only and live here until the token owner
- * adopts them as `art.*` roles; nothing in the UI reads them, and no text ever sits on them.
+ * `art.*` (design tokens) holds every pigment: the food, and the scene paints (kashi tiles, saffron light,
+ * palm green, the green Iraqi door, the Tigris). Illustration only: nothing in the UI reads them as roles,
+ * and no text ever sits on them.
  */
-export const SKETCH = {
-  ...art,
-  kashi: '#0B6577',
-  kashiTint: '#9CC9D1',
-  saffron: '#F2C14E',
-  palm: '#2F7D4E',
-  palmDeep: '#235E3B',
-  pomegranate: '#B23A2E',
-  door: '#2F6B4F',
-  doorDeep: '#234F3B',
-  sky: '#F6E3C0',
-  river: '#86B7C0',
-  night: '#2A1D14',
-  nightSky: '#163A44',
-  wall: '#EAD9BC',
-  wallDeep: '#D9C29E',
-  wood: '#8A5A33',
-  woodLight: '#B07A48',
-  lemon: '#F2D35E',
-  cucumber: '#7BA05B',
-  lentil: '#E2A23A',
-  turnip: '#D46A8C',
-  hummus: '#E9D3A1',
-  fried: '#C9832F',
-  white: '#FFFCF6',
-} as const;
+export const SKETCH = art;
 
 /** Where the ink line sits relative to its fill: a little up and to one side. */
 const INK_OFFSET = 'translate(1.6 -1.3)';
