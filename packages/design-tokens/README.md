@@ -17,6 +17,15 @@ on purpose: use logical properties (`margin-inline-start`, `padding-inline-end`,
 `#FBF6EE` ground, white surfaces, ink `#1F1A14`, deep orange accent `#E08A1E`. `themes.dark` is a
 complete stub on the same role names (warm near-black `#16120E`) so it can be switched on in QA.
 
+`themes.istikan` (joy J-D1, the customer app since J3a) is research report 5 §5 Direction A: paper
+`#F6EEDF`, warm white `#FFFCF6`, ink `#24170E`; tea (`accent`) = act and eat, kashi (`live`, `info`) =
+move and live, ink (`selected`) = what you chose, saffron (`deal`, `star`) = treats, palm = done,
+pomegranate = stop. Every role exists in every theme: in `light`/`dark` the J3a roles (`selected*`,
+`segmentSelected*`, `stepperPlus*`, `star*`, `tintBorder`, `live*`, `deal`) hold the values the shared
+components drew before, so the Partner, Merchant and Console don't change (`tokens.test.ts` freezes
+them). `scheme` says which way a theme leans (toasts, state layers); `identity` holds the monogram
+colours per theme; `haptic` maps events to buzzes.
+
 Components read roles (`bg`, `surface`, `text`, `accent`, `onAccent`, `accentTint`, `accentText`,
 `successText`, …), never raw scales. Two rules came out of the contrast check:
 

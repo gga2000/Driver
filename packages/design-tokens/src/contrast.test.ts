@@ -27,7 +27,7 @@ describe.each(Object.keys(themes) as ThemeName[])('%s theme: WCAG AA for every t
 
 describe.each(Object.keys(themes) as ThemeName[])('%s theme: 3:1 for every boundary, focus and selected-state cue (WCAG 1.4.11)', (name) => {
   const theme = themes[name];
-  it.each(nonTextPairs.map((p) => [p.fg, p.bg, p] as const))('%s against %s', (_fg, _bg, pair) => {
+  it.each(nonTextPairs.filter((p) => !p.only || p.only.includes(name)).map((p) => [p.fg, p.bg, p] as const))('%s against %s', (_fg, _bg, pair) => {
     const ratio = contrastRatio(theme[pair.fg], theme[pair.bg]);
     if (ratio < 3) {
       throw new Error(`${name}: ${pair.fg} ${theme[pair.fg]} against ${pair.bg} ${theme[pair.bg]} is ${ratio.toFixed(2)}:1 (< 3:1) — used for ${pair.use}`);
