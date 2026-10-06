@@ -7,7 +7,8 @@ const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [workspaceRoot];
+// Keep Expo's own monorepo defaults (expo-doctor checks them) and add the workspace root.
+config.watchFolders = [...new Set([...(config.watchFolders ?? []), workspaceRoot])];
 // Never crawl or watch build output, logs or nested agent worktrees (full repo copies under this
 // checkout's .claude/): on a big checkout they multiply Metro's file map and memory. Anchored at this
 // workspace root, so a checkout that itself lives inside some .claude/worktrees/… still builds.

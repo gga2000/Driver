@@ -37,7 +37,8 @@
       ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],
       "expo-font",
       "expo-secure-store",
-      ["expo-audio", { "microphonePermission": false }]
+      ["expo-audio", { "microphonePermission": false }],
+      "expo-asset"
     ],
     "experiments": { "typedRoutes": true }
   }
