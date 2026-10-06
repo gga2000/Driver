@@ -77,3 +77,6 @@ export * from './format';
 
 // Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.
 export { AmountPad, amountPadNext, AMOUNT_PAD_KEYS, type AmountPadProps, type AmountPadKey } from './components/AmountPad';
+// Phase 3 — Partner money moments (end of job, shift summary)
+export { SegmentRing, type SegmentRingProps } from './components/SegmentRing';
+export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';

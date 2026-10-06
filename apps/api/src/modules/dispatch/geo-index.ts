@@ -24,6 +24,11 @@ export interface DriverPresence {
   zoneSince: number;
   lastSeenAt: number;
   /**
+   * Epoch ms this stretch online began (the first `online` since he was last out of the index);
+   * the Partner app's end-of-shift summary (audit S-4) reads it. Absent on entries written before it.
+   */
+  onlineSince?: number;
+  /**
    * Degrees from north of his last real movement (≥ `HEADING_MIN_MOVE_M` between updates); null or
    * absent before he has moved. Only for drawing free vehicles the right way round (maps program c10).
    */
@@ -73,6 +78,7 @@ function toHash(p: DriverPresence): Record<string, string> {
     zoneId: p.zoneId ?? '',
     zoneSince: String(p.zoneSince),
     lastSeenAt: String(p.lastSeenAt),
+    onlineSince: p.onlineSince === undefined ? '' : String(p.onlineSince),
     heading: p.heading === null || p.heading === undefined ? '' : String(Math.round(p.heading)),
     // Always written, so a re-registration without verticals clears an older list ('*' = not set).
     verticals: p.verticals ? p.verticals.join(',') : '*',
@@ -93,6 +99,7 @@ function fromHash(h: Record<string, string>): DriverPresence | null {
     zoneId: h['zoneId'] ? h['zoneId'] : null,
     zoneSince: Number(h['zoneSince']),
     lastSeenAt: Number(h['lastSeenAt']),
+    ...(h['onlineSince'] ? { onlineSince: Number(h['onlineSince']) } : {}),
     heading: h['heading'] ? Number(h['heading']) : null,
     ...(h['verticals'] !== undefined && h['verticals'] !== '*' ? { verticals: h['verticals'] ? (h['verticals'].split(',') as Vertical[]) : [] } : {}),
   };

@@ -45,6 +45,26 @@ describe('PresenceService', () => {
     expect(h.presence.minutesInZone(moved!)).toBe(0);
   });
 
+  it('remembers when the shift started across re-registrations and heartbeats; a new stretch starts after offline (Partner S-4)', async () => {
+    const h = dispatchHarness();
+    const first = await h.online('d', 0.1);
+    expect(first.onlineSince).toBe(h.clock.now().getTime());
+    for (let i = 0; i < 6; i += 1) {
+      h.clock.advanceSeconds(30);
+      await h.presence.heartbeat('d', north(0.2));
+    }
+    h.clock.advanceSeconds(30);
+    const again = await h.online('d', 0.2); // the app's 30-s beat re-sends goOnline
+    expect(again.onlineSince).toBe(first.onlineSince);
+    // Gone quiet past the 90-s presence: the next go-online is a new stretch, like going offline.
+    h.clock.advanceMinutes(5);
+    expect((await h.online('d', 0.2)).onlineSince).toBe(h.clock.now().getTime());
+    await h.presence.offline('d');
+    h.clock.advanceMinutes(5);
+    const next = await h.online('d', 0.2);
+    expect(next.onlineSince).toBe(h.clock.now().getTime());
+  });
+
   it('offline removes the driver at once', async () => {
     const h = dispatchHarness();
     await h.online('d', 0.1);

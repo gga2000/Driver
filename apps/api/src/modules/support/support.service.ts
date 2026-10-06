@@ -69,6 +69,11 @@ const ACTIVE: readonly TicketStatus[] = ['open', 'waiting', 'escalated'];
 /** Unresolved tickets read when listing trips whose trail must be kept (a busy week stays far below it). */
 const OPEN_INCIDENTS_SCAN = 1_000;
 
+/** One pay objection per driver and job (`openDriverPayQuery`). */
+export function driverPayKey(driverId: string, jobKey: string): string {
+  return `driver_pay:${driverId}:${jobKey}`;
+}
+
 /** Same-day rule (launch playbook §4: every complaint answered the day it came): local midnight, ≥ 2 h, ≤ 24 h. */
 export function slaDueAt(openedAt: Date): Date {
   const t = openedAt.getTime();
@@ -312,6 +317,49 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       return t;
     });
     return (await this.summaries([ticket]))[0]!;
+  }
+
+  /**
+   * "عندي اعتراض" from the Partner app's pay receipt (audit S-7): a driver questions what one job paid.
+   * A money complaint opened in-app by the driver with the job attached (the order when it exists,
+   * the trip, the receipt in the note); one per driver and job — asking again returns the same
+   * ticket. No customer on it: this is between the driver and us.
+   */
+  async openDriverPayQuery(
+    driverId: string,
+    input: { key: string; orderId: string | null; tripId: string | null; subject: string; note: string; cityId?: string },
+  ): Promise<{ ticketId: string; openedAt: Date; alreadyOpen: boolean }> {
+    const sourceKey = driverPayKey(driverId, input.key);
+    const prior = await this.repo.bySourceKey(sourceKey);
+    if (prior) return { ticketId: prior.id, openedAt: prior.openedAt, alreadyOpen: true };
+    const order = input.orderId ? await this.orders.get(input.orderId).catch(() => null) : null;
+    const ticket = await this.uow.run(async (tx) => {
+      const again = await this.repo.bySourceKey(sourceKey, tx);
+      if (again) return { t: again, created: false };
+      const t = await this.create(
+        {
+          cityId: order?.cityId ?? input.cityId ?? 'aziziyah',
+          kind: 'complaint',
+          channel: 'in_app',
+          subject: input.subject,
+          note: input.note,
+          orderId: order?.id ?? null,
+          tripId: input.tripId,
+          customerId: null,
+          openedById: driverId,
+          sourceKey,
+        },
+        tx,
+      );
+      await this.audits.record({ cityId: t.cityId, actorId: driverId, action: 'ticket.open', subjectKind: 'ticket', subjectId: t.id, summaryAr: `اعتراض سايق على أجرة: ${t.subject}` }, tx);
+      return { t, created: true };
+    });
+    return { ticketId: ticket.t.id, openedAt: ticket.t.openedAt, alreadyOpen: !ticket.created };
+  }
+
+  /** Whether the driver already sent an objection for this job (the receipt says "وصل اعتراضك"). */
+  async driverPayQueryOpen(driverId: string, key: string): Promise<boolean> {
+    return (await this.repo.bySourceKey(driverPayKey(driverId, key))) !== null;
   }
 
   /** Incidents keep a trip's safety data while open (scoring & safety retention). */

@@ -49,6 +49,8 @@ export class PresenceService {
       zoneId,
       zoneSince: prev && prev.zoneId === zoneId ? prev.zoneSince : now,
       lastSeenAt: now,
+      // Re-registering (the app's 30-s beat calls online again) keeps the shift's start.
+      onlineSince: prev?.onlineSince ?? now,
       heading,
       ...(input.verticals ? { verticals: [...input.verticals] } : {}),
     };

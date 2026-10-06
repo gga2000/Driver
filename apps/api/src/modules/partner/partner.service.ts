@@ -71,6 +71,7 @@ export class PartnerService implements PartnerPort {
       primaryMode: modes[0] ?? null,
       canDrive,
       online: presence !== null,
+      onlineSince: presence?.onlineSince ? new Date(presence.onlineSince) : null,
       vehicleClass: presence?.vehicle ?? registered,
       tier: cap.tier,
       zoneId: presence?.zoneId ?? null,

@@ -111,6 +111,9 @@ function RootNavigator() {
         <Stack.Screen name="fleet/index" options={{ title: t('partner.hub_fleet') }} />
         <Stack.Screen name="ops/index" options={{ title: t('partner.hub_ops') }} />
         <Stack.Screen name="job-topup" options={{ title: t('partner.job_topup_title') }} />
+        <Stack.Screen name="shift" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
+        <Stack.Screen name="earnings/receipt" options={{ title: t('partner.receipt_title') }} />
+        <Stack.Screen name="emergency" options={{ title: t('partner.ec_title') }} />
       </Stack>
       {status === 'signedIn' && gate === 'allowed' ? <OfferWatcher /> : null}
       {ready ? null : <Splash />}

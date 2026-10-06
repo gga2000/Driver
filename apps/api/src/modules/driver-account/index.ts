@@ -5,6 +5,8 @@ export { DriverAccountModule } from './driver-account.module.js';
  */
 export { DriverAccountService, documentStatus, documentView, worstStatus, DOCUMENT_KIND_AR, EXPIRY_WARNING_DAYS, MAX_CHECKIN_FAILURES } from './driver-account.service.js';
 export { composeEarnings } from './earnings.js';
+export { composeReceipt, reasonOf } from './receipt.js';
+export { bestHour, busiestWindow, clampShift, perHour } from './shift.js';
 export { HandoverCodes, HANDOVER_SECRET } from './handover-code.js';
 export { DRIVER_ACCOUNT_REPOSITORY, InMemoryDriverAccountRepository, PrismaDriverAccountRepository } from './driver-account.repository.js';
 export type { DriverAccountRepository, DocumentRecord, CheckInRecord } from './driver-account.repository.js';

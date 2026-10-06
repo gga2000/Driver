@@ -260,12 +260,28 @@ or the clock.
 - Goal-gradient, used honestly: show progress toward a real configured bonus ("باقي طلبين على
   مكافأة 2,000"), never an invented target.
 
+- **Built 2026-10-05 (Phase 3 B):** the check lands inside a ring with one segment per job today (the
+  newest sweeps in), "+1,000 دينار" counts up, then "اليوم 15,000 دينار · 7 طلبات" once `partner.status`
+  has re-read after this job; the demand chip shows only when he can take jobs (not near/over the cap).
+  **No goal-gradient line:** nothing in the code pays a job-count bonus today. The money rules carry a
+  G-91 shift guarantee (10,000 for ≥ 85 % acceptance, ≤ 1 cancel, ≥ 3 jobs) and `partner.shift_guarantee*`
+  copy exists, but no service posts it (only the demo seeds guarantee lines), so "باقي طلبين" would
+  promise money nobody pays. Wire G-91 server-side first (Ali's call), then add the line.
+
 ### S-4 End-of-shift summary (on hold-to-go-offline)
 - Online time, jobs, net, **per hour** ("3,750 دينار بالساعة"), tips, best hour, cash to hand over
   today with the code button, and tomorrow's busiest window from last week's data.
 - A share-to-WhatsApp image of the day (drivers already share screenshots) with the brand mark.
 - Shift-end is also where a single nudge goes (one scorecard item below the Silver line), never
   more than one.
+
+- **Built 2026-10-05 (Phase 3 B):** `app/shift.tsx` opens after the hold-to-go-offline; every number
+  from `driverAccount.shiftSummary` (shift = `partner.status.onlineSince` → now; Baghdad clock hours; the
+  whole day too when it holds more than this shift). Tomorrow's window = the busiest two hours of the
+  city's orders on the same weekday last week. "شارك يومك": a 4:5 picture (canvas on the web → Web Share
+  or download; react-native-view-shot + expo-sharing on phones — new native modules, dev build needed).
+  Online time is the current stretch: presence lapses 90 s after the last heartbeat, so a long stretch
+  with the app closed restarts the clock (background location, maps SP1, fixes it).
 
 ### S-5 الرجعة garage mode
 - The full-screen seat map is the page. Seat states carry icons and a legend (P-23).
@@ -291,6 +307,13 @@ or the clock.
 - "عندي اعتراض" opens a prefilled support chat with the job attached. This is the trust loop that
   Uber's trip receipts and Dasher's "pay details" provide.
 
+- **Built 2026-10-05 (Phase 3 B):** `app/earnings/receipt.tsx` from any job line (adjustments still open
+  in place); reasons come from `driverAccount.jobReceipt` as codes, mapped to the customer's
+  `quote.reason.*` sentences where it is the same pay. "عندي اعتراض" is not a chat thread (support has no
+  driver chat yet): it opens a `complaint` ticket in the Console queue with the order, trip and receipt
+  in its note (`driverAccount.payQuery`, one per job). Gap: a support reply on that ticket has no
+  customer to notify, so it doesn't reach the driver in the app yet.
+
 ### S-8 Readiness and activation checklist
 - **New drivers**: a 6-step checklist from welcome (P-12) with progress, resumable, each step
   reusing the existing document and selfie parts, ending "حسابك بالمراجعة، نرد عليك واتساب خلال
@@ -298,6 +321,12 @@ or the clock.
 - **Every shift**: "جاهز تستلم طلبات" above the switch, with GPS ✓ · النت ✓ · صوت الطلبات ✓ ·
   البطارية 64 %. Any red item explains itself and links to the fix ("الصوت مطفي، شغّله حتى ما
   يفوتك طلب"). This is the first thing a low-literacy driver can read at a glance.
+
+- **Every-shift row built 2026-10-05 (Phase 3 B)** above the switch: GPS (permission and location
+  services; never prompts by itself), النت (the P-09 network monitor), صوت الطلبات (the P-01 player can
+  play; on phones also push permission), البطارية (expo-battery; the web Battery API where it exists,
+  else hidden). The row opens a sheet where each item that needs a look says why and carries its fix.
+  The new-driver checklist (P-12) was not in this brief.
 
 ---
 

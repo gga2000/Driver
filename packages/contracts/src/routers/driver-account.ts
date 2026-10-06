@@ -9,7 +9,13 @@ import {
   EarningsInput,
   EarningsView,
   HandoverCode,
+  JobReceipt,
+  JobReceiptInput,
   OnlineGate,
+  PayQueryInput,
+  PayQueryResult,
+  ShiftSummary,
+  ShiftSummaryInput,
   ReviewDocumentInput,
   ScorecardInput,
   ScorecardView,
@@ -70,4 +76,19 @@ export const driverAccountRouter = router({
   handoverCode: protectedProcedure(DRIVING_ROLES)
     .output(HandoverCode)
     .query(({ ctx }) => ctx.driverAccount.handoverCode(ctx.actor)),
+  /** End of shift (partner S-4): the shift he just ended, the day, cash to hand over, tomorrow's busy window. */
+  shiftSummary: protectedProcedure(DRIVING_ROLES)
+    .input(ShiftSummaryInput)
+    .output(ShiftSummary)
+    .query(({ ctx, input }) => ctx.driverAccount.shiftSummary(ctx.actor, input)),
+  /** "Why was I paid this" (partner S-7): one of his jobs, every line with its reason. */
+  jobReceipt: protectedProcedure(DRIVING_ROLES)
+    .input(JobReceiptInput)
+    .output(JobReceipt)
+    .query(({ ctx, input }) => ctx.driverAccount.jobReceipt(ctx.actor, input)),
+  /** "عندي اعتراض": opens a support ticket with the job attached (one per job). */
+  payQuery: protectedProcedure(DRIVING_ROLES)
+    .input(PayQueryInput)
+    .output(PayQueryResult)
+    .mutation(({ ctx, input }) => ctx.driverAccount.payQuery(ctx.actor, input)),
 });

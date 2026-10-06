@@ -114,6 +114,8 @@ export const PartnerStatus = z.object({
   /** Holds a driving role (may go online). */
   canDrive: z.boolean(),
   online: z.boolean(),
+  /** When this shift started (first go-online since he was last offline); null while offline. */
+  onlineSince: z.coerce.date().nullable().optional(),
   vehicleClass: VehicleClass.nullable(),
   tier: PartnerTier,
   zoneId: z.string().nullable(),

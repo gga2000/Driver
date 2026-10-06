@@ -206,6 +206,32 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
   `POST /demo/fleet/invite-reset`, `POST /demo/topup?who=courier&step=at_dropoff&amount=25000` (`scripts/demo/70-topup.mjs`).
   Shots: `SHOTS=followups` (`scripts/shots/70-followups.mjs`). Copy test: `src/lib/copy.test.ts` (partner.* voice + parity).
 
+## Money moments and the emergency contact (Phase 3, 2026-10-05; audit S-3, S-4, S-7, S-8)
+
+- **End of job** (`src/features/work/JobEnd.tsx`, in `DonePanel`): the check inside a ring with one
+  segment per job today (`SegmentRing` in `@driver/ui`), "+1,000 دينار" counting up, then "اليوم … · …
+  طلبات" from `partner.status.today` re-read after the job. Near/over the cap the settle card stays;
+  otherwise the demand chip and the 4-s auto-return with "خليني هنا". No bonus line (no bonus is paid).
+- **End of shift** (`app/shift.tsx`, `ShiftParts.tsx`, `shift-logic.ts`): holding the switch to go
+  offline opens it with `?from=` = `partner.status.onlineSince`; `driverAccount.shiftSummary` gives net,
+  per hour, jobs, time online, tips, best hour, the day, cash to hand over (+ the code), tomorrow's busy
+  window and one scorecard nudge. "شارك يومك": `share-day.ts` draws the card on a canvas (Web Share with
+  the file, else a PNG download); `share-day.native.ts` captures `ShareDayCard` (react-native-view-shot)
+  and opens the share sheet (expo-sharing).
+- **Pay receipt** (`app/earnings/receipt.tsx?key=&at=`, `ReceiptParts.tsx`, `receipt-logic.ts`): any job
+  line opens it — every line with its reason, the take rate, cash collected → restaurant / company, the
+  ticket number and Baghdad time. "عندي اعتراض" sends a message with the job attached
+  (`driverAccount.payQuery` → a support ticket; one per job; the receipt then says it is with support).
+- **Readiness row** (`ReadinessRow.tsx`, `readiness.ts`, `useReadiness.ts`, `lib/readiness-probe(.native).ts`)
+  above the switch: GPS · النت · صوت الطلبات · البطارية; tap for the sheet with each fix.
+- **رقم للطوارئ** (`app/emergency.tsx`, الحساب row): name, relation, number → `identity.updateProfile`
+  (vault); the driver's SOS messages this contact.
+- Native modules added (development build needed, Expo SDK 52 versions): `expo-battery`, `expo-sharing`,
+  `react-native-view-shot`.
+- Demo (`scripts/demo/80-money.mjs`): `POST /demo/money/shift?who=courier&hours=5` (online, shift started
+  5 h ago), `POST /demo/money/settle?who=courier` (hands in his cash: the done screen counts down home);
+  last week's city orders per hour are fed to the summary. Shots: `SHOTS=money` (`scripts/shots/90-money.mjs`).
+
 ## Chat and masked calls (`src/features/chat/`, `app/chat/[orderId].tsx`)
 
 The job screen's quick-contact row: **اتصال** (`chat.requestCall`: the kitchen while at the pickup of a

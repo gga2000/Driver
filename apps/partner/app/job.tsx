@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { HandoverProof, PartnerJob, PartnerJobStop } from '@driver/contracts';
@@ -52,8 +52,16 @@ export default function JobScreen() {
   const queue = useJobQueue();
   const net = useNetwork();
   const locale = useLocale();
-  const [done, setDone] = useState<JobDone | null>(null);
+  const [done, setDone] = useState<(JobDone & { at: number }) | null>(null);
+  const finish = (d: JobDone) => setDone({ ...d, at: Date.now() });
   const goHome = () => router.replace('/');
+  // S-3: the day line counts this job, so it waits for a status read that started after the job ended.
+  const refetchStatus = status.refetch;
+  useEffect(() => {
+    if (done && !done.queued) void refetchStatus();
+  }, [done, refetchStatus]);
+  // undefined: no day line (saved offline, or the job screen reopened after the fact); null: being re-read.
+  const today = done && !done.queued ? (status.data && status.dataUpdatedAt >= done.at ? status.data.today : null) : undefined;
   // No endless skeleton: offline with no job cached, say why and offer a retry.
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
   const view = job.data ? applyQueued(job.data, queue.items) : null;
@@ -71,6 +79,8 @@ export default function JobScreen() {
             cash={status.data?.cash ?? null}
             fromOwedIqd={done?.owedBeforeIqd}
             changeToWalletIqd={done?.changeToWalletIqd}
+            today={today}
+            demand={status.data?.demand ?? null}
           />
         </View>
       </SafeAreaView>
@@ -107,7 +117,7 @@ export default function JobScreen() {
       vehicle={status.data?.vehicleClass ?? 'bike'}
       topUp={canTopUpOnJob(job.data, status.data?.roles ?? [])}
       owedIqd={status.data?.cash.owedIqd ?? null}
-      onDone={setDone}
+      onDone={finish}
     />
   );
 }

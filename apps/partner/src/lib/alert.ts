@@ -5,7 +5,16 @@
  * in silent mode, plus a vibration pattern). Same API on both.
  */
 
-type Ctx = { currentTime: number; destination: unknown; createOscillator(): Osc; createGain(): Gain; state?: string; resume?: () => Promise<void> };
+type Ctx = {
+  currentTime: number;
+  destination: unknown;
+  createOscillator(): Osc;
+  createGain(): Gain;
+  state?: string;
+  resume?: () => Promise<void>;
+  addEventListener?: (type: 'statechange', cb: () => void) => void;
+  removeEventListener?: (type: 'statechange', cb: () => void) => void;
+};
 type Osc = { type: string; frequency: { setValueAtTime(v: number, t: number): void }; connect(n: unknown): void; start(t: number): void; stop(t: number): void };
 type Gain = { gain: { setValueAtTime(v: number, t: number): void; exponentialRampToValueAtTime(v: number, t: number): void }; connect(n: unknown): void };
 
@@ -96,4 +105,23 @@ export async function playTestSound(): Promise<boolean> {
   playOfferChime();
   buzz(OFFER_VIBRATION);
   return c.state === undefined || c.state === 'running';
+}
+
+/**
+ * Can the offer sound play right now (readiness row, audit S-8)? The browser keeps audio suspended
+ * until the page has had a tap, so before "جرّب الصوت" the honest answer is `blocked`.
+ */
+export function soundState(): 'ready' | 'blocked' | 'unknown' {
+  const c = audio();
+  if (!c) return 'blocked';
+  return c.state === undefined || c.state === 'running' ? 'ready' : 'blocked';
+}
+
+/** Calls back when the audio state changes (a tap unlocked it, the tab went to sleep). */
+export function onSoundState(cb: (s: 'ready' | 'blocked' | 'unknown') => void): () => void {
+  const c = audio();
+  if (!c?.addEventListener) return () => undefined;
+  const handler = () => cb(soundState());
+  c.addEventListener('statechange', handler);
+  return () => c.removeEventListener?.('statechange', handler);
 }

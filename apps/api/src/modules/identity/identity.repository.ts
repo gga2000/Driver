@@ -1,4 +1,4 @@
-import type { OtpPurpose, RoleKind } from '@driver/contracts';
+import { EmergencyRelation, type OtpPurpose, type RoleKind } from '@driver/contracts';
 import { Prisma, type TrustTier } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -92,6 +92,8 @@ export interface IdentityRecord {
 export interface EmergencyContactRecord {
   name: string;
   phoneE164: string;
+  /** Who they are to the person ("mother", "friend"…); absent on contacts saved before it existed. */
+  relation?: EmergencyRelation | null;
 }
 
 export interface VaultAccessLogRecord {
@@ -254,7 +256,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
     const { emergencyContact, ...rest } = patch;
     const data = {
       ...rest,
-      ...(emergencyContact !== undefined ? { emergencyContact: emergencyContact === null ? Prisma.DbNull : { name: emergencyContact.name, phoneE164: emergencyContact.phoneE164 } } : {}),
+      ...(emergencyContact !== undefined ? { emergencyContact: emergencyContact === null ? Prisma.DbNull : { name: emergencyContact.name, phoneE164: emergencyContact.phoneE164, ...(emergencyContact.relation ? { relation: emergencyContact.relation } : {}) } } : {}),
     };
     const row = await this.db(tx).personIdentity.update({ where: { personId }, data });
     return identityRecord(row);
@@ -472,7 +474,8 @@ function fromDbPurpose(p: string): OtpPurpose {
 }
 
 function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown }): IdentityRecord {
-  const ec = row.emergencyContact as { name?: unknown; phoneE164?: unknown } | null | undefined;
-  const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164 } : null;
+  const ec = row.emergencyContact as { name?: unknown; phoneE164?: unknown; relation?: unknown } | null | undefined;
+  const relation = EmergencyRelation.safeParse(ec?.relation);
+  const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
   return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact };
 }
