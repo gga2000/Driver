@@ -48,7 +48,7 @@ else {
   const code = (await res.json()).result?.data?.json?.code;
   await page.locator('input[inputmode="numeric"], input[autocomplete="one-time-code"]').last().fill(code ?? '');
 }
-await page.getByRole('button', { name: /تأكيد/ }).click();
+await page.getByRole('button', { name: /^ادخل$/ }).click(); // console.login_enter
 await page.waitForTimeout(1500);
 
 await go('/controls');
