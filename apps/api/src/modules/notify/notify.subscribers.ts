@@ -263,6 +263,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !jobKey || !jobAt) return [];
       const template = e.type === 'support.replied' ? ('driver_pay_reply' as const) : ('driver_pay_resolved' as const);
       return [{ ...base, template, to: driverId, params: { text: clip(text ?? ''), key: encodeURIComponent(jobKey), at: encodeURIComponent(jobAt) } }];
+    }
     case 'seat.checked_in': {
       // w9: «شارك رحلات الرجعة تلقائياً» — on boarding, each trusted person gets the trip's link.
       const bookingId = str(p['bookingId']);

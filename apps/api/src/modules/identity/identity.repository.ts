@@ -491,18 +491,13 @@ function fromDbPurpose(p: string): OtpPurpose {
   return p === 'number_change' ? 'phone_change' : (p as OtpPurpose);
 }
 
-function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown; mainPhotoRef?: string | null; mainPhotoAt?: Date | null }): IdentityRecord {
-  const ec = row.emergencyContact as { name?: unknown; phoneE164?: unknown; relation?: unknown } | null | undefined;
-  const relation = EmergencyRelation.safeParse(ec?.relation);
-  const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
-  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, mainPhotoRef: row.mainPhotoRef ?? null, mainPhotoAt: row.mainPhotoAt ?? null };
 function contactRecord(raw: unknown): EmergencyContactRecord | null {
   const ec = raw as { name?: unknown; phoneE164?: unknown; relation?: unknown } | null | undefined;
   const relation = EmergencyRelation.safeParse(ec?.relation);
   return ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
 }
 
-function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown; trustedContacts?: unknown; safetyPrefs?: unknown }): IdentityRecord {
+function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown; trustedContacts?: unknown; safetyPrefs?: unknown; mainPhotoRef?: string | null; mainPhotoAt?: Date | null }): IdentityRecord {
   const emergencyContact = contactRecord(row.emergencyContact);
   const trustedContacts = Array.isArray(row.trustedContacts)
     ? row.trustedContacts
@@ -512,5 +507,5 @@ function identityRecord(row: { personId: string; phoneE164: string; phoneHash: s
     : null;
   const prefs = SafetyPrefs.partial().safeParse(row.safetyPrefs);
   const safetyPrefs = row.safetyPrefs && prefs.success ? { ...DEFAULT_SAFETY_PREFS, ...prefs.data } : null;
-  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, trustedContacts, safetyPrefs };
+  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, trustedContacts, safetyPrefs, mainPhotoRef: row.mainPhotoRef ?? null, mainPhotoAt: row.mainPhotoAt ?? null };
 }
