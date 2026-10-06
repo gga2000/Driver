@@ -236,6 +236,14 @@ development bridge in the demo API, so the toast shows the other party's real (d
 - Demo (`scripts/demo/80-money.mjs`): `POST /demo/money/shift?who=courier&hours=5` (online, shift started
   5 h ago), `POST /demo/money/settle?who=courier` (hands in his cash: the done screen counts down home);
   last week's city orders per hour are fed to the summary. Shots: `SHOTS=money` (`scripts/shots/90-money.mjs`).
+- **Shift guarantee "ضمان الشفت"** (G-91, `guarantee-logic.ts`; shifts 06:00–15:00 «شفت النهار» and
+  15:00–02:00 «شفت الليل», Baghdad time). Switched off for the city (`MoneyRules.guarantee.enabled: false`),
+  so the app shows no guarantee line. To look at the lines anyway: `POST /demo/account/guarantee-pending`
+  (`?who=courier` by default; `scripts/demo/50-driver-account.mjs`). **Demo only:** it switches the guarantee
+  on inside this demo API (the city rule stays off) and gives him a finished, qualifying shift — the last
+  one that ended, 3 jobs, 3,500 earned — so the earnings tab shows «ضمان الشفت: 6,500 دينار تنزل بحسابك يوم
+  الأحد» (pull to refresh), and job end / the shift summary show guarantee lines from then on. Restart the
+  demo API to switch it off again.
 
 ## Chat and masked calls (`src/features/chat/`, `app/chat/[orderId].tsx`)
 

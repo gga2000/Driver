@@ -12,6 +12,12 @@
 //   who=lapsed   0770 111 0043  أحمد ستار, tuktuk driver: licence expired 3 days ago → offline
 //
 //   POST /demo/account/fail-next-checkin?who=…   the next selfie he sends fails liveness (failure screen)
+//   POST /demo/account/guarantee-pending[?who=courier]
+//                                                DEMO ONLY: switches the G-91 shift guarantee ON inside this
+//                                                demo API (the city rule stays off), and gives him a finished,
+//                                                qualifying shift (the last one that ended: 4/4 accepted, 3 jobs,
+//                                                3,500 earned) → earnings tab «ضمان الشفت: 6,500 دينار تنزل
+//                                                بحسابك يوم الأحد»; job end / shift summary show guarantee lines too
 //
 // The in-memory API has no past, so the scorecard's history (offer answers, completed trips and their
 // ratings over the last weeks) is fed to `DriverAccountService` alone through demo-only wrappers of
@@ -164,14 +170,15 @@ export default async function register(demo) {
       }
       groups.push(demo.group(`demo:acct:courier:${orderId}`, at, lines, { orderId }));
     }
-    // G-91 shift guarantee (money §2): a few slow dinner shifts topped up, paid like the server pays
-    // them — on the Sunday 02:00 run after the shift, one group per driver per shift, memo
-    // `guarantee:<date>:dinner` (shifts whose Sunday has not come yet are left to the real run).
+    // G-91 shift guarantee (money §2): a few slow evening shifts (15:00–02:00) topped up, paid like the
+    // server pays them — on the Sunday 02:00 run after the shift (a Saturday's ends at that very
+    // minute), one group per driver per shift, memo `guarantee:<start date>:evening` (shifts whose
+    // Sunday has not come yet are left to the real run).
     // Switched off by Ali on 2026-10-06 (MoneyRules.guarantee.enabled false): no top-ups in the demo either.
     const paidAt = day + (7 - dow) * DAY + 2 * HOUR;
     if (guaranteeOn && d % 6 === 2) {
       const top = pick(r, [1500, 2000, 2500]);
-      const windowId = `${new Date(day + OFF).toISOString().slice(0, 10)}:dinner`;
+      const windowId = `${new Date(day + OFF).toISOString().slice(0, 10)}:evening`;
       if (paidAt <= now) {
         groups.push(demo.group(`incentive:guarantee:${courier}:${windowId}`, new Date(paidAt), [{ type: 'driver_incentive', amount: top, fromAccount: Accounts.platform, toAccount: Accounts.driver(courier), memo: `guarantee:${windowId}` }]));
         earned += top;
@@ -273,6 +280,52 @@ export default async function register(demo) {
   });
 
   // ── hooks ──────────────────────────────────────────────────────────
+  // G-91 shift guarantee, demo only. Ali switched it off on 2026-10-06 (MoneyRules.guarantee.enabled
+  // false); this hook flips the switch on for this in-memory API alone — the guarantee service gets a
+  // copy of the rules with `enabled: true`, AZIZIYAH_MONEY_RULES itself is untouched — so the Partner
+  // app's guarantee lines can be looked at. The shift's activity (offer answers, completed jobs) is fed
+  // to the service through a demo-only wrapper of its activity source; the jobs' pay is real ledger
+  // postings dated in the shift, so the server counts the top-up itself.
+  const { ShiftGuaranteeService } = await demo.load('modules/ledger/index.js');
+  const { peakWindows } = await import('@driver/contracts');
+  const guaranteeSvc = demo.app.get(ShiftGuaranteeService);
+  const guaranteeExtra = new Map(); // personId → { offers, completed }
+  const realSource = guaranteeSvc.source;
+  guaranteeSvc.source = {
+    async activity(driverId, range) {
+      const a = await realSource.activity(driverId, range);
+      const x = guaranteeExtra.get(driverId);
+      if (!x) return a;
+      const inR = (at) => at.getTime() >= range.from.getTime() && at.getTime() < range.to.getTime();
+      return { offers: [...a.offers, ...x.offers.filter((o) => inR(o.at))], cancelsAfterAccept: a.cancelsAfterAccept, completed: [...a.completed, ...x.completed.filter((c) => inR(c.at))] };
+    },
+  };
+  demo.route('/demo/account/guarantee-pending', async ({ res, query }) => {
+    const p = demo.who({ who: 'courier', ...query });
+    if (!guaranteeSvc.rules.guarantee.enabled) guaranteeSvc.rules = { ...guaranteeSvc.rules, guarantee: { ...guaranteeSvc.rules.guarantee, enabled: true } };
+    const at = new Date();
+    const { peaks } = guaranteeSvc.rules.guarantee;
+    const shift = peakWindows({ from: new Date(at.getTime() - 2 * DAY), to: at }, peaks, guaranteeSvc.rules.nightly.utcOffsetMin)
+      .filter((w) => w.to.getTime() <= at.getTime())
+      .at(-1);
+    const x = guaranteeExtra.get(p.personId) ?? { offers: [], completed: [], shifts: new Set() };
+    guaranteeExtra.set(p.personId, x);
+    if (!x.shifts.has(shift.id)) {
+      x.shifts.add(shift.id);
+      const min = (m) => new Date(shift.from.getTime() + m * 60_000);
+      for (const m of [40, 100, 160, 220]) x.offers.push({ at: min(m), accepted: true });
+      const jobs = [];
+      for (const [i, [m, fee]] of [[60, 1500], [120, 1000], [180, 1000]].entries()) {
+        const tripId = `demo-guarantee-${shift.id}-${i}`;
+        x.completed.push({ at: min(m), tripId });
+        jobs.push(demo.group(`demo:acct:guarantee:${p.personId}:${shift.id}:${i}`, min(m), [{ type: 'delivery_fee', amount: fee, fromAccount: Accounts.customer('demo-buyer'), toAccount: Accounts.driver(p.personId) }], { orderId: `demo-guarantee-order-${shift.id}-${i}`, tripId }));
+      }
+      await services.ledger.recordAll(jobs);
+    }
+    const view = await account.guaranteeFor(p.personId);
+    demo.json(res, 200, { personId: p.personId, shift: shift.id, from: shift.from, to: shift.to, enabled: view.enabled, pendingIqd: view.pendingIqd });
+  });
+
   demo.route('/demo/account/fail-next-checkin', async ({ res, query }) => {
     const p = demo.who(query);
     const real = account.submitCheckIn;
