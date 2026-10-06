@@ -15,6 +15,7 @@ import {
   type LatLng,
   ORDER_HISTORY_LIMIT,
   type Order,
+  type OrderFirsts,
   type OrderHistoryRow,
   type OrderRoute,
   type OrderTracking,
@@ -483,6 +484,25 @@ export class TrackingService implements TrackingPort {
       rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey });
     }
     return rows;
+  }
+
+  /**
+   * «أول مرة» (joy g8): the actor's first delivered food order and first finished tuktuk ride, from
+   * every order they placed, by when it reached them — so once claimed, no later order takes it.
+   */
+  async firsts(actor: Actor): Promise<OrderFirsts> {
+    // When it reached the person: the moment belongs to whichever arrived first, and stays there.
+    const doneAt = (o: Order) => (o.deliveredAt ?? o.closedAt ?? o.placedAt).getTime();
+    const mine = [...(await this.orders.listForPerson(actor.personId))].filter((o) => o.ordererId === actor.personId);
+    const food = mine.filter((o) => o.type === 'food' && o.deliveredAt !== null).sort((a, b) => doneAt(a) - doneAt(b))[0] ?? null;
+    let tuktuk: string | null = null;
+    for (const o of mine.filter((x) => x.type === 'ride' && (x.state === 'completed' || x.deliveredAt !== null)).sort((a, b) => doneAt(a) - doneAt(b))) {
+      if ((await this.currentTrip(o.id))?.vertical === 'tuktuk') {
+        tuktuk = o.id;
+        break;
+      }
+    }
+    return { foodOrderId: food?.id ?? null, tuktukOrderId: tuktuk };
   }
 
   // ───────────────────────── internals ─────────────────────────

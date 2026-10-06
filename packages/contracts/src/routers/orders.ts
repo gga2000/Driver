@@ -22,7 +22,7 @@ import {
   SwitchRideVehicleInput,
 } from '../order.js';
 import { TipOffer, TipOrderInput, TipResult } from '../order-tip.js';
-import { CourierPosition, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
+import { CourierPosition, OrderFirsts, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
@@ -41,6 +41,8 @@ export const ordersRouter = router({
   mine: protectedProcedure().output(z.array(Order)).query(({ ctx }) => ctx.orders.mine(ctx.actor)),
   /** طلباتي (audit C-15): own orders newest first with the restaurant's name and the dishes (one read for the list). */
   history: protectedProcedure().output(z.array(OrderHistoryRow)).query(({ ctx }) => ctx.tracking.history(ctx.actor)),
+  /** «أول مرة» (joy g8): the person's first delivered meal and first tuktuk ride, once in a lifetime. */
+  firsts: protectedProcedure().output(OrderFirsts).query(({ ctx }) => ctx.tracking.firsts(ctx.actor)),
   cancellationPreview: protectedProcedure()
     .input(OrderIdInput)
     .output(CancellationFee)

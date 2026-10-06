@@ -150,6 +150,27 @@ describe('TrackingService — order history (طلباتي, C-15)', () => {
   });
 });
 
+describe('TrackingService — «أول مرة» (joy g8)', () => {
+  it('names the first meal delivered, only once it is delivered, and it never changes after', async () => {
+    const { h, tracking } = setup();
+    const early = await acceptedOrder(h);
+    h.clock.advance(60_000);
+    const later = await acceptedOrder(h);
+    expect(await tracking.firsts(as('c1'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+    // The later order reaches the door first: that is the first meal.
+    const t2 = await h.tripFor(later.id);
+    await h.pickup(t2.id);
+    await h.dropoff(t2.id, { cashCollectedIqd: 16500 });
+    expect((await tracking.firsts(as('c1'))).foodOrderId).toBe(later.id);
+    h.clock.advance(10 * MIN);
+    const t1 = await h.tripFor(early.id);
+    await h.pickup(t1.id);
+    await h.dropoff(t1.id, { cashCollectedIqd: 16500 });
+    expect((await tracking.firsts(as('c1'))).foodOrderId).toBe(later.id);
+    expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+  });
+});
+
 describe('TrackingService — courier position window', () => {
   it('is null before accept, visible while he works the job, and null after my drop-off', async () => {
     const { h, tracking } = setup();

@@ -8,7 +8,9 @@ import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
 import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
-import { garageName, useBoardingPass, useBooking, useCancelSeat, useDriverCards, useImHere, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useBoardingPass, useBooking, useCancelSeat, useDriverCards, useImHere, useMyBookings, useNetwork } from '@/features/rajaa/queries';
+import { firstSeatId } from '@/features/firsts/firsts';
+import { FirstMoment } from '@/features/firsts/FirstMoment';
 import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
@@ -54,6 +56,9 @@ export default function BoardingPassScreen() {
   const booking = useBooking(bookingId);
   const b = booking.data ?? null;
   const live = !!b && (b.state === 'booked' || b.state === 'checked_in');
+  // «أول مرة» (joy g8): the person's first real seat, straight after «احجز».
+  const myBookings = useMyBookings();
+  const firstSeat = booked === '1' && b?.state === 'booked' && firstSeatId(myBookings.data ?? []) === b.id;
   const pass = useBoardingPass(bookingId, live);
   // سايقك (C-19): his first name and today's check-in, next to the car and plate.
   const driverCard = useDriverCards(b ? [b.departure.id] : []).data?.get(b?.departure.id ?? '');
@@ -169,6 +174,7 @@ export default function BoardingPassScreen() {
           </Text>
         </View>
       ) : null}
+      <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
       {/* The ticket. */}
       <Card padding={0} elevation={2} testID="rajaa-ticket">
         <View style={{ padding: theme.space[5], gap: theme.space[2] }}>

@@ -13,6 +13,8 @@ import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
+import { firstKindForOrder } from '@/features/firsts/firsts';
+import { FirstMoment, useOrderFirsts } from '@/features/firsts/FirstMoment';
 import { arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { rideArrivalCopy } from './arrival-copy';
 import { ChangeCreditStrip } from './ChangeCredited';
@@ -67,6 +69,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
   const pay = cashAtDoor(view.order);
   const today = useSeason();
+  // «أول مرة» (joy g8): the first meal delivered or the first tuktuk ride, once in a lifetime.
+  const firsts = useOrderFirsts();
+  const first = firstKindForOrder(view.order.id, firsts.data);
   // On a quiet day (mourning, set in the Console) the moment is calm: no burst, no bounce, no success buzz.
   const celebrate = today.celebrations && !theme.reduceMotion;
   useEffect(() => {
@@ -98,6 +103,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
+        <FirstMoment kind={first} />
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
         {ride ? (
           <RideArrivalSummary view={view} />

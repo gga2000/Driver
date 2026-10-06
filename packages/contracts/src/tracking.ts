@@ -152,6 +152,17 @@ export const OrderHistoryRow = z.object({
 });
 export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
 
+/**
+ * «أول مرة» (joy g8): the person's very first delivered food order and first finished tuktuk ride,
+ * decided by the server from all their orders (not the history page), so the moment can belong to one
+ * order only, once in a lifetime. Null until it happens.
+ */
+export const OrderFirsts = z.object({
+  foodOrderId: z.string().nullable(),
+  tuktukOrderId: z.string().nullable(),
+});
+export type OrderFirsts = z.infer<typeof OrderFirsts>;
+
 /** How many orders `orders.history` returns (newest first). */
 export const ORDER_HISTORY_LIMIT = 50;
 
@@ -235,6 +246,8 @@ export interface TrackingPort {
   courierPosition(actor: Actor, input: { orderId: string }): Promise<CourierPosition | null>;
   /** The actor's own orders, newest first (at most `ORDER_HISTORY_LIMIT`), with names for the list. */
   history(actor: Actor): Promise<OrderHistoryRow[]>;
+  /** Joy g8: which of the actor's orders were their first delivered meal and first tuktuk ride. */
+  firsts(actor: Actor): Promise<OrderFirsts>;
   /** The orderer or a participant only: the road still ahead for this order. */
   route(actor: Actor, input: { orderId: string }): Promise<OrderRoute>;
 }
