@@ -11,6 +11,7 @@ import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
 import { uploadPhoto, type PickedPhoto } from '@/features/account/photo';
+import { useGuarantee } from '@/features/account/queries';
 import { DonePanel, HandoverPanel, UnreachablePanel } from '@/features/work/JobPanels';
 import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
@@ -62,6 +63,10 @@ export default function JobScreen() {
   }, [done, refetchStatus]);
   // undefined: no day line (saved offline, or the job screen reopened after the fact); null: being re-read.
   const today = done && !done.queued ? (status.data && status.dataUpdatedAt >= done.at ? status.data.today : null) : undefined;
+  // G-91: the live peak shift's count, read after this job (no line until then, none offline).
+  const counted = Boolean(done && !done.queued && !done.failed);
+  const guaranteeQ = useGuarantee({ enabled: counted });
+  const guarantee = counted && done && guaranteeQ.data?.enabled && guaranteeQ.dataUpdatedAt >= done.at ? guaranteeQ.data.current : null;
   // No endless skeleton: offline with no job cached, say why and offer a retry.
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
   const view = job.data ? applyQueued(job.data, queue.items) : null;
@@ -80,6 +85,7 @@ export default function JobScreen() {
             fromOwedIqd={done?.owedBeforeIqd}
             changeToWalletIqd={done?.changeToWalletIqd}
             today={today}
+            guarantee={guarantee}
             demand={status.data?.demand ?? null}
           />
         </View>

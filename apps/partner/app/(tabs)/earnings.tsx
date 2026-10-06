@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { Button, Card, EmptyState, IconButton, SegmentedControl, Skeleton, Text, useTheme } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, IconButton, SegmentedControl, Skeleton, Text, useTheme } from '@driver/ui';
 import type { EarningsPeriod } from '@driver/contracts';
 import { Screen } from '@/components/Screen';
 import { BreakdownCard, CashCapCard, EarningsHero, JobList } from '@/features/account/EarningsParts';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
+import { useGuarantee } from '@/features/account/queries';
 import { useEarningsPeriod } from '@/features/account/useEarningsPeriod';
 import { useStatus } from '@/features/work/queries';
 import { useT } from '@/lib/i18n';
@@ -29,6 +30,8 @@ export default function EarningsTab() {
   const v = e.view;
   const canDrive = status?.canDrive ?? true;
   const withDay = e.period !== 'day';
+  // G-91: top-ups earned in peak shifts that wait for the Sunday run (paid ones are in the breakdown).
+  const pendingGuarantee = useGuarantee().data?.pendingIqd ?? 0;
 
   const options: { value: EarningsPeriod; label: string }[] = [
     { value: 'day', label: t('partner.earn_period_day') },
@@ -82,6 +85,16 @@ export default function EarningsTab() {
         <>
           {v.totals.netIqd !== 0 || v.totals.jobs > 0 ? <BreakdownCard totals={v.totals} /> : null}
           {canDrive ? <CashCapCard view={v} rangeLabel={e.label} onHandover={() => setHandover(true)} /> : null}
+          {pendingGuarantee > 0 ? (
+            <Card elevation={0} padding={4} tone="sunken" testID="earnings-guarantee-pending">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Icon name="shield" size={16} color="successText" strokeWidth={2.2} />
+                <Text variant="footnote" color="successText" weight={600} tabular style={{ flex: 1 }}>
+                  {t('partner.earn_guarantee_pending', { amount: amountParam(pendingGuarantee) })}
+                </Text>
+              </View>
+            </Card>
+          ) : null}
           {v.payoutDueIqd > 0 ? (
             <Card elevation={0} padding={4} tone="sunken">
               <Text variant="footnote" color="textMuted">

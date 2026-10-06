@@ -6,14 +6,14 @@ import { Screen } from '@/components/Screen';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { useShiftSummary } from '@/features/account/queries';
 import { shareDay } from '@/features/work/share-day';
-import { ShareDayCard, ShiftCash, ShiftHero, ShiftNudge, ShiftStats, ShiftTomorrow } from '@/features/work/ShiftParts';
+import { ShareDayCard, ShiftCash, ShiftGuarantee, ShiftHero, ShiftNudge, ShiftStats, ShiftTomorrow } from '@/features/work/ShiftParts';
 import { shareCardModel, shareFileName, shiftRange } from '@/features/work/shift-logic';
 import { useLocale, useT } from '@/lib/i18n';
 
 /**
  * End of shift (UI/UX audit S-4), opened when he holds the switch to go offline: the shift's net and
  * per hour, jobs, time online, tips, the best hour, cash to hand over today with the code, tomorrow's
- * busiest window from last week, one scorecard nudge at most, and "شارك يومك" — a picture of the day
+ * busiest window from last week, the G-91 shift guarantee (earned, paid or how far), one scorecard nudge at most, and "شارك يومك" — a picture of the day
  * for WhatsApp. Every number comes from `driverAccount.shiftSummary` (`?from=` is when the shift
  * started, read from `partner.status.onlineSince` before going offline).
  */
@@ -97,6 +97,7 @@ export default function ShiftSummaryScreen() {
         <>
           <ShiftHero s={s} />
           <ShiftStats s={s} />
+          <ShiftGuarantee s={s} />
           <ShiftCash s={s} onCode={() => setCode(true)} />
           <ShiftTomorrow s={s} />
           <ShiftNudge s={s} onOpen={() => router.push('/scorecard')} />

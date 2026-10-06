@@ -20,6 +20,7 @@ function summary(over: Partial<ShiftSummary> = {}): ShiftSummary {
     cash: { heldIqd: 68_500, owedIqd: 54_500, capIqd: 75_000, overCap: false },
     tomorrow: { from: new Date('2026-10-06T10:00:00Z'), to: new Date('2026-10-06T12:00:00Z'), orders: 12 },
     nudge: null,
+    guarantee: [],
     ...over,
   };
 }

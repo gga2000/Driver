@@ -290,6 +290,8 @@ export const GuaranteeWindowView = z.object({
   topUpIqd: Iqd,
   /** The Sunday it is (or was) paid with the weekly scorecard (local midnight starting that Sunday). */
   paysOn: z.coerce.date(),
+  /** The city's rule it was judged by, so every line can say it without a literal in the app. */
+  rule: z.object({ amountIqd: Iqd, minAcceptance: z.number().min(0).max(1), maxCancelsAfterAccept: z.number().int().min(0), minCompletedJobs: z.number().int().min(0) }),
 });
 export type GuaranteeWindowView = z.infer<typeof GuaranteeWindowView>;
 

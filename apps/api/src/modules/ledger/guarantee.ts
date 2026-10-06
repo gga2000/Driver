@@ -167,7 +167,8 @@ export class ShiftGuaranteeService {
   }
 
   private view(w: PeakWindow, stats: GuaranteeStats, paidIqd: number | null, now: Date): GuaranteeWindowView {
-    const check = shiftGuarantee(stats, this.rules.guarantee);
+    const g = this.rules.guarantee;
+    const check = shiftGuarantee(stats, g);
     return {
       id: w.id,
       peak: w.peak,
@@ -185,6 +186,7 @@ export class ShiftGuaranteeService {
       jobsToGo: check.jobsToGo,
       topUpIqd: paidIqd ?? check.topUpIqd,
       paysOn: nextLocalSunday(w.from, this.offsetMin),
+      rule: { amountIqd: g.amountIqd, minAcceptance: g.minAcceptance, maxCancelsAfterAccept: g.maxCancelsAfterAccept, minCompletedJobs: g.minCompletedJobs },
     };
   }
 
