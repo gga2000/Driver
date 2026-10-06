@@ -1,6 +1,5 @@
 import type { DriverBookingRow, IntercityDepartureState, IntercitySeatId, RequestState, TravellingAs } from '@driver/contracts';
-import { formatMinutes, type MessageKey } from '@driver/i18n';
-import { ltr } from '@driver/ui';
+import { formatMinutes, formatRange, type MessageKey } from '@driver/i18n';
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
@@ -35,10 +34,11 @@ export function whenLabel(t: TFn, at: Date, now: Date): string {
   return t('partner.ic_when', { day, time: clockBare(at), period: t(`partner.ic_period_${dayPeriod(at)}` as MessageKey) });
 }
 
-/** "7:00–8:00", kept in one left-to-right piece inside Arabic. */
+/** "7:00–8:00 م" in one piece, the start on the right where an Arabic reader begins (`formatRange`). */
 export function windowText(start: Date, end: Date): string {
+  const [from = '', to = ''] = windowLabel(start, end).split('–');
   // Word joiners keep "7:00–8:00" on one line.
-  return ltr(windowLabel(start, end).replace('–', '\u2060–\u2060'));
+  return formatRange(`${from}\u2060`, `\u2060${to}`);
 }
 
 export function demandLine(t: TFn, n: number, start: Date, end: Date): string {

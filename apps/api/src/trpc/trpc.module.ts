@@ -27,7 +27,7 @@ import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
-import { ZonesModule, ZonesService } from '../modules/zones/index.js';
+import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
 import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
@@ -75,6 +75,7 @@ export class TrpcService {
     private readonly controlRoom: ControlRoomService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    private readonly zoneChecks: ZoneChecksService,
     private readonly safety: SafetyService,
   ) {}
 
@@ -139,6 +140,7 @@ export class TrpcService {
       controlRoom: this.controlRoom,
       support: this.support,
       zones: this.zones,
+      zoneChecks: this.zoneChecks,
       safety: this.safety,
       auth,
       authError,

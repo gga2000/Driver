@@ -31,7 +31,7 @@ export default function EditPlace() {
 
   useEffect(() => {
     if (place && !value) {
-      setValue({ label: place.label, name: place.name, pin: place.pin, zoneId: place.zoneId, note: place.note ?? '', photos: place.photos, shareWithHousehold: place.sharedWithHousehold, entrance: place.entrance });
+      setValue({ label: place.label, name: place.name, pin: place.pin, zoneId: place.zoneId, note: place.note ?? '', photos: place.photos, shareWithHousehold: place.sharedWithHousehold, entrance: place.entrance, landmarkId: place.landmark?.id ?? null });
     }
   }, [place, value]);
 
@@ -67,6 +67,9 @@ export default function EditPlace() {
         photoIds: input.photoIds,
         shareWithHousehold: value.shareWithHousehold,
         entrance: value.entrance,
+        // Only a changed landmark is sent: an untouched one is the server's, which forgets it by
+        // itself when the pin moves far (maps program a2).
+        ...(value.landmarkId !== (place.landmark?.id ?? null) ? { landmarkId: value.landmarkId } : {}),
         ...(moved && value.pin ? { pin: value.pin } : {}),
       });
       toast.show({ message: t('place.saved'), tone: 'success' });

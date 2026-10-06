@@ -9,8 +9,9 @@ import { useT } from '@/lib/i18n';
 const THUMB = 72;
 
 /**
- * The customer's door on a drop-off at a saved place (maps program f6, a5, a3): "first time here, call
- * before you get there", the place's standing note, its door photos, and "الباب مأكّد" once earlier
+ * The customer's door on a drop-off at a saved place (maps program f6, a5, a3, a2): "first time here,
+ * call before you get there", «قرب الجامع الكبير» (the landmark the customer chose — how people here
+ * give directions), the place's standing note, its door photos, and "الباب مأكّد" once earlier
  * couriers' arrivals agree (the stop's pin is then that door). The photo opens full screen
  * by itself once when he arrives (the moment he is looking for the door), and on a tap any time.
  */
@@ -43,7 +44,7 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
         </View>
       ) : null}
 
-      {door.placeNote || door.photos.length > 0 || door.doorConfirmed || door.entranceSet ? (
+      {door.placeNote || door.photos.length > 0 || door.doorConfirmed || door.entranceSet || door.landmark ? (
         <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="caption" weight={600} color="textMuted" style={{ flex: 1 }}>
@@ -55,6 +56,14 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
               <StatusPill size="sm" tone="success" icon="check" label={t('partner.door_confirmed')} />
             ) : null}
           </View>
+          {door.landmark ? (
+            <View testID="job-door-landmark" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Icon name="map-pin" size={18} color="accentText" />
+              <Text variant="label" weight={600} style={{ flex: 1 }}>
+                {t('partner.door_landmark', { name: door.landmark })}
+              </Text>
+            </View>
+          ) : null}
           {door.placeNote ? (
             <Text variant="label" testID="job-door-note">
               {door.placeNote}

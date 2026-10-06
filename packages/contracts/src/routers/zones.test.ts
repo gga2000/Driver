@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RoleKind } from '../auth.js';
 import { appRouter } from '../router.js';
 import { t, type AppContext } from '../trpc.js';
-import type { ZonePlacementView, ZonesPort } from '../zones-io.js';
+import type { ZoneChecksPort, ZonePlacementView, ZonesPort } from '../zones-io.js';
 
 const VIEW: ZonePlacementView = {
   key: 'centre', name_ar: 'العزيزية (مركز)', name_en: 'Aziziyah centre', tier: 'centre', group: 'centre', placement: 'placed',
@@ -14,13 +14,15 @@ const RING = VIEW.ring;
 
 function caller(roles: readonly RoleKind[] | null) {
   const zones: ZonesPort = { list: vi.fn(async () => [VIEW]), place: vi.fn(async () => VIEW) };
+  const zoneChecks: ZoneChecksPort = { open: vi.fn(async () => null), answer: vi.fn(async () => undefined) };
   const ctx = {
     auth: roles ? { sub: 'p_staff', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
     authError: null,
     identity: { hasRole: async (_: string, kind: RoleKind) => (roles ?? []).includes(kind) },
     zones,
+    zoneChecks,
   } as unknown as AppContext;
-  return { call: t.createCallerFactory(appRouter)(ctx), zones };
+  return { call: t.createCallerFactory(appRouter)(ctx), zones, zoneChecks };
 }
 
 async function codeOf(p: Promise<unknown>): Promise<string> {
@@ -35,6 +37,8 @@ const ALL: readonly RoleKind[] = ['customer', 'courier', 'driver', 'merchant_own
 const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]> = [
   ['ops.zones.list', ['dispatcher', 'support', 'finance', 'admin', 'field_ops'], (c) => c.ops.zones.list({})],
   ['ops.zones.place', ['admin', 'field_ops'], (c) => c.ops.zones.place({ key: 'centre', ring: RING, centre: VIEW.centre })],
+  ['partner.zoneCheck', ['courier', 'driver'], (c) => c.partner.zoneCheck()],
+  ['partner.answerZoneCheck', ['courier', 'driver'], (c) => c.partner.answerZoneCheck({ checkId: 'zc_1', answer: 'yes' })],
 ];
 
 describe('ops.zones: role gates', () => {
@@ -56,5 +60,16 @@ describe('ops.zones: input', () => {
     const c = caller(['admin']);
     expect(await codeOf(c.call.ops.zones.place({ key: 'centre', ring: RING.slice(0, 2), centre: VIEW.centre }))).toBe('BAD_REQUEST');
     expect(c.zones.place).not.toHaveBeenCalled();
+  });
+});
+
+describe('partner.answerZoneCheck: input', () => {
+  it('passes his answer through and refuses anything but إي / لا / ما أعرف', async () => {
+    const c = caller(['courier']);
+    await c.call.partner.answerZoneCheck({ checkId: 'zc_1', answer: 'unsure' });
+    expect(vi.mocked(c.zoneChecks.answer).mock.calls[0]![1]).toEqual({ checkId: 'zc_1', answer: 'unsure' });
+    const notAnAnswer = { checkId: 'zc_1', answer: 'maybe' };
+    expect(await codeOf(c.call.partner.answerZoneCheck(notAnAnswer as never))).toBe('BAD_REQUEST');
+    expect(c.zoneChecks.answer).toHaveBeenCalledTimes(1);
   });
 });

@@ -110,6 +110,9 @@ describe('minutes, natural Iraqi forms (J-D9)', () => {
     expect(formatRange(30, 40)).toBe('\u206730–40\u2069');
     expect(formatRange('4:30', 6)).toBe('\u20674:30–6\u2069');
     expect(formatRange(30, 40, 'en')).toBe('\u206630–40\u2069');
+    // Ends with words (dates, hours with their part of day) get a spaced dash, same direction.
+    expect(formatRange('27 أيلول', '3 تشرين الأول', 'ar-IQ', { spaced: true })).toBe('⁧27 أيلول – 3 تشرين الأول⁩');
+    expect(formatRange('Sep 27', 'Oct 3', 'en', { spaced: true })).toBe('⁦Sep 27 – Oct 3⁩');
     // Checkout's delivery window; minute agreement still reads the range's high end.
     expect(t('checkout.eta', { range: formatRange(30, 40) })).toBe('يوصلك خلال \u206730–40\u2069 دقيقة');
     expect(t('checkout.eta', { range: formatRange(5, 8) })).toBe('يوصلك خلال \u20675–8\u2069 دقايق');

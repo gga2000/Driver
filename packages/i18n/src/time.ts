@@ -144,10 +144,11 @@ const PDI = '\u2069';
  * low end sits on the right, where the eye starts: isolated right-to-left, so the dash keeps 30 on
  * the right whatever surrounds it — «يوصلك خلال 30–40 دقيقة», never «40–30» (a left-to-right
  * isolate puts 30 on the left, which an Arabic reader reads as 40 first). English is the mirror.
- * The ends may be clock strings ("4:30").
+ * The ends may be clock strings ("4:30"). Ends that carry words ("27 أيلول", "6 المغرب") take
+ * `{ spaced: true }`: «27 أيلول – 3 تشرين الأول», still the first one on the right.
  */
-export function formatRange(low: number | string, high: number | string, locale: Locale = DEFAULT_LOCALE): string {
-  return `${locale.startsWith('ar') ? RLI : LRI}${low}–${high}${PDI}`;
+export function formatRange(low: number | string, high: number | string, locale: Locale = DEFAULT_LOCALE, opts: { spaced?: boolean } = {}): string {
+  return `${locale.startsWith('ar') ? RLI : LRI}${low}${opts.spaced ? ' – ' : '–'}${high}${PDI}`;
 }
 
 /** A minutes range read by its high end, the low end first in reading order: "30–40 دقيقة", "6–9 دقايق". */

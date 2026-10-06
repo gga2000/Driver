@@ -154,6 +154,7 @@ interface SavedRow {
   photo_refs: string[];
   arrival_samples: unknown;
   entrance: unknown;
+  landmark_id: string | null;
   confidence: number;
   confirmed_at: Date | null;
   share_with_household: boolean;
@@ -163,7 +164,7 @@ interface SavedRow {
 }
 
 const SAVED_COLUMNS = Prisma.sql`"id", "owner_id", "city_id", "label", "name", "zone_key", ST_Y("pin"::geometry) AS lat, ST_X("pin"::geometry) AS lng,
-  "note", "photo_refs", "arrival_samples", "entrance", "confidence", "confirmed_at", "share_with_household", "client_ref", "created_at", "updated_at"`;
+  "note", "photo_refs", "arrival_samples", "entrance", "landmark_id", "confidence", "confirmed_at", "share_with_household", "client_ref", "created_at", "updated_at"`;
 
 /** Stored arrival samples; an entry that no longer parses (older shape) is left out, never fatal. */
 function samplesOf(raw: unknown): DoorSample[] {
@@ -187,6 +188,7 @@ function savedFromRow(r: SavedRow): SavedPlaceRecord {
     photoIds: r.photo_refs,
     arrivalSamples: samplesOf(r.arrival_samples),
     entrance: LatLng.safeParse(r.entrance).data ?? null,
+    landmarkId: r.landmark_id,
     confidence: Number(r.confidence),
     confirmedAt: r.confirmed_at,
     shareWithHousehold: r.share_with_household,
@@ -221,12 +223,12 @@ export class PrismaSavedPlacesRepository implements SavedPlacesRepository {
   async put(rec: SavedPlaceRecord): Promise<void> {
     await this.db.$executeRaw`
       INSERT INTO "public"."places" ("id", "city_id", "owner_id", "name", "note", "pin", "confidence", "label", "zone_key", "photo_refs",
-                                     "entrance", "confirmed_at", "share_with_household", "client_ref", "created_at", "updated_at")
+                                     "entrance", "landmark_id", "confirmed_at", "share_with_household", "client_ref", "created_at", "updated_at")
       VALUES (${rec.id}, ${rec.cityId}, ${rec.ownerId}, ${rec.name}, ${rec.note}, ${point(rec.pin)}, ${rec.confidence}, ${rec.label}, ${rec.zoneId},
-              ${rec.photoIds}::text[], ${rec.entrance ? JSON.stringify(rec.entrance) : null}::jsonb, ${rec.confirmedAt}, ${rec.shareWithHousehold}, ${rec.clientRef}, ${rec.createdAt}, ${rec.updatedAt})
+              ${rec.photoIds}::text[], ${rec.entrance ? JSON.stringify(rec.entrance) : null}::jsonb, ${rec.landmarkId}, ${rec.confirmedAt}, ${rec.shareWithHousehold}, ${rec.clientRef}, ${rec.createdAt}, ${rec.updatedAt})
       ON CONFLICT ("id") DO UPDATE SET
         "name" = EXCLUDED."name", "note" = EXCLUDED."note", "pin" = EXCLUDED."pin", "confidence" = EXCLUDED."confidence",
-        "label" = EXCLUDED."label", "zone_key" = EXCLUDED."zone_key", "photo_refs" = EXCLUDED."photo_refs", "entrance" = EXCLUDED."entrance",
+        "label" = EXCLUDED."label", "zone_key" = EXCLUDED."zone_key", "photo_refs" = EXCLUDED."photo_refs", "entrance" = EXCLUDED."entrance", "landmark_id" = EXCLUDED."landmark_id",
         "confirmed_at" = EXCLUDED."confirmed_at", "share_with_household" = EXCLUDED."share_with_household",
         "updated_at" = EXCLUDED."updated_at"
       WHERE "places"."owner_id" = EXCLUDED."owner_id"`;

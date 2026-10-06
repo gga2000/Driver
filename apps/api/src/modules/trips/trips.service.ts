@@ -576,6 +576,12 @@ export class TripsService implements OnModuleInit {
         tx,
       );
       const stamp = { orderId: stop.orderId ?? undefined, ...input };
+      // Maps program SP3: the drop-off that ends the trip carries the courier's arrival fix, so the
+      // zones module may ask him on the done screen whether he is in the zone that holds it.
+      const finalDrop =
+        stop.type === 'dropoff' && stop.arrivalPin && stop.arrivalAccuracyM !== null && (await this.repo.stopsOf(tripId, tx)).every((s) => s.id === stop.id || s.state === 'completed' || s.state === 'skipped')
+          ? { cityId: trip.cityId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM }
+          : null;
       await this.emit(
         tx,
         'stop.completed',
@@ -595,6 +601,7 @@ export class TripsService implements OnModuleInit {
           ...(stop.type === 'dropoff' && stop.placeId && stop.arrivalPin && stop.arrivalAccuracyM !== null && !stop.arrivedOutsideGeofence
             ? { door: { placeId: stop.placeId, courierId: driverId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM } }
             : {}),
+          ...(finalDrop ? { finalDrop } : {}),
         },
         stamp,
       );

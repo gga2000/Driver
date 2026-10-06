@@ -27,6 +27,13 @@ export type PhotoContentType = z.infer<typeof PhotoContentType>;
 export const PlacePhotoRef = z.object({ id: z.string(), url: z.string().min(1) });
 export type PlacePhotoRef = z.infer<typeof PlacePhotoRef>;
 
+/**
+ * A landmark by its names (maps program a2): what a saved place shows for the landmark it is near,
+ * and the head of every `LandmarkView`.
+ */
+export const PlaceLandmark = z.object({ id: z.string(), name_ar: z.string(), name_en: z.string() });
+export type PlaceLandmark = z.infer<typeof PlaceLandmark>;
+
 export const SavedPlaceView = z.object({
   id: z.string(),
   cityId: z.string(),
@@ -52,6 +59,11 @@ export const SavedPlaceView = z.object({
   doorConfirmed: z.boolean(),
   /** Which gate couriers go in by (maps program a4), marked by the owner; null = the pin itself. */
   entrance: LatLng.nullable(),
+  /**
+   * The landmark the owner said the place is near (maps program a2, "قرب الجامع الكبير"); the courier
+   * on the job reads it too. Null when none was chosen or the landmark is gone.
+   */
+  landmark: PlaceLandmark.nullable(),
   sharedWithHousehold: z.boolean(),
   /** owner = mine (editable); household = a household member shared it with me (read-only). */
   access: z.enum(['owner', 'household']),
@@ -74,6 +86,8 @@ export const SavePlaceInput = z.object({
   shareWithHousehold: z.boolean().default(false),
   /** Which gate (maps program a4): where couriers go in, within `PLACE_ENTRANCE_MAX_M` of the pin. */
   entrance: LatLng.optional(),
+  /** Near which landmark (maps program a2): one of `places.landmarksNear` for this pin. */
+  landmarkId: z.string().min(1).max(64).optional(),
   /** Client idempotency key (device-place migration): saving the same ref twice returns the first place. */
   clientRef: z.string().min(1).max(64).optional(),
 });
@@ -90,6 +104,8 @@ export const UpdatePlaceInput = z.object({
   shareWithHousehold: z.boolean().optional(),
   /** Which gate (a4); null removes it. */
   entrance: LatLng.nullable().optional(),
+  /** Near which landmark (a2), checked against the place's pin after this edit; null removes it. */
+  landmarkId: z.string().min(1).max(64).nullable().optional(),
 });
 export type UpdatePlaceInput = z.input<typeof UpdatePlaceInput>;
 
@@ -98,6 +114,15 @@ export type UpdatePlaceInput = z.input<typeof UpdatePlaceInput>;
  * (`place_entrance_too_far`), forgotten when the pin itself moves that far.
  */
 export const PLACE_ENTRANCE_MAX_M = 150;
+
+/**
+ * "قرب شنو؟" (maps program a2): a landmark farther than this from the pin does not help a courier find
+ * the house, so it is not offered, refused when saved (`place_landmark_invalid`) and forgotten when
+ * the pin itself moves that far. 500 m is a short walk: the courier sees the mosque, then asks.
+ */
+export const PLACE_LANDMARK_MAX_M = 500;
+/** At most this many landmark chips: more turns a quick tap into reading a list. */
+export const PLACE_LANDMARK_CHOICES = 5;
 
 export const PlaceIdInput = z.object({ placeId: z.string().min(1) });
 export type PlaceIdInput = z.infer<typeof PlaceIdInput>;
@@ -123,10 +148,7 @@ export type ZoneForPinOutput = z.infer<typeof ZoneForPinOutput>;
 /** "وين رايح؟": the city's landmarks (seeded garages and meeting points + verified landmark places). */
 export const RiderLandmarksInput = z.object({ cityId: CityId.default('aziziyah') });
 export type RiderLandmarksInput = z.input<typeof RiderLandmarksInput>;
-export const LandmarkView = z.object({
-  id: z.string(),
-  name_ar: z.string(),
-  name_en: z.string(),
+export const LandmarkView = PlaceLandmark.extend({
   pin: LatLng,
   zoneId: z.string(),
   kind: z.enum(['garage', 'meeting_point', 'landmark']),
@@ -134,6 +156,16 @@ export const LandmarkView = z.object({
   photoUrl: z.string().nullable().default(null),
 });
 export type LandmarkView = z.infer<typeof LandmarkView>;
+
+/** "قرب شنو؟": landmarks near a pin the customer is saving (maps program a2). */
+export const LandmarksNearInput = z.object({ cityId: CityId.default('aziziyah'), pin: LatLng });
+export type LandmarksNearInput = z.input<typeof LandmarksNearInput>;
+/**
+ * Up to `PLACE_LANDMARK_CHOICES` landmarks within `PLACE_LANDMARK_MAX_M` of the pin, nearest first.
+ * `distanceM` is whole metres; the app formats it (Western digits).
+ */
+export const LandmarkNearView = LandmarkView.extend({ distanceM: z.number().int().nonnegative() });
+export type LandmarkNearView = z.infer<typeof LandmarkNearView>;
 
 export const PhotoUploadInput = z.object({ contentType: PhotoContentType, sizeBytes: z.number().int().positive().max(PHOTO_MAX_BYTES) });
 export type PhotoUploadInput = z.infer<typeof PhotoUploadInput>;
@@ -157,6 +189,7 @@ export interface PlacesPort {
   zoneFor(input: z.infer<typeof ZoneForPinInput>): Promise<ZoneForPinOutput>;
   /** Optional so older contexts keep compiling; the router answers [] without it. */
   landmarks?(input: z.infer<typeof RiderLandmarksInput>): Promise<LandmarkView[]>;
+  landmarksNear(input: z.infer<typeof LandmarksNearInput>): Promise<LandmarkNearView[]>;
   photoUpload(actor: Actor, input: PhotoUploadInput): Promise<PhotoUploadTicket>;
 }
 

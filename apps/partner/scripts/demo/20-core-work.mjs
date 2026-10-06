@@ -45,7 +45,11 @@ export default async function register(demo) {
     const ticket = await blobs.createUpload({ ownerId: buyer(), contentType: 'image/png', sizeBytes: bytes.length });
     const u = new URL(ticket.uploadUrl, 'http://x');
     await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
-    const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [ticket.uploadId], shareWithHousehold: false, clientRef: 'demo-home' });
+    // «قرب X» on the door card (maps a2) when a landmark is within 500 m. Today none is: the seeded
+    // garages and meeting points are all ~2.5 km from الزكور, so the home has no landmark (the API
+    // would refuse a far one) until field ops approve one nearby — then the demo picks it up.
+    const [landmark] = await places.landmarksNear(CITY, HOMES.zakur.pin);
+    const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [ticket.uploadId], shareWithHousehold: false, ...(landmark ? { landmarkId: landmark.id } : {}), clientRef: 'demo-home' });
     home = { ...HOMES.zakur, placeId: saved.id };
     return home;
   }

@@ -41,7 +41,8 @@ describe('hours editor', () => {
     expect(timeLabel(t, '15:30')).toBe('3:30 العصر');
     expect(timeLabel(t, '18:00')).toBe('6 المغرب');
     expect(timeLabel(t, '01:00')).toBe('1 بالليل');
-    expect(shiftLabel(t, { start: '18:00', end: '01:00' })).toBe('6 المغرب – 1 بالليل');
+    expect(shiftLabel(t, { start: '18:00', end: '01:00' })).toBe('\u20676 المغرب – 1 بالليل\u2069');
+    expect(shiftLabel(t, { start: '18:00', end: '01:00' }, 'en')).toMatch(/^\u2066.* – .*\u2069$/);
     expect(crossesMidnight({ start: '18:00', end: '01:00' })).toBe(true);
     expect(crossesMidnight({ start: '18:00', end: '00:00' })).toBe(false);
     expect(timeChoices(60)[0]).toBe('06:00');

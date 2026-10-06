@@ -9,6 +9,6 @@ describe('quiet days helpers', () => {
 
   it('a range reads as day/month, one date when it is one day', () => {
     expect(quietRange('2026-11-13', '2026-11-13')).toBe('13/11');
-    expect(quietRange('2027-06-06', '2027-06-18')).toBe('6/6 – 18/6');
+    expect(quietRange('2027-06-06', '2027-06-18')).toBe('\u20676/6 – 18/6\u2069');
   });
 });

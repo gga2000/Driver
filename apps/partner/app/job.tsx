@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { HandoverProof, PartnerJob, PartnerJobStop } from '@driver/contracts';
+import type { HandoverProof, PartnerJob, PartnerJobStop, ZoneCheckAnswer } from '@driver/contracts';
 import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
@@ -25,12 +25,14 @@ import {
   mapsUrl,
   taskProgress,
   VEHICLE_ICON,
+  zoneCheckMoment,
   zoneName,
 } from '@/features/work/logic';
 import { tenderLine } from '@/features/work/cash-door';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
-import { useActiveJob, useJobRoute, useRefreshWork, useStatus, useTripActions } from '@/features/work/queries';
+import { useActiveJob, useAnswerZoneCheck, useJobRoute, useRefreshWork, useStatus, useTripActions, useZoneCheck } from '@/features/work/queries';
+import { ZoneCheckCard } from '@/features/work/ZoneCheckCard';
 import { useJobQueue } from '@/features/work/useJobQueue';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
@@ -68,6 +70,23 @@ export default function JobScreen() {
   const counted = Boolean(done && !done.queued && !done.failed);
   const guaranteeQ = useGuarantee({ enabled: counted });
   const guarantee = counted && done && guaranteeQ.data?.enabled && guaranteeQ.dataUpdatedAt >= done.at ? guaranteeQ.data.current : null;
+  // Maps program SP3: «انت بمنطقة X؟», read after this job (the server asks from the finished drop-off).
+  const zoneQ = useZoneCheck(counted);
+  const answerZone = useAnswerZoneCheck();
+  const toast = useToast();
+  const [zoneAnswered, setZoneAnswered] = useState<string | null>(null);
+  const { check: zoneCheck, hold: zoneHold } = zoneCheckMoment({ counted, doneAt: done?.at ?? 0, readAt: zoneQ.dataUpdatedAt, readFailed: zoneQ.isError, check: zoneQ.data, answeredId: zoneAnswered });
+  const onZoneAnswer = (answer: ZoneCheckAnswer) => {
+    if (!zoneCheck) return;
+    setZoneAnswered(zoneCheck.checkId);
+    answerZone.mutate(
+      { checkId: zoneCheck.checkId, answer },
+      {
+        onSuccess: () => toast.show({ message: t('partner.zone_check_thanks'), tone: 'success' }),
+        onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }),
+      },
+    );
+  };
   // No endless skeleton: offline with no job cached, say why and offer a retry.
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
   const view = job.data ? applyQueued(job.data, queue.items) : null;
@@ -88,6 +107,8 @@ export default function JobScreen() {
             today={today}
             guarantee={guarantee}
             demand={status.data?.demand ?? null}
+            ask={zoneCheck ? <ZoneCheckCard check={zoneCheck} onAnswer={onZoneAnswer} /> : null}
+            hold={zoneHold}
           />
         </View>
       </SafeAreaView>

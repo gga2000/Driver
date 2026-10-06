@@ -114,21 +114,49 @@ function RadarRow({ order, compact }: { order: BoardOrder; compact: boolean }) {
   const near = arriving(c);
   const dist = c.distanceM !== null && c.distanceM !== undefined ? distanceParts(c.distanceM) : null;
   const where = here ? t('merchant.radar.here') : [dist ? t(dist.key, { value: dist.value }) : null, c.etaMinutes ? t('merchant.radar.minutes', { minutes: c.etaMinutes }) : null].filter(Boolean).join(' · ');
+  const ticket = (
+    <View style={{ paddingHorizontal: 6, height: 22, borderRadius: 6, justifyContent: 'center', backgroundColor: theme.colors.surfaceSunken }}>
+      <Text variant="caption" weight={700} tabular style={{ lineHeight: 16 }}>
+        #{order.number}
+      </Text>
+    </View>
+  );
+  const vehicle = <Icon name={c.vehicleClass === 'tuktuk' ? 'tuktuk' : c.vehicleClass === 'bike' || !c.vehicleClass ? 'bike' : 'car'} size={16} color="textMuted" />;
+  const name = [c.firstName, compact ? null : c.plate].filter(Boolean).join(' · ') || '—';
+  const status = (
+    <Text variant="footnote" weight={near ? 700 : 500} color={near ? 'successText' : 'textMuted'} tabular numberOfLines={1} style={compact ? { flexShrink: 1 } : { marginStart: 'auto' }}>
+      {where}
+    </Text>
+  );
+  const code = c.pickupCode ? <PickupCode code={c.pickupCode} small /> : null;
+  if (compact) {
+    // A phone (360–390 px) has ~190 px beside the radar: who on the first line, where and the code
+    // on the second, so «عباس» and «وصل» are read whole instead of «عب… و…».
+    return (
+      <View testID={`radar-row-${order.number}`} style={{ gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          {ticket}
+          {vehicle}
+          <Text variant="footnote" weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>
+            {name}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[2] }}>
+          {status}
+          {code}
+        </View>
+      </View>
+    );
+  }
   return (
     <View testID={`radar-row-${order.number}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-      <View style={{ paddingHorizontal: 6, height: 22, borderRadius: 6, justifyContent: 'center', backgroundColor: theme.colors.surfaceSunken }}>
-        <Text variant="caption" weight={700} tabular style={{ lineHeight: 16 }}>
-          #{order.number}
-        </Text>
-      </View>
-      <Icon name={c.vehicleClass === 'tuktuk' ? 'tuktuk' : c.vehicleClass === 'bike' || !c.vehicleClass ? 'bike' : 'car'} size={16} color="textMuted" />
+      {ticket}
+      {vehicle}
       <Text variant="footnote" weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>
-        {[c.firstName, compact ? null : c.plate].filter(Boolean).join(' · ') || '—'}
+        {name}
       </Text>
-      <Text variant="footnote" weight={near ? 700 : 500} color={near ? 'successText' : 'textMuted'} tabular numberOfLines={1} style={{ marginStart: 'auto' }}>
-        {where}
-      </Text>
-      {c.pickupCode ? <PickupCode code={c.pickupCode} small /> : null}
+      {status}
+      {code}
     </View>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { capShare, clock, driversKey, inZone, jobAction, jobsKey, keepScreenOn, km, mapsUrl, OFFER_WARN_FROM_S, offerWarnTick, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneName } from './logic';
+import { capShare, clock, driversKey, inZone, jobAction, jobsKey, keepScreenOn, km, mapsUrl, OFFER_WARN_FROM_S, offerWarnTick, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneCheckMoment, zoneName } from './logic';
 
 const t = createT('ar-IQ');
 
@@ -77,5 +77,21 @@ describe('offer alert (P-01, signature S-1)', () => {
     expect(keepScreenOn({ online: false, activeTripId: null })).toBe(false);
     expect(keepScreenOn({ online: true, activeTripId: null })).toBe(true);
     expect(keepScreenOn({ online: false, activeTripId: 'trip_1' })).toBe(true);
+  });
+});
+
+describe('zone check on the done screen (maps SP3)', () => {
+  const Q = { checkId: 'zc_1' };
+  const base = { counted: true, doneAt: 1000, readAt: 0, readFailed: false, check: null, answeredId: null };
+  it('holds the count home until a read made after the job settles; a failed read lets go', () => {
+    expect(zoneCheckMoment(base)).toEqual({ check: null, hold: true });
+    expect(zoneCheckMoment({ ...base, readAt: 900, check: Q })).toEqual({ check: null, hold: true });
+    expect(zoneCheckMoment({ ...base, readFailed: true })).toEqual({ check: null, hold: false });
+    expect(zoneCheckMoment({ ...base, readAt: 1200 })).toEqual({ check: null, hold: false });
+  });
+  it('shows the question and holds for it until he answers; never offline or after a failed job', () => {
+    expect(zoneCheckMoment({ ...base, readAt: 1200, check: Q })).toEqual({ check: Q, hold: true });
+    expect(zoneCheckMoment({ ...base, readAt: 1200, check: Q, answeredId: 'zc_1' })).toEqual({ check: null, hold: false });
+    expect(zoneCheckMoment({ ...base, counted: false, readAt: 1200, check: Q })).toEqual({ check: null, hold: false });
   });
 });

@@ -71,6 +71,12 @@ describe('customer account API (e2e)', () => {
     const confirmed = await ali.client.places.confirm.mutate({ placeId: saved.id, pin: STREET_30, accuracyM: 10 });
     expect(confirmed.confirmed).toBe(true);
     expect(await ali.client.places.zoneFor.query({ pin: { lat: 32.887, lng: 45.0765 } })).toMatchObject({ zoneId: 'zakur', inService: true });
+
+    // "قرب شنو؟" (maps a2): chips for the pin, then the chosen one on the place; a far one is refused.
+    const near = await ali.client.places.landmarksNear.query({ pin: STREET_30 });
+    expect(near[0]).toMatchObject({ id: 'lm_mp_shari_30', name_ar: 'تقاطع شارع 30', distanceM: 73 });
+    expect((await ali.client.places.update.mutate({ placeId: saved.id, landmarkId: near[0]!.id })).landmark).toEqual({ id: 'lm_mp_shari_30', name_ar: 'تقاطع شارع 30', name_en: 'Street 30 junction' });
+    expect(await errCode(ali.client.places.update.mutate({ placeId: saved.id, landmarkId: 'lm_mp_jami_kabir' }))).toBe('place_landmark_invalid');
   });
 
   it('profile: updateProfile writes the vault; me reads it back', async () => {

@@ -58,7 +58,7 @@ describe('Baghdad calendar', () => {
     const week = new Date(today.from.getTime() - 6 * DAY); // Sunday 27 Sep
     expect(rangeLabel('week', { from: week, to: new Date(week.getTime() + 7 * DAY) }, NOW, t)).toBe('هالأسبوع');
     expect(rangeLabel('week', { from: new Date(week.getTime() - 7 * DAY), to: week }, NOW, t)).toBe('الأسبوع الفات');
-    expect(rangeLabel('week', { from: new Date(week.getTime() - 14 * DAY), to: new Date(week.getTime() - 7 * DAY) }, NOW, t)).toBe('13 أيلول – 19 أيلول');
+    expect(rangeLabel('week', { from: new Date(week.getTime() - 14 * DAY), to: new Date(week.getTime() - 7 * DAY) }, NOW, t)).toBe('\u206713 أيلول – 19 أيلول\u2069');
     expect(rangeLabel('month', { from: new Date('2026-09-30T21:00:00Z'), to: new Date('2026-10-31T21:00:00Z') }, NOW, t)).toBe('هالشهر');
     expect(rangeLabel('month', { from: new Date('2026-07-31T21:00:00Z'), to: new Date('2026-08-31T21:00:00Z') }, NOW, t)).toBe('آب');
   });

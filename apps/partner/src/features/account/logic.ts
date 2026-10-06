@@ -11,7 +11,7 @@ import type {
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
+import { formatRange, type MessageKey } from '@driver/i18n';
 import { pluralForm } from '@/features/work/logic';
 
 /**
@@ -92,7 +92,8 @@ export function rangeLabel(period: EarningsPeriod, range: { from: Date; to: Date
     const thisWeek = today - local(now).weekday * DAY_MS;
     if (from === thisWeek) return t('partner.earn_range_this_week');
     if (from === thisWeek - 7 * DAY_MS) return t('partner.earn_range_last_week');
-    return t('partner.earn_range_span', { from: dayMonth(range.from, t), to: dayMonth(new Date(range.to.getTime() - 1), t) });
+    // Low end on the right in Arabic: «13 أيلول – 19 أيلول» reads 13 first.
+    return formatRange(dayMonth(range.from, t), dayMonth(new Date(range.to.getTime() - 1), t), undefined, { spaced: true });
   }
   const f = local(range.from);
   const n = local(now);
