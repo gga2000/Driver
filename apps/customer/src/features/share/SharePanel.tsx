@@ -6,10 +6,13 @@ import { shareUrl } from '@/features/rajaa/share';
 import { BottomPanel } from '@/features/track/Panels';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { apiPhoto } from '@/lib/photo';
 
-/** What the person who opens the link sees of the driver (first name, car, plate), when known. */
+/** What the person who opens the link sees of the driver (photo, first name, car, plate), when known. */
 export interface SharePreview {
   driverName: string | null;
+  /** His approved main photo as the API returned it (the same one the order card and share page show); null = his initial. */
+  photoUrl: string | null;
   vehicle: string | null;
   plate: string | null;
 }
@@ -75,7 +78,7 @@ export function SharePanel({ link, message, preview, onClose, onChanged }: { lin
         </Text>
         {preview && (preview.driverName || preview.plate) ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-            <Avatar name={preview.driverName ?? '؟'} size={40} {...(preview.driverName ? {} : { icon: 'user' as const })} />
+            <Avatar name={preview.driverName ?? '؟'} uri={apiPhoto(preview.photoUrl) ?? undefined} size={40} {...(preview.driverName ? {} : { icon: 'user' as const })} />
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="label" weight={600} numberOfLines={1}>
                 {preview.driverName ?? t(delivery ? 'share.preview_courier' : 'share.preview_driver')}

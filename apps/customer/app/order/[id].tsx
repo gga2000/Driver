@@ -503,7 +503,7 @@ export default function OrderLiveScreen() {
       {v && panel === 'dispute' ? <DisputePanel view={v} onClose={() => setPanel(null)} /> : null}
       {v && panel === 'street' ? <StreetPanel onClose={() => setPanel(null)} /> : null}
       {v && panel === 'share' && shareLink ? (
-        <SharePanel link={shareLink} preview={v.courier ? { driverName: v.courier.firstName, vehicle: v.courier.vehicleLabel, plate: v.courier.plate } : null} message={(url) => t(shareLink.subject === 'delivery' ? 'track.share_message' : 'share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
+        <SharePanel link={shareLink} preview={v.courier ? { driverName: v.courier.firstName, photoUrl: v.courier.photoUrl ?? null, vehicle: v.courier.vehicleLabel, plate: v.courier.plate } : null} message={(url) => t(shareLink.subject === 'delivery' ? 'track.share_message' : 'share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />
       ) : null}
       {v && showArrival ? (
         <ArrivalOverlay
