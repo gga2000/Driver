@@ -15,6 +15,7 @@ export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type Sketc
 // Motion
 export { usePressScale, useSelectSpring, usePulse, AnimatedPressable } from './motion/motion';
 export { useCountUp } from './motion/useCountUp';
+export { digitRoll, fadeIn, hop, panelIn, pop, sheetIn, staggerDelay, useMotionPresets, type MotionTokens, type PresetOptions } from './motion/presets';
 
 // Components
 export { Text, type TextProps } from './components/Text';
