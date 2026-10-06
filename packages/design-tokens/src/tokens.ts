@@ -47,12 +47,14 @@ export const color = {
     700: '#23744A',
     900: '#134229',
   },
+  /** Caution: mustard, kept away from the brand orange (joy S2-02); 300 is the saffron of the inverse banner. */
   warning: {
-    50: '#FDF3E0',
-    100: '#FBEBCC',
-    500: '#C77700',
-    700: '#8A5300',
-    900: '#4F2F00',
+    50: '#FCF6E0',
+    100: '#FAF0C8',
+    300: '#F2C14E',
+    500: '#B07F00',
+    700: '#7A5A00',
+    900: '#4A3600',
   },
   danger: {
     50: '#F9E3DE',
@@ -114,6 +116,19 @@ export interface ThemeColors {
   info: string;
   infoTint: string;
   infoText: string;
+  /**
+   * The inverse banner (joy S2-02): a warning is structural, not a tint. Ink on the light theme,
+   * cream on the dark one, so it never reads as the brand card.
+   */
+  inverse: string;
+  /** Text on `inverse`. */
+  onInverse: string;
+  /** Secondary text on `inverse`. */
+  onInverseMuted: string;
+  /** The caution icon and bar on `inverse`: saffron on ink. */
+  onInverseCaution: string;
+  /** Good news on `inverse` (the honest-delay credit came back). */
+  onInverseSuccess: string;
   /** Seat that someone else holds or owns. */
   seatTaken: string;
   /** Map/scrim overlays behind sheets. */
@@ -144,9 +159,9 @@ const light: ThemeColors = {
   success: '#2F8F5B',
   successTint: '#E3F2E8',
   successText: '#23744A',
-  warning: '#C77700',
-  warningTint: '#FBEBCC',
-  warningText: '#8A5300',
+  warning: '#B07F00',
+  warningTint: '#FAF0C8',
+  warningText: '#7A5A00',
   danger: '#C2412D',
   onDanger: '#FFFFFF',
   dangerTint: '#F9E3DE',
@@ -154,6 +169,11 @@ const light: ThemeColors = {
   info: '#2F6FB0',
   infoTint: '#E1ECF7',
   infoText: '#245C96',
+  inverse: '#1F1A14',
+  onInverse: '#FBF6EE',
+  onInverseMuted: '#D6C8B4',
+  onInverseCaution: '#F2C14E',
+  onInverseSuccess: '#7ACF9D',
   seatTaken: '#E8DFD0',
   scrim: 'rgba(31, 26, 20, 0.45)',
   shimmer: '#FBF6EE',
@@ -179,9 +199,9 @@ const dark: ThemeColors = {
   success: '#4DB27A',
   successTint: '#183224',
   successText: '#7ACF9D',
-  warning: '#E59A2F',
-  warningTint: '#3A2A10',
-  warningText: '#F2BC68',
+  warning: '#E5B53A',
+  warningTint: '#3A3010',
+  warningText: '#F2CF68',
   danger: '#E06A54',
   onDanger: '#1F1A14',
   dangerTint: '#3D1D16',
@@ -189,6 +209,11 @@ const dark: ThemeColors = {
   info: '#5C9BD8',
   infoTint: '#152A40',
   infoText: '#8EBDEA',
+  inverse: '#F6EFE4',
+  onInverse: '#1F1A14',
+  onInverseMuted: '#4A4239',
+  onInverseCaution: '#8A5300',
+  onInverseSuccess: '#23744A',
   seatTaken: '#3A3229',
   scrim: 'rgba(0, 0, 0, 0.6)',
   shimmer: '#2A231C',
@@ -236,6 +261,9 @@ export const contrastPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey
   { fg: 'text', bg: 'infoTint', use: 'walk-up seat label' },
   { fg: 'bg', bg: 'text', use: 'toast message (inverted surface, light theme)' },
   { fg: 'accentTint', bg: 'text', use: 'toast action (inverted surface, light theme)' },
+  { fg: 'onInverse', bg: 'inverse', use: 'inverse banner title (running late)' },
+  { fg: 'onInverseMuted', bg: 'inverse', use: 'inverse banner note' },
+  { fg: 'onInverseSuccess', bg: 'inverse', use: 'inverse banner: the credit came back' },
 ];
 
 /**
@@ -256,6 +284,8 @@ export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey;
   { fg: 'accentText', bg: 'surface', use: 'selected segment thumb outline, check on a selected row' },
   { fg: 'accentText', bg: 'accentTint', use: 'check icon on a selected list row' },
   { fg: 'onAccent', bg: 'accent', use: 'check icon on a selected chip or seat' },
+  { fg: 'onInverseCaution', bg: 'inverse', use: 'clock icon and promise bar on the inverse banner' },
+  { fg: 'onInverseSuccess', bg: 'inverse', use: 'check and bar on the inverse banner once credited' },
 ];
 
 /** Spacing scale of 4. Keys are multipliers; values are px. */

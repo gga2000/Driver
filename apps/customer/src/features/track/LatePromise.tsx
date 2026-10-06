@@ -33,6 +33,9 @@ export function useLatePromiseToast(view: OrderTracking | undefined): void {
  * server's threshold with the deadline as a clock time. Once the server sent its apology (promised
  * time + `apologyAfterMin`, the same words as the push) the headline says sorry; once the credit is
  * posted the bar turns green and says what came back.
+ *
+ * Joy S2-02 / f17: it is an inverse banner (ink, cream text, a saffron clock), never a tint, so a
+ * delay can't be mistaken for the brand's active-order card.
  */
 export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; lateMin: number; eta: Date; now: number }) {
   const theme = useTheme();
@@ -46,7 +49,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
   const fillStyle = useAnimatedStyle(() => ({ width: `${Math.round(fill.value * 1000) / 10}%` }));
   const credited = Boolean(bar?.credited);
   const copy = bar ? promiseCopy(bar.basis) : null;
-  const tone = credited ? theme.colors.success : theme.colors.warning;
+  const tone = credited ? theme.colors.onInverseSuccess : theme.colors.onInverseCaution;
   return (
     <View
       testID="running-late"
@@ -56,22 +59,20 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
         paddingHorizontal: theme.space[3],
         paddingVertical: theme.space[2],
         borderRadius: theme.radius.lg,
-        backgroundColor: theme.colors.warningTint,
-        borderWidth: 1,
-        borderColor: withAlpha(theme.colors.warning, 0.35),
+        backgroundColor: theme.colors.inverse,
         shadowColor: color.neutral[1000],
-        shadowOpacity: 0.08,
+        shadowOpacity: 0.16,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <Icon name="clock" size={18} color="warningText" strokeWidth={2.2} />
+        <Icon name="clock" size={20} color="onInverseCaution" strokeWidth={2.2} />
         <View style={{ flex: 1 }}>
-          <Text variant="label" weight={600} color="warningText">
+          <Text variant="label" weight={700} color="onInverse">
             {bar?.apologized ? t('promise.apology_title') : t('track.running_late', { minutes: lateMin })}
           </Text>
-          <Text variant="caption" color="textMuted">
+          <Text variant="caption" color="onInverseMuted">
             {t('track.note_late', { minutes: lateMin, time: formatClock(eta) })}
           </Text>
         </View>
@@ -83,12 +84,12 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
           accessibilityLabel={`${credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}. ${t('promise.bar_a11y', { elapsed: bar.elapsedMin, minutes: bar.afterMin })}`}
           style={{ gap: theme.space[1] }}
         >
-          <View style={{ height: 6, borderRadius: 3, backgroundColor: withAlpha(tone, 0.18), overflow: 'hidden' }}>
+          <View style={{ height: 6, borderRadius: 3, backgroundColor: withAlpha(tone, 0.25), overflow: 'hidden' }}>
             <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: tone }, fillStyle]} />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
-            {credited ? <Icon name="check" size={14} color="successText" strokeWidth={2.4} /> : null}
-            <Text variant="caption" weight={600} color={credited ? 'successText' : 'text'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
+            {credited ? <Icon name="check" size={14} color="onInverseSuccess" strokeWidth={2.4} /> : null}
+            <Text variant="caption" weight={600} color={credited ? 'onInverseSuccess' : 'onInverse'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
               {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
             </Text>
           </View>

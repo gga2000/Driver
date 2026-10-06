@@ -36,6 +36,15 @@ describe.each(Object.keys(themes) as ThemeName[])('%s theme: 3:1 for every bound
   });
 });
 
+describe('warning is not the brand (joy S2-02)', () => {
+  it('the warning tint and the accent tint are different colours, and the late banner is ink, not a tint', () => {
+    expect(themes.light.warningTint).not.toBe(themes.light.accentTint);
+    expect(themes.light.warning).not.toBe(themes.light.accent);
+    expect(themes.light.inverse).toBe(themes.light.text);
+    expect(contrastRatio(themes.light.onInverseCaution, themes.light.inverse)).toBeGreaterThan(7);
+  });
+});
+
 describe('type floor', () => {
   it('no text style is under 12 px (audit S-10)', () => {
     for (const [k, v] of Object.entries(type)) expect(v.size, k).toBeGreaterThanOrEqual(minFontSize);
@@ -56,7 +65,8 @@ describe('brand rules', () => {
     expect([l.bg, l.surface, l.text, l.textMuted, l.accent, l.accentTint, l.border]).toEqual([
       '#FBF6EE', '#FFFFFF', '#1F1A14', '#6B6157', '#E08A1E', '#FCEBD3', '#EADFCF',
     ]);
-    expect([l.success, l.warning, l.danger, l.info]).toEqual(['#2F8F5B', '#C77700', '#C2412D', '#2F6FB0']);
+    // Warning moved off the brand hue to mustard (joy S2-02, 2026-10-06).
+    expect([l.success, l.warning, l.danger, l.info]).toEqual(['#2F8F5B', '#B07F00', '#C2412D', '#2F6FB0']);
   });
   it('both themes define the same keys', () => {
     expect(Object.keys(themes.dark).sort()).toEqual(Object.keys(themes.light).sort());
