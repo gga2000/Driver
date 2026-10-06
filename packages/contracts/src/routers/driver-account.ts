@@ -8,6 +8,7 @@ import {
   DriverDocumentView,
   EarningsInput,
   EarningsView,
+  GuaranteeView,
   HandoverCode,
   JobReceipt,
   JobReceiptInput,
@@ -76,6 +77,10 @@ export const driverAccountRouter = router({
   handoverCode: protectedProcedure(DRIVING_ROLES)
     .output(HandoverCode)
     .query(({ ctx }) => ctx.driverAccount.handoverCode(ctx.actor)),
+  /** G-91 shift guarantee: the peak shift now and this week's, counted on the server (progress, pending, paid). */
+  guarantee: protectedProcedure(DRIVING_ROLES)
+    .output(GuaranteeView)
+    .query(({ ctx }) => ctx.driverAccount.guarantee(ctx.actor)),
   /** End of shift (partner S-4): the shift he just ended, the day, cash to hand over, tomorrow's busy window. */
   shiftSummary: protectedProcedure(DRIVING_ROLES)
     .input(ShiftSummaryInput)

@@ -15,6 +15,7 @@ import {
   type DriverDocumentView,
   type EarningsPeriod,
   type EarningsView,
+  type GuaranteeView,
   type HandoverCode,
   type JobReceipt,
   type LivenessGesture,
@@ -177,6 +178,33 @@ export class DriverAccountService implements DriverAccountPort {
     const from = opts.notBefore && opts.notBefore > range.from ? (opts.notBefore < range.to ? opts.notBefore : range.to) : range.from;
     const view = await this.ledger.driverLedger({ driverId, from, to: range.to });
     return composeEarnings(view, period, { from, to: range.to }, AZIZIYAH_MONEY_RULES);
+  }
+
+  // ───────────────────────── G-91 shift guarantee ─────────────────────────
+
+  /**
+   * The peak shift now and this week's, counted on the server from his events and ledger (the
+   * Partner app's progress line and pending/paid lines show exactly these numbers). Top-ups that
+   * ended last week and wait for the Sunday run count in `pendingIqd` too.
+   */
+  async guarantee(actor: Actor): Promise<GuaranteeView> {
+    return this.guaranteeFor(actor.personId);
+  }
+
+  async guaranteeFor(driverId: string): Promise<GuaranteeView> {
+    const g = AZIZIYAH_MONEY_RULES.guarantee;
+    const rule = { amountIqd: g.amountIqd, minAcceptance: g.minAcceptance, maxCancelsAfterAccept: g.maxCancelsAfterAccept, minCompletedJobs: g.minCompletedJobs };
+    if (!(await this.ledger.guaranteeCovers(driverId))) return { enabled: false, ...rule, current: null, week: [], pendingIqd: 0 };
+    const now = this.clock.now();
+    const week = localPeriod('week', now);
+    const windows = await this.ledger.guaranteeWindows({ driverId, from: new Date(week.from.getTime() - 7 * DAY_MS), to: week.to });
+    return {
+      enabled: true,
+      ...rule,
+      current: windows.find((w) => w.status === 'live') ?? null,
+      week: windows.filter((w) => w.from.getTime() >= week.from.getTime()).reverse(),
+      pendingIqd: windows.filter((w) => w.status === 'ended' && w.qualified).reduce((sum, w) => sum + w.topUpIqd, 0),
+    };
   }
 
   // ───────────────────────── scorecard ─────────────────────────
@@ -490,11 +518,12 @@ export class DriverAccountService implements DriverAccountPort {
     const day = localPeriod('day', to);
     // Ledger reads are [from, to): one minute past `to` keeps a job posted in the same instant.
     const until = new Date(to.getTime() + 60_000);
-    const [shiftView, dayView, card, tomorrow] = await Promise.all([
+    const [shiftView, dayView, card, tomorrow, guarantee] = await Promise.all([
       this.ledger.driverLedger({ driverId, from, to: until }),
       this.ledger.driverLedger({ driverId, from: day.from, to: until }),
       this.scorecardFor(driverId).catch(() => null),
       this.busiestTomorrow(now),
+      this.shiftGuarantees(driverId, from, until),
     ]);
     const shift = composeEarnings(shiftView, 'day', { from, to }, AZIZIYAH_MONEY_RULES);
     const today = composeEarnings(dayView, 'day', { from: day.from, to }, AZIZIYAH_MONEY_RULES);
@@ -514,7 +543,14 @@ export class DriverAccountService implements DriverAccountPort {
       tomorrow,
       // Shift-end carries a single nudge, never a list (audit S-4); none in the first 30 days.
       nudge: card && card.visible && !card.observation ? (card.nudges[0] ?? null) : null,
+      guarantee,
     };
+  }
+
+  /** G-91: the peak shifts his shift overlapped (none when the guarantee does not cover him). */
+  private async shiftGuarantees(driverId: string, from: Date, to: Date): Promise<ShiftSummary['guarantee']> {
+    if (!(await this.ledger.guaranteeCovers(driverId))) return [];
+    return this.ledger.guaranteeWindows({ driverId, from, to });
   }
 
   private async busiestTomorrow(now: Date): Promise<ShiftSummary['tomorrow']> {

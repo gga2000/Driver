@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
-import type { HandoverProof, PartnerCash, UnreachableStatus } from '@driver/contracts';
+import type { GuaranteeWindowView, HandoverProof, PartnerCash, UnreachableStatus } from '@driver/contracts';
 import { AmountPad, Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
 import { CashMeter } from '@/features/account/CashMeter';
 import { pickPhoto, type PickedPhoto } from '@/features/account/photo';
@@ -381,6 +381,7 @@ export function DonePanel({
   fromOwedIqd,
   changeToWalletIqd,
   today,
+  guarantee = null,
   demand = null,
 }: {
   earnedIqd: number;
@@ -393,6 +394,8 @@ export function DonePanel({
   changeToWalletIqd?: number | undefined;
   /** Today so far, re-read after this job: null while it is being re-read, absent = no day line. */
   today?: JobEndDay | null | undefined;
+  /** G-91: the live peak shift, re-read after this job (null = no line). */
+  guarantee?: GuaranteeWindowView | null;
   demand?: JobEndDemand | null;
 }) {
   const theme = useTheme();
@@ -417,7 +420,7 @@ export function DonePanel({
   }, [counting, left]);
   return (
     <JobEndFrame testID="job-done">
-      <JobEndHero earnedIqd={earnedIqd} failed={failed} today={today}>
+      <JobEndHero earnedIqd={earnedIqd} failed={failed} today={today} guarantee={guarantee}>
         <Animated.View
           entering={theme.reduceMotion ? undefined : ZoomIn.springify().damping(12)}
           style={{ width: 112, height: 112, borderRadius: 56, backgroundColor: failed ? theme.colors.surfaceSunken : theme.colors.success, alignItems: 'center', justifyContent: 'center' }}

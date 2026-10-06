@@ -74,6 +74,14 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     s.ledger.push(row({ kind: 'points', type: 'points_earned', amount: 60, fromAccount: 'points_pool', toAccount: 'points:fault', orderId: o.id, postingGroupId: `points:${o.id}:fault` }));
   },
+  shift_guarantee_once_and_exact: (s) => {
+    // The same shift's top-up posted a second time (a Sunday re-run without the once-per-shift key).
+    const driverId = first(s.guarantee?.covered ?? [], 'a covered courier');
+    const w = first(s.guarantee?.windows ?? [], 'a settled peak shift');
+    const paid = s.ledger.find((e) => e.type === 'driver_incentive' && e.memo === `guarantee:${w.id}`);
+    const to = paid?.toAccount ?? `driver:${driverId}`;
+    for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'driver_incentive', amount: 2500, fromAccount: 'platform', toAccount: to, memo: `guarantee:${w.id}`, postingGroupId: `incentive:guarantee:fault:${i}` }));
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 

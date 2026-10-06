@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import type { PartnerDemand } from '@driver/contracts';
+import type { GuaranteeWindowView, PartnerDemand } from '@driver/contracts';
 import { pluralKey } from '@driver/i18n';
 import { SegmentRing, Text, useTheme } from '@driver/ui';
 import { useCountFrom } from '@/features/account/EarningsParts';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { GuaranteeNote } from './GuaranteeNote';
+import { guaranteeLine } from './guarantee-logic';
 import { DemandRow } from './HomeParts';
 
 /** Today's totals from the server (`partner.status.today`), read after this job was counted. */
@@ -22,10 +24,27 @@ export type JobEndDemand = PartnerDemand;
  * so far. The ring counts what happened; nothing here is a target. `today` null = still being
  * re-read (the line says so instead of showing numbers without this job); undefined = no day line
  * (saved offline): the ring is then one closed circle.
+ *
+ * In a peak shift the G-91 guarantee covers, one honest goal-gradient line follows the day: the
+ * server's count ("باقي طلبين على ضمان شفت الغدا: 10,000 دينار"), never a target it did not set.
  */
-export function JobEndHero({ earnedIqd, failed, today, children }: { earnedIqd: number; failed: boolean; today: JobEndDay | null | undefined; children: ReactNode }) {
+export function JobEndHero({
+  earnedIqd,
+  failed,
+  today,
+  guarantee = null,
+  children,
+}: {
+  earnedIqd: number;
+  failed: boolean;
+  today: JobEndDay | null | undefined;
+  /** The live peak shift as the server counted it after this job; null = no line. */
+  guarantee?: GuaranteeWindowView | null;
+  children: ReactNode;
+}) {
   const theme = useTheme();
   const t = useT();
+  const goal = !failed && guarantee ? guaranteeLine(guarantee, t) : null;
   const shown = useCountFrom(failed ? 0 : earnedIqd, 1100);
   const jobs = today?.jobs ?? 0;
   // The count is {n} (the jobs), not the amount before it: pick the plural form by the jobs.
@@ -65,6 +84,11 @@ export function JobEndHero({ earnedIqd, failed, today, children }: { earnedIqd: 
               {t('partner.jobend_today_loading')}
             </Text>
           )
+        ) : null}
+        {goal ? (
+          <Animated.View entering={theme.reduceMotion ? undefined : FadeIn.delay(800).duration(300)}>
+            <GuaranteeNote testID="jobend-guarantee" line={goal} align="center" />
+          </Animated.View>
         ) : null}
       </View>
     </View>

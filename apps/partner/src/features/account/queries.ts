@@ -69,6 +69,15 @@ export function useShiftSummary(from: Date | null) {
   return useQuery({ ...api.driverAccount.shiftSummary.queryOptions(from ? { from } : {}), enabled: useEnabled(), staleTime: 60_000 });
 }
 
+/**
+ * G-91 shift guarantee, as the server counts it: the peak shift now (progress), this week's shifts
+ * and what waits for Sunday. Re-read on mount (the job-end screen asks right after a job counted).
+ */
+export function useGuarantee(opts: { enabled?: boolean } = {}) {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.guarantee.queryOptions(), enabled: useEnabled() && (opts.enabled ?? true), staleTime: 0, refetchInterval: 60_000 });
+}
+
 /** One job's receipt: every line with its reason, the take, the cash. */
 export function useJobReceipt(key: string, at: Date | null) {
   const api = useApi();

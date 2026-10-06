@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { nightlyMessage, type MoneyRules, type NightlyReport } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { idOf } from './accounts.js';
 import { CapsService } from './caps.js';
+import { ShiftGuaranteeService, type GuaranteePayout } from './guarantee.js';
 import type { LedgerEventBus } from './events.adapter.js';
 import type { LedgerIncidentPort } from './incidents.js';
 import { LedgerService } from './ledger.service.js';
@@ -27,10 +28,14 @@ export function localDay(at: Date, rules: MoneyRules): string {
 /**
  * Nightly close (money §4, plan Step 6): money Σ=0 and points Σ=0 checked separately, per-driver
  * owed/cap/payout report for the morning WhatsApp, and an incident when anything fails.
- * Sunday runs mark every positive driver balance as payout due (G-86 weekly payouts).
+ * Sunday runs first post the G-91 shift-guarantee top-ups of the week that ended (paid with the
+ * weekly scorecard, never nightly), then mark every positive driver balance as payout due (G-86
+ * weekly payouts), so the top-ups go out with that payout.
  */
 @Injectable()
 export class NightlyJob {
+  private readonly logger = new Logger(NightlyJob.name);
+
   constructor(
     private readonly ledger: LedgerService,
     private readonly caps: CapsService,
@@ -38,11 +43,14 @@ export class NightlyJob {
     @Inject(LEDGER_EVENTS) private readonly bus: LedgerEventBus,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(MONEY_RULES) private readonly rules: MoneyRules,
+    /** G-91 top-ups on the Sunday run; absent in harnesses that do not exercise them. */
+    @Optional() private readonly guarantee?: ShiftGuaranteeService,
   ) {}
 
   async run(opts: { requestedBy?: string } = {}): Promise<NightlyReport> {
     const runAt = this.clock.now();
     const weekly = new Date(runAt.getTime() + this.rules.nightly.utcOffsetMin * 60_000).getUTCDay() === 0;
+    const guaranteePaid = weekly ? await this.settleGuarantees(runAt) : [];
     const inv = await this.ledger.checkInvariant();
 
     const driverIds = new Set<string>();
@@ -73,6 +81,7 @@ export class NightlyJob {
       drivers,
       incidentId,
       message_ar: nightlyMessage(inv.ok, inv.money.net, inv.points.net),
+      guaranteePaid,
     };
     await this.bus.emit(
       undefined,
@@ -85,6 +94,23 @@ export class NightlyJob {
       { name: 'ledger', id: localDay(runAt, this.rules) },
     );
     return report;
+  }
+
+  /**
+   * The week's guarantee top-ups. A failure must not stop the close (the books are still checked
+   * and the payouts still listed): it opens an incident, and the next Sunday run re-checks the week
+   * (the posting is once per driver per shift, so nothing is paid twice).
+   */
+  private async settleGuarantees(runAt: Date): Promise<GuaranteePayout[]> {
+    if (!this.guarantee) return [];
+    try {
+      return await this.guarantee.settleWeek(runAt);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`shift guarantee settlement failed: ${message}`);
+      await this.incidents.open({ kind: 'guarantee_settlement_failed', summary: `weekly ${localDay(runAt, this.rules)}: ${message}`, evidence: { runAt: runAt.toISOString() } });
+      return [];
+    }
   }
 
   /** Puts the next 02:00 run on the queue; each run re-schedules the following one. */

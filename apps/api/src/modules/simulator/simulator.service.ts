@@ -7,7 +7,7 @@ import { InMemoryQueue } from '../../shared/queue.js';
 import { DISPATCH_QUEUE, DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
-import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
+import { CapsService, LedgerService, MerchantCashService, ShiftGuaranteeService } from '../ledger/index.js';
 import { ORDERS_QUEUE, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { CatalogService } from '../catalog/index.js';
@@ -86,6 +86,7 @@ export class SimulatorService implements OnModuleDestroy {
     private readonly ledger: LedgerService,
     private readonly caps: CapsService,
     private readonly merchantCash: MerchantCashService,
+    private readonly guarantee: ShiftGuaranteeService,
     private readonly events: EventsService,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly moduleRef: ModuleRef,
@@ -103,6 +104,7 @@ export class SimulatorService implements OnModuleDestroy {
       ledger: this.ledger,
       caps: this.caps,
       merchantCash: this.merchantCash,
+      guarantee: this.guarantee,
       events: this.events,
     };
   }

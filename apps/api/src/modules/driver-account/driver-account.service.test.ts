@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Actor, Order, RoleKind, Trip } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
+import { EventsShiftActivity } from '../ledger/index.js';
 import { postDriverIncentive } from '../ledger/postings.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
 import type { OrdersService } from '../orders/index.js';
@@ -28,8 +29,9 @@ async function storedUpload(blobs: BlobStore, ownerId: string): Promise<string> 
 function setup(start = '2026-10-03T09:00:00Z') {
   const id = identityHarness(start);
   const clock = id.clock;
-  const ledger = ledgerHarness({ start });
   const ev = createInMemoryEvents({ clock });
+  // G-91: the guarantee reads his trip events from the same log the service writes to.
+  const ledger = ledgerHarness({ start, clock, activity: new EventsShiftActivity(ev.events) });
   const blobs = new DevBlobStore(clock, { secret: 'test-blob-secret' });
   const repo = new InMemoryDriverAccountRepository();
   const trips: Trip[] = [];
@@ -355,6 +357,55 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     const s = await h.service.shiftSummary(d, {});
     expect(s.nudge?.key).toBe('acceptance');
     expect(s.nudge?.message_ar.length).toBeGreaterThan(0);
+  });
+});
+
+describe('driverAccount.guarantee (G-91 shift guarantee)', () => {
+  /** A courier on Sunday 4 Oct lunch (12:00–16:00 Baghdad = 09:00Z–13:00Z): 3 accepted and completed jobs, one declined offer. */
+  async function lunch(now: string, roles: RoleKind[] = ['courier']) {
+    const h = setup('2026-10-04T08:00:00Z');
+    const d = await h.person('07700000021', roles);
+    if (!roles.includes('courier')) h.ledger.profiles.set(d.personId, { role: 'driver', tier: 'bronze' });
+    const emit = (type: string, actorId: string, tripId: string, at: string, payload: Record<string, unknown> = {}) =>
+      h.ev.events.emit(undefined, { type, actorId, tripId, occurredAt: new Date(at), payload }, { name: 'trip', id: tripId });
+    await emit('trip.declined', d.personId, 'tz', '2026-10-04T09:05:00Z', { driverId: d.personId });
+    for (const [i, done] of ['2026-10-04T09:40:00Z', '2026-10-04T10:20:00Z', '2026-10-04T11:00:00Z'].entries()) {
+      const tripId = `tg${i}`;
+      await emit('trip.accepted', d.personId, tripId, new Date(new Date(done).getTime() - 20 * 60_000).toISOString(), { driverId: d.personId });
+      await emit('trip.completed', d.personId, tripId, done);
+      await h.ledger.posting.orderMoney(workedExample({ orderId: `og${i}`, tripId, courierId: d.personId, occurredAt: new Date(done) }));
+    }
+    h.clock.set(now);
+    return { h, d };
+  }
+
+  it('live in a peak shift: the server counts his offers, jobs and earnings and what the rule gives', async () => {
+    const { h, d } = await lunch('2026-10-04T12:00:00Z');
+    const g = await h.service.guarantee(d);
+    expect(g).toMatchObject({ enabled: true, amountIqd: 10_000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, pendingIqd: 0 });
+    // 3 of 4 offers accepted (75 %): the jobs are there, the acceptance is not.
+    expect(g.current).toMatchObject({ id: '2026-10-04:lunch', status: 'live', offers: 4, accepted: 3, completedJobs: 3, jobsToGo: 0, earningsIqd: 3000, meets: { acceptance: false, cancels: true, jobs: true }, qualified: false, topUpIqd: 0 });
+    expect(g.week.map((w) => w.id)).toEqual(['2026-10-04:lunch']);
+    // The end-of-shift summary carries the same shift.
+    const s = await h.service.shiftSummary(d, { from: new Date('2026-10-04T09:00:00Z') });
+    expect(s.guarantee.map((w) => [w.id, w.status, w.completedJobs])).toEqual([['2026-10-04:lunch', 'live', 3]]);
+  });
+
+  it('after the shift a qualified top-up is pending until Sunday', async () => {
+    const { h, d } = await lunch('2026-10-04T09:00:00Z');
+    // Six more accepted offers that came to nothing (other drivers' jobs re-offered): 9 of 10 accepted.
+    for (let i = 0; i < 6; i++) await h.ev.events.emit(undefined, { type: 'trip.accepted', actorId: d.personId, tripId: `tn${i}`, occurredAt: new Date(`2026-10-04T12:0${i}:00Z`), payload: { driverId: d.personId } }, { name: 'trip', id: `tn${i}` });
+    h.clock.set('2026-10-04T14:00:00Z');
+    const g = await h.service.guarantee(d);
+    expect(g.current).toBeNull();
+    expect(g.week[0]).toMatchObject({ id: '2026-10-04:lunch', status: 'ended', accepted: 9, offers: 10, qualified: true, topUpIqd: 7000, paysOn: new Date('2026-10-10T21:00:00Z') });
+    expect(g.pendingIqd).toBe(7000);
+  });
+
+  it('not covered (a car driver at launch): nothing to show', async () => {
+    const { h, d } = await lunch('2026-10-04T12:00:00Z', ['driver']);
+    expect(await h.service.guarantee(d)).toMatchObject({ enabled: false, current: null, week: [], pendingIqd: 0 });
+    expect((await h.service.shiftSummary(d, {})).guarantee).toEqual([]);
   });
 });
 

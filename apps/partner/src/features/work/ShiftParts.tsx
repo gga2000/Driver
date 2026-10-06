@@ -9,6 +9,8 @@ import { Glyph } from '@/features/account/Glyph';
 import { useCountFrom } from '@/features/account/EarningsParts';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { GuaranteeNote } from './GuaranteeNote';
+import { guaranteeLines } from './guarantee-logic';
 import { dayLine, shiftStats, tomorrowLine, type ShareCardModel } from './shift-logic';
 
 /** Staggered entrance, skipped under reduced motion. */
@@ -131,6 +133,31 @@ export function ShiftCash({ s, onCode }: { s: ShiftSummary; onCode: () => void }
               {t('partner.shiftsum_cash_none')}
             </Text>
           )}
+        </View>
+      </Card>
+    </Animated.View>
+  );
+}
+
+/**
+ * G-91 "ضمان الشفت" for the peak shifts this shift overlapped: earned and waiting for Sunday, paid,
+ * or (still live) how far he is from it. Nothing when no shift has anything to say.
+ */
+export function ShiftGuarantee({ s }: { s: ShiftSummary }) {
+  const theme = useTheme();
+  const t = useT();
+  const lines = guaranteeLines(s.guarantee, t);
+  if (lines.length === 0) return null;
+  return (
+    <Animated.View entering={enter(theme.reduceMotion, 3)}>
+      <Card elevation={0} padding={4} testID="shift-guarantee">
+        <View style={{ gap: theme.space[2] }}>
+          <Text variant="label" color="textMuted">
+            {t('partner.guarantee_title')}
+          </Text>
+          {lines.map((l) => (
+            <GuaranteeNote key={l.id} line={l} testID={`shift-guarantee-${l.id}`} />
+          ))}
         </View>
       </Card>
     </Animated.View>

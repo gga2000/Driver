@@ -1,7 +1,7 @@
 // Driver account (wave 2): earnings history, documents, the daily check-in and the scorecard.
 //
 //   who=courier  0770 111 0001  checked in; two months of deliveries (tips, night/rain extras, batch, shift
-//                               guarantee top-ups, cash orders paid to restaurants and settled daily);
+//                               guarantee top-ups paid on the Sunday after the shift, cash orders paid to restaurants and settled daily);
 //                               today ≈ 72 % of his 75,000 cap; scorecard day 65, bronze, 2 nudges
 //   who=tuktuk   0770 111 0002  checked in; rides with the platform take; licence expiring in 12 days,
 //                               registration rejected (reason), insurance under review
@@ -162,11 +162,17 @@ export default async function register(demo) {
       }
       groups.push(demo.group(`demo:acct:courier:${orderId}`, at, lines, { orderId }));
     }
-    // Launch shift guarantee (money §2): topped up on a few slow evening shifts.
+    // G-91 shift guarantee (money §2): a few slow dinner shifts topped up, paid like the server pays
+    // them — on the Sunday 02:00 run after the shift, one group per driver per shift, memo
+    // `guarantee:<date>:dinner` (shifts whose Sunday has not come yet are left to the real run).
+    const paidAt = day + (7 - dow) * DAY + 2 * HOUR;
     if (d % 6 === 2) {
       const top = pick(r, [1500, 2000, 2500]);
-      groups.push(demo.group(`demo:acct:courier:guarantee:${d}`, new Date(day + 23 * HOUR + 30 * 60_000), [{ type: 'driver_incentive', amount: top, fromAccount: Accounts.platform, toAccount: Accounts.driver(courier), memo: `guarantee:${new Date(day + OFF).toISOString().slice(0, 10)}:evening` }]));
-      earned += top;
+      const windowId = `${new Date(day + OFF).toISOString().slice(0, 10)}:dinner`;
+      if (paidAt <= now) {
+        groups.push(demo.group(`incentive:guarantee:${courier}:${windowId}`, new Date(paidAt), [{ type: 'driver_incentive', amount: top, fromAccount: Accounts.platform, toAccount: Accounts.driver(courier), memo: `guarantee:${windowId}` }]));
+        earned += top;
+      }
     }
     settle(courier, day, collected - paidMerchants, earned);
   }
