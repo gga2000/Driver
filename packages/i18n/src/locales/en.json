@@ -3491,7 +3491,7 @@
   "place.edit_title": "Place",
   "place.from_household": "From household",
   "place.im_here": "I'm here",
-  "place.map_hint": "Tap the map exactly where your door is",
+  "place.map_hint": "Move the map until the pin sits on your door",
   "place.name_label": "Place name",
   "place.no_pin": "No pin yet",
   "place.not_found": "We couldn't find this place",
