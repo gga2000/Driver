@@ -58,8 +58,9 @@ export default {
       await shot('at-pass', { element: card() });
     });
     await step('ready-column', async () => shot('ready-column'));
-    // The hook only moves his arrival time back (no live event), so reload rather than wait for the
-    // board's slow safety poll; the card must say "حيدر ينتظر من 4 دقايق" before the shot.
+    // The hook moves his arrival time back and nudges the live channel; a reload keeps the shot
+    // independent of the live connection. The card must say "حيدر ينتظر من 4 دقايق" before the shot.
+    // (That the card turns amber by itself on the open board is pass.test.ts, m2a.)
     await post('/demo/signature/at-pass?waited=4');
     await page.reload({ waitUntil: 'load' });
     await h.startShift();
