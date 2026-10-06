@@ -1566,7 +1566,7 @@ const rajaa = await (async () => {
       // New friends per call: a friend accepts one invitation only.
       inviteSeq += 1;
       const base = 9_900_000 + inviteSeq * 10;
-      for (const [phone, name] of [[`0770${base + 1}`, 'زيد'], [`0770${base + 2}`, 'حسن']]) {
+      for (const [phone, name] of [[`0781${base + 1}`, 'زيد'], [`0781${base + 2}`, 'حسن']]) {
         const id = await giftIdentity.ensurePersonByPhone(phone, personId, 'demo');
         await giftIdentity.updateProfile({ personId: id, sessionId: 'demo' }, { name });
         await referrals.claim({ personId: id, sessionId: 'demo' }, { code });
