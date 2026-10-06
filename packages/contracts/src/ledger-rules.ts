@@ -112,12 +112,19 @@ export const MoneyRules = z.object({
   /** Nightly close (money §4): 02:00 in the city's zone. */
   nightly: z.object({ hour: z.number().int().min(0).max(23), utcOffsetMin: z.number().int() }),
   /**
-   * The honest-delay promise (customer spec §4, audit d-5): a delivery that reaches the door more than
-   * `afterMin` minutes after the time we promised gets its delivery fee back as wallet credit, paid by
-   * the platform, once per order (`latePromiseCreditIqd`). Shown at checkout, on the late banner and on
-   * the welcome screen with this number, never a literal in the apps.
+   * The honest-delay promise (customer spec §4, audit d-5; two steps, Ali 2026-10-06):
+   * - `apologyAfterMin` past the time we promised, still not at the door: one proactive apology with
+   *   the new time (push, SMS twin), once per order. No money.
+   * - `afterMin` past it: the delivery fee the customer pays comes back as wallet credit, paid by the
+   *   platform, once per order (`latePromiseTerms`). A free-delivery order (fee 0 after deals) gets
+   *   `freeDeliveryCreditIqd` instead, so every food delivery carries the promise.
+   * Shown at checkout, on the late banner and on the welcome screen with these numbers, never a
+   * literal in the apps.
    */
-  latePromise: z.object({ afterMin: z.number().int().positive() }).default({ afterMin: 20 }),
+  latePromise: z
+    .object({ afterMin: z.number().int().positive(), apologyAfterMin: z.number().int().positive(), freeDeliveryCreditIqd: Iqd.nonnegative() })
+    .refine((r) => r.apologyAfterMin < r.afterMin, { message: 'the apology comes before the credit' })
+    .default({ afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -163,7 +170,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
     driverLateToEachRiderPerBlockIqd: 1000,
   },
   nightly: { hour: 2, utcOffsetMin: 180 },
-  latePromise: { afterMin: 20 },
+  latePromise: { afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */
@@ -185,10 +192,29 @@ export function cashToHand(priceIqd: number, stepIqd: number = CASH_STEP_IQD): {
 }
 
 /**
- * What the honest-delay promise gives back on an order: the delivery fee the customer actually pays
- * (a free-delivery deal leaves nothing to give back, so no promise is made). 0 = no promise.
+ * What the honest-delay credit is: the delivery fee the customer pays comes back (`delivery_fee`), or —
+ * when he pays none (free-delivery deal) — a fixed `flat` amount, so the apps can say "أجرة التوصيل"
+ * only when it is one.
  */
-export function latePromiseCreditIqd(o: { deliveryFeeIqd: number; discount?: { target: string; amountIqd: number } | null }): number {
+export const LatePromiseBasis = z.enum(['delivery_fee', 'flat']);
+export type LatePromiseBasis = z.infer<typeof LatePromiseBasis>;
+
+/**
+ * What the honest-delay promise gives back on a delivery (Ali, 2026-10-06): the delivery fee the
+ * customer actually pays; a free-delivery order (0 after deals) gets `freeDeliveryCreditIqd`. Null
+ * only if that is configured to 0. Callers decide which orders are deliveries with a promise.
+ */
+export function latePromiseTerms(
+  o: { deliveryFeeIqd: number; discount?: { target: string; amountIqd: number } | null },
+  rules: MoneyRules['latePromise'] = AZIZIYAH_MONEY_RULES.latePromise,
+): { creditIqd: number; basis: LatePromiseBasis } | null {
   const free = o.discount?.target === 'delivery' ? o.discount.amountIqd : 0;
-  return Math.max(0, o.deliveryFeeIqd - free);
+  const paid = Math.max(0, o.deliveryFeeIqd - free);
+  if (paid > 0) return { creditIqd: paid, basis: 'delivery_fee' };
+  return rules.freeDeliveryCreditIqd > 0 ? { creditIqd: rules.freeDeliveryCreditIqd, basis: 'flat' } : null;
+}
+
+/** The honest-delay credit's amount (`latePromiseTerms`); 0 = no promise. */
+export function latePromiseCreditIqd(o: { deliveryFeeIqd: number; discount?: { target: string; amountIqd: number } | null }, rules: MoneyRules['latePromise'] = AZIZIYAH_MONEY_RULES.latePromise): number {
+  return latePromiseTerms(o, rules)?.creditIqd ?? 0;
 }

@@ -1,9 +1,9 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   AT_RISK_RULES,
   DriverError,
-  latePromiseCreditIqd,
+  latePromiseTerms,
   MIN_PER_EARLIER_DROP,
   positionVisible,
   type Actor,
@@ -74,7 +74,17 @@ export interface TrackingLateCreditPort {
   issue(c: { orderId: string; customerId: string; amountIqd: number; at: Date }, tx?: Tx): Promise<void>;
 }
 
+/**
+ * The honest-delay apology (step one, Ali 2026-10-06): whether it went out for an order, and sending
+ * it once (idempotent by order; the notify module turns it into the push and its SMS twin). No money.
+ */
+export interface TrackingLateApologyPort {
+  sent(orderId: string): Promise<{ at: Date; etaAt: Date } | null>;
+  send(c: { orderId: string; customerId: string; promisedAt: Date; etaAt: Date; at: Date }, tx?: Tx): Promise<void>;
+}
+
 export const TRACKING_LATE_CREDIT = Symbol('TRACKING_LATE_CREDIT');
+export const TRACKING_LATE_APOLOGY = Symbol('TRACKING_LATE_APOLOGY');
 export const TRACKING_ORDERS = Symbol('TRACKING_ORDERS');
 export const TRACKING_TRIPS = Symbol('TRACKING_TRIPS');
 export const TRACKING_IDENTITY = Symbol('TRACKING_IDENTITY');
@@ -108,6 +118,27 @@ const CARD_CACHE_MAX = 2000;
 /** At-risk predictions kept at most (one per live order). */
 const RISK_CACHE_MAX = 2_000;
 
+/** Orders the apology sweep already knows were apologised to, kept at most. */
+const APOLOGISED_CACHE_MAX = 2_000;
+
+const MIN_MS = 60_000;
+
+/**
+ * Step one of the honest-delay promise: the apology is due once the clock passes the promised time +
+ * `apologyAfterMin`, while the order is still on its way (not delivered, not cancelled) and the
+ * customer is not the one who isn't answering.
+ */
+export function lateApologyDue(
+  order: Pick<Order, 'state' | 'deliveredAt'>,
+  promisedAt: Date,
+  now: Date,
+  customerUnreachable: boolean,
+  apologyAfterMin: number = AZIZIYAH_MONEY_RULES.latePromise.apologyAfterMin,
+): boolean {
+  if (order.deliveredAt || SETTLED_ORDER_STATES.has(order.state) || customerUnreachable) return false;
+  return now.getTime() >= promisedAt.getTime() + apologyAfterMin * MIN_MS;
+}
+
 /**
  * Customer live order/ride screen reads (customer app spec §4). Only the orderer or a participant
  * of the order may read it. The courier is shown by first name, vehicle, plate and "verified today";
@@ -127,10 +158,14 @@ export class TrackingService implements TrackingPort {
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly eta: EtaService,
     @Optional() @Inject(TRACKING_LATE_CREDIT) private readonly lateCredit: TrackingLateCreditPort | null = null,
+    @Optional() @Inject(TRACKING_LATE_APOLOGY) private readonly lateApology: TrackingLateApologyPort | null = null,
   ) {}
 
-  /** Minutes past the promised time after which the delivery fee comes back (`MoneyRules.latePromise`). */
-  private readonly latePromiseAfterMin = AZIZIYAH_MONEY_RULES.latePromise.afterMin;
+  private readonly logger = new Logger(TrackingService.name);
+  /** The honest-delay promise's two steps (`MoneyRules.latePromise`): apology, then credit. */
+  private readonly lateRules = AZIZIYAH_MONEY_RULES.latePromise;
+  /** Orders whose apology is known to be out, so the sweep skips them without a read. */
+  private readonly apologised = new Set<string>();
   /** The at-risk predictions, by order (`AT_RISK_RULES.cacheMs`). */
   private readonly risks = new Map<string, { at: number; risk: { orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number } | null }>();
 
@@ -250,24 +285,102 @@ export class TrackingService implements TrackingPort {
   }
 
   /**
-   * Audit d-5, the honest-delay promise: past the promised time + `afterMin` (still on the way, or
-   * delivered after it) the delivery fee comes back as wallet credit, once — posted here when the
-   * customer is watching, and at delivery by the `order.delivered` subscriber otherwise. No credit on a
-   * cancelled order, without a delivery fee, or while the customer is the one not answering.
+   * Audit d-5, the honest-delay promise (two steps, Ali 2026-10-06). Step one: past the promised time
+   * + `apologyAfterMin`, still on the way, one apology with the new time (`apologize`). Step two: past
+   * the promised time + `afterMin` (still on the way, or delivered after it) the credit — the delivery
+   * fee, or the fixed free-delivery credit — comes back as wallet credit, once: posted here when the
+   * customer is watching, and at delivery by the `order.delivered` subscriber otherwise. No credit on
+   * a cancelled order or while the customer is the one not answering.
    */
   private async latePromise(order: Order, trip: Trip | null, promisedAt: Date | null, now: Date, tx?: Tx): Promise<LatePromise | null> {
     if (!this.lateCredit || !promisedAt) return null;
-    const creditIqd = latePromiseCreditIqd(order);
-    if (creditIqd <= 0) return null;
-    const deadlineAt = new Date(promisedAt.getTime() + this.latePromiseAfterMin * 60_000);
+    const terms = latePromiseTerms(order, this.lateRules);
+    if (!terms) return null;
+    const deadlineAt = new Date(promisedAt.getTime() + this.lateRules.afterMin * MIN_MS);
     let credit = await this.lateCredit.issued(order.id);
     const doorAt = order.deliveredAt ?? (SETTLED_ORDER_STATES.has(order.state) ? null : now);
     const customerUnreachable = Boolean(trip?.unreachable);
     if (!credit && doorAt && doorAt.getTime() > deadlineAt.getTime() && !customerUnreachable) {
-      await this.lateCredit.issue({ orderId: order.id, customerId: order.ordererId, amountIqd: creditIqd, at: now }, tx);
-      credit = (await this.lateCredit.issued(order.id)) ?? { amountIqd: creditIqd, at: now };
+      await this.lateCredit.issue({ orderId: order.id, customerId: order.ordererId, amountIqd: terms.creditIqd, at: now }, tx);
+      credit = (await this.lateCredit.issued(order.id)) ?? { amountIqd: terms.creditIqd, at: now };
     }
-    return { afterMin: this.latePromiseAfterMin, creditIqd, deadlineAt, credit };
+    const apology = await this.apologize(order, trip, promisedAt, now);
+    return {
+      afterMin: this.lateRules.afterMin,
+      creditIqd: terms.creditIqd,
+      basis: terms.basis,
+      deadlineAt,
+      credit,
+      apologyAfterMin: this.lateRules.apologyAfterMin,
+      apology: apology ? { at: apology.at, etaAt: apology.etaAt } : null,
+    };
+  }
+
+  /**
+   * Step one of the honest-delay promise: the apology this order got, sending it now when it is due
+   * (`lateApologyDue`) and has not gone out. `fresh` = sent by this call. Idempotent by order.
+   */
+  private async apologize(order: Order, trip: Trip | null, promisedAt: Date, now: Date): Promise<{ at: Date; etaAt: Date; fresh: boolean } | null> {
+    if (!this.lateApology) return null;
+    const sent = await this.lateApology.sent(order.id);
+    if (sent) return { ...sent, fresh: false };
+    if (!lateApologyDue(order, promisedAt, now, Boolean(trip?.unreachable), this.lateRules.apologyAfterMin)) return null;
+    const etaAt = await this.newEta(order, trip, promisedAt, now);
+    await this.lateApology.send({ orderId: order.id, customerId: order.ordererId, promisedAt, etaAt, at: now });
+    const stored = await this.lateApology.sent(order.id);
+    return stored ? { ...stored, fresh: stored.at.getTime() === now.getTime() } : { at: now, etaAt, fresh: true };
+  }
+
+  /**
+   * The new time the apology gives: the courier's live ETA when he is sharing a fix; otherwise the
+   * kitchen (once the food is ready, or now) plus the same kitchen → door ride the promise used.
+   * Rounded up to the minute, never earlier than a minute from now.
+   */
+  private async newEta(order: Order, trip: Trip | null, promisedAt: Date, now: Date): Promise<Date> {
+    let at: number | null = null;
+    if (trip?.courierId && positionVisible(trip.state)) {
+      const fix = await this.trips.lastPosition(trip.id);
+      if (fix && fix.driverId === trip.courierId) at = (await this.liveEta(order, trip, fix.pin, now))?.at.getTime() ?? null;
+    }
+    if (at === null) {
+      const promisedReady = order.promisedReadyAt ?? promisedAt;
+      const rideMs = Math.max(0, promisedAt.getTime() - promisedReady.getTime());
+      const from = order.pickedUpAt ? now.getTime() : Math.max(now.getTime(), (order.readyAt ?? promisedReady).getTime());
+      at = from + rideMs;
+    }
+    return new Date(Math.ceil(Math.max(at, now.getTime() + MIN_MS) / MIN_MS) * MIN_MS);
+  }
+
+  /**
+   * The apology's proactive side: every live delivery (food, catalog grocery) the clock has taken past
+   * its promised time + `apologyAfterMin` gets its one apology, watched or not. Run by
+   * `LateApologySweeper`; the cheap test (the promise is never before the kitchen's promised ready
+   * time) skips the rest without a road ETA. Returns how many apologies this run sent.
+   */
+  async sweepLateApologies(): Promise<number> {
+    if (!this.lateApology || !this.orders.listActive) return 0;
+    const now = this.clock.now();
+    const earliest = now.getTime() - this.lateRules.apologyAfterMin * MIN_MS;
+    let sent = 0;
+    for (const order of await this.orders.listActive({})) {
+      if ((order.type !== 'food' && order.type !== 'grocery_catalog') || this.apologised.has(order.id)) continue;
+      if (!order.promisedReadyAt || !order.acceptedAt || order.deliveredAt || order.promisedReadyAt.getTime() > earliest) continue;
+      try {
+        const agg = await this.orders.aggregate(order.id);
+        const merchant = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
+        const promisedAt = await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt);
+        if (!promisedAt) continue;
+        const apology = await this.apologize(order, await this.currentTrip(order.id), promisedAt, now);
+        if (!apology) continue;
+        if (this.apologised.size >= APOLOGISED_CACHE_MAX) this.apologised.delete(this.apologised.values().next().value!);
+        this.apologised.add(order.id);
+        if (apology.fresh) sent += 1;
+      } catch (err) {
+        // One order's lookup failing must not hold the others' apologies back; the next run retries it.
+        this.logger.warn(`late apology ${order.id}: ${(err as Error).message}`);
+      }
+    }
+    return sent;
   }
 
   /** The `order.delivered` subscriber: a delivery that came past the promise gets its credit even if nobody watched. */

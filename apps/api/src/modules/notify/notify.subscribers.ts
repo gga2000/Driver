@@ -25,6 +25,7 @@ export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
   'order.auto_accepted',
   'order.prep_extended',
+  'order.late_apology',
   'order.offered_to_merchant',
   'order.delivered',
   'stop.courier_near',
@@ -94,6 +95,14 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!order || order.type === 'ride') return [];
       const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? '') : '';
       return [{ ...base, template: 'order_prep_extended', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'order.late_apology': {
+      // The honest-delay promise, step one (Ali, 2026-10-06): "آسفين، طلبك تأخر شوية" with the new time.
+      const customerId = str(p['customerId']);
+      const etaAt = str(p['etaAt']);
+      const eta = etaAt ? new Date(etaAt) : null;
+      if (!customerId || !e.orderId || !eta || Number.isNaN(eta.getTime())) return [];
+      return [{ ...base, template: 'order_late_apology', to: customerId, orderId: e.orderId, params: { time: localTime(eta), orderId: e.orderId }, data: { orderId: e.orderId } }];
     }
     case 'order.offered_to_merchant': {
       const order = e.orderId ? await L.order(e.orderId) : null;

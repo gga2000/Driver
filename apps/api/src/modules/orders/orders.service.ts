@@ -3,7 +3,8 @@ import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
   MERCHANT_PREP_EXTENSION,
-  latePromiseCreditIqd,
+  latePromiseTerms,
+  type LatePromiseBasis,
   PlaceOrderInput,
   cashToHand,
   changeToWalletProblem,
@@ -898,9 +899,8 @@ export class OrdersService implements OnModuleInit {
   }
 
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
-    const live = (await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}) })).filter(
-      (o) => !TERMINAL_ORDER_STATES.includes(o.state),
-    );
+    // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
+    const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
     return Promise.all(live.map((o) => this.view(o.id)));
   }
 
@@ -1825,11 +1825,15 @@ export function toOrderView(agg: OrderAggregate): Order {
 }
 
 /**
- * Audit d-5: the honest-delay promise checkout shows — deliveries with a promised time (food and
- * catalog grocery) that carry a delivery fee; the credit is that fee (`latePromiseCreditIqd`).
+ * Audit d-5: the honest-delay promise checkout shows — every delivery with a promised time (food and
+ * catalog grocery): the delivery fee back, or the fixed credit when delivery is free (`latePromiseTerms`).
  */
-export function latePromiseOf(type: string, deliveryFeeIqd: number, discount: { meta: { target: string }; amountIqd: number } | null | undefined): { afterMin: number; creditIqd: number } | null {
+export function latePromiseOf(
+  type: string,
+  deliveryFeeIqd: number,
+  discount: { meta: { target: string }; amountIqd: number } | null | undefined,
+): { afterMin: number; creditIqd: number; basis: LatePromiseBasis } | null {
   if (type !== 'food' && type !== 'grocery_catalog') return null;
-  const creditIqd = latePromiseCreditIqd({ deliveryFeeIqd, discount: discount ? { target: discount.meta.target, amountIqd: discount.amountIqd } : null });
-  return creditIqd > 0 ? { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, creditIqd } : null;
+  const terms = latePromiseTerms({ deliveryFeeIqd, discount: discount ? { target: discount.meta.target, amountIqd: discount.amountIqd } : null });
+  return terms ? { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, ...terms } : null;
 }

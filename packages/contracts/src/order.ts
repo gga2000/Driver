@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { AppliedDiscount } from './deals.js';
 import type { Actor } from './identity-io.js';
+import { LatePromiseBasis } from './ledger-rules.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
 
@@ -293,9 +294,10 @@ export const OrderQuote = z.object({
   nextDeal: z.object({ dealId: z.string(), label_ar: z.string(), label_en: z.string(), missingIqd: Iqd }).nullable(),
   /**
    * The honest-delay promise this order would carry (`MoneyRules.latePromise`): more than `afterMin`
-   * minutes late and `creditIqd` (the delivery fee) comes back as credit. Null without a delivery fee.
+   * minutes late and `creditIqd` comes back as credit — the delivery fee (`basis: 'delivery_fee'`), or
+   * the fixed free-delivery credit (`flat`). Every food / catalog-grocery delivery carries one.
    */
-  latePromise: z.object({ afterMin: z.number().int().positive(), creditIqd: Iqd.positive() }).nullable().optional(),
+  latePromise: z.object({ afterMin: z.number().int().positive(), creditIqd: Iqd.positive(), basis: LatePromiseBasis }).nullable().optional(),
 });
 export type OrderQuote = z.infer<typeof OrderQuote>;
 

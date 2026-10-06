@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DeliveryPoint, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
+import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 
@@ -78,16 +79,24 @@ export const TrackItem = z.object({
 export type TrackItem = z.infer<typeof TrackItem>;
 
 /**
- * The honest-delay promise on one delivery (audit d-5, `MoneyRules.latePromise`): past `deadlineAt`
- * (the promised time + `afterMin`) the delivery fee comes back as wallet credit, once. `credit` is the
- * credit the ledger posted (null until then): the app's toast and the receipt line read it.
+ * The honest-delay promise on one delivery (audit d-5, `MoneyRules.latePromise`, two steps): past the
+ * promised time + `apologyAfterMin` we say sorry once with the new time (`apology`, null until sent);
+ * past `deadlineAt` (the promised time + `afterMin`) `creditIqd` comes back as wallet credit, once.
+ * `credit` is the credit the ledger posted (null until then): the app's toast and the receipt line
+ * read it.
  */
 export const LatePromise = z.object({
   afterMin: z.number().int().positive(),
-  /** What comes back: the delivery fee this order pays. */
+  /** What comes back: the delivery fee this order pays, or the fixed amount when delivery is free. */
   creditIqd: Iqd.positive(),
+  /** `delivery_fee`: "أجرة التوصيل ترجعلك"; `flat`: a free-delivery order's fixed credit. */
+  basis: LatePromiseBasis,
   deadlineAt: z.coerce.date(),
   credit: z.object({ amountIqd: Iqd.positive(), at: z.coerce.date() }).nullable(),
+  /** Minutes past the promised time when the one apology goes out. */
+  apologyAfterMin: z.number().int().positive(),
+  /** The apology we sent (push + SMS twin): when, and the new time it gave. Null until sent. */
+  apology: z.object({ at: z.coerce.date(), etaAt: z.coerce.date() }).nullable(),
 });
 export type LatePromise = z.infer<typeof LatePromise>;
 
