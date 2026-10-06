@@ -40,6 +40,7 @@ import {
   UpsertItemInput,
   WeeklyStatement,
 } from '../merchant-admin-io.js';
+import { DecideMenuShotInput, MenuPhotoRequestRef, MenuPhotoRequestView, RequestMenuPhotosInput } from '../menu-photos-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
@@ -73,6 +74,14 @@ export const merchantAdminRouter = router({
     importFromPhotos: p.input(ImportFromPhotosInput).output(MenuImportJob).mutation(({ ctx, input }) => ctx.merchantAdmin.menuImportFromPhotos(ctx.actor, input)),
     importJob: p.input(ImportJobInput).output(MenuImportJob).query(({ ctx, input }) => ctx.merchantAdmin.menuImportJob(ctx.actor, input)),
     applyImport: p.input(ApplyImportInput).output(MenuImportJob).mutation(({ ctx, input }) => ctx.merchantAdmin.menuApplyImport(ctx.actor, input)),
+  }),
+  /** «تصوير المنيو» (maps k3): ask field ops to photograph dishes; owner-only actions, staff read. */
+  menuPhotos: router({
+    list: p.input(MerchantScope).output(z.array(MenuPhotoRequestView)).query(({ ctx, input }) => ctx.menuPhotos.merchantList(ctx.actor, input)),
+    request: p.input(RequestMenuPhotosInput).output(MenuPhotoRequestView).mutation(({ ctx, input }) => ctx.menuPhotos.request(ctx.actor, input)),
+    cancel: p.input(MenuPhotoRequestRef).output(MenuPhotoRequestView).mutation(({ ctx, input }) => ctx.menuPhotos.cancel(ctx.actor, input)),
+    /** Accept (becomes the dish's photo) or reject one photo from the visit. */
+    decide: p.input(DecideMenuShotInput).output(MenuPhotoRequestView).mutation(({ ctx, input }) => ctx.menuPhotos.decide(ctx.actor, input)),
   }),
   deals: router({
     list: p.input(MerchantScope).output(z.array(DealView)).query(({ ctx, input }) => ctx.merchantAdmin.dealsList(ctx.actor, input)),

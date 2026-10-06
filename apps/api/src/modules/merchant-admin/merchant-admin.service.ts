@@ -55,6 +55,16 @@ export const DISPUTE_RESPONSE_HOURS = 48;
 export const UPLOAD_PHOTO_PREFIX = 'upload:';
 
 /**
+ * A stored item photo as a link an app can load: our own uploads (`upload:<id>`) are signed, outside
+ * links pass through. Shared with the menu photo service, which shows the dish's photo of today next
+ * to the one just taken.
+ */
+export function itemPhotoUrl(blobs: Pick<BlobStore, 'readUrl'>, stored: string | null): string | null {
+  if (!stored) return null;
+  return stored.startsWith(UPLOAD_PHOTO_PREFIX) ? blobs.readUrl(stored.slice(UPLOAD_PHOTO_PREFIX.length)) : stored;
+}
+
+/**
  * Merchant app wave 2 (`merchantAdmin.*`). Every call is scoped to one merchant org the caller holds
  * `merchant_owner` / `merchant_staff` at; money, staff and deal changes are owner-only. Menu through
  * the catalog module, deals through promotions, money from the ledger, orders from orders, staff as
@@ -107,8 +117,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   // ───────────────────────── menu ─────────────────────────
 
   private photoUrl(stored: string | null): string | null {
-    if (!stored) return null;
-    return stored.startsWith(UPLOAD_PHOTO_PREFIX) ? this.blobs.readUrl(stored.slice(UPLOAD_PHOTO_PREFIX.length)) : stored;
+    return itemPhotoUrl(this.blobs, stored);
   }
 
   private itemView(i: CatalogItemRecord): AdminMenuItem {

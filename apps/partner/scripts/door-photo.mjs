@@ -1,6 +1,7 @@
 // Drawn photos as PNGs for the demo, no network and no image files: a door (green door in a brick
 // wall) for the customer's saved home — the courier's job shows it as the door photo (maps program
-// f6) — and a restaurant's takeaway window for مطعم خالد's pickup spot (maps program r7).
+// f6) — a restaurant's takeaway window for مطعم خالد's pickup spot (maps program r7) and plates of
+// food for the menu photo service (maps program k3).
 import { Buffer } from 'node:buffer';
 import { deflateSync } from 'node:zlib';
 
@@ -70,4 +71,17 @@ function windowPixel(x, y) {
 
 export function pickupWindowPng() {
   return png(windowPixel);
+}
+
+/**
+ * A dish from above for the menu photo service (maps program k3): a white plate on a wooden table
+ * with the food in `food` (RGB), so each demo dish's photo looks different.
+ */
+export function platePng(food = [176, 96, 44]) {
+  return png((x, y) => {
+    const d = Math.hypot(x - W / 2, y - H / 2);
+    if (d < 46) return (x + y) % 9 === 0 ? food.map((c) => Math.max(0, c - 40)) : food;
+    if (d < 74) return d > 70 ? [222, 218, 210] : [248, 246, 240];
+    return y % 24 < 2 ? [120, 78, 44] : [150, 100, 58];
+  });
 }

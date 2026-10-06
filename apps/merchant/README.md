@@ -79,6 +79,13 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   (`merchant.deliveryArea`, the server's checkout quote; read-only), a legend in دينار, paused zones dashed, and a list of every
   zone. Owner and staff. **منين زبائنك** (r6) is a panel on الإحصائيات (`merchant.customerZones`): delivered orders per area
   for the chosen range, zones under 5 orders folded into «مناطق ثانية» (spec D7). Demo: Khalid's history carries drop-off zones.
+- **تصوير المنيو** (`app/menu-photos.tsx`, `src/features/menu-photos/`, maps program k3): المزيد → «تصوير المنيو». The owner asks
+  Driver's field team to photograph the whole menu or picked dishes, with a note («الأفضل الصبح قبل الزحمة»), then follows it on
+  four steps (طلبنا · موعد التصوير · تصوّرت · خلص) and «ألغي الطلب» until the photos are handed over. Then each dish shows today's
+  photo next to the new one with «قبول» / «رفض»: accepted becomes the dish's photo (the same catalog photo as the item editor),
+  rejected is deleted. `merchantAdmin.menuPhotos.*`; owners act, staff read; push «صور المنيو جاهزة» opens the screen. Demo: the
+  shoot is handed over with 3 drawn plates; `POST /demo/menu-photos/reset` | `/demo/menu-photos/scheduled` | `/demo/menu-photos/clear`
+  (`scripts/demo/menu-photos.mjs`).
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).

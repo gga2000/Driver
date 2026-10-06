@@ -20,6 +20,7 @@ import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
+import type { MenuPhotosPort } from './menu-photos-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort } from './merchant-io.js';
 import type { TopUpPort } from './topup-io.js';
@@ -52,6 +53,8 @@ export interface AppContext {
   fleet: FleetPort;
   /** Partner wave 2: field ops mode (`modules/ops`). */
   ops: OpsPort;
+  /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
+  menuPhotos: MenuPhotosPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
   merchantAdmin: MerchantAdminPort;
   orders: OrdersPort;

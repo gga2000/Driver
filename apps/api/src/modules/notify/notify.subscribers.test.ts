@@ -63,6 +63,9 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('merchant.paid_by_courier', { handoverId: 'MH-1', merchantId: 'org_k', courierId: 'courier', amountIqd: 45_000, merchantBalanceIqd: 5_000 }))).toEqual([
       { template: 'merchant_cash_handover', to: 'owner', params: { store: 'مطعم خالد', amount: '45,000', courier: 'كرار', date: '2026-10-04', balance: '5,000', reference: 'MH-1' } },
     ]);
+    // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
+    expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
+    expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
     expect(await one(event('ops.cash_received', { courierId: 'courier', amountIqd: 60_000, courierCashAfterIqd: -15_000 }))).toEqual([{ template: 'courier_cash_receipt', to: 'courier', params: { amount: '60,000', date: '2026-10-04', balance: '-15,000' } }]);
     expect(await one(event('wallet.topped_up', { customerId: 'cust', amountIqd: 25_000, reference: 'TU-7' }))).toEqual([{ template: 'wallet_topup_receipt', to: 'cust', params: { amount: '25,000', date: '2026-10-04', reference: 'TU-7' } }]);
     // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.

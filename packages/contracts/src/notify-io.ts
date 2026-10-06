@@ -110,6 +110,7 @@ export const NotifyTemplateId = z.enum([
   'partner_new_job',
   'partner_zone_nudge',
   'merchant_cash_handover',
+  'menu_photos_ready',
   'courier_cash_receipt',
   'driver_pay_reply',
   'tip_received',
@@ -312,6 +313,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'money',
     app: 'partner',
     push: { title: 'push.driver_pay_resolved.title', body: 'push.driver_pay_resolved.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Menu photo service (maps k3): field ops handed the visit's photos over; the owner accepts or
+  // rejects each one on «تصوير المنيو». Push only: nothing here is worth a paid WhatsApp template.
+  menu_photos_ready: {
+    id: 'menu_photos_ready',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.menu_photos_ready.title', body: 'push.menu_photos_ready.body', androidChannel: 'orders', deepLink: 'driver-merchant://menu-photos' },
     primary: ['push'],
     quietHours: 'send',
   },

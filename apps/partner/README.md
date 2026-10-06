@@ -286,3 +286,14 @@ viewer the customer's `DoorCard` uses too). It comes from `PartnerJobStop.pickup
 only for the assigned courier during the job and drops once he picked up. Unlike the door photo it does not
 open by itself on arrival, so the pickup code stays on screen at the counter. Demo: مطعم خالد has a drawn
 takeaway window and a note (`scripts/demo/20-core-work.mjs`); `POST /demo/job?who=courier&step=to_pickup`.
+
+## Menu photo shoots (maps program k3)
+
+Field ops only: Ops › «تصوير منيو» (`app/ops/menu-photos.tsx`) lists restaurants that asked for their dishes
+to be photographed (`ops.menuPhotos.open`), his own visits first. A request (`app/ops/menu-shoot.tsx`) sets
+or moves the visit with one tap (بعد ساعة · العصر · باچر الصبح · باچر العصر → `ops.menuPhotos.schedule`),
+then per dish «صوّر» / «من الألبوم» uploads the photo (`places.photoUpload`, then `ops.menuPhotos.addShot`;
+a second photo replaces the first; shooting without a visit set takes the request on the spot), and «سلّم
+الصور» (`ops.menuPhotos.markShot`) hands them to the owner, who accepts or rejects each in the Merchant app.
+Someone else's visit is read only. Demo: مطعم خالد asked for 3 dishes (`scripts/demo/menu-photos.mjs`, sign
+in as field ops `0770 111 0006`); `POST /demo/menu-photos/reset` opens a fresh request.

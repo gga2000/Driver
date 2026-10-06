@@ -16,6 +16,11 @@ import {
   quickAmounts,
   stepReady,
   zoneOptions,
+  canHandOver,
+  dishesKey,
+  shootProgress,
+  visitChoices,
+  visitDay,
 } from './logic';
 
 describe('hand-over code pad', () => {
@@ -130,5 +135,46 @@ describe('landmark local names', () => {
     let names: string[] = [];
     for (const n of ['  يم الجامع ', 'يم الجامع', 'صوب الكراج', '', 'a', 'b', 'c', 'd']) names = addLocalName(names, n);
     expect(names).toEqual(['يم الجامع', 'صوب الكراج', 'a', 'b', 'c']);
+  });
+});
+
+describe('menu photo service', () => {
+  it('offers in an hour, this afternoon while ahead, and tomorrow morning and afternoon (Baghdad time)', () => {
+    // 10:07 Baghdad.
+    const morning = visitChoices(new Date('2026-10-07T07:07:00Z'));
+    expect(morning.map((c) => [c.key, c.at.toISOString()])).toEqual([
+      ['in_hour', '2026-10-07T08:15:00.000Z'],
+      ['today_afternoon', '2026-10-07T13:00:00.000Z'],
+      ['tomorrow_morning', '2026-10-08T07:00:00.000Z'],
+      ['tomorrow_afternoon', '2026-10-08T13:00:00.000Z'],
+    ]);
+    // 15:30 Baghdad: «اليوم العصر» is past an hour from now, so it drops.
+    expect(visitChoices(new Date('2026-10-07T12:30:00Z')).map((c) => c.key)).toEqual(['in_hour', 'tomorrow_morning', 'tomorrow_afternoon']);
+    // 23:30 Baghdad: "tomorrow" is the next Baghdad date, not the next UTC one.
+    expect(visitChoices(new Date('2026-10-07T20:30:00Z')).find((c) => c.key === 'tomorrow_morning')?.at.toISOString()).toBe('2026-10-08T07:00:00.000Z');
+  });
+
+  it('names the visit day on the Baghdad calendar', () => {
+    const now = new Date('2026-10-07T20:30:00Z'); // 23:30 Baghdad
+    expect(visitDay(new Date('2026-10-07T20:45:00Z'), now)).toBe('today');
+    expect(visitDay(new Date('2026-10-07T21:30:00Z'), now)).toBe('tomorrow'); // 00:30 Baghdad
+    expect(visitDay(new Date('2026-10-09T07:00:00Z'), now)).toBe('other');
+  });
+
+  it('counts dishes the Iraqi way', () => {
+    expect([0, 1, 2, 5, 12].map(dishesKey)).toEqual(['partner.ops_mp_dishes_zero', 'partner.ops_mp_dishes_one', 'partner.ops_mp_dishes_few', 'partner.ops_mp_dishes_few', 'partner.ops_mp_dishes_many']);
+  });
+
+  it('hands over only his scheduled visit with at least one photo', () => {
+    const shot = { shotId: 's', itemId: 'a', photoUrl: '/f/a', state: 'proposed' as const, takenAt: new Date() };
+    const dishes = [
+      { itemId: 'a', nameAr: 'تكة', categoryAr: null, currentPhotoUrl: null, shot },
+      { itemId: 'b', nameAr: 'كباب', categoryAr: null, currentPhotoUrl: null, shot: null },
+    ];
+    expect(shootProgress({ dishes })).toEqual({ shot: 1, total: 2 });
+    expect(canHandOver({ dishes, canAct: true, state: 'scheduled' })).toBe(true);
+    expect(canHandOver({ dishes, canAct: false, state: 'scheduled' })).toBe(false);
+    expect(canHandOver({ dishes, canAct: true, state: 'shot' })).toBe(false);
+    expect(canHandOver({ dishes: [dishes[1]!], canAct: true, state: 'scheduled' })).toBe(false);
   });
 });

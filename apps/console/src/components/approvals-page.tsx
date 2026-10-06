@@ -11,6 +11,7 @@ import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
+import { MenuPhotoQueue } from './menu-photo-queue';
 import {
   Avatar,
   Button,
@@ -97,6 +98,9 @@ export function ApprovalsPage() {
           onDecided={(next) => setSelected(next)}
         />
       )}
+      <div className="mt-5">
+        <MenuPhotoQueue />
+      </div>
     </div>
   );
 }

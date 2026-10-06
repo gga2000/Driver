@@ -6,15 +6,15 @@ import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/features/fleet/FleetParts';
 import { DUE_KEY, dueOf, TASK_KIND_KEY } from '@/features/ops/logic';
 import { ActionTile, TASK_ICON } from '@/features/ops/OpsParts';
-import { useCashHolders, useCompleteTask, useOpsTasks } from '@/features/ops/queries';
+import { useCashHolders, useCompleteTask, useMenuPhotoRequests, useOpsTasks } from '@/features/ops/queries';
 import { useMe } from '@/features/work/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 /**
- * وضع العمليات — field staff's home: the three things they do in the street (cash from couriers,
- * landmark photos, shop sign-ups) and the day's tasks: couriers to collect cash from (computed
+ * وضع العمليات — field staff's home: what they do in the street (cash from couriers, landmark
+ * photos, shop sign-ups, restaurants' menu shoots, wallet top-ups) and the day's tasks: couriers to collect cash from (computed
  * live from the ledger) and stored follow-ups they can tick off.
  */
 export default function OpsHome() {
@@ -23,6 +23,7 @@ export default function OpsHome() {
   const me = useMe().data;
   const tasks = useOpsTasks();
   const holders = useCashHolders();
+  const menuRequests = useMenuPhotoRequests();
   const inField = (holders.data ?? []).reduce((s, h) => s + h.heldIqd, 0);
   const firstName = me?.name?.split(' ')[0];
 
@@ -64,6 +65,14 @@ export default function OpsHome() {
           <ActionTile testID="ops-go-landmark" glyph="camera" title={t('partner.ops_action_landmark')} sub={t('partner.ops_action_landmark_sub')} onPress={() => router.push('/ops/landmark')} style={{ flex: 1 }} />
           <ActionTile testID="ops-go-onboard" icon="bag" title={t('partner.ops_action_merchant')} sub={t('partner.ops_action_merchant_sub')} onPress={() => router.push('/ops/onboard')} style={{ flex: 1 }} />
         </View>
+        <ActionTile
+          testID="ops-go-menu-photos"
+          glyph="camera"
+          title={t('partner.ops_action_menu_photos')}
+          sub={t('partner.ops_action_menu_photos_sub')}
+          meta={menuRequests.data && menuRequests.data.length > 0 ? t('partner.ops_mp_waiting', { n: menuRequests.data.length }) : undefined}
+          onPress={() => router.push('/ops/menu-photos')}
+        />
         <ActionTile testID="ops-go-topup" icon="plus" title={t('partner.ops_action_topup')} sub={t('partner.ops_action_topup_sub')} onPress={() => router.push('/ops/topup')} />
       </View>
 

@@ -1,5 +1,5 @@
 import { formatClock } from '@driver/i18n';
-import { AZIZIYAH_ZONES, type LatLng, type OpsTaskKind, type SettlementMode } from '@driver/contracts';
+import { AZIZIYAH_ZONES, type LatLng, type MenuPhotoRequestView, type OpsTaskKind, type SettlementMode } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { groupDigits } from '@/lib/money';
 import { normalizeIraqiPhone, toWesternDigits } from '@/lib/phone';
@@ -224,4 +224,65 @@ export function addLocalName(names: readonly string[], raw: string): string[] {
   const n = raw.trim().replace(/\s+/g, ' ');
   if (!n || names.includes(n) || names.length >= 5) return [...names];
   return [...names, n.slice(0, 60)];
+}
+
+// ───────────────────────── menu photo service (maps k3) ─────────────────────────
+
+const HOUR_MS = 3_600_000;
+const QUARTER_MS = 15 * 60_000;
+/** Visit choices: «بعد ساعة», this afternoon, tomorrow morning and afternoon (Baghdad hours). */
+const MORNING_HOUR = 10;
+const AFTERNOON_HOUR = 16;
+
+export type VisitChoice = 'in_hour' | 'today_afternoon' | 'tomorrow_morning' | 'tomorrow_afternoon';
+
+export const VISIT_KEY: Record<VisitChoice, MessageKey> = {
+  in_hour: 'partner.ops_mp_visit_in_hour',
+  today_afternoon: 'partner.ops_mp_visit_today_afternoon',
+  tomorrow_morning: 'partner.ops_mp_visit_tomorrow_morning',
+  tomorrow_afternoon: 'partner.ops_mp_visit_tomorrow_afternoon',
+};
+
+/** `hour`:00 Baghdad time, `daysAhead` days from `now`'s Baghdad date. */
+function baghdadAt(now: Date, daysAhead: number, hour: number): Date {
+  const localDay = Math.floor((now.getTime() + BAGHDAD_OFFSET_MS) / 86_400_000) + daysAhead;
+  return new Date(localDay * 86_400_000 + hour * HOUR_MS - BAGHDAD_OFFSET_MS);
+}
+
+/**
+ * One-tap visit times instead of a date picker (the visit is a shop round, not an appointment to the
+ * minute): in an hour (rounded up to the quarter), this afternoon while it is still ahead, tomorrow
+ * morning before the rush, tomorrow afternoon.
+ */
+export function visitChoices(now: Date): Array<{ key: VisitChoice; at: Date }> {
+  const inHour = new Date(Math.ceil((now.getTime() + HOUR_MS) / QUARTER_MS) * QUARTER_MS);
+  const afternoon = baghdadAt(now, 0, AFTERNOON_HOUR);
+  return [
+    { key: 'in_hour' as const, at: inHour },
+    ...(afternoon.getTime() > inHour.getTime() ? [{ key: 'today_afternoon' as const, at: afternoon }] : []),
+    { key: 'tomorrow_morning' as const, at: baghdadAt(now, 1, MORNING_HOUR) },
+    { key: 'tomorrow_afternoon' as const, at: baghdadAt(now, 1, AFTERNOON_HOUR) },
+  ];
+}
+
+/** The visit's Baghdad day as people say it: اليوم / باچر / the date. */
+export function visitDay(at: Date, now: Date): 'today' | 'tomorrow' | 'other' {
+  const day = (d: Date) => Math.floor((d.getTime() + BAGHDAD_OFFSET_MS) / 86_400_000);
+  const diff = day(at) - day(now);
+  return diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : 'other';
+}
+
+/** "طبق واحد" / "3 أطباق" / "12 طبق" (the whole menu says so on its own line). */
+export function dishesKey(n: number): MessageKey {
+  return ({ zero: 'partner.ops_mp_dishes_zero', one: 'partner.ops_mp_dishes_one', few: 'partner.ops_mp_dishes_few', many: 'partner.ops_mp_dishes_many' } as const)[pluralForm(n)];
+}
+
+/** Dishes with a photo from this visit, out of the dishes asked for. */
+export function shootProgress(view: Pick<MenuPhotoRequestView, 'dishes'>): { shot: number; total: number } {
+  return { shot: view.dishes.filter((d) => d.shot !== null).length, total: view.dishes.length };
+}
+
+/** The photos can be handed over: he holds the visit and at least one dish is shot. */
+export function canHandOver(view: Pick<MenuPhotoRequestView, 'dishes' | 'canAct' | 'state'>): boolean {
+  return view.canAct && view.state === 'scheduled' && shootProgress(view).shot > 0;
 }

@@ -283,6 +283,14 @@ export const ERROR_TABLE = {
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Menu photo service (maps k3).
+  menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
+  menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  menu_photo_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  menu_photo_taken: { retryHint: 'never', status: 'CONFLICT' },
+  menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
+  menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
+  menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

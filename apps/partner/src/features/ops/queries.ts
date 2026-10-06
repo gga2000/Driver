@@ -57,6 +57,36 @@ export function useAddLandmarkPhoto() {
   return useMutation({ ...api.ops.addLandmarkPhoto.mutationOptions(), onSuccess: () => void invalidate() });
 }
 
+// ───────────────────────── menu photo service (maps k3) ─────────────────────────
+
+/** Restaurants waiting for a menu shoot in the city: his own visits first. */
+export function useMenuPhotoRequests() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.ops.menuPhotos.open.queryOptions({ cityId: CITY_ID }), enabled: signedIn, refetchInterval: OPS_POLL_MS });
+}
+
+export function useMenuPhotoRequest(requestId: string | null) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.ops.menuPhotos.get.queryOptions({ requestId: requestId ?? '' }), enabled: signedIn && !!requestId });
+}
+
+/** Visit time, one dish's photo, hand-over: each answer replaces the cached request and the list refetches. */
+export function useMenuPhotoActions() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const settle = (view: { requestId: string }) => {
+    void qc.invalidateQueries({ queryKey: api.ops.menuPhotos.open.queryKey() });
+    void qc.invalidateQueries({ queryKey: api.ops.menuPhotos.get.queryKey({ requestId: view.requestId }) });
+  };
+  return {
+    schedule: useMutation({ ...api.ops.menuPhotos.schedule.mutationOptions(), onSuccess: settle }),
+    addShot: useMutation({ ...api.ops.menuPhotos.addShot.mutationOptions(), onSuccess: settle }),
+    markShot: useMutation({ ...api.ops.menuPhotos.markShot.mutationOptions(), onSuccess: settle }),
+  };
+}
+
 export function useMerchantOnboarding() {
   const api = useApi();
   const invalidate = useInvalidateOps();

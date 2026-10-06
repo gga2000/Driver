@@ -66,6 +66,7 @@ const SECTION_OF: Record<string, Section> = {
   hours: 'more',
   'pickup-spot': 'more',
   'delivery-area': 'more',
+  'menu-photos': 'more',
   settings: 'more',
   chat: 'orders',
 };

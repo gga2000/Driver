@@ -11,7 +11,7 @@ import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { session } from '@/lib/session';
 
-/** المزيد — staff, deals, printer, store hours, settings; switch store, call Driver, sign out. */
+/** المزيد — staff, deals, printer, store hours, pickup spot, menu photos, settings; switch store, call Driver, sign out. */
 export default function More() {
   const theme = useTheme();
   const t = useT();
@@ -50,6 +50,9 @@ export default function More() {
         </View>
         <View style={cell}>
           <EntryTile testID="more-delivery-area" icon="grid" title={t('merchant.more.delivery_area')} hint={t('merchant.more.delivery_area_hint')} onPress={() => router.push('/delivery-area')} />
+        </View>
+        <View style={cell}>
+          <EntryTile testID="more-menu-photos" icon="utensils" title={t('merchant.more.menu_photos')} hint={t('merchant.more.menu_photos_hint')} onPress={() => router.push('/menu-photos')} />
         </View>
         <View style={cell}>
           <EntryTile testID="more-settings" icon="sliders" title={t('merchant.more.settings')} hint={t('merchant.more.settings_hint')} onPress={() => router.push('/settings')} />

@@ -2675,6 +2675,50 @@ model OpsTask {
   @@schema("public")
 }
 
+/// Menu photo service (maps program k3): a restaurant asks field ops to photograph its dishes.
+/// `item_ids` are the dishes to shoot (empty = the whole menu). requested → scheduled (a field ops
+/// person took it, `assigned_ops_id`, `scheduled_for`) → shot (handed over) → done | cancelled.
+model MenuPhotoRequest {
+  id            String    @id @default(cuid())
+  orgId         String    @map("org_id")
+  cityId        String    @map("city_id")
+  requestedById String    @map("requested_by_id")
+  note          String?
+  itemIds       String[]  @default([]) @map("item_ids")
+  state         String    @default("requested")
+  assignedOpsId String?   @map("assigned_ops_id")
+  scheduledFor  DateTime? @map("scheduled_for")
+  shotAt        DateTime? @map("shot_at")
+  closedAt      DateTime? @map("closed_at")
+  closedById    String?   @map("closed_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([orgId, createdAt])
+  @@index([cityId, state])
+  @@map("menu_photo_requests")
+  @@schema("public")
+}
+
+/// One dish's photo from a menu photo visit (one per dish per request; a re-shoot replaces it while
+/// proposed). The owner accepts it (it becomes the item's photo) or rejects it.
+model MenuPhotoShot {
+  id          String    @id @default(cuid())
+  requestId   String    @map("request_id")
+  itemId      String    @map("item_id")
+  uploadId    String    @map("upload_id")
+  state       String    @default("proposed")
+  takenById   String    @map("taken_by_id")
+  decidedById String?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([requestId, itemId])
+  @@map("menu_photo_shots")
+  @@schema("public")
+}
+
 /// Menu price history (merchant app "price edit with history").
 model CatalogPriceChange {
   id          String   @id @default(cuid())

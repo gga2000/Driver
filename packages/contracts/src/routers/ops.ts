@@ -15,12 +15,53 @@ import {
   OpsTask,
   RecordCashReceiptInput,
 } from '../ops-io.js';
+import {
+  AddMenuShotInput,
+  MENU_PHOTO_QUEUE_ROLES,
+  MenuPhotoQueueInput,
+  MenuPhotoRequestView,
+  OpenMenuPhotoRequestsInput,
+  OpsMenuPhotoRef,
+  ScheduleMenuPhotosInput,
+} from '../menu-photos-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
 import { opsZonesRouter } from './zones.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
+
+/**
+ * `ops.menuPhotos.*` — the menu photo service (maps k3): field ops take a restaurant's request, set
+ * the visit, shoot each dish and hand the photos over; the Console reads the queue.
+ */
+export const opsMenuPhotosRouter = router({
+  open: protectedProcedure(FIELD_OPS_ROLES)
+    .input(OpenMenuPhotoRequestsInput)
+    .output(z.array(MenuPhotoRequestView))
+    .query(({ ctx, input }) => ctx.menuPhotos.openForOps(ctx.actor, input)),
+  get: protectedProcedure(FIELD_OPS_ROLES)
+    .input(OpsMenuPhotoRef)
+    .output(MenuPhotoRequestView)
+    .query(({ ctx, input }) => ctx.menuPhotos.opsGet(ctx.actor, input)),
+  schedule: protectedProcedure(FIELD_OPS_ROLES)
+    .input(ScheduleMenuPhotosInput)
+    .output(MenuPhotoRequestView)
+    .mutation(({ ctx, input }) => ctx.menuPhotos.schedule(ctx.actor, input)),
+  addShot: protectedProcedure(FIELD_OPS_ROLES)
+    .input(AddMenuShotInput)
+    .output(MenuPhotoRequestView)
+    .mutation(({ ctx, input }) => ctx.menuPhotos.addShot(ctx.actor, input)),
+  markShot: protectedProcedure(FIELD_OPS_ROLES)
+    .input(OpsMenuPhotoRef)
+    .output(MenuPhotoRequestView)
+    .mutation(({ ctx, input }) => ctx.menuPhotos.markShot(ctx.actor, input)),
+  /** Console › الموافقات: every request in the city with its state (read only). */
+  queue: protectedProcedure(MENU_PHOTO_QUEUE_ROLES)
+    .input(MenuPhotoQueueInput)
+    .output(z.array(MenuPhotoRequestView))
+    .query(({ ctx, input }) => ctx.menuPhotos.queue(ctx.actor, input)),
+});
 
 /** `ops.*` — Ops mode in the Partner app for field staff. */
 export const opsRouter = router({
@@ -67,6 +108,8 @@ export const opsRouter = router({
     .mutation(({ ctx, input }) => ctx.topups.confirm(ctx.actor, input, 'ops_agent')),
   /** Launch control room: kill switches and the zone throttle (Console; admin / dispatcher to change). */
   controls: opsControlsRouter,
+  /** Menu photo service (maps k3): field ops shoot dishes for restaurants. */
+  menuPhotos: opsMenuPhotosRouter,
   /** Zone outlines drawn on a real map (Console › المناطق; admin / field ops to change). */
   zones: opsZonesRouter,
 });

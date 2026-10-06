@@ -34,6 +34,7 @@ export const NOTIFY_EVENT_TYPES = [
   'order.matched',
   'stop.arrived',
   'merchant.paid_by_courier',
+  'menu_photos.shot',
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
@@ -222,6 +223,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const [owners, store, courier] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId), str(p['courierId']) ? L.firstName(String(p['courierId']), 'merchant_cash_handover') : null]);
       const params = { store: store ?? '', amount: iqd(amount), courier: courier ?? '', date: localDate(e.occurredAt), balance: iqd(Math.max(0, num(p['merchantBalanceIqd']) ?? 0)), reference: str(p['handoverId']) ?? e.id };
       return owners.map((to) => ({ ...base, template: 'merchant_cash_handover' as const, to, params }));
+    }
+    case 'menu_photos.shot': {
+      // Menu photo service (maps k3): «صور المنيو جاهزة» to the store's owners, who accept or reject each.
+      const orgId = str(p['merchantOrgId']);
+      if (!orgId) return [];
+      const [owners, store] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId)]);
+      return owners.map((to) => ({ ...base, template: 'menu_photos_ready' as const, to, params: { store: store ?? '' } }));
     }
     case 'ops.cash_received': {
       const courierId = str(p['courierId']);
