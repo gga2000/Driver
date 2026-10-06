@@ -44,6 +44,14 @@ Tables: `safety_incidents`, `safety_incident_entries` (timeline), `safety_incide
 migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFETY_LINK_SECRET`,
 `CONSOLE_BASE_URL`, `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
 
+## Emergency number (Ali, 2026-10-06)
+
+The SOS sheet's call button and the "if the danger is close" fallbacks dial **911**, Iraq's unified
+national emergency number (Ministry of Interior; police, ambulance and fire, Wasit included), not
+104: «اتصل بالطوارئ 911». One constant, `SAFETY_RULES.policeNumber` in `safety-io.ts`, passed by the
+Customer (rides and the emergency contact's `/sos/<token>` page) and the Partner app to `SosSheet`;
+the server's `sos_not_party` / `sos_trip_over` messages say the same number.
+
 ## خطوط: the car nobody checked (2026-10-06)
 
 Not an SOS, but it reaches the same people: when a خطوط run ends and the driver has not confirmed

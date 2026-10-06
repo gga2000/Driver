@@ -31,11 +31,11 @@ export const SAFETY_RULES = {
   /** The emergency contact's live-location link lives this long after the incident closes. */
   linkAfterCloseMin: 30,
   /**
-   * Iraq's police emergency number: the rider's first SOS action and the fallback when the alert
-   * cannot be sent. The one place it lives (every app passes it to `SosSheet`). NEEDS ALI: confirm 104
-   * is the right number for Wasit (CLAUDE.md open decisions).
+   * Iraq's unified national emergency number (Ministry of Interior; police, ambulance and fire, Wasit
+   * included): the rider's first SOS action and the fallback when the alert cannot be sent. The one
+   * place it lives (every app passes it to `SosSheet`). 911, not 104 (Ali, 2026-10-06).
    */
-  policeNumber: '104',
+  policeNumber: '911',
 } as const;
 
 /** What the alert is about. Customers name an order (ride) or a الرجعة booking; drivers a trip, departure or request. */

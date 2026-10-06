@@ -17,7 +17,7 @@ decides — see `docs/api/shift-guarantee.md`.
 
 Open product decisions Ali has not yet made (ask before building further on these):
 tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
-for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit;
+for SOS and the escalation target; a masked-call provider;
 the shift guarantee (G-91: built but switched off — pay it at all? and if so peak shifts 12–16 and 19–23,
 couriers only, a minimum online time?).
 
