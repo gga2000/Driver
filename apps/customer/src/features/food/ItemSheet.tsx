@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { dealLinePrice, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import { Button, Card, Chip, ChipGroup, Icon, ModalSheet, Rule, StatusPill, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
@@ -10,7 +11,10 @@ import { useProfile } from '@/lib/profile';
 import { ME, type CartMerchant } from './cart';
 import { cartStore, useCartStore } from './cart-store';
 import { FoodArt, artOf } from './FoodArt';
-import { chosenModifiers, defaultSelection, selectionProblems, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
+import { chosenModifiers, defaultSelection, selectionProblems, sheetCta, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
+
+/** The dish picture on top of the sheet: 16:9 (joy o2). */
+const HERO_RATIO = 16 / 9;
 
 export interface ItemSheetProps {
   item: MenuItem;
@@ -43,6 +47,11 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
+  // o4: where each choice group sits in the sheet's scroll, and which one to flash.
+  const scrollRef = useRef<ScrollView>(null);
+  const bodyY = useRef(0);
+  const groupY = useRef<Record<string, number>>({});
+  const [flash, setFlash] = useState<{ groupId: string; n: number } | null>(null);
 
   useEffect(() => {
     setSelection(defaultSelection(item));
@@ -99,6 +108,13 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   };
 
   const missing = problems.find((p) => p.problem === 'too_few');
+  const cta = sheetCta(problems, item.available && !disabled);
+  const goToMissing = (groupId: string) => {
+    const y = groupY.current[groupId];
+    if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, bodyY.current + y - 12), animated: !theme.reduceMotion });
+    theme.haptic('warning');
+    setFlash((f) => ({ groupId, n: (f?.n ?? 0) + 1 }));
+  };
 
   return (
     <ModalSheet
@@ -106,11 +122,12 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
       onClose={onClose}
       title={item.name}
       subtitle={item.description ?? undefined}
-      leading={
-        <View style={{ width: 64, height: 64, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
-          <FoodArt {...artOf(item)} photoUrl={item.photoUrl} />
+      hero={
+        <View style={{ width: '100%', aspectRatio: HERO_RATIO }} testID="item-hero">
+          <FoodArt {...artOf(item)} variant="wide" photoUrl={item.photoUrl} />
         </View>
       }
+      scrollRef={scrollRef}
       layout="sheet"
       sheetMaxWidth={MAX_CONTENT_WIDTH}
       closeLabel={t('action.close')}
@@ -127,10 +144,6 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
                 </View>
               </View>
             </Card>
-          ) : missing ? (
-            <Text variant="footnote" color="textMuted" align="center">
-              {t('item.missing_choice', { group: missing.name })}
-            </Text>
           ) : null}
           {item.available && dealPrice < price ? (
             <View testID="item-deal-price" style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'baseline', gap: theme.space[2] }}>
@@ -146,16 +159,20 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
             testID="item-add"
             size="lg"
             fullWidth
-            disabled={disabled || problems.length > 0 || !item.available}
-            label={item.available ? t('item.add_to_cart', { amount: amountParam(dealPrice) }) : t('item.sold_out')}
-            onPress={() => add(false)}
+            variant={cta.kind === 'choose' ? 'secondary' : 'primary'}
+            disabled={cta.kind === 'blocked'}
+            label={!item.available ? t('item.sold_out') : cta.kind === 'choose' ? t('item.choose_group', { group: cta.name }) : t('item.add_to_cart', { amount: amountParam(dealPrice) })}
+            accessibilityHint={cta.kind === 'choose' ? t('item.missing_choice', { group: cta.name }) : undefined}
+            onPress={() => (cta.kind === 'choose' ? goToMissing(cta.groupId) : add(false))}
           />
         </>
       }
     >
-      <View style={{ gap: theme.space[5], paddingTop: theme.space[1] }}>
+      <View style={{ gap: theme.space[5], paddingTop: theme.space[1] }} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
         {item.modifierGroups.map((g) => (
-          <ModifierGroupBlock key={g.id} group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} />
+          <View key={g.id} onLayout={(e) => (groupY.current[g.id] = e.nativeEvent.layout.y)}>
+            <ModifierGroupBlock group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} flash={flash?.groupId === g.id ? flash.n : 0} />
+          </View>
         ))}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -214,13 +231,45 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded }: ItemSh
   );
 }
 
-function ModifierGroupBlock({ group, basePrice, selected, onToggle, missing }: { group: MenuModifierGroup; basePrice: number; selected: readonly string[]; onToggle: (id: string) => void; missing: boolean }) {
+function ModifierGroupBlock({
+  group,
+  basePrice,
+  selected,
+  onToggle,
+  missing,
+  flash,
+}: {
+  group: MenuModifierGroup;
+  basePrice: number;
+  selected: readonly string[];
+  onToggle: (id: string) => void;
+  missing: boolean;
+  /** Changes each time the add button points here: the group's outline pulses twice in warning (o4). */
+  flash: number;
+}) {
   const theme = useTheme();
+  const glow = useSharedValue(0);
+  useEffect(() => {
+    if (flash === 0) return;
+    if (theme.reduceMotion) {
+      glow.value = 1;
+      return;
+    }
+    const d = theme.motion.duration.base;
+    glow.value = withSequence(withTiming(1, { duration: d }), withTiming(0.2, { duration: d }), withTiming(1, { duration: d }), withTiming(0.6, { duration: d }));
+  }, [flash, glow, theme.reduceMotion, theme.motion]);
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
   const t = useT();
   const locale = useLocale();
   const rule = group.max === 1 ? t('item.choose_one') : group.min > 0 ? t('item.choose_at_least', { n: group.min }) : t('item.choose_up_to', { n: group.max });
   return (
     <View style={{ gap: theme.space[3] }} testID={`group-${group.id}`}>
+      {flash > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[{ position: 'absolute', top: -theme.space[2], bottom: -theme.space[2], start: -theme.space[2], end: -theme.space[2], borderRadius: theme.radius.lg, borderWidth: 2, borderColor: theme.colors.warning }, glowStyle]}
+        />
+      ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <Text variant="bodyStrong" style={{ flexShrink: 1 }}>
           {group.name}

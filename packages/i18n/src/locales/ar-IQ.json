@@ -364,6 +364,7 @@
   "item.save_person": "ضيفه",
   "item.person_name_required": "اكتب اسمه",
   "item.missing_choice": "باقي تختار: {group}",
+  "item.choose_group": "اختار {group}",
   "cart.title": "السلة",
   "cart.empty": "سلتك فاضية",
   "cart.empty_hint": "ضيف شي من المنيو ويطلع هنا",

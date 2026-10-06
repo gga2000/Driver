@@ -61,6 +61,21 @@ export function selectionProblems(item: MenuItem, selection: Selection): GroupPr
   return out;
 }
 
+/**
+ * What the sheet's main button does (joy o4, audit F-10): add the dish; or, when the only thing missing
+ * is a required choice, stay pressable as «اختار {group}» and take the person to that group; or stay
+ * disabled (kitchen closed, sold out, too many picked — the chips already say so).
+ */
+export type SheetCta = { kind: 'add' } | { kind: 'choose'; groupId: string; name: string } | { kind: 'blocked' };
+
+export function sheetCta(problems: readonly GroupProblem[], orderable: boolean): SheetCta {
+  if (!orderable) return { kind: 'blocked' };
+  if (problems.length === 0) return { kind: 'add' };
+  const missing = problems.find((p) => p.problem === 'too_few');
+  if (missing && problems.every((p) => p.problem === 'too_few')) return { kind: 'choose', groupId: missing.groupId, name: missing.name };
+  return { kind: 'blocked' };
+}
+
 export function isSelectionValid(item: MenuItem, selection: Selection): boolean {
   return selectionProblems(item, selection).length === 0;
 }

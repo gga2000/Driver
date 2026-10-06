@@ -31,8 +31,11 @@ export interface FoodArtProps {
   look?: number;
   /** Photo when the merchant has one. */
   photoUrl?: string | null;
-  /** Wide hero scene (with a scatter of sesame dots) or a square dish thumbnail. */
-  variant?: 'hero' | 'thumb';
+  /**
+   * Wide kitchen hero (with a scatter of sesame dots), a 16:9 dish picture for the item sheet (joy o2:
+   * the dish centred on its paper, a few dots), or a square dish thumbnail.
+   */
+  variant?: 'hero' | 'wide' | 'thumb';
   style?: StyleProp<ViewStyle>;
 }
 
@@ -41,6 +44,21 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
   const lite = useLiteMode();
   if (photoUrl && !lite) return <Image source={{ uri: photoUrl }} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
   const hero = variant === 'hero';
+  if (variant === 'wide') {
+    return (
+      <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+        <Svg width="100%" height="100%" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice">
+          <Circle cx={270} cy={20} r={90} fill={SKETCH.juice} opacity={0.12} />
+          {Array.from({ length: 12 }, (_, i) => (
+            <Ellipse key={i} cx={(i * 61) % 320} cy={12 + ((i * 43) % 160)} rx={2.6} ry={1.4} fill={SKETCH.char} opacity={0.16} transform={`rotate(${(i * 37) % 180} ${(i * 61) % 320} ${12 + ((i * 43) % 160)})`} />
+          ))}
+          <G transform="translate(80 10) scale(0.8)">
+            <DishDrawing kind={motif} look={look} line={HERO_LINE} tilt={tiltOf(look)} />
+          </G>
+        </Svg>
+      </View>
+    );
+  }
   return (
     <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
       <Svg width="100%" height="100%" viewBox={hero ? '0 0 400 220' : '0 0 200 200'} preserveAspectRatio="xMidYMid slice">

@@ -364,6 +364,7 @@
   "item.save_person": "Add",
   "item.person_name_required": "Write their name",
   "item.missing_choice": "Still to choose: {group}",
+  "item.choose_group": "Choose {group}",
   "cart.title": "Cart",
   "cart.empty": "Your cart is empty",
   "cart.empty_hint": "Add something from the menu and it shows up here",

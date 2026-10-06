@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode, type RefObject } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,13 @@ export interface ModalSheetProps {
   aside?: ReactNode;
   /** Node at the start of the header, before the title (a dish photo, a service tile). */
   leading?: ReactNode;
+  /**
+   * A full-width picture above the title (the dish sheet's 16:9 hero, joy o2). With a hero the title
+   * scrolls with the body, so a tall sheet gives the choices the room.
+   */
+  hero?: ReactNode;
+  /** The body's scroll view, for jumping to a part of it (a missing required choice, joy o4). */
+  scrollRef?: RefObject<ScrollView>;
   children: ReactNode;
   /** Pinned under the scrolling body: the primary action, where the thumb finds it. */
   footer?: ReactNode;
@@ -65,6 +72,8 @@ export function ModalSheet({
   subtitle,
   aside,
   leading,
+  hero,
+  scrollRef,
   children,
   footer,
   size = 'md',
@@ -90,6 +99,27 @@ export function ModalSheet({
   };
   const close = closeLabel ?? t('ui.dismiss');
   const hasHeader = Boolean(title || subtitle || aside || leading || closeButton);
+  const header = hasHeader ? (
+    <View style={{ flexDirection: 'row', alignItems: leading ? 'flex-start' : 'center', gap: theme.space[3], paddingHorizontal: theme.space[5], paddingTop: theme.space[dialog ? 5 : 3], paddingBottom: theme.space[3] }}>
+      {leading}
+      <View style={{ flex: 1, gap: 2 }}>
+        {title ? (
+          <Text variant="heading" accessibilityRole="header" numberOfLines={2} testID={testID ? `${testID}-title` : undefined}>
+            {title}
+          </Text>
+        ) : null}
+        {subtitle ? (
+          <Text variant="footnote" color="textMuted">
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {aside}
+      {closeButton && !locked ? <IconButton icon="x" variant="tonal" accessibilityLabel={close} onPress={dismiss} testID={testID ? `${testID}-close` : undefined} /> : null}
+    </View>
+  ) : (
+    <View style={{ height: theme.space[3] }} />
+  );
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={dismiss} statusBarTranslucent>
@@ -128,28 +158,14 @@ export function ModalSheet({
                 <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: theme.colors.border }} />
               </View>
             ) : null}
-            {hasHeader ? (
-              <View style={{ flexDirection: 'row', alignItems: leading ? 'flex-start' : 'center', gap: theme.space[3], paddingHorizontal: theme.space[5], paddingTop: theme.space[dialog ? 5 : 3], paddingBottom: theme.space[3] }}>
-                {leading}
-                <View style={{ flex: 1, gap: 2 }}>
-                  {title ? (
-                    <Text variant="heading" accessibilityRole="header" numberOfLines={2} testID={testID ? `${testID}-title` : undefined}>
-                      {title}
-                    </Text>
-                  ) : null}
-                  {subtitle ? (
-                    <Text variant="footnote" color="textMuted">
-                      {subtitle}
-                    </Text>
-                  ) : null}
+            {hero ? null : header}
+            <ScrollView ref={scrollRef} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[footer ? 4 : 5], gap: theme.space[4] }} keyboardShouldPersistTaps="handled">
+              {hero ? (
+                <View style={{ marginHorizontal: -theme.space[5], marginTop: theme.space[2] }}>
+                  {hero}
+                  <View style={{ marginBottom: -theme.space[4] }}>{header}</View>
                 </View>
-                {aside}
-                {closeButton && !locked ? <IconButton icon="x" variant="tonal" accessibilityLabel={close} onPress={dismiss} testID={testID ? `${testID}-close` : undefined} /> : null}
-              </View>
-            ) : (
-              <View style={{ height: theme.space[3] }} />
-            )}
-            <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[footer ? 4 : 5], gap: theme.space[4] }} keyboardShouldPersistTaps="handled">
+              ) : null}
               {children}
             </ScrollView>
             {footer ? (
