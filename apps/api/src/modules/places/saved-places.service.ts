@@ -258,20 +258,19 @@ export class SavedPlacesService implements OnModuleInit {
     // leaves the place as it was.
     if (input.landmarkId !== undefined) rec.landmarkId = input.landmarkId === null ? null : (await this.landmarkNear(rec.cityId, rec.pin, input.landmarkId)).id;
     else if (input.pin) await this.forgetFarLandmark(rec);
-    if (input.photoIds) {
-      const next = await this.ownUploads(personId, input.photoIds, rec.photoIds);
-      for (const old of rec.photoIds) if (!next.includes(old)) await this.blobs.remove(old);
-      rec.photoIds = next;
-    }
     // A gate the owner changes must be near the house; an unchanged one sent back with a moved pin is
     // simply dropped below when the house moved too far from it.
     if (input.entrance !== undefined && !samePoint(input.entrance, rec.entrance)) rec.entrance = entranceNear(rec.pin, input.entrance);
     // The house moved: a gate left far behind belongs to the old one.
     if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
+    // Photos are checked here but let go only once the edit is saved: a refused edit deletes nothing.
+    const dropped = input.photoIds ? rec.photoIds : [];
+    if (input.photoIds) rec.photoIds = await this.ownUploads(personId, input.photoIds, rec.photoIds);
     const startedSharing = input.shareWithHousehold === true && !rec.shareWithHousehold;
     if (input.shareWithHousehold !== undefined) rec.shareWithHousehold = input.shareWithHousehold;
     rec.updatedAt = now;
     await this.repo.put(rec);
+    for (const old of dropped) if (!rec.photoIds.includes(old)) await this.blobs.remove(old);
     if (forgetDoor) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.updated', personId, { placeId: rec.id, ownerId: personId, zoneId: rec.zoneId, label: rec.label, photos: rec.photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (startedSharing) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);

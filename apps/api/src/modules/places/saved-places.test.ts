@@ -111,6 +111,16 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     expect((await h.service.update('cust_a', { placeId: home.id, pin: ZAKUR, entrance: GATE })).entrance).toBeNull();
   });
 
+  it('a refused edit deletes nothing: the old photo survives a too-far gate', async () => {
+    const h = harness();
+    const up = await h.photo('cust_a');
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, photoIds: [up] });
+    expect(await code(h.service.update('cust_a', { placeId: home.id, photoIds: [], entrance: ZAKUR }))).toBe('place_entrance_too_far');
+    const [kept] = await h.service.mine('cust_a');
+    expect(kept!.photos.map((p) => p.id)).toEqual([up]);
+    expect(await h.blobs.get(up)).not.toBeNull();
+  });
+
   it('learns from delivered drop-offs through the outbox (stop.completed with a door)', async () => {
     const h = harness();
     h.service.onModuleInit();
