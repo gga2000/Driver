@@ -1,11 +1,13 @@
 import { RoutingModule } from '../routing/index.js';
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
+import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
@@ -35,7 +37,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -73,6 +75,12 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: ORDERS_CONTROLS, useExisting: ControlsService },
     // M3 customer catalog read: cards are open exactly when place() takes orders, fees as place() charges.
     { provide: STOREFRONT_MERCHANTS, useFactory: (dir: MerchantDirectory, deals: PromotionsPort) => new OrdersStorefrontMerchants(dir, deals), inject: [MERCHANT_DIRECTORY, ORDERS_PROMOTIONS] },
+    // Audit d-6: the welcome screen's الرجعة line and the late-delivery promise (`catalog.today`).
+    {
+      provide: STOREFRONT_TODAY,
+      useFactory: (routes: RoutesRpc): StorefrontToday => ({ rajaa: () => routes.today(), latePromiseMin: () => AZIZIYAH_MONEY_RULES.latePromise.afterMin }),
+      inject: [RoutesRpc],
+    },
     CatalogRpc,
     OrdersService,
     OrdersRpc,

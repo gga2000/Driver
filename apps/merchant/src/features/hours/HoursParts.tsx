@@ -7,9 +7,8 @@ import {
   type HoursShift,
   type StorePauseView,
 } from '@driver/contracts';
-import { Button, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { Button, ModalSheet, Text, TextField, useTheme, withAlpha } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
-import { ModalSheet } from '@/components/ModalSheet';
 import { Panel, Tag } from '@/components/Panel';
 import { Glyph } from '@/features/menu/Glyph';
 import { Toggle } from '@/features/menu/parts';

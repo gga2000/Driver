@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG_PUBLIC_RATE, isDriverError, type AppContext, type MenuItem, type RestaurantCard } from '@driver/contracts';
+import { CATALOG_PUBLIC_RATE, PriceRequest, isDriverError, type AppContext, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { FakeClock } from '../../shared/clock.js';
@@ -321,5 +321,36 @@ describe('launch menus (seed)', () => {
       expect(count, s.seed.key).toBe(s.seed.categories.reduce((n, c) => n + c.items.length, 0));
       expect(menu.categories.map((c) => c.name)).toEqual(s.seed.categories.map((c) => c.nameAr));
     }
+  });
+});
+
+describe('catalog.today (welcome screen live proof, audit d-6)', () => {
+  it('a guest reads open kitchens, a centre tuktuk fare, the late promise — and the الرجعة facts when bound', async () => {
+    const w = await world();
+    const bare = await caller(w.rpc, null).today({ cityId: 'aziziyah' });
+    // Saturday evening: three of the four launch kitchens are open (المسافر closes at 15:00).
+    expect(bare).toMatchObject({ openRestaurants: 3, rajaaCarsToday: 0, baghdadGarage: null, latePromiseMin: 20 });
+    // The same engine a booking uses: tuktuk inside the centre at the city's fares.
+    const quote = w.pricing.quote(PriceRequest.parse({ cityId: 'aziziyah', vertical: 'tuktuk', stops: [{ zoneId: 'centre', type: 'pickup' }, { zoneId: 'centre', type: 'dropoff' }], at: w.clock.now() }));
+    expect(bare.tuktukFromIqd).toBe(quote.total);
+    expect(bare.tuktukFromIqd).toBeGreaterThan(0);
+
+    const bound = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, {
+      rajaa: async () => ({ carsToday: 6, baghdadGarage: { id: 'mp_garage_bab1', nameAr: 'كراج البوابة 1', nameEn: 'Gate 1 garage' } }),
+      latePromiseMin: () => 25,
+    });
+    expect(await bound.today(ACTOR, { cityId: 'aziziyah' })).toMatchObject({
+      rajaaCarsToday: 6,
+      baghdadGarage: { id: 'mp_garage_bab1', name_ar: 'كراج البوابة 1', name_en: 'Gate 1 garage' },
+      latePromiseMin: 25,
+    });
+  });
+
+  it('is rate-limited for guests like the rest of the public catalog', async () => {
+    const w = await world();
+    const guest = { actor: null, ip: '10.0.0.9' };
+    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.today(guest, { cityId: 'aziziyah' });
+    const err = await w.rpc.today(guest, { cityId: 'aziziyah' }).catch((e: unknown) => e);
+    expect(isDriverError(err) && err.code).toBe('rate_limited');
   });
 });

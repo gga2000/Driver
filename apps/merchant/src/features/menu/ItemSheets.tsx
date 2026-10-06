@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { PriceChange } from '@driver/contracts';
-import { Button, Skeleton, Stepper, Text, TextField, useTheme } from '@driver/ui';
-import { ModalSheet } from '@/components/ModalSheet';
+import { Button, ModalSheet, Skeleton, Stepper, Text, TextField, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd, roundToStep } from '@/lib/money';
 import { clock12 } from '@/lib/time';

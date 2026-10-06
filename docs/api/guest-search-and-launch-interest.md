@@ -29,6 +29,21 @@ catalog.search({ cityId: 'aziziyah', query: 'التكه', dropoff?: DeliveryPoin
   `restaurantOpen` / `restaurantOpensAt` and sort after open ones. Sold-out dishes: `available: false`.
 - At most 20 kitchens and 30 dishes (`CATALOG_SEARCH_LIMITS`). An empty fold returns empty lists.
 
+## `catalog.today` (welcome screen, audit d-6 — 2026-10-05)
+
+```ts
+catalog.today({ cityId: 'aziziyah' })
+// → { openRestaurants, rajaaCarsToday, tuktukFromIqd: number | null,
+//     baghdadGarage: { id, name_ar, name_en } | null, latePromiseMin }
+```
+
+Public and guest-safe (counts and city facts only), rate-limited per IP like the rest of `catalog.*`.
+`openRestaurants` uses the restaurant list's own "open"; `rajaaCarsToday` counts الرجعة departures still
+open today (Baghdad day, both directions, not past their latest time); `tuktukFromIqd` is a tuktuk ride
+inside the centre priced now by the booking engine (null if it can't be priced); `baghdadGarage` is the
+Aziziyah garage of the next car to Baghdad (the first home garage when none is announced);
+`latePromiseMin` is `MoneyRules.latePromise.afterMin`.
+
 ## "خبرني لمن تنفتح" (`notify.launchInterest`)
 
 | Procedure | Who | What |

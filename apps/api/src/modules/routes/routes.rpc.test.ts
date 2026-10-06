@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppContext, RoleKind } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { RoutesRpc } from './routes.rpc.js';
-import { BAB1, NAHDHA, routesHarness, type RoutesHarness } from './test-harness.js';
+import { BAB1, BAB2, NAHDHA, routesHarness, type RoutesHarness } from './test-harness.js';
 
 /**
  * The real `RoutesRpc` behind the shared router: role gates, ownership and — above all — every view
@@ -299,5 +299,16 @@ describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider
     expect(await codeOf(driver.driver.callRider({ departureId: dep.id, bookingId: 'bk_nope' }))).toBe('NOT_FOUND');
     // The harness's own RPC has no bridge: call_unavailable.
     expect(await codeOf(as(h, 'd1', ['intercity_driver']).driver.callRider({ departureId: dep.id, bookingId: a.id }))).toBe('CONFLICT');
+describe('today (welcome screen, audit d-6)', () => {
+  it('counts open cars still leaving today in both directions and names the garage of the next car to Baghdad', async () => {
+    // 12:00Z = 15:00 Baghdad: the Baghdad day ends at 21:00Z.
+    const h = routesHarness();
+    expect(await h.rpc.today()).toEqual({ carsToday: 0, baghdadGarage: { id: BAB1.id, nameAr: BAB1.nameAr, nameEn: BAB1.nameEn } });
+    await h.announce({ driverId: 'd1', garageId: BAB2.id, departAt: h.at(60), latestDepartureAt: h.at(90) });
+    await h.announce({ driverId: 'd2', departAt: h.at(180), latestDepartureAt: h.at(200) });
+    await h.announce({ driverId: 'd3', garageId: NAHDHA.id, departAt: h.at(120), latestDepartureAt: h.at(150) });
+    // Tomorrow (Baghdad day) does not count.
+    await h.announce({ driverId: 'd4', departAt: h.at(10 * 60), latestDepartureAt: h.at(10 * 60 + 30) });
+    expect(await h.rpc.today()).toEqual({ carsToday: 3, baghdadGarage: { id: BAB2.id, nameAr: BAB2.nameAr, nameEn: BAB2.nameEn } });
   });
 });

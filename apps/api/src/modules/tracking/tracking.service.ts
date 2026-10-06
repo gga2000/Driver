@@ -1,6 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
+  latePromiseCreditIqd,
   MIN_PER_EARLIER_DROP,
   positionVisible,
   type Actor,
@@ -8,6 +10,7 @@ import {
   type CourierPosition,
   type DeliveryPoint,
   type EtaBasis,
+  type LatePromise,
   type LatLng,
   ORDER_HISTORY_LIMIT,
   type Order,
@@ -21,6 +24,7 @@ import {
   type VehicleClass,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -58,6 +62,16 @@ export interface TrackingPointsPort {
   earnedOn(personId: string, orderId: string): Promise<number>;
 }
 
+/**
+ * The honest-delay credit's ledger side (audit d-5): what was posted for an order, and posting it
+ * once (idempotent by order, platform-funded `credit_issued` to the customer's wallet).
+ */
+export interface TrackingLateCreditPort {
+  issued(orderId: string): Promise<{ amountIqd: number; at: Date } | null>;
+  issue(c: { orderId: string; customerId: string; amountIqd: number; at: Date }, tx?: Tx): Promise<void>;
+}
+
+export const TRACKING_LATE_CREDIT = Symbol('TRACKING_LATE_CREDIT');
 export const TRACKING_ORDERS = Symbol('TRACKING_ORDERS');
 export const TRACKING_TRIPS = Symbol('TRACKING_TRIPS');
 export const TRACKING_IDENTITY = Symbol('TRACKING_IDENTITY');
@@ -106,7 +120,11 @@ export class TrackingService implements TrackingPort {
     @Inject(COURIER_VEHICLES) private readonly vehicles: CourierVehicleDirectory,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly eta: EtaService,
+    @Optional() @Inject(TRACKING_LATE_CREDIT) private readonly lateCredit: TrackingLateCreditPort | null = null,
   ) {}
+
+  /** Minutes past the promised time after which the delivery fee comes back (`MoneyRules.latePromise`). */
+  private readonly latePromiseAfterMin = AZIZIYAH_MONEY_RULES.latePromise.afterMin;
 
   async track(actor: Actor, input: { orderId: string }): Promise<OrderTracking> {
     const agg = await this.assertOwner(actor, input.orderId);
@@ -123,6 +141,7 @@ export class TrackingService implements TrackingPort {
     const items = await this.items(agg);
     const courier = trip?.courierId && (working || trip.state === 'completed') ? await this.courierCard(trip, actor.personId, now) : null;
 
+    const promisedAt = await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt);
     return {
       order,
       items,
@@ -131,7 +150,8 @@ export class TrackingService implements TrackingPort {
       trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? this.tripView(trip, order.id) : null,
       courier,
       reassigning,
-      promisedAt: await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt),
+      promisedAt,
+      latePromise: await this.latePromise(order, trip, promisedAt, now),
       pointsEarned: order.state === 'closed' ? await this.points.earnedOn(actor.personId, order.id) : null,
       serverNow: now,
     };
@@ -219,6 +239,38 @@ export class TrackingService implements TrackingPort {
     const atKitchen = now.getTime() + (await leg(pin, kitchen)) * MIN;
     const ready = (order.readyAt ?? order.promisedReadyAt)?.getTime() ?? now.getTime();
     return done(Math.max(atKitchen, ready, now.getTime()) + ((await leg(kitchen, door)) + extra) * MIN);
+  }
+
+  /**
+   * Audit d-5, the honest-delay promise: past the promised time + `afterMin` (still on the way, or
+   * delivered after it) the delivery fee comes back as wallet credit, once — posted here when the
+   * customer is watching, and at delivery by the `order.delivered` subscriber otherwise. No credit on a
+   * cancelled order, without a delivery fee, or while the customer is the one not answering.
+   */
+  private async latePromise(order: Order, trip: Trip | null, promisedAt: Date | null, now: Date, tx?: Tx): Promise<LatePromise | null> {
+    if (!this.lateCredit || !promisedAt) return null;
+    const creditIqd = latePromiseCreditIqd(order);
+    if (creditIqd <= 0) return null;
+    const deadlineAt = new Date(promisedAt.getTime() + this.latePromiseAfterMin * 60_000);
+    let credit = await this.lateCredit.issued(order.id);
+    const doorAt = order.deliveredAt ?? (SETTLED_ORDER_STATES.has(order.state) ? null : now);
+    const customerUnreachable = Boolean(trip?.unreachable);
+    if (!credit && doorAt && doorAt.getTime() > deadlineAt.getTime() && !customerUnreachable) {
+      await this.lateCredit.issue({ orderId: order.id, customerId: order.ordererId, amountIqd: creditIqd, at: now }, tx);
+      credit = (await this.lateCredit.issued(order.id)) ?? { amountIqd: creditIqd, at: now };
+    }
+    return { afterMin: this.latePromiseAfterMin, creditIqd, deadlineAt, credit };
+  }
+
+  /** The `order.delivered` subscriber: a delivery that came past the promise gets its credit even if nobody watched. */
+  async settleLatePromise(orderId: string, tx?: Tx): Promise<void> {
+    if (!this.lateCredit) return;
+    const agg = await this.orders.aggregate(orderId);
+    const order = await this.orders.get(orderId);
+    if (!order.deliveredAt) return;
+    const merchant = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
+    const promisedAt = await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt);
+    await this.latePromise(order, await this.currentTrip(order.id), promisedAt, this.clock.now(), tx);
   }
 
   /** The promised arrival: the kitchen's promised ready time plus the kitchen → door ride. */

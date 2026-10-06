@@ -4,6 +4,7 @@ import Animated, { Easing, cancelAnimation, useAnimatedStyle, useSharedValue, wi
 import Svg, { Path } from 'react-native-svg';
 import type { LivenessGesture } from '@driver/contracts';
 import { Icon, useTheme, withAlpha } from '@driver/ui';
+import { color } from '@driver/design-tokens';
 
 const SKIN = '#F3D2B3';
 const SKIN_EDGE = '#D9A87F';
@@ -156,14 +157,14 @@ export function ResultMark({ kind }: { kind: 'passed' | 'failed' | 'locked' }) {
       <View style={{ position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: tint }} />
       <Animated.View style={[{ width: 84, height: 84, borderRadius: 42, backgroundColor: c, alignItems: 'center', justifyContent: 'center' }, disc]}>
         {kind === 'passed' ? (
-          <Icon name="check" size={44} color="#FFFFFF" strokeWidth={3} />
+          <Icon name="check" size={44} color={color.neutral[0]} strokeWidth={3} />
         ) : kind === 'failed' ? (
           <Svg width={40} height={40} viewBox="0 0 24 24">
-            <Path d="M20 11a8 8 0 1 0-2.3 5.7M20 4.5V11h-6.5" stroke="#FFFFFF" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d="M20 11a8 8 0 1 0-2.3 5.7M20 4.5V11h-6.5" stroke={color.neutral[0]} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </Svg>
         ) : (
           <Svg width={40} height={40} viewBox="0 0 24 24">
-            <Path d="M7 10.5h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM8.2 10.5V7.6a3.8 3.8 0 0 1 7.6 0v2.9" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d="M7 10.5h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM8.2 10.5V7.6a3.8 3.8 0 0 1 7.6 0v2.9" stroke={color.neutral[0]} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </Svg>
         )}
       </Animated.View>

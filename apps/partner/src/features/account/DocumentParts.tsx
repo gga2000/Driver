@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { DocumentsView, DriverDocumentKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Icon, IconButton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Icon, IconButton, MAX_CONTENT_WIDTH, ModalSheet, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { Glyph, type GlyphName } from './Glyph';
 import { DOC_STATUS_KEY, DOC_TONE, docAction, docsSummary, expiryFromMonth, expiryText, dayMonth, hasExpiry, local, type DocRow } from './logic';
-import { ModalSheet } from './ModalSheet';
 import { pickPhoto, uploadPhoto, type PickedPhoto, type PhotoSource } from './photo';
 import { useAccountMutations, useRefreshAccount } from './queries';
 
@@ -166,7 +165,7 @@ export function UploadDocumentSheet({ kind, onClose }: { kind: DriverDocumentKin
     });
 
   return (
-    <ModalSheet visible={kind !== null} onClose={() => (busy ? undefined : onClose())} title={kind ? t('partner.docs_upload_title', { doc: t(`partner.docs_kind_${kind}`) }) : undefined} testID="upload-sheet" locked={busy}>
+    <ModalSheet layout="sheet" sheetMaxWidth={MAX_CONTENT_WIDTH} closeButton={false} visible={kind !== null} onClose={() => (busy ? undefined : onClose())} title={kind ? t('partner.docs_upload_title', { doc: t(`partner.docs_kind_${kind}`) }) : undefined} testID="upload-sheet" locked={busy}>
       {kind ? (
         <>
           <Text variant="body" color="textMuted">

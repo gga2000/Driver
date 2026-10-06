@@ -44,7 +44,7 @@ export function SlaPill({
     <span
       className={cx(
         'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-pill font-medium',
-        size === 'sm' ? 'h-[22px] ps-1.5 pe-2 text-[11px]' : 'h-6 ps-1.5 pe-2.5 text-xs',
+        size === 'sm' ? 'h-[22px] ps-1.5 pe-2 text-xs' : 'h-6 ps-1.5 pe-2.5 text-xs',
         pill,
       )}
     >

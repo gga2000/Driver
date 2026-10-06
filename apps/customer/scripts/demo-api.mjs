@@ -133,6 +133,9 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
+// Scenarios: preparing · on_the_way · near · unreachable · arrived · late · late_credit · signal_lost · reassigning.
+// `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
+// `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -310,6 +313,29 @@ async function savedHome(personId) {
 }
 
 async function scenario(personId, name, cash = {}) {
+/**
+ * Audit d-5 demo: moves an order's kitchen times back so its promised arrival was `minutes` ago (the
+ * in-memory record only), so the late banner's promise bar — and past the threshold the credit — show.
+ */
+async function pastPromise(personId, orderId, minutes) {
+  const { TrackingService } = await load('modules/tracking/index.js');
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const view = await app.get(TrackingService).track({ personId, sessionId: 'demo' }, { orderId });
+  if (!view.promisedAt) return;
+  const shift = view.promisedAt.getTime() - Date.now() + minutes * 60_000;
+  const order = await orders.get(orderId);
+  const back = (d) => (d ? new Date(d.getTime() - shift) : d);
+  await app.get(ORDERS_REPOSITORY).update(orderId, { promisedReadyAt: back(order.promisedReadyAt), acceptedAt: back(order.acceptedAt), preparingAt: back(order.preparingAt) });
+}
+
+async function scenario(personId, name, opts = {}) {
+  if (name === 'late_credit') {
+    // Past the honest-delay threshold (MoneyRules.latePromise): the next read posts the credit.
+    const { AZIZIYAH_MONEY_RULES } = await import('@driver/contracts');
+    const r = await scenario(personId, 'late');
+    await pastPromise(personId, r.orderId, AZIZIYAH_MONEY_RULES.latePromise.afterMin + 1);
+    return r;
+  }
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
@@ -321,6 +347,7 @@ async function scenario(personId, name, cash = {}) {
   demos.set(orderId, d);
   if (name === 'preparing' || late) {
     await startMover(tripId, courierId, late ? FAR_TO_KITCHEN : TO_KITCHEN, late ? 22 : 30);
+    if (late && opts.pastPromiseMin) await pastPromise(personId, orderId, opts.pastPromiseMin);
     return { orderId, tripId, courierId };
   }
   if (name === 'reassigning') {
@@ -353,7 +380,7 @@ async function scenario(personId, name, cash = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'unreachable', 'arrived', 'late', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'unreachable', 'arrived', 'late', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
@@ -379,6 +406,8 @@ app.use('/demo/track', async (req, res) => {
     const tender = Number(url.searchParams.get('tender') ?? 0) || null;
     const noChange = url.searchParams.get('nochange') === '1';
     res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange })) }));
+    const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { pastPromiseMin })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));

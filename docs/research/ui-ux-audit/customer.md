@@ -231,6 +231,16 @@ banner, a small progress bar towards the 20-minute threshold. On crossing it, a 
 (not apologetic) toast: "رجعنالك 1,000 دينار رصيد. آسفين على التأخير". The receipt shows the
 credit line. One line on the welcome screen.
 
+**Built 2026-10-05 (Phase 3, brief E).** The API had no such rule (the copy promised "20 دقيقة / أجرة
+التوصيل" but nothing paid it), so the rule is now server config: `MoneyRules.latePromise.afterMin`
+(Aziziyah 20) and `latePromiseCreditIqd` = the delivery fee the customer pays (a free-delivery deal
+→ no promise). The credit is a platform-funded `credit_issued` (`late_promise:<orderId>`, once per
+order), posted when the clock passes promised time + 20 min with the order not yet delivered (tracking
+read) or at `order.delivered` if it came later; no credit on cancelled orders or while the customer is
+unreachable. `orders.quote.latePromise`, `orders.track.latePromise` and `catalog.today.latePromiseMin`
+carry the terms; the apps never hard-code them. The toast reads the real amount (500 or 1,000 by zone),
+not a fixed 1,000. Ali to confirm (money rule): threshold, amount = delivery fee, platform funds it.
+
 ### d-6. A welcome that is a map of home
 **What**: replace the tilted-icon card with a stylised, warm illustration of Aziziyah: the Tigris
 curve, the three garages, the old market, a tuktuk on the bridge.
@@ -238,6 +248,12 @@ curve, the three garages, the old market, a tuktuk on the bridge.
 sequence (one orchestrated 6 s loop, static under reduce motion) with a caption: "أكل من مطاعم
 العزيزية"، "تكتك بـ 2,000"، "مقعد لبغداد من كراج النهضة". The CTA stays "يلا نبدي". Under it,
 live proof: "اليوم: 4 مطاعم مفتوحة · 6 سيارات للرجعة". Guest browse (C-18) starts right here.
+
+**Built 2026-10-05 (Phase 3, brief E).** `features/welcome/WelcomeMap.tsx` (react-native-svg, palette
+tokens only) with six spots (market, tuktuk on the bridge, garage, taxi, home, parcels-soon), one 6 s
+loop, static under reduce motion, tap to pick. Captions and the proof line come from the public
+`catalog.today` (open kitchens, الرجعة cars still leaving today, a centre tuktuk fare priced now, the
+Aziziyah garage of the next car to Baghdad — "كراج البوابة 1", not النهضة which is the Baghdad end).
 
 ### d-7. Family ordering as a ritual
 **What**: the per-person cart grows into a shared family order.

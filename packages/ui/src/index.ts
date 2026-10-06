@@ -83,3 +83,5 @@ export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';
 // Phase 3 · garage board (customer audit d-2): the departure-board time
 export { DepartureTime, type DepartureTimeProps, type DepartureTimeSize, type DepartureTimeTone } from './components/DepartureTime';
 export * from './logic/departure';
+// Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
+export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';

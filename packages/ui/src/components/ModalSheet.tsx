@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,8 @@ export interface ModalSheetProps {
   subtitle?: string;
   /** Node at the end of the header (a ring, a pill). */
   aside?: ReactNode;
+  /** Node at the start of the header, before the title (a dish photo, a service tile). */
+  leading?: ReactNode;
   children: ReactNode;
   /** Pinned under the scrolling body: the primary action, where the thumb finds it. */
   footer?: ReactNode;
@@ -36,6 +38,19 @@ export interface ModalSheetProps {
   testID?: string;
 }
 
+/** What an app can set once for every `ModalSheet` under it (props on a sheet still win). */
+export type ModalSheetDefaults = Partial<Pick<ModalSheetProps, 'closeLabel' | 'layout' | 'sheetMaxWidth' | 'closeButton'>>;
+
+const ModalSheetDefaultsContext = createContext<ModalSheetDefaults>({});
+
+/**
+ * App-wide sheet defaults — the Merchant app's "سكّر" close label, for one — so screens use the shared
+ * `ModalSheet` directly instead of keeping a local wrapper.
+ */
+export function ModalSheetDefaultsProvider({ value, children }: { value: ModalSheetDefaults; children: ReactNode }) {
+  return <ModalSheetDefaultsContext.Provider value={value}>{children}</ModalSheetDefaultsContext.Provider>;
+}
+
 /**
  * The one modal sheet (S-12): an RN `Modal`, so focus can't wander into the screen behind it —
  * `accessibilityViewIsModal` on iOS, Android back closes it, and on the web react-native-web traps
@@ -49,17 +64,23 @@ export function ModalSheet({
   title,
   subtitle,
   aside,
+  leading,
   children,
   footer,
   size = 'md',
   locked = false,
-  closeButton = true,
-  layout = 'auto',
-  sheetMaxWidth,
-  closeLabel,
+  closeButton: closeButtonProp,
+  layout: layoutProp,
+  sheetMaxWidth: sheetMaxWidthProp,
+  closeLabel: closeLabelProp,
   testID,
 }: ModalSheetProps) {
   const theme = useTheme();
+  const defaults = useContext(ModalSheetDefaultsContext);
+  const closeButton = closeButtonProp ?? defaults.closeButton ?? true;
+  const layout = layoutProp ?? defaults.layout ?? 'auto';
+  const sheetMaxWidth = sheetMaxWidthProp ?? defaults.sheetMaxWidth;
+  const closeLabel = closeLabelProp ?? defaults.closeLabel;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const dialog = layout === 'dialog' || (layout === 'auto' && width >= MODAL_DIALOG_MIN_WIDTH);
@@ -68,7 +89,7 @@ export function ModalSheet({
     if (!locked) onClose();
   };
   const close = closeLabel ?? t('ui.dismiss');
-  const hasHeader = Boolean(title || subtitle || aside || closeButton);
+  const hasHeader = Boolean(title || subtitle || aside || leading || closeButton);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={dismiss} statusBarTranslucent>
@@ -108,7 +129,8 @@ export function ModalSheet({
               </View>
             ) : null}
             {hasHeader ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[5], paddingTop: theme.space[dialog ? 5 : 3], paddingBottom: theme.space[3] }}>
+              <View style={{ flexDirection: 'row', alignItems: leading ? 'flex-start' : 'center', gap: theme.space[3], paddingHorizontal: theme.space[5], paddingTop: theme.space[dialog ? 5 : 3], paddingBottom: theme.space[3] }}>
+                {leading}
                 <View style={{ flex: 1, gap: 2 }}>
                   {title ? (
                     <Text variant="heading" accessibilityRole="header" numberOfLines={2} testID={testID ? `${testID}-title` : undefined}>

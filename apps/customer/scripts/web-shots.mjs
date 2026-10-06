@@ -9,10 +9,11 @@
 //            node apps/customer/scripts/web-shots.mjs <out-dir>
 //
 // Screenshots are 390×844 (@2x), in groups (file-name prefixes), each driven by its own demo seed:
-//   app-*    welcome, phone, otp, setup, home (+ -full), orders, profile
+//   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
-//   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late,
+//   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
+//            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
 //   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
@@ -126,7 +127,17 @@ const demoPost = async (path) => {
 try {
   await page.goto(`${origin}/`, LOADED);
   await byTestId('welcome-start').waitFor({ timeout: 20_000 });
+  // The map of home (d-6): the live proof from catalog.today, then a spot picked by hand (the loop rests on it).
+  await byTestId('welcome-proof').waitFor({ timeout: 10_000 }).catch(() => errors.push('welcome live proof not shown'));
   await shot('app-welcome');
+  if (wants('app') && (await byTestId('welcome-spot-seat').count()) > 0) {
+    await byTestId('welcome-spot-seat').click();
+    await settle(500);
+    await shot('app-welcome-seat');
+    await byTestId('welcome-spot-tuktuk').click();
+    await settle(500);
+    await shot('app-welcome-tuktuk');
+  }
 
   // "يلا نبدي" browses as a guest (C-18); the shots sign in through "عندك حساب؟".
   await byTestId('welcome-signin').click();
@@ -171,6 +182,15 @@ try {
   await byTestId(`restaurant-${khalid}`).waitFor({ timeout: 15_000 });
   await shot('app-home');
   await fullShot('app-home-full');
+  // A coming-soon tile opens its sheet (the shared ModalSheet), closed with its ✕.
+  if (wants('app')) {
+    await byTestId('service-grocery').click();
+    await byTestId('soon-sheet-grocery').waitFor();
+    await settle(600);
+    await shot('app-soon-sheet');
+    await page.locator('[data-testid="soon-sheet-grocery-close"], [data-testid="soon-close"]').first().click();
+    await byTestId('soon-sheet-grocery').waitFor({ state: 'detached' });
+  }
 
   await byTestId('tab-orders').click();
   await byTestId('orders').waitFor();
@@ -331,8 +351,8 @@ async function foodFlow(khalid) {
  */
 async function trackShots(personId) {
   if (!personId) throw new Error('track shots need a signed-in person');
-  const seed = async (scenario) => {
-    const r = await fetch(`${apiBase}/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}`, { method: 'POST' });
+  const seed = async (scenario, query = '') => {
+    const r = await fetch(`${apiBase}/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}${query}`, { method: 'POST' });
     const body = await r.json();
     if (!r.ok) throw new Error(`seed ${scenario}: ${body.error}`);
     return body.orderId;
@@ -373,10 +393,30 @@ async function trackShots(personId) {
   await live(1500);
   await shot('track-unreachable');
 
-  await openOrder(await seed('late'));
+  // Running late, 12 minutes past the promise: the honest-delay bar is part-way to the threshold (d-5).
+  await openOrder(await seed('late', '&pastPromiseMin=12'));
   await byTestId('running-late').waitFor({ timeout: 10_000 }).catch(() => errors.push('running-late banner not shown'));
+  await byTestId('late-promise-until').waitFor({ timeout: 10_000 }).catch(() => errors.push('late promise bar not shown'));
   await live();
   await shot('track-late');
+
+  // Past the threshold: the server posts the credit, the toast says so once, the receipt shows the line.
+  const creditId = await seed('late_credit');
+  await openOrder(creditId);
+  // The notification pre-prompt (first live order) would cover the toast: "بعدين", then open it again.
+  if (await byTestId('push-preprompt').isVisible().catch(() => false)) {
+    await byTestId('push-preprompt-later').click();
+    await openOrder(creditId);
+  }
+  await byTestId('late-promise-credited').waitFor({ timeout: 10_000 }).catch(() => errors.push('late credit not shown on the banner'));
+  await page.waitForTimeout(900);
+  await shot('track-late-credit');
+  await openOrder(creditId, '?sheet=2');
+  if (await byTestId('push-preprompt').isVisible().catch(() => false)) await byTestId('push-preprompt-later').click();
+  await byTestId('track-price-late-credit').waitFor({ timeout: 10_000 }).catch(() => errors.push('late credit line not on the receipt'));
+  await page.locator('[data-testid="track-price-late-credit"]').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(6500); // let the toast go
+  await shot('track-late-credit-receipt');
 
   await openOrder(await seed('signal_lost'));
   await byTestId('signal-lost').waitFor({ timeout: 10_000 }).catch(() => errors.push('signal-lost banner not shown'));

@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -15,6 +15,7 @@ import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePri
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
 import { Panel, PanelTitle, Pill, Thumb, Toggle } from './parts';
 import { useMenu, useMenuActions, usePhotoUpload, usePriceHistory } from './queries';
+import { color } from '@driver/design-tokens';
 
 interface Basics {
   nameAr: string;
@@ -216,8 +217,8 @@ export function ItemEditor() {
           </View>
         )}
         {uploading ? (
-          <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(31,26,20,0.35)' }}>
-            <ActivityIndicator color="#FFFFFF" />
+          <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(color.neutral[900], 0.35) }}>
+            <ActivityIndicator color={color.neutral[0]} />
           </View>
         ) : null}
       </View>

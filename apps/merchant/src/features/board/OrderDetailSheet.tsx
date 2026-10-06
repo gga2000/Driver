@@ -1,9 +1,8 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import type { BoardOrder } from '@driver/contracts';
-import { Badge, Button, CountdownRing, Icon, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
+import { Badge, Button, CountdownRing, Icon, ModalSheet, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
-import { ModalSheet } from '@/components/ModalSheet';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';

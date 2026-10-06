@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, SearchField, Skeleton, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, SearchField, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Page } from '@/components/Page';
 import { Glyph, type GlyphName } from '@/features/menu/Glyph';
 import { filterMenu } from '@/features/menu/logic';
@@ -36,6 +36,7 @@ import {
   type WizardStep,
 } from './logic';
 import { useDealActions, useDealProjection } from './queries';
+import { color } from '@driver/design-tokens';
 
 const KINDS: ReadonlyArray<{ kind: DealKind; title: TKey; body: TKey }> = [
   { kind: 'percent', title: 'merchant.deals.kind_percent', body: 'merchant.deals.kind_percent_body' },
@@ -447,7 +448,7 @@ function SummaryLine({ glyph, text, strong }: { glyph: GlyphName; text: string; 
 function Stat({ label, value }: { label: string; value: string }) {
   const theme = useTheme();
   return (
-    <View style={{ flex: 1, gap: 2, paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: 'rgba(251,246,238,0.18)' }}>
+    <View style={{ flex: 1, gap: 2, paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: withAlpha(color.neutral[50], 0.18) }}>
       <Text variant="caption" color="accentTint" numberOfLines={1}>
         {label}
       </Text>

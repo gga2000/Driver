@@ -2,14 +2,14 @@ import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
-import { Button, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
+import { Button, ModalSheet, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
-import { ModalSheet } from '@/components/ModalSheet';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { balanceState, moneyPill } from '@/features/money/logic';
 import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
+import { color as palette } from '@driver/design-tokens';
 
 export interface StoreHeaderProps {
   storeName: string;
@@ -109,7 +109,7 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
       </Text>
       {compact ? null : (
         <View style={{ width: 52, height: 32, borderRadius: 16, backgroundColor: color, padding: 3, alignItems: open ? 'flex-start' : 'flex-end' }}>
-          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF' }} />
+          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: palette.neutral[0] }} />
         </View>
       )}
     </Pressable>

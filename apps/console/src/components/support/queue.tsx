@@ -222,7 +222,7 @@ function QueueRow({
             </Chip>
           ) : null}
           {r.refundedIqd > 0 ? (
-            <span className="num text-[11px] text-ok">
+            <span className="num text-xs text-ok">
               {t('console.sup_refund_done', { amount: formatIqd(r.refundedIqd) })}
             </span>
           ) : null}

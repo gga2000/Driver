@@ -1,9 +1,8 @@
 import { View } from 'react-native';
-import { Button, Icon, Skeleton, Text, useTheme } from '@driver/ui';
+import { Button, Icon, MAX_CONTENT_WIDTH, ModalSheet, Skeleton, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { Glyph } from './Glyph';
-import { ModalSheet } from './ModalSheet';
 import { useHandoverCode } from './queries';
 
 /**
@@ -18,7 +17,7 @@ export function HandoverSheet({ visible, onClose, heldIqd, owedIqd }: { visible:
   const code = useHandoverCode(visible);
   const digits = code.data?.code.split('') ?? [];
   return (
-    <ModalSheet visible={visible} onClose={onClose} title={t('partner.handover_title')} testID="handover-sheet">
+    <ModalSheet layout="sheet" sheetMaxWidth={MAX_CONTENT_WIDTH} closeButton={false} visible={visible} onClose={onClose} title={t('partner.handover_title')} testID="handover-sheet">
       <View testID="handover-amount" style={{ gap: 2 }}>
         <Text variant="heading" weight={700} tabular>
           {owedIqd > 0 ? t('partner.handover_give', { amount: amountParam(owedIqd) }) : t('partner.handover_nothing')}

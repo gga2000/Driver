@@ -226,12 +226,21 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   shared values (`geo.ts`: 512-px Web Mercator, same as MapLibre).
 - Pure logic with tests: `geo.ts` (projection, glide, bearing, route), `timeline.ts` (status →
   steps), `eta.ts` (live ETA, lateness, signal lost).
-- Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|near|unreachable|arrived|late|signal_lost|reassigning`
+- Demo: `POST /demo/track?personId=…&scenario=preparing|on_the_way|near|unreachable|arrived|late|late_credit|signal_lost|reassigning`
   and `POST /demo/track/advance?orderId=…`; `SHOTS=track node scripts/web-shots.mjs` writes `track-*.png`.
   "الخردة علينا" (`docs/api/cash-change-to-wallet.md`): `&tender=25000` places it with "راح أدفع بـ 25,000"
   (the near and arrival cards say which change comes); `&tender=25000&nochange=1` with `scenario=arrived`
   has the courier take the whole note with no change — the arrival shows "+… دينار رصيد (الباقي)", the
   receipt and wallet "باقي الكاش".
+  `late&pastPromiseMin=<n>` moves the promised time <n> minutes into the past (the late banner's
+  honest-delay bar); `late_credit` puts it past `MoneyRules.latePromise.afterMin`, so the next read posts
+  the credit (banner turns green, toast once, "رصيد التأخير" under the receipt total).
+- Honest-delay promise (audit d-5): terms from the server only — `orders.quote.latePromise` (checkout line
+  under the ETA), `orders.track.latePromise` (`LateBanner` + `useLatePromiseToast` in
+  `features/track/LatePromise.tsx`, the receipt line in `PriceSection`), `catalog.today.latePromiseMin`
+  (welcome). `features/track/late-promise.ts` is the pure bar/toast logic.
+- Welcome (audit d-6): `features/welcome/WelcomeMap.tsx` (the map of home) + `today.ts` (spots, captions,
+  the "اليوم: …" line) over the public `catalog.today`.
   `?sheet=1|2` opens the sheet at a detent.
 
 ## Chat, masked call, share-trip (`src/features/chat/`, `src/features/share/`)

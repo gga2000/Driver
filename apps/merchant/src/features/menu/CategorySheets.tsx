@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Text, TextField, useTheme } from '@driver/ui';
-import { ModalSheet } from '@/components/ModalSheet';
+import { Button, ModalSheet, Text, TextField, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { moveInOrder } from './logic';
 import { GlyphButton } from './parts';

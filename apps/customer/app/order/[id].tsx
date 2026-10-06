@@ -22,6 +22,7 @@ import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/feature
 import { ActionRow, COURIER_FLOAT_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, phaseOf, statusLine } from '@/features/track/timeline';
 import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
+import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -81,6 +82,8 @@ export default function OrderLiveScreen() {
   const showFloat = Boolean(v?.courier && fix && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way'));
   // Moments (maps program SP5b): a buzz and a soft sound at each step; the "almost there" card.
   const moments = useTrackingMoments(v, phase, fix?.pin ?? null);
+  // Audit d-5: the honest-delay credit, said once when the server posts it.
+  useLatePromiseToast(v);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
   const mapMinutes = fix && eta && eta.getTime() > now ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
   const ride = v?.order.type === 'ride';
@@ -208,15 +211,7 @@ export default function OrderLiveScreen() {
           />
         ) : null}
         {phase === 'reassigning' ? <DegradedBanner testID="reassigning" icon="user" tone="info" title={t('track.reassigning')} body={t('track.reassigning_note')} /> : null}
-        {lateMin > 0 && phase !== 'reassigning' && eta ? (
-          <DegradedBanner
-            testID="running-late"
-            icon="clock"
-            tone="warning"
-            title={t('track.running_late', { minutes: lateMin })}
-            body={`${t('track.note_late', { minutes: lateMin, time: formatClock(eta) })} ${t('track.note_late_credit')}`}
-          />
-        ) : null}
+        {lateMin > 0 && phase !== 'reassigning' && eta && v ? <LateBanner view={v} lateMin={lateMin} eta={eta} now={now} /> : null}
       </TopBar>
       {v?.courier && showFloat ? (
         <CourierFloat

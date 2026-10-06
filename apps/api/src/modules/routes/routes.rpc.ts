@@ -79,6 +79,28 @@ export class RoutesRpc implements RoutesPort {
     return seats;
   }
 
+  /**
+   * The welcome screen's الرجعة facts (audit d-6, `catalog.today`): open cars still to leave today
+   * (Baghdad day, both directions, not past their latest time) and the Aziziyah garage of the next
+   * car to Baghdad — the first home garage when none is announced yet.
+   */
+  async today(): Promise<{ carsToday: number; baghdadGarage: { id: string; nameAr: string; nameEn: string } | null }> {
+    const s = this.departures;
+    const now = s.now();
+    const BAGHDAD_OFFSET_MS = 3 * 3600_000;
+    const DAY_MS = 86_400_000;
+    const endOfDay = new Date(Math.floor((now.getTime() + BAGHDAD_OFFSET_MS) / DAY_MS) * DAY_MS + DAY_MS - BAGHDAD_OFFSET_MS);
+    const deps = (
+      await this.repo.listDepartures({ states: OPEN_DEPARTURE, from: new Date(now.getTime() - s.rules.maxLatestDepartureMin * MIN_MS), to: endOfDay })
+    ).filter((d) => d.latestDepartureAt.getTime() > now.getTime());
+    const toBaghdad = deps
+      .filter((d) => d.direction === 'from_aziziyah' && s.corridor(d.corridorId).cityId === 'baghdad')
+      .sort((a, b) => a.departAt.getTime() - b.departAt.getTime());
+    const home = s.network.garages.filter((g) => g.cityId === HOME_CITY && !g.draft);
+    const g = toBaghdad[0] ? s.garage(toBaghdad[0].garageId) : (home[0] ?? null);
+    return { carsToday: deps.length, baghdadGarage: g ? { id: g.id, nameAr: g.nameAr, nameEn: g.nameEn } : null };
+  }
+
   async network(): Promise<IntercityNetwork> {
     const n = this.departures.network;
     return { garages: n.garages.map(garageView), corridors: n.corridors.map(corridorView) };

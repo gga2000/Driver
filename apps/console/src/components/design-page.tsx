@@ -173,7 +173,7 @@ export function DesignPage() {
                 >
                   <span className="text-xs font-semibold">{s.on ? 'نص' : ''}</span>
                   {s.on ? (
-                    <span className="num text-[11px]">
+                    <span className="num text-xs">
                       {contrastRatio(p[s.on], p[s.role]).toFixed(1)}
                     </span>
                   ) : null}
@@ -182,7 +182,7 @@ export function DesignPage() {
                   <p className="truncate text-xs font-semibold" dir="ltr">
                     {s.role}
                   </p>
-                  <p className="text-[11px] text-muted">
+                  <p className="text-xs text-muted">
                     {s.note} ·{' '}
                     <span className="num" dir="ltr">
                       {p[s.role]}
