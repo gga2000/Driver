@@ -1131,6 +1131,8 @@
   "support.reply.resolve_thanks.title": "Close ticket",
   "support.reply.resolve_thanks.text": "We hope it’s sorted. If you need anything else we’re here from 10 AM to midnight.",
   "restaurant.fallback_name": "The restaurant",
+  "restaurant.view_cart_count": "{n} in your cart · {amount} IQD, view cart",
+  "restaurant.qty_label": "{name} in your cart",
   "rajaa.fallback_corridor": "this route",
   "support.proactive_delay": "Sorry, your order is running late. New time: {time}",
   "support.proactive_delay_credit": "Sorry, your order is late and it’s our fault. We added {amount} IQD credit; new time {time}",

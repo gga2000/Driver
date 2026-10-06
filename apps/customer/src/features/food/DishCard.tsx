@@ -1,9 +1,11 @@
+import { useRef } from 'react';
 import { Pressable, View } from 'react-native';
 import { dealLinePrice, type MenuItem } from '@driver/contracts';
-import { IconButton, StatusPill, Text, useTheme } from '@driver/ui';
+import { IconButton, StatusPill, Stepper, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { FoodArt, artOf, type DishArt } from './FoodArt';
+import { measure, type Rect } from './FlyToCart';
 import { canQuickAdd, fromPrice } from './modifiers';
 
 export interface DishCardProps {
@@ -13,8 +15,13 @@ export interface DishCardProps {
   /** Kitchen closed: browse only. */
   disabled?: boolean;
   onOpen: () => void;
-  /** One-tap add (dishes without a required choice); otherwise the + opens the sheet. */
-  onQuickAdd: () => void;
+  /**
+   * One-tap add (dishes without a required choice), with where its picture sits on screen so it can
+   * fly to the cart bar (joy o1); otherwise the + opens the sheet.
+   */
+  onQuickAdd: (from: Rect | null) => void;
+  /** One less of a quick-add dish (the in-place stepper's −); the last one removes it. */
+  onDecrement?: () => void;
   /** Its drawing in the menu (`dishArt`: never the same as the row above); its own otherwise. */
   art?: DishArt;
 }
@@ -24,8 +31,9 @@ export interface DishCardProps {
  * live percent deal with no minimum (f10, the server's `item.deal`) the price is the deal price in
  * the success colour with the menu price struck through, as the cart will charge it.
  */
-export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, art }: DishCardProps) {
+export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecrement, art }: DishCardProps) {
   const theme = useTheme();
+  const thumb = useRef<View>(null);
   const t = useT();
   const locale = useLocale();
   const price = fromPrice(item);
@@ -79,21 +87,37 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, art }: Di
         </View>
       </View>
       <View style={{ width: 96, height: 96 }}>
-        <View style={{ width: 96, height: 96, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
+        <View ref={thumb} collapsable={false} style={{ width: 96, height: 96, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
           <FoodArt {...(art ?? artOf(item))} photoUrl={item.photoUrl} />
         </View>
-        {!soldOut && !disabled ? (
+        {!soldOut && !disabled && quick && inCart > 0 && onDecrement ? (
+          // o1: the + became a neutral stepper in place; − takes one off, + adds (and flies) one more.
+          <View style={{ position: 'absolute', bottom: -10, start: -14, end: -14, alignItems: 'center' }} testID={`dish-stepper-${item.id}`}>
+            <Stepper
+              size="sm"
+              value={inCart}
+              min={0}
+              max={99}
+              accessibilityLabel={t('restaurant.qty_label', { name: item.name })}
+              onChange={(next) => {
+                if (next < inCart) onDecrement();
+                else void measure(thumb).then(onQuickAdd);
+              }}
+              style={{ alignSelf: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
+            />
+          </View>
+        ) : !soldOut && !disabled ? (
           <IconButton
             testID={`dish-add-${item.id}`}
             icon="plus"
             size={36}
             variant={inCart > 0 ? 'accent' : 'outline'}
             accessibilityLabel={t('restaurant.add_item', { name: item.name })}
-            onPress={quick ? onQuickAdd : onOpen}
+            onPress={quick ? () => void measure(thumb).then(onQuickAdd) : onOpen}
             style={{ position: 'absolute', bottom: -6, start: -6 }}
           />
         ) : null}
-        {inCart > 0 ? (
+        {inCart > 0 && !(quick && onDecrement && !soldOut && !disabled) ? (
           <View
             style={{
               position: 'absolute',

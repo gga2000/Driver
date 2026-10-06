@@ -1131,6 +1131,8 @@
   "support.reply.resolve_thanks.title": "سكّر التذكرة",
   "support.reply.resolve_thanks.text": "نتمنى انحلّت. إذا بعد تحتاج شي احنا موجودين من 10 الصبح لـ 12 بالليل.",
   "restaurant.fallback_name": "المطعم",
+  "restaurant.view_cart_count": "بالسلة {n} · {amount} دينار، شوف السلة",
+  "restaurant.qty_label": "{name} بالسلة",
   "rajaa.fallback_corridor": "هذا الخط",
   "support.proactive_delay": "نعتذر، طلبك تأخر عن الموعد. الوقت الجديد: الساعة {time}",
   "support.proactive_delay_credit": "نعتذر، طلبك تأخر والسبب منا. ضفنالك {amount} دينار رصيد والوقت الجديد الساعة {time}",

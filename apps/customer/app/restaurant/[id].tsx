@@ -4,7 +4,7 @@ import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem, RestaurantCard } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
 import { CartBar } from '@/features/food/CartBar';
@@ -12,7 +12,9 @@ import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
-import { FoodArt, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
+import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
+import { stackThumbs } from '@/features/food/fly';
+import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { useMenu } from '@/features/food/queries';
 import { useRememberViewed } from '@/features/search/viewed';
@@ -34,7 +36,6 @@ export default function RestaurantScreen() {
   const { id, item: itemParam } = useLocalSearchParams<{ id: string; item?: string }>();
   const theme = useTheme();
   const t = useT();
-  const toast = useToast();
   const insets = useSafeAreaInsets();
   const menu = useMenu(id);
   const locale = useLocale();
@@ -48,6 +49,10 @@ export default function RestaurantScreen() {
   const barRef = useRef<ScrollView>(null);
   const sectionY = useRef<number[]>([]);
   const menuTop = useRef(0);
+  // o1: the cart bar's count bubble (where a dish lands), the one flight overlay, and the landing tick.
+  const bubbleRef = useRef<View>(null);
+  const flyRef = useRef<FlyHandle>(null);
+  const [landings, setLandings] = useState(0);
 
   const restaurant = menu.data?.restaurant;
   // «فتحتها قبل» on the search start screen (D-24).
@@ -75,12 +80,25 @@ export default function RestaurantScreen() {
     if (found) setOpen(found);
   }, [itemParam, categories]);
 
-  const onAdded = (name: string) => {
-    setOpen(null);
-    toast.show({ message: t('restaurant.added', { name }), tone: 'success', icon: 'cart' });
+  const photoById = useMemo(() => new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i.photoUrl])), [categories]);
+  const thumbs = useMemo(
+    () => (mine ? stackThumbs(cart).map((l) => ({ ...(artById.get(l.itemId) ?? artOf({ id: l.itemId, name: l.name })), photoUrl: photoById.get(l.itemId) ?? null })) : []),
+    [cart, mine, artById, photoById],
+  );
+  const barVisible = mine && cart.lines.length > 0;
+  const land = () => {
+    setLandings((n) => n + 1);
+    theme.haptic('selection');
   };
 
-  const quickAdd = (item: MenuItem) => {
+  const onAdded = () => {
+    setOpen(null);
+    theme.haptic('light');
+    // The living bar answers the add (o1, F-03): no toast over it; it announces the add to screen readers.
+    land();
+  };
+
+  const quickAdd = (item: MenuItem, from: Rect | null) => {
     if (!merchant) return;
     const res = cartStore.add(merchant, { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers: [], qty: 1, note: null, personId: ME });
     if (!res.ok) {
@@ -88,8 +106,14 @@ export default function RestaurantScreen() {
       setOpen(item);
       return;
     }
-    theme.haptic('success');
-    toast.show({ message: t('restaurant.added', { name: item.name }), tone: 'success', icon: 'cart' });
+    theme.haptic('light');
+    if (from && flyRef.current) flyRef.current.fly(from, { ...(artById.get(item.id) ?? artOf(item)), photoUrl: item.photoUrl });
+    else land();
+  };
+
+  const removeOne = (item: MenuItem) => {
+    const line = [...cart.lines].reverse().find((l) => l.itemId === item.id);
+    if (line) cartStore.setQty(line.key, line.qty - 1);
   };
 
   const jumpTo = (i: number) => {
@@ -215,20 +239,31 @@ export default function RestaurantScreen() {
                     {c.name}
                   </Text>
                   {c.items.map((item) => (
-                    <DishCard key={item.id} item={item} art={artById.get(item.id)} inCart={counts.get(item.id) ?? 0} disabled={closed} onOpen={() => setOpen(item)} onQuickAdd={() => quickAdd(item)} />
+                    <DishCard
+                      key={item.id}
+                      item={item}
+                      art={artById.get(item.id)}
+                      inCart={counts.get(item.id) ?? 0}
+                      disabled={closed}
+                      onOpen={() => setOpen(item)}
+                      onQuickAdd={(from) => quickAdd(item, from)}
+                      onDecrement={() => removeOne(item)}
+                    />
                   ))}
                 </View>
               ))}
         </View>
       </ScrollView>
 
-      {mine && cart.lines.length > 0 ? (
+      {barVisible ? (
         <View style={{ position: 'absolute', bottom: insets.bottom + theme.space[4], start: 0, end: 0, alignItems: 'center', paddingHorizontal: theme.space[5] }} pointerEvents="box-none">
           <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH - 40 }}>
-            <CartBar count={itemCount(cart)} totalIqd={itemsTotal(cart)} onPress={() => router.push('/cart')} />
+            <CartBar count={itemCount(cart)} totalIqd={itemsTotal(cart)} thumbs={thumbs} bubbleRef={bubbleRef} pulseKey={landings} onPress={() => router.push('/cart')} />
           </View>
         </View>
       ) : null}
+
+      <FlyToCart ref={flyRef} targetRef={bubbleRef} onLanded={land} />
 
       {open && merchant ? <ItemSheet item={open} merchant={merchant} disabled={closed} onClose={() => setOpen(null)} onAdded={onAdded} /> : null}
     </View>
