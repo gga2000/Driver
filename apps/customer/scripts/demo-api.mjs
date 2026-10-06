@@ -11,7 +11,8 @@
 //   - POST /demo/kitchen?orderId=<id>&action=accept|reject  decides one order now;
 //   - POST /demo/active-order?personId=<id>  places and accepts a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
-//   - GET /demo/seed  lists the seeded restaurants with this process's org ids.
+//   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
+//   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
@@ -33,6 +34,7 @@ const { createApp } = await load('bootstrap.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
 const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
 const KITCHEN_MS = Number(process.env.DEMO_KITCHEN_MS ?? 20_000);
@@ -41,6 +43,7 @@ const app = await createApp();
 const orgs = app.get(OrgsService);
 const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
+const controls = app.get(ControlsService);
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
 // Demo restaurants stay open around the clock so screens and shots work at any hour
@@ -99,6 +102,21 @@ app.use('/demo/kitchen', async (req, res) => {
     if (req.method !== 'POST' || !orderId || !['accept', 'reject'].includes(action ?? '')) return json(res, 400, { error: 'POST /demo/kitchen?orderId=…&action=accept|reject' });
     const order = action === 'accept' ? await accept(orderId) : await orders.merchantReject('demo-staff', { orderId, reason: 'المطبخ مزدحم' });
     json(res, 200, { orderId: order.id, state: order.state });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// Quiet day on or off for today (Baghdad date): no delivered burst, buzz or sounds in the app.
+app.use('/demo/quiet', async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://x');
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/quiet?on=1|0' });
+    const demoOps = { personId: 'demo-ops', sessionId: 'demo' };
+    const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+    for (const q of await controls.quietDays()) if (q.active) await controls.clearQuietDays(demoOps, { quietId: q.id });
+    if (url.searchParams.get('on') === '1') await controls.setQuietDays(demoOps, { cityId: null, startsOn: today, endsOn: today, label_ar: 'يوم هادئ (تجربة)' });
+    json(res, 200, await controls.season({ cityId: 'aziziyah' }));
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });
   }
@@ -312,7 +330,6 @@ async function savedHome(personId) {
   return mine.find((p) => p.label === 'home' && p.photos.length > 0) ?? null;
 }
 
-async function scenario(personId, name, cash = {}) {
 /**
  * Audit d-5 demo: moves an order's kitchen times back so its promised arrival was `minutes` ago (the
  * in-memory record only), so the late banner's promise bar — and past the threshold the credit — show.
@@ -339,11 +356,11 @@ async function scenario(personId, name, opts = {}) {
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
-  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, cash.tender ?? null);
+  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
   const tripId = await assign(orderId, courierId);
-  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(cash.noChange) };
+  const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(opts.noChange) };
   demos.set(orderId, d);
   if (name === 'preparing' || late) {
     await startMover(tripId, courierId, late ? FAR_TO_KITCHEN : TO_KITCHEN, late ? 22 : 30);
@@ -405,9 +422,8 @@ app.use('/demo/track', async (req, res) => {
     }
     const tender = Number(url.searchParams.get('tender') ?? 0) || null;
     const noChange = url.searchParams.get('nochange') === '1';
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange })) }));
     const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { pastPromiseMin })) }));
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));

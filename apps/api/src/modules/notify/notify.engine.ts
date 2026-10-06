@@ -108,6 +108,8 @@ export class NotifyEngine {
     private readonly queue: Queue<NotifyJob>,
     private readonly clock: Clock,
     private readonly opts: NotifyEngineOptions = DEFAULT_ENGINE_OPTIONS,
+    /** Mourning days set in the Console (`ControlsService.isQuietDay`): no offers then. */
+    private readonly isQuietDay: (at: Date) => Promise<boolean> = async () => false,
   ) {}
 
   // ───────────────────────── routing ─────────────────────────
@@ -138,6 +140,7 @@ export class NotifyEngine {
     };
     const channels = req.channels ?? def.primary;
     const capped = def.category === 'marketing' && (await this.repo.countMarketingSince(req.to, new Date(now.getTime() - WEEK_MS))) >= MARKETING_MAX_PER_WEEK;
+    const quietDay = def.category === 'marketing' && (await this.isQuietDay(now));
     const deferred = def.quietHours === 'defer' && inQuietHours(now);
     const rows: NewDelivery[] = channels.map((channel) => {
       const pref = preferenceFor(def.category, channel);
@@ -146,6 +149,7 @@ export class NotifyEngine {
       let notBefore: Date | null = null;
       if (channel === 'whatsapp' && !def.whatsapp) [status, reason] = ['skipped', 'no_template'];
       else if (pref && !prefs[pref]) [status, reason] = ['suppressed', `preference:${pref}`];
+      else if (quietDay) [status, reason] = ['suppressed', 'quiet_day'];
       else if (capped) [status, reason] = ['suppressed', 'weekly_cap'];
       else if (deferred) [status, reason, notBefore] = ['deferred', 'quiet_hours', quietHoursEnd(now)];
       return { dedupeKey, eventId: req.eventId, template: req.template, personId: req.to, orderId: req.orderId ?? null, channel, status, reason, twin: false, payload: channel === 'whatsapp' && preview.whatsapp ? { ...payload, body: preview.whatsapp.text } : payload, notBefore };
@@ -194,6 +198,10 @@ export class NotifyEngine {
         await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, 'deferred', at.getTime()), at.getTime() - now.getTime());
         return;
       }
+    }
+    if (def.category === 'marketing' && (await this.isQuietDay(now))) {
+      await this.repo.updateDelivery(row.id, { status: 'suppressed', reason: 'quiet_day' }, now);
+      return;
     }
     try {
       if (row.channel === 'push') await this.sendPush(row, def);

@@ -7,6 +7,7 @@ import {
   AuditInput,
   BannerInput,
   ClearBannerInput,
+  ClearQuietDaysInput,
   ControlsInput,
   ControlsView,
   DecideApprovalInput,
@@ -17,8 +18,12 @@ import {
   LaunchMetricsView,
   MetricsInput,
   PublicBanner,
+  PublicSeason,
+  QuietDaysView,
+  SeasonInput,
   SetBannerInput,
   SetKillSwitchInput,
+  SetQuietDaysInput,
   SetZoneCapacityInput,
   SettlementExport,
   SettlementExportInput,
@@ -76,6 +81,25 @@ export const bannerProcedures = {
     .input(ClearBannerInput)
     .output(SystemBannerView)
     .mutation(({ ctx, input }) => ctx.controls.clearBanner(ctx.actor, input)),
+};
+
+/** `system.season` (public: what an open app may do today) and the quiet days ops set. Spread into `system`. */
+export const seasonProcedures = {
+  season: publicProcedure
+    .input(SeasonInput)
+    .output(PublicSeason)
+    .query(({ ctx, input }) => ctx.controls.season(input)),
+  quietDays: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(z.array(QuietDaysView))
+    .query(({ ctx }) => ctx.controls.quietDays()),
+  setQuietDays: protectedProcedure(BANNER_ROLES)
+    .input(SetQuietDaysInput)
+    .output(QuietDaysView)
+    .mutation(({ ctx, input }) => ctx.controls.setQuietDays(ctx.actor, input)),
+  clearQuietDays: protectedProcedure(BANNER_ROLES)
+    .input(ClearQuietDaysInput)
+    .output(QuietDaysView)
+    .mutation(({ ctx, input }) => ctx.controls.clearQuietDays(ctx.actor, input)),
 };
 
 /** `approvals.*` — driver documents, merchant deals, landmark photos, onboarding drafts, fleet vehicles. */

@@ -129,6 +129,25 @@ describe('quiet hours and the marketing cap', () => {
     const [next] = await h.service.dispatch({ eventId: 'm4', template: 'marketing_offer', to: 'cust', params: { title: 't', body: 'b' } });
     expect(next!.status).toBe('queued');
   });
+
+  it('sends no offers on a quiet day, whether new or deferred from the night before; order updates still go', async () => {
+    let quiet = false;
+    const h = notifyHarness({ start: '2026-11-12T20:30:00Z', quietDay: async () => quiet }); // 23:30 local, 12 Nov
+    await h.register('cust');
+    await h.service.setPreferences(h.actor('cust'), { marketing: true });
+    await h.service.dispatch({ eventId: 'm1', template: 'marketing_offer', to: 'cust', params: { title: 'عرض', body: 'خصم' } });
+    quiet = true; // the mourning day starts at midnight
+    h.clock.set('2026-11-13T05:00:00Z'); // 08:00 local: quiet hours over
+    await h.run();
+    await h.service.dispatch({ eventId: 'm2', template: 'marketing_offer', to: 'cust', params: { title: 'عرض', body: 'خصم' } });
+    await h.service.dispatch({ eventId: 'o1', template: 'order_accepted', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'o1' } });
+    await h.run();
+    expect((await h.rows({ personId: 'cust' })).map((r) => [r.template, r.status, r.reason])).toEqual([
+      ['marketing_offer', 'suppressed', 'quiet_day'],
+      ['marketing_offer', 'suppressed', 'quiet_day'],
+      ['order_accepted', 'sent', null],
+    ]);
+  });
 });
 
 describe('SMS twins', () => {

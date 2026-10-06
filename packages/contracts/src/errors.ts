@@ -97,6 +97,8 @@ export const ERROR_TABLE = {
   zone_overlap: { retryHint: 'never', status: 'CONFLICT' },
   banner_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   banner_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  quiet_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  quiet_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   approval_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   approval_own_item: { retryHint: 'never', status: 'FORBIDDEN' },
   approval_state_conflict: { retryHint: 'never', status: 'CONFLICT' },

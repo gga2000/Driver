@@ -51,6 +51,7 @@ const ticketCase = {
 const switchView = { id: 'ks_1', cityId: 'aziziyah', scope: 'vertical' as const, key: 'food', label_ar: 'الأكل', vertical: null, active: true, holdDispatch: false, message_ar: null, reason: 'مطر', setBy: 'p_staff', setByName: 'علي', setAt: AT, expiresAt: null };
 const zoneView = { zoneKey: 'zakur', name_ar: 'زاكور', tier: 'mid', maxActive: 5, mode: 'refuse' as const, etaMin: 15, active: 2, load: 0.4, state: 'ok' as const, killed: false, setBy: 'p_staff', setAt: AT };
 const bannerView = { id: 'bn_1', severity: 'info' as const, message_ar: 'هلا', message_en: null, expiresAt: LATER, cityId: null, audiences: ['customer' as const], startsAt: AT, active: true, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
+const quietView = { id: 'qd_1', cityId: 'aziziyah', startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء', active: false, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
 
 function ports() {
   const controls: ControlsPort = {
@@ -62,6 +63,10 @@ function ports() {
     banners: vi.fn(async () => [bannerView]),
     setBanner: vi.fn(async () => bannerView),
     clearBanner: vi.fn(async () => bannerView),
+    season: vi.fn(async () => ({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null })),
+    quietDays: vi.fn(async () => [quietView]),
+    setQuietDays: vi.fn(async () => quietView),
+    clearQuietDays: vi.fn(async () => quietView),
   };
   const controlRoom: ControlRoomPort = {
     approvals: vi.fn(async () => ({ at: AT, items: [], counts: { driver_document: 0, merchant_deal: 0, landmark_photo: 0, merchant_onboarding: 0, fleet_vehicle: 0 } })),
@@ -128,6 +133,9 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['system.banners', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.system.banners()],
   ['system.setBanner', ['admin'], (c) => c.system.setBanner({ severity: 'info', audiences: ['customer'], message_ar: 'هلا بيكم', expiresAt: LATER })],
   ['system.clearBanner', ['admin'], (c) => c.system.clearBanner({ bannerId: 'bn_1' })],
+  ['system.quietDays', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.system.quietDays()],
+  ['system.setQuietDays', ['admin'], (c) => c.system.setQuietDays({ startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' })],
+  ['system.clearQuietDays', ['admin'], (c) => c.system.clearQuietDays({ quietId: 'qd_1' })],
   ['approvals.list', ['field_ops', 'support', 'admin'], (c) => c.approvals.list({})],
   ['approvals.decide', ['field_ops', 'support', 'admin'], (c) => c.approvals.decide({ kind: 'driver_document', refId: 'd1', decision: 'approve' })],
   ['support.list', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.list({})],
@@ -158,6 +166,17 @@ describe('launch control room routers: role gates', () => {
     expect(await anon.call.system.banner({ app: 'customer' })).toMatchObject({ id: 'bn_1', severity: 'info' });
     expect(anon.controls.banner).toHaveBeenCalledWith({ app: 'customer' });
     expect(await codeOf(anon.call.system.banner({ app: 'console' as never }))).toBe('BAD_REQUEST');
+  });
+
+  it('system.season is public; quiet days are validated before the port', async () => {
+    const anon = caller(null);
+    expect(await anon.call.system.season({ cityId: 'aziziyah' })).toMatchObject({ quiet: false, celebrations: true, sounds: true, promos: true });
+    expect(anon.controls.season).toHaveBeenCalledWith({ cityId: 'aziziyah' });
+    const admin = caller(['admin']);
+    expect(await codeOf(admin.call.system.setQuietDays({ startsOn: '2026-11-14', endsOn: '2026-11-13', label_ar: 'يوم عزاء' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(admin.call.system.setQuietDays({ startsOn: '13-11-2026', endsOn: '2026-11-13', label_ar: 'يوم عزاء' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(admin.call.system.setQuietDays({ startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يو' }))).toBe('BAD_REQUEST');
+    expect(admin.controls.setQuietDays).not.toHaveBeenCalled();
   });
 
   it('inputs are validated before the port: a refusal needs a reason, refunds come in 250s, capacity and banners are bounded', async () => {

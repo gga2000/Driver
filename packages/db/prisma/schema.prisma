@@ -2717,6 +2717,27 @@ model SystemBanner {
   @@schema("public")
 }
 
+/// Quiet days (customer joy J1a): mourning days ops set in the Console. While one is on, the apps play
+/// no celebrations or moment sounds and the notify engine sends no offers.
+model QuietPeriod {
+  id          String    @id @default(cuid())
+  /// NULL = every city.
+  cityId      String?   @map("city_id")
+  /// Baghdad calendar days, inclusive, as YYYY-MM-DD.
+  startsOn    String    @map("starts_on")
+  endsOn      String    @map("ends_on")
+  labelAr     String    @map("label_ar")
+  setById     String    @map("set_by_id")
+  clearedAt   DateTime? @map("cleared_at")
+  clearedById String?   @map("cleared_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([endsOn])
+  @@map("quiet_periods")
+  @@schema("public")
+}
+
 /// Console audit log (console spec, system/admin): every control-room action, who did it, on what.
 model ConsoleAuditLog {
   id          String   @id @default(cuid())
