@@ -19,7 +19,9 @@
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
-// check (the red row under the SOS banner; `late=1`: confirmed late).
+// check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
+// → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
+// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat.
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -78,6 +80,19 @@ app.use('/demo/khat-sweep', async (req, res) => {
     if (!raiseDemoSweep) throw new Error('still seeding');
     const late = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('late') === '1';
     res.end(JSON.stringify(await raiseDemoSweep(late)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/pin-alert[?kind=wrong] (registered before listen; filled in below by `raiseDemoPinAlert`).
+let raiseDemoPinAlert = null;
+app.use('/demo/pin-alert', async (req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!raiseDemoPinAlert) throw new Error('still seeding');
+    const kind = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('kind') === 'wrong' ? 'wrong' : 'cross';
+    res.end(JSON.stringify(await raiseDemoPinAlert(kind)));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -490,6 +505,51 @@ raiseDemoSweep = async function raiseDemoSweep(late = false) {
   const { alert } = await khatRepo.raiseSweepAlert({ tripId, cityId: 'aziziyah', driverId: khatDriver, childrenTotal: 5, lastDropAt: ended, lastDropZone: 'centre', runEndedAt: ended, raisedAt: new Date(ended.getTime() + 5 * 60_000) });
   if (late) await khatRepo.confirmSweepAlert(tripId, new Date(ended.getTime() + 9 * 60_000 + 20_000));
   return { alertId: alert.id, tripId, driverId: khatDriver };
+};
+
+// ───────────────────────── الرجعة seat PIN alert ─────────────────────────
+// POST /demo/pin-alert — a الرجعة car at كراج البوابة 1 leaving in 40 minutes, two riders booked
+// (قدام and ورا يسار). The driver first types a PIN that is nobody's on the front seat, then the
+// back-left rider's PIN on the front seat (refused: the cross-use row under the SOS banner), then
+// the front rider's own PIN (he boards). `?kind=wrong`: three wrong PINs on the front seat. Real
+// check-ins through the routes module, so the attempt history is the one ops would see.
+const { DeparturesService } = await load('modules/routes/index.js');
+const { AnnounceInput, HoldSeatInput } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts')).href);
+const departures = get(DeparturesService);
+let pinDemoN = 0;
+raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
+  pinDemoN += 1;
+  const tag = String(pinDemoN).padStart(2, '0');
+  const driverId = await person(`078144404${tag}`, ['حيدر كاظم', 'مهدي صالح', 'عمار جبار'][pinDemoN % 3], ['intercity_driver']);
+  const riderA = await person(`077155505${tag}`, 'رقية حسن');
+  const riderB = await person(`077155506${tag}`, 'سجاد علي');
+  const now = Date.now();
+  const dep = await departures.announce(
+    driverId,
+    AnnounceInput.parse({ garageId: 'mp_garage_bab1', corridorId: 'aziziyah_baghdad', departAt: new Date(now + 40 * 60_000), latestDepartureAt: new Date(now + 70 * 60_000), vehicle: { kind: 'saloon', layout: 4, plate: `واسط ${52000 + pinDemoN}` } }),
+  );
+  const seat = async (riderId, seatId) => {
+    const held = await departures.hold(riderId, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal' }));
+    return departures.book(riderId, held.id, 'cash');
+  };
+  const a = await seat(riderA, 'front');
+  const b = await seat(riderB, 'back_left');
+  const nobody = ['0000', '1111', '2222', '3333', '4444', '5555'].filter((p) => p !== a.pin && p !== b.pin);
+  const type = async (pin, bookingId) => {
+    try {
+      await departures.checkIn(driverId, dep.id, pin, bookingId);
+    } catch (err) {
+      if (err?.code !== 'pin_invalid') throw err;
+    }
+  };
+  if (kind === 'wrong') for (const pin of nobody.slice(0, 3)) await type(pin, a.id);
+  else {
+    await type(nobody[0], a.id);
+    await type(b.pin, a.id);
+    await type(a.pin, a.id);
+  }
+  const attempts = await departures.pinAttempts(dep.id);
+  return { departureId: dep.id, driverId, alertIds: attempts.filter((x) => x.alert).map((x) => x.id), attempts: attempts.map((x) => x.result) };
 };
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);
