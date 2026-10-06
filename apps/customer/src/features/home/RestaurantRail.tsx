@@ -2,7 +2,9 @@ import { router } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { formatRange } from '@driver/i18n';
-import { Button, Card, Icon, initialOf, Skeleton, StatusPill, Text, toneFor, useTheme, type AvatarTone } from '@driver/ui';
+import { Button, Card, Icon, initialOf, Skeleton, StatusPill, Text, useTheme, type AvatarTone } from '@driver/ui';
+import { DealSticker } from '@/features/food/DealBadge';
+import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
 import { SectionHeader } from '@/components/SectionHeader';
 import type { RestaurantSummary } from './restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
@@ -31,7 +33,6 @@ export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const tone = HERO[toneFor(r.name)];
   const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
   const fee = r.deliveryFeeIqd === null ? null : free ? t('search.filter_free_delivery') : t('restaurant.delivery_fee', { amount: amountParam(r.deliveryFeeIqd) });
   const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) : formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale);
@@ -46,27 +47,29 @@ export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal
       <View
         style={{
           height: HERO_H,
-          backgroundColor: theme.colors[tone.bg],
           paddingHorizontal: theme.space[4],
           paddingVertical: theme.space[3],
           justifyContent: 'space-between',
           opacity: r.open ? 1 : 0.75,
         }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Text weight={700} color={tone.fg} style={{ fontSize: 44, lineHeight: 58 }}>
-            {monogram(r.name)}
-          </Text>
+        {/* The kitchen's dish (joy S2-13), the same drawing as its menu hero. */}
+        <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0 }}>
+          <FoodArt motif={motifForKitchen(r.tags)} variant="hero" />
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-start', minHeight: 30 }}>
           {r.favourite ? (
             <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="star" size={16} color="accent" filled />
+              <Icon name="star" size={16} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
             </View>
           ) : null}
         </View>
         {!r.open ? (
           <StatusPill size="sm" tone="neutral" icon="clock" label={`${t('restaurant.closed')} · ${t('restaurant.opens_at', { time: r.opensAt ?? '' })}`} />
         ) : showDeal && r.deal ? (
-          <StatusPill size="sm" tone="success" icon="gift" label={r.deal} style={{ backgroundColor: theme.colors.surface }} />
+          <View style={{ alignSelf: 'flex-start' }}>
+            <DealSticker label={r.deal} />
+          </View>
         ) : null}
       </View>
       <View style={{ padding: theme.space[3], gap: 2 }}>
@@ -78,7 +81,7 @@ export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: theme.space[1] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <Icon name="star" size={14} color="accent" filled />
+            <Icon name="star" size={14} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
             <Text variant="caption" weight={600} tabular>
               {r.rating === null ? t('restaurant.rating_new') : r.rating.toFixed(1)}
             </Text>

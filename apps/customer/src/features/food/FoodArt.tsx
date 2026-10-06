@@ -4,7 +4,7 @@ import { DishDrawing, SKETCH, useLiteMode } from '@driver/ui';
 import Svg, { Circle, Ellipse, G } from 'react-native-svg';
 import { ART_LOOKS, type Motif } from './food-art';
 
-export { artOf, dishArt, motifForDish, motifForKitchen, type DishArt, type Motif } from './food-art';
+export { artOf, dishArt, motifForCuisine, motifForDish, motifForKitchen, type DishArt, type Motif } from './food-art';
 
 /**
  * Illustrated placeholder for kitchens and dishes without a photo yet (every launch merchant today):

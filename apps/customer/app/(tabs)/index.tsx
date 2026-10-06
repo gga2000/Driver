@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import type { LaunchService } from '@driver/contracts';
-import { Button, Card, Chip, Icon, SearchField, StaleNote, Text, useLoadTimeout, useNow, useTheme } from '@driver/ui';
+import { Button, Card, Icon, SearchField, StaleNote, Text, useLoadTimeout, useNow, useTheme } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
 import { Screen } from '@/components/Screen';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
@@ -15,7 +15,8 @@ import { useActiveOrder, useRestaurants } from '@/features/home/queries';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
-import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
+import { ComingSoonStrip, ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
+import { CuisineCircles } from '@/features/home/CuisineCircles';
 import { lastReorderable } from '@/features/orders/history';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
@@ -30,8 +31,8 @@ const HOME_LIST = 5;
 /**
  * Home (spec §1, audit C-09): food-led and calm. A one-line header (greeting + deliver-to, bell),
  * the search bar (opens /search), ONE service grid (أكل، تكسي، تكتك، الرجعة; the coming-soon ones in
- * a quiet strip), the contextual card (what is in progress — order, ride, booked الرجعة seat — else
- * ONE of "اطلبه مرة ثانية" for the last meal or the الرجعة board), then food: cuisine chips and the kitchens open now — the
+ * «جاي بالطريق» at the end), the contextual card (what is in progress — order, ride, booked الرجعة seat — else
+ * ONE of "اطلبه مرة ثانية" for the last meal or the الرجعة board), then food: round dish pictures per cuisine and the kitchens open now — the
  * first of them inside the first screen on a 360×740 phone. Guests browse it all (C-18).
  */
 export default function Home() {
@@ -101,22 +102,10 @@ export default function Home() {
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
 
       <View testID="home-food" onLayout={(e) => (foodY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[3] }}>
-        <SectionHeader title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
+        <SectionHeader voice title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
         {/* Offline: what's below is the last copy we had, and says so. */}
         <StaleNote updatedAt={restaurants.dataUpdatedAt} locale={locale} testID="home-stale" />
-        {cuisines.length > 1 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginHorizontal: -theme.space[5] }}
-            contentContainerStyle={{ paddingHorizontal: theme.space[5], gap: theme.space[2] }}
-            testID="home-cuisines"
-          >
-            {cuisines.map((c) => (
-              <Chip key={c} testID={`cuisine-${c}`} role="button" label={c} onPress={() => router.push({ pathname: '/search', params: { q: c } })} />
-            ))}
-          </ScrollView>
-        ) : null}
+        {cuisines.length > 1 ? <CuisineCircles cuisines={cuisines} onPick={(c) => router.push({ pathname: '/search', params: { q: c } })} /> : null}
         {loading ? (
           <View accessibilityLabel={t('status.loading')} style={{ gap: theme.space[3] }}>
             <RestaurantRowSkeleton />
@@ -175,6 +164,9 @@ export default function Home() {
       {list?.some((r) => !!r.deal) ? (
         <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list.filter((r) => !!r.deal)} showDeal seeAll="deals" loading={false} error={false} onRetry={retry} />
       ) : null}
+
+      {/* «جاي بالطريق» (discovery §6): what isn't open yet, quiet at the end, after the food. */}
+      <ComingSoonStrip onPress={onService} />
 
       <ComingSoonSheet service={soon} onClose={() => setSoon(null)} />
       {reorder.sheet}
