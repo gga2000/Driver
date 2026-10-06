@@ -25,7 +25,7 @@ export interface FlyHandle {
 }
 
 /** Window rectangle of a mounted view (null when it is not laid out). */
-export function measure(ref: RefObject<View>): Promise<Rect | null> {
+export function measure(ref: RefObject<View | null>): Promise<Rect | null> {
   return new Promise((resolve) => {
     const node = ref.current;
     if (!node) return resolve(null);
@@ -39,7 +39,7 @@ export function measure(ref: RefObject<View>): Promise<Rect | null> {
  * `onLanded` (the bar ticks). Transforms and opacity only, no shadow in flight, one flight at a time
  * (a tap during a flight just ticks the bar). Under reduced motion nothing flies: it lands at once.
  */
-export const FlyToCart = forwardRef<FlyHandle, { targetRef: RefObject<View>; onLanded: () => void }>(function FlyToCart({ targetRef, onLanded }, ref) {
+export const FlyToCart = forwardRef<FlyHandle, { targetRef: RefObject<View | null>; onLanded: () => void }>(function FlyToCart({ targetRef, onLanded }, ref) {
   const theme = useTheme();
   const anchor = useRef<View>(null);
   const [art, setArt] = useState<FlyArt | null>(null);

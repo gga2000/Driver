@@ -26,7 +26,7 @@ export interface ModalSheetProps {
    */
   hero?: ReactNode;
   /** The body's scroll view, for jumping to a part of it (a missing required choice, joy o4). */
-  scrollRef?: RefObject<ScrollView>;
+  scrollRef?: RefObject<ScrollView | null>;
   children: ReactNode;
   /** Pinned under the scrolling body: the primary action, where the thumb finds it. */
   footer?: ReactNode;

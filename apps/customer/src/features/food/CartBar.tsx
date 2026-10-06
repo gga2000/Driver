@@ -16,7 +16,7 @@ export interface CartBarProps {
   /** The newest dishes (≤ 3, newest first): a small overlapping stack on the bar. */
   thumbs?: FlyArt[];
   /** The count bubble: where a flying dish lands (`FlyToCart`). */
-  bubbleRef?: RefObject<View>;
+  bubbleRef?: RefObject<View | null>;
   /** Changes when a dish lands: the bubble ticks. */
   pulseKey?: number;
 }
