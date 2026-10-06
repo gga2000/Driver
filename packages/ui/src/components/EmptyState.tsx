@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
@@ -11,14 +12,23 @@ export interface EmptyStateProps {
   /** What to do next (voice spec: an empty screen is an invitation to act). */
   body?: string;
   action?: { label: string; onPress: () => void };
+  /** A sketchbook scene (joy J4) in place of the icon tile; the icon stays the fallback. */
+  art?: ReactNode;
   style?: StyleProp<ViewStyle>;
 }
 
-export function EmptyState({ icon, title, body, action, style }: EmptyStateProps) {
+/** How wide a drawing grows in an empty state. */
+const ART_MAX_WIDTH = 280;
+
+export function EmptyState({ icon, title, body, action, art, style }: EmptyStateProps) {
   const theme = useTheme();
   return (
     <View style={[{ alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[8], paddingHorizontal: theme.space[6] }, style]}>
+      {art ? (
+        <View style={{ width: '100%', maxWidth: ART_MAX_WIDTH, marginBottom: theme.space[1] }}>{art}</View>
+      ) : (
       <View
+        testID="empty-state-icon"
         style={{
           width: 72,
           height: 72,
@@ -33,6 +43,7 @@ export function EmptyState({ icon, title, body, action, style }: EmptyStateProps
           <Icon name={icon} size={32} color="accentText" strokeWidth={1.6} />
         </View>
       </View>
+      )}
       <Text variant="title" align="center">
         {title}
       </Text>
