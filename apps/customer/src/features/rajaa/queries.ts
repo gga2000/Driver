@@ -201,8 +201,8 @@ export function useWalletBalance(): number | null {
 // ── home card ──
 
 /** Home's الرجعة card: the live primary corridor board (way back to Aziziyah) and the rider's own trip. */
-export function useRajaaHome() {
-  const board = useBoard({ corridorId: PRIMARY_CORRIDOR, direction: DEFAULT_DIRECTION }, { poll: false });
+export function useRajaaHome(direction: IntercityDirection = DEFAULT_DIRECTION) {
+  const board = useBoard({ corridorId: PRIMARY_CORRIDOR, direction }, { poll: false });
   const network = useNetwork();
   const trip = useActiveBooking();
   const summary = board.data ? boardSummary(board.data.departures, new Date()) : null;

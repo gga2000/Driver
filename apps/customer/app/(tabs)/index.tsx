@@ -23,7 +23,7 @@ import { CuisineCircles } from '@/features/home/CuisineCircles';
 import { lastReorderable } from '@/features/orders/history';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
-import { useRajaaHome } from '@/features/rajaa/queries';
+import { useActiveBooking } from '@/features/rajaa/queries';
 import { startRide } from '@/features/ride/WhereToBar';
 import { popularTerms } from '@/features/search/logic';
 import { appNow } from '@/lib/dev-clock';
@@ -49,7 +49,7 @@ export default function Home() {
   const foodY = useRef(0);
   const active = useActiveOrder();
   const restaurants = useRestaurants();
-  const rajaa = useRajaaHome();
+  const rajaaTrip = useActiveBooking();
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
@@ -79,7 +79,7 @@ export default function Home() {
   const night = useMemo(() => nightHome(list ?? []), [list]);
   const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
-  const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaa.trip), reorder: Boolean(last) });
+  const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last) });
 
   const onService = (id: ServiceId) => {
     if (id === 'food') scrollRef.current?.scrollTo({ y: foodY.current, animated: true });
@@ -110,7 +110,7 @@ export default function Home() {
       <ServicesRow onPress={onService} />
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
-      {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard /> : null}
+      {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard hour={dp.hour} /> : null}
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
       {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
       <SeasonCard />
