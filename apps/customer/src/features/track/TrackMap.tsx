@@ -30,6 +30,8 @@ export interface TrackMapProps {
   searching?: boolean;
   /** Minutes to arrival for the pill on the courier ("8 دقيقة"); null hides it. */
   minutes?: string | null;
+  /** Unreachable at the door (joy f18): ring the courier so the customer sees where he stands. */
+  spotlight?: boolean;
 }
 
 /** Where the route still goes after the courier: next stops of this order, in order. */
@@ -50,7 +52,7 @@ export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoi
  * short gaps, no backwards hops, turning with the road (`motion.ts`) — his top-down vehicle with the
  * minutes to arrival, the home and kitchen pins, and a follow camera with a re-centre chip.
  */
-export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null }: TrackMapProps) {
+export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
@@ -127,7 +129,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
           {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
-          <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicle} stale={stale} minutes={minutes} testID="courier-marker" />
+          <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicle} stale={stale} minutes={minutes} spotlight={spotlight} testID="courier-marker" />
         </>
       ) : null}
       {!camera.follow ? <RecentreChip bottom={bottomInset + theme.space[5]} onPress={camera.recentre} /> : null}

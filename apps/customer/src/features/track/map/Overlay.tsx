@@ -60,13 +60,26 @@ export function RouteLine({ cam, size, glide, progress, path, start, waypoints, 
 }
 
 const MARKER = 60;
+/** The unreachable spotlight around the courier (L-10: "a 140 px circle around the marker"). */
+const SPOTLIGHT = 140;
 
 /**
  * The courier: our top-down vehicle turning with his heading as he glides along the road, a soft
  * pulse while live, and the minutes to arrival in a pill above (not rotated). Grey and still when his
  * signal is lost.
  */
-export function CourierMarker({ cam, size, glide, progress, path, kind, stale, minutes, testID }: LayerProps & GlideValues & { kind: VehicleKind; stale: boolean; minutes: string | null; testID?: string }) {
+export function CourierMarker({
+  cam,
+  size,
+  glide,
+  progress,
+  path,
+  kind,
+  stale,
+  minutes,
+  spotlight = false,
+  testID,
+}: LayerProps & GlideValues & { kind: VehicleKind; stale: boolean; minutes: string | null; /** Unreachable (f18): a ring around him so the customer sees where he stands. */ spotlight?: boolean; testID?: string }) {
   const theme = useTheme();
   const pulse = usePulse(!stale);
   const place = useAnimatedStyle(() => {
@@ -83,6 +96,12 @@ export function CourierMarker({ cam, size, glide, progress, path, kind, stale, m
   const halo = stale ? theme.colors.textMuted : theme.colors.accent;
   return (
     <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: MARKER, height: MARKER }, place]}>
+      {spotlight ? (
+        <View
+          testID="courier-spotlight"
+          style={{ position: 'absolute', left: (MARKER - SPOTLIGHT) / 2, top: (MARKER - SPOTLIGHT) / 2, width: SPOTLIGHT, height: SPOTLIGHT, borderRadius: SPOTLIGHT / 2, borderWidth: 3, borderColor: theme.colors.accent, backgroundColor: withAlpha(theme.colors.accent, 0.12) }}
+        />
+      ) : null}
       <Animated.View style={[styles.center, { width: MARKER, height: MARKER, borderRadius: MARKER / 2, backgroundColor: withAlpha(halo, 0.2) }, stale ? null : pulse]} />
       <Animated.View style={[StyleSheet.absoluteFill, styles.center, turn]}>
         <Vehicle kind={kind} body={theme.colors.accent} ink={theme.colors.text} glass={theme.colors.surface} shadow={palette.neutral[1000]} muted={stale} />

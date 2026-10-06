@@ -18,7 +18,8 @@ import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { rideAskOnLiveScreen } from '@/features/notify/prompt';
 import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
-import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
+import { CancelPanel, DisputePanel, StreetPanel, UNREACHABLE_PANEL_H, UnreachablePanel } from '@/features/track/Panels';
+import { currentSosFix } from '@/features/safety/fix';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
 import { ActionRow, COURIER_FLOAT_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { buildTimeline, courierAtDoor, phaseOf, statusLine } from '@/features/track/timeline';
@@ -159,6 +160,40 @@ export default function OrderLiveScreen() {
       toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
     }
   };
+  // Joy f18 / J-D8: «أني نازل» buys 2 more minutes on the server (once), then says so in the chat too.
+  const comingOut = async (): Promise<boolean> => {
+    try {
+      const res = await client.orders.comingOut.mutate({ orderId: id });
+      toast.show({ message: t(res.extended ? 'unreachable.coming_out_sent' : 'unreachable.coming_out_again'), tone: 'success', icon: 'check' });
+      void qc.invalidateQueries({ queryKey: api.orders.track.queryKey({ orderId: id }) });
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+      return false;
+    }
+    await client.chat.send
+      .mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: 'customer_coming_out' })
+      .then(() => void threads.refetch())
+      // The extra minutes are already his; the chat line is a courtesy, so a failure is only noted.
+      .catch((err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' }));
+    return true;
+  };
+  // «دزله لوكيشني»: the phone's own fix when it has one, else the saved drop-off pin.
+  const sendLocation = async (): Promise<boolean> => {
+    const here = await currentSosFix();
+    const pin = here ? { lat: here.lat, lng: here.lng } : (v?.dropoff?.pin ?? null);
+    if (!pin) {
+      toast.show({ message: t('error.network'), tone: 'warning' });
+      return false;
+    }
+    try {
+      await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), location: pin });
+      void threads.refetch();
+      return true;
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+      return false;
+    }
+  };
 
   if (track.isError) {
     const missing = apiErrorCode(track.error) === 'forbidden' || apiErrorCode(track.error) === 'not_found' || apiErrorCode(track.error) === 'order_not_found';
@@ -181,7 +216,8 @@ export default function OrderLiveScreen() {
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
-  const mapBottom = collapsed + (showFloat ? COURIER_FLOAT_H : 0);
+  // The unreachable panel keeps the map visible (f18): the camera frames him above it.
+  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? COURIER_FLOAT_H : 0);
 
   const courierCard = v?.courier ? (
     <CourierCard
@@ -200,7 +236,7 @@ export default function OrderLiveScreen() {
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} spotlight={phase === 'unreachable'} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
 
       <TopBar
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
@@ -339,7 +375,7 @@ export default function OrderLiveScreen() {
       </Sheet>
 
       {v && phase === 'unreachable' ? (
-        <UnreachablePanel view={v} clock={clock} onCall={call} onImHere={() => toast.show({ message: t('track.unreachable_sent'), tone: 'success' })} />
+        <UnreachablePanel view={v} clock={clock} courier={fix?.pin ?? null} onCall={call} onComingOut={comingOut} onSendLocation={sendLocation} />
       ) : null}
       {v && panel === 'cancel' ? <CancelPanel orderId={v.order.id} onClose={() => setPanel(null)} /> : null}
       {v && panel === 'dispute' ? <DisputePanel view={v} onClose={() => setPanel(null)} /> : null}

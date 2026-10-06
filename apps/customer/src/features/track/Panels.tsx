@@ -2,13 +2,14 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { DisputeKind, OrderTracking } from '@driver/contracts';
+import type { DisputeKind, LatLng, OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useCancellationPreview, useCancelOrder, useOpenDispute } from './queries';
+import { metresFromDoor, standingLine, unreachableLeftMs } from './unreachable-logic';
 import { color } from '@driver/design-tokens';
 
 /** A modal card from the bottom over a dimmed screen (cancel, report, street hand-over, unreachable). */
@@ -199,49 +200,78 @@ export function StreetPanel({ onClose }: { onClose: () => void }) {
 
 // ───────────────────────── unreachable protocol ─────────────────────────
 
+/** Height the unreachable panel takes over the map (the camera keeps the courier above it). */
+export const UNREACHABLE_PANEL_H = 360;
+
 /**
- * The courier is at the door and cannot reach the customer (domain §2): a 5-minute visible timer,
- * then the order fails with the default outcome. "أني هنا" tells the courier; calling is masked.
+ * The courier is at the door and cannot reach the customer (domain §2; joy f18, L-10). The map stays
+ * undimmed with a ring around him, so the customer sees where he stands («حيدر واقف هنا · 40 متر من
+ * بابك»). The timer is a small chip; the actions say what to do: «أني نازل» (2 more free minutes,
+ * once — J-D8, server-side), a masked call, and sending him my location.
  */
-export function UnreachablePanel({ view, clock, onImHere, onCall }: { view: OrderTracking; clock: () => number; onImHere: () => void; onCall: () => void }) {
+export function UnreachablePanel({
+  view,
+  clock,
+  courier,
+  onComingOut,
+  onCall,
+  onSendLocation,
+}: {
+  view: OrderTracking;
+  clock: () => number;
+  courier: LatLng | null;
+  /** Resolves true once the server took it. */
+  onComingOut: () => Promise<boolean>;
+  onCall: () => void;
+  onSendLocation: () => Promise<boolean>;
+}) {
   const theme = useTheme();
   const t = useT();
   const u = view.trip!.unreachable!;
   const started = u.startedAt.getTime();
   const total = u.failAllowedAt.getTime() - started;
-  const left = Math.max(0, u.failAllowedAt.getTime() - clock());
-  const [sent, setSent] = useState(false);
+  const left = unreachableLeftMs(u.failAllowedAt, clock());
+  const [coming, setComing] = useState<'idle' | 'busy' | 'done'>(u.extendedAt ? 'done' : 'idle');
+  const [location, setLocation] = useState<'idle' | 'busy' | 'done'>('idle');
+  const door = view.dropoff?.pin ?? view.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
   return (
-    <BottomPanel testID="unreachable-panel">
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
-        <CountdownRing
-          mode="late"
-          startedAt={started}
-          clock={clock}
-          size={116}
-          config={{ graceMs: total, stepMs: 60_000, stepAmount: 0, forfeitMs: 1 }}
-          captions={{ grace: t('track.unreachable_caption') }}
-          testID="unreachable-ring"
-        />
+    <BottomPanel testID="unreachable-panel" dim={false}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <View style={{ flex: 1, gap: theme.space[1] }}>
           <Text variant="title">{t('unreachable.customer_title')}</Text>
-          <Text color="textMuted">
-            {left <= 60_000 ? t('unreachable.customer_final') : t('unreachable.customer_body', { minutes: Math.ceil(left / 60_000) })}
+          <Text variant="label" weight={600} testID="unreachable-standing">
+            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door))}
           </Text>
         </View>
+        {/* The timer, small (L-10): guidance first. It counts to the server's fail time, extended or not. */}
+        <CountdownRing key={total} mode="accept" startedAt={started} durationMs={total} clock={clock} size={56} strokeWidth={5} format="clock" urgentMs={60_000} testID="unreachable-ring" />
       </View>
+      <Text color="textMuted">{left <= 60_000 ? t('unreachable.customer_final') : t('unreachable.customer_body', { minutes: Math.ceil(left / 60_000) })}</Text>
       <Button
-        label={t('unreachable.im_here')}
-        icon={sent ? 'check' : 'location-arrow'}
+        label={coming === 'done' ? t('unreachable.coming_out_again') : t('unreachable.coming_out')}
+        icon={coming === 'done' ? 'check' : 'location-arrow'}
         size="lg"
         fullWidth
-        testID="im-here"
+        loading={coming === 'busy'}
+        testID="coming-out"
         onPress={() => {
-          setSent(true);
-          onImHere();
+          setComing('busy');
+          void onComingOut().then((ok) => setComing(ok ? 'done' : 'idle'));
         }}
       />
-      <Button label={t('track.call_masked')} icon="phone" variant="secondary" fullWidth onPress={onCall} />
+      <Button label={t('unreachable.call_hidden')} icon="phone" variant="secondary" fullWidth onPress={onCall} testID="unreachable-call" />
+      <Button
+        label={location === 'done' ? t('unreachable.location_sent') : t('unreachable.send_location')}
+        icon={location === 'done' ? 'check' : 'map-pin'}
+        variant="ghost"
+        fullWidth
+        loading={location === 'busy'}
+        testID="unreachable-location"
+        onPress={() => {
+          setLocation('busy');
+          void onSendLocation().then((ok) => setLocation(ok ? 'done' : 'idle'));
+        }}
+      />
     </BottomPanel>
   );
 }

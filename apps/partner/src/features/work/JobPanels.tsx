@@ -324,6 +324,15 @@ export function UnreachablePanel({ status, busy, onFail, onResponded }: { status
           </Text>
         </View>
       </View>
+      {/* Joy J-D8: the customer tapped «أني نازل» — the timer already includes his 2 extra minutes. */}
+      {status.extendedAt && !p.canFail ? (
+        <View testID="unreachable-customer-coming" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
+          <Icon name="user" size={18} color="successText" />
+          <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
+            {t('unreachable.driver_customer_coming')}
+          </Text>
+        </View>
+      ) : null}
       <View style={{ gap: theme.space[2] }}>
         {steps.map((s) => (
           <View key={s.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>

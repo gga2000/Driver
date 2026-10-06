@@ -389,6 +389,9 @@ async function scenario(personId, name, opts = {}) {
   await advance(orderId); // at the door
   if (name === 'at_door') return { orderId, tripId, courierId };
   if (name === 'unreachable') {
+    // He waits a little up the street (joy f18: «حيدر واقف هنا · 40 متر من بابك»).
+    const door = d.door ?? HOME;
+    await trips.reportPosition(courierId, { tripId, pin: { lat: door.lat + 40 / 111_320, lng: door.lng }, at: new Date(), bearing: 180, speedKmh: 0 });
     const drop = await stopOf(tripId, 'dropoff');
     await trips.startUnreachable(tripId, drop.id, courierId);
     d.step = 'unreachable';
