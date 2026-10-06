@@ -1179,6 +1179,7 @@
   "error.merchant_closed": "المطعم مسكّر هسة. يفتح الساعة {time}",
   "error.item_unavailable": "{item} خلص. شيله من السلة أو اختار بديل",
   "error.price_changed": "تغيّر سعر صنف بسلتك. راجع المجموع قبل التأكيد",
+  "error.ride_switch_unavailable": "ما نگدر نبدّل السيارة هسة. إذا لگينالك سايق شوفه بالخريطة",
   "error.cart_min": "أقل طلب {amount} دينار. ضيف شي ثاني",
   "error.payment_failed": "ما تمت عملية الدفع. جرب مرة ثانية أو ادفع كاش",
   "error.wallet_insufficient": "رصيدك ما يكفي. اشحن أو ادفع كاش",

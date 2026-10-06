@@ -1179,6 +1179,7 @@
   "error.merchant_closed": "The restaurant is closed right now. Opens at {time}",
   "error.item_unavailable": "{item} is sold out. Remove it or pick an alternative",
   "error.price_changed": "A price in your cart changed. Check the total before confirming",
+  "error.ride_switch_unavailable": "We can't switch the vehicle now. If a driver took it, you'll see him on the map",
   "error.cart_min": "Minimum order is {amount} IQD. Add something else",
   "error.payment_failed": "Payment didn’t go through. Try again or pay cash",
   "error.wallet_insufficient": "Not enough balance. Top up or pay cash",

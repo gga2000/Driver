@@ -161,6 +161,8 @@ export const ERROR_TABLE = {
   catalog_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
   modifier_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   price_changed: { retryHint: 'never', status: 'CONFLICT' },
+  // J-D7: the ride is not (or no longer) one that may switch vehicle
+  ride_switch_unavailable: { retryHint: 'never', status: 'CONFLICT' },
   quote_location_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   promotion_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // merchant deals at checkout: the deal the cart was shown ended, ran out of budget or changed

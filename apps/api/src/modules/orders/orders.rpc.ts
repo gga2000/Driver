@@ -14,6 +14,7 @@ import {
   type PlaceOrderInput,
   type RateOrderInput,
   type RespondPartialInput,
+  type RideSwitchQuote,
   type RoleKind,
   type MerchantAcceptInput,
 } from '@driver/contracts';
@@ -102,6 +103,14 @@ export class OrdersRpc implements OrdersPort {
 
   comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult> {
     return this.orders.comingOut(actor.personId, input);
+  }
+
+  rideSwitchQuote(actor: Actor, input: { orderId: string; doorPickup: boolean }): Promise<RideSwitchQuote> {
+    return this.orders.rideSwitchQuote(actor.personId, input);
+  }
+
+  switchRideVehicle(actor: Actor, input: { orderId: string; doorPickup: boolean; fareIqd: number; clientRequestId: string }): Promise<Order> {
+    return this.orders.switchRideVehicle(actor.personId, input);
   }
 
   async merchantAccept(actor: Actor, input: z.infer<typeof MerchantAcceptInput>): Promise<Order> {

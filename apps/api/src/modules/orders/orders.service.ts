@@ -18,6 +18,7 @@ import {
   type CancellationBeneficiary,
   type CancellationFee,
   type ComingOutResult,
+  type DeliveryPoint,
   type DisputeKind,
   type DomainEventInput,
   type HandoverProof,
@@ -28,6 +29,7 @@ import {
   type OrderState,
   type ParticipantShare,
   type RateOrderInput,
+  type RideSwitchQuote,
   type Trip,
   type TripState,
   type Vertical,
@@ -104,7 +106,14 @@ export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
+  /** Seconds a ride searches before the customer may cancel free or switch vehicle (city dispatch config). */
+  freeCancelAfterSec?(cityId: string, vertical: Vertical): number;
 }
+
+/** `DispatchConfig.customerFreeCancelAfterSec`'s default, when the pricing port has no city config. */
+const RIDE_FREE_CANCEL_FALLBACK_SEC = 180;
+const RIDE_VERTICALS = ['taxi', 'tuktuk'] as const;
+type RideVertical = (typeof RIDE_VERTICALS)[number];
 
 export const ORDERS_TRIPS = Symbol('ORDERS_TRIPS');
 export const ORDERS_PRICING = Symbol('ORDERS_PRICING');
@@ -850,6 +859,74 @@ export class OrdersService implements OnModuleInit {
     const status = res.trip.unreachable;
     if (!status) throw new DriverError('unreachable_not_active');
     return { extended: res.extended, failAllowedAt: status.failAllowedAt };
+  }
+
+  /**
+   * J-D7: a ride nobody took within the city's free-cancel time (180 s) may switch to the other
+   * vehicle. Only the orderer, only while it is still `placed` with no driver on its trip, and not for
+   * a ride booked for someone else (their details would not carry over). The pickup and drop-off are
+   * the trip's own, so the quote is for exactly the same journey.
+   */
+  private async switchable(actorId: string, orderId: string): Promise<{ order: OrderRecord; to: RideVertical; pickup: DeliveryPoint; dropoff: DeliveryPoint; availableAt: Date }> {
+    const agg = await this.load(orderId);
+    const order = agg.order;
+    if (order.ordererId !== actorId) throw new DriverError('forbidden');
+    if (order.type !== 'ride' || order.state !== 'placed' || agg.participants.length > 0) throw new DriverError('ride_switch_unavailable');
+    const trip = await this.trips.activeForOrder(order.id);
+    const from = trip?.vertical;
+    if (!trip || trip.courierId || trip.acceptedAt || (from !== 'taxi' && from !== 'tuktuk')) throw new DriverError('ride_switch_unavailable');
+    const afterSec = this.pricing.freeCancelAfterSec?.(order.cityId, from) ?? RIDE_FREE_CANCEL_FALLBACK_SEC;
+    const availableAt = new Date(order.placedAt.getTime() + afterSec * 1000);
+    if (this.clock.now().getTime() < availableAt.getTime()) throw new DriverError('ride_switch_unavailable');
+    const stop = (type: 'pickup' | 'dropoff') => trip.stops.find((s) => s.type === type && s.orderId === order.id);
+    const p = stop('pickup');
+    const d = stop('dropoff');
+    if (!p) throw new DriverError('ride_switch_unavailable');
+    const pickup: DeliveryPoint = { zoneKey: p.zoneKey, ...(p.target ? { pin: p.target } : {}) };
+    const dropoff: DeliveryPoint = order.dropoff ?? (d ? { zoneKey: d.zoneKey, ...(d.target ? { pin: d.target } : {}) } : pickup);
+    return { order, to: from === 'taxi' ? 'tuktuk' : 'taxi', pickup, dropoff, availableAt };
+  }
+
+  /** `orders.rideSwitchQuote`: the other vehicle's fare for the same journey, now (nothing stored). */
+  async rideSwitchQuote(actorId: string, input: { orderId: string; doorPickup: boolean }): Promise<RideSwitchQuote> {
+    const s = await this.switchable(actorId, input.orderId);
+    const fees = serverFees(this.pricing, { cityId: s.order.cityId, type: 'ride', rideVertical: s.to, pickup: s.pickup, dropoff: s.dropoff, options: { doorPickup: input.doorPickup }, at: this.clock.now() });
+    const { totalIqd } = payable('ride', s.order.paymentMethod, fees.fareIqd + s.order.tipIqd);
+    return { vertical: s.to, fareIqd: fees.fareIqd, totalIqd, availableAt: s.availableAt };
+  }
+
+  /**
+   * `orders.switchRideVehicle`: the customer confirmed the other vehicle at `fareIqd`. One unit of
+   * work: the search is cancelled for free (`switched_vehicle`) and the new ride is placed through the
+   * normal `place` path (server fare checked again, cash caps, wallet cover). A retry with the same key
+   * answers with the ride it already placed.
+   */
+  async switchRideVehicle(actorId: string, input: { orderId: string; doorPickup: boolean; fareIqd: number; clientRequestId: string }): Promise<Order> {
+    const { order: old } = await this.load(input.orderId);
+    if (old.ordererId !== actorId) throw new DriverError('forbidden');
+    const prior = await this.repo.findByClientRequest(actorId, input.clientRequestId);
+    if (prior && prior.order.type === 'ride' && prior.order.id !== old.id) return this.view(prior.order.id);
+    const quote = await this.rideSwitchQuote(actorId, input);
+    if (quote.fareIqd !== input.fareIqd) throw new DriverError('price_changed');
+    const s = await this.switchable(actorId, input.orderId);
+    const next = PlaceOrderInput.parse({
+      cityId: s.order.cityId,
+      type: 'ride',
+      rideVertical: s.to,
+      fareIqd: input.fareIqd,
+      tipIqd: s.order.tipIqd,
+      options: { doorPickup: input.doorPickup },
+      paymentMethod: s.order.paymentMethod,
+      pickup: s.pickup,
+      dropoff: s.dropoff,
+      ...(s.order.householdOrgId ? { householdOrgId: s.order.householdOrgId } : {}),
+      ...(s.order.courierNote ? { courierNote: s.order.courierNote } : {}),
+      clientRequestId: input.clientRequestId,
+    });
+    return this.uow.run(async () => {
+      await this.cancel(actorId, { orderId: s.order.id, reason: 'switched_vehicle' });
+      return this.placeOnce(actorId, next);
+    });
   }
 
   // ───────────────────────── trip events ─────────────────────────

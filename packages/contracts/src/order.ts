@@ -134,6 +134,39 @@ export const PlaceOrderInput = z.object({
 });
 export type PlaceOrderInput = z.input<typeof PlaceOrderInput>;
 
+/**
+ * J-D7: a ride still looking for a driver after `customerFreeCancelAfterSec` (180 s) may switch to the
+ * other vehicle. The server re-quotes the same pickup and drop-off (the door-pickup choice is the
+ * customer's, as when booking); nothing is stored until the customer confirms.
+ */
+export const RideSwitchQuoteInput = z.object({ orderId: z.string().min(1), doorPickup: z.boolean().default(false) });
+export type RideSwitchQuoteInput = z.input<typeof RideSwitchQuoteInput>;
+
+export const RideSwitchQuote = z.object({
+  /** The vehicle it would switch to (taxi ⇄ tuktuk). */
+  vertical: z.enum(['taxi', 'tuktuk']),
+  /** The server's fare for it now. */
+  fareIqd: Iqd.min(0),
+  /** What the customer would pay (cash rounds up to 250; tip carried over). */
+  totalIqd: Iqd.min(0),
+  /** When the switch became possible (placed + the city's free-cancel time). */
+  availableAt: z.coerce.date(),
+});
+export type RideSwitchQuote = z.infer<typeof RideSwitchQuote>;
+
+/**
+ * Confirms the switch: the searching ride is cancelled for free (reason `switched_vehicle`) and the
+ * other vehicle is booked at `fareIqd`, which must equal the server's quote (`price_changed`). The key
+ * makes a retry answer with the same new ride.
+ */
+export const SwitchRideVehicleInput = z.object({
+  orderId: z.string().min(1),
+  doorPickup: z.boolean().default(false),
+  fareIqd: Iqd.min(0),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+});
+export type SwitchRideVehicleInput = z.input<typeof SwitchRideVehicleInput>;
+
 /** Partial-accept proposal (edge-case review A.4): customer has 60 s to approve the reduced order. */
 export const PartialProposal = z.object({
   unavailableLineIds: z.array(z.string()),
@@ -402,6 +435,10 @@ export interface OrdersPort {
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
   /** «أني نازل» while the courier waits at the door (J-D8). The orderer or a participant only. */
   comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult>;
+  /** J-D7: the other vehicle's server quote for a ride still searching after the free-cancel time. */
+  rideSwitchQuote(actor: Actor, input: z.infer<typeof RideSwitchQuoteInput>): Promise<RideSwitchQuote>;
+  /** J-D7: cancel the search (free) and book the other vehicle at the confirmed server fare. */
+  switchRideVehicle(actor: Actor, input: z.infer<typeof SwitchRideVehicleInput>): Promise<Order>;
   merchantAccept(actor: Actor, input: z.infer<typeof MerchantAcceptInput>): Promise<Order>;
   merchantReject(actor: Actor, input: MerchantRejectInput): Promise<Order>;
   markPreparing(actor: Actor, input: { orderId: string }): Promise<Order>;

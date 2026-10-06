@@ -17,6 +17,9 @@ import {
   PlaceOrderInput,
   RateOrderInput,
   RespondPartialInput,
+  RideSwitchQuote,
+  RideSwitchQuoteInput,
+  SwitchRideVehicleInput,
 } from '../order.js';
 import { CourierPosition, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
@@ -59,6 +62,9 @@ export const ordersRouter = router({
   confirmRideArrived: protectedProcedure().input(OrderIdInput).output(Order).mutation(({ ctx, input }) => ctx.orders.confirmRideArrived(ctx.actor, input)),
   /** «أني نازل» at the door: 2 more free minutes before the courier may leave, once (J-D8). */
   comingOut: protectedProcedure().input(OrderIdInput).output(ComingOutResult).mutation(({ ctx, input }) => ctx.orders.comingOut(ctx.actor, input)),
+  /** J-D7: no driver after 3 minutes — the other vehicle at a fresh server quote (the orderer only). */
+  rideSwitchQuote: protectedProcedure().input(RideSwitchQuoteInput).output(RideSwitchQuote).query(({ ctx, input }) => ctx.orders.rideSwitchQuote(ctx.actor, input)),
+  switchRideVehicle: protectedProcedure().input(SwitchRideVehicleInput).output(Order).mutation(({ ctx, input }) => ctx.orders.switchRideVehicle(ctx.actor, input)),
   /** Console history: any state, newest first, keyset-paginated. */
   search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
   /** The order's actor event log (quarantined late replays included and marked). */
