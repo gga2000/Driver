@@ -220,6 +220,14 @@ describe('status → timeline', () => {
     expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
   });
 
+  it('after pickup the kitchen step drops its "waiting at the restaurant" note (L-11)', () => {
+    const stops = trip('in_transit').stops.map((s) => (s.type === 'pickup' ? { ...s, state: 'completed' as const, arrivedAt: at(14), completedAt: at(16) } : s));
+    const v = view({ state: 'picked_up', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16) }, { trip: trip('in_transit', { stops }), courier });
+    const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
+    expect(tl.steps.find((s) => s.key === 'preparing')?.note).toBeUndefined();
+    expect(tl.steps.find((s) => s.key === 'picked_up')?.note).toBe(t('track.note_on_the_way', { name: 'حيدر' }));
+  });
+
   it('batched courier: says another drop comes first', () => {
     const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('in_transit', { dropsBeforeMine: 1 }), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);

@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { ChatThreadKind } from '@driver/contracts';
+import { ChatThreadKind, orderTicketNumber } from '@driver/contracts';
 import { ChatScreen } from '@/features/chat/ChatScreen';
 
 /** `/chat/<orderId>?kind=customer_courier|customer_merchant` — one conversation of an order. */
@@ -9,7 +9,8 @@ export default function ChatRoute() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <ChatScreen orderId={orderId} kind={parsed.success ? parsed.data : 'customer_courier'} />
+      {/* L-12: the same ticket number as the order screen's chip. */}
+      <ChatScreen orderId={orderId} kind={parsed.success ? parsed.data : 'customer_courier'} orderNumber={orderTicketNumber(orderId)} />
     </>
   );
 }

@@ -145,23 +145,6 @@ function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock:
     return t('track.note_on_the_way', { name });
   };
 
-  const steps: Step[] = [
-    { key: 'placed', label: t('order.status.placed'), time: at(o.placedAt), ...(o.state === 'placed' ? { note: t('order.status.placed_hint') } : {}) },
-    { key: 'accepted', label: t('order.status.merchant_accepted'), time: at(o.acceptedAt) },
-    {
-      key: 'preparing',
-      label: o.readyAt ? t('order.status.ready') : t('order.status.preparing'),
-      time: at(o.readyAt ?? o.preparingAt),
-      note: prepNote(),
-    },
-    { key: 'picked_up', label: t('order.status.picked_up'), time: at(o.pickedUpAt), note: o.pickedUpAt && !o.deliveredAt ? onTheWayNote() : undefined },
-    {
-      key: 'delivered',
-      label: o.deliveredAt ? t('order.status.delivered') : t('track.step_arrive'),
-      time: o.deliveredAt ? clock(o.deliveredAt) : input.eta ? `~${clock(input.eta)}` : undefined,
-    },
-  ];
-
   const current =
     o.deliveredAt || phase === 'arrived' || phase === 'done' || phase === 'disputed'
       ? 'delivered'
@@ -172,6 +155,24 @@ function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock:
           : o.state === 'merchant_accepted' || o.acceptedAt
             ? 'accepted'
             : 'placed';
+
+  const steps: Step[] = [
+    { key: 'placed', label: t('order.status.placed'), time: at(o.placedAt), ...(o.state === 'placed' ? { note: t('order.status.placed_hint') } : {}) },
+    { key: 'accepted', label: t('order.status.merchant_accepted'), time: at(o.acceptedAt) },
+    {
+      key: 'preparing',
+      label: o.readyAt ? t('order.status.ready') : t('order.status.preparing'),
+      time: at(o.readyAt ?? o.preparingAt),
+      // L-11: where the courier is matters only while the kitchen step is the current one.
+      note: current === 'preparing' ? prepNote() : undefined,
+    },
+    { key: 'picked_up', label: t('order.status.picked_up'), time: at(o.pickedUpAt), note: o.pickedUpAt && !o.deliveredAt ? onTheWayNote() : undefined },
+    {
+      key: 'delivered',
+      label: o.deliveredAt ? t('order.status.delivered') : t('track.step_arrive'),
+      time: o.deliveredAt ? clock(o.deliveredAt) : input.eta ? `~${clock(input.eta)}` : undefined,
+    },
+  ];
 
   const late = lateNote(v, input, t, clock);
   if (late.note) {
