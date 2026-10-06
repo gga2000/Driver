@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Icon, Text, useTheme, usePulse, withAlpha } from '@driver/ui';
-import { pathD, project, type LngLat, type Size } from '../geo';
+import { layerTransform, pathD, project, type Camera, type LngLat, type Size } from '../geo';
 import { glidePos, remainingFrom, type Glide, type Path as RoadPath } from '../motion';
+import { shouldRedraw, type RouteDraw } from '../route-throttle';
 import { Vehicle, VEHICLE_SIZE, type VehicleKind } from './Vehicle';
 import type { CameraValues } from './types';
 import { color as palette } from '@driver/design-tokens';
@@ -44,32 +45,57 @@ export function RouteLine({
   onRoad = false,
   straight = true,
 }: LayerProps & GlideValues & { start: SharedValue<LngLat | null>; waypoints: SharedValue<LngLat[]>; color: string; onRoad?: boolean; straight?: boolean }) {
-  const props = useAnimatedProps(() => {
-    const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
-    const g = glide.value;
-    const road = path ? path.value : null;
-    let pts: LngLat[];
-    if (road) {
-      if (g) {
-        const m = glidePos(g, road, progress.value);
-        pts = m.d !== null ? remainingFrom(road, m.d) : [m.pos, ...road.pts];
+  // Joy f21 (L-29): the path string is rebuilt at most ~15 times a second and only when he moved a
+  // pixel (or the camera drifted far); between rebuilds the drawn path rides the camera with one
+  // transform, so a 60 fps glide costs no SVG parsing.
+  const d = useSharedValue('');
+  const drawn = useSharedValue<Camera | null>(null);
+  const last = useSharedValue<RouteDraw | null>(null);
+  useAnimatedReaction(
+    () => ({ live: { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, g: glide.value, p: progress.value, road: path ? path.value : null, start: start.value, wps: waypoints.value, sz: size.value }),
+    ({ live, g, p, road, start: from, wps, sz }) => {
+      let pts: LngLat[];
+      if (road) {
+        if (g) {
+          const m = glidePos(g, road, p);
+          pts = m.d !== null ? remainingFrom(road, m.d) : [m.pos, ...road.pts];
+        } else {
+          pts = road.pts;
+        }
+      } else if (!straight) {
+        pts = [];
       } else {
-        pts = road.pts;
+        const head = g ? glidePos(g, null, p).pos : from;
+        pts = head ? [head, ...wps] : wps;
       }
-    } else if (!straight) {
-      return { d: '' };
-    } else {
-      const head = g ? glidePos(g, null, progress.value).pos : start.value;
-      pts = head ? [head, ...waypoints.value] : waypoints.value;
-    }
-    if (pts.length < 2) return { d: '' };
-    return { d: pathD(pts.map((p) => project(p.lat, p.lng, c, size.value))) };
+      const shape = (road ? road.pts.length * 2 : -wps.length * 2) + (g ? 1 : 0);
+      const ref = drawn.value ?? live;
+      const head = pts[0] ?? null;
+      const h = head ? project(head.lat, head.lng, ref, sz) : { x: 0, y: 0 };
+      const t = drawn.value ? layerTransform(drawn.value, live, sz) : { tx: 0, ty: 0, s: 1 };
+      const at = Date.now();
+      if (!shouldRedraw(last.value, { at, x: h.x, y: h.y, shape, zoomDrift: live.zoom - ref.zoom, panPx: Math.hypot(t.tx, t.ty) })) return;
+      d.value = pts.length < 2 ? '' : pathD(pts.map((q) => project(q.lat, q.lng, live, sz)));
+      drawn.value = live;
+      const now = head ? project(head.lat, head.lng, live, sz) : { x: 0, y: 0 };
+      last.value = { at, x: now.x, y: now.y, shape };
+    },
+    [straight],
+  );
+  const follow = useAnimatedStyle(() => {
+    const dr = drawn.value;
+    if (!dr) return { transform: [{ translateX: 0 }, { translateY: 0 }, { scale: 1 }] };
+    const { tx, ty, s } = layerTransform(dr, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
+    return { transform: [{ translateX: tx }, { translateY: ty }, { scale: s }] };
   });
+  const props = useAnimatedProps(() => ({ d: d.value }));
   return (
-    <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={onRoad ? 9 : 8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
-      <AnimatedPath animatedProps={props} stroke={color} strokeWidth={onRoad ? 5 : 4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={onRoad ? undefined : '1 9'} fill="none" />
-    </Svg>
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, follow]}>
+      <Svg width="100%" height="100%">
+        <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={onRoad ? 9 : 8} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.9} />
+        <AnimatedPath animatedProps={props} stroke={color} strokeWidth={onRoad ? 5 : 4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={onRoad ? undefined : '1 9'} fill="none" />
+      </Svg>
+    </Animated.View>
   );
 }
 
