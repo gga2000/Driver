@@ -21,6 +21,8 @@ export interface ReorderMiss {
   personId?: string;
   /** The person behind `personId` when it is someone else. */
   person?: CartPerson | null;
+  /** What one cost on the old order (a swap near that price reads as a like-for-like). */
+  priceIqd?: number;
 }
 
 /** «حمص خلص اليوم · بداله متبّل 2,000 دينار؟» (joy o13, audit F-24): one dish today's menu offers instead. */
@@ -109,7 +111,7 @@ export function buildReorderCart(input: {
     const reason = line.catalogItemId ? missReason(item) : 'gone';
     if (reason || !item) {
       const who = personFor(line.participantId, order, input.savedPeople ?? []);
-      if (name) result.missing.push({ name, qty, reason: reason ?? 'gone', personId: who?.id ?? ME, person: who });
+      if (name) result.missing.push({ name, qty, reason: reason ?? 'gone', personId: who?.id ?? ME, person: who, priceIqd: line.unitPriceIqd });
       continue;
     }
 
@@ -153,7 +155,7 @@ export function buildReorderCart(input: {
 /**
  * A swap per missing dish (o13): an available, one-tap dish from the same menu section (where the
  * dish still is on the menu), else one of the same kind of food (a wrap for a wrap, a drink for a
- * drink); never one already in the cart or already offered; the cheapest first. None when nothing
+ * drink); never one already in the cart or already offered; the same kind and the nearest price first. None when nothing
  * fits — a swap is a suggestion, never a guess put in the cart.
  */
 export function swapsFor(missing: readonly ReorderMiss[], categories: readonly MenuCategory[], taken: ReadonlySet<string>): ReorderSwap[] {
@@ -167,7 +169,11 @@ export function swapsFor(missing: readonly ReorderMiss[], categories: readonly M
     const ok = (x: { item: MenuItem }) => x.item.available && canQuickAdd(x.item) && !offered.has(x.item.id) && x.item.name !== m.name;
     const bySection = home ? all.filter((x) => x.section === home && ok(x)) : [];
     const byKind = all.filter((x) => ok(x) && motifForDish(x.item.name, x.section) === kind);
-    const pick = [...(bySection.length > 0 ? bySection : byKind)].sort((a, b) => a.item.priceIqd - b.item.priceIqd)[0];
+    // The same kind of food first (a salad for a salad), then the nearest price to what it cost (never bread for hummus because bread is cheapest).
+    const pool = bySection.length > 0 ? bySection : byKind;
+    const near = (x: { item: MenuItem }) => (m.priceIqd !== undefined ? Math.abs(x.item.priceIqd - m.priceIqd) : x.item.priceIqd);
+    const sameKind = (x: { item: MenuItem; section: string }) => (motifForDish(x.item.name, x.section) === kind ? 0 : 1);
+    const pick = [...pool].sort((a, b) => sameKind(a) - sameKind(b) || near(a) - near(b) || a.item.priceIqd - b.item.priceIqd)[0];
     if (!pick) continue;
     offered.add(pick.item.id);
     out.push({ missing: m.name, item: pick.item, qty: m.qty, personId: m.personId ?? ME, person: m.person ?? null });

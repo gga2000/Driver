@@ -140,7 +140,7 @@ describe('swaps for what is gone (o13)', () => {
     },
     { id: 'c3', name: 'مشروبات', items: [item('pepsi', 'بيبسي', 750), item('laban', 'لبن أربيل', 750, { available: false, unavailableReason: 'sold_out' })] },
   ];
-  it('the cheapest one-tap dish from the same section, for the same person; never one already in the cart', () => {
+  it('a one-tap dish from the same section near the old price, for the same person; never one already in the cart', () => {
     const r = buildReorderCart({ order: order([line('l1', 'hummus', 2, 2000, { participantId: 'pa' }), line('l2', 'salad', 1, 1000)], [{ id: 'pa', role: 'diner', personId: null, phoneOnly: true, label: 'سارة', note: null }]), items: [], menu: { restaurant, categories: menu } });
     expect(r.swaps.map((x) => [x.missing, x.item.name, x.qty, x.person?.name ?? null])).toEqual([['حمص', 'متبّل', 2, 'سارة']]);
   });
@@ -148,5 +148,12 @@ describe('swaps for what is gone (o13)', () => {
     expect(swapsFor([{ name: 'شنينة', qty: 1, reason: 'gone' }], menu, new Set()).map((x) => x.item.name)).toEqual([]);
     expect(swapsFor([{ name: 'لبن أربيل', qty: 1, reason: 'sold_out' }], menu, new Set()).map((x) => x.item.name)).toEqual(['بيبسي']);
     expect(swapsFor([{ name: 'لفة تكة', qty: 1, reason: 'choice_gone' }], menu, new Set())).toEqual([]);
+  });
+});
+
+describe('swaps prefer like for like', () => {
+  it('hummus gets a dip near its price, not the cheapest bread', () => {
+    const menu: MenuCategory[] = [{ id: 'c', name: 'خبز ومقبلات', items: [item('bread', 'خبز تنور (4 أرغفة)', 1000), item('hummus', 'حمص', 2000, { available: false, unavailableReason: 'sold_out' }), item('salad', 'سلطة عربية', 1500)] }];
+    expect(swapsFor([{ name: 'حمص', qty: 1, reason: 'sold_out', priceIqd: 2000 }], menu, new Set()).map((x) => x.item.name)).toEqual(['سلطة عربية']);
   });
 });
