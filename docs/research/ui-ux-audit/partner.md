@@ -316,6 +316,21 @@ or the clock.
 > the run's `emptyCarCheckedAt` reads it back). The guardian message already existed
 > (`khat_child_arrived`, on the school tap-out). No child photos exist in the vault yet: rows show
 > the initial. Open for Ali: alert ops when a run ends without a sweep within N minutes.
+>
+> **2026-10-06 — Ali decided, built.** (a) No sweep within 5 minutes (`KHAT_RULES.sweepAlertAfterMin`)
+> of the run's last child stop: the `khat.timers` queue raises one alert per run
+> (`khat_sweep_alerts`, event `khat.sweep_missed`). Dispatchers see a red row under the SOS banner
+> on every Console page (driver, run, where and when the last child got out, how long ago, "اتصل
+> ب…" through the masked line), and the driver gets the push "نسيت تتأكد إن السيارة فاضية؟ باوع
+> عالمقاعد الخلفية". His late "تأكدت" clears it; the row turns calm, "تأكد متأخر {n} دقيقة" (minutes
+> from the last drop), and leaves after 30 minutes. A finished run now stays on his list (and opens
+> first) until the car is checked, so the sweep survives an app restart and the push lands on it.
+> Runs where no child got in are left alone. (c) Step 1's "باوعت، كمّل" waits 3 seconds
+> (`KHAT_RULES.sweepLookPauseSec`, "باوع زين… 3", a filling bar; the same wait without the bar
+> under reduce motion; the screen reader hears it is waiting). API: `docs/api/partner-merchant-wave2.md`
+> (khat) and `docs/api/safety.md`. Shots: `khat-sweep-wait`, `khat-sweep-wait-reduced`. Not built: a
+> dispatcher "close" for an alert the driver never confirms (it drops off the strip after 12 hours;
+> the record stays).
 
 ### S-7 "Why was I paid this" receipt
 - Any job in earnings opens a receipt: each component with its `quote.reason.*` line ("الجو مطر،

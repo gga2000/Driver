@@ -44,11 +44,23 @@ Tables: `safety_incidents`, `safety_incident_entries` (timeline), `safety_incide
 migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFETY_LINK_SECRET`,
 `CONSOLE_BASE_URL`, `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
 
+## خطوط: the car nobody checked (2026-10-06)
+
+Not an SOS, but it reaches the same people: when a خطوط run ends and the driver has not confirmed
+the car is empty within `KHAT_RULES.sweepAlertAfterMin` (5) minutes, a red row appears under the
+SOS banner on every Console page for dispatchers, support and admins (`SweepAlertStrip`,
+`components/safety/sweep-strip.tsx`): the driver, the run, where and when the last child got out,
+how long ago, and "اتصل ب…" through the masked line (`khat.callSweepDriver`). The driver gets a
+push reminder at the same moment. His late confirm turns the row calm ("تأكد متأخر {n} دقيقة") and
+it leaves after 30 minutes. Procedures, timer and table: `docs/api/partner-merchant-wave2.md`
+(`khat.sweepAlerts`, "The late sweep").
+
 ## Demo
 
 - Partner: hold طوارئ on any job, departure, private ride or خطوط run (`SHOTS=sos` shoots it).
 - Customer: a ride with a driver, or `POST /demo/rajaa/onboard?personId=…` for a seat checked in at the garage.
-- Console: `POST /demo/sos[?who=driver|customer]` on the console demo API (or `DEMO_SOS=1`).
+- Console: `POST /demo/sos[?who=driver|customer]` on the console demo API (or `DEMO_SOS=1`);
+  `POST /demo/khat-sweep[?late=1]` for the خطوط sweep row.
 
 ## Not done yet
 

@@ -72,8 +72,34 @@ Role: `khat_driver`. A run is a Trip of vertical `khat`; each stop carries one c
 | `acceptSubstitute` | mutation | `{offerId}` | `{outcome: assigned\|declined, tripId}` (goes through `dispatch.respond`) |
 | `confirmEmptyCar` | mutation | `{tripId}` | `KhatRunTrip` with `emptyCarCheckedAt` — the end-of-run sweep "تأكدت، السيارة فاضية" (partner S-6, 2026-10-05). Every child stop must be settled (`khat_run_not_finished`); logged once per run as the trip event `khat.empty_car_confirmed` `{tripId, driverId, childrenTotal, delivered, absent, lastDropAt, secondsAfterLastDrop}`; repeating returns the first time |
 | `callGuardian` | mutation | `{tripId, childRef}` | `CallSession` (as `chat.requestCall`) — masked call to the child's guardian for the run's own driver; vault read logged (`khat_guardian_call`), event `khat.guardian_call_requested` (no numbers); `call_unavailable` without a bridge |
+| `sweepAlerts` | query (dispatcher, support, admin) | `{cityId}` | `KhatSweepAlert[]` `{alertId, tripId, cityId, driver {personId, displayName, phoneMasked}, childrenTotal, lastDropAt, lastDropZone, runEndedAt, raisedAt, confirmedAt, confirmedLateMin}` — open alerts of the last 12 h first, then the ones confirmed late in the last 30 min. The drivers' cards are one logged vault read (`khat_sweep_alert`) for the staff member; never a child's name |
+| `callSweepDriver` | mutation (dispatcher, support, admin) | `{alertId}` | `{mode, dial, expiresAt}` (as `safety.requestCall`) — masked call to the run's driver; event `khat.sweep_call_requested` on the run (no numbers); `not_found`, `call_unavailable` |
 
-`KhatRunTrip.emptyCarCheckedAt` (date or null) is read back from that event.
+`KhatRunTrip.emptyCarCheckedAt` (date or null) is read back from that event. `todayRun` keeps a run
+that completed with its last drop-off on the list until its car is checked (2026-10-06), so the sweep
+is still there after an app restart.
+
+### The late sweep (Ali, 2026-10-06)
+
+```
+last child stop settles (tap-out, or the rest absent)
+   └─ khat.timers job at +KHAT_RULES.sweepAlertAfterMin (5; env KHAT_SWEEP_ALERT_AFTER_MIN)
+        ├─ car checked by then ─► nothing
+        └─ not checked ─► khat_sweep_alerts row (one per run) + khat.sweep_missed
+                            ├─ notify ─► push khat_sweep_reminder to the driver
+                            │           "نسيت تتأكد إن السيارة فاضية؟ / باوع عالمقاعد الخلفية"
+                            └─ Console strip under the SOS banner (khat.sweepAlerts, polled 5 s)
+driver's late "تأكدت" ─► confirmed_at set once + khat.sweep_alert_cleared {lateMin}
+                         ─► the row says "تأكد متأخر {n} دقيقة" (minutes from the last drop), 30 min
+```
+
+The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
+(`khat.child_tapped_out`, `khat.absence_reported`), one job id per run end; the check re-reads the
+run, so a redelivery or a second instance changes nothing (unique `trip_id`). The queue is BullMQ
+with `REDIS_URL` (survives restarts), otherwise in process (polled once a second). Runs where no
+child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006150000_khat_sweep_alerts`.
+Console demo: `POST /demo/khat-sweep[?late=1]`. Not built: a dispatcher "close" for an alert the
+driver never confirms (it leaves the strip after `sweepOpenShowHours`, 12; the record stays).
 
 Children's names: first name only, read through identity for the run's own driver (`childFirstNamesForRun`),
 every read a `VaultAccessLog` row with purpose `khat_today_run`. Errors: `khat_not_child_stop`,
