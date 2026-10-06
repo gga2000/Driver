@@ -485,8 +485,12 @@ export const MerchantDaySummary = z.object({
   orders: z.number().int(),
   /** Orders that timed out on the kitchen (M-01), pauses excluded. */
   missed: z.number().int(),
-  /** Share of orders ready by the promise (2-min grace); null without a sample. */
+  /**
+   * Share of orders ready by the promise (2-min grace), a missed order counting as not on time
+   * (2026-10-06: "100%" beside "فاتك 3" read as a contradiction); null without a sample.
+   */
   onTimeShare: z.number().nullable(),
+  /** The share's denominator: orders marked ready against a promise, plus missed orders. */
   onTimeSamples: z.number().int(),
   rejected: z.number().int(),
   /** Net to the merchant that day (sales − commission + fees − own deals); owner only. */

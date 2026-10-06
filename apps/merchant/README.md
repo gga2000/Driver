@@ -177,7 +177,8 @@ keepGate: true })` keeps it for a shot).
   + الصافي − اللي استلمته (+ تعديلات) = رصيد آخر الأسبوع"; "اللي استلمته" opens its lines.
 - **End of day** (`features/day/`): `merchantAdmin.daySummary` — at close, or from 00:30 to 05:00 for the
   day before — puts "اليوم · 42 طلب · فاتك 0 · وقتك مضبوط 91% · الصافي 512,000 دينار" and one advice line
-  on the board. "شارك على واتساب": the share sheet on a phone (the server's text, Iraqi plurals); on the
+  on the board. A missed order counts as not on time in "وقتك مضبوط"; the net is left out while none of
+  the day's orders has been delivered yet (money is booked at delivery). "شارك على واتساب": the share sheet on a phone (the server's text, Iraqi plurals); on the
   web a 1080×1080 image of the card (Web Share with the file where the browser can, else a download).
   "تمام" hides it for that store and day on this device. Staff see it without the net.
 - Demo (`scripts/demo/signature.mjs`): `POST /demo/signature/at-pass?waited=4` (a ready order whose

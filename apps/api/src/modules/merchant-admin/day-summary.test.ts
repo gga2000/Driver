@@ -42,7 +42,7 @@ describe('end of day (S-M6) — which day, and when it shows', () => {
 });
 
 describe('end of day (S-M6) — the numbers', () => {
-  it('counts orders taken, misses outside a pause, rejections and the on-time share (2-min grace)', () => {
+  it('counts orders taken, misses outside a pause, rejections and the on-time share (2-min grace, a miss is not on time)', () => {
     const orders = [
       cooked('a', 0),
       cooked('b', 2),
@@ -54,7 +54,18 @@ describe('end of day (S-M6) — the numbers', () => {
       order({ id: 'h', state: 'placed' }),
     ];
     const inPause = (t: Date) => t.getTime() < at('2026-10-05T09:45:00Z').getTime();
-    expect(dayCounts(orders, inPause)).toEqual({ orders: 3, missed: 1, rejected: 1, onTimeShare: 0.667, onTimeSamples: 3, gapMin: 1.7 });
+    // On time: a and b of the three cooked, plus the one miss outside the pause → 2 of 4.
+    expect(dayCounts(orders, inPause)).toEqual({ orders: 3, missed: 1, rejected: 1, onTimeShare: 0.5, onTimeSamples: 4, gapMin: 1.7 });
+  });
+
+  it('m6b: the demo\'s day — 3 cooked on time, 3 missed — reads 50%, not "وقتك مضبوط 100%" beside "فاتك 3"', () => {
+    const missed = (id: string) => order({ id, state: 'merchant_rejected', cancellationReason: 'merchant_timeout', cancelledAt: at('2026-10-05T10:01:30Z') });
+    const orders = [cooked('a', 0), cooked('b', 1), cooked('c', -2), missed('d'), missed('e'), missed('f')];
+    expect(dayCounts(orders)).toMatchObject({ orders: 3, missed: 3, onTimeShare: 0.5, onTimeSamples: 6 });
+    const s = composeDaySummary({ merchantOrgId: 'm', storeName: 'مطعم خالد', day: { localDate: '2026-10-05', due: true, reason: 'closed' }, orders, netIqd: null });
+    expect(s.share_ar.split('\n')[1]).toBe('3 طلبات · فاتك 3 · وقتك مضبوط 50%');
+    // Only misses and nothing cooked: 0 %, not "no sample".
+    expect(dayCounts([missed('x')])).toMatchObject({ onTimeShare: 0, onTimeSamples: 1, gapMin: null });
   });
 
   it('one advice line, the costliest first', () => {

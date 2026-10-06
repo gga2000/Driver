@@ -37,13 +37,19 @@ export interface DayCounts {
   orders: number;
   missed: number;
   rejected: number;
+  /** On time ÷ (orders marked ready against a promise + missed orders): a missed order was not on time. */
   onTimeShare: number | null;
+  /** The share's denominator: orders marked ready against a promise, plus missed orders. */
   onTimeSamples: number;
   /** Average minutes "جاهز" came after the promise (negative = early); null without a sample. */
   gapMin: number | null;
 }
 
-/** The day's numbers from its orders. `inPause(at)`: a miss inside a declared pause doesn't count (review A.1). */
+/**
+ * The day's numbers from its orders. `inPause(at)`: a miss inside a declared pause doesn't count
+ * (review A.1). A missed order counts against the on-time share (m6b, 2026-10-06): the kitchen never
+ * got it out at all, and "وقتك مضبوط 100%" beside "فاتك 3" read as a contradiction on the card.
+ */
 export function dayCounts(orders: readonly Order[], inPause: (at: Date) => boolean = () => false): DayCounts {
   let taken = 0;
   let missed = 0;
@@ -64,12 +70,13 @@ export function dayCounts(orders: readonly Order[], inPause: (at: Date) => boole
       if (o.readyAt.getTime() <= o.promisedReadyAt.getTime() + PREP_ON_TIME_GRACE_MIN * MIN_MS) onTime += 1;
     }
   }
+  const judged = samples + missed;
   return {
     orders: taken,
     missed,
     rejected,
-    onTimeShare: samples > 0 ? Math.round((onTime / samples) * 1000) / 1000 : null,
-    onTimeSamples: samples,
+    onTimeShare: judged > 0 ? Math.round((onTime / judged) * 1000) / 1000 : null,
+    onTimeSamples: judged,
     gapMin: samples > 0 ? Math.round((gap / samples) * 10) / 10 : null,
   };
 }

@@ -372,8 +372,9 @@ describe('merchantAdmin.daySummary (S-M6)', () => {
       order({ id: 'o3', state: 'merchant_rejected', cancellationReason: 'merchant_timeout', placedAt: at('2026-10-03T13:00:00Z'), cancelledAt: at('2026-10-03T13:01:30Z') }),
     );
     const owner = await h.svc.daySummary(h.owner, { merchantOrgId: h.orgId });
-    expect(owner).toMatchObject({ localDate: '2026-10-03', due: true, reason: 'day_end', orders: 2, missed: 1, onTimeShare: 0.5, onTimeSamples: 2, netIqd: 12750, advice: { kind: 'missed' } });
-    expect(owner.share_ar).toBe(['مطعم الريف · ملخص السبت 3/10', 'طلبين · فاتك 1 · وقتك مضبوط 50%', 'الصافي 12,750 دينار', 'عن طريق درايفر للمطاعم'].join('\n'));
+    // On time: o1 of o1, o2 and the miss o3 (m6b: a missed order is not on time).
+    expect(owner).toMatchObject({ localDate: '2026-10-03', due: true, reason: 'day_end', orders: 2, missed: 1, onTimeShare: 0.333, onTimeSamples: 3, netIqd: 12750, advice: { kind: 'missed' } });
+    expect(owner.share_ar).toBe(['مطعم الريف · ملخص السبت 3/10', 'طلبين · فاتك 1 · وقتك مضبوط 33%', 'الصافي 12,750 دينار', 'عن طريق درايفر للمطاعم'].join('\n'));
     // Staff see the same day without the money.
     const staff = await h.svc.daySummary(h.staff, { merchantOrgId: h.orgId });
     expect(staff.netIqd).toBeNull();
