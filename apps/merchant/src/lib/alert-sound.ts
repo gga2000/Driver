@@ -2,7 +2,7 @@
  * New-order alarm sound (web). A kitchen is loud, so this is a bright three-note chime made with
  * WebAudio (no files to fetch) and, for the last 10 seconds, a fast two-tone beep that repeats. Browsers
  * only allow sound after a tap: `unlock()` runs on the first pointer event and on "ابدأ الشغل";
- * `canPlay()` tells the board whether to show "الصوت طافي". Native: alert-sound.native.ts (expo-av,
+ * `canPlay()` tells the board whether to show "الصوت طافي". Native: alert-sound.native.ts (expo-audio,
  * bundled WAVs, plays in silent mode). Same API on both.
  */
 

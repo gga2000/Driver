@@ -12,7 +12,7 @@ export type { PushData, PushDevice, PushPermission, PushToken } from './push';
  * `offer.wav`); the in-app offer card also comes up from `partner.currentOffer`.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
 const APP = 'partner';

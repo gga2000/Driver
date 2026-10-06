@@ -12,7 +12,7 @@ export type { PushData, PushDevice, PushPermission, PushToken } from './push';
  * `offer.wav`) even with the app closed; the board's own alert sound covers the open app.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
 const APP = 'merchant';

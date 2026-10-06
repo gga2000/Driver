@@ -142,7 +142,7 @@ keepGate: true })` keeps it for a shot).
   every 2 s in the last 30 s (ring and card turn red), a continuous tone and "باقي 10 ثواني على #…" in
   the last 10 s. "سكّت 30 ثانية" is a snooze, never a silence (it rings again at 20 s left). Web:
   WebAudio, unlocked by "ابدأ الشغل" (or any tap). Native: `alert-sound.native.ts` plays the bundled
-  `assets/sounds/new-order*.wav` through expo-av with `playsInSilentModeIOS`, plus vibration patterns;
+  `assets/sounds/new-order*.wav` through expo-audio with `playsInSilentMode`, plus vibration patterns;
   `scripts/dev/make-alert-sounds.mjs` regenerates the tones. "جرّب الصوت" is in الإعدادات.
 - Screen on: expo-keep-awake while the app is open on a store (native); the Screen Wake Lock API from
   "ابدأ الشغل" on the web (a chip asks to keep the screen on where the browser has no such API).

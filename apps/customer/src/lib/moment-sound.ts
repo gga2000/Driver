@@ -1,8 +1,8 @@
 /**
  * Moment sounds that respect a silent phone (joy f7, finding L-24). Pure: runs in Node tests.
  *
- * iOS: expo-av with `playsInSilentModeIOS: false` already goes quiet on the silent switch.
- * Android: expo-av plays on the media stream, which ignores silent and vibrate. Instead each cue is a
+ * iOS: expo-audio with `playsInSilentMode: false` already goes quiet on the silent switch.
+ * Android: a player on the media stream would ignore silent and vibrate. Instead each cue is a
  * local notification on its own channel (`moment_<cue>`, the cue's wav as the channel sound) that
  * the foreground handler answers with "no alert, play the sound". expo-notifications then plays the
  * channel sound through `RingtoneManager.getRingtone(...).play()` (ExpoPresentationDelegate.kt), i.e.
@@ -33,7 +33,8 @@ export function momentChannelId(cue: Cue): string {
 export const MOMENT_DATA_KEY = 'moment';
 
 export interface MomentBehavior {
-  shouldShowAlert: false;
+  shouldShowBanner: false;
+  shouldShowList: false;
   shouldPlaySound: true;
   shouldSetBadge: false;
 }
@@ -45,10 +46,10 @@ export interface MomentBehavior {
 export function momentBehavior(data: unknown): MomentBehavior | null {
   if (typeof data !== 'object' || data === null) return null;
   const v = (data as Record<string, unknown>)[MOMENT_DATA_KEY];
-  return typeof v === 'string' && (CUES as readonly string[]).includes(v) ? { shouldShowAlert: false, shouldPlaySound: true, shouldSetBadge: false } : null;
+  return typeof v === 'string' && (CUES as readonly string[]).includes(v) ? { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: true, shouldSetBadge: false } : null;
 }
 
-/** How a cue plays here: Android through the ring stream (silent-aware), elsewhere expo-av. */
+/** How a cue plays here: Android through the ring stream (silent-aware), elsewhere `cue-player` (expo-audio on iOS). */
 export function cueRoute(os: string): 'ring' | 'media' {
   return os === 'android' ? 'ring' : 'media';
 }

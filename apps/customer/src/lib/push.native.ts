@@ -13,7 +13,7 @@ export type { PushData, PushDevice, PushPermission, PushToken } from './push';
  * sound (`moment-channel`, Android) only plays its channel's sound: nothing is shown.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async (n) => momentBehavior(n.request.content.data) ?? { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false },
+  handleNotification: async (n) => momentBehavior(n.request.content.data) ?? { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false },
 });
 
 const APP = 'customer';

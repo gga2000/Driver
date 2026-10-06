@@ -159,7 +159,7 @@ would otherwise open on home and swallow the first tap); `s.signIn(phone, { preP
 it to shoot the prompt itself. Pages wait for "load", not "networkidle" (the live SSE stream never
 idles). The app itself is unchanged.
 
-Offer alert (UI/UX audit P-01): the offer screen loops `assets/sounds/offer-loop.wav` (expo-av, plays
+Offer alert (UI/UX audit P-01): the offer screen loops `assets/sounds/offer-loop.wav` (expo-audio, plays
 with the ringer on silent) with a vibration pattern until he answers or it expires, plus a warning
 haptic every second in the last 5 s; the web repeats a WebAudio doorbell. The screen stays on while
 he is online or on a job (expo-keep-awake). "جرّب صوت الطلب" is in الحساب.

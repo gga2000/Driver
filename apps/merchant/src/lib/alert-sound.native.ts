@@ -1,12 +1,14 @@
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Vibration } from 'react-native';
+import { replay, untilLoaded } from './audio-player';
 
 /**
  * New-order alarm sound (native, UI/UX audit S-01/M-02). Two bundled tones (scripts/dev/make-alert-
  * sounds.mjs): the three-note chime, replayed by the ladder every 4 s then every 2 s, and a 1-s beep
  * that loops for the last 10 seconds. iOS plays them with the ringer switch on silent
- * (`playsInSilentModeIOS`); Android plays on the media stream, which the ringer's silent mode does not
- * mute, and never ducks for other apps. With the app closed the push channel `offers` rings instead.
+ * (`playsInSilentMode`, the `.playback` session); Android plays on the media stream, which the
+ * ringer's silent mode does not mute, and takes audio focus without ducking for other apps
+ * (`doNotMix`). With the app closed the push channel `offers` rings instead. expo-audio.
  * Same API as alert-sound.ts.
  */
 
@@ -16,27 +18,34 @@ const URGENT = require('../../assets/sounds/new-order-urgent.wav') as number;
 const COURIER = require('../../assets/sounds/courier.wav') as number;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-let chimeSound: Audio.Sound | null = null;
-let loopSound: Audio.Sound | null = null;
-let courierSound: Audio.Sound | null = null;
+let chimeSound: AudioPlayer | null = null;
+let loopSound: AudioPlayer | null = null;
+let courierSound: AudioPlayer | null = null;
 let looping = false;
 let loading: Promise<void> | null = null;
 
+function player(source: number, volume: number, loop = false): AudioPlayer {
+  const p = createAudioPlayer(source);
+  p.volume = volume;
+  p.loop = loop;
+  return p;
+}
+
 function ready(): Promise<void> {
   loading ??= (async () => {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-      interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-      shouldDuckAndroid: false,
-      playThroughEarpieceAndroid: false,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      interruptionMode: 'doNotMix',
+      interruptionModeAndroid: 'doNotMix',
+      shouldRouteThroughEarpiece: false,
     }).catch(() => undefined);
-    chimeSound = (await Audio.Sound.createAsync(CHIME, { volume: 1, shouldPlay: false })).sound;
-    loopSound = (await Audio.Sound.createAsync(URGENT, { volume: 1, isLooping: true, shouldPlay: false })).sound;
-    courierSound = (await Audio.Sound.createAsync(COURIER, { volume: 0.8, shouldPlay: false })).sound;
+    chimeSound ??= player(CHIME, 1);
+    loopSound ??= player(URGENT, 1, true);
+    courierSound ??= player(COURIER, 0.8);
+    await untilLoaded(chimeSound);
   })().catch(() => {
-    loading = null; // try again on the next chime
+    loading = null; // try again on the next chime (the players stay; they may still load)
   });
   return loading;
 }
@@ -53,14 +62,14 @@ export function onUnlock(_cb: () => void): () => void {
 /** Nothing to unlock on native; loads the sounds if they aren't yet. */
 export async function unlock(): Promise<boolean> {
   await ready();
-  return chimeSound !== null;
+  return chimeSound?.isLoaded ?? false;
 }
 
 export function chime(volume = 0.75): void {
   void ready().then(async () => {
     if (!chimeSound) return;
-    await chimeSound.setVolumeAsync(Math.max(0.05, Math.min(1, volume))).catch(() => undefined);
-    await chimeSound.replayAsync().catch(() => undefined);
+    chimeSound.volume = Math.max(0.05, Math.min(1, volume));
+    await replay(chimeSound);
   });
 }
 
@@ -70,10 +79,11 @@ export function setLoop(on: boolean): void {
   void ready().then(async () => {
     if (!loopSound) return;
     if (looping) {
-      await loopSound.setVolumeAsync(1).catch(() => undefined);
-      await loopSound.playAsync().catch(() => undefined);
+      loopSound.volume = 1;
+      loopSound.play();
     } else {
-      await loopSound.stopAsync().catch(() => undefined);
+      loopSound.pause();
+      await loopSound.seekTo(0).catch(() => undefined);
     }
   });
 }
@@ -95,7 +105,7 @@ export async function testChime(): Promise<boolean> {
 /** A courier is about to walk in (maps program SP7a): two softer notes down, unlike the new-order chime. */
 export function courierChime(): void {
   void ready().then(async () => {
-    await courierSound?.replayAsync().catch(() => undefined);
+    if (courierSound) await replay(courierSound);
   });
 }
 

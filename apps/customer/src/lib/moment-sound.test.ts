@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { CUES, cueRoute, momentBehavior, momentChannelId, MOMENT_SOUND_FILES } from './moment-sound';
 
 describe('moment sounds on a silent Android (f7, L-24)', () => {
-  it('Android plays through the ring stream; iOS and web through expo-av', () => {
+  it('Android plays through the ring stream; iOS and web through the media player (expo-audio / HTML audio)', () => {
     expect(cueRoute('android')).toBe('ring');
     expect(cueRoute('ios')).toBe('media');
     expect(cueRoute('web')).toBe('media');
@@ -12,7 +12,7 @@ describe('moment sounds on a silent Android (f7, L-24)', () => {
 
   it('one channel per cue, and only moment notifications are silenced to "sound, no alert"', () => {
     expect(momentChannelId('near')).toBe('moment_near');
-    expect(momentBehavior({ moment: 'near' })).toEqual({ shouldShowAlert: false, shouldPlaySound: true, shouldSetBadge: false });
+    expect(momentBehavior({ moment: 'near' })).toEqual({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: true, shouldSetBadge: false });
     expect(momentBehavior({ moment: 'party' })).toBeNull();
     expect(momentBehavior({ deliveryId: 'd1' })).toBeNull();
     expect(momentBehavior(null)).toBeNull();
