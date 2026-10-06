@@ -139,6 +139,7 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
+        <Stack.Screen name="month" options={{ title: t('month.title'), headerLeft: () => <HeaderBack fallback="/wallet" /> }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
         {/* City taxi / tuktuk (spec §5): where to → pin adjust → choose ride → /order/[id]. */}
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
-import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
+import { EMPTY_CART, ME, TABLE, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
 import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
@@ -181,6 +181,16 @@ describe('checkout payload builder', () => {
     const off = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: false, pointsIqd: 0 }));
     expect(off.usePoints).toBeUndefined();
     expect(off.pointsIqd).toBeUndefined();
+  });
+
+  it('joy w4: the household wallet only on a wallet order; «للسفرة» lines mark the family table', () => {
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'wallet', householdOrgId: 'org_home' }))).toMatchObject({ paymentMethod: 'wallet', householdOrgId: 'org_home' });
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', householdOrgId: 'org_home' })).householdOrgId).toBeUndefined();
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash' })).familyTable).toBeUndefined();
+    const cart = twoPersonCart();
+    const table = { ...cart, lines: cart.lines.map((l, i) => (i === 0 ? { ...l, personId: TABLE } : l)) };
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, cart: table, paymentMethod: 'cash' })).familyTable).toBe(true);
   });
 
   it('recipient: a person on the order becomes the recipient; someone else is added with name + phone; schedule and street', () => {

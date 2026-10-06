@@ -143,6 +143,8 @@ export interface CheckoutChoices {
   /** «استخدم نقاطك» (W-02) and the points value `orders.quote` showed (the server refuses another: `price_changed`). */
   usePoints?: boolean;
   pointsIqd?: number;
+  /** Joy w4: pay from the household wallet (a wallet order); over a limit it waits for the payer. */
+  householdOrgId?: string | null;
 }
 
 const OTHER_RECIPIENT_REF = 'recipient';
@@ -205,6 +207,9 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
     ...(c.paymentMethod === 'cash' && c.statedTenderIqd ? { statedTenderIqd: c.statedTenderIqd } : {}),
     ...(c.usePoints ? { usePoints: true, ...(c.pointsIqd !== undefined ? { pointsIqd: c.pointsIqd } : {}) } : {}),
+    ...(c.householdOrgId && c.paymentMethod === 'wallet' ? { householdOrgId: c.householdOrgId } : {}),
+    // J5a «للسفرة»: the household hub lists the order on the family table (joy w4).
+    ...(c.cart.lines.some((l) => l.personId === TABLE) ? { familyTable: true } : {}),
   };
 }
 

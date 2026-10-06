@@ -11,6 +11,7 @@ import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { useClaimPoints, useHousehold, useTopUpStatus, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
 import { balanceText, lineAmount, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
 import { MoneyIn } from '@/features/account/MoneyIn';
+import { MonthCard } from '@/features/account/MonthCard';
 import { lineHref, WALLET_FILTERS, walletDays, type WalletFilter } from '@/features/account/wallet-lines';
 import { dayLabel } from '@/features/orders/OrderRow';
 import { formatClock } from '@driver/ui';
@@ -155,6 +156,12 @@ function Wallet() {
       </Card>
 
       <MoneyIn lines={allLines} onOpen={open} />
+
+      {/* Joy w6: the month-start card (1st–3rd), then «شهرك» any day. */}
+      <MonthCard testID="wallet-month-card" />
+      <Card elevation={0} padding={0}>
+        <ListRow testID="wallet-month" leading="star" title={t('month.row_title')} subtitle={t('month.row_sub')} onPress={() => router.push('/month')} />
+      </Card>
 
       <Card padding={5} tone="tint" testID="wallet-points">
         {noPoints ? (

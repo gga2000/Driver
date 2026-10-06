@@ -6,6 +6,7 @@ import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, Status
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
+import { MonthCard } from '@/features/account/MonthCard';
 import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople, useWalletBalance } from '@/features/account/queries';
 import { amountParam } from '@/lib/money';
 import { unregisterPush } from '@/features/notify/usePush';
@@ -113,6 +114,12 @@ function Account() {
         ) : null}
       </Card>
 
+      {/* Joy w6: «شهرك» — the month-start card on the 1st–3rd, the row any day. */}
+      <MonthCard testID="account-month-card" />
+      <Card elevation={0} padding={0}>
+        <ListRow testID="account-month" leading="star" title={t('month.row_title')} subtitle={t('month.row_sub')} onPress={() => router.push('/month')} />
+      </Card>
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.places')} action={{ label: t('home.add_place'), onPress: () => router.push('/places/new') }} />
         <Card elevation={0} padding={0}>
@@ -159,7 +166,8 @@ function Account() {
             divider
           />
           <ListRow
-            leading="user"
+            testID="account-household"
+            leading="family"
             title={t('household.title')}
             subtitle={household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')}
             onPress={() => router.push('/household')}

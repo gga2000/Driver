@@ -179,6 +179,20 @@ export function useSetLimit() {
   return useMutation(api.household.setLimit.mutationOptions({ onSuccess: invalidate }));
 }
 
+/** Joy w4: a member's monthly budget on the household wallet (payer only). */
+export function useSetBudget() {
+  const api = useApi();
+  const invalidate = useHouseholdInvalidation();
+  return useMutation(api.household.setBudget.mutationOptions({ onSuccess: invalidate }));
+}
+
+/** Joy w6 «شهرك»: the caller's month (the current one when `month` is undefined). */
+export function useMonth(month: string | undefined, opts: { enabled?: boolean } = {}) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.wallet.month.queryOptions(month ? { month } : {}), enabled: signedIn && (opts.enabled ?? true), placeholderData: keepPreviousData });
+}
+
 export function useResolveApproval() {
   const api = useApi();
   const invalidate = useHouseholdInvalidation();

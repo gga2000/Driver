@@ -35,8 +35,17 @@ export function ApprovalCard({ approval }: { approval: PayerApprovalView }) {
   const facts = [
     ctx && ctx.itemCount > 0 ? t(countKey('household.approval_items', ctx.itemCount), { n: ctx.itemCount }) : null,
     ctx?.placeLabel ? t('household.approval_place', { place: ctx.placeLabel }) : null,
-    approval.limitIqd !== null ? t('household.approval_limit', { amount: amountParam(approval.limitIqd) }) : null,
+    // Joy w4: the per-order limit when that is why it asks (or the reason is unknown), the month when that is.
+    approval.limitIqd !== null && approval.reason !== 'month_budget' ? t('household.approval_limit', { amount: amountParam(approval.limitIqd) }) : null,
   ].filter(Boolean);
+  const overMonth = (approval.reason === 'month_budget' || approval.reason === 'both') && approval.monthBudgetIqd !== null && approval.monthSpentIqd !== null;
+  const STATE = {
+    approved: { tone: 'success', key: 'household.state_approved' },
+    declined: { tone: 'danger', key: 'household.state_declined' },
+    withdrawn: { tone: 'neutral', key: 'household.state_withdrawn' },
+    pending: { tone: 'warning', key: 'household.state_pending' },
+  } as const;
+  const state = STATE[approval.state];
 
   return (
     <Card testID={`approval-${approval.id}`} padding={4} tone={approval.canResolve ? 'tint' : 'surface'}>
@@ -59,6 +68,11 @@ export function ApprovalCard({ approval }: { approval: PayerApprovalView }) {
                 {facts.join(' · ')}
               </Text>
             ) : null}
+            {overMonth ? (
+              <Text variant="footnote" weight={600} testID={`approval-month-${approval.id}`}>
+                {t('household.approval_month', { spent: amountParam(approval.monthSpentIqd ?? 0), budget: amountParam(approval.monthBudgetIqd ?? 0) })}
+              </Text>
+            ) : null}
           </View>
         </View>
         {approval.canResolve ? (
@@ -76,7 +90,7 @@ export function ApprovalCard({ approval }: { approval: PayerApprovalView }) {
             />
           </View>
         ) : (
-          <StatusPill size="sm" tone={approval.state === 'approved' ? 'success' : approval.state === 'declined' ? 'danger' : 'warning'} label={t(approval.state === 'approved' ? 'household.state_approved' : approval.state === 'declined' ? 'household.state_declined' : 'household.state_pending')} />
+          <StatusPill size="sm" tone={state.tone} label={t(state.key)} />
         )}
       </View>
     </Card>

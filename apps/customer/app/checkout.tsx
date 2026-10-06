@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
-import { changeDue, tenderOptions } from '@driver/contracts';
+import { changeDue, householdApproval, tenderOptions } from '@driver/contracts';
 import { formatClock, formatMinuteCount, formatMinutesRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { TABLE, groupByPerson, reconcile } from '@/features/food/cart';
@@ -21,7 +21,8 @@ import {
   walletChoice,
   type Recipient,
 } from '@/features/food/checkout';
-import { useWalletBalance } from '@/features/account/queries';
+import { useHousehold, useWalletBalance } from '@/features/account/queries';
+import { payerOf as householdPayerOf } from '@/features/account/family';
 import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
@@ -78,6 +79,9 @@ export default function CheckoutScreen() {
   const net = useNetwork();
   const wallet = useWalletBalance();
   const [payment, setPayment] = useState<'cash' | 'wallet'>('cash');
+  // Joy w4: a wallet payment from the household wallet instead of his own (payers and orderers).
+  const [fromHome, setFromHome] = useState(false);
+  const household = useHousehold();
   // "راح أدفع بـ …" ("الخردة علينا"): optional; kept only while it fits the cash total.
   const [tenderPick, setTenderPick] = useState<number | null>(null);
 
@@ -124,10 +128,22 @@ export default function CheckoutScreen() {
   const priced = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, 'wallet') : null;
   const balance = wallet.data ? wallet.data.moneyIqd : null;
   const walletRow = walletChoice(balance, priced?.priceIqd ?? 0);
+  // Joy w4: the household wallet, for its payers and orderers; the server decides whether the payer
+  // is asked first — the hint here reads the same rule on the hub's own numbers.
+  const home = household.data && household.data.myRole !== 'member' ? household.data : null;
+  const homeBalance = home && wallet.data?.household?.id === home.id ? wallet.data.household.balanceIqd : null;
+  const homeRow = walletChoice(homeBalance, priced?.priceIqd ?? 0);
+  const meInHome = home?.members.find((m) => m.isMe) ?? null;
+  const homePayer = home ? householdPayerOf(home) : null;
+  const asksPayer =
+    home && meInHome && priced
+      ? householdApproval({ role: meInHome.role, orderLimitIqd: meInHome.spendingLimitIqd, monthlyBudgetIqd: meInHome.monthlyBudgetIqd, monthSpentIqd: meInHome.monthSpentIqd ?? 0, totalIqd: priced.priceIqd }) !== null
+      : false;
   // A wallet that no longer covers the order (cart grew, balance spent elsewhere) falls back to cash.
   useEffect(() => {
-    if (payment === 'wallet' && priced && balance !== null && !walletRow.usable) setPayment('cash');
-  }, [payment, priced, balance, walletRow.usable]);
+    if (payment !== 'wallet' || !priced) return;
+    if (fromHome ? homeBalance !== null && !homeRow.usable : balance !== null && !walletRow.usable) setPayment('cash');
+  }, [payment, priced, balance, walletRow.usable, fromHome, homeBalance, homeRow.usable]);
 
   // Points that no longer apply (spent on another order, cart changed) switch themselves off.
   const pointsOffer = orderQuote.data?.points ?? null;
@@ -237,6 +253,7 @@ export default function CheckoutScreen() {
           statedTenderIqd: tender,
           usePoints: usePoints && totals.pointsIqd > 0,
           pointsIqd: totals.pointsIqd,
+          householdOrgId: fromHome && home ? home.id : null,
         }),
       );
       // o12: someone else receives it — keep their name and phone for «دز له رابط التتبع».
@@ -303,6 +320,7 @@ export default function CheckoutScreen() {
   const choosePayer = (payer: Payer) => {
     const next = paymentOf(payer);
     if (next === 'wallet' && !walletRow.usable) return;
+    setFromHome(false);
     setPayment(next);
   };
   const buttonLabel = totals
@@ -462,15 +480,46 @@ export default function CheckoutScreen() {
                     ? t('checkout.wallet_balance', { amount: amountParam(balance) })
                     : t('checkout.wallet_short', { balance: amountParam(balance), missing: amountParam(walletRow.missingIqd) })
               }
-              selected={payment === 'wallet'}
-              onPress={walletRow.usable ? () => setPayment('wallet') : undefined}
+              selected={payment === 'wallet' && !fromHome}
+              onPress={
+                walletRow.usable
+                  ? () => {
+                      setFromHome(false);
+                      setPayment('wallet');
+                    }
+                  : undefined
+              }
               chevron={false}
+              divider={home !== null}
               trailing={
-                payment === 'wallet' ? undefined : balance !== null && !walletRow.usable ? (
+                payment === 'wallet' && !fromHome ? undefined : balance !== null && !walletRow.usable ? (
                   <Button size="sm" variant="secondary" icon="plus" label={t('checkout.wallet_topup')} onPress={() => router.push('/topup')} testID="checkout-wallet-topup" />
                 ) : undefined
               }
             />
+            {home ? (
+              <ListRow
+                testID="checkout-pay-household"
+                leading="family"
+                title={t('checkout.pay_household')}
+                subtitle={[
+                  homeBalance === null ? '…' : homeRow.usable || homeRow.missingIqd === 0 ? t('checkout.household_balance', { name: home.name, amount: amountParam(homeBalance) }) : t('checkout.household_short', { amount: amountParam(homeBalance) }),
+                  asksPayer && homePayer ? t('checkout.household_ask', { payer: homePayer.name ?? t('household.role_payer') }) : null,
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+                selected={payment === 'wallet' && fromHome}
+                onPress={
+                  homeRow.usable
+                    ? () => {
+                        setFromHome(true);
+                        setPayment('wallet');
+                      }
+                    : undefined
+                }
+                chevron={false}
+              />
+            ) : null}
           </Card>
         )}
         {pointsOffer ? (

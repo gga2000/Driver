@@ -1,11 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
-import type { HouseholdRole } from '@driver/contracts';
-import { Avatar, Button, Card, EmptyState, ListRow, Skeleton, StatusPill, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Pressable, RefreshControl, View } from 'react-native';
+import type { HouseholdMemberView, HouseholdRole, HouseholdTableOrder } from '@driver/contracts';
+import { Avatar, Button, Card, EmptyState, ListRow, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
+import { BudgetBar } from '@/features/account/BudgetBar';
+import { baghdadDayMonth, monthRows } from '@/features/account/family';
 import { useCreateHousehold, useGuardianChildren, useHousehold, useMe, useMyPlaces } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -18,26 +20,48 @@ const ROLE_KEY: Record<HouseholdRole, 'household.role_payer' | 'household.role_o
 };
 
 /**
- * العائلة (domain §12, customer spec §9): approval requests first, then members with their limits,
- * then the places shared with the household. Payers invite and set limits; others read.
+ * «بيتنا» (joy w4, audit S-4): the household as a place. Requests waiting for the payer first, then
+ * this month on the household wallet per member (a bullet bar against the monthly budget; the payer
+ * sees everyone, a member only themselves), who is in the house and what each may spend, the family
+ * table's orders this month, the trusted people (kept on the safety page), خطوط children and the
+ * shared places. Payers invite and set limits; everyone else reads.
  */
 export default function Household() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
+  const net = useNetwork();
   const household = useHousehold();
   const places = useMyPlaces();
   const me = useMe();
   const create = useCreateHousehold();
   const children = useGuardianChildren();
   const [name, setName] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const home = household.data;
 
   if (household.isPending) {
     return (
-      <Screen edges={['bottom']}>
-        <Skeleton height={120} />
+      <Screen edges={['bottom']} testID="household-loading">
+        <Skeleton height={88} />
+        <Skeleton height={140} />
+        <Skeleton height={180} />
+      </Screen>
+    );
+  }
+
+  if (household.isError && !home) {
+    const kind = retryKindFor({ net, error: household.error });
+    return (
+      <Screen edges={['bottom']} testID="household-error">
+        <RetryState
+          kind={kind}
+          locale={locale}
+          art={kind === 'offline' || kind === 'unreachable' ? <SketchScene name="offline" /> : undefined}
+          {...(kind === 'server' ? { title: t('household.load_error') } : {})}
+          onRetry={() => void household.refetch()}
+        />
       </Screen>
     );
   }
@@ -53,7 +77,7 @@ export default function Household() {
     };
     return (
       <Screen edges={['bottom']} testID="household-create" footer={<Button testID="household-create-submit" label={t('household.create')} size="lg" fullWidth loading={create.isPending} onPress={() => void submit()} />}>
-        <EmptyState icon="user" title={t('household.create_title')} body={t('household.create_body')} />
+        <EmptyState icon="family" title={t('household.create_title')} body={t('household.create_body')} />
         <TextField label={t('household.name_label')} value={name} onChangeText={setName} placeholder={fallback} maxLength={60} />
       </Screen>
     );
@@ -61,11 +85,22 @@ export default function Household() {
 
   const payer = home.myRole === 'payer';
   const shared = (places.data ?? []).filter((p) => p.access === 'household' || p.sharedWithHousehold);
+  const spend = monthRows(home.members);
+  const table = home.month?.tableOrders ?? [];
+  const trusted = me.data?.trustedContacts ?? [];
+  const label = (m: HouseholdMemberView) => (m.isMe ? t('household.me', { name: m.name ?? m.phoneMasked }) : (m.name ?? `⁦${m.phoneMasked}⁩`));
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await Promise.all([household.refetch(), places.refetch(), me.refetch()]);
+    setRefreshing(false);
+  };
 
   return (
     <Screen
       edges={['bottom']}
       testID="household"
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
       footer={payer ? <Button testID="household-invite" icon="plus" variant="secondary" label={t('household.invite')} fullWidth onPress={() => router.push('/household/invite')} /> : undefined}
     >
       <Card padding={4}>
@@ -80,31 +115,64 @@ export default function Household() {
         </View>
       </Card>
 
-      <View style={{ gap: theme.space[3] }}>
-        <SectionHeader title={payer ? t('household.requests_payer') : t('household.requests_mine')} />
-        {home.pendingApprovals.length === 0 ? (
-          <Text variant="footnote" color="textMuted">
-            {t('household.no_requests')}
-          </Text>
-        ) : (
-          home.pendingApprovals.map((a) => <ApprovalCard key={a.id} approval={a} />)
-        )}
-      </View>
+      {home.pendingApprovals.length > 0 || payer ? (
+        <View style={{ gap: theme.space[3] }}>
+          <SectionHeader title={payer ? t('household.requests_payer') : t('household.requests_mine')} />
+          {home.pendingApprovals.length === 0 ? (
+            <Text variant="footnote" color="textMuted">
+              {t('household.no_requests')}
+            </Text>
+          ) : (
+            home.pendingApprovals.map((a) => <ApprovalCard key={a.id} approval={a} />)
+          )}
+        </View>
+      ) : null}
+
+      {home.month ? (
+        <View style={{ gap: theme.space[3] }} testID="household-month">
+          <SectionHeader title={t('household.month_title')} />
+          <Card elevation={0} padding={4}>
+            <View style={{ gap: theme.space[4] }}>
+              {spend.map((m) => (
+                <MemberMonth key={m.personId} member={m} label={label(m)} canEdit={payer && m.role !== 'payer'} />
+              ))}
+              {spend.every((m) => m.monthSpentIqd === 0) ? (
+                <Text variant="footnote" color="textMuted">
+                  {t('household.month_empty')}
+                </Text>
+              ) : null}
+              {!payer ? (
+                <Text variant="caption" color="textMuted">
+                  {t('household.month_hint_member')}
+                </Text>
+              ) : null}
+            </View>
+          </Card>
+        </View>
+      ) : null}
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('household.members')} />
         <Card elevation={0} padding={0}>
           {home.members.map((m, i) => {
-            const label = m.isMe ? t('household.me', { name: m.name ?? m.phoneMasked }) : (m.name ?? `⁦${m.phoneMasked}⁩`);
-            const limit = m.spendingLimitIqd === null ? t('household.no_limit') : t('household.limit_short', { amount: amountParam(m.spendingLimitIqd) });
             const editable = payer && m.role !== 'payer';
+            const limits = [
+              m.spendingLimitIqd !== null ? t('household.limit_per_order', { amount: amountParam(m.spendingLimitIqd) }) : null,
+              m.monthlyBudgetIqd !== null ? t('household.limit_per_month', { amount: amountParam(m.monthlyBudgetIqd) }) : null,
+            ].filter(Boolean);
+            const subtitle =
+              m.role === 'payer'
+                ? t(ROLE_KEY[m.role])
+                : m.role === 'member'
+                  ? t('household.role_member_line')
+                  : [t('household.role_orderer_line'), limits.length > 0 ? limits.join(' · ') : t('household.no_limit')].join(' · ');
             return (
               <ListRow
                 key={m.personId}
                 testID={`member-${m.personId}`}
                 leading={<Avatar name={m.name ?? '?'} icon={m.name ? undefined : 'user'} size={40} />}
-                title={label}
-                subtitle={m.role === 'payer' ? t(ROLE_KEY[m.role]) : `${t(ROLE_KEY[m.role])} · ${limit}`}
+                title={label(m)}
+                subtitle={subtitle}
                 chevron={editable}
                 onPress={editable ? () => router.push({ pathname: '/household/member', params: { personId: m.personId } }) : undefined}
                 divider={i < home.members.length - 1}
@@ -114,11 +182,38 @@ export default function Household() {
         </Card>
       </View>
 
-      {(children.data ?? []).length > 0 ? (
-        <Card elevation={0} padding={0}>
-          <ListRow testID="household-children-row" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} />
-        </Card>
+      {home.month ? (
+        <View style={{ gap: theme.space[3] }} testID="household-table">
+          <SectionHeader title={t('household.table_title')} />
+          {table.length === 0 ? (
+            <Card elevation={0} padding={4}>
+              <Text variant="footnote" color="textMuted">
+                {t('household.table_empty')}
+              </Text>
+            </Card>
+          ) : (
+            <Card elevation={0} padding={0}>
+              {table.map((o, i) => (
+                <TableRow key={o.orderId} order={o} mine={o.orderedBy === home.members.find((m) => m.isMe)?.personId} divider={i < table.length - 1} />
+              ))}
+            </Card>
+          )}
+        </View>
       ) : null}
+
+      <Card elevation={0} padding={0}>
+        <ListRow
+          testID="household-trusted"
+          leading="shield"
+          title={t('household.trusted_title')}
+          subtitle={trusted.length > 0 ? t('household.trusted_sub_set', { names: trusted.map((p) => p.name).join('، ') }) : t('household.trusted_sub_empty')}
+          onPress={() => router.push('/profile/safety')}
+          divider={(children.data ?? []).length > 0}
+        />
+        {(children.data ?? []).length > 0 ? (
+          <ListRow testID="household-children-row" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} />
+        ) : null}
+      </Card>
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('household.shared_places')} />
@@ -143,5 +238,75 @@ export default function Household() {
         )}
       </View>
     </Screen>
+  );
+}
+
+/** One member's month: name, «46,000 من 100,000 دينار» (or what was spent with no budget), the bar. */
+function MemberMonth({ member, label, canEdit }: { member: HouseholdMemberView & { monthSpentIqd: number }; label: string; canEdit: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const budget = member.monthlyBudgetIqd;
+  const over = budget !== null && member.monthSpentIqd > budget;
+  const figure = budget !== null ? t('household.month_spent_of', { spent: amountParam(member.monthSpentIqd), budget: amountParam(budget) }) : t('household.month_spent', { amount: amountParam(member.monthSpentIqd) });
+  const body = (
+    <View style={{ gap: theme.space[2] }} testID={`month-${member.personId}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2], flexWrap: 'wrap' }}>
+        <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
+          {label}
+        </Text>
+        <Text variant="footnote" tabular color={over ? 'warningText' : 'text'} weight={over ? 600 : 400}>
+          {figure}
+        </Text>
+      </View>
+      <BudgetBar spentIqd={member.monthSpentIqd} budgetIqd={budget} />
+      {member.role !== 'payer' && budget === null ? (
+        <Text variant="caption" color="textMuted">
+          {t('household.month_no_budget')}
+        </Text>
+      ) : over ? (
+        <Text variant="caption" color="warningText">
+          {t('household.month_over')}
+        </Text>
+      ) : null}
+    </View>
+  );
+  if (!canEdit) return body;
+  // Payers open the limits editor from the whole block (well over 44 pt tall).
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} · ${figure}`}
+      onPress={() => router.push({ pathname: '/household/member', params: { personId: member.personId } })}
+      style={({ pressed }) => ({ minHeight: 44, opacity: pressed ? 0.7 : 1 })}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+/** A family-table order: the kitchen, who ordered and when, how it was paid, waiting or not. */
+function TableRow({ order, mine, divider }: { order: HouseholdTableOrder; mine: boolean; divider: boolean }) {
+  const t = useT();
+  const { day, month } = baghdadDayMonth(order.placedAt);
+  const tags = [order.familyTable ? t('household.table_tag_table') : null, order.onHouseholdWallet ? t('household.table_tag_wallet') : null].filter(Boolean);
+  return (
+    <ListRow
+      testID={`table-${order.orderId}`}
+      leading="food"
+      title={order.merchantName ?? t('household.someone')}
+      subtitle={[order.orderedByName ?? t('household.someone'), t('time.date', { day, month }), ...tags].join(' · ')}
+      trailing={
+        order.status === 'waiting' ? (
+          <StatusPill size="sm" tone="warning" label={t('household.table_waiting')} />
+        ) : (
+          <Text variant="label" tabular>
+            {t('unit.iqd', { amount: amountParam(order.totalIqd) })}
+          </Text>
+        )
+      }
+      chevron={mine}
+      onPress={mine ? () => router.push(`/order/${order.orderId}`) : undefined}
+      divider={divider}
+    />
   );
 }

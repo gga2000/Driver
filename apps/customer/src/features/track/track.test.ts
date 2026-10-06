@@ -184,6 +184,13 @@ describe('status → timeline', () => {
     expect(phaseOf(v)).toBe('waiting_merchant');
   });
 
+  it('joy w4: a household order over a limit says it waits for the payer, not the kitchen', () => {
+    const v = view({ heldForPayer: true });
+    expect(statusLine(v, t)).toBe('ننتظر موافقة حساب البيت');
+    expect(buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock).steps[0]?.note).toBe(t('order.status.awaiting_payer_hint'));
+    expect(statusLine(view(), t)).toBe(t('order.status.placed'));
+  });
+
   it('preparing with a courier on his way to the kitchen, real timestamps on done steps and an ETA on the last', () => {
     const v = view({ state: 'preparing', acceptedAt: at(1), preparingAt: at(2), promisedReadyAt: at(17) }, { trip: trip('en_route_to_pickup'), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);

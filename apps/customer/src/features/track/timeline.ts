@@ -92,7 +92,8 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
   const ride = v.order.type === 'ride';
   switch (phaseOf(v)) {
     case 'waiting_merchant':
-      return t('order.status.placed');
+      // Joy w4: on the household wallet over a limit, it waits for the payer before the kitchen.
+      return v.order.heldForPayer ? t('order.status.awaiting_payer') : t('order.status.placed');
     case 'preparing':
       return v.order.readyAt ? t('order.status.ready') : t('order.status.preparing');
     case 'searching':
@@ -179,7 +180,7 @@ function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock:
             : 'placed';
 
   const steps: Step[] = [
-    { key: 'placed', label: t('order.status.placed'), time: at(o.placedAt), ...(o.state === 'placed' ? { note: t('order.status.placed_hint') } : {}) },
+    { key: 'placed', label: t('order.status.placed'), time: at(o.placedAt), ...(o.state === 'placed' ? { note: o.heldForPayer ? t('order.status.awaiting_payer_hint') : t('order.status.placed_hint') } : {}) },
     { key: 'accepted', label: t('order.status.merchant_accepted'), time: at(o.acceptedAt) },
     {
       key: 'preparing',
