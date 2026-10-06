@@ -1,15 +1,18 @@
 import * as Linking from 'expo-linking';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
-import { RideRoute, rideVehicleLabel, SearchCounter, searchElapsedSec, useSearchNote, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
-import { useConfirmRideArrived } from '@/features/ride/queries';
-import { useRideMemo } from '@/features/ride/store';
+import { newRequestKey } from '@/features/food/place-attempt';
+import { RideRoute, rideVehicleLabel, SearchStages, searchElapsedSec, useSearchNote, useSearchStage, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
+import { switchOfferDue, type RideVertical } from '@/features/ride/logic';
+import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
+import { rideStore, useRideMemo } from '@/features/ride/store';
+import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
@@ -41,6 +44,8 @@ const BANNER_H = 84;
 const TOP_BAR = 64;
 /** The inline notification ask in the collapsed sheet (rides, joy f1): two text lines and the buttons. */
 const PUSH_ASK_H = 136;
+/** The 3-minute offer card over the map (J-D7): the camera keeps the pickup above it. */
+const SWITCH_OFFER_H = 200;
 
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -108,6 +113,41 @@ export default function OrderLiveScreen() {
   const searching = Boolean(ride && phase === 'searching');
   const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
   const searchNote = useSearchNote(searching ? v : undefined, now);
+  const searchStage = useSearchStage(searching ? v : undefined, now);
+  // J-D7 / L-03: free cars around the pickup while searching, and the other vehicle at 3 minutes.
+  const asked: RideVertical = v?.trip?.vertical === 'tuktuk' || (!v?.trip && memo?.vertical === 'tuktuk') ? 'tuktuk' : 'taxi';
+  const ridePickupPin = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.target ?? null) : null;
+  const nearby = useNearbyVehicles(searching ? ridePickupPin : null, asked);
+  const city = useCityConfig();
+  const switchAfterSec = city.data?.dispatch?.[asked]?.customerFreeCancelAfterSec ?? null;
+  const [keptSearching, setKeptSearching] = useState<string | null>(null);
+  const offerDue = Boolean(searching && v && switchAfterSec !== null && switchOfferDue(searchElapsedSec(v, now), switchAfterSec, keptSearching === id));
+  const switchQuote = useRideSwitchQuote(id, memo?.doorPickup ?? false, offerDue);
+  const switchRide = useSwitchRideVehicle();
+  const switchKey = useRef<string | null>(null);
+  const doSwitch = (fareIqd: number, to: RideVertical) => {
+    switchKey.current ??= newRequestKey('swt');
+    switchRide.mutate(
+      { orderId: id, doorPickup: memo?.doorPickup ?? false, fareIqd, clientRequestId: switchKey.current },
+      {
+        onSuccess: (next) => {
+          switchKey.current = null;
+          rideStore.remember(next.id, { vertical: to, from: memo?.from ?? t('ride.pickup_here'), to: memo?.to ?? t('track.destination_pin'), doorPickup: memo?.doorPickup ?? false, toHome: memo?.toHome ?? false });
+          toast.show({ message: t('ride.switch_done', { vehicle: t(to === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi') }), tone: 'success', icon: 'check' });
+          void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
+          router.replace({ pathname: '/order/[id]', params: { id: next.id } });
+        },
+        onError: (e) => {
+          // A changed fare is re-quoted before the next tap; the key stays for a plain retry.
+          if (apiErrorCode(e) === 'price_changed') {
+            switchKey.current = null;
+            void switchQuote.refetch();
+          }
+          toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' });
+        },
+      },
+    );
+  };
   const confirmArrived = useConfirmRideArrived();
   const api = useApi();
   const qc = useQueryClient();
@@ -229,7 +269,7 @@ export default function OrderLiveScreen() {
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
-  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0);
+  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
   const sayComingOut = async () => {
     setRideComingOut({ orderId: id, state: 'sending' });
@@ -260,7 +300,22 @@ export default function OrderLiveScreen() {
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {v ? <TrackMap view={v} fix={fix} stale={lostMin !== null} topInset={insets.top + TOP_BAR + banners * BANNER_H} bottomInset={mapBottom} searching={searching} minutes={mapMinutes} spotlight={phase === 'unreachable'} /> : <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />}
+      {v ? (
+        <TrackMap
+          view={v}
+          fix={fix}
+          stale={lostMin !== null}
+          topInset={insets.top + TOP_BAR + banners * BANNER_H}
+          bottomInset={mapBottom}
+          searching={searching}
+          minutes={mapMinutes}
+          spotlight={phase === 'unreachable'}
+          nearby={searching ? { data: nearby.data, kind: asked === 'tuktuk' ? 'tuktuk' : 'car' } : null}
+          destinationKind={memo?.toHome ? 'home' : 'destination'}
+        />
+      ) : (
+        <View style={{ height: '62%', backgroundColor: theme.colors.surfaceSunken }} />
+      )}
 
       <TopBar
         orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
@@ -305,6 +360,19 @@ export default function OrderLiveScreen() {
           onClose={() => setHereClosedFor(id)}
         />
       ) : null}
+      {v && offerDue ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: theme.space[4], right: theme.space[4], bottom: collapsed + 8 }}>
+          <SwitchOfferCard
+            asked={asked}
+            quote={switchQuote.data}
+            loading={switchQuote.isPending}
+            switching={switchRide.isPending}
+            onSwitch={(q) => doSwitch(q.fareIqd, q.vertical)}
+            onKeep={() => setKeptSearching(id)}
+            onCancel={() => setPanel('cancel')}
+          />
+        </View>
+      ) : null}
       {v && moments.card ? (
         <AlmostThereCard
           order={v.order}
@@ -333,7 +401,7 @@ export default function OrderLiveScreen() {
               now={now}
               lateMin={lateMin}
               note={searching ? searchNote : null}
-              aside={searching ? <SearchCounter seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
+              aside={searching && searchStage ? <SearchStages stage={searchStage} seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
               below={pushAsk.visible ? <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : undefined}
             />
           ) : (

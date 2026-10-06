@@ -27,6 +27,10 @@ export interface RideMemo {
   from: string;
   to: string;
   at: number;
+  /** The rider asked the driver to the door (the 3-minute re-quote keeps the choice). */
+  doorPickup?: boolean;
+  /** The destination is the saved home (the live map draws the house, else a flag). */
+  toHome?: boolean;
 }
 
 interface PersistedRide {
@@ -98,6 +102,13 @@ export function createRideStore(store: KeyValueStorage) {
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, MAX_MEMOS);
       persist({ ...state, recent: pushRecent(state.recent, destination), memos: Object.fromEntries(memos), draft: { ...state.draft, note: '' } });
+    },
+    /** A ride that replaced another (J-D7 switch): the same names and choices under the new order. */
+    remember(orderId: string, memo: Omit<RideMemo, 'at'>, at = Date.now()) {
+      const memos = Object.entries({ ...state.memos, [orderId]: { ...memo, at } })
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, MAX_MEMOS);
+      persist({ ...state, memos: Object.fromEntries(memos) });
     },
     reset() {
       persist({ ...state, draft: EMPTY_DRAFT, recent: [], memos: {} });

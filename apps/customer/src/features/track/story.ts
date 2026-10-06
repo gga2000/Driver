@@ -24,11 +24,14 @@ function toward(a: LngLat, b: LngLat, k: number): LngLat {
 const WIDE: [number, number] = [12.5, 16.5];
 const KITCHEN_CLOSE: [number, number] = [15.8, 16.4];
 const DOOR_CLOSE: [number, number] = [15.5, 17];
+/** A ride still looking for a driver: the pickup at street level, so the radar and nearby cars read (L-03). */
+const PICKUP_SEARCH: [number, number] = [15.5, 15.5];
 
 /**
  * The story the camera tells for a food order: the kitchen close up while it cooks; the courier and
  * the kitchen while he goes to collect; the courier and the door on the way, tightening as he gets
- * close; the door once it arrived. Rides and anything unknown fall back to everything still ahead.
+ * close; the door once it arrived. A ride still searching sits on the pickup; rides otherwise and
+ * anything unknown fall back to everything still ahead.
  */
 export function storyShot(input: {
   phase: Phase;
@@ -40,8 +43,10 @@ export function storyShot(input: {
   ahead: LngLat[];
   /** Metres from the courier to the door, when known. */
   toDoorM: number | null;
+  /** Rides: where the rider waits. */
+  pickup?: LngLat | null;
 }): Shot {
-  const { phase, ride, courier, kitchen, door, ahead, toDoorM } = input;
+  const { phase, ride, courier, kitchen, door, ahead, toDoorM, pickup = null } = input;
   const some = (...pts: Array<LngLat | null>): LngLat[] => pts.filter((p): p is LngLat => p !== null);
   if (!ride) {
     if ((phase === 'waiting_merchant' || phase === 'preparing') && kitchen && !courier) return { points: [kitchen], zoom: KITCHEN_CLOSE };
@@ -55,6 +60,7 @@ export function storyShot(input: {
     }
     if ((phase === 'arrived' || phase === 'done') && door) return { points: [door], zoom: DOOR_CLOSE };
   }
+  if (ride && phase === 'searching' && pickup) return { points: [pickup], zoom: PICKUP_SEARCH };
   const pts = some(courier, ...ahead);
   return { points: pts.length > 0 ? pts : some(door), zoom: WIDE };
 }

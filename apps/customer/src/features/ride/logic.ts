@@ -368,6 +368,24 @@ export function searchStage(elapsedSec: number, dispatch: Pick<DispatchConfig, '
   return 'everyone';
 }
 
+/** Which of the three visible search stages ("1 من 3"), so the wait has a finish line (L-03). */
+export function searchStageIndex(stage: SearchStage): 1 | 2 | 3 {
+  return stage === 'nearest' ? 1 : stage === 'wider' ? 2 : 3;
+}
+
+/**
+ * The "try the other vehicle" card (J-D7): from the city's free-cancel time (180 s, the moment dispatch
+ * stops the search and frees the cancel) until the customer chooses to keep searching.
+ */
+export function switchOfferDue(elapsedSec: number, afterSec: number, keptSearching: boolean): boolean {
+  return !keptSearching && elapsedSec >= afterSec;
+}
+
+/** Where the ride goes is a flag; the house only when it is the saved home (L-15, C-34). */
+export function destinationPinKind(spot: Pick<Spot, 'savedLabel'> | null | undefined): 'home' | 'destination' {
+  return spot?.savedLabel === 'home' ? 'home' : 'destination';
+}
+
 /** `75` → `1:15` (search counter). */
 export function mmss(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec));

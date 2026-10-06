@@ -3,7 +3,7 @@ import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Icon, ltr, Text, useTheme } from '@driver/ui';
 import { useCityConfig } from './queries';
-import { mmss, searchStage, zoneTitle, type SearchStage } from './logic';
+import { mmss, searchStage, searchStageIndex, zoneTitle, type SearchStage } from './logic';
 import { useRideMemo } from './store';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -19,25 +19,49 @@ export function searchElapsedSec(v: OrderTracking, now: number): number {
   return Math.max(0, Math.floor((now - v.order.placedAt.getTime()) / 1000));
 }
 
-/** The honest wave line under "ندور لك سايق" (dispatch config waves). */
-export function useSearchNote(v: OrderTracking | undefined, now: number): string | null {
-  const t = useT();
+/** The search wave the ride is in, from the city's dispatch config (nearest → wider → everyone). */
+export function useSearchStage(v: OrderTracking | undefined, now: number): SearchStage | null {
   const city = useCityConfig();
   if (!v) return null;
   const vertical = v.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi';
-  return t(STAGE[searchStage(searchElapsedSec(v, now), city.data?.dispatch?.[vertical])]);
+  return searchStage(searchElapsedSec(v, now), city.data?.dispatch?.[vertical]);
 }
 
-/** The collapsed header's right side while searching: a live counter in the ETA's place. */
-export function SearchCounter({ seconds }: { seconds: number }) {
+/** The honest wave line under "ندور لك سايق" (dispatch config waves). */
+export function useSearchNote(v: OrderTracking | undefined, now: number): string | null {
+  const t = useT();
+  const stage = useSearchStage(v, now);
+  return stage ? t(STAGE[stage]) : null;
+}
+
+/**
+ * The collapsed header's right side while searching (L-03): three stage dots with "1 من 3" — a
+ * finish line, not a stopwatch — and the elapsed time small underneath.
+ */
+export function SearchStages({ stage, seconds }: { stage: SearchStage; seconds: number }) {
   const theme = useTheme();
+  const t = useT();
+  const n = searchStageIndex(stage);
   return (
     <View
-      testID="ride-search-counter"
-      style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, minWidth: 84 }}
+      testID="ride-search-stages"
+      accessible
+      accessibilityLabel={`${t('ride.search_stage', { n })} · ${mmss(seconds)}`}
+      style={{ alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, minWidth: 84 }}
     >
-      <Icon name="search" size={16} color="accentText" strokeWidth={2.4} />
-      <Text variant="amount" tabular color="accentText" style={{ lineHeight: 30 }}>
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {[1, 2, 3].map((i) => (
+          <View
+            key={i}
+            testID={`ride-search-stage-${i}${i <= n ? '-on' : ''}`}
+            style={{ width: i === n ? 18 : 8, height: 8, borderRadius: 4, backgroundColor: i <= n ? theme.colors.accent : theme.colors.border }}
+          />
+        ))}
+      </View>
+      <Text variant="label" weight={700} color="accentText" tabular>
+        {t('ride.search_stage', { n })}
+      </Text>
+      <Text variant="caption" color="textMuted" tabular testID="ride-search-counter">
         {mmss(seconds)}
       </Text>
     </View>

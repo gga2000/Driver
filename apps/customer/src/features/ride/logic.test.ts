@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
+  destinationPinKind,
+  searchStageIndex,
+  switchOfferDue,
   buildRidePlaceInput,
   doorExtra,
   fareLines,
@@ -231,5 +234,32 @@ describe('ride store', () => {
     expect(again.getSnapshot().memos['o1']?.vertical).toBe('tuktuk');
     again.reset();
     expect(again.getSnapshot().recent).toEqual([]);
+  });
+  it('a switched ride keeps the names and choices under its new order, without a new recent destination', async () => {
+    const store = createRideStore(createMemoryStorage());
+    await store.load();
+    store.placed('o1', { vertical: 'taxi', from: 'البيت', to: 'حديقة الشاشة', doorPickup: true }, landmarkSpot(park, 'ar-IQ', ''), 1000);
+    store.remember('o2', { vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', doorPickup: true }, 2000);
+    expect(store.getSnapshot().memos['o2']).toEqual({ vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', doorPickup: true, at: 2000 });
+    expect(store.getSnapshot().recent).toHaveLength(1);
+  });
+});
+
+describe('ride search finish line and the 3-minute offer (L-03, J-D7)', () => {
+  it('three visible stages', () => {
+    expect(searchStageIndex('nearest')).toBe(1);
+    expect(searchStageIndex('wider')).toBe(2);
+    expect(searchStageIndex('everyone')).toBe(3);
+  });
+  it('the offer shows from the free-cancel time until the customer says keep searching', () => {
+    expect(switchOfferDue(179, 180, false)).toBe(false);
+    expect(switchOfferDue(180, 180, false)).toBe(true);
+    expect(switchOfferDue(400, 180, true)).toBe(false);
+  });
+  it('a flag for where the ride goes; the house only for the saved home (L-15)', () => {
+    expect(destinationPinKind({ savedLabel: 'home' })).toBe('home');
+    expect(destinationPinKind({ savedLabel: 'work' })).toBe('destination');
+    expect(destinationPinKind({})).toBe('destination');
+    expect(destinationPinKind(null)).toBe('destination');
   });
 });

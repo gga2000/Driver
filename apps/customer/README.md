@@ -212,7 +212,9 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
 - Demo: `POST /demo/ride[?acceptMs=3000]` puts four taxis and three tuktuks online, cruising small
   loops around the centre while free (the choose screen's nearby vehicles), (the nearest offered
   driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
-  `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid). `SHOTS=ride` writes
+  `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid),
+  `/demo/ride/search-age?orderId=&sec=200` (the ride reads as searching that long: the 3-minute
+  "try the other vehicle" card). `SHOTS=ride` writes
   `ride-*.png`.
 
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)

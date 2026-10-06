@@ -78,6 +78,22 @@ export function usePlaceRide() {
   return useMutation(api.orders.place.mutationOptions());
 }
 
+/**
+ * J-D7: the other vehicle's server quote for a ride still searching at the free-cancel time. Asked
+ * once the offer is due, re-asked each minute (night/peak flips); an answer the server refuses
+ * (driver found meanwhile, zone not served) leaves only "keep searching" and "cancel".
+ */
+export function useRideSwitchQuote(orderId: string, doorPickup: boolean, enabled: boolean) {
+  const api = useApi();
+  return useQuery({ ...api.orders.rideSwitchQuote.queryOptions({ orderId, doorPickup }), enabled, retry: false, refetchInterval: 60_000 });
+}
+
+/** J-D7: confirm the switch; the server cancels the search for free and books the other vehicle. */
+export function useSwitchRideVehicle() {
+  const api = useApi();
+  return useMutation(api.orders.switchRideVehicle.mutationOptions());
+}
+
 export function useConfirmRideArrived() {
   const api = useApi();
   return useMutation(api.orders.confirmRideArrived.mutationOptions());

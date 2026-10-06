@@ -8,7 +8,7 @@ import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/fe
 import { Button, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
 import { useWalletBalance } from '@/features/account/queries';
 import { FarePanel, PayOption, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
-import { buildRidePlaceInput, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
+import { buildRidePlaceInput, destinationPinKind, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
 import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
@@ -87,7 +87,7 @@ export default function RideChoose() {
         buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key }),
       );
       attemptRef.current = null;
-      rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title }, dropoff);
+      rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
       void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       if (router.canDismiss()) router.dismissAll();
       router.push({ pathname: '/order/[id]', params: { id: order.id } });
@@ -122,6 +122,7 @@ export default function RideChoose() {
           dropoff={dropoff.pin}
           pickupLabel={t('ride.pickup_here')}
           dropoffLabel={dropoff.title}
+          dropoffKind={destinationPinKind(dropoff)}
           topInset={insets.top}
           bottomInset={theme.space[6]}
           nearby={{ data: nearby[vertical].data, kind: vertical === 'tuktuk' ? 'tuktuk' : 'car' }}

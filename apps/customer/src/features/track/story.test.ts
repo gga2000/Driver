@@ -34,4 +34,9 @@ describe('story camera', () => {
   it('rides frame everything still ahead', () => {
     expect(storyShot({ ...base, ride: true, phase: 'to_pickup', courier: C }).points).toEqual([C, K, D]);
   });
+  it('a ride still searching: the camera sits on the pickup at street level (L-03)', () => {
+    expect(storyShot({ ...base, ride: true, phase: 'searching', pickup: C, ahead: [C, D] })).toEqual({ points: [C], zoom: [15.5, 15.5] });
+    // No pickup known: the old framing.
+    expect(storyShot({ ...base, ride: true, phase: 'searching', ahead: [C, D] }).points).toEqual([C, D]);
+  });
 });

@@ -1061,6 +1061,7 @@ const rajaa = await (async () => {
 //                                     (DEMO_RIDE_ACCEPT_MS, default 3000; 0 = hold every offer)
 //   POST /demo/ride/accept?orderId=…  accept that ride's open offer now
 //   POST /demo/ride/advance?orderId=… one step: to pickup → at pickup → on the trip → arrived (cash paid)
+//   POST /demo/ride/search-age?orderId=…&sec=200  the ride reads as searching for `sec` (the 3-minute offer)
 {
   const RIDE_DRIVERS = [
     { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', at: { lat: 32.9068, lng: 45.0591 } },
@@ -1185,6 +1186,14 @@ const rajaa = await (async () => {
       if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
       const orderId = url.searchParams.get('orderId');
       if (url.pathname.endsWith('/advance')) return json(res, 200, { orderId, step: await advanceRide(orderId) });
+      if (url.pathname.endsWith('/search-age')) {
+        // The 3-minute offer (J-D7) without waiting 3 minutes: the ride reads as placed `sec` ago
+        // (in-memory record only; the dispatch search itself keeps its own clock).
+        const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+        const sec = Number(url.searchParams.get('sec') ?? 200);
+        await app.get(ORDERS_REPOSITORY).update(orderId, { placedAt: new Date(Date.now() - sec * 1000) });
+        return json(res, 200, { orderId, placedAt: (await orders.get(orderId)).placedAt });
+      }
       if (url.pathname.endsWith('/accept')) {
         const trip = await trips.activeForOrder(orderId);
         if (!trip) return json(res, 404, { error: 'no trip' });

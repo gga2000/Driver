@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import type { CourierPosition, OrderTracking } from '@driver/contracts';
+import type { CourierPosition, NearbyVehicles as NearbyVehiclesData, OrderTracking } from '@driver/contracts';
+import { NearbyVehicles } from '@/features/ride/NearbyVehicles';
 import { Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
@@ -10,7 +11,7 @@ import { CourierMarker, HeadingArrow, PlacePin, PrepRing, RadarPulse, RouteLine 
 import { RecentreChip } from './map/RecentreChip';
 import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
-import { vehicleKind } from './map/Vehicle';
+import { vehicleKind, type VehicleKind } from './map/Vehicle';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from './queries';
 import { storyShot } from './story';
 import { phaseOf } from './timeline';
@@ -32,6 +33,10 @@ export interface TrackMapProps {
   minutes?: string | null;
   /** Unreachable at the door (joy f18): ring the courier so the customer sees where he stands. */
   spotlight?: boolean;
+  /** Rides while searching: free cars of the asked kind around the pickup (L-03, maps c10). */
+  nearby?: { data: NearbyVehiclesData | undefined; kind: VehicleKind } | null;
+  /** Rides: the saved home gets the house, any other destination a flag (L-15). */
+  destinationKind?: 'home' | 'destination';
 }
 
 /** Where the route still goes after the courier: next stops of this order, in order. */
@@ -52,7 +57,7 @@ export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoi
  * short gaps, no backwards hops, turning with the road (`motion.ts`) — his top-down vehicle with the
  * minutes to arrival, the home and kitchen pins, and a follow camera with a re-centre chip.
  */
-export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false }: TrackMapProps) {
+export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination' }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
@@ -103,8 +108,9 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
         door: home,
         ahead: route.start ? [route.start, ...route.waypoints] : route.waypoints,
         toDoorM: fix && home ? distanceM(fix.pin, home) : null,
+        pickup: ridePickup,
       }),
-    [phase, view.order.type, fix, kitchen, home, route],
+    [phase, view.order.type, fix, kitchen, home, route, ridePickup],
   );
   const camera = useFollowCamera({ size, focus: shot.points, zoom: shot.zoom, pad: { top: topInset + 40, bottom: bottomInset + (searching ? 120 : 40), left: 48, right: 48 } });
 
@@ -126,11 +132,12 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
           {/* No straight line across the river without a road route (joy f19): a heading arrow instead. */}
           <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} straight={false} />
           <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />
+          {searching && nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
           {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} testID="pin-pickup" /> : null}
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={view.merchant?.name ?? t('track.kitchen_pin')} testID="pin-kitchen" /> : null}
-          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind="home" label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
+          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind={view.order.type === 'ride' ? destinationKind : 'home'} label={t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin')} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicle} stale={stale} minutes={minutes} spotlight={spotlight} testID="courier-marker" />
         </>
       ) : null}
