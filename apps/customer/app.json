@@ -36,8 +36,9 @@
       ["expo-notifications", { "defaultChannel": "orders", "sounds": ["./assets/sounds/accepted.wav", "./assets/sounds/picked_up.wav", "./assets/sounds/near.wav", "./assets/sounds/delivered.wav"] }],
       "expo-font",
       "expo-secure-store",
-      ["expo-audio", { "microphonePermission": false }],
-      "expo-asset"
+      ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": false }],
+      "expo-asset",
+      "expo-status-bar"
     ],
     "experiments": { "typedRoutes": true }
   }

@@ -23,7 +23,6 @@ export async function playOnMedia(cue: Cue): Promise<void> {
     playsInSilentMode: false,
     shouldPlayInBackground: false,
     interruptionMode: 'duckOthers',
-    interruptionModeAndroid: 'duckOthers',
     shouldRouteThroughEarpiece: false,
   }).catch(() => undefined);
   await mode;

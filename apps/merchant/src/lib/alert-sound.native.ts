@@ -37,7 +37,6 @@ function ready(): Promise<void> {
       playsInSilentMode: true,
       shouldPlayInBackground: false,
       interruptionMode: 'doNotMix',
-      interruptionModeAndroid: 'doNotMix',
       shouldRouteThroughEarpiece: false,
     }).catch(() => undefined);
     chimeSound ??= player(CHIME, 1);
