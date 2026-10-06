@@ -265,7 +265,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     await this.admit(reader);
     const now = this.clock.now();
     const words = input.words.map((w) => foldArabic(w)).filter(Boolean);
-    const found: Array<{ rank: number; dish: CatalogSearchDish }> = [];
+    const found: Array<{ rank: number; score: number; dish: CatalogSearchDish }> = [];
     for (const s of await this.catalog.storefronts(input.cityId)) {
       const items = await this.catalog.menu(s.orgId);
       const card = await this.card(s, items, input.dropoff ?? null, now);
@@ -277,6 +277,8 @@ export class CatalogRpc implements CustomerCatalogPort {
         if (!view.available) continue;
         found.push({
           rank,
+          // «باچة» itself before «تشريب باچة».
+          score: searchScore(words[rank]!, item.nameAr),
           dish: {
             id: view.id,
             name: view.name,
@@ -292,20 +294,19 @@ export class CatalogRpc implements CustomerCatalogPort {
         });
       }
     }
-    found.sort((a, b) => a.rank - b.rank || a.dish.priceIqd - b.dish.priceIqd || a.dish.name.localeCompare(b.dish.name, 'ar'));
-    const out: CatalogSearchDish[] = [];
-    const kitchens = new Set<string>();
-    for (const f of found) {
-      if (out.length >= input.limit) break;
-      if (kitchens.has(f.dish.restaurantId)) continue;
-      kitchens.add(f.dish.restaurantId);
-      out.push(f.dish);
-    }
-    for (const f of found) {
-      if (out.length >= input.limit) break;
-      if (!out.includes(f.dish)) out.push(f.dish);
-    }
-    return out;
+    found.sort((a, b) => a.rank - b.rank || b.score - a.score || a.dish.priceIqd - b.dish.priceIqd || a.dish.name.localeCompare(b.dish.name, 'ar'));
+    // Variety: one per kitchen first, then dishes of a word not shown yet, then the rest.
+    const out: Array<(typeof found)[number]> = [];
+    const take = (ok: (f: (typeof found)[number]) => boolean) => {
+      for (const f of found) {
+        if (out.length >= input.limit) return;
+        if (!out.includes(f) && ok(f)) out.push(f);
+      }
+    };
+    take((f) => !out.some((o) => o.dish.restaurantId === f.dish.restaurantId));
+    take((f) => !out.some((o) => o.rank === f.rank));
+    take(() => true);
+    return out.map((f) => f.dish);
   }
 
   /**

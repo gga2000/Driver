@@ -85,7 +85,7 @@ const BAND_WORDS: Record<DaypartKey | 'friday_lunch', readonly string[]> = {
   friday_lunch: ['مشكّل', 'قوزي', 'كيلو', 'دولمة', 'وجبة', 'تمن'],
   asr: ['فلافل', 'منقوشة', 'لحم بعجين', 'شاورما', 'لفة', 'عصير'],
   dinner: ['كباب', 'تكة', 'مشكّل', 'شاورما', 'شيش', 'كبد'],
-  late: ['شاورما', 'فلافل', 'لفة', 'عربي', 'منقوشة', 'كباب'],
+  late: ['شاورما', 'فلافل', 'لفة', 'عربي شاورما', 'منقوشة', 'كباب'],
 };
 
 export function bandWords(d: Pick<Daypart, 'key' | 'friday'>): readonly string[] {

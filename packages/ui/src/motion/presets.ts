@@ -33,12 +33,9 @@ export function fadeIn({ reduceMotion, delay = 0, motion = motionTokens }: Prese
 export function panelIn({ reduceMotion, delay = 0, motion = motionTokens }: PresetOptions) {
   if (reduceMotion) return undefined;
   const s = motion.spring.settle;
-  return FadeInDown.springify()
-    .damping(s.damping)
-    .stiffness(s.stiffness)
-    .mass(s.mass)
-    .delay(delay)
-    .withInitialValues({ opacity: 0, transform: [{ translateY: motion.distance.enter }] });
+  // No `withInitialValues` here: on react-native-web it left entering views out of the layout flow
+  // (they drew over the next section). The stock rise is close to `distance.enter`.
+  return FadeInDown.springify().damping(s.damping).stiffness(s.stiffness).mass(s.mass).delay(delay);
 }
 
 export function sheetIn({ reduceMotion, delay = 0, motion = motionTokens }: PresetOptions) {

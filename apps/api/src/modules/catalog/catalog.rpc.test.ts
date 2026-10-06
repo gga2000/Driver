@@ -414,9 +414,10 @@ describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
   it('at dawn the breakfast kitchen answers with its real dishes; a word nobody cooks adds nothing', async () => {
     const w = await world('2026-10-03T04:30:00Z'); // 7:30 Baghdad: only المسافر is open
     const picks = await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا', 'باچة', 'كاهي'], limit: 3 });
-    expect(picks.length).toBeGreaterThanOrEqual(2);
+    expect(picks).toHaveLength(3);
     expect(picks.every((d) => d.restaurantName === 'مطعم المسافر')).toBe(true);
-    expect(picks[0]!.name).toContain('باچة');
+    // The dish itself before a dish that only carries its name, then another word before a second باچة.
+    expect(picks.map((d) => d.name)).toEqual(['باچة', 'كاهي وقيمر', 'تشريب باچة']);
   });
 
   it('is empty when nothing open matches', async () => {
