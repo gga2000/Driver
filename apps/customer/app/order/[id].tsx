@@ -14,7 +14,8 @@ import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
 import { SosControl } from '@/features/safety/SosControl';
-import { PrePromptGate } from '@/features/notify/PrePrompt';
+import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
+import { rideAskOnLiveScreen } from '@/features/notify/prompt';
 import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
 import { lateMinutes, liveEta, signalLostMinutes } from '@/features/track/eta';
 import { CancelPanel, DisputePanel, StreetPanel, UnreachablePanel } from '@/features/track/Panels';
@@ -34,6 +35,8 @@ const COLLAPSED = 108;
 /** Each degraded-state banner over the map pushes the camera's top edge down by about this much. */
 const BANNER_H = 84;
 const TOP_BAR = 64;
+/** The inline notification ask in the collapsed sheet (rides, joy f1): two text lines and the buttons. */
+const PUSH_ASK_H = 136;
 
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -89,6 +92,8 @@ export default function OrderLiveScreen() {
   // At the door there is nothing left to count down (joy f3): no pill.
   const mapMinutes = fix && eta && eta.getTime() > now && !atDoor ? t('track.map_minutes', { minutes: Math.max(1, Math.round((eta.getTime() - now) / 60_000)) }) : null;
   const ride = v?.order.type === 'ride';
+  // Joy f1: rides ask for notifications inside the collapsed sheet once a driver is coming (food asked on the kitchen screen).
+  const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
   const memo = useRideMemo(id);
@@ -175,7 +180,7 @@ export default function OrderLiveScreen() {
   const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
-  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0);
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
   const mapBottom = collapsed + (showFloat ? COURIER_FLOAT_H : 0);
 
   const courierCard = v?.courier ? (
@@ -253,6 +258,7 @@ export default function OrderLiveScreen() {
               lateMin={lateMin}
               note={searching ? searchNote : null}
               aside={searching ? <SearchCounter seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
+              below={pushAsk.visible ? <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : undefined}
             />
           ) : (
             <View style={{ gap: theme.space[2] }}>
@@ -352,8 +358,6 @@ export default function OrderLiveScreen() {
         />
       ) : null}
       {v && rating ? <RatingPanel view={v} onDone={() => setRating(false)} /> : null}
-      {/* The moment notifications matter: an order is live. Our pre-prompt, then the OS prompt. */}
-      <PrePromptGate active={Boolean(v && live)} />
     </View>
   );
 }

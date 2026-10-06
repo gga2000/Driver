@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deepLinkPath, PREPROMPT_SNOOZE_MS, shouldShowPrePrompt } from './prompt';
+import { deepLinkPath, PREPROMPT_SNOOZE_MS, rideAskOnLiveScreen, shouldShowPrePrompt } from './prompt';
 
 describe('notification pre-prompt timing', () => {
   it('asks only while the OS permission is undetermined, and a "later" snoozes a week', () => {
@@ -9,6 +9,16 @@ describe('notification pre-prompt timing', () => {
     expect(shouldShowPrePrompt('denied', null, now)).toBe(false);
     expect(shouldShowPrePrompt('undetermined', now - 1000, now)).toBe(false);
     expect(shouldShowPrePrompt('undetermined', now - PREPROMPT_SNOOZE_MS, now)).toBe(true);
+  });
+
+  it('never over the live map: food asks on the kitchen screen; a ride asks inside the sheet once a driver is coming (f1, L-01)', () => {
+    expect(rideAskOnLiveScreen(false, 'on_the_way')).toBe(false);
+    expect(rideAskOnLiveScreen(false, 'preparing')).toBe(false);
+    expect(rideAskOnLiveScreen(true, 'searching')).toBe(false);
+    expect(rideAskOnLiveScreen(true, 'to_pickup')).toBe(true);
+    expect(rideAskOnLiveScreen(true, 'at_pickup')).toBe(true);
+    expect(rideAskOnLiveScreen(true, 'on_the_way')).toBe(false);
+    expect(rideAskOnLiveScreen(true, null)).toBe(false);
   });
 
   it('turns our deep links into routes and ignores anything else', () => {

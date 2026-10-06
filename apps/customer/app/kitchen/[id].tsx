@@ -11,6 +11,7 @@ import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
 import { isKitchenAccepted, isKitchenRejection, useCancelOrder, useCatalogRestaurants, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { similarOpenRestaurants } from '@/features/food/similar';
+import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -33,6 +34,8 @@ export default function KitchenScreen() {
   const { placed } = useCartStore();
   const cancel = useCancelOrder();
   const o = order.data;
+  // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
+  const pushAsk = usePushAsk(o?.state === 'placed');
   const mineCart = placed?.orderId === id ? placed.cart : null;
   const name = mineCart?.merchant?.name ?? '';
   const items = mineCart ? mineCart.lines.map((l) => (l.qty > 1 ? `${l.name} ×${l.qty}` : l.name)).join('، ') : '';
@@ -114,6 +117,7 @@ export default function KitchenScreen() {
             </View>
           </View>
         </Card>
+        {pushAsk.visible ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
       </View>
     </Screen>
   );

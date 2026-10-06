@@ -54,6 +54,7 @@ export function SheetHeader({
   lateMin,
   note,
   aside,
+  below,
 }: {
   phase: Phase;
   status: string;
@@ -65,16 +66,19 @@ export function SheetHeader({
   note?: string | null;
   /** Replaces the ETA box (rides: the search counter). */
   aside?: ReactNode;
+  /** Full width under the header row, still in the collapsed sheet (rides: the notification ask, joy f1). */
+  below?: ReactNode;
 }) {
   const theme = useTheme();
   const t = useT();
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - now) / 60_000)) : null;
   const live = phase !== 'done' && phase !== 'arrived' && phase !== 'cancelled' && phase !== 'failed' && phase !== 'disputed';
-  return (
+  const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
       <View style={{ flex: 1, gap: theme.space[1] }}>
         <StatusPill size="sm" tone={lateMin > 0 ? 'warning' : PHASE_TONE[phase]} live={live} label={lateMin > 0 ? t('track.running_late', { minutes: lateMin }) : pill} />
-        <Text variant="title" numberOfLines={2} testID="status-line">
+        {/* L-23: screen readers read each new status by itself, politely (the ETA box stays quiet). */}
+        <Text variant="title" numberOfLines={2} testID="status-line" accessibilityLiveRegion="polite">
           {status}
         </Text>
         {note ? (
@@ -96,6 +100,13 @@ export function SheetHeader({
           <DepartureTime at={eta} now={now} size="compact" align="center" label={t('track.eta_label')} tone={lateMin > 0 ? 'warning' : 'ink'} countdown={false} note={t('track.eta_minutes', { minutes })} testID="eta-time" />
         </View>
       ) : null}
+    </View>
+  );
+  if (!below) return row;
+  return (
+    <View style={{ gap: theme.space[3] }}>
+      {row}
+      {below}
     </View>
   );
 }
