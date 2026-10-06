@@ -34,7 +34,7 @@ describe('khat run', () => {
     expect(places[0]!.windowEnd).toEqual(T(10));
   });
 
-  it('offers "صعد" at pickups, "نزل" only once the child is on board, absence over everything', () => {
+  it('offers "صعود" at pickups, "نزول" only once the child is on board, absence over everything', () => {
     expect(childAction(run, run.stops[0]!)).toBe('tapped_in');
     expect(childAction(run, run.stops[2]!)).toBe('tap_in');
     expect(childAction(run, run.stops[3]!)).toBe('absent');

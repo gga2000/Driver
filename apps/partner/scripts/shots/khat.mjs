@@ -16,7 +16,7 @@ export default async function run(s) {
   // مريم gets in at الشكري: the run is under way, the offers fold into one quiet line.
   const tap = p.page.locator('[data-testid^="khat-tap-"]').first();
   await tap.click();
-  await p.page.getByText('صعد', { exact: true }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
+  await p.page.locator('[data-testid^="khat-settled-"]').first().waitFor({ timeout: 10_000 }).catch(() => undefined);
   await p.page.waitForTimeout(1200);
   await p.shot('tapped-in', { settle: 1200 });
 

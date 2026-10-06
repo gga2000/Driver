@@ -34,7 +34,7 @@ function RunChip({ testID, icon, value, word, spoken, bg, fg }: { testID: string
 
 /**
  * Header of the run (partner S-6): the next stop's time on the garage-board tiles, then big tabular
- * chips "بالسيارة 2 · وصلوا 0 من 5 · غايب 1" and the progress bar.
+ * chips "بالسيارة 2 · وصلوا 0 من 5 · غياب 1" and the progress bar.
  */
 export function RunProgress({ trip, nextAt, now }: { trip: KhatRunTrip; nextAt: Date | null; now: number }) {
   const theme = useTheme();
@@ -325,9 +325,12 @@ function ChildRow({
             {name}
           </Text>
           {action === 'absent' ? (
-            <StatusPill label={t('partner.kh_absent_badge')} tone="neutral" size="sm" icon="x" style={{ alignSelf: 'flex-start' }} />
+            <View accessibilityLiveRegion="polite" style={{ alignSelf: 'flex-start' }}>
+              <StatusPill label={t('partner.kh_absent_badge')} tone="neutral" size="sm" icon="x" />
+            </View>
           ) : settledLine ? (
-            <Text variant="caption" weight={600} color="successText" tabular>
+            // Said where he tapped (no toast over the list): "بالسيارة من 12:51" / "نزول 12:51 · وصل للأهل إشعار".
+            <Text testID={`khat-settled-${stop.stopId}`} variant="caption" weight={600} color="successText" tabular accessibilityLiveRegion="polite">
               {settledLine}
             </Text>
           ) : absentOk && !asking ? (
@@ -369,7 +372,7 @@ function ChildRow({
   );
 }
 
-/** The big per-child button: "صعد" at pickups (accent), "نزل" at the school (green: tells the guardian). */
+/** The big per-child button: "صعود" at pickups (accent), "نزول" at the school (green: tells the guardian). */
 function TapButton({ kind, emphasise, busy, onPress, testID }: { kind: 'tap_in' | 'tap_out'; emphasise: boolean; busy: boolean; onPress: () => void; testID: string }) {
   const theme = useTheme();
   const t = useT();

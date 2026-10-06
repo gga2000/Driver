@@ -52,7 +52,7 @@ export function groupPlaces(trip: Pick<KhatRunTrip, 'stops'>): KhatPlace[] {
 export type ChildAction = 'tap_in' | 'tap_out' | 'tapped_in' | 'tapped_out' | 'absent' | 'skipped' | 'not_on_board' | 'none';
 
 /**
- * What the child row at this stop offers: a big "صعد" at a pickup, a big "نزل" at a drop-off (only
+ * What the child row at this stop offers: a big "صعود" at a pickup, a big "نزول" at a drop-off (only
  * once the child is on board), or the settled state. Absence wins over everything.
  */
 export function childAction(trip: Pick<KhatRunTrip, 'stops'>, stop: KhatStopView): ChildAction {
@@ -103,7 +103,7 @@ export function activeRunIndex(trips: readonly KhatRunTrip[]): number {
   return i === -1 ? Math.max(0, trips.length - 1) : i;
 }
 
-/** The header chips (partner S-6): "بالسيارة 2 · وصلوا 0 من 5 · غايب 1". */
+/** The header chips (partner S-6): "بالسيارة 2 · وصلوا 0 من 5 · غياب 1". */
 export function runChips(trip: Pick<KhatRunTrip, 'childrenTotal' | 'onBoard' | 'delivered' | 'absent'>): { onBoard: number; delivered: number; total: number; absent: number } {
   return { onBoard: trip.onBoard, delivered: trip.delivered, total: Math.max(0, trip.childrenTotal - trip.absent), absent: trip.absent };
 }

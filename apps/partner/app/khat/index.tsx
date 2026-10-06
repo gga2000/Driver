@@ -19,10 +19,12 @@ import { currentFix } from '@/lib/location';
 
 /**
  * خطك اليوم — today's khat run, child-safe (partner audit S-6): the next stop's time and big chips
- * "بالسيارة 2 · وصلوا 0 من 5 · غايب 1"; at each stop the children by first name with a guardian call
- * and a 56 px "صعد" / "نزل" (the guardian's "arrived" message fires on the school tap-out); absences
- * until a child boards. Substitute offers stay out of sight while a run is under way. The run ends
- * with a two-step sweep ("تأكد ما بقى طفل بالسيارة" → slide "تأكدت، السيارة فاضية"), logged for ops.
+ * "بالسيارة 2 · وصلوا 0 من 5 · غياب 1"; at each stop the children by first name with a guardian call
+ * and a 56 px "صعود" / "نزول" (the guardian's "arrived" message fires on the school tap-out); absences
+ * until a child boards. Child copy is gender-neutral: the child record carries no gender. Substitute
+ * offers stay out of sight while a run is under way. The run ends with a two-step sweep ("تأكد ما بقى
+ * طفل بالسيارة" → slide "تأكدت، السيارة فاضية"), logged for ops. «طوارئ» stays in the header on every
+ * step of the run, the back-seat check included.
  */
 export default function KhatRun() {
   const theme = useTheme();
@@ -80,9 +82,9 @@ export default function KhatRun() {
       const input = { tripId: trip.tripId, stopId: stop.stopId, occurredAt: new Date(), idempotencyKey: `khat:${stop.stopId}:${stop.type}`, ...(fix ? { pin: fix } : {}) };
       const after = stop.type === 'pickup' ? await actions.tapIn.mutateAsync(input) : await actions.tapOut.mutateAsync(input);
       if (runFinished(after)) setFinishedRun(after);
+      // No toast over the list (review p6a): the child's own row says it, gender-neutral since the
+      // child record has no gender ("بالسيارة من 12:51" / "نزول 12:51 · وصل للأهل إشعار").
       theme.haptic('success');
-      const name = stop.child?.firstName ?? '';
-      toast.show({ message: stop.type === 'pickup' ? t('partner.kh_tap_in_toast', { name }) : t('partner.kh_tap_out_toast', { name }), tone: 'success' });
     } catch (err) {
       fail(err);
     } finally {
@@ -91,11 +93,11 @@ export default function KhatRun() {
   };
 
   const reportAbsence = async (trip: KhatRunTrip, childRef: string, reason: AbsenceReason) => {
-    const name = trip.stops.find((s) => s.child?.childRef === childRef)?.child?.firstName ?? '';
     try {
       await actions.reportAbsence.mutateAsync({ tripId: trip.tripId, childRef, reason });
+      // No toast over the list: the child's row turns to «غياب اليوم» (and says it to a screen reader).
+      theme.haptic('success');
       setAbsenceFor(null);
-      toast.show({ message: t('partner.khat_rider_absent', { name }), tone: 'neutral' });
     } catch (err) {
       fail(err);
     }
@@ -113,8 +115,8 @@ export default function KhatRun() {
       setFinishedRun(after);
       // The sweep card was far down the list; the run's summary and "خلص خط اليوم" are at the top.
       scrollRef.current?.scrollTo({ y: 0, animated: true });
+      // No toast over the list: the done card says «السيارة فاضية · 2:01 م» (and says it to a screen reader).
       theme.haptic('success');
-      toast.show({ message: t('partner.kh2_sweep_saved'), tone: 'success', icon: 'check' });
     } catch (err) {
       fail(err);
     }
@@ -138,7 +140,7 @@ export default function KhatRun() {
 
   return (
     <Screen testID="khat-run" edges={['bottom']} scrollRef={scrollRef} refreshControl={<RefreshControl refreshing={run.isRefetching} onRefresh={() => void Promise.all([run.refetch(), subs.refetch()])} />}>
-      <Stack.Screen options={{ title: t('partner.khat_card_title'), headerRight: trip && !finished ? () => <SosControl subject={{ kind: 'trip', id: trip.tripId }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
+      <Stack.Screen options={{ title: t('partner.khat_card_title'), headerRight: trip && (!finished || sweep) ? () => <SosControl subject={{ kind: 'trip', id: trip.tripId }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
 
       {offers.length > 0 && !underway ? (
         <View style={{ gap: theme.space[3] }}>
@@ -205,7 +207,7 @@ export default function KhatRun() {
                   {t('partner.kh_done_body', { delivered: trip.delivered, absent: trip.absent })}
                 </Text>
                 {trip.emptyCarCheckedAt ? (
-                  <Text testID="khat-swept" variant="label" weight={600} color="successText" align="center" tabular>
+                  <Text testID="khat-swept" variant="label" weight={600} color="successText" align="center" tabular accessibilityLiveRegion="polite">
                     {t('partner.kh2_swept_at', { time: clockLabel(trip.emptyCarCheckedAt) })}
                   </Text>
                 ) : null}
