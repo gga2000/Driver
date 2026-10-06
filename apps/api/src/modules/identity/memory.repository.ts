@@ -322,8 +322,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return list.length ? list[list.length - 1]! : null;
   }
 
-  async createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date }, tx?: Tx) {
-    const o: OtpRecord = { id: this.id('otp'), phoneHash: input.phoneHash, codeHash: input.codeHash, purpose: input.purpose, attempts: 0, expiresAt: input.expiresAt, verifiedAt: null, lockedAt: null, createdAt: input.now };
+  async createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date; attempts?: number }, tx?: Tx) {
+    const o: OtpRecord = { id: this.id('otp'), phoneHash: input.phoneHash, codeHash: input.codeHash, purpose: input.purpose, attempts: input.attempts ?? 0, expiresAt: input.expiresAt, verifiedAt: null, lockedAt: null, createdAt: input.now };
     this.otps.push(o);
     this.added(tx, this.otps, o);
     return o;

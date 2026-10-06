@@ -23,7 +23,6 @@ we can't open to the public without it.
 | The brand symbol (direction A, B or C) | Not chosen | Yes: the app stores need an icon and a splash screen | `docs/specs/2026-10-03-brand.md`, `docs/specs/2026-10-05-customer-joy.md` §10 |
 | Real Aziziyah price tables | Not set | Yes | `docs/specs/2026-10-03-launch-playbook.md` §7 |
 | Zone outlines: approve Ali's drawn zones and any fee changes they cause | Drawings exist but aren't approved or checked in | Yes (the playbook asks for 34 checked zones) | `docs/specs/2026-10-05-maps-world-class.md` §5.3 |
-| Emergency number shown in the apps | Ali chose 911 in another window; the apps still say 104 until that work merges | Yes | `packages/contracts/src/safety-io.ts` |
 | Who sits on the local taste panel; which calendar we trust for quiet days and Ramadan | Not chosen | No | `docs/specs/2026-10-05-customer-joy.md` §10 |
 | SMS fallback limits (how many SMS per order, monthly cap) | Not set | No | maps spec §5.9 |
 | Money rules not yet approved: stamp cards, rolling points expiry, invite-gift amounts | Not approved | No | customer-joy spec §5.7, §6 |
@@ -35,7 +34,6 @@ we can't open to the public without it.
 |---|---|---|
 | Company registration and a Google Play organisation account | Yes | launch playbook §7 |
 | Expo account, Google Play Console; a closed test on Play (12 testers, 14 days) before going public | Yes | `docs/deploy/mobile.md` |
-| Expo upgrade from SDK 52 (in progress in another window) | Yes | customer-joy spec J-D12 |
 | A development build so the apps run on real phones (Expo Go can't run them) | Yes | `docs/deploy/mobile.md` |
 | App versions set to 1.0.0 before the first store build | Yes | `docs/deploy/mobile.md` |
 | Supabase Pro in Frankfurt (database) | Yes | `docs/deploy/supabase.md`, `docs/deploy/runbook.md` |
