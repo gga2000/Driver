@@ -40,6 +40,11 @@ const CapsByTier = z.object({ bronze: Iqd.positive(), silver: Iqd.positive(), go
 export const MoneyRules = z.object({
   commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
   serviceFeeIqd: Iqd.nonnegative(),
+  /**
+   * J-D6 (Ali, 2026-10-05): `feeIqd` is charged on an order below the restaurant's own minimum
+   * (`smallOrderFeeIqd`). `belowIqd` is the city's typical minimum, kept for reference; the
+   * restaurant's `minOrderIqd` is the threshold that applies.
+   */
   smallOrder: z.object({ belowIqd: Iqd.nonnegative(), feeIqd: Iqd.nonnegative() }),
   /** Batched second order: courier earns this share of its delivery fee; the customer pays in full (money §2). */
   batchedSecondCourierShare: Rate,

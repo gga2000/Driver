@@ -8,7 +8,7 @@ import { Iqd } from './common.js';
  * locked by the API (`orders.quote` / `orders.place`); the client never sends a discount of its own.
  *
  * Stacking (adopted 2026-10-04): at most ONE merchant deal per order — the one that saves the
- * customer the most — plus points redemption (ledger, service fee first). Platform promo codes come
+ * customer the most — plus points redemption (delivery fee first, then the service fee — J-D10, `pointsRedemption`). Platform promo codes come
  * later; when one resolves it competes with the merchant deal and the larger wins (no stacking).
  */
 
@@ -83,4 +83,42 @@ export function dealLabel(d: { type: DealType; value: number; minOrderIqd: numbe
         ? t(scoped ? 'deal.fixed_items' : 'deal.fixed_all', { amount: amount(d.value) }, locale)
         : t(scoped ? 'deal.bogo_items' : 'deal.bogo_all', undefined, locale);
   return d.minOrderIqd > 0 ? t('deal.min_suffix', { label: base, amount: amount(d.minOrderIqd) }, locale) : base;
+}
+
+/**
+ * A percent deal's saving on a line (qty × (menu price + modifiers)), floored to the dinar: the one
+ * rule the API's deal engine applies at checkout and the menu shows (f10).
+ */
+export function percentDealSaving(lineIqd: number, percent: number): number {
+  return Math.floor((lineIqd * percent) / 100);
+}
+
+/** A dish's deal price on the menu (f10): which deal, its percent, and one plain unit's price under it. */
+export interface MenuDealPrice {
+  dealId: string;
+  percent: number;
+  priceIqd: number;
+}
+
+/**
+ * The deal price a dish shows on the menu (UI/UX audit F-02): a live percent deal with no minimum
+ * that covers the dish applies to it in any cart, so its price under the deal is certain. Deals with
+ * a minimum, fixed amounts, BOGO and free delivery depend on the whole cart and stay in the cart's
+ * own lines. The largest percent wins; the first listed on a tie.
+ */
+export function menuDealOf(item: { id: string; priceIqd: number }, deals: ReadonlyArray<Pick<DealBadge, 'dealId' | 'type' | 'value' | 'minOrderIqd' | 'itemIds'>>): MenuDealPrice | null {
+  if (item.priceIqd <= 0) return null;
+  let best: MenuDealPrice | null = null;
+  for (const d of deals) {
+    if (d.type !== 'percent' || d.minOrderIqd > 0 || d.value <= 0) continue;
+    if (d.itemIds.length > 0 && !d.itemIds.includes(item.id)) continue;
+    if (best && d.value <= best.percent) continue;
+    best = { dealId: d.dealId, percent: d.value, priceIqd: item.priceIqd - percentDealSaving(item.priceIqd, d.value) };
+  }
+  return best;
+}
+
+/** A line's price under the dish's menu deal (the item sheet's add button); the plain price without one. */
+export function dealLinePrice(lineIqd: number, deal: Pick<MenuDealPrice, 'percent'> | null | undefined): number {
+  return deal ? lineIqd - percentDealSaving(lineIqd, deal.percent) : lineIqd;
 }
