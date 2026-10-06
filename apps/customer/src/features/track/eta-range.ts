@@ -1,4 +1,5 @@
 import type { EtaBasis } from '@driver/contracts';
+import { formatRange, type Locale } from '@driver/i18n';
 import type { TFn } from './timeline';
 
 /** A straight-line estimate can be this much quicker … */
@@ -19,12 +20,11 @@ export function minutesRange(minutes: number, basis: EtaBasis | null): { low: nu
 }
 
 /**
- * The pill on the courier: «8 دقايق», or «6–10 دقايق» / «16–25 دقيقة» for an estimate (digits kept
- * left-to-right; `t()` gives the minutes their natural form, joy J-D9).
+ * The pill on the courier: «8 دقايق», or «6–10 دقايق» / «16–25 دقيقة» for an estimate (the low end
+ * first in reading order, `formatRange`; `t()` gives the minutes their natural form, joy J-D9).
  */
-export function mapMinutesLabel(t: TFn, minutes: number, basis: EtaBasis | null): string {
+export function mapMinutesLabel(t: TFn, minutes: number, basis: EtaBasis | null, locale: Locale = 'ar-IQ'): string {
   const r = minutesRange(minutes, basis);
   if (r.low === r.high) return t('track.map_minutes', { minutes });
-  const range = `⁦${r.low}–${r.high}⁩`;
-  return t('track.map_minutes_range', { range });
+  return t('track.map_minutes_range', { range: formatRange(r.low, r.high, locale) });
 }

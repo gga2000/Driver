@@ -13,7 +13,7 @@
  * Words come from the locale files (`time.*`), never from this module.
  */
 import { pluralKey } from './plural.js';
-import { t, type Locale, type MessageKey } from './translate.js';
+import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from './translate.js';
 
 export { agreeMinutes, minuteNoun, type MinuteForm } from './translate.js';
 
@@ -135,9 +135,24 @@ export function formatMinuteCount(n: number, opts: { locale?: Locale } = {}): st
   return t('time.minutes', { n }, opts.locale);
 }
 
-/** A minutes range read by its high end, digits left to right: "⁦6–9⁩ دقايق", "⁦10–15⁩ دقيقة". */
+const LRI = '\u2066';
+const RLI = '\u2067';
+const PDI = '\u2069';
+
+/**
+ * A span of two numbers ("30–40") that reads low to high in the locale's direction. In Arabic the
+ * low end sits on the right, where the eye starts: isolated right-to-left, so the dash keeps 30 on
+ * the right whatever surrounds it — «يوصلك خلال 30–40 دقيقة», never «40–30» (a left-to-right
+ * isolate puts 30 on the left, which an Arabic reader reads as 40 first). English is the mirror.
+ * The ends may be clock strings ("4:30").
+ */
+export function formatRange(low: number | string, high: number | string, locale: Locale = DEFAULT_LOCALE): string {
+  return `${locale.startsWith('ar') ? RLI : LRI}${low}–${high}${PDI}`;
+}
+
+/** A minutes range read by its high end, the low end first in reading order: "30–40 دقيقة", "6–9 دقايق". */
 export function formatMinutesRange(low: number, high: number, opts: { locale?: Locale } = {}): string {
-  return t('time.minutes_range', { range: `\u2066${low}–${high}\u2069` }, opts.locale);
+  return t('time.minutes_range', { range: formatRange(low, high, opts.locale) }, opts.locale);
 }
 
 /** The Iraqi parts of the day (R-06): what people say after an hour so 8 can't be morning or night. */
@@ -186,14 +201,14 @@ export function hourWindow(start: Date | number, end: Date | number, opts: { loc
   return { from: startPart === endPart ? from : `${from} ${partWord(startPart, locale)}`, to };
 }
 
-/** A chip-sized window: "⁦4–6⁩ العصر" (digits isolated so RTL keeps 4 before 6), else "5:50 العصر – 6:55 المسا". */
+/** A chip-sized window: "4–6 العصر" (4 first in reading order, `formatRange`), else "5:50 العصر – 6:55 المسا". */
 export function formatHourRange(start: Date | number, end: Date | number, opts: { locale?: Locale; offsetMin?: number } = {}): string {
-  const { offsetMin = CITY_UTC_OFFSET_MIN } = opts;
+  const { locale = DEFAULT_LOCALE, offsetMin = CITY_UTC_OFFSET_MIN } = opts;
   const w = hourWindow(start, end, opts);
   if (w.from.includes(' ')) return `${w.from} – ${w.to}`;
   const endMs = typeof end === 'number' ? end : end.getTime();
   const toDigits = hourDigits(endMs, offsetMin);
-  return `\u2066${w.from}–${toDigits}\u2069${w.to.slice(toDigits.length)}`;
+  return `${formatRange(w.from, toDigits, locale)}${w.to.slice(toDigits.length)}`;
 }
 
 /** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`); `h:mm:ss` from one hour up. */

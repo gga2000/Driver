@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Platform, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
+import { formatRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -311,7 +312,7 @@ export default function CheckoutScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                 <Icon name="clock" size={16} color="accentText" />
                 <Text variant="footnote" color="accentText" weight={600}>
-                  {t('checkout.eta', { min: `⁦${restaurant.etaMinMinutes}`, max: `${restaurant.etaMaxMinutes}⁩` })}
+                  {t('checkout.eta', { range: formatRange(restaurant.etaMinMinutes, restaurant.etaMaxMinutes, locale) })}
                 </Text>
               </View>
             ) : null}
@@ -515,7 +516,9 @@ function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: numbe
           {t('cashchange.pay_with_hint')}
         </Text>
       </View>
+      {/* An even 2×2 of notes: four in a row do not fit at 360 px, and wrapping left 50,000 alone. */}
       <ChipGroup
+        columns={2}
         accessibilityLabel={t('cashchange.pay_with_title')}
         items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${amountParam(n)} ${t('cashchange.pay_with_exact')}` : amountParam(n) }))}
         value={value !== null ? [`tender-${value}`] : []}

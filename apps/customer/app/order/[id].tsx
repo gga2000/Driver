@@ -105,7 +105,7 @@ export default function OrderLiveScreen() {
   // At the door there is nothing left to count down (joy f3): no pill.
   // A range when the ETA is a straight-line estimate (f19, maps c3): the server's basis, or ours when it gave none.
   const mapMinutes =
-    fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated') : null;
+    fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
   const ride = v?.order.type === 'ride';
   // Joy f1: rides ask for notifications inside the collapsed sheet once a driver is coming (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));

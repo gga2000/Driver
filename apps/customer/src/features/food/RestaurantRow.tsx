@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import { Card, Icon, Skeleton, StatusPill, Text, toneFor, useTheme } from '@driver/ui';
-import { HERO, monogram, range } from '@/features/home/RestaurantRail';
+import { formatRange } from '@driver/i18n';
+import { HERO, monogram } from '@/features/home/RestaurantRail';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const ART = 76;
@@ -16,9 +17,10 @@ const ART = 76;
 export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; testID?: string; onOpen?: () => void }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const tone = HERO[toneFor(r.name)];
   const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
-  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? range(r.etaMinMinutes, r.etaMaxMinutes) : range(r.prepMinMinutes, r.prepMaxMinutes);
+  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) : formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale);
   const closedLabel = r.opensAt ? t('list.closed_opens_at', { time: r.opensAt }) : t('list.closed');
   return (
     <Card

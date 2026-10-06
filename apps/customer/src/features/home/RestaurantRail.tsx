@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
+import { formatRange } from '@driver/i18n';
 import { Button, Card, Icon, initialOf, Skeleton, StatusPill, Text, toneFor, useTheme, type AvatarTone } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
 import type { RestaurantSummary } from './restaurant-summary';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const CARD_W = 236;
@@ -19,11 +20,6 @@ export function monogram(name: string): string {
   return initialOf(word);
 }
 
-/** "20–30" kept left-to-right inside Arabic text (otherwise the bidi algorithm shows 30–20). */
-export function range(min: number, max: number): string {
-  return `\u2066${min}–${max}\u2069`;
-}
-
 export const HERO: Record<AvatarTone, { bg: ThemeColorKey; fg: ThemeColorKey }> = {
   accent: { bg: 'accentTint', fg: 'accentText' },
   info: { bg: 'infoTint', fg: 'infoText' },
@@ -34,10 +30,11 @@ export const HERO: Record<AvatarTone, { bg: ThemeColorKey; fg: ThemeColorKey }> 
 export function RestaurantCard({ r, showDeal }: { r: RestaurantSummary; showDeal?: boolean }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const tone = HERO[toneFor(r.name)];
   const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
   const fee = r.deliveryFeeIqd === null ? null : free ? t('search.filter_free_delivery') : t('restaurant.delivery_fee', { amount: amountParam(r.deliveryFeeIqd) });
-  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? range(r.etaMinMinutes, r.etaMaxMinutes) : range(r.prepMinMinutes, r.prepMaxMinutes);
+  const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) : formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale);
   return (
     <Card
       testID={`restaurant-${r.id}`}

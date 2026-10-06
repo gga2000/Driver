@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem, RestaurantCard } from '@driver/contracts';
+import { formatRange } from '@driver/i18n';
 import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
@@ -18,11 +19,6 @@ import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const HERO_H = 210;
-
-/** "30–40" kept left-to-right inside Arabic text. */
-function range(min: number, max: number): string {
-  return `⁦${min}–${max}⁩`;
-}
 
 /**
  * Restaurant page (spec §3): hero (photo or illustrated placeholder), the card facts up front —
@@ -228,8 +224,9 @@ export default function RestaurantScreen() {
 function Facts({ r }: { r: RestaurantCard }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const fee = r.deliveryFeeIqd === null ? t('cart.pick_place') : r.deliveryFeeIqd <= 0 ? t('search.filter_free_delivery') : t('restaurant.delivery_fee', { amount: amountParam(r.deliveryFeeIqd) });
-  const eta = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? t('restaurant.eta', { range: range(r.etaMinMinutes, r.etaMaxMinutes) }) : t('restaurant.prep_time', { minutes: range(r.prepMinMinutes, r.prepMaxMinutes) });
+  const eta = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? t('restaurant.eta', { range: formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) }) : t('restaurant.prep_time', { minutes: formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale) });
   return (
     <View style={{ gap: theme.space[2] }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cityDayDiff, cityParts, formatClock, formatCountdown, formatDay, formatDuration, formatMinuteCount, formatMinutes, formatMinutesRange, formatHourPart, formatHourRange, formatWhen, dayPart, hourWindow, minuteNoun } from './time.js';
+import { cityDayDiff, cityParts, formatClock, formatCountdown, formatDay, formatDuration, formatMinuteCount, formatMinutes, formatMinutesRange, formatRange, formatHourPart, formatHourRange, formatWhen, dayPart, hourWindow, minuteNoun } from './time.js';
 import { agreeMinutes, t } from './translate.js';
 
 // 2026-10-01 is a Thursday. Baghdad is UTC+3: 19:30Z is 22:30 there.
@@ -99,10 +99,21 @@ describe('minutes, natural Iraqi forms (J-D9)', () => {
     expect(formatMinuteCount(45)).toBe('45 دقيقة');
     expect(formatMinuteCount(5, { locale: 'en' })).toBe('5 min');
   });
-  it('ranges agree with their high end, digits kept left to right', () => {
-    expect(formatMinutesRange(6, 9)).toBe('⁦6–9⁩ دقايق');
-    expect(formatMinutesRange(10, 15)).toBe('⁦10–15⁩ دقيقة');
-    expect(formatMinutesRange(6, 9, { locale: 'en' })).toBe('⁦6–9⁩ min');
+  it('ranges agree with their high end, the low end first in reading order (right in Arabic)', () => {
+    expect(formatMinutesRange(6, 9)).toBe('\u20676–9\u2069 دقايق');
+    expect(formatMinutesRange(10, 15)).toBe('\u206710–15\u2069 دقيقة');
+    expect(formatMinutesRange(6, 9, { locale: 'en' })).toBe('\u20666–9\u2069 min');
+  });
+  it('a number range is isolated in the reading direction, so Arabic shows 30 on the right («30–40», not «40–30»)', () => {
+    // Right-to-left isolate (RLI … PDI): the dash between two numbers takes the RTL direction and the
+    // low end is drawn first, from the right. A left-to-right isolate would draw it on the left.
+    expect(formatRange(30, 40)).toBe('\u206730–40\u2069');
+    expect(formatRange('4:30', 6)).toBe('\u20674:30–6\u2069');
+    expect(formatRange(30, 40, 'en')).toBe('\u206630–40\u2069');
+    // Checkout's delivery window; minute agreement still reads the range's high end.
+    expect(t('checkout.eta', { range: formatRange(30, 40) })).toBe('يوصلك خلال \u206730–40\u2069 دقيقة');
+    expect(t('checkout.eta', { range: formatRange(5, 8) })).toBe('يوصلك خلال \u20675–8\u2069 دقايق');
+    expect(t('checkout.eta', { range: formatRange(30, 40, 'en') }, 'en')).toBe('Arrives in \u206630–40\u2069 min');
   });
   it('every Arabic "{p} دقيقة" agrees through t(), counts and ranges alike', () => {
     expect(t('track.running_late', { minutes: 1 })).toBe('متأخرين دقيقة');
@@ -142,8 +153,9 @@ describe('the part of day on hours and windows (R-06)', () => {
     expect(hourWindow(at('2026-10-01T15:00:00Z'), at('2026-10-01T21:00:00Z'))).toEqual({ from: '6 المسا', to: '12 بالليل' });
     expect(hourWindow(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'), { locale: 'en' })).toEqual({ from: '4', to: '6 PM' });
   });
-  it('a chip-sized range keeps its digits left to right', () => {
-    expect(formatHourRange(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'))).toBe('\u20664–6\u2069 العصر');
+  it('a chip-sized range reads its first hour first (right-to-left isolate in Arabic)', () => {
+    expect(formatHourRange(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'))).toBe('\u20674–6\u2069 العصر');
+    expect(formatHourRange(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'), { locale: 'en' })).toBe('\u20664–6\u2069 PM');
     expect(formatHourRange(at('2026-10-01T14:50:00Z'), at('2026-10-01T15:55:00Z'))).toBe('5:50 العصر – 6:55 المسا');
   });
 });

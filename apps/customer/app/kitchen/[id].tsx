@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import type { RestaurantCard } from '@driver/contracts';
+import { formatRange } from '@driver/i18n';
 import { Button, Card, CountdownRing, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
@@ -148,6 +149,7 @@ function WaitingMark({ startedAt }: { startedAt: number }) {
 function Rejected({ orderId }: { orderId: string }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const toast = useToast();
   const api = useApi();
   const queryClient = useQueryClient();
@@ -226,7 +228,7 @@ function Rejected({ orderId }: { orderId: string }) {
                     ) : null}
                     {r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? (
                       <Text variant="caption" color="textMuted" tabular>
-                        {t('restaurant.eta', { range: `⁦${r.etaMinMinutes}–${r.etaMaxMinutes}⁩` })}
+                        {t('restaurant.eta', { range: formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) })}
                       </Text>
                     ) : null}
                   </View>

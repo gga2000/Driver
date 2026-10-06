@@ -78,8 +78,11 @@ export const EXCLAMATION_ALLOWED: ReadonlySet<string> = new Set([
  */
 const TAXI_FAMILIES = /^(?:trip|ride)\./;
 
-/** Every amount says «دينار» after it (voice §5): "+500 دينار", "توفّر 150 دينار", "× 15,000 دينار". */
-const BARE_AMOUNT = /\{amount\}(?! دينار)(?!%)/;
+/**
+ * Every amount says «دينار» after it (voice §5): "+500 دينار", "توفّر 150 دينار", "× 15,000 دينار".
+ * A no-break space (\xA0) counts too: it keeps the amount and «دينار» on one line in tight rows.
+ */
+const BARE_AMOUNT = /\{amount\}(?![ \xA0]دينار)(?!%)/;
 /** The Console is our own terse ops tool; the merchant table formats some amounts with the unit already (its own sweep). */
 const AMOUNT_EXEMPT = /^(?:console|merchant)\./;
 

@@ -16,7 +16,7 @@ describe('minutes on the map (f19, maps c3)', () => {
     expect(mapMinutesLabel(t, 8, 'road')).toBe('8 دقايق');
     expect(mapMinutesLabel(t, 2, 'road')).toBe('دقيقتين');
     expect(mapMinutesLabel(t, 14, 'road')).toBe('14 دقيقة');
-    expect(mapMinutesLabel(t, 8, 'estimated')).toBe('⁦6–10⁩ دقايق');
-    expect(mapMinutesLabel(t, 20, 'estimated')).toBe('⁦16–25⁩ دقيقة');
+    expect(mapMinutesLabel(t, 8, 'estimated')).toBe('\u20676–10\u2069 دقايق');
+    expect(mapMinutesLabel(t, 20, 'estimated')).toBe('\u206716–25\u2069 دقيقة');
   });
 });

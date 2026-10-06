@@ -18,6 +18,7 @@ export {
   formatMinuteCount,
   formatMinutes,
   formatMinutesRange,
+  formatRange,
   minuteNoun,
   formatWhen,
   hourWindow,

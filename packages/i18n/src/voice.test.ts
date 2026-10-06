@@ -31,6 +31,8 @@ describe('one vocabulary (audit S-09, glossary §4)', () => {
     const ok = {
       a: 'سوق العزيزية لباب بيتك',
       b: 'القدام فاضي +{amount} دينار',
+      // No-break space: the amount and «دينار» stay on one line.
+      b2: 'رصيدك {amount}\xA0دينار · ينخصم بالضبط',
       'console.x': 'فرق {amount}',
       c: 'متأخر {minutes} دقيقة',
       d: 'ماكو دليفري عنده كاش هسة',
