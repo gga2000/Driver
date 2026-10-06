@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { AZIZIYAH_ZONES, type DeliveryPoint, type SavedPlaceView, type SavePlaceInput } from '@driver/contracts';
+import { AZIZIYAH_ZONES, TravellingAs, type DeliveryPoint, type SavedPlaceView, type SavePlaceInput } from '@driver/contracts';
 import { toWesternDigits } from './phone';
 import { storage as platformStorage, type KeyValueStorage } from './storage';
 
@@ -61,6 +61,8 @@ export interface ProfileState {
    */
   welcomeHomeDue: boolean;
   welcomedHome: boolean;
+  /** الرجعة «تسافر:» (joy r1): asked once on the board, then every tile and the seat sheet use it. */
+  rajaaTravellingAs: TravellingAs | null;
 }
 
 const KEY = 'driver.customer.profile';
@@ -76,6 +78,7 @@ const EMPTY: ProfileState = {
   returnTo: null,
   welcomeHomeDue: false,
   welcomedHome: false,
+  rajaaTravellingAs: null,
 };
 
 export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
@@ -176,6 +179,7 @@ export function createProfileStore(store: KeyValueStorage) {
           returnTo: typeof parsed.returnTo === 'string' && parsed.returnTo.startsWith('/') ? parsed.returnTo : null,
           welcomeHomeDue: parsed.welcomeHomeDue === true,
           welcomedHome: parsed.welcomedHome === true,
+          rajaaTravellingAs: TravellingAs.safeParse(parsed.rajaaTravellingAs).data ?? null,
         });
       })();
       return loading;
@@ -202,6 +206,7 @@ export function createProfileStore(store: KeyValueStorage) {
       }),
     selectPlace: (id: string) => save({ ...state, selectedPlaceId: id }),
     setShareTripsByDefault: (shareTripsByDefault: boolean) => save({ ...state, shareTripsByDefault }),
+    setRajaaTravellingAs: (rajaaTravellingAs: TravellingAs) => save({ ...state, rajaaTravellingAs }),
     /**
      * Mirror `places.mine`: server places first, then device-only places still awaiting migration
      * (minus `migrated`, local id → server id). The selection follows a migrated place to its

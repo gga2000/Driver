@@ -5,7 +5,8 @@ import type { IntercityDirection } from '@driver/contracts';
 import { Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
-import { CorridorPicker, DemandBanner, TripPill } from '@/features/rajaa/BoardParts';
+import { CorridorPicker, DemandBanner, TravellerPicker, TripPill } from '@/features/rajaa/BoardParts';
+import { seatFit } from '@/features/rajaa/fit';
 import { DepartureTile } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
@@ -13,6 +14,7 @@ import { garageName, useActiveBooking, useBoard, useDriverCards, useNetwork } fr
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { profile, useProfile } from '@/lib/profile';
 
 /**
  * الرجعة board (customer spec §2). The point of this screen is calm: the rider sees every car that
@@ -33,7 +35,9 @@ export default function RajaaBoard() {
   const now = useNow(15_000);
 
   const network = useNetwork();
-  const board = useBoard({ corridorId, direction });
+  // «تسافر:» (r1): remembered on the device; the board marks the seats this rider can't take.
+  const travellingAs = useProfile().rajaaTravellingAs;
+  const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
@@ -110,6 +114,7 @@ export default function RajaaBoard() {
             }}
           />
         )}
+        <TravellerPicker value={travellingAs} onChange={(v) => void profile.setRajaaTravellingAs(v)} />
       </View>
 
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
@@ -155,6 +160,7 @@ export default function RajaaBoard() {
                     dep={d}
                     now={now}
                     driver={drivers.data?.get(d.id)}
+                    fit={travellingAs ? seatFit(d) : undefined}
                     onPress={() => router.push({ pathname: '/rajaa/departure/[id]', params: { id: d.id, corridor: corridorId, direction } })}
                   />
                 ))

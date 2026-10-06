@@ -5740,5 +5740,16 @@
   "promise.credited_flat": "حطينالك {amount} دينار رصيد",
   "promise.toast_flat": "حطينالك {amount} دينار رصيد",
   "promise.receipt_hint_flat": "تأخرنا أكثر من {minutes} دقيقة، فحطينالك {amount} دينار رصيد بمحفظتك",
-  "promise.apology_title": "آسفين، طلبك تأخر شوية"
+  "promise.apology_title": "آسفين، طلبك تأخر شوية",
+  "rajaa.traveller_ask": "منو مسافر؟ حتى نبيّنلك المقاعد اللي تناسبك",
+  "rajaa.traveller_chip": "تسافر: {who}",
+  "rajaa.traveller_change": "غيّر",
+  "rajaa.fit_seats": "باقي {n} مقعد إلك",
+  "rajaa.fit_seats_one": "باقي مقعد إلك",
+  "rajaa.fit_seats_two": "باقي مقعدين إلك",
+  "rajaa.fit_seats_few": "باقي {n} مقاعد إلك",
+  "rajaa.fit_none": "المقاعد الباقية ما تناسبك",
+  "rajaa.fit_none_one": "المقعد الباقي ما يناسبك",
+  "rajaa.fit_reason_adjacency": "ما نحط أحد بين غريبين من غير جنسه",
+  "rajaa.fit_reason_family_only": "هالسيارة للعوائل بس"
 }

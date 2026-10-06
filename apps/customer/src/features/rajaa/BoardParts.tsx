@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import type { BookingView, CorridorView, IntercityDirection } from '@driver/contracts';
-import { Button, Card, Icon, SegmentedControl, StatusPill, Text, useTheme } from '@driver/ui';
+import type { BookingView, CorridorView, IntercityDirection, TravellingAs } from '@driver/contracts';
+import { Button, Card, Chip, Icon, SegmentedControl, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { cityName, windowLabel } from './labels';
+import { cityName, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from './labels';
 import { bookingHref, clockLabel, endpoints, holdCountdown, type DemandSummary } from './logic';
 
 /**
@@ -102,6 +103,74 @@ export function CorridorPicker({
           {t('rajaa.suggested_back')}
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * «تسافر: نساء · غيّر» (joy r1, audit R-03): asked once on the board, remembered on the device, and
+ * sent with every board read so each tile says whether a seat is left *for you*. Unasked (or while
+ * changing) it is the three choices with one line saying why we ask.
+ */
+export function TravellerPicker({ value, onChange }: { value: TravellingAs | null; onChange: (v: TravellingAs) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (value && !open) {
+    return (
+      <Pressable
+        testID="traveller-change"
+        accessibilityRole="button"
+        accessibilityLabel={`${t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}، ${t('rajaa.traveller_change')}`}
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => ({
+          alignSelf: 'flex-start',
+          minHeight: 44,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[2],
+          paddingHorizontal: theme.space[3],
+          borderRadius: theme.radius.pill,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+        })}
+      >
+        <Icon name={TRAVELLING_AS_ICON[value]} size={18} color="text" />
+        <Text variant="label" weight={600}>
+          {t('rajaa.traveller_chip', { who: travellingAsLabel(t, value) })}
+        </Text>
+        <Text variant="label" color="textMuted">
+          ·
+        </Text>
+        <Text variant="label" color="accentText" weight={600}>
+          {t('rajaa.traveller_change')}
+        </Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View style={{ gap: theme.space[2] }} testID="traveller-ask">
+      <Text variant="footnote" color="textMuted">
+        {t('rajaa.traveller_ask')}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: theme.space[2] }} accessibilityRole="radiogroup" accessibilityLabel={t('intercity.travelling_as')}>
+        {TRAVELLING_AS.map((v) => (
+          <Chip
+            key={v}
+            testID={`traveller-${v}`}
+            role="radio"
+            icon={TRAVELLING_AS_ICON[v]}
+            label={travellingAsLabel(t, v)}
+            selected={value === v}
+            style={{ flex: 1 }}
+            onPress={() => {
+              setOpen(false);
+              onChange(v);
+            }}
+          />
+        ))}
+      </View>
     </View>
   );
 }

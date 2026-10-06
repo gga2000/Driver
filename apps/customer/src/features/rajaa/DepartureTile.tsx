@@ -3,7 +3,8 @@ import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { Card, DepartureTime, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { seatsLeftLabel } from './labels';
+import type { SeatFit } from './fit';
+import { fitLabel, fitReason, seatsLeftLabel } from './labels';
 import { RajaaDriver } from './RajaaDriver';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, toSeatMap, type FillTone } from './logic';
 
@@ -31,13 +32,16 @@ export function MiniSeatMap({ dep, scale = 0.78 }: { dep: Pick<DepartureCard, 'v
  * One departure on the garage board: when it leaves (and the hard latest time), how full it is, the
  * car and driver, the seat map, price, front seat and pickup options. Tapping opens seat booking.
  */
-export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; onPress?: () => void }) {
+export function DepartureTile({ dep, now, driver, fit, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; /** Seats for the rider's «تسافر:» choice (r1); absent = not asked yet. */ fit?: SeatFit; onPress?: () => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const narrow = useWindowDimensions().width < NARROW_MAX;
   const tone = fillTone(dep.fill);
-  const full = tone === 'full';
+  // A car with nothing for this rider reads like a full one: grey, not tappable, with the reason.
+  const full = tone === 'full' || fit?.kind === 'none_fit' || fit?.kind === 'full';
+  const pill = fit ? fitLabel(t, fit) : seatsLeftLabel(t, dep.fill.free);
+  const pillTone: StatusTone = fit && fit.kind !== 'fits' ? 'neutral' : fit?.kind === 'fits' && fit.n === 1 ? 'warning' : FILL_TONE[tone];
   const mins = minutesUntil(dep.departAt, now);
   const boarding = dep.state === 'boarding' || isBoardingOpen(dep.departAt, now);
   const hasWay = dep.meetingPoints.length > 0;
@@ -50,7 +54,7 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
       elevation={full ? 0 : 1}
       tone={full ? 'sunken' : 'surface'}
       onPress={full ? undefined : onPress}
-      accessibilityLabel={`${t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })}، ${seatsLeftLabel(t, dep.fill.free)}`}
+      accessibilityLabel={`${t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })}، ${pill}`}
     >
       <View style={{ gap: theme.space[3] }}>
         {/* Time first: the one thing a rider scans for. */}
@@ -62,8 +66,13 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
               {t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
             </Text>
           </View>
-          <StatusPill size="sm" tone={FILL_TONE[tone]} label={seatsLeftLabel(t, dep.fill.free)} />
+          <StatusPill size="sm" tone={pillTone} label={pill} />
         </View>
+        {fit?.kind === 'none_fit' ? (
+          <Text variant="caption" color="textMuted" testID={`departure-fit-reason-${dep.id}`}>
+            {fitReason(t, fit.reason)}
+          </Text>
+        ) : null}
 
         {/* R-08: on a narrow phone the seat map goes under the driver, so his plate is never clipped. */}
         <View style={narrow ? { gap: theme.space[3] } : { flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>

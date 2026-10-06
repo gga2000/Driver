@@ -44,7 +44,7 @@ import { garageName, useBoard, useDriverCards, useHoldSeat, useNetwork } from '@
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
+import { deliveryPointOf, profile, selectedPlace, useProfile } from '@/lib/profile';
 
 type Mode = 'seats' | 'row' | 'car';
 type Pickup = { kind: 'garage' } | { kind: 'meeting_point'; meetingPointId: string } | { kind: 'door' };
@@ -65,7 +65,8 @@ export default function BookSeat() {
   const corridorId = params.corridor || PRIMARY_CORRIDOR;
   const direction: IntercityDirection = params.direction === 'from_aziziyah' ? 'from_aziziyah' : 'to_aziziyah';
 
-  const [travellingAs, setTravellingAs] = useState<TravellingAs | null>(null);
+  // r1: the board's remembered «تسافر:» is pre-selected; a change here is remembered too.
+  const [travellingAs, setTravellingAs] = useState<TravellingAs | null>(prof.rajaaTravellingAs);
   const [mode, setMode] = useState<Mode>('seats');
   const [selection, setSelection] = useState<IntercitySeatId[]>([]);
   const [row, setRow] = useState<IntercityRow | null>(null);
@@ -237,7 +238,9 @@ export default function BookSeat() {
           items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
           value={travellingAs ? [travellingAs] : []}
           onChange={(next) => {
-            setTravellingAs((next[0] as TravellingAs | undefined) ?? null);
+            const v = (next[0] as TravellingAs | undefined) ?? null;
+            setTravellingAs(v);
+            if (v) void profile.setRajaaTravellingAs(v);
             setBlocked(null);
           }}
         />

@@ -2,6 +2,8 @@ import type { BookingState, IntercityDirection, IntercitySeatId, IntercityVehicl
 import type { MessageKey } from '@driver/i18n';
 import { ltr, type IconName } from '@driver/ui';
 import type { TFn } from '@/lib/i18n';
+import { countKey } from '@/lib/plural';
+import type { SeatFit } from './fit';
 import { endpoints } from './logic';
 
 /** Copy helpers shared by the الرجعة screens (all strings come from @driver/i18n). */
@@ -97,4 +99,16 @@ export function seatsLeftLabel(t: TFn, free: number): string {
   if (free <= 0) return t('intercity.full');
   if (free === 1) return t('intercity.last_seat');
   return t('intercity.seats_left', { n: free });
+}
+
+/** Seats for you (r1): "باقي مقعد إلك" / "باقي 3 مقاعد إلك" / "المقعد الباقي ما يناسبك" / "كاملة". */
+export function fitLabel(t: TFn, fit: SeatFit): string {
+  if (fit.kind === 'full') return t('intercity.full');
+  if (fit.kind === 'none_fit') return fit.free === 1 ? t('rajaa.fit_none_one') : t('rajaa.fit_none');
+  return t(countKey('rajaa.fit_seats', fit.n), { n: fit.n });
+}
+
+/** Why the seats left don't suit the rider (one line under the pill). */
+export function fitReason(t: TFn, reason: 'adjacency' | 'family_only'): string {
+  return t(reason === 'family_only' ? 'rajaa.fit_reason_family_only' : 'rajaa.fit_reason_adjacency');
 }
