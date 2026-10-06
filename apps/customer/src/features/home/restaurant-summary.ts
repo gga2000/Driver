@@ -21,6 +21,8 @@ export interface RestaurantSummary {
   open: boolean;
   /** 12-hour clock when closed ("5:00"). */
   opensAt?: string;
+  /** f12: minutes until it opens, when closed (the night home's first to open). */
+  opensInMin?: number;
   favourite: boolean;
   /** Deal line for the "عروض اليوم" rail (none until promotions have a customer read). */
   deal?: string;
@@ -46,6 +48,7 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     minOrderIqd: card.minOrderIqd,
     open: card.open,
     ...(card.opensAt ? { opensAt: card.opensAt } : {}),
+    ...(card.opensInMin != null ? { opensInMin: card.opensInMin } : {}),
     favourite,
     tags: [...card.tags],
     dealCount: card.deals?.length ?? 0,

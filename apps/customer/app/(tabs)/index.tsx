@@ -9,6 +9,7 @@ import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/Restaurant
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
+import { nightHome } from '@/features/home/night';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useRestaurants } from '@/features/home/queries';
 import { RajaaCard } from '@/features/home/RajaaCard';
@@ -61,7 +62,9 @@ export default function Home() {
   };
   // Open kitchens, the ones this person already ordered from first.
   const open = useMemo(() => (list ?? []).filter((r) => r.open).sort((a, b) => Number(b.favourite) - Number(a.favourite)), [list]);
-  const cuisines = useMemo(() => popularTerms(open.map((r) => r.cuisine), 8), [open]);
+  // f12: at night (no kitchen open) the chips come from every kitchen, and the first to open is named.
+  const night = useMemo(() => nightHome(list ?? []), [list]);
+  const cuisines = useMemo(() => popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), [open, list]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
   const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaa.trip), reorder: Boolean(last) });
 
@@ -98,7 +101,7 @@ export default function Home() {
       {cards.includes('reorder') && last ? <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} /> : null}
 
       <View testID="home-food" onLayout={(e) => (foodY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[3] }}>
-        <SectionHeader title={t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
+        <SectionHeader title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
         {/* Offline: what's below is the last copy we had, and says so. */}
         <StaleNote updatedAt={restaurants.dataUpdatedAt} locale={locale} testID="home-stale" />
         {cuisines.length > 1 ? (
@@ -127,6 +130,26 @@ export default function Home() {
                 {t('home.load_failed')}
               </Text>
               <Button size="sm" variant="secondary" label={t('action.retry')} onPress={retry} />
+            </View>
+          </Card>
+        ) : open.length === 0 && night.first ? (
+          <Card elevation={0} padding={4} testID="home-night">
+            <View style={{ gap: theme.space[3] }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Icon name="clock" size={20} color="accentText" />
+                <Text variant="title" style={{ flex: 1 }}>
+                  {t('home.night_title')}
+                </Text>
+              </View>
+              <Text variant="body" color="textMuted">
+                {t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
+              </Text>
+              <Button
+                variant="secondary"
+                label={t('home.night_menu')}
+                onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })}
+                testID="home-night-menu"
+              />
             </View>
           </Card>
         ) : open.length === 0 ? (
