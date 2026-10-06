@@ -267,6 +267,13 @@ or the clock.
   G-91 shift guarantee (10,000 for ≥ 85 % acceptance, ≤ 1 cancel, ≥ 3 jobs) and `partner.shift_guarantee*`
   copy exists, but no service posts it (only the demo seeds guarantee lines), so "باقي طلبين" would
   promise money nobody pays. Wire G-91 server-side first (Ali's call), then add the line.
+- **Built 2026-10-06 (G-91, Ali decided to pay it):** the server now counts each peak shift (lunch
+  12:00–16:00, dinner 19:00–23:00, couriers) and the Sunday run posts the top-up once per driver per
+  shift (`docs/api/shift-guarantee.md`). The goal-gradient line is in: under the day ring, one line from
+  `driverAccount.guarantee` for the live shift — "باقي طلبين على ضمان شفت الغدا: 10,000 دينار", the
+  condition at risk (acceptance below 85 %, too many cancels), or "ضمنت شفت الغدا: … نكمّلها لك يوم
+  الأحد". Nothing outside a peak or for drivers the guarantee does not cover. The shift summary shows
+  "ضمان الشفت" (earned and paid on Sunday, or paid) and the earnings tab what waits for Sunday.
 
 ### S-4 End-of-shift summary (on hold-to-go-offline)
 - Online time, jobs, net, **per hour** ("3,750 دينار بالساعة"), tips, best hour, cash to hand over
