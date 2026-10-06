@@ -1272,5 +1272,6 @@
   "merchant.story.save": "احفظ",
   "merchant.story.saved_shown": "انحفظت، والزباين يشوفوها",
   "merchant.story.saved_hidden": "انحفظت، ومو معروضة",
-  "merchant.story.load_failed": "ما گدرنا نجيب القصة"
+  "merchant.story.load_failed": "ما گدرنا نجيب القصة",
+  "merchant.pot.show_all": "كل المنيو ({count})"
 }

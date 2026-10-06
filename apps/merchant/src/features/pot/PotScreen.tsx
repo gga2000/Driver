@@ -12,6 +12,9 @@ import { clock12 } from '@/lib/time';
 import { POT_UNTIL_CHOICES, potCandidates, potNote, potNoteLeft } from './logic';
 import { usePot, usePotActions } from './queries';
 
+/** Dishes listed before «كل المنيو»: the pot is usually one of a few cooked dishes. */
+const SHORT_LIST = 8;
+
 const DOW_KEYS = ['merchant.date.dow_0', 'merchant.date.dow_1', 'merchant.date.dow_2', 'merchant.date.dow_3', 'merchant.date.dow_4', 'merchant.date.dow_5', 'merchant.date.dow_6'] as const;
 
 /** Note box: one short line («ويا تمن عنبر»). */
@@ -42,6 +45,7 @@ export function PotScreen() {
   const [note, setNote] = useState('');
   const [until, setUntil] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
   const post = async (itemId: string, withExtras: boolean) => {
@@ -83,6 +87,7 @@ export function PotScreen() {
 
   const view = pot.data;
   const candidates = potCandidates(menu.data, query);
+  const listed = query.trim() || showAll ? candidates.slice(0, 40) : candidates.slice(0, SHORT_LIST);
   const followersOf = (id: string) => view.followers[id] ?? 0;
   const weekday = t(DOW_KEYS[new Date(`${view.date}T12:00:00+03:00`).getUTCDay()] ?? 'merchant.date.dow_0');
 
@@ -134,7 +139,7 @@ export function PotScreen() {
           </Text>
         ) : (
           <View accessibilityRole="radiogroup">
-            {candidates.slice(0, 40).map((i) => {
+            {listed.map((i) => {
               const on = picked === i.id;
               return (
                 <Pressable
@@ -159,6 +164,9 @@ export function PotScreen() {
                 </Pressable>
               );
             })}
+            {listed.length < candidates.length && !query.trim() && !showAll ? (
+              <Button testID="pot-show-all" variant="ghost" label={t('merchant.pot.show_all', { count: candidates.length })} onPress={() => setShowAll(true)} />
+            ) : null}
           </View>
         )}
       </Panel>

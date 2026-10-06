@@ -1272,5 +1272,6 @@
   "merchant.story.save": "Save",
   "merchant.story.saved_shown": "Saved, and customers see it.",
   "merchant.story.saved_hidden": "Saved, not shown.",
-  "merchant.story.load_failed": "Couldn't load the story"
+  "merchant.story.load_failed": "Couldn't load the story",
+  "merchant.pot.show_all": "Whole menu ({count})"
 }

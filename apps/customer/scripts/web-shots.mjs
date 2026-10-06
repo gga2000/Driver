@@ -243,9 +243,9 @@ try {
 async function habitsShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
-  await page.goto(`${origin}/`, LOADED);
-  await byTestId('welcome-signin').waitFor({ timeout: 20_000 });
-  await byTestId('welcome-signin').click();
+  // Signed out (a guest lands on home): straight to the phone screen.
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="phone-input"]').fill(process.env.HABITS_PHONE ?? '0770 456 7788');
   await byTestId('phone-submit').click();
   await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
