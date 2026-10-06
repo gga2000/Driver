@@ -7,7 +7,8 @@ const PIN = { lat: 32.887, lng: 45.0765 };
 /** ~10 m steps north of the pin's door (1e-4 lat ≈ 11 m). */
 const DOOR = { lat: 32.8872, lng: 45.0766 };
 let n = 0;
-const sample = (lat: number, lng: number, accuracyM = 10): DoorSample => ({ stopId: `s${++n}`, lat, lng, accuracyM, at: new Date(Date.UTC(2026, 9, 1, 12, n)) });
+/** Couriers take turns (c1, c2, c3) unless one is named. */
+const sample = (lat: number, lng: number, accuracyM = 10, courierId?: string): DoorSample => ({ stopId: `s${++n}`, courierId: courierId ?? `c${n % 3}`, lat, lng, accuracyM, at: new Date(Date.UTC(2026, 9, 1, 12, n)) });
 
 describe('doorPoint (maps program a3)', () => {
   it('needs three agreeing arrivals; then the median of the agreeing ones', () => {
@@ -31,6 +32,12 @@ describe('doorPoint (maps program a3)', () => {
     const agreeing = [sample(DOOR.lat, DOOR.lng), sample(DOOR.lat, DOOR.lng), sample(DOOR.lat, DOOR.lng)];
     // The customer moved the pin across town: the old arrivals no longer count.
     expect(doorPoint(agreeing, { lat: 32.9095, lng: 45.0635 })).toBeNull();
+  });
+
+  it('one courier alone never sets the door, however precise he says he is', () => {
+    const his = [sample(DOOR.lat, DOOR.lng, 1, 'd1'), sample(DOOR.lat, DOOR.lng, 1, 'd1'), sample(DOOR.lat, DOOR.lng, 1, 'd1'), sample(DOOR.lat, DOOR.lng, 1, 'd1')];
+    expect(doorPoint(his, PIN)).toBeNull();
+    expect(doorPoint([...his, sample(DOOR.lat, DOOR.lng, 8, 'd2')], PIN)).not.toBeNull();
   });
 
   it('scattered arrivals with no three together give no door', () => {

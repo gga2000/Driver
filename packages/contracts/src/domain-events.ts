@@ -239,7 +239,7 @@ export const StopCompletedPayload = z.object({
    * A delivered drop-off at a customer's saved place with a known arrival fix (maps program a3): the
    * places module learns the door from it. Coordinates of the courier's tap, never the customer's pin.
    */
-  door: z.object({ placeId: z.string().min(1), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).optional(),
+  door: z.object({ placeId: z.string().min(1), courierId: z.string().min(1), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).optional(),
 });
 export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 
