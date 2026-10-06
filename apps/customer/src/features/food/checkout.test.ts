@@ -211,6 +211,14 @@ describe('checkout payload builder', () => {
     ]);
   });
 
+  it('«عزيمة» (g1): the gift goes with someone else as recipient, never on an order I receive', () => {
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, scheduledFor: null, paymentMethod: 'wallet' as const, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    const toMum = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, recipient: { kind: 'other', name: 'أمي', phone: '+9647801112233' }, gift: { hidePrices: true } }));
+    expect(toMum.gift).toEqual({ hidePrices: true });
+    const mine = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, recipient: { kind: 'me' }, gift: { hidePrices: true } }));
+    expect(mine.gift).toBeUndefined();
+  });
+
   it('kitchen and courier notes go apart (M-09); the attempt key rides along (no duplicate orders)', () => {
     const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, paymentMethod: 'cash' as const, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
     const parsed = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, note: ' حار شوية ', courierNote: ' دگ الجرس مرتين ', clientRequestId: 'chk_abc_123456' }));

@@ -84,6 +84,15 @@ describe('kitchen ticket (80 mm)', () => {
     expect(solo.lines.find((l) => l.kind === 'payment')).toEqual({ kind: 'payment', text: 'مدفوع بالتطبيق', cash: false });
   });
 
+  it('«عزيمة» (g1): a gift says so; with hidden prices no amount is printed at all', () => {
+    const hidden = toPlainText(buildReceipt({ ...order, paymentMethod: 'wallet', collectCashIqd: 0, gift: { hidePrices: true } }, { storeName: 'مطعم خالد', t, money: (n) => iqd(n) }));
+    expect(hidden).toContain('هدية · بدون أسعار');
+    expect(hidden).not.toMatch(/\d{1,3},\d{3}/);
+    const plain = toPlainText(buildReceipt({ ...order, gift: { hidePrices: false } }, { storeName: 'مطعم خالد', t, money: (n) => iqd(n) }));
+    expect(plain).toContain('هدية');
+    expect(plain).toContain('24,500');
+  });
+
   it('plain text fits 48 columns and keeps notes bold', () => {
     const text = toPlainText(r);
     for (const row of text.split('\n')) expect([...row].length).toBeLessThanOrEqual(48);

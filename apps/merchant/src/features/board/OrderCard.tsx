@@ -332,6 +332,7 @@ export function OrderCard(props: OrderCardProps) {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
             <PaymentPill order={order} />
+            {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
             {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           </View>
           {order.partial ? <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} /> : acceptButtons('md')}
@@ -391,6 +392,7 @@ export function OrderCard(props: OrderCardProps) {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
           <PaymentPill order={order} />
+          {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
           {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           {order.catering ? <StatusPill tone="info" label={t('merchant.card.catering')} /> : null}
         </View>

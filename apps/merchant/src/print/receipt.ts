@@ -43,11 +43,14 @@ export function buildReceipt(o: BoardOrder, { storeName, t, money }: ReceiptCont
   const times = [t('merchant.receipt.placed', { time: clock12(o.placedAt) })];
   if (o.promisedReadyAt) times.push(t('merchant.receipt.ready_by', { time: clock12(o.promisedReadyAt) }));
   lines.push({ kind: 'meta', text: times.join('  ·  ') });
+  // «عزيمة» (joy g1): a gift whose sender hid the prices prints no amount anywhere on the ticket.
+  const hidePrices = Boolean(o.gift?.hidePrices);
   lines.push(
-    o.paymentMethod === 'cash'
+    o.paymentMethod === 'cash' && !hidePrices
       ? { kind: 'payment', text: t('merchant.receipt.cash', { amount: money(o.collectCashIqd) }), cash: true }
       : { kind: 'payment', text: t('merchant.receipt.prepaid'), cash: false },
   );
+  if (o.gift) lines.push({ kind: 'note', text: t(hidePrices ? 'merchant.receipt.gift_hidden' : 'merchant.receipt.gift') });
   lines.push({ kind: 'divider' });
   const several = o.groups.length > 1;
   for (const g of o.groups) {
@@ -64,7 +67,7 @@ export function buildReceipt(o: BoardOrder, { storeName, t, money }: ReceiptCont
     lines.push({ kind: 'note', text: t('merchant.receipt.order_note', { note: o.note }) });
   }
   lines.push({ kind: 'divider' });
-  lines.push({ kind: 'total', label: t('merchant.receipt.items_total'), value: money(o.itemsTotalIqd) });
+  if (!hidePrices) lines.push({ kind: 'total', label: t('merchant.receipt.items_total'), value: money(o.itemsTotalIqd) });
   lines.push({ kind: 'footer', text: t('merchant.receipt.footer') });
   return { orderId: o.id, number: o.number, paperMm: 80, lines };
 }

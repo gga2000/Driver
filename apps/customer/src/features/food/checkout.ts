@@ -8,6 +8,7 @@ import {
   type OrderQuote,
   type DeliveryPoint,
   type Order,
+  type OrderGift,
   type ParticipantInput,
   type PlaceOrderInput,
   type PriceRequestInput,
@@ -145,6 +146,8 @@ export interface CheckoutChoices {
   pointsIqd?: number;
   /** Joy w4: pay from the household wallet (a wallet order); over a limit it waits for the payer. */
   householdOrgId?: string | null;
+  /** «عزيمة» (joy g1): the order is a gift for its recipient (ignored when I receive it myself). */
+  gift?: OrderGift;
 }
 
 const OTHER_RECIPIENT_REF = 'recipient';
@@ -210,6 +213,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.householdOrgId && c.paymentMethod === 'wallet' ? { householdOrgId: c.householdOrgId } : {}),
     // J5a «للسفرة»: the household hub lists the order on the family table (joy w4).
     ...(c.cart.lines.some((l) => l.personId === TABLE) ? { familyTable: true } : {}),
+    ...(c.gift && c.recipient.kind !== 'me' ? { gift: c.gift } : {}),
   };
 }
 

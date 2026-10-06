@@ -39,6 +39,9 @@ import { amountParam } from '@/lib/money';
 import { promiseCopy } from '@/features/track/late-promise';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
+import { cleanCard, giftInput } from '@/features/gift/gift';
+import { GiftChoice, type GiftChoiceValue } from '@/features/gift/GiftChoice';
+import { giftStore } from '@/features/gift/gift-store';
 
 const STREET_SAVING_IQD = 250;
 
@@ -88,6 +91,8 @@ export default function CheckoutScreen() {
   const [recipientId, setRecipientId] = useState<string>('me');
   const [otherName, setOtherName] = useState('');
   const [otherPhone, setOtherPhone] = useState('');
+  // «عزيمة» (joy g1): a gift for whoever receives it; prices hide only with the wallet.
+  const [gift, setGift] = useState<GiftChoiceValue>({ on: false, hidePrices: true, card: '' });
   const [when, setWhen] = useState<'now' | 'later'>('now');
   // o11: slots for today or tomorrow inside the kitchen's hours; a closed kitchen starts on its first one.
   const [day, setDay] = useState<0 | 1>(0);
@@ -188,12 +193,16 @@ export default function CheckoutScreen() {
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
 
+  const savedOthers = cartState.people.filter((p) => p.phone && !cart.people.some((c) => c.id === p.id));
+  const savedPick = recipientId.startsWith('saved:') ? (savedOthers.find((p) => `saved:${p.id}` === recipientId) ?? null) : null;
   const recipientItems = [
     { id: 'me', label: t('checkout.recipient_me'), avatar: { name: myName ?? t('checkout.recipient_me'), tone: 'accent' as const } },
     ...cart.people.map((p) => ({ id: p.id, label: p.name, avatar: { name: p.name } })),
+    // People saved on this phone with a number (g1: send mum a meal without adding her to the cart).
+    ...savedOthers.map((p) => ({ id: `saved:${p.id}`, label: p.name, avatar: { name: p.name } })),
     { id: 'other', label: t('checkout.recipient_other'), avatar: { icon: 'user' as const, tone: 'info' as const } },
   ];
-  const recipientName = recipientId === 'me' ? null : recipientId === 'other' ? otherName.trim() || null : (cart.people.find((p) => p.id === recipientId)?.name ?? null);
+  const recipientName = recipientId === 'me' ? null : recipientId === 'other' ? otherName.trim() || null : savedPick ? savedPick.name : (cart.people.find((p) => p.id === recipientId)?.name ?? null);
 
   // Offline: say so up front and keep the cart, instead of a tap that fails (C-17). After a lost
   // answer, say that the order will be checked (not placed twice) once the network is back.
@@ -218,6 +227,7 @@ export default function CheckoutScreen() {
 
   const recipient = (): Recipient | null => {
     if (recipientId === 'me') return { kind: 'me' };
+    if (savedPick?.phone) return { kind: 'other', name: savedPick.name, phone: savedPick.phone };
     if (recipientId !== 'other') return { kind: 'person', personId: recipientId };
     const phone = normalizeIraqiPhone(otherPhone);
     const errors = { ...(otherName.trim() ? {} : { name: t('item.person_name_required') }), ...(phone ? {} : { phone: t('error.phone_invalid') }) };
@@ -254,11 +264,15 @@ export default function CheckoutScreen() {
           usePoints: usePoints && totals.pointsIqd > 0,
           pointsIqd: totals.pointsIqd,
           householdOrgId: fromHome && home ? home.id : null,
+          gift: giftInput(gift, payment),
         }),
       );
       // o12: someone else receives it — keep their name and phone for «دز له رابط التتبع».
       const person = r.kind === 'person' ? cart.people.find((p) => p.id === r.personId) : undefined;
-      cartStore.markPlaced(order.id, r.kind === 'other' ? { name: r.name, phone: r.phone } : person?.phone ? { name: person.name, phone: person.phone } : null);
+      const receiver = r.kind === 'other' ? { name: r.name, phone: r.phone } : person?.phone ? { name: person.name, phone: person.phone } : null;
+      cartStore.markPlaced(order.id, receiver);
+      // g1: the card line and who it goes to stay on this phone for the heads-up (never on the server).
+      if (order.gift && receiver) giftStore.remember(order.id, { ...receiver, card: cleanCard(gift.card), paidByMe: payment === 'wallet' });
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       router.replace({ pathname: '/kitchen/[id]', params: { id: order.id } });
     } catch (err) {
@@ -456,6 +470,7 @@ export default function CheckoutScreen() {
                 </Text>
               </View>
             ) : null}
+            <GiftChoice name={recipientName} payment={payment} value={gift} onChange={setGift} />
           </View>
         ) : (
           <Card elevation={0} padding={0}>

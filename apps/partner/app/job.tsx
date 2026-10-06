@@ -30,6 +30,7 @@ import {
   zoneName,
 } from '@/features/work/logic';
 import { tenderLine } from '@/features/work/cash-door';
+import { giftNote } from '@/features/work/gift';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useAnswerZoneCheck, useJobRoute, useRefreshWork, useStatus, useTripActions, useZoneCheck } from '@/features/work/queries';
@@ -417,6 +418,7 @@ function JobView({
                 {stop.type === 'dropoff' && stop.collectIqd > 0 ? <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" /> : null}
               </View>
 
+              <GiftLine stop={stop} />
               {stop.type === 'dropoff' && stop.collectIqd > 0 ? <TenderNote collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} /> : null}
               {/* Maps program r4: the code the kitchen matches before handing over the food. */}
               {stop.type === 'pickup' && stop.pickupCode ? (
@@ -535,6 +537,29 @@ function TenderNote({ collectIqd, tenderIqd }: { collectIqd: number; tenderIqd: 
           ? t('cashchange.job_tender', { tender: amountParam(line.tenderIqd), change: amountParam(line.changeIqd) })
           : t('cashchange.job_tender_exact')}
       </Text>
+    </View>
+  );
+}
+
+/** «عزيمة» (joy g1): «هدية · لا تذكر السعر» at the door, «خلي المطعم ما يحط الوصل بالكيس» at the kitchen. */
+function GiftLine({ stop }: { stop: { type: string; gift?: { hidePrices: boolean } | null } }) {
+  const theme = useTheme();
+  const t = useT();
+  const note = giftNote(stop);
+  if (!note) return null;
+  return (
+    <View testID="job-gift" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Icon name="gift" size={20} color="accentText" strokeWidth={2.2} />
+      <View style={{ flex: 1 }}>
+        <Text variant="label" weight={700} color="accentText">
+          {t(note.key)}
+        </Text>
+        {note.hint ? (
+          <Text variant="caption" color="accentText">
+            {t(note.hint)}
+          </Text>
+        ) : null}
+      </View>
     </View>
   );
 }

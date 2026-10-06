@@ -16,6 +16,8 @@ import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/feat
 import { CITY_ID, isKitchenAccepted, isKitchenRejection, useCancelOrder, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { carryLines, optionCopy, rejectionReason } from '@/features/food/rejection';
 import { whatsappUrl } from '@/features/help/whatsapp';
+import { GiftHeadsUpCard } from '@/features/gift/GiftHeadsUp';
+import { useGift } from '@/features/gift/gift-store';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { shareUrl } from '@/features/rajaa/share';
 import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
@@ -103,6 +105,8 @@ export default function KitchenScreen() {
 
   // o12: send the person receiving it the live tracking link (the share page), typed into WhatsApp.
   const recipient = placed?.orderId === id ? (placed.recipient ?? null) : null;
+  // g1: a gift sends «خبر العزيمة» (his card line + the link) instead of the plain tracking link.
+  const gift = useGift(id);
   const sendTracking = async () => {
     if (!id || !recipient) return;
     setSending(true);
@@ -176,7 +180,8 @@ export default function KitchenScreen() {
           )}
           <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
           <PersonLinesCard groups={groups} myName={myName} totalLine={t('kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
-          {recipient && !yes ? (
+          {gift && id && !yes ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
+          {recipient && !gift && !yes ? (
             <Card elevation={0} padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-send-tracking">
               <View style={{ gap: theme.space[2] }}>
                 <Text variant="label" weight={600}>
