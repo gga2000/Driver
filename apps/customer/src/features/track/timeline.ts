@@ -1,5 +1,6 @@
 import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
+import { rideMatchedFresh } from './moments';
 
 /**
  * Status → timeline mapping for the live screen (spec §4), pure so it is unit-tested. Labels come
@@ -81,8 +82,11 @@ export interface TimelineInput {
   courierName: string | null;
 }
 
-/** The status line of the collapsed sheet. */
-export function statusLine(v: OrderTracking, t: TFn): string {
+/**
+ * The status line of the collapsed sheet. Rides name the driver (L-02): "لگينالك سايق: عباس" for the
+ * first seconds after he accepted (server time, `now`), then "عباس بالطريق إلك".
+ */
+export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}): string {
   const ride = v.order.type === 'ride';
   switch (phaseOf(v)) {
     case 'waiting_merchant':
@@ -94,6 +98,10 @@ export function statusLine(v: OrderTracking, t: TFn): string {
     case 'reassigning':
       return t('track.reassigning');
     case 'to_pickup':
+      if (ride && v.courier?.firstName) {
+        const name = v.courier.firstName;
+        return rideMatchedFresh(v.trip?.acceptedAt, opts.now ?? v.serverNow.getTime()) ? t('trip.status.matched_named', { name }) : t('trip.status.coming_named', { name });
+      }
       return ride ? t('trip.status.en_route_to_pickup') : t('track.courier_to_kitchen_short');
     case 'at_pickup':
       return t('trip.status.arrived_pickup');

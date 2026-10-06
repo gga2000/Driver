@@ -392,17 +392,52 @@ export function ActionRow({ icon, label, hint, tone = 'text', onPress, testID }:
 
 /** Height the floating courier card takes over the map (the camera keeps the courier above it). */
 export const COURIER_FLOAT_H = 76;
+/** With the plate on its own line (rides before pickup, L-06). */
+export const COURIER_FLOAT_PLATE_H = 112;
 
 /**
  * Who is coming, over the map (maps program SP5b, c6): his photo (or initial), first name, vehicle,
- * and chat / call — visible with the sheet collapsed. The full card with the plate and quick replies
- * stays in the sheet.
+ * and chat / call — visible with the sheet collapsed. Rides before pickup add the plate (the safety
+ * check at the kerb, L-06); on the trip the rider sits in his car, so "شارك" leads and the call moves
+ * into the sheet (L-16). The full card with quick replies stays in the sheet.
  */
-export function CourierFloat({ courier, ride, unread, canChat, onChat, onCall, bottom }: { courier: CourierCardData; ride: boolean; unread: number; canChat: boolean; onChat: () => void; onCall: () => void; bottom: number }) {
+export function CourierFloat({
+  courier,
+  ride,
+  unread,
+  canChat,
+  onChat,
+  onCall,
+  onShare,
+  mode = 'plate',
+  bottom,
+}: {
+  courier: CourierCardData;
+  ride: boolean;
+  unread: number;
+  canChat: boolean;
+  onChat: () => void;
+  onCall: () => void;
+  onShare?: () => void;
+  /** Rides only: `plate` before pickup, `trip` once he drives you. */
+  mode?: 'plate' | 'trip';
+  bottom: number;
+}) {
   const theme = useTheme();
   const t = useT();
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null);
+  const onTrip = ride && mode === 'trip';
+  const chat = canChat ? (
+    <IconButton
+      icon="chat"
+      variant="tonal"
+      badge={unread > 0 ? unread : undefined}
+      accessibilityLabel={t(ride ? 'track.message_driver' : 'track.message_courier')}
+      onPress={onChat}
+      testID="float-chat"
+    />
+  ) : null;
   return (
     <View
       testID="courier-float"
@@ -427,23 +462,23 @@ export function CourierFloat({ courier, ride, unread, canChat, onChat, onCall, b
       }}
     >
       <DriverChip
+        testID="float-driver"
         name={name}
         unnamed={!courier.firstName}
         photoUrl={courier.photoUrl}
         vehicle={vehicle}
+        plate={ride && mode === 'plate' ? courier.plate : null}
         plateLabel={t('driver.plate')}
         verifiedLabel={courier.verifiedTodayAt ? t('trip.verified_today') : null}
         trailing={
-          canChat ? (
+          onTrip ? (
             <>
-              <IconButton
-                icon="chat"
-                variant="tonal"
-                badge={unread > 0 ? unread : undefined}
-                accessibilityLabel={t(ride ? 'track.message_driver' : 'track.message_courier')}
-                onPress={onChat}
-                testID="float-chat"
-              />
+              {chat}
+              {onShare ? <IconButton icon="share" variant="accent" accessibilityLabel={t('trip.share')} onPress={onShare} testID="float-share" /> : null}
+            </>
+          ) : canChat ? (
+            <>
+              {chat}
               <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" />
             </>
           ) : null

@@ -22,7 +22,9 @@ import { mapMinutesLabel } from '@/features/track/eta-range';
 import { CancelPanel, DisputePanel, StreetPanel, UNREACHABLE_PANEL_H, UnreachablePanel } from '@/features/track/Panels';
 import { currentSosFix } from '@/features/safety/fix';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
-import { ActionRow, COURIER_FLOAT_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
+import { ActionRow, COURIER_FLOAT_H, COURIER_FLOAT_PLATE_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
+import { DriverHereCard } from '@/features/track/DriverHere';
+import { floatMode, rideCanCancel } from '@/features/track/ride-actions';
 import { buildTimeline, courierAtDoor, phaseOf, statusLine } from '@/features/track/timeline';
 import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
@@ -101,6 +103,8 @@ export default function OrderLiveScreen() {
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
   const memo = useRideMemo(id);
+  const rideFloat = phase ? floatMode(phase) : 'plate';
+  const floatH = ride && rideFloat === 'plate' && v?.courier?.plate ? COURIER_FLOAT_PLATE_H : COURIER_FLOAT_H;
   const searching = Boolean(ride && phase === 'searching');
   const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
   const searchNote = useSearchNote(searching ? v : undefined, now);
@@ -120,6 +124,10 @@ export default function OrderLiveScreen() {
     );
 
   const [panel, setPanel] = useState<Panel>(null);
+  // "عباس وصل" (L-02): shown at the pickup until closed; "طالع هسة" goes once per order.
+  const [hereClosedFor, setHereClosedFor] = useState<string | null>(null);
+  // Rides only: «طالع هسة» goes as the chat's coming-out message (food's «أني نازل» is orders.comingOut).
+  const [rideComingOut, setRideComingOut] = useState<{ orderId: string; state: 'sending' | 'sent' } | null>(null);
   const [arrivalSeen, setArrivalSeen] = useState(false);
   const [rating, setRating] = useState(false);
   const arrived = phase === 'arrived' && !v?.order.rating;
@@ -214,13 +222,26 @@ export default function OrderLiveScreen() {
   }
 
   const timeline = v ? buildTimeline(v, { eta, lateMin, courierName }, t, formatClock) : null;
-  const canCancel = v ? !v.order.pickedUpAt && live && phase !== 'unreachable' : false;
+  // Rides: cancel until the rider is in the car (L-16; rides never set pickedUpAt).
+  const canCancel = v && phase ? (ride ? rideCanCancel(phase) : !v.order.pickedUpAt) && live && phase !== 'unreachable' : false;
   const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
-  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? COURIER_FLOAT_H : 0);
+  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0);
+  const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  const sayComingOut = async () => {
+    setRideComingOut({ orderId: id, state: 'sending' });
+    try {
+      await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: 'customer_coming_out' });
+      setRideComingOut({ orderId: id, state: 'sent' });
+      void threads.refetch();
+    } catch (err) {
+      setRideComingOut(null);
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+    }
+  };
 
   const courierCard = v?.courier ? (
     <CourierCard
@@ -266,7 +287,22 @@ export default function OrderLiveScreen() {
           canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
           onChat={() => openChat('customer_courier')}
           onCall={call}
+          onShare={() => void share()}
+          mode={rideFloat}
           bottom={collapsed + 8}
+        />
+      ) : null}
+      {v?.courier && showHere ? (
+        <DriverHereCard
+          courier={v.courier}
+          vehicle={v.courier.vehicleLabel ?? rideVehicleLabel(v, t, memo?.vertical)}
+          top={insets.top + TOP_BAR + banners * BANNER_H + 8}
+          sent={rideComingOut?.orderId === id && rideComingOut.state === 'sent'}
+          sending={rideComingOut?.orderId === id && rideComingOut.state === 'sending'}
+          canReply={courierThread?.status === 'open'}
+          onComingOut={() => void sayComingOut()}
+          onCall={call}
+          onClose={() => setHereClosedFor(id)}
         />
       ) : null}
       {v && moments.card ? (
@@ -290,7 +326,7 @@ export default function OrderLiveScreen() {
           v && phase ? (
             <SheetHeader
               phase={phase}
-              status={statusLine(v, t)}
+              status={statusLine(v, t, { now })}
               pill={[ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
               // At the door there is no time left to show (f3): the card says what to do instead.
               eta={atDoor ? null : eta}

@@ -289,3 +289,15 @@ describe('eta', () => {
     expect(signalLostMinutes(125)).toBe(2);
   });
 });
+
+describe('ride status line (J1c f4)', () => {
+  const abbas = { ...courier, firstName: 'عباس', vehicleClass: 'tuktuk' as const };
+  const coming = view({ type: 'ride', state: 'matched', merchantOrgId: null }, { merchant: null, trip: trip('en_route_to_pickup'), courier: abbas });
+  it('names who was found for 4 s after the accept, then says he is coming', () => {
+    expect(statusLine(coming, t, { now: at(3).getTime() + 1_000 })).toBe('لگينالك سايق: عباس');
+    expect(statusLine(coming, t, { now: at(3).getTime() + 5_000 })).toBe('عباس بالطريق إلك');
+  });
+  it('without a name keeps the plain line', () => {
+    expect(statusLine({ ...coming, courier: { ...abbas, firstName: null } }, t, { now: at(3).getTime() + 1_000 })).toBe(t('trip.status.en_route_to_pickup'));
+  });
+});

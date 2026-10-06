@@ -12,10 +12,17 @@ export interface PlateChipProps {
   plate: string;
   /** "رقم السيارة" — read before the plate by screen readers. */
   accessibilityLabel: string;
-  size?: 'md' | 'lg';
+  /** `xl`: the driver-here card, where the plate is the thing to find at the kerb (L-02). */
+  size?: 'md' | 'lg' | 'xl';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
+
+const PLATE_SIZE = {
+  md: { height: 32, pad: 9, regionPad: 6, number: 16, numberLine: 22, region: 12, regionLine: 16 },
+  lg: { height: 40, pad: 12, regionPad: 8, number: 20, numberLine: 26, region: 13, regionLine: 18 },
+  xl: { height: 52, pad: 14, regionPad: 10, number: 28, numberLine: 34, region: 15, regionLine: 20 },
+} as const;
 
 /**
  * A number plate as it looks on the car (audit C-20): white plate, black border, the number big
@@ -25,7 +32,7 @@ export interface PlateChipProps {
 export function PlateChip({ plate, accessibilityLabel, size = 'md', style, testID }: PlateChipProps) {
   const theme = useTheme();
   const { number, region } = splitPlate(plate);
-  const big = size === 'lg';
+  const m = PLATE_SIZE[size];
   return (
     <View
       testID={testID}
@@ -37,7 +44,7 @@ export function PlateChip({ plate, accessibilityLabel, size = 'md', style, testI
           alignSelf: 'flex-start',
           flexDirection: 'row',
           alignItems: 'stretch',
-          height: big ? 40 : 32,
+          height: m.height,
           borderRadius: theme.radius.sm,
           borderWidth: 1.5,
           borderColor: palette.neutral[900],
@@ -48,14 +55,14 @@ export function PlateChip({ plate, accessibilityLabel, size = 'md', style, testI
       ]}
     >
       {region ? (
-        <View style={{ justifyContent: 'center', paddingHorizontal: big ? 8 : 6, backgroundColor: palette.neutral[100], borderEndWidth: 1, borderColor: palette.neutral[900] }}>
-          <Text variant="caption" weight={700} style={{ color: palette.neutral[900], fontSize: big ? 13 : 12, lineHeight: big ? 18 : 16 }}>
+        <View style={{ justifyContent: 'center', paddingHorizontal: m.regionPad, backgroundColor: palette.neutral[100], borderEndWidth: 1, borderColor: palette.neutral[900] }}>
+          <Text variant="caption" weight={700} style={{ color: palette.neutral[900], fontSize: m.region, lineHeight: m.regionLine }}>
             {region}
           </Text>
         </View>
       ) : null}
-      <View style={{ justifyContent: 'center', paddingHorizontal: big ? 12 : 9 }}>
-        <Text weight={700} tabular style={{ color: palette.neutral[900], fontSize: big ? 20 : 16, lineHeight: big ? 26 : 22, letterSpacing: 1 }}>
+      <View style={{ justifyContent: 'center', paddingHorizontal: m.pad }}>
+        <Text weight={700} tabular style={{ color: palette.neutral[900], fontSize: m.number, lineHeight: m.numberLine, letterSpacing: 1 }}>
           {ltr(number)}
         </Text>
       </View>
