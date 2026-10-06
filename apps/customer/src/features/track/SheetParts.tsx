@@ -21,7 +21,7 @@ import {
   type StatusTone,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { ChangeReceiptLine } from './ChangeCredited';
 import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';

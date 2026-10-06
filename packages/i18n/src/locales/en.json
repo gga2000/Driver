@@ -396,7 +396,7 @@
   "checkout.pickup_mode": "How do you want it handed over?",
   "checkout.pickup_door": "At the door",
   "checkout.pickup_door_hint": "The courier comes to your door",
-  "checkout.pickup_street_save": "On the street · save {amount}",
+  "checkout.pickup_street_save": "On the street · save {amount} IQD",
   "checkout.pickup_street_hint": "Meet at a nearby point and save {amount} IQD",
   "checkout.meeting_point": "Meeting point",
   "checkout.choose_meeting_point": "Choose a meeting point",
