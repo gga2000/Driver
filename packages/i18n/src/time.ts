@@ -6,13 +6,16 @@
  *   time zone still shows Aziziyah time. A fixed offset (not `Intl`) keeps Hermes builds honest.
  * - Clock times always carry the part of day: "10:30 م", "7:30 ص" (English "10:30 PM").
  * - A time that is not today says which day: "باچر 7:30 ص", "الخميس 9:00 م", "3/10 9:00 م".
- * - Durations read as durations, never as a clock: "20 دقيقة", "1 ساعة و20 دقيقة", short "1 س 20 د".
+ * - Durations read as durations, never as a clock: "20 دقيقة", "ساعة و20 دقيقة", short "1 س 20 د".
+ * - Minutes take the natural Iraqi form (joy J-D9): "دقيقة", "دقيقتين", "5 دقايق", "15 دقيقة".
  * - Countdowns stay `m:ss` (voice spec §5).
  *
  * Words come from the locale files (`time.*`), never from this module.
  */
 import { pluralKey } from './plural.js';
 import { t, type Locale, type MessageKey } from './translate.js';
+
+export { agreeMinutes, minuteNoun, type MinuteForm } from './translate.js';
 
 /** The city's time zone and its fixed offset from UTC. */
 export const CITY_TIME_ZONE = 'Asia/Baghdad';
@@ -102,8 +105,8 @@ export interface DurationOptions {
 }
 
 /**
- * A length of time in whole minutes (rounded up, so "1 دقيقة" never reads as nothing):
- * "45 دقيقة", "ساعة", "ساعتين و5 دقيقة", "19 ساعة و32 دقيقة"; short "45 د", "1 س 20 د".
+ * A length of time in whole minutes (rounded up, so "دقيقة" never reads as nothing):
+ * "45 دقيقة", "ساعة", "ساعتين و5 دقايق", "19 ساعة و32 دقيقة"; short "45 د", "1 س 20 د".
  */
 export function formatDuration(durationMs: number, opts: DurationOptions = {}): string {
   const { locale = 'ar-IQ', style = 'long' } = opts;
@@ -125,6 +128,16 @@ export function formatDuration(durationMs: number, opts: DurationOptions = {}): 
 /** Minutes as a duration: `formatMinutes(80)` → "1 ساعة و20 دقيقة". */
 export function formatMinutes(minutes: number, opts: DurationOptions = {}): string {
   return formatDuration(minutes * MIN, opts);
+}
+
+/** A count of minutes in its natural form (J-D9): "دقيقة", "دقيقتين", "7 دقايق", "15 دقيقة" ("7 min"). */
+export function formatMinuteCount(n: number, opts: { locale?: Locale } = {}): string {
+  return t('time.minutes', { n }, opts.locale);
+}
+
+/** A minutes range read by its high end, digits left to right: "⁦6–9⁩ دقايق", "⁦10–15⁩ دقيقة". */
+export function formatMinutesRange(low: number, high: number, opts: { locale?: Locale } = {}): string {
+  return t('time.minutes_range', { range: `\u2066${low}–${high}\u2069` }, opts.locale);
 }
 
 /** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`); `h:mm:ss` from one hour up. */

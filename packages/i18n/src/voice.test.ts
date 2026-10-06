@@ -20,6 +20,7 @@ describe('one vocabulary (audit S-09, glossary §4)', () => {
       h: 'وصلت حد النقد',
       i: 'حالة الطلب تغيّرت. حدّث الصفحة',
       'trip.x': 'الرحلة ماشية',
+      j: 'عندك {minutes} دقايق',
     };
     const found = voiceProblems(cases).map((p) => p.key);
     expect(found.sort()).toEqual(Object.keys(cases).sort());

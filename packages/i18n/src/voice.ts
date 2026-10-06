@@ -54,6 +54,15 @@ export const BANNED_TERMS: Readonly<Record<string, BannedTerm>> = {
     // siblings on the same tight row.
     allow: (k) => ['time.minutes_short', 'time.hm_short', 'merchant.accept.minutes', 'merchant.accept.one_tap', 'merchant.busy.chip_on'].includes(k),
   },
+  /**
+   * Minute agreement is automatic (joy J-D9, `agreeMinutes` in `t()`): a template writes the 11+ form
+   * "{minutes} دقيقة" and reads «5 دقايق» for 5 but «15 دقيقة» for 15. A hard-coded "{x} دقايق" would
+   * read «15 دقايق».
+   */
+  '{x} دقايق': { use: '{x} دقيقة (t() picks دقيقة / دقيقتين / دقايق)', pattern: /\{\w+\}\s+دقايق/,
+    // A `_few` key is picked for 3–10 only (plural keys, `agoText`), so its «دقايق» is always right.
+    allow: (k) => k.endsWith('_few'),
+  },
 };
 
 /** Exclamation marks: only "طلب جديد!" for merchants and "مبروك" for tier-ups (voice spec §2.8). */

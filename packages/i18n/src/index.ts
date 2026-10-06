@@ -10,12 +10,17 @@ export {
   formatClock,
   formatCountdown,
   formatDay,
+  agreeMinutes,
   formatDuration,
+  formatMinuteCount,
   formatMinutes,
+  formatMinutesRange,
+  minuteNoun,
   formatWhen,
   type CityParts,
   type ClockOptions,
   type DurationOptions,
+  type MinuteForm,
 } from './time.js';
 export { BANNED_TERMS, voiceProblems, type VoiceProblem } from './voice.js';
 

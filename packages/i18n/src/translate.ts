@@ -72,9 +72,48 @@ export function resolvePlural(key: string, template: string, params: Params | un
   return key;
 }
 
+/** Iraqi minute forms (joy J-D9): «دقيقة» (1), «دقيقتين» (2), «{n} دقايق» (3–10), «{n} دقيقة» (11+, and 0). */
+export type MinuteForm = 'one' | 'two' | 'few' | 'many';
+
+export function minuteNoun(n: number): MinuteForm {
+  const m = Math.abs(Math.trunc(n));
+  if (m === 1) return 'one';
+  if (m === 2) return 'two';
+  if (m >= 3 && m <= 10) return 'few';
+  return 'many';
+}
+
+/** "6–9", "⁦25–35⁩": a minutes range, read by its high end ("6–9 دقايق", "10–15 دقيقة"). */
+const MINUTE_RANGE = /^[⁦-⁩\s]*\d+\s*[–-]\s*(\d+)[⁦-⁩\s]*$/;
+/** "{p} دقيقة" with nothing glued after it (so «دقيقتين» or «دقيقة» inside a longer word never match). */
+const MINUTE_SLOT = /\{(\w+)\}(\s+)دقيقة(?![ء-ي])/g;
+
+/**
+ * Minute agreement (joy J-D9): in an Arabic template every "{p} دقيقة" takes the natural form for
+ * the value of `{p}` — «دقيقة», «دقيقتين», «{p} دقايق» (3–10) — and a range agrees with its high end.
+ * Copy keeps writing "{minutes} دقيقة" (the 11+ form) and every screen, push and SMS reads right
+ * with no change at the call site, the same way counted phrases pick their plural form.
+ */
+export function agreeMinutes(template: string, params?: Params): string {
+  if (!params || !template.includes('دقيقة')) return template;
+  return template.replace(MINUTE_SLOT, (whole, name: string, sp: string) => {
+    const v = params[name];
+    const count = asCount(v);
+    if (count !== null) {
+      const form = minuteNoun(count);
+      if (form === 'one') return 'دقيقة';
+      if (form === 'two') return 'دقيقتين';
+      return form === 'few' ? `{${name}}${sp}دقايق` : whole;
+    }
+    const range = typeof v === 'string' ? MINUTE_RANGE.exec(v) : null;
+    return range && minuteNoun(Number(range[1])) === 'few' ? `{${name}}${sp}دقايق` : whole;
+  });
+}
+
 /**
  * Interpolates `{name}` placeholders. Unknown keys fall back to Arabic, then to the key itself,
- * so a missing translation never crashes a screen. Counted phrases pick their plural form.
+ * so a missing translation never crashes a screen. Counted phrases pick their plural form, and
+ * minutes their natural form (`agreeMinutes`).
  */
 export function t(key: MessageKey, params?: Params, locale: Locale = DEFAULT_LOCALE): string {
   const table: Record<string, string> = locales[locale];
@@ -82,5 +121,5 @@ export function t(key: MessageKey, params?: Params, locale: Locale = DEFAULT_LOC
   const base = ar[key];
   const k = base !== undefined ? resolvePlural(key, base, params, hasKey) : key;
   const template = table[k] ?? ar[k] ?? key;
-  return interpolate(template, params);
+  return interpolate(agreeMinutes(template, params), params);
 }
