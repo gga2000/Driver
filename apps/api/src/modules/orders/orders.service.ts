@@ -393,6 +393,12 @@ export class OrdersService implements OnModuleInit {
    * C-04: what a wallet can still pay — its ledger balance less the customer's open wallet orders
    * (the ledger charges a wallet order when it closes, so an open one already spoke for its total).
    */
+  /** What his open orders on his own wallet will still take at close (the tip after rating can't spend it). */
+  async openWalletHoldIqd(customerId: string): Promise<number> {
+    const mine = await this.repo.forPerson(customerId);
+    return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
+  }
+
   private async walletAvailable(customerId: string, householdId: string | null): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
     const [balance, mine] = await Promise.all([this.wallet.balanceIqd({ customerId, householdId }), this.repo.forPerson(customerId)]);

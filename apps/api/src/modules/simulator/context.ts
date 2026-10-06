@@ -4,7 +4,7 @@ import type { EventsService } from '../events/index.js';
 import type { IdentityService } from '../identity/index.js';
 import type { CatalogService } from '../catalog/index.js';
 import type { CapsService, LedgerService, MerchantCashService, ShiftGuaranteeService } from '../ledger/index.js';
-import type { OrdersService } from '../orders/index.js';
+import type { OrdersService, OrderTipsService } from '../orders/index.js';
 import type { OrgsService } from '../orgs/index.js';
 import type { PricingService } from '../pricing/index.js';
 import type { TripsService } from '../trips/index.js';
@@ -32,6 +32,8 @@ export interface SimServices {
   /** G-91 shift guarantee: the Sunday run's settlement, applied to the simulated day. */
   guarantee: ShiftGuaranteeService;
   events: EventsService;
+  /** «تحب تكرم عباس؟»: the tip after a 4–5 rating (wallet → driver). */
+  tips: OrderTipsService;
 }
 
 /** In-memory timer queues the in-process run drains on the fake clock (empty in live mode: the app polls its own). */
@@ -67,6 +69,8 @@ export interface OrderRun {
   // customer
   stageT: Partial<Record<'placed' | 'accepted' | 'searching' | 'driver_en_route', number>>;
   cancelTried: boolean;
+  /** The customer has had his say after delivery (rated, maybe tipped, or let it auto-close). */
+  rated: boolean;
   partialSeenT: number | null;
   partialAnswerAt: number | null;
   partialAnswered: boolean;

@@ -3,6 +3,7 @@ import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { AppliedDiscount } from './deals.js';
 import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
+import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
 
@@ -434,6 +435,10 @@ export interface OrdersPort {
   openDispute(actor: Actor, input: OpenDisputeInput): Promise<Order>;
   /** Closes the order early; with scores, also stores the two-tap rating (validated by the API). */
   rate(actor: Actor, input: RateOrderInput): Promise<Order>;
+  /** «تحب تكرم عباس؟»: whether the tip prompt shows and the wallet chips it may offer (after a 4–5 rating). */
+  tipOptions(actor: Actor, input: { orderId: string }): Promise<TipOffer>;
+  /** The tip after the rating, from his wallet to the driver: once per order (a replay of the same amount returns it). */
+  tip(actor: Actor, input: TipOrderInput): Promise<TipResult>;
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
   /** «أني نازل» while the courier waits at the door (J-D8). The orderer or a participant only. */
   comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult>;

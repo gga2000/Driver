@@ -21,6 +21,7 @@ import {
   RideSwitchQuoteInput,
   SwitchRideVehicleInput,
 } from '../order.js';
+import { TipOffer, TipOrderInput, TipResult } from '../order-tip.js';
 import { CourierPosition, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -49,6 +50,10 @@ export const ordersRouter = router({
   openDispute: protectedProcedure().input(OpenDisputeInput).output(Order).mutation(({ ctx, input }) => ctx.orders.openDispute(ctx.actor, input)),
   /** Closes early; `delivery` / `food` (1–5), tags and a note store the two-tap rating (food only on kitchen orders). */
   rate: protectedProcedure().input(RateOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.rate(ctx.actor, input)),
+  /** «تحب تكرم عباس؟» after a 4–5 rating: whether to ask and the wallet chips (docs/api/tips.md). */
+  tipOptions: protectedProcedure().input(OrderIdInput).output(TipOffer).query(({ ctx, input }) => ctx.orders.tipOptions(ctx.actor, input)),
+  /** The tip after the rating: wallet → driver, 100 %, once per order, server-checked. */
+  tip: protectedProcedure().input(TipOrderInput).output(TipResult).mutation(({ ctx, input }) => ctx.orders.tip(ctx.actor, input)),
   /** Customer live screen (spec §4): own order + trip summary + courier card. Orderer or participant only. */
   track: protectedProcedure().input(OrderIdInput).output(OrderTracking).query(({ ctx, input }) => ctx.tracking.track(ctx.actor, input)),
   /** Courier's last fix for the customer, only between accept and complete (null otherwise). Polled every 2 s. */

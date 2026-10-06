@@ -36,6 +36,7 @@ export const NOTIFY_EVENT_TYPES = [
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
+  'order.tipped',
   'support.replied',
   'support.resolved',
   'seat.booked',
@@ -170,6 +171,15 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!customerId || amount === null || amount <= 0) return [];
       // Signed and isolated (\u2066+7,250\u2069) so the plus stays left of the digits in Arabic.
       return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
+    }
+    case 'order.tipped': {
+      // «علي كرمك 1,000 دينار»: the customer's tip after a 4–5 rating, to the driver who carried it.
+      const courierId = str(p['courierId']);
+      const customerId = str(p['customerId']);
+      const amount = num(p['amountIqd']);
+      if (!courierId || !customerId || amount === null || amount <= 0) return [];
+      const name = await L.firstName(customerId, 'notify_tip_received');
+      return [{ ...base, template: 'tip_received', to: courierId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { name: name ?? 'الزبون', amount: iqd(amount), id: e.orderId ? orderTicketNumber(e.orderId) : '' } }];
     }
     case 'support.replied':
     case 'support.resolved': {

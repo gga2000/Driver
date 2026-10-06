@@ -112,6 +112,7 @@ export const NotifyTemplateId = z.enum([
   'merchant_cash_handover',
   'courier_cash_receipt',
   'driver_pay_reply',
+  'tip_received',
   'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
@@ -280,6 +281,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
   },
   // «عندي اعتراض» answered (partner audit S-7 follow-up): support replied to, or settled, the driver's
   // objection on one job's pay; the push opens that job's receipt with the reply on it.
+  // «علي كرمك 1,000 دينار» (Ali, 2026-10-06): the customer tipped after a 4–5 rating; 100 % his.
+  tip_received: {
+    id: 'tip_received',
+    category: 'money',
+    app: 'partner',
+    push: { title: 'push.tip_received.title', body: 'push.tip_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
   driver_pay_reply: {
     id: 'driver_pay_reply',
     category: 'money',

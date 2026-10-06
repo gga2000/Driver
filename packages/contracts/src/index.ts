@@ -8,6 +8,7 @@ export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
 export * from './order.js';
+export * from './order-tip.js';
 export * from './participant.js';
 export * from './ledger.js';
 export * from './ledger-rules.js';

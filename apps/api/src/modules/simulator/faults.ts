@@ -79,6 +79,11 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'credit_issued', amount: 1000, fromAccount: 'platform', toAccount: `customer:${o.ordererId}`, orderId: o.id, postingGroupId: `late_promise:${o.id}` }));
   },
+  tip_after_rating_once_and_to_the_driver: (s) => {
+    // The tip posted for a courier who never carried the order (a client-chosen driver id).
+    const o = first(s.orders, 'a delivered food order', (x) => x.type === 'food' && x.deliveredAt !== null);
+    s.ledger.push(row({ type: 'tip', amount: 1000, fromAccount: `customer:${o.ordererId}`, toAccount: 'driver:fault', orderId: o.id, memo: 'after_rating', postingGroupId: `tip:${o.id}`, occurredAt: o.deliveredAt! }));
+  },
   shift_guarantee_once_and_exact: (s) => {
     // The same shift's top-up posted a second time (a Sunday re-run without the once-per-shift key).
     // Switched off (Aziziyah, Ali 2026-10-06) nobody is covered: any courier who answered an offer is paid.
