@@ -2807,6 +2807,8 @@ model NotifyPreference {
   whatsappReceipts Boolean  @default(true) @map("whatsapp_receipts")
   smsFallback      Boolean  @default(true) @map("sms_fallback")
   marketing        Boolean  @default(false)
+  /// «قدر اليوم» (joy h2): a followed dish is today's pot. On by default (following is the opt-in).
+  dishPots         Boolean  @default(true) @map("dish_pots")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -2864,6 +2866,42 @@ model LaunchInterest {
   @@unique([personId, service])
   @@index([service, zoneKey])
   @@map("launch_interests")
+  @@schema("public")
+}
+
+/// «قدر اليوم» (joy h2): one kitchen's dish of the day, one row per kitchen and Baghdad date. Posting
+/// again the same day replaces the dish; «شيلها» deletes the row. Owner or staff post it.
+model DailyPot {
+  id            String   @id @default(cuid())
+  merchantOrgId String   @map("merchant_org_id")
+  itemId        String   @map("item_id")
+  /// Baghdad date, "YYYY-MM-DD".
+  localDate     String   @map("local_date")
+  note          String?
+  /// Shown until this local time ("HH:MM"); null = to the end of the day.
+  until         String?
+  postedById    String   @map("posted_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([merchantOrgId, localDate])
+  @@index([localDate])
+  @@map("daily_pots")
+  @@schema("public")
+}
+
+/// «خبرني لمن يطبخوه» (joy h2): a person follows a kitchen's dish; its day as the pot comes as one push.
+model DishFollow {
+  id            String   @id @default(cuid())
+  personId      String   @map("person_id")
+  merchantOrgId String   @map("merchant_org_id")
+  itemId        String   @map("item_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([personId, itemId])
+  @@index([itemId])
+  @@index([merchantOrgId])
+  @@map("dish_follows")
   @@schema("public")
 }
 
