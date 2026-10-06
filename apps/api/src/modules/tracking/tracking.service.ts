@@ -39,7 +39,7 @@ import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
  */
 export interface TrackingOrdersPort {
   aggregate(orderId: string): Promise<{
-    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null };
+    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null };
     lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null }>;
     participants: Array<{ personId: string | null }>;
   }>;
@@ -445,12 +445,17 @@ export class TrackingService implements TrackingPort {
     return lateByMin > AT_RISK_RULES.marginMin ? { orderId: order.id, predictedAt: eta.at, promisedAt: promised, lateByMin } : null;
   }
 
-  /** The promised arrival: the kitchen's promised ready time plus the kitchen → door ride. */
-  private async promise(order: Parameters<typeof promisedArrival>[0], kitchen: LatLng | null, acceptedAt: Date | null): Promise<Date | null> {
+  /**
+   * The promised arrival: the kitchen's promised ready time plus the kitchen → door ride locked into
+   * the order at placement — the one ETA's learned minutes (Ali, 2026-10-07: "yes learned data"), so the
+   * promise agrees with the ETA the customer sees and the honest-delay deadline never moves as the city
+   * keeps learning or the hour bucket turns. An order placed before the lock (or whose ETA could not be
+   * read then) keeps the router's own minutes, the promise it was made.
+   */
+  private async promise(order: Parameters<typeof promisedArrival>[0] & { promisedRideMin?: number | null }, kitchen: LatLng | null, acceptedAt: Date | null): Promise<Date | null> {
     const door = order.dropoff?.pin ?? null;
     if (!kitchen || !door) return promisedArrival(order, kitchen, acceptedAt, null);
-    // The router's own minutes, not the learned ones: this promise is recomputed on every read and the
-    // honest-delay credit hangs on it, so it must not move as the city learns or the hour bucket turns.
+    if (order.promisedRideMin !== undefined && order.promisedRideMin !== null) return promisedArrival(order, kitchen, acceptedAt, order.promisedRideMin);
     const ride = await this.eta.baseMinutes(kitchen, door, order.minVehicleClass ?? 'bike');
     return promisedArrival(order, kitchen, acceptedAt, ride.minutes);
   }

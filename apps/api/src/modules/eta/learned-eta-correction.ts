@@ -58,7 +58,7 @@ export class LearnedEtaCorrection implements EtaCorrection {
     const now = this.clock.now();
     const cells = await this.cellsOf(from.cityId, now);
     if (!cells) return 1;
-    const chain = lookupChain({ cityId: from.cityId, fromZone: from.zoneId, toZone, hourBucket: hourBucketOf(now, this.rules), vehicleClass: leg.vehicle, basis: leg.basis });
+    const chain = lookupChain({ cityId: from.cityId, fromZone: from.zoneId, toZone, hourBucket: hourBucketOf(leg.at ?? now, this.rules), vehicleClass: leg.vehicle, basis: leg.basis });
     return pickFactor(chain, (k) => cells.get(cellId(k)), this.rules);
   }
 

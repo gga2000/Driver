@@ -53,6 +53,13 @@ export interface OrderRecord {
   scheduledFor: Date | null;
   merchantOfferedAt: Date | null;
   promisedReadyAt: Date | null;
+  /**
+   * The honest-delay promise's kitchen → door ride in whole minutes, locked at placement
+   * (`orders.promised_ride_min`, Ali 2026-10-07): the one ETA's learned minutes, so the promise is
+   * `promisedReadyAt` + this and never moves as the city keeps learning. Absent/null = no promise
+   * (rides, unknown pins), or placed before it — tracking then uses the router's own minutes.
+   */
+  promisedRideMin?: number | null;
   /** When the kitchen used its one "+5 د" (`orders.prep_extended_at`); absent/null = not used. */
   prepExtendedAt?: Date | null;
   /** S-M4: when the kitchen tapped "سلّمته" at the pass (`orders.handed_over_at`); absent/null = not yet. */
@@ -264,6 +271,7 @@ function orderFromRow(r: any): OrderRecord {
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
+    promisedRideMin: r.promisedRideMin ?? null,
     prepExtendedAt: r.prepExtendedAt ?? null,
     handedOverAt: r.handedOverAt ?? null,
     minVehicleClass: r.minVehicleClass,

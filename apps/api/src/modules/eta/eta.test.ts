@@ -152,7 +152,7 @@ describe('EtaService × LearnedEtaCorrection', () => {
     const exact = (await eta.baseMinutes(KITCHEN, DOOR, 'bike')).exactMinutes;
     expect(learned).toEqual({ minutes: Math.round(exact * 1.5), basis: 'estimated' });
     expect(learned.minutes).toBeGreaterThan(base.minutes);
-    // The promise path stays on the router's minutes.
+    // baseMinutes stays the router's own (legs are judged against it); the promise locks the learned minutes at placement.
     expect(await eta.baseMinutes(KITCHEN, DOOR, 'bike')).toMatchObject({ minutes: base.minutes });
   });
 

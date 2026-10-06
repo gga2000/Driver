@@ -32,17 +32,20 @@ export class EtaService {
     this.correction = correction ?? NO_ETA_CORRECTION;
   }
 
-  /** Minutes for `vehicle` from `from` to `to`, corrected by what this leg's streets taught. */
-  async minutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<EtaMinutes> {
+  /**
+   * Minutes for `vehicle` from `from` to `to`, corrected by what this leg's streets taught — at `at`'s
+   * traffic bucket when given (a scheduled order's promise), else now's.
+   */
+  async minutes(from: LatLng, to: LatLng, vehicle: VehicleClass, at?: Date): Promise<EtaMinutes> {
     const base = await this.baseMinutes(from, to, vehicle);
-    const factor = await this.correction.factor({ from, to, vehicle, basis: base.basis });
+    const factor = await this.correction.factor({ from, to, vehicle, basis: base.basis, ...(at ? { at } : {}) });
     return { minutes: wholeMinutes(base.exactMinutes * factor), basis: base.basis };
   }
 
   /**
-   * The router's minutes with no learned correction. For promises already made (the honest-delay
-   * promise is recomputed on every read, so it must not move as the city learns or the hour changes)
-   * and for learning itself (a leg is judged against the uncorrected estimate).
+   * The router's minutes with no learned correction. For learning itself (a leg is judged against the
+   * uncorrected estimate) and for the honest-delay promise of an order placed before its ride was
+   * locked at placement (Ali, 2026-10-07): those orders keep the minutes they were promised.
    */
   async baseMinutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<BaseEtaMinutes> {
     const r = await this.router.route([from, to]);

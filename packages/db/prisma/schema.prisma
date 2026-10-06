@@ -1051,6 +1051,9 @@ model Order {
   merchantOfferedAt  DateTime?     @map("merchant_offered_at")
   /// Step 4 (edge-case review A.2): accept time + prep; heartbeat checks run at +10 and +15 min.
   promisedReadyAt    DateTime?     @map("promised_ready_at")
+  /// The honest-delay promise's kitchen → door ride, locked at placement (Ali, 2026-10-07): the one ETA's learned
+  /// minutes (router × the clamped correction); promise = promisedReadyAt + this. Null = no promise, or placed before it.
+  promisedRideMin    Int?          @map("promised_ride_min")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.
   prepExtendedAt     DateTime?     @map("prep_extended_at")
   handedOverAt       DateTime?     @map("handed_over_at")

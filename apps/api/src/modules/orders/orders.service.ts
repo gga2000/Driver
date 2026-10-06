@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   baghdadMonth,
@@ -35,11 +35,13 @@ import {
   type OrderRating,
   type OrderSearchPage,
   type OrderState,
+  type OrderType,
   type ParticipantShare,
   type RateOrderInput,
   type RideSwitchQuote,
   type Trip,
   type TripState,
+  type VehicleClass,
   type Vertical,
 } from '@driver/contracts';
 import type { z } from 'zod';
@@ -50,6 +52,7 @@ import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
+import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
 import { ORDERS_CONTROLS, THROTTLED_ORDER_TYPES, type OrdersControlsPort } from './controls.port.js';
@@ -171,6 +174,8 @@ export interface OrderTimerJob {
 }
 
 const SYSTEM = 'system';
+/** Orders that carry the honest-delay promise (as `promisedArrival` in tracking): their ride is locked at placement. */
+const PROMISED_ORDER_TYPES: readonly OrderType[] = ['food', 'grocery_catalog'];
 const PRE_PICKUP_COURIER_STATES = ['accepted', 'en_route_to_pickup', 'arrived_pickup'];
 
 type PlaceInput = z.input<typeof PlaceOrderInput>;
@@ -207,9 +212,13 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_WALLET) private readonly wallet?: OrdersWalletPort,
     @Optional() @Inject(ORDERS_PLACES) private readonly places?: OrdersPlacesPort,
     @Optional() @Inject(ORDERS_HOUSEHOLDS) private readonly households?: OrdersHouseholdsPort,
+    /** The one ETA (learned minutes) the honest-delay promise's ride is locked from at placement; absent = no lock. */
+    @Optional() private readonly eta?: EtaService,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
+
+  private readonly logger = new Logger(OrdersService.name);
 
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
@@ -341,6 +350,10 @@ export class OrdersService implements OnModuleInit {
       if (available < total) throw new DriverError('wallet_insufficient');
     }
 
+    // The honest-delay promise's ride, locked now (Ali, 2026-10-07): read before the transaction, it is
+    // a routing call and a cached read of the learned corrections, never a write.
+    const promisedRideMin = await this.lockPromisedRide(input, profile?.location?.pin ?? null, caps?.minVehicleClass ?? null, now);
+
     const write = () =>
       this.uow.run(async (tx) => {
         if (input.clientRequestId) {
@@ -390,6 +403,7 @@ export class OrdersService implements OnModuleInit {
             scheduledFor: input.scheduledFor ?? null,
             minVehicleClass: caps?.minVehicleClass ?? null,
             dropoff: input.dropoff ?? null,
+            promisedRideMin,
             placedAt: now,
             heldForPayer: askPayer !== null,
             familyTable: input.familyTable ?? false,
@@ -490,6 +504,33 @@ export class OrdersService implements OnModuleInit {
     }
     await this.move(order, 'platform_cancelled', SYSTEM, tx, { cancelledAt: now, cancellationReason: outcome, cancellationFeeIqd: 0 }, this.cancelled(order, { by: 'platform', reason: outcome, free: true, feeIqd: 0 }));
     if (outcome === 'payer_no_answer' && order.householdOrgId) await this.households?.withdraw(order.householdOrgId, order.id, SYSTEM);
+  }
+
+  /**
+   * The honest-delay promise's kitchen → door ride, locked into the order at placement (Ali,
+   * 2026-10-07: "yes learned data"). It is the one ETA's learned minutes — the router's estimate × the
+   * correction finished legs taught for this zone pair, vehicle and traffic bucket, clamped 0.7–1.6,
+   * factor 1 when nothing is learned — so the promise agrees with the ETA the customer sees, and,
+   * stored, the promise and its late-credit deadline never move as the city keeps learning. A
+   * scheduled order is quoted for its slot's bucket. Null when the order carries no promise (the
+   * kinds `promisedArrival` in tracking promises: food, catalog grocery; both pins known), and when
+   * the ETA cannot be read: placing must not fail on an estimate, and tracking then promises on the
+   * router's own minutes as it did before the lock.
+   */
+  private async lockPromisedRide(
+    input: { type: OrderType; dropoff?: DeliveryPoint | undefined; scheduledFor?: Date | undefined },
+    kitchen: LatLng | null,
+    minVehicleClass: VehicleClass | null,
+    now: Date,
+  ): Promise<number | null> {
+    const door = input.dropoff?.pin ?? null;
+    if (!this.eta || !PROMISED_ORDER_TYPES.includes(input.type) || !kitchen || !door) return null;
+    try {
+      return (await this.eta.minutes(kitchen, door, minVehicleClass ?? 'bike', input.scheduledFor ?? now)).minutes;
+    } catch (err) {
+      this.logger.warn(`promise ride not locked (router minutes on read instead): ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /**

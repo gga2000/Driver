@@ -6,6 +6,7 @@ import { InMemoryQueue } from '../../shared/queue.js';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
+import { EtaService, StraightLineRouter, type EtaCorrection } from '../routing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { RecordingOrderEvents } from './events.adapter.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
@@ -109,10 +110,13 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
 /**
  * Orders + trips on in-memory everything, one fake clock, two in-memory timer queues, and a fake
  * outbox that forwards trip events to `orders.onTripEvent` when `deliver()` (or `advance`) runs.
- * Start: Saturday 2026-10-03 12:00 Baghdad.
+ * Start: Saturday 2026-10-03 12:00 Baghdad. The one ETA is the straight-line router, uncorrected unless
+ * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
+ * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z') {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection } = {}) {
   const clock = new FakeClock(start);
+  const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
 
   const tripEvents = new RecordingTripEvents();
@@ -167,7 +171,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   }, {
     // Maps program SP3d: saved places by owner (`placeOwners.set(placeId, personId)`).
     deliveryPlace: async (personId, placeId) => (placeOwners.get(placeId) === personId ? { door: placeDoors.get(placeId) ?? null } : null),
-  }, orgsHouseholds(orgs));
+  }, orgsHouseholds(orgs), eta);
   orders.onModuleInit();
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
@@ -244,5 +248,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, eta, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

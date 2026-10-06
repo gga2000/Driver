@@ -6,6 +6,11 @@ export interface EtaLegQuery {
   to: LatLng;
   vehicle: VehicleClass;
   basis: EtaBasis;
+  /**
+   * When the leg will be driven, for its traffic bucket; absent = now. A scheduled order's promise is
+   * locked at placement for the hour the food travels, not the hour it was ordered.
+   */
+  at?: Date;
 }
 
 /**
