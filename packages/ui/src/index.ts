@@ -1,5 +1,5 @@
 // Theme
-export { ThemeProvider, useTheme, createTheme, fontStyle } from './theme/ThemeProvider';
+export { ThemeProvider, useTheme, createTheme, fontStyle, faceStyle } from './theme/ThemeProvider';
 export type { Theme, ThemeProviderProps, HapticKind, HapticHandler, Direction, FontMode } from './theme/ThemeProvider';
 export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 
@@ -21,7 +21,7 @@ export { Text, type TextProps } from './components/Text';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './components/Button';
 export { IconButton, type IconButtonProps, type IconButtonVariant } from './components/IconButton';
 export { Chip, ChipGroup, nextChipSelection, type ChipProps, type ChipGroupProps, type ChipGroupItem } from './components/Chip';
-export { Avatar, toneFor, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
+export { Avatar, toneFor, identityIndex, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
 export { Card, type CardProps } from './components/Card';
 export { DataSaverCard } from './components/DataSaverCard';
 export { ListRow, type ListRowProps } from './components/ListRow';
@@ -80,6 +80,7 @@ export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
+export * from './logic/voice';
 export * from './format';
 
 // Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.

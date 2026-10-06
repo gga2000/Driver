@@ -8,7 +8,7 @@ import { currentFix } from '@/features/account/device';
 import { nearestZone } from '@/features/account/geo';
 import { tooClose, zoneTitle, type Spot } from '@/features/ride/logic';
 import { useZoneFor } from '@/features/ride/queries';
-import { PinPicker } from '@/features/ride/RideMap';
+import { PinPicker } from '@/features/places/PinPicker';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
 import { useLocale, useT } from '@/lib/i18n';

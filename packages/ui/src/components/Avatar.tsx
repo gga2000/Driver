@@ -15,11 +15,23 @@ const TONES: Record<AvatarTone, { bg: ThemeColorKey; fg: ThemeColorKey }> = {
 };
 const ORDER: AvatarTone[] = ['accent', 'info', 'success', 'warning'];
 
-/** Stable tone per name so "سارة" is always the same colour across cart, checkout and merchant ticket. */
-export function toneFor(name: string): AvatarTone {
+function nameHash(name: string): number {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
-  return ORDER[h % ORDER.length]!;
+  return h;
+}
+
+/** Stable tone per name so "سارة" is always the same colour across cart, checkout and merchant ticket. */
+export function toneFor(name: string): AvatarTone {
+  return ORDER[nameHash(name) % ORDER.length]!;
+}
+
+/**
+ * Stable slot in the theme's identity palette (`theme.identity`, joy S2-03). With the four light
+ * colours this is exactly `toneFor`'s order, so the Partner and Merchant avatars keep their colours.
+ */
+export function identityIndex(name: string, size: number): number {
+  return nameHash(name) % size;
 }
 
 /** First letter, skipping "ال" so "العزيزية" reads ع not ا. */
@@ -42,7 +54,9 @@ export interface AvatarProps {
 
 export function Avatar({ name = '', uri, icon, size = 40, tone, ring, style }: AvatarProps) {
   const theme = useTheme();
-  const t = TONES[tone ?? toneFor(name)];
+  // An explicit tone is a meaning ("ضيف شخص", unnamed driver); a name gets a non-semantic identity colour.
+  const id = theme.identity[identityIndex(name, theme.identity.length)]!;
+  const t = tone ? { bg: theme.colors[TONES[tone].bg], fg: theme.colors[TONES[tone].fg] } : { bg: id.fill, fg: id.on };
   const inner = ring ? size - 6 : size;
   return (
     <View
@@ -66,7 +80,7 @@ export function Avatar({ name = '', uri, icon, size = 40, tone, ring, style }: A
           width: inner,
           height: inner,
           borderRadius: inner / 2,
-          backgroundColor: theme.colors[t.bg],
+          backgroundColor: t.bg,
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',

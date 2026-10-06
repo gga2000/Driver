@@ -45,7 +45,7 @@ export function RajaaCard() {
               justifyContent: 'center',
             }}
           >
-            <Icon name={r.trip ? 'seat' : 'garage'} size={26} color={r.trip ? 'successText' : 'accentText'} strokeWidth={1.8} />
+            <Icon name={r.trip ? 'seat' : 'rajaa'} size={26} color={r.trip ? 'successText' : 'accentText'} strokeWidth={1.8} />
           </View>
         )}
         <View style={{ flex: 1, gap: 2 }}>

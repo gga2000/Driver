@@ -43,13 +43,17 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
         </View>
       ) : null}
 
-      {door.placeNote || door.photos.length > 0 || door.doorConfirmed ? (
+      {door.placeNote || door.photos.length > 0 || door.doorConfirmed || door.entranceSet ? (
         <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="caption" weight={600} color="textMuted" style={{ flex: 1 }}>
               {t('partner.door_title')}
             </Text>
-            {door.doorConfirmed ? <StatusPill size="sm" tone="success" icon="check" label={t('partner.door_confirmed')} /> : null}
+            {door.entranceSet ? (
+              <StatusPill size="sm" tone="info" icon="map-pin" label={t('partner.door_entrance_set')} />
+            ) : door.doorConfirmed ? (
+              <StatusPill size="sm" tone="success" icon="check" label={t('partner.door_confirmed')} />
+            ) : null}
           </View>
           {door.placeNote ? (
             <Text variant="label" testID="job-door-note">

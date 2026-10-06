@@ -155,7 +155,7 @@ function ReorderSheet({ state, onClose, onGo, onRetry }: { state: ReorderState; 
                     testID="reorder-menu"
                     size="lg"
                     fullWidth
-                    icon="bag"
+                    icon="food"
                     label={t('reorder.open_menu')}
                     onPress={() => {
                       const id = state.row.order.merchantOrgId;

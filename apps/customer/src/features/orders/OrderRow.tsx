@@ -57,7 +57,7 @@ export function OrderArt({ row, size = 48 }: { row: OrderHistoryRow; size?: numb
       </View>
     );
   }
-  const icon: IconName = row.order.type === 'seat' ? 'seat' : row.order.type === 'ride' ? 'car' : row.order.type === 'parcel' ? 'parcel' : 'bag';
+  const icon: IconName = row.order.type === 'seat' ? 'seat' : row.order.type === 'ride' ? 'car' : row.order.type === 'parcel' ? 'parcel' : 'food';
   return (
     <View style={{ width: size, height: size, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
       <Icon name={icon} size={Math.round(size * 0.5)} color="textMuted" strokeWidth={1.8} />

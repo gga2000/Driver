@@ -225,6 +225,8 @@ export const PartnerDoor = z.object({
   firstVisit: z.boolean(),
   /** Earlier couriers' arrivals agree on the door (a3): the stop's pin is that door ("الباب مأكّد"). */
   doorConfirmed: z.boolean(),
+  /** The customer marked the gate to come in by (a4): the stop's pin is that gate. */
+  entranceSet: z.boolean(),
 });
 export type PartnerDoor = z.infer<typeof PartnerDoor>;
 

@@ -148,6 +148,7 @@ export const ERROR_TABLE = {
   // places / uploads (domain §7)
   location_weak: { retryHint: 'now', status: 'BAD_REQUEST' },
   place_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  place_entrance_too_far: { retryHint: 'never', status: 'BAD_REQUEST' },
   outside_zone: { retryHint: 'never', status: 'BAD_REQUEST' },
   upload_invalid: { i18n: 'error.upload_failed', retryHint: 'now', status: 'BAD_REQUEST' },
 

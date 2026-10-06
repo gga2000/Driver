@@ -17,7 +17,7 @@ import { GuestGate } from '@/components/GuestGate';
 import { useSignedIn } from '@/lib/session';
 
 const KIND_ICON: Record<WalletLineKind, IconName> = {
-  food: 'bag',
+  food: 'food',
   grocery: 'cart',
   errand: 'cart',
   ride: 'car',

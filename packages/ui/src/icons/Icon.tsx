@@ -3,7 +3,7 @@ import { Platform, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { useTheme } from '../theme/ThemeProvider';
-import { ICONS, MIRRORED, type IconName } from './paths';
+import { MIRRORED, iconShapes, type IconName } from './paths';
 
 export interface IconProps {
   name: IconName;
@@ -13,16 +13,19 @@ export interface IconProps {
   strokeWidth?: number;
   /** Fill closed shapes (selected star, active tab). */
   filled?: boolean;
+  /** Fill in another colour than the stroke (with `filled`): the ink-outlined saffron star (joy S2-01). */
+  fillColor?: ThemeColorKey | (string & {});
   style?: StyleProp<ViewStyle>;
   /** Icons are decorative by default; pass a label only when the icon stands alone. */
   accessibilityLabel?: string;
 }
 
-export const Icon = memo(function Icon({ name, size = 24, color = 'text', strokeWidth = 1.75, filled, style, accessibilityLabel }: IconProps) {
+export const Icon = memo(function Icon({ name, size = 24, color = 'text', strokeWidth = 1.75, filled, fillColor, style, accessibilityLabel }: IconProps) {
   const theme = useTheme();
-  const stroke = (theme.colors as unknown as Record<string, string>)[color] ?? color;
+  const colors = theme.colors as unknown as Record<string, string>;
+  const stroke = colors[color] ?? color;
   const mirror = theme.isRTL && MIRRORED.has(name);
-  const fill = filled ? stroke : 'none';
+  const fill = filled ? (fillColor ? (colors[fillColor] ?? fillColor) : stroke) : 'none';
   return (
     <Svg
       width={size}
@@ -41,7 +44,7 @@ export const Icon = memo(function Icon({ name, size = 24, color = 'text', stroke
           ? ({ 'aria-hidden': true } as object)
           : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const })}
     >
-      {ICONS[name].map((shape, i) => {
+      {iconShapes(name).map((shape, i) => {
         if ('d' in shape) return <Path key={i} d={shape.d} fill={fill} />;
         if ('circle' in shape) {
           const [cx, cy, r] = shape.circle;

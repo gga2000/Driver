@@ -87,7 +87,64 @@ export const ICONS = {
     { rect: [6.5, 4, 11, 10.5, 2.5] },
     { rect: [4.5, 16, 15, 4.5, 2] },
   ],
+  /** A garage as a place (the Partner's garage, a meeting garage). The الرجعة service is `rajaa`. */
   garage: [{ d: 'M3 21V9l9-5 9 5v12' }, { d: 'M7 21v-8.5h10V21' }, { d: 'M7 16.5h10' }],
+  // Service glyphs (joy S2-09, J3a): the first thing people tap, so each one is its own silhouette.
+  /** Food: a skewer over a plate (the bag reads as shopping). */
+  food: [
+    { d: 'M2.5 9.5h3M9 9.5h1.25M13.75 9.5h1.25M18.5 9.5h1.5' },
+    { rect: [5.5, 7, 3.5, 5, 1.3] },
+    { rect: [10.25, 7, 3.5, 5, 1.3] },
+    { rect: [15, 7, 3.5, 5, 1.3] },
+    { circle: [21, 9.5, 0.6] },
+    { d: 'M3 15.5h18' },
+    { d: 'M5 15.5c1 1.9 3.8 3.2 7 3.2s6-1.3 7-3.2' },
+  ],
+  /** Taxi: the car with its roof sign. */
+  taxi: [
+    { d: 'M3.5 18v-4l1.9-4.6A2 2 0 0 1 7.3 8h9.4a2 2 0 0 1 1.9 1.4l1.9 4.6v4a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z' },
+    { d: 'M3.5 14h17' },
+    { circle: [7.5, 16.5, 0.9] },
+    { circle: [16.5, 16.5, 0.9] },
+    { rect: [9.5, 3.5, 5, 2.5, 0.8] },
+    { d: 'M12 6v2' },
+  ],
+  /** Tuktuk with the canopy fringe (the customer's service tile; `tuktuk` stays for the Partner app). */
+  'tuktuk-fringe': [
+    { d: 'M3 5h12.5' },
+    { d: 'M3 5a1.5 1.5 0 0 0 3 0a1.5 1.5 0 0 0 3 0a1.5 1.5 0 0 0 3 0a1.5 1.5 0 0 0 3 0' },
+    { d: 'M15.5 5l3.6 6' },
+    { d: 'M19.1 11h.9a.5.5 0 0 1 .5.5V16' },
+    { d: 'M4.5 8.5V16' },
+    { d: 'M9 9v2.5h9.5' },
+    { circle: [7, 17, 2] },
+    { circle: [18, 17, 2] },
+    { d: 'M9 17h7' },
+  ],
+  /** الرجعة: the garage minibus, with its roof rack. */
+  rajaa: [
+    { rect: [2.5, 7, 19, 9.5, 2] },
+    { d: 'M2.5 11.5h19' },
+    { d: 'M7.5 7v4.5M12.5 7v4.5M17 7v4.5' },
+    { d: 'M6.5 4.5h10M8 4.5V7M15 4.5V7' },
+    { circle: [7, 17.5, 1.75] },
+    { circle: [17, 17.5, 1.75] },
+  ],
+  /** نساء (الرجعة traveller type): a woman in a headscarf. */
+  woman: [
+    { circle: [12, 8.25, 2.75] },
+    { d: 'M8.25 12.5a5.5 5.5 0 0 1-.75-3.5 4.5 4.5 0 0 1 9 0 5.5 5.5 0 0 1-.75 3.5' },
+    { d: 'M4.5 20.5c.6-3.4 3.7-6 7.5-6s6.9 2.6 7.5 6' },
+  ],
+  /** عائلة (الرجعة traveller type): two grown-ups and a child. */
+  family: [
+    { circle: [7.5, 7, 2.5] },
+    { circle: [16.5, 7, 2.5] },
+    { circle: [12, 13, 1.75] },
+    { d: 'M2.5 19v-1a5 5 0 0 1 7.6-4.3' },
+    { d: 'M21.5 19v-1a5 5 0 0 0-7.6-4.3' },
+    { d: 'M8.75 20.5a3.25 3.25 0 0 1 6.5 0' },
+  ],
   shield: [{ d: 'M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z' }, { d: 'M9 12l2.2 2.2L15.5 10' }],
   sos: [
     { d: 'M6.5 18v-4.5a5.5 5.5 0 0 1 11 0V18' },
@@ -137,3 +194,8 @@ export const MIRRORED: ReadonlySet<IconName> = new Set<IconName>([
 ]);
 
 export const ICON_NAMES = Object.keys(ICONS) as IconName[];
+
+/** A glyph's shapes as the plain union (a glyph that mixes paths, circles and rects widens the literal type). */
+export function iconShapes(name: IconName): readonly IconShape[] {
+  return ICONS[name];
+}

@@ -231,7 +231,7 @@ function Rejected({ orderId }: { orderId: string }) {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                     {r.rating ? (
                       <>
-                        <Icon name="star" size={14} color="accent" filled />
+                        <Icon name="star" size={14} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
                         <Text variant="caption" weight={600} tabular>
                           {r.rating.avg.toFixed(1)}
                         </Text>

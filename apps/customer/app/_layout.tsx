@@ -1,6 +1,6 @@
 import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -25,7 +25,10 @@ import { session, useSession } from '@/lib/session';
 enforceRtl();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
-const chrome = createTheme('light');
+const chrome = createTheme('istikan');
+
+/** The splash waits this long at most for the fonts (joy J-D2: no face swap on the first screen). */
+const FONT_HOLD_MAX_MS = 2500;
 
 /**
  * App shell. Route groups:
@@ -37,6 +40,12 @@ const chrome = createTheme('light');
 export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   const { locale } = useProfile();
+  // Fonts load behind the splash; a slow device stops waiting after FONT_HOLD_MAX_MS and swaps in place.
+  const [fontWaitOver, setFontWaitOver] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setFontWaitOver(true), FONT_HOLD_MAX_MS);
+    return () => clearTimeout(id);
+  }, []);
 
   useEffect(() => {
     void session.hydrate();
@@ -56,8 +65,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider
-          theme="light"
-          fonts={fontsLoaded ? 'plex' : 'system'}
+          theme="istikan"
+          fonts={fontsLoaded ? 'brand' : 'system'}
           haptics={haptics}
           // Native direction comes from I18nManager (needs a restart to flip); the web flips live.
           direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}
@@ -69,7 +78,7 @@ export default function RootLayout() {
               <SystemBanner />
               {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
               <SeasonWatcher />
-              <RootNavigator />
+              <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
             </ApiProvider>
           </ToastProvider>
         </ThemeProvider>
@@ -78,7 +87,7 @@ export default function RootLayout() {
   );
 }
 
-function RootNavigator() {
+function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const t = useT();
   const { status } = useSession();
   // Push token registration, foreground acks and taps → screens (signed in only).
@@ -150,7 +159,7 @@ function RootNavigator() {
       </Stack>
       {/* الرجعة boarding pass on the lock screen from T−30 (audit d-8; Android). */}
       {lockScreenPassSupported ? <LockScreenPass /> : null}
-      {ready ? null : <Splash />}
+      {ready && !fontsPending ? null : <Splash />}
     </View>
   );
 }

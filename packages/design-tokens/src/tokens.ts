@@ -129,6 +129,53 @@ export interface ThemeColors {
   onInverseCaution: string;
   /** Good news on `inverse` (the honest-delay credit came back). */
   onInverseSuccess: string;
+  /** Brand line on `inverse`: the restaurant · status on the live-order card. */
+  onInverseAccent: string;
+  /**
+   * The chosen chip, radio or seat (joy S2-01): ink in istikan, so the brand orange keeps one job
+   * (the main action). `light`/`dark` keep the accent fill the other apps draw.
+   */
+  selected: string;
+  /** Text and the check on `selected`. */
+  onSelected: string;
+  /** Outline of a selected chip, drawn with the check so selection never rests on colour alone. */
+  selectedBorder: string;
+  /** A chosen person chip ("لمن؟"): soft in light (accent wash), ink in istikan. */
+  selectedSoft: string;
+  /** Text on `selectedSoft`. */
+  onSelectedSoft: string;
+  /** The round check mark on a chosen person chip. */
+  selectedMark: string;
+  /** The check inside `selectedMark`. */
+  onSelectedMark: string;
+  /** The segmented-control thumb under the chosen option. */
+  segmentSelected: string;
+  /** Outline of the segmented-control thumb. */
+  segmentSelectedBorder: string;
+  /** The chosen segment's label. */
+  onSegmentSelected: string;
+  /** The stepper's "+": an accent blob in light, a neutral key (surface + strong line) in istikan. */
+  stepperPlus: string;
+  /** The "+" glyph on `stepperPlus`. */
+  onStepperPlus: string;
+  /** The ring around `stepperPlus`. */
+  stepperPlusBorder: string;
+  /** Rating star fill: saffron in istikan (stars are a treat, not the action). */
+  star: string;
+  /** Rating star outline: ink in istikan (ink alone is 17:1 on the card). */
+  starOutline: string;
+  /** Border of `Card tone="tint"`: the accent in light, none (the wash itself) in istikan (S2-11). */
+  tintBorder: string;
+  /** Moving and live (kashi in istikan): courier, route, ETA, the taxi/tuktuk/الرجعة tiles. */
+  live: string;
+  /** Pale `live` wash behind the mobility tiles. */
+  liveTint: string;
+  /** `live`-coloured text and glyphs. */
+  liveText: string;
+  /** Deal sticker fill: saffron with ink text (never the success green, S2-03). */
+  deal: string;
+  /** Text on `deal`. */
+  onDeal: string;
   /** Seat that someone else holds or owns. */
   seatTaken: string;
   /** Map/scrim overlays behind sheets. */
@@ -174,6 +221,30 @@ const light: ThemeColors = {
   onInverseMuted: '#D6C8B4',
   onInverseCaution: '#F2C14E',
   onInverseSuccess: '#7ACF9D',
+  onInverseAccent: '#EBA040',
+  // J3a roles: the values the shared components drew before, so the Partner, Merchant and Console
+  // look exactly the same (tokens.test.ts freezes them).
+  selected: '#E08A1E',
+  onSelected: '#1F1A14',
+  selectedBorder: '#C27214',
+  selectedSoft: '#FCEBD3',
+  onSelectedSoft: '#1F1A14',
+  selectedMark: '#E08A1E',
+  onSelectedMark: '#1F1A14',
+  segmentSelected: '#FFFFFF',
+  segmentSelectedBorder: '#9A5200',
+  onSegmentSelected: '#1F1A14',
+  stepperPlus: '#E08A1E',
+  onStepperPlus: '#1F1A14',
+  stepperPlusBorder: '#E08A1E',
+  star: '#E08A1E',
+  starOutline: '#E08A1E',
+  tintBorder: '#E08A1E',
+  live: '#E08A1E',
+  liveTint: '#FCEBD3',
+  liveText: '#9A5200',
+  deal: '#F2C14E',
+  onDeal: '#1F1A14',
   seatTaken: '#E8DFD0',
   scrim: 'rgba(31, 26, 20, 0.45)',
   shimmer: '#FBF6EE',
@@ -214,14 +285,137 @@ const dark: ThemeColors = {
   onInverseMuted: '#4A4239',
   onInverseCaution: '#8A5300',
   onInverseSuccess: '#23744A',
+  onInverseAccent: '#9A5200',
+  selected: '#EE9A32',
+  onSelected: '#1F1A14',
+  selectedBorder: '#F5B45E',
+  selectedSoft: '#3B2914',
+  onSelectedSoft: '#F6EFE4',
+  selectedMark: '#EE9A32',
+  onSelectedMark: '#1F1A14',
+  segmentSelected: '#201A15',
+  segmentSelectedBorder: '#F5B45E',
+  onSegmentSelected: '#F6EFE4',
+  stepperPlus: '#EE9A32',
+  onStepperPlus: '#1F1A14',
+  stepperPlusBorder: '#EE9A32',
+  star: '#EE9A32',
+  starOutline: '#EE9A32',
+  tintBorder: '#EE9A32',
+  live: '#EE9A32',
+  liveTint: '#3B2914',
+  liveText: '#F5B45E',
+  deal: '#F2C14E',
+  onDeal: '#1F1A14',
   seatTaken: '#3A3229',
   scrim: 'rgba(0, 0, 0, 0.6)',
   shimmer: '#2A231C',
   shadow: '#000000',
 };
 
-export const themes = { light, dark } as const;
+/**
+ * استكان Istikan (joy J-D1; research report 5 §5 Direction A) — the customer app's look. Deeper paper
+ * and a warm white so cards separate in the sun; tea (`accent`) only for the main action and food;
+ * kashi (`live`, `info`) for what moves; ink (`selected`) for what you chose; saffron (`deal`, `star`)
+ * for treats; palm for done; pomegranate for stop. The Partner and Merchant apps and the Console stay
+ * on `light` until they adopt it.
+ */
+const istikan: ThemeColors = {
+  bg: '#F6EEDF',
+  surface: '#FFFCF6',
+  surfaceRaised: '#FFFCF6',
+  surfaceSunken: '#EEE3CF',
+  text: '#24170E',
+  textMuted: '#6A5745',
+  accent: '#E08A1E',
+  onAccent: '#24170E',
+  accentTint: '#FBE6C6',
+  accentText: '#8F4A00',
+  border: '#E4D5BE',
+  borderStrong: '#8A735C',
+  accentBorder: '#C27214',
+  focusRing: '#24170E',
+  success: '#2F7D4E',
+  successTint: '#DCEEDF',
+  successText: '#23653E',
+  // Caution stays mustard (J1f, S2-02): structural (the inverse banner), never a tint alone.
+  warning: '#B07F00',
+  warningTint: '#FAF0C8',
+  warningText: '#7A5A00',
+  danger: '#B23A2E',
+  onDanger: '#FFFCF6',
+  dangerTint: '#F7DCD6',
+  dangerText: '#9A2E23',
+  // Kashi absorbs info.
+  info: '#0B6577',
+  infoTint: '#D3EAF0',
+  infoText: '#0B5A6B',
+  inverse: '#24170E',
+  onInverse: '#F6EEDF',
+  onInverseMuted: '#D6C8B4',
+  onInverseCaution: '#F2C14E',
+  onInverseSuccess: '#7ACF9D',
+  onInverseAccent: '#E08A1E',
+  selected: '#24170E',
+  onSelected: '#FFFCF6',
+  selectedBorder: '#24170E',
+  selectedSoft: '#24170E',
+  onSelectedSoft: '#FFFCF6',
+  selectedMark: '#FFFCF6',
+  onSelectedMark: '#24170E',
+  segmentSelected: '#24170E',
+  segmentSelectedBorder: '#24170E',
+  onSegmentSelected: '#FFFCF6',
+  stepperPlus: '#FFFCF6',
+  onStepperPlus: '#24170E',
+  stepperPlusBorder: '#8A735C',
+  star: '#F2C14E',
+  starOutline: '#24170E',
+  tintBorder: '#FBE6C6',
+  live: '#0B6577',
+  liveTint: '#D3EAF0',
+  liveText: '#0B5A6B',
+  deal: '#F2C14E',
+  onDeal: '#24170E',
+  seatTaken: '#E9DDC9',
+  scrim: 'rgba(36, 23, 14, 0.45)',
+  shimmer: '#FAF4E9',
+  shadow: '#5A3A12',
+};
+
+export const themes = { light, dark, istikan } as const;
 export type ThemeName = keyof typeof themes;
+
+/** Which way each theme leans: toasts, state layers and shadows read this, never the theme name. */
+export const scheme: Record<ThemeName, 'light' | 'dark'> = { light: 'light', dark: 'dark', istikan: 'light' };
+
+/** A monogram colour: `fill` behind the letter, `on` for the letter (AA, tested). */
+export interface IdentityColor {
+  fill: string;
+  on: string;
+}
+
+/**
+ * Colours for people's monograms and avatars (joy S2-03). In istikan they are non-semantic (date,
+ * clay, olive, plum, kashi, pomegranate) so green never means "a person called خالد". Clay is
+ * `#AD5E36`, a shade under the report's `#B8643A` (4.17:1), so a 14 px letter passes AA. `light`
+ * and `dark` keep the four semantic tones in the old hash order, so the other apps' avatars don't move.
+ */
+export const identity: Record<ThemeName, readonly IdentityColor[]> = {
+  light: [
+    { fill: light.accentTint, on: light.accentText },
+    { fill: light.infoTint, on: light.infoText },
+    { fill: light.successTint, on: light.successText },
+    { fill: light.warningTint, on: light.warningText },
+  ],
+  dark: [
+    { fill: dark.accentTint, on: dark.accentText },
+    { fill: dark.infoTint, on: dark.infoText },
+    { fill: dark.successTint, on: dark.successText },
+    { fill: dark.warningTint, on: dark.warningText },
+  ],
+  istikan: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
+};
 
 /**
  * Every text-on-background pair `@driver/ui` draws. `large` pairs only ever render at ≥ 24 px
@@ -264,6 +458,15 @@ export const contrastPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey
   { fg: 'onInverse', bg: 'inverse', use: 'inverse banner title (running late)' },
   { fg: 'onInverseMuted', bg: 'inverse', use: 'inverse banner note' },
   { fg: 'onInverseSuccess', bg: 'inverse', use: 'inverse banner: the credit came back' },
+  { fg: 'onInverseAccent', bg: 'inverse', use: 'live-order card: restaurant · status' },
+  { fg: 'onSelected', bg: 'selected', use: 'selected chip, radio, seat' },
+  { fg: 'onSelectedSoft', bg: 'selectedSoft', use: 'selected person chip' },
+  { fg: 'onSegmentSelected', bg: 'segmentSelected', use: 'chosen segment label' },
+  { fg: 'onStepperPlus', bg: 'stepperPlus', use: 'the stepper "+" glyph' },
+  { fg: 'liveText', bg: 'liveTint', use: 'taxi / tuktuk / الرجعة tile labels' },
+  { fg: 'liveText', bg: 'bg', use: 'live and moving copy on the screen' },
+  { fg: 'liveText', bg: 'surface', use: 'live and moving copy on a card' },
+  { fg: 'onDeal', bg: 'deal', use: 'deal sticker' },
 ];
 
 /**
@@ -271,7 +474,7 @@ export const contrastPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey
  * to use a control (WCAG 1.4.11): 3:1 against what sits next to it. Checked in `contrast.test.ts`
  * for both themes. Decorative borders (cards, dividers) are deliberately not listed.
  */
-export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey; use: string }> = [
+export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey; use: string; only?: readonly ThemeName[] }> = [
   { fg: 'borderStrong', bg: 'bg', use: 'text field at rest, secondary button outline on the screen' },
   { fg: 'borderStrong', bg: 'surface', use: 'text field at rest on a card, free seat outline' },
   { fg: 'borderStrong', bg: 'surfaceRaised', use: 'text field inside a sheet' },
@@ -286,6 +489,18 @@ export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey;
   { fg: 'onAccent', bg: 'accent', use: 'check icon on a selected chip or seat' },
   { fg: 'onInverseCaution', bg: 'inverse', use: 'clock icon and promise bar on the inverse banner' },
   { fg: 'onInverseSuccess', bg: 'inverse', use: 'check and bar on the inverse banner once credited' },
+  { fg: 'selectedBorder', bg: 'surface', use: 'selected chip outline on a card' },
+  { fg: 'selectedBorder', bg: 'bg', use: 'selected chip outline on the screen' },
+  { fg: 'onSelected', bg: 'selected', use: 'check icon on a selected chip' },
+  { fg: 'onSelectedMark', bg: 'selectedMark', use: 'check on a chosen person chip' },
+  { fg: 'accent', bg: 'inverse', use: 'live dot and progress on the live-order card', only: ['light', 'istikan'] },
+  // Istikan-only cues: in light the same roles are today's accent fills (unchanged for the other apps).
+  { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan'] },
+  { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan'] },
+  { fg: 'live', bg: 'bg', use: 'live dot, route on the screen', only: ['istikan'] },
+  { fg: 'live', bg: 'surface', use: 'live dot, route on a card', only: ['istikan'] },
+  { fg: 'segmentSelected', bg: 'surfaceSunken', use: 'segmented thumb on its track', only: ['istikan'] },
+  { fg: 'selected', bg: 'surface', use: 'selected chip fill on a card', only: ['istikan'] },
 ];
 
 /** Spacing scale of 4. Keys are multipliers; values are px. */
@@ -325,9 +540,22 @@ export const radius = {
 /** Arabic faces first; Latin fallbacks cover digits and mixed content. */
 export const fontFamily = {
   sans: ['IBM Plex Sans Arabic', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Segoe UI', 'Roboto', 'system-ui', 'sans-serif'],
-  display: ['IBM Plex Sans Arabic', 'Noto Kufi Arabic', 'Noto Sans Arabic', 'system-ui', 'sans-serif'],
+  /**
+   * Alexandria 700 (joy J-D2): headings ≥ 22 px and hero numerals (it has tabular digits). Plex comes
+   * second so the Console and the Partner share card, which don't load Alexandria, render as before.
+   */
+  display: ['Alexandria', 'IBM Plex Sans Arabic', 'Noto Kufi Arabic', 'Noto Sans Arabic', 'system-ui', 'sans-serif'],
+  /** Marhey 700 (joy J-D2): the hand-lettered voice, brand lines of ≤ 6 words, never numbers. */
+  voice: ['Marhey', 'Alexandria', 'IBM Plex Sans Arabic', 'Noto Kufi Arabic', 'system-ui', 'sans-serif'],
   mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
 } as const;
+
+/** Native font files for the brand faces (expo-font names from @expo-google-fonts/alexandria and /marhey). */
+export const brandFace = {
+  display: 'Alexandria_700Bold',
+  voice: 'Marhey_700Bold',
+} as const;
+export type BrandFace = keyof typeof brandFace;
 
 /**
  * Native font files (expo-font / @expo-google-fonts/ibm-plex-sans-arabic) are one family per
@@ -360,6 +588,14 @@ export const type = {
   numeralSm: { size: 34, lineHeight: 44, weight: 700 },
   numeralMd: { size: 44, lineHeight: 56, weight: 700 },
   numeralLg: { size: 48, lineHeight: 64, weight: 700 },
+  /**
+   * Brand lines in Marhey (`Text face="voice"`): section titles and the food tile. Line height is
+   * 1.65×: Marhey's and Alexandria's short descents clip ي and ج under tight leading on iOS.
+   */
+  voice: { size: 24, lineHeight: 40, weight: 700 },
+  voiceSm: { size: 20, lineHeight: 34, weight: 700 },
+  /** The live-order arrival time in Alexandria (tabular). */
+  numeralHero: { size: 30, lineHeight: 48, weight: 700 },
 } as const;
 export type TypeVariant = keyof typeof type;
 
@@ -388,7 +624,19 @@ export const motion = {
     countUp: 500,
     /** Split-flap digit tick on departure times (customer audit d-2). */
     flap: 180,
+    /** Map camera moves (route draws to the door). */
+    camera: 600,
+    /** The one ambient loop (steam while waiting). */
+    ambient: 2000,
+    /** Cap for a celebration burst. */
+    celebrate: 900,
+    /** Only the changed digits of an ETA roll. */
+    digitRoll: 220,
   },
+  /** "Pour & settle" (joy report 5 §6): things rise this far as they enter; a field error nudges this far. */
+  distance: { enter: 12, nudge: 4 },
+  /** Delay between list items entering (at most 3 items stagger). */
+  stagger: 40,
   /** CSS cubic-bezier strings (Console, web) — mirrored as control points in `bezier`. */
   easing: {
     standard: 'cubic-bezier(0.2, 0, 0, 1)',
@@ -412,6 +660,12 @@ export const motion = {
     sheet: { damping: 26, stiffness: 240, mass: 0.9 },
     /** Toast enter. */
     gentle: { damping: 18, stiffness: 160, mass: 1 },
+    /** "Pour & settle": an entering panel or card settles with about 4 % overshoot. */
+    settle: { damping: 14, stiffness: 170, mass: 0.9 },
+    /** One celebration burst (courier marker pop, arrival). */
+    celebrate: { damping: 10, stiffness: 180, mass: 0.8 },
+    /** Dish art hopping into the cart bar. */
+    hop: { damping: 16, stiffness: 220, mass: 0.7 },
   },
   /** Toast timing (audit S-21): longer with an action, longer again with a screen reader. */
   toast: { plainMs: 4000, actionMs: 8000, screenReaderFactor: 2, queue: 2 },
@@ -464,6 +718,40 @@ export const state = {
 /** Minimum touch target (px). */
 export const hitTarget = 44;
 
+export type HapticEventKind = 'selection' | 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error';
+
+/**
+ * Haptics are rare so they mean something (joy S2-18, report 5 §6): which buzz each event gets.
+ * `success` is kept for the big moments, `heavy` only for SOS. `secondaryButton` is what a
+ * secondary or ghost button fires: istikan none (primary and destructive only), the other themes keep
+ * today's light tap so the Partner and Merchant apps feel the same.
+ */
+export const haptic = {
+  events: {
+    primaryPress: 'light',
+    destructivePress: 'warning',
+    select: 'selection',
+    tabSwitch: 'selection',
+    addToCart: 'light',
+    cartLanded: 'selection',
+    orderPlaced: 'success',
+    kitchenAccepted: 'light',
+    courierPickedUp: 'medium',
+    runningLate: 'warning',
+    almostThere: 'medium',
+    arrival: 'success',
+    ratingStar: 'selection',
+    pointsEarned: 'success',
+    seatBooked: 'success',
+    topUpConfirmed: 'success',
+    fieldError: 'error',
+    errorToast: 'error',
+    backOnline: 'light',
+    sos: 'heavy',
+  } satisfies Record<string, HapticEventKind>,
+  secondaryButton: { light: 'light', dark: 'light', istikan: null } satisfies Record<ThemeName, HapticEventKind | null>,
+} as const;
+
 /**
  * Food drawing pigments (UI/UX audit S2-07, b3): fixed in both themes — a kebab must not turn pale
  * at night — and never UI roles (green herbs are not "success"). Decoration only: no text sits on
@@ -490,6 +778,30 @@ export const art = {
   juice: '#E8962E',
   metal: '#9A8F80',
   steam: '#C9B79C',
+  // Scene pigments of the Aziziyah sketchbook (joy J4): the Istikan hues as paint, plus the town.
+  kashi: '#0B6577',
+  kashiTint: '#9CC9D1',
+  saffron: '#F2C14E',
+  palm: '#2F7D4E',
+  palmDeep: '#235E3B',
+  pomegranate: '#B23A2E',
+  door: '#2F6B4F',
+  doorDeep: '#234F3B',
+  sky: '#F6E3C0',
+  river: '#86B7C0',
+  night: '#2A1D14',
+  nightSky: '#163A44',
+  wall: '#EAD9BC',
+  wallDeep: '#D9C29E',
+  wood: '#8A5A33',
+  woodLight: '#B07A48',
+  lemon: '#F2D35E',
+  cucumber: '#7BA05B',
+  lentil: '#E2A23A',
+  turnip: '#D46A8C',
+  hummus: '#E9D3A1',
+  fried: '#C9832F',
+  white: '#FFFCF6',
 } as const;
 export type ArtPigments = typeof art;
 
@@ -508,5 +820,9 @@ export const tokens = {
   minFontSize,
   fontScale,
   art,
+  scheme,
+  identity,
+  brandFace,
+  haptic,
 } as const;
 export type Tokens = typeof tokens;

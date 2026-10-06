@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
-import { ART_LOOKS, artOf, dishArt, motifForDish, sameDrawing } from './food-art';
+import { ART_LOOKS, artOf, dishArt, kitchenLook, motifForCuisine, motifForDish, sameDrawing } from './food-art';
 
 describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
   it('drinks: water is a bottle, laban and شنينة a glass, soft drinks a can, tea an istikan', () => {
@@ -75,5 +75,35 @@ describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
     const khalid = AZIZIYAH_RESTAURANTS.find((r) => r.key === 'khalid')!;
     const motifs = new Set(khalid.categories.flatMap((c) => c.items.map((i) => motifForDish(i.nameAr, c.nameAr))));
     expect(motifs.size).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe('kitchen looks', () => {
+  it('are stable per kitchen and vary across the launch kitchens', () => {
+    expect(kitchenLook('k1')).toBe(kitchenLook('k1'));
+    const looks = new Set(AZIZIYAH_RESTAURANTS.map((r) => kitchenLook(r.key)));
+    for (const l of looks) expect(l).toBeLessThan(ART_LOOKS);
+    expect(looks.size).toBeGreaterThan(1);
+  });
+});
+
+describe('cuisine words get a dish circle (joy b6)', () => {
+  it('draws the dish the word names', () => {
+    expect(motifForCuisine('كباب')).toBe('kebab');
+    expect(motifForCuisine('تكة')).toBe('tikka');
+    expect(motifForCuisine('كبد')).toBe('liver');
+    expect(motifForCuisine('تمن ومرق')).toBe('rice');
+    expect(motifForCuisine('شاورما')).toBe('shawarma');
+    expect(motifForCuisine('مناقيش')).toBe('bread');
+    expect(motifForCuisine('فلافل')).toBe('falafel');
+  });
+  it('knows the kitchen words a dish name would not use', () => {
+    expect(motifForCuisine('فطور')).toBe('tea');
+    expect(motifForCuisine('حلويات')).toBe('sweet');
+    expect(motifForCuisine('مشويات')).toBe('kebab');
+    expect(motifForCuisine('معجنات')).toBe('bread');
+  });
+  it('falls back to a plate for a word it does not know', () => {
+    expect(motifForCuisine('برغر')).toBe('plate');
   });
 });

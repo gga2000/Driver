@@ -26,10 +26,12 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
   const press = usePressScale(0.95);
   const pop = useSelectSpring(selected);
   const soft = !!avatar;
-  const bg = selected ? (soft ? theme.colors.accentTint : theme.colors.accent) : theme.colors.surface;
-  const fg = selected && !soft ? theme.colors.onAccent : theme.colors.text;
+  const c = theme.colors;
+  // Chosen = `selected` (ink in istikan, the accent in light), person chips the soft variant (joy S2-01).
+  const bg = selected ? (soft ? c.selectedSoft : c.selected) : c.surface;
+  const fg = selected ? (soft ? c.onSelectedSoft : c.onSelected) : c.text;
   // Selected is never colour alone (audit S-04): a darker outline plus a check mark.
-  const border = selected ? theme.colors.accentBorder : theme.colors.border;
+  const border = selected ? c.selectedBorder : c.border;
   const height = soft ? 44 : 36;
 
   return (
@@ -79,8 +81,8 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
           {label}
         </Text>
         {selected && soft ? (
-          <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="check" size={12} color="onAccent" strokeWidth={2.6} />
+          <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: c.selectedMark, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="check" size={12} color="onSelectedMark" strokeWidth={2.6} />
           </View>
         ) : null}
       </Animated.View>

@@ -1,6 +1,6 @@
 import type { BookingState, IntercityDirection, IntercitySeatId, IntercityVehicle, PrepayRail, RequestState, TravellingAs } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { ltr } from '@driver/ui';
+import { ltr, type IconName } from '@driver/ui';
 import type { TFn } from '@/lib/i18n';
 import { endpoints } from './logic';
 
@@ -19,6 +19,9 @@ export function routeLabel(t: TFn, corridorCityId: string, direction: IntercityD
 }
 
 export const TRAVELLING_AS: readonly TravellingAs[] = ['rijal', 'nisa', 'aila'];
+
+/** Each traveller type gets its own figure (joy S2-09): رجال a man, نساء a woman in a headscarf, عائلة a family. */
+export const TRAVELLING_AS_ICON: Readonly<Record<TravellingAs, IconName>> = { rijal: 'user', nisa: 'woman', aila: 'family' };
 
 export function travellingAsLabel(t: TFn, v: TravellingAs): string {
   return t(`intercity.travelling_as_${v}` as MessageKey);

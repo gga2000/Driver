@@ -31,7 +31,7 @@ export default function EditPlace() {
 
   useEffect(() => {
     if (place && !value) {
-      setValue({ label: place.label, name: place.name, pin: place.pin, zoneId: place.zoneId, note: place.note ?? '', photos: place.photos, shareWithHousehold: place.sharedWithHousehold });
+      setValue({ label: place.label, name: place.name, pin: place.pin, zoneId: place.zoneId, note: place.note ?? '', photos: place.photos, shareWithHousehold: place.sharedWithHousehold, entrance: place.entrance });
     }
   }, [place, value]);
 
@@ -66,6 +66,7 @@ export default function EditPlace() {
         note: value.note.trim() || null,
         photoIds: input.photoIds,
         shareWithHousehold: value.shareWithHousehold,
+        entrance: value.entrance,
         ...(moved && value.pin ? { pin: value.pin } : {}),
       });
       toast.show({ message: t('place.saved'), tone: 'success' });

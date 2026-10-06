@@ -5,7 +5,7 @@ import { useLocale, useT } from '@/lib/i18n';
 
 /**
  * A restaurant's live deal as a ticket-like strip ("خصم 20% على كل المنيو", "توصيل مجاني فوق 15,000
- * دينار"): brand orange tag on the leading edge, the line in ink on the pale accent wash. The label
+ * دينار"): a saffron `deal` tag on the leading edge (joy S2-03), the line in ink on the card. The label
  * is the server's; the server also decides whether it applies at checkout.
  */
 export function DealBadge({ deal, compact, style, testID }: { deal: Deal; compact?: boolean; style?: StyleProp<ViewStyle>; testID?: string }) {
@@ -25,21 +25,37 @@ export function DealBadge({ deal, compact, style, testID }: { deal: Deal; compac
           maxWidth: '100%',
           borderRadius: theme.radius.md,
           overflow: 'hidden',
-          backgroundColor: theme.colors.accentTint,
+          backgroundColor: theme.colors.surface,
           borderWidth: 1,
-          borderColor: theme.colors.accent,
+          borderColor: theme.colors.deal,
         },
         style,
       ]}
     >
-      <View style={{ backgroundColor: theme.colors.accent, paddingHorizontal: compact ? 6 : 8, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name="gift" size={compact ? 14 : 16} color="onAccent" strokeWidth={2.2} />
+      <View style={{ backgroundColor: theme.colors.deal, paddingHorizontal: compact ? 6 : 8, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="gift" size={compact ? 14 : 16} color="onDeal" strokeWidth={2.2} />
       </View>
       <View style={{ paddingHorizontal: compact ? 8 : 10, paddingVertical: compact ? 3 : 6, flexShrink: 1, justifyContent: 'center' }}>
-        <Text variant={compact ? 'caption' : 'label'} weight={700} color="accentText" numberOfLines={2} tabular>
+        <Text variant={compact ? 'caption' : 'label'} weight={700} color="text" numberOfLines={2} tabular>
           {label}
         </Text>
       </View>
+    </View>
+  );
+}
+
+/** A deal as a saffron sticker with ink text (joy S2-03: deals are a treat, never the success green). */
+export function DealSticker({ label, testID }: { label: string; testID?: string }) {
+  const theme = useTheme();
+  return (
+    <View
+      testID={testID}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: theme.space[2], minHeight: 24, borderRadius: theme.radius.sm, backgroundColor: theme.colors.deal }}
+    >
+      <Icon name="gift" size={13} color="onDeal" strokeWidth={2.2} />
+      <Text variant="caption" weight={700} color="onDeal" numberOfLines={1} compact>
+        {label}
+      </Text>
     </View>
   );
 }

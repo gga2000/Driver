@@ -5,6 +5,7 @@ import {
   PLACE_AGREE_RADIUS_M,
   PLACE_CONFIRM_MAX_ACCURACY_M,
   PLACE_CONFIRMED_CONFIDENCE,
+  PLACE_ENTRANCE_MAX_M,
   type ConfirmPlaceInput,
   type DoorSample,
   type LatLng,
@@ -32,6 +33,8 @@ export interface SavedPlaceRecord {
   photoIds: string[];
   /** Couriers' arrival fixes at delivered drop-offs (maps program a3), newest `DOOR_RULES.keep`. */
   arrivalSamples: DoorSample[];
+  /** Which gate couriers go in by (maps program a4), within `PLACE_ENTRANCE_MAX_M` of the pin. */
+  entrance: LatLng | null;
   confidence: number;
   confirmedAt: Date | null;
   shareWithHousehold: boolean;
@@ -111,11 +114,20 @@ export function courierMaySeePlaceDetails(input: {
   return !trip.completedAt || input.now.getTime() <= trip.completedAt.getTime() + 3_600_000;
 }
 
+const samePoint = (a: LatLng | null, b: LatLng | null): boolean => a === b || (a !== null && b !== null && a.lat === b.lat && a.lng === b.lng);
+
+/** A marked gate, refused when it is too far from the pin to be this house's (maps program a4). */
+function entranceNear(pin: LatLng, entrance: LatLng | null): LatLng | null {
+  if (!entrance) return null;
+  if (distanceM(pin, entrance) > PLACE_ENTRANCE_MAX_M) throw new DriverError('place_entrance_too_far');
+  return entrance;
+}
+
 /** Subscriber name for the door learning (maps program a3). */
 export const PLACES_DOOR_SUBSCRIBER = 'places:door-learning';
 
 /** The `door` part of a `stop.completed` payload (trips adds it for drop-offs at saved places). */
-const DoorPayload = z.object({ stopId: z.string(), door: z.object({ placeId: z.string(), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }) });
+const DoorPayload = z.object({ stopId: z.string(), door: z.object({ placeId: z.string(), courierId: z.string(), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }) });
 
 /**
  * Customers' saved places (domain §7, customer spec §10): owner-only writes, zone resolved from the
@@ -147,7 +159,7 @@ export class SavedPlacesService implements OnModuleInit {
       // Pickups, rides and drop-offs without a saved place or a precise arrival carry no door.
       if (!p.success) return;
       const { door, stopId } = p.data;
-      await this.learnDoor(door.placeId, { stopId, lat: door.lat, lng: door.lng, accuracyM: door.accuracyM, at: e.occurredAt });
+      await this.learnDoor(door.placeId, { stopId, courierId: door.courierId, lat: door.lat, lng: door.lng, accuracyM: door.accuracyM, at: e.occurredAt });
     });
   }
 
@@ -181,6 +193,7 @@ export class SavedPlacesService implements OnModuleInit {
       note: input.note?.trim() || null,
       photoIds,
       arrivalSamples: [],
+      entrance: entranceNear(input.pin, input.entrance ?? null),
       confidence: INITIAL_CONFIDENCE,
       confirmedAt: null,
       shareWithHousehold: input.shareWithHousehold,
@@ -203,14 +216,17 @@ export class SavedPlacesService implements OnModuleInit {
     }
     if (input.name !== undefined) rec.name = input.name.trim();
     if (input.note !== undefined) rec.note = input.note?.trim() || null;
+    let forgetDoor = false;
     if (input.pin) {
       const moved = distanceM(rec.pin, input.pin);
       rec.zoneId = this.zoneOrThrow(rec.cityId, input.pin);
       rec.pin = input.pin;
-      // A pin moved by hand is a new claim: the old confirmation no longer vouches for it.
+      // A pin moved by hand is a new claim: the old confirmation, and the door couriers learned
+      // for the old spot (maps a3), no longer vouch for it.
       if (moved > PLACE_AGREE_RADIUS_M) {
         rec.confidence = INITIAL_CONFIDENCE;
         rec.confirmedAt = null;
+        forgetDoor = true;
       }
     }
     if (input.photoIds) {
@@ -218,10 +234,16 @@ export class SavedPlacesService implements OnModuleInit {
       for (const old of rec.photoIds) if (!next.includes(old)) await this.blobs.remove(old);
       rec.photoIds = next;
     }
+    // A gate the owner changes must be near the house; an unchanged one sent back with a moved pin is
+    // simply dropped below when the house moved too far from it.
+    if (input.entrance !== undefined && !samePoint(input.entrance, rec.entrance)) rec.entrance = entranceNear(rec.pin, input.entrance);
+    // The house moved: a gate left far behind belongs to the old one.
+    if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
     const startedSharing = input.shareWithHousehold === true && !rec.shareWithHousehold;
     if (input.shareWithHousehold !== undefined) rec.shareWithHousehold = input.shareWithHousehold;
     rec.updatedAt = now;
     await this.repo.put(rec);
+    if (forgetDoor) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.updated', personId, { placeId: rec.id, ownerId: personId, zoneId: rec.zoneId, label: rec.label, photos: rec.photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (startedSharing) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);
     return this.view(rec, personId);
@@ -245,6 +267,7 @@ export class SavedPlacesService implements OnModuleInit {
     if (moved) {
       rec.zoneId = this.zoneOrThrow(rec.cityId, input.pin);
       rec.pin = input.pin;
+      if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
       rec.confidence = OWNER_MOVE_CONFIDENCE;
     } else {
       rec.confidence = Math.max(rec.confidence, OWNER_AGREE_CONFIDENCE);
@@ -252,6 +275,8 @@ export class SavedPlacesService implements OnModuleInit {
     rec.confirmedAt = now;
     rec.updatedAt = now;
     await this.repo.put(rec);
+    // Standing somewhere else: the door couriers learned belongs to the old spot (maps a3).
+    if (moved) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.confirmed', personId, { placeId: rec.id, ownerId: personId, by: 'owner', moved, distanceM: Math.round(d), zoneId: rec.zoneId, confidence: rec.confidence }, rec.id);
     return this.view(rec, personId);
   }
@@ -274,7 +299,8 @@ export class SavedPlacesService implements OnModuleInit {
   async deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null> {
     if (!(await this.usableBy(personId, placeId))) return null;
     const r = await this.repo.get(placeId);
-    return r ? { door: doorPoint(r.arrivalSamples, r.pin) } : null;
+    // The gate the owner marked comes first; else the door couriers' arrivals agree on.
+    return r ? { door: r.entrance ?? doorPoint(r.arrivalSamples, r.pin) } : null;
   }
 
   /**
@@ -282,11 +308,11 @@ export class SavedPlacesService implements OnModuleInit {
    * photos as signed links — only for the assigned courier, from accepting until an hour after the
    * trip (domain §7, `courierMaySeePlaceDetails`); null otherwise or when the place is gone.
    */
-  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean } | null> {
+  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean; entranceSet: boolean } | null> {
     if (!courierMaySeePlaceDetails(input)) return null;
     const r = await this.repo.get(placeId);
     if (!r) return null;
-    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null };
+    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null, entranceSet: r.entrance !== null };
   }
 
   /**
@@ -372,6 +398,7 @@ export class SavedPlacesService implements OnModuleInit {
       confirmed: r.confidence >= PLACE_CONFIRMED_CONFIDENCE,
       confirmedAt: r.confirmedAt,
       doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null,
+      entrance: r.entrance,
       sharedWithHousehold: r.shareWithHousehold,
       access: r.ownerId === viewerId ? 'owner' : 'household',
       createdAt: r.createdAt,
