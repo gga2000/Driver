@@ -104,6 +104,11 @@ describe('merchant board — grouping by person', () => {
 });
 
 describe('merchant board — cards', () => {
+  it('joy w4: a household order waiting for the payer is not on the board until the payer says yes', () => {
+    expect(toBoardOrder({ order: order({ heldForPayer: true }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).toBeNull();
+    expect(toBoardOrder({ order: order({ heldForPayer: false }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).not.toBeNull();
+  });
+
   it('a new order carries the 90-s deadline, cash to collect and the item count', () => {
     const card = toBoardOrder({ order: order(), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })!;
     expect(card).toMatchObject({ column: 'new', collectCashIqd: 15500, itemCount: 3, note: 'دگ الجرس مرتين', late: false, prepMinutes: null });

@@ -10,13 +10,14 @@ import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREF
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
-import { OrgsModule, OrgsService } from '../orgs/index.js';
+import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { PromotionsModule, PromotionsService } from '../promotions/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { ORDERS_CATALOG } from './catalog.port.js';
 import { ORDERS_CONTROLS } from './controls.port.js';
 import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
+import { ORDERS_HOUSEHOLDS, orgsHouseholds } from './households.port.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
@@ -70,6 +71,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
     { provide: ORDERS_CATALOG, useExisting: CatalogService },
+    // Joy w4: who may spend the household wallet, their limits and budgets, the payer's approval.
+    { provide: ORDERS_HOUSEHOLDS, useFactory: (orgs: OrgsService) => orgsHouseholds(orgs), inject: [OrgsService] },
     { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService, clock: Clock) => new OrgsMerchantDirectory(orgs, () => clock.now()), inject: [OrgsService, CLOCK] },
     {
       provide: PARTICIPANT_RESOLVER,
@@ -114,6 +117,7 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly orders: OrdersService,
     private readonly controls: ControlsService,
     private readonly trips: TripsService,
+    private readonly households: HouseholdsRpc,
   ) {}
 
   onModuleInit(): void {
@@ -121,6 +125,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
     this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
+    // Joy w4: a payer's yes or no moves the held household order (its timer settles it otherwise).
+    this.households.bindDecision((req) => (req.state === 'approved' || req.state === 'declined' ? this.orders.onPayerDecision(req.orderId, req.state) : Promise.resolve()));
     // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
     this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
     const q = this.queue;

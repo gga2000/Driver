@@ -27,5 +27,8 @@ export { serverFees, verticalOf } from './fees.js';
 export type { ServerFees } from './fees.js';
 export { OrdersStorefrontMerchants } from './storefront.port.js';
 export { ORDERS_CONTROLS, THROTTLED_ORDER_TYPES } from './controls.port.js';
+export { ORDERS_HOUSEHOLDS, orgsHouseholds } from './households.port.js';
+export type { OrdersHouseholdsPort } from './households.port.js';
+export type { OrderAggregate, OrderRecord, OrderLineRecord } from './orders.repository.js';
 export type { OrdersControlsPort } from './controls.port.js';
 export { OrderTipsService, ORDER_TIPPED_EVENT, TIP_RULES } from './tips.js';

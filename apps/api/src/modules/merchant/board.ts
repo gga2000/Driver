@@ -151,6 +151,8 @@ export interface BoardOrderFacts {
 export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, now }: BoardOrderFacts): BoardOrder | null {
   const column = boardColumn(o.state);
   if (!column) return null;
+  // Joy w4: a household order waiting for the payer's yes is not the kitchen's business yet.
+  if (o.heldForPayer && o.state === 'placed') return null;
   const groups = groupLines(o, itemNames);
   const itemCount = groups.reduce((a, g) => a + g.itemCount, 0);
   const acceptBy = column === 'new' && o.merchantOfferedAt ? new Date(o.merchantOfferedAt.getTime() + acceptWindowSec * 1000) : null;

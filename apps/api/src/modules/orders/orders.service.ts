@@ -1,7 +1,13 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
+  baghdadMonth,
+  baghdadMonthRange,
   DriverError,
+  HOUSEHOLD_RULES,
+  householdApproval,
+  householdMonthSpend,
+  type HouseholdApprovalReason,
   MERCHANT_PREP_EXTENSION,
   latePromiseTerms,
   type LatePromiseBasis,
@@ -65,6 +71,7 @@ import {
   type OrderSearchFilter,
   type OrdersRepository,
 } from './orders.repository.js';
+import { ORDERS_HOUSEHOLDS, type OrdersHouseholdsPort } from './households.port.js';
 import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
 import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
@@ -137,6 +144,8 @@ export const ORDER_JOBS = {
   autoClose: 'order.autoClose',
   partialTimeout: 'order.partialTimeout',
   offerToMerchant: 'order.offerToMerchant',
+  /** Joy w4: a held household order nobody answered is cancelled free (`HOUSEHOLD_RULES.approvalWaitMin`). */
+  payerTimeout: 'order.payerTimeout',
   readyOverdue: 'merchant.readyOverdue',
   courierRelease: 'merchant.courierRelease',
 } as const;
@@ -183,6 +192,7 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_CONTROLS) private readonly controls?: OrdersControlsPort,
     @Optional() @Inject(ORDERS_WALLET) private readonly wallet?: OrdersWalletPort,
     @Optional() @Inject(ORDERS_PLACES) private readonly places?: OrdersPlacesPort,
+    @Optional() @Inject(ORDERS_HOUSEHOLDS) private readonly households?: OrdersHouseholdsPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
@@ -288,6 +298,9 @@ export class OrdersService implements OnModuleInit {
     // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
+    // Joy w4: the household wallet — only its payers and orderers, kitchen and shop orders only; over
+    // a per-order limit or the month's budget the order waits for the payer (never a silent block).
+    const askPayer = input.householdOrgId ? await this.householdCheck(ordererId, input.householdOrgId, Boolean(merchantType), total, now) : null;
     // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders.
     if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
       const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
@@ -333,6 +346,8 @@ export class OrdersService implements OnModuleInit {
           minVehicleClass: caps?.minVehicleClass ?? null,
           dropoff: input.dropoff ?? null,
           placedAt: now,
+          heldForPayer: askPayer !== null,
+          familyTable: input.familyTable ?? false,
         },
         newLines,
         participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
@@ -358,14 +373,70 @@ export class OrdersService implements OnModuleInit {
       for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
       if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
 
-      if (merchantType && profile) {
-        const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
-        const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
-        if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
-        else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
+      if (askPayer && order.householdOrgId && this.households) {
+        // Held: the kitchen sees nothing until the payer says yes; the request commits with the order.
+        await this.households.requestApproval({ householdId: order.householdOrgId, orderId: order.id, requestedBy: ordererId, amountIqd: total, reason: askPayer });
+        await this.emit(tx, 'order.awaiting_payer', ordererId, order, { householdId: order.householdOrgId, reason: askPayer, totalIqd: total, waitMin: HOUSEHOLD_RULES.approvalWaitMin });
+        await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
+      } else if (merchantType && profile) {
+        await this.scheduleOffer(order, profile, now, tx);
       }
       return this.view(order.id, tx);
     });
+  }
+
+  /**
+   * Joy w4 at placement: refuses anyone but the household's payers and orderers, and anything but a
+   * kitchen or shop order (a driver search can't wait for a yes); then the shared rule says whether
+   * the payer is asked, on the member's spend on this wallet this Baghdad month.
+   */
+  private async householdCheck(ordererId: string, householdId: string, merchantOrder: boolean, totalIqd: number, now: Date): Promise<HouseholdApprovalReason | null> {
+    const member = this.households ? await this.households.member(householdId, ordererId) : null;
+    if (!member || member.role === 'member') throw new DriverError('household_cannot_order');
+    if (!merchantOrder) throw new DriverError('household_wallet_food_only');
+    const { from, to } = baghdadMonthRange(baghdadMonth(now));
+    const month = await this.repo.householdOrdersBetween(householdId, [], from, to);
+    return householdApproval({
+      role: member.role,
+      orderLimitIqd: member.spendingLimitIqd,
+      monthlyBudgetIqd: member.monthlyBudgetIqd,
+      monthSpentIqd: householdMonthSpend(month, householdId, ordererId),
+      totalIqd,
+    });
+  }
+
+  /** The kitchen sees the order now, or at T − prep − lead for a scheduled one (review A.12). */
+  private async scheduleOffer(order: OrderRecord, profile: MerchantProfile, now: Date, tx: Tx): Promise<void> {
+    const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
+    const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
+    if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
+    else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
+  }
+
+  /**
+   * Joy w4: the payer answered a held order. Yes → the kitchen gets it (now, or at its scheduled
+   * time); no → cancelled free (`payer_declined`). Anything else (not held, already moved) is a no-op,
+   * so a repeated or late answer changes nothing.
+   */
+  async onPayerDecision(orderId: string, decision: 'approved' | 'declined'): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const agg = await this.repo.find(orderId, tx);
+      if (!agg || !agg.order.heldForPayer || agg.order.state !== 'placed') return;
+      await this.settleHeld(agg.order, decision === 'approved' ? 'approved' : 'payer_declined', tx);
+    });
+  }
+
+  private async settleHeld(order: OrderRecord, outcome: 'approved' | 'payer_declined' | 'payer_no_answer', tx: Tx): Promise<void> {
+    const now = this.clock.now();
+    if (outcome === 'approved') {
+      const released = await this.repo.update(order.id, { heldForPayer: false }, tx);
+      await this.emit(tx, 'order.payer_approved', SYSTEM, released, { householdId: order.householdOrgId });
+      const profile = released.merchantOrgId ? await this.merchants.profile(released.merchantOrgId) : null;
+      if (profile) await this.scheduleOffer(released, profile, now, tx);
+      return;
+    }
+    await this.move(order, 'platform_cancelled', SYSTEM, tx, { cancelledAt: now, cancellationReason: outcome, cancellationFeeIqd: 0 }, this.cancelled(order, { by: 'platform', reason: outcome, free: true, feeIqd: 0 }));
+    if (outcome === 'payer_no_answer' && order.householdOrgId) await this.households?.withdraw(order.householdOrgId, order.id, SYSTEM);
   }
 
   /**
@@ -600,7 +671,7 @@ export class OrdersService implements OnModuleInit {
    * Auto-accept merchants (domain §2) skip acceptance; everyone else gets the 90-s clock.
    */
   private async offerToMerchant(order: OrderRecord, profile: MerchantProfile, tx: Tx): Promise<void> {
-    if (order.merchantOfferedAt || order.state !== 'placed') return;
+    if (order.merchantOfferedAt || order.state !== 'placed' || order.heldForPayer) return;
     const now = this.clock.now();
     const offered = await this.repo.update(order.id, { merchantOfferedAt: now }, tx);
     const catering = order.itemsTotalIqd > CATERING_ABOVE_IQD;
@@ -839,6 +910,8 @@ export class OrdersService implements OnModuleInit {
         if (order.type === 'ride') await this.trips.cancel(trip.id, 'customer', actorId, reason);
         else await this.trips.detachOrder(trip.id, order.id, actorId, 'order_cancelled');
       }
+      // Joy w4: a held order the orderer cancelled stops asking the payer.
+      if (order.heldForPayer && order.householdOrgId) await this.households?.withdraw(order.householdOrgId, order.id, actorId);
       return this.view(order.id, tx);
     });
   }
@@ -1172,6 +1245,22 @@ export class OrdersService implements OnModuleInit {
     return this.load(orderId);
   }
 
+  /** Joy w4: a household's orders in `[from, to)` — on its wallet, or «للسفرة» orders of these members. */
+  householdOrdersBetween(householdId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {
+    return this.repo.householdOrdersBetween(householdId, memberIds, from, to);
+  }
+
+  /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
+  async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
+    const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
+    const out: OrderAggregate[] = [];
+    for (const o of mine.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))) {
+      const agg = await this.repo.find(o.id);
+      if (agg) out.push(agg);
+    }
+    return out;
+  }
+
   // ───────────────────────── timers ─────────────────────────
 
   async handleTimer(name: string, job: OrderTimerJob): Promise<void> {
@@ -1184,6 +1273,13 @@ export class OrdersService implements OnModuleInit {
         case ORDER_JOBS.offerToMerchant: {
           const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
           if (profile) await this.offerToMerchant(order, profile, tx);
+          return;
+        }
+        case ORDER_JOBS.payerTimeout: {
+          if (!order.heldForPayer || order.state !== 'placed' || !order.householdOrgId) return;
+          // The answer may have landed while its hand-off failed: it stands; silence cancels free.
+          const answer = this.households ? await this.households.decision(order.householdOrgId, order.id) : null;
+          await this.settleHeld(order, answer === 'approved' ? 'approved' : answer === 'declined' ? 'payer_declined' : 'payer_no_answer', tx);
           return;
         }
         case ORDER_JOBS.autoReject: {
@@ -1907,6 +2003,8 @@ export function toOrderView(agg: OrderAggregate): Order {
     ordererId: order.ordererId,
     merchantOrgId: order.merchantOrgId,
     householdOrgId: order.householdOrgId,
+    ...(order.heldForPayer ? { heldForPayer: true } : {}),
+    ...(order.familyTable ? { familyTable: true } : {}),
     quoteId: order.quoteId,
     paymentMethod: order.paymentMethod,
     itemsTotalIqd: order.itemsTotalIqd,

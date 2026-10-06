@@ -69,6 +69,10 @@ export interface OrderRecord {
   ratedAt: Date | null;
   /** Customer app §4 two-tap rating (`orders.rating`, JSON); absent/null until rated. */
   rating?: OrderRating | null;
+  /** Joy w4: on the household wallet and over a limit — waiting for the payer (`orders.held_for_payer`). */
+  heldForPayer?: boolean;
+  /** J5a «للسفرة»: placed with dishes for the family table (`orders.family_table`). */
+  familyTable?: boolean;
 }
 
 /** `orders.discount_meta`: the applied discount without its amount and promotion id (those are columns). */
@@ -166,6 +170,12 @@ export interface OrdersRepository {
   deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /**
+   * Joy w4: a household's orders placed in `[from, to)` — on its wallet, or «للسفرة» orders of the
+   * given members — oldest first. One bounded read on `(household_org_id, placed_at)` plus the members'
+   * `(orderer_id, placed_at)`.
+   */
+  householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
@@ -262,6 +272,8 @@ function orderFromRow(r: any): OrderRecord {
     cancellationFeeIqd: r.cancellationFeeIqd,
     ratedAt: r.ratedAt,
     rating: ratingFromJson(r.rating),
+    heldForPayer: r.heldForPayer ?? false,
+    familyTable: r.familyTable ?? false,
   };
 }
 
@@ -406,6 +418,14 @@ export class PrismaOrdersRepository implements OrdersRepository {
       WHERE "merchant_org_id" = ${merchantOrgId} AND "placed_at" >= ${from} AND "placed_at" < ${to} AND "delivered_at" IS NOT NULL
       GROUP BY 1`;
     return rows.map((r) => ({ zoneKey: r.zone_key, orders: Number(r.orders) }));
+  }
+
+  async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { placedAt: { gte: from, lt: to }, OR: [{ householdOrgId }, ...(memberIds.length > 0 ? [{ familyTable: true, ordererId: { in: [...memberIds] } }] : [])] },
+      orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(orderFromRow);
   }
 
   async forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]> {
@@ -563,6 +583,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       counts.set(zone, (counts.get(zone) ?? 0) + 1);
     }
     return [...counts.entries()].map(([zoneKey, orders]) => ({ zoneKey, orders }));
+  }
+
+  async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {
+    return [...this.orders.values()]
+      .filter((o) => o.placedAt >= from && o.placedAt < to && (o.householdOrgId === householdOrgId || (o.familyTable === true && memberIds.includes(o.ordererId))))
+      .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))
+      .map((o) => ({ ...o }));
   }
 
   async forPerson(personId: string): Promise<OrderRecord[]> {

@@ -15,6 +15,8 @@ import type { ParticipantResolver } from './participants.js';
 import type { PromotionQuery, PromotionsPort, ResolvedPromotion } from './promotions.port.js';
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { InMemoryPromotionsRepository, dealBadge, type DealRecord } from '../promotions/index.js';
+import { OrgsService } from '../orgs/index.js';
+import { orgsHouseholds } from './households.port.js';
 
 /** Stand-in for identity's peppered HMAC: deterministic, and the number cannot be read back from it. */
 export function fakePhoneHash(phone: string): string {
@@ -147,6 +149,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   const wallets = new Map<string, number>();
   const placeOwners = new Map<string, string>();
   const placeDoors = new Map<string, { lat: number; lng: number }>();
+  // Joy w4: households (payers, orderers, limits, budgets, approvals) on in-memory orgs.
+  const orgs = new OrgsService(undefined, clock);
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
     itemsOf: async (orgId, ids) => {
       if (await merchants.profile(orgId)) await ensureMenu(orgId);
@@ -163,7 +167,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
   }, {
     // Maps program SP3d: saved places by owner (`placeOwners.set(placeId, personId)`).
     deliveryPlace: async (personId, placeId) => (placeOwners.get(placeId) === personId ? { door: placeDoors.get(placeId) ?? null } : null),
-  });
+  }, orgsHouseholds(orgs));
   orders.onModuleInit();
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
@@ -240,5 +244,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z') {
     await deliver();
   }
 
-  return { clock, uow, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }
