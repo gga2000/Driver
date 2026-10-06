@@ -214,7 +214,9 @@ export default function CheckoutScreen() {
           pointsIqd: totals.pointsIqd,
         }),
       );
-      cartStore.markPlaced(order.id);
+      // o12: someone else receives it — keep their name and phone for «دز له رابط التتبع».
+      const person = r.kind === 'person' ? cart.people.find((p) => p.id === r.personId) : undefined;
+      cartStore.markPlaced(order.id, r.kind === 'other' ? { name: r.name, phone: r.phone } : person?.phone ? { name: person.name, phone: person.phone } : null);
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       router.replace({ pathname: '/kitchen/[id]', params: { id: order.id } });
     } catch (err) {

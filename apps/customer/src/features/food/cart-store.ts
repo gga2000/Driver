@@ -26,6 +26,12 @@ import type { PlaceAttempt } from './place-attempt';
 
 export type SavedPerson = CartPerson;
 
+/** Someone else receiving the order: their name and phone (E.164), kept on this device only. */
+export interface PlacedRecipient {
+  name: string;
+  phone: string;
+}
+
 export interface RemovedLine {
   line: CartLine;
   merchant: CartMerchant;
@@ -35,8 +41,11 @@ export interface RemovedLine {
 export interface CartStoreState {
   loaded: boolean;
   cart: CartState;
-  /** The order waiting for the kitchen and the cart it came from. */
-  placed: { orderId: string; cart: CartState } | null;
+  /**
+   * The order waiting for the kitchen and the cart it came from; `recipient` when someone else
+   * receives it (joy o12: the kitchen screen offers to send them the tracking link on WhatsApp).
+   */
+  placed: { orderId: string; cart: CartState; recipient?: PlacedRecipient | null } | null;
   people: SavedPerson[];
   /**
    * The checkout attempt whose answer never came (no duplicate orders): its key is re-sent until the
@@ -88,7 +97,14 @@ export function createCartStore(store: KeyValueStorage) {
         state = {
           loaded: true,
           cart: isCart(parsed.cart) ? parsed.cart : EMPTY_CART,
-          placed: parsed.placed && typeof parsed.placed.orderId === 'string' && isCart(parsed.placed.cart) ? parsed.placed : null,
+          placed:
+            parsed.placed && typeof parsed.placed.orderId === 'string' && isCart(parsed.placed.cart)
+              ? {
+                  orderId: parsed.placed.orderId,
+                  cart: parsed.placed.cart,
+                  recipient: parsed.placed.recipient && typeof parsed.placed.recipient.name === 'string' && typeof parsed.placed.recipient.phone === 'string' ? parsed.placed.recipient : null,
+                }
+              : null,
           people: Array.isArray(parsed.people) ? parsed.people.filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string') : [],
           pending: parsed.pending && typeof parsed.pending.key === 'string' && typeof parsed.pending.signature === 'string' ? { key: parsed.pending.key, signature: parsed.pending.signature, unknownSince: typeof parsed.pending.unknownSince === 'number' ? parsed.pending.unknownSince : null } : null,
         };
@@ -128,8 +144,8 @@ export function createCartStore(store: KeyValueStorage) {
       emit({ ...state, cart: EMPTY_CART });
     },
     /** The order is placed: the cart moves to `placed` until the kitchen answers. */
-    markPlaced(orderId: string) {
-      emit({ ...state, placed: { orderId, cart: state.cart }, cart: EMPTY_CART, pending: null });
+    markPlaced(orderId: string, recipient: PlacedRecipient | null = null) {
+      emit({ ...state, placed: { orderId, cart: state.cart, recipient }, cart: EMPTY_CART, pending: null });
     },
     /** The checkout attempt in progress or with an unknown outcome (null: none). */
     setPending(attempt: PlaceAttempt | null) {

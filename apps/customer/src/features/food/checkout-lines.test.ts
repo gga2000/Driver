@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { earnCopy, etaClockAt, payCopy, payerOf, paymentOf, receiverHint } from './checkout-lines';
+import { earnCopy, etaClockAt, payCopy, payerOf, paymentOf, receiverHint, trackingMessage } from './checkout-lines';
 
 describe('earnCopy (o7): the server’s points estimate in words', () => {
   it('solo and group orders', () => {
@@ -30,6 +30,12 @@ describe('who pays (o12) maps onto the existing payment methods', () => {
   it('says what the courier asks the receiver', () => {
     expect(receiverHint('أبو علي', 'wallet')).toEqual({ key: 'checkout.receiver_paid_hint', params: { name: 'أبو علي' } });
     expect(receiverHint('أبو علي', 'cash')).toEqual({ key: 'checkout.receiver_cash_hint', params: { name: 'أبو علي' } });
+  });
+});
+
+describe('trackingMessage (o12)', () => {
+  it('names the kitchen and carries the link', () => {
+    expect(trackingMessage('مطعم خالد', 'https://x/share/t1')).toEqual({ key: 'kitchen.whatsapp_message', params: { merchant: 'مطعم خالد', url: 'https://x/share/t1' } });
   });
 });
 

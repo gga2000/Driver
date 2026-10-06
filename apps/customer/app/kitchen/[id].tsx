@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { travelMinutes, type RestaurantCard } from '@driver/contracts';
 import { formatClock, formatRange } from '@driver/i18n';
@@ -10,12 +10,15 @@ import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
+import { trackingMessage } from '@/features/food/checkout-lines';
 import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from '@/features/food/kitchen-moment';
 import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
 import { isKitchenAccepted, isKitchenRejection, useCancelOrder, useCatalogRestaurants, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { similarOpenRestaurants } from '@/features/food/similar';
+import { whatsappUrl } from '@/features/help/whatsapp';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
-import { apiErrorMessage, useApi } from '@/lib/api';
+import { shareUrl } from '@/features/rajaa/share';
+import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useProfile } from '@/lib/profile';
@@ -42,6 +45,8 @@ export default function KitchenScreen() {
   const { name: myName } = useProfile();
   const { dropoff } = useDeliverTo();
   const cancel = useCancelOrder();
+  const client = useApiClient();
+  const [sending, setSending] = useState(false);
   const o = order.data;
   // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
   const pushAsk = usePushAsk(o?.state === 'placed');
@@ -95,6 +100,22 @@ export default function KitchenScreen() {
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the moment runs once per answer
   }, [o?.state, id]);
+
+  // o12: send the person receiving it the live tracking link (the share page), typed into WhatsApp.
+  const recipient = placed?.orderId === id ? (placed.recipient ?? null) : null;
+  const sendTracking = async () => {
+    if (!id || !recipient) return;
+    setSending(true);
+    try {
+      const link = await client.tracking.createShareLink.mutate({ orderId: id });
+      const msg = trackingMessage(name, shareUrl(link.path));
+      await Linking.openURL(whatsappUrl(recipient.phone, t(msg.key, msg.params)));
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const onCancel = async () => {
     if (!id) return;
@@ -155,6 +176,19 @@ export default function KitchenScreen() {
           )}
           <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
           <PersonLinesCard groups={groups} myName={myName} totalLine={t('kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
+          {recipient && !yes ? (
+            <Card elevation={0} padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-send-tracking">
+              <View style={{ gap: theme.space[2] }}>
+                <Text variant="label" weight={600}>
+                  {t('kitchen.whatsapp_title', { name: recipient.name })}
+                </Text>
+                <Text variant="footnote" color="textMuted">
+                  {t('kitchen.whatsapp_body')}
+                </Text>
+                <Button size="sm" variant="secondary" icon="share" label={t('kitchen.whatsapp_send')} loading={sending} onPress={() => void sendTracking()} testID="kitchen-send-tracking-button" style={{ alignSelf: 'flex-start' }} />
+              </View>
+            </Card>
+          ) : null}
           {pushAsk.visible && !yes ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
         </View>
       </Screen>

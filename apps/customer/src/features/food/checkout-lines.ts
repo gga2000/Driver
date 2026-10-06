@@ -48,6 +48,11 @@ export function receiverHint(name: string, payment: 'cash' | 'wallet'): Copy {
   return payment === 'wallet' ? { key: 'checkout.receiver_paid_hint', params: { name } } : { key: 'checkout.receiver_cash_hint', params: { name } };
 }
 
+/** The WhatsApp message with the live tracking link for the person receiving the order (o12). */
+export function trackingMessage(merchant: string, url: string): Copy {
+  return { key: 'kitchen.whatsapp_message', params: { merchant, url } };
+}
+
 /**
  * The ETA as a clock time (o9, audit F-32): the far end of the kitchen + ride range from now, rounded
  * up to 5 minutes — «يوصلك تقريباً 7:40 م» is easier to plan a family dinner around than a duration.
