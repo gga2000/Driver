@@ -7,7 +7,7 @@
     "runtimeVersion": { "policy": "fingerprint" },
     "updates": { "enabled": true, "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "locales": { "ar": "./locales/ar.json" },
     "extra": {
