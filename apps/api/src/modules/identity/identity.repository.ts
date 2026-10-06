@@ -1,4 +1,4 @@
-import { EmergencyRelation, type OtpPurpose, type RoleKind } from '@driver/contracts';
+import { DEFAULT_SAFETY_PREFS, EmergencyRelation, SafetyPrefs, TRUSTED_CONTACTS_MAX, type OtpPurpose, type RoleKind } from '@driver/contracts';
 import { Prisma, type TrustTier } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -90,6 +90,10 @@ export interface IdentityRecord {
   /** The approved main photo customers see (storage ref) and when it was approved; absent/null = none. */
   mainPhotoRef?: string | null;
   mainPhotoAt?: Date | null;
+  /** Joy w9: up to three trusted people, the first being the emergency contact; null = never set (falls back to the emergency contact). */
+  trustedContacts?: EmergencyContactRecord[] | null;
+  /** Joy w9: the safety switches; null = the defaults (all off). */
+  safetyPrefs?: SafetyPrefs | null;
 }
 
 export interface EmergencyContactRecord {
@@ -135,7 +139,7 @@ export interface IdentityRepository {
   readIdentity(personId: string, tx?: Tx): Promise<IdentityRecord | null>;
   /** Batched `readIdentity` (one query); people without a vault row are left out. */
   readIdentities(personIds: readonly string[], tx?: Tx): Promise<IdentityRecord[]>;
-  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx): Promise<IdentityRecord>;
+  updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt' | 'trustedContacts' | 'safetyPrefs'>>, tx?: Tx): Promise<IdentityRecord>;
   logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
   /** One VaultAccessLog row per entry, written in one statement; returns how many were written. */
   logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx): Promise<number>;
@@ -259,11 +263,14 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return rows.map(identityRecord);
   }
 
-  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx) {
-    const { emergencyContact, ...rest } = patch;
+  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt' | 'trustedContacts' | 'safetyPrefs'>>, tx?: Tx) {
+    const { emergencyContact, trustedContacts, safetyPrefs, ...rest } = patch;
+    const contactJson = (c: EmergencyContactRecord) => ({ name: c.name, phoneE164: c.phoneE164, ...(c.relation ? { relation: c.relation } : {}) });
     const data = {
       ...rest,
-      ...(emergencyContact !== undefined ? { emergencyContact: emergencyContact === null ? Prisma.DbNull : { name: emergencyContact.name, phoneE164: emergencyContact.phoneE164, ...(emergencyContact.relation ? { relation: emergencyContact.relation } : {}) } } : {}),
+      ...(emergencyContact !== undefined ? { emergencyContact: emergencyContact === null ? Prisma.DbNull : contactJson(emergencyContact) } : {}),
+      ...(trustedContacts !== undefined ? { trustedContacts: trustedContacts === null ? Prisma.DbNull : trustedContacts.map(contactJson) } : {}),
+      ...(safetyPrefs !== undefined ? { safetyPrefs: safetyPrefs === null ? Prisma.DbNull : { ...safetyPrefs } } : {}),
     };
     const row = await this.db(tx).personIdentity.update({ where: { personId }, data });
     return identityRecord(row);
@@ -489,4 +496,21 @@ function identityRecord(row: { personId: string; phoneE164: string; phoneHash: s
   const relation = EmergencyRelation.safeParse(ec?.relation);
   const emergencyContact = ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
   return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, mainPhotoRef: row.mainPhotoRef ?? null, mainPhotoAt: row.mainPhotoAt ?? null };
+function contactRecord(raw: unknown): EmergencyContactRecord | null {
+  const ec = raw as { name?: unknown; phoneE164?: unknown; relation?: unknown } | null | undefined;
+  const relation = EmergencyRelation.safeParse(ec?.relation);
+  return ec && typeof ec.name === 'string' && typeof ec.phoneE164 === 'string' ? { name: ec.name, phoneE164: ec.phoneE164, relation: relation.success ? relation.data : null } : null;
+}
+
+function identityRecord(row: { personId: string; phoneE164: string; phoneHash: string; name: string | null; emergencyContact?: unknown; trustedContacts?: unknown; safetyPrefs?: unknown }): IdentityRecord {
+  const emergencyContact = contactRecord(row.emergencyContact);
+  const trustedContacts = Array.isArray(row.trustedContacts)
+    ? row.trustedContacts
+        .map(contactRecord)
+        .filter((c): c is EmergencyContactRecord => c !== null)
+        .slice(0, TRUSTED_CONTACTS_MAX)
+    : null;
+  const prefs = SafetyPrefs.partial().safeParse(row.safetyPrefs);
+  const safetyPrefs = row.safetyPrefs && prefs.success ? { ...DEFAULT_SAFETY_PREFS, ...prefs.data } : null;
+  return { personId: row.personId, phoneE164: row.phoneE164, phoneHash: row.phoneHash, name: row.name, emergencyContact, trustedContacts, safetyPrefs };
 }

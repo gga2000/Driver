@@ -5,6 +5,28 @@ import { DeviceInfo, OtpPurpose, RoleGrant, RoleKind, TokenPair } from './auth.j
 export const EmergencyRelation = z.enum(['mother', 'father', 'spouse', 'sibling', 'child', 'relative', 'friend', 'other']);
 export type EmergencyRelation = z.infer<typeof EmergencyRelation>;
 
+/**
+ * The safety page (joy w9, audit A-01): up to three people we trust with the rider's trips. The first
+ * is the emergency contact (SOS calls and messages them); all of them get «وصل بالسلامة» when the rider
+ * asked us to tell them on arrival. Names and numbers live in the identity vault only.
+ */
+export const TRUSTED_CONTACTS_MAX = 3;
+
+/** Safety switches (w9), all off until the rider turns them on. */
+export const SafetyPrefs = z.object({
+  /** Share every الرجعة trip with the trusted people automatically (a link, from boarding to arrival). */
+  autoShareRajaa: z.boolean(),
+  /** Share taxi and tuktuk rides automatically, at night only (9 المسا – 6 الصبح). */
+  autoShareNight: z.boolean(),
+  /** Tell the trusted people when the rider arrives (الرجعة): «وصل بالسلامة». */
+  notifyOnArrival: z.boolean(),
+});
+export type SafetyPrefs = z.infer<typeof SafetyPrefs>;
+export const DEFAULT_SAFETY_PREFS: SafetyPrefs = { autoShareRajaa: false, autoShareNight: false, notifyOnArrival: false };
+
+const ContactInput = z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20), relation: EmergencyRelation.optional() });
+const ContactView = z.object({ name: z.string(), phoneMasked: z.string(), relation: EmergencyRelation.nullable().optional() });
+
 export const MeView = z.object({
   personId: z.string(),
   name: z.string().nullable(),
@@ -19,7 +41,11 @@ export const MeView = z.object({
   canWithdraw: z.boolean(),
   lastVerifiedAt: z.coerce.date().nullable(),
   /** Customer spec §10 safety: who we call in an emergency. Lives in the vault; the phone comes back masked. */
-  emergencyContact: z.object({ name: z.string(), phoneMasked: z.string(), relation: EmergencyRelation.nullable().optional() }).nullable().optional(),
+  emergencyContact: ContactView.nullable().optional(),
+  /** w9: the people we trust (first = the emergency contact), up to `TRUSTED_CONTACTS_MAX`, masked. */
+  trustedContacts: z.array(ContactView).default([]),
+  /** w9: the safety switches. */
+  safety: SafetyPrefs.default(DEFAULT_SAFETY_PREFS),
 });
 export type MeView = z.infer<typeof MeView>;
 
@@ -30,9 +56,17 @@ export type MeView = z.infer<typeof MeView>;
 export const UpdateProfileInput = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
-    emergencyContact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20), relation: EmergencyRelation.optional() }).nullable().optional(),
+    emergencyContact: ContactInput.nullable().optional(),
+    /**
+     * w9: the whole list of trusted people (replaces it; [] removes everyone). The first becomes the
+     * emergency contact. A contact kept from before can be sent back as `{ keep: index }` (its number
+     * never leaves the vault, so the app cannot resend it).
+     */
+    trustedContacts: z.array(z.union([ContactInput, z.object({ keep: z.number().int().min(0).max(TRUSTED_CONTACTS_MAX - 1) })])).max(TRUSTED_CONTACTS_MAX).optional(),
+    /** w9: any of the safety switches. */
+    safety: SafetyPrefs.partial().optional(),
   })
-  .refine((v) => v.name !== undefined || v.emergencyContact !== undefined, { message: 'nothing to update' });
+  .refine((v) => v.name !== undefined || v.emergencyContact !== undefined || v.trustedContacts !== undefined || v.safety !== undefined, { message: 'nothing to update' });
 export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;
 
 export const GuardianLinkView = z.object({

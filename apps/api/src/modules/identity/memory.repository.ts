@@ -118,7 +118,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return [...new Set(personIds)].map((id) => this.identities.get(id)).filter((i): i is IdentityRecord => i !== undefined);
   }
 
-  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt'>>, tx?: Tx) {
+  async updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt' | 'trustedContacts' | 'safetyPrefs'>>, tx?: Tx) {
     const idn = this.identities.get(personId);
     if (!idn) throw new Error(`identity ${personId} not found`);
     if (patch.phoneHash) for (const other of this.identities.values()) if (other.personId !== personId && other.phoneHash === patch.phoneHash) throw new Error('unique violation: phone_hash');

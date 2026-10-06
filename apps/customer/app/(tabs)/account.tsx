@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image, Platform, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
-import { Avatar, Button, Card, Chip, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
@@ -58,7 +58,9 @@ function Account() {
   };
 
   const placeList = places.data ?? [];
-  const contact = me.data?.emergencyContact ?? null;
+  // w9: the safety row names the trusted people and says when sharing is on.
+  const trusted = me.data?.trustedContacts ?? [];
+  const sharing = Boolean(me.data?.safety.autoShareRajaa || me.data?.safety.autoShareNight || me.data?.safety.notifyOnArrival);
 
   return (
     <Screen testID="account">
@@ -122,9 +124,13 @@ function Account() {
           <ListRow
             testID="account-emergency"
             leading="shield"
-            title={t('account.emergency_contact')}
-            subtitle={contact ? `${contact.name} · ⁦${contact.phoneMasked}⁩` : t('account.emergency_hint')}
-            value={contact ? undefined : t('account.add')}
+            title={t('account.safety')}
+            subtitle={
+              trusted.length > 0
+                ? [t('account.safety_people', { names: trusted.map((p) => p.name).join('، ') }), sharing ? t('account.safety_sharing_on') : null].filter(Boolean).join(' · ')
+                : t('account.emergency_hint')
+            }
+            value={trusted.length > 0 ? undefined : t('account.add')}
             onPress={() => router.push('/profile/safety')}
             divider
           />
@@ -141,14 +147,6 @@ function Account() {
           ) : null}
           <ListRow testID="account-notifications" leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} onPress={() => router.push('/profile/notifications')} />
         </Card>
-        <Chip
-          testID="account-share-trips"
-          role="checkbox"
-          icon="share"
-          selected={prof.shareTripsByDefault}
-          label={t('account.share_trips')}
-          onPress={() => void profile.setShareTripsByDefault(!prof.shareTripsByDefault)}
-        />
       </View>
 
       {/* Help (audit C-13): a problem with an order, the WhatsApp line, common questions. */}

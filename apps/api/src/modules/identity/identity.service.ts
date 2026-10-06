@@ -1,6 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  DEFAULT_SAFETY_PREFS,
   DriverError,
+  TRUSTED_CONTACTS_MAX,
+  type EmergencyRelation,
+  type SafetyPrefs,
   FREEZABLE_ROLES,
   searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
@@ -35,7 +39,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { GuardianService, guardianView } from './guardian.service.js';
-import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
+import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
@@ -348,7 +352,9 @@ export class IdentityService implements IdentityPort {
       if (!person) throw new DriverError('person_not_found');
       const identity = await this.repo.readIdentity(personId, tx);
       if (!identity) throw new DriverError('person_not_found');
-      await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead: identity.emergencyContact ? ['name', 'phone_e164', 'emergency_contact'] : ['name', 'phone_e164'], now: this.clock.now() }, tx);
+      const trusted = trustedOf(identity);
+      const fieldsRead = ['name', 'phone_e164', ...(identity.emergencyContact ? ['emergency_contact'] : []), ...(identity.trustedContacts?.length ? ['trusted_contacts'] : [])];
+      await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead, now: this.clock.now() }, tx);
       const reverify = await this.reverificationRequired(personId, deviceId, tx);
       const roles = await this.repo.rolesOf(personId, tx);
       return {
@@ -362,9 +368,9 @@ export class IdentityService implements IdentityPort {
         reverificationRequired: reverify,
         canWithdraw: !reverify,
         lastVerifiedAt: person.lastVerifiedAt,
-        emergencyContact: identity.emergencyContact
-          ? { name: identity.emergencyContact.name, phoneMasked: maskPhone(identity.emergencyContact.phoneE164), relation: identity.emergencyContact.relation ?? null }
-          : null,
+        emergencyContact: identity.emergencyContact ? maskedContact(identity.emergencyContact) : null,
+        trustedContacts: trusted.map(maskedContact),
+        safety: identity.safetyPrefs ?? { ...DEFAULT_SAFETY_PREFS },
       };
     });
   }
@@ -525,20 +531,77 @@ export class IdentityService implements IdentityPort {
   async updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView> {
     const name = input.name?.trim();
     if (input.name !== undefined && (!name || name.length > 60)) throw new DriverError('invalid_input');
+    const contact = (c: { name: string; phone: string; relation?: EmergencyRelation | undefined }): EmergencyContactRecord => {
+      const contactName = c.name.trim();
+      if (!contactName) throw new DriverError('invalid_input');
+      return { name: contactName, phoneE164: this.phone(c.phone).e164, relation: c.relation ?? null };
+    };
     let emergencyContact: EmergencyContactRecord | null | undefined;
     if (input.emergencyContact === null) emergencyContact = null;
-    else if (input.emergencyContact) {
-      const contactName = input.emergencyContact.name.trim();
-      if (!contactName) throw new DriverError('invalid_input');
-      emergencyContact = { name: contactName, phoneE164: this.phone(input.emergencyContact.phone).e164, relation: input.emergencyContact.relation ?? null };
-    }
+    else if (input.emergencyContact) emergencyContact = contact(input.emergencyContact);
+    // Everything is checked before anything is written.
+    const fresh = input.trustedContacts?.map((c) => ('keep' in c ? c : contact(c)));
     await this.uow.run(async (tx) => {
       const now = this.clock.now();
-      await this.repo.updateIdentity(actor.personId, { ...(name !== undefined ? { name } : {}), ...(emergencyContact !== undefined ? { emergencyContact } : {}) }, tx);
-      const fields = [...(name !== undefined ? ['name'] : []), ...(emergencyContact !== undefined ? ['emergency_contact'] : [])];
+      const current = await this.repo.readIdentity(actor.personId, tx);
+      if (!current) throw new DriverError('person_not_found');
+      const patch: Parameters<IdentityRepository['updateIdentity']>[1] = { ...(name !== undefined ? { name } : {}) };
+      const fields: string[] = name !== undefined ? ['name'] : [];
+      let trusted: EmergencyContactRecord[] | undefined;
+      if (fresh) {
+        // The whole list (w9): kept people by index (their numbers never left the vault), new ones as typed.
+        const before = trustedOf(current);
+        trusted = fresh.map((c) => {
+          if (!('keep' in c)) return c;
+          const kept = before[c.keep];
+          if (!kept) throw new DriverError('invalid_input');
+          return kept;
+        });
+        if (new Set(trusted.map((c) => c.phoneE164)).size !== trusted.length) throw new DriverError('invalid_input');
+        emergencyContact = trusted[0] ?? null;
+      } else if (emergencyContact !== undefined) {
+        // The emergency contact set on its own (old screens, Partner) is the first trusted person.
+        const rest = trustedOf(current).slice(1).filter((c) => c.phoneE164 !== emergencyContact?.phoneE164);
+        trusted = emergencyContact ? [emergencyContact, ...rest].slice(0, TRUSTED_CONTACTS_MAX) : rest;
+        if (!emergencyContact && rest[0]) emergencyContact = rest[0];
+      }
+      if (emergencyContact !== undefined) {
+        patch.emergencyContact = emergencyContact;
+        fields.push('emergency_contact');
+      }
+      if (trusted !== undefined) {
+        patch.trustedContacts = trusted;
+        fields.push('trusted_contacts');
+      }
+      if (input.safety) {
+        patch.safetyPrefs = { ...DEFAULT_SAFETY_PREFS, ...(current.safetyPrefs ?? {}), ...input.safety };
+        fields.push('safety_prefs');
+      }
+      await this.repo.updateIdentity(actor.personId, patch, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'person.profile_updated', occurredAt: now, payload: { personId: actor.personId, fields } }, { name: 'person', id: actor.personId });
     });
     return this.me(actor);
+  }
+
+  /**
+   * The trusted people's names and numbers (w9) for a message about the person (the «وصل بالسلامة»
+   * ping): a logged vault read against the person, like the SOS contact.
+   */
+  async trustedContactsOf(personId: string, accessorId: string, purpose: string): Promise<{ name: string; phoneE164: string }[]> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return [];
+      const identity = await this.repo.readIdentity(personId, tx);
+      const list = identity ? trustedOf(identity) : [];
+      if (list.length === 0) return [];
+      await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['trusted_contacts'], now: this.clock.now() }, tx);
+      return list.map((c) => ({ name: c.name, phoneE164: c.phoneE164 }));
+    });
+  }
+
+  /** The person's safety switches (w9); not personal data, so the read is not logged. */
+  async safetyPrefsOf(personId: string): Promise<SafetyPrefs> {
+    return (await this.repo.readIdentity(personId))?.safetyPrefs ?? { ...DEFAULT_SAFETY_PREFS };
   }
 
   /**
@@ -1026,4 +1089,14 @@ export function shortDisplayName(name: string): string {
   if (!next) return first;
   const letters = [...(next.startsWith('ال') && next.length > 3 ? next.slice(2) : next)];
   return `${first} ${letters[0]}.`;
+}
+
+/** The trusted people (w9): the stored list, or the emergency contact alone for rows saved before it existed. */
+function trustedOf(identity: Pick<IdentityRecord, 'trustedContacts' | 'emergencyContact'>): EmergencyContactRecord[] {
+  if (identity.trustedContacts) return identity.trustedContacts.slice(0, TRUSTED_CONTACTS_MAX);
+  return identity.emergencyContact ? [identity.emergencyContact] : [];
+}
+
+function maskedContact(c: EmergencyContactRecord): { name: string; phoneMasked: string; relation: EmergencyRelation | null } {
+  return { name: c.name, phoneMasked: maskPhone(c.phoneE164), relation: c.relation ?? null };
 }

@@ -77,6 +77,9 @@ export {
   ChildView,
   UpdateProfileInput,
   EmergencyRelation,
+  SafetyPrefs,
+  DEFAULT_SAFETY_PREFS,
+  TRUSTED_CONTACTS_MAX,
 } from './identity-io.js';
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';

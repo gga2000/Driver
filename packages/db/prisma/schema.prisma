@@ -371,6 +371,10 @@ model PersonIdentity {
   /// and every read is a VaultAccessLog row (`main_photo`).
   mainPhotoRef     String?   @map("main_photo_ref")
   mainPhotoAt      DateTime? @map("main_photo_at")
+  /// Joy w9: up to three trusted people [{name, phoneE164, relation?}]; the first is the emergency contact.
+  trustedContacts  Json?     @map("trusted_contacts")
+  /// Joy w9: safety switches {autoShareRajaa, autoShareNight, notifyOnArrival}.
+  safetyPrefs      Json?     @map("safety_prefs")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
