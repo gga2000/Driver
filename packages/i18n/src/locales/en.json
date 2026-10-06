@@ -5786,7 +5786,7 @@
   "rajaa.safe_title": "Thank God you're home safe",
   "rajaa.safe_route_time": "{route} · arrived at {time}",
   "rajaa.safe_told": "We told {names} you've arrived",
-  "rajaa.safe_points": "+{n} points in your wallet",
+  "rajaa.safe_points": "{n} points in your wallet",
   "rajaa.safe_rate_title": "How was the trip with {driver}?",
   "rajaa.safe_rate_title_plain": "How was the trip?",
   "rajaa.rate_tag.on_time": "On time",
@@ -5806,7 +5806,7 @@
   "rajaa.preset_clear": "All trips",
   "orders.section_trips": "Your coming trips",
   "rajaa.trip_row_pin": "PIN {pin}",
-  "rajaa.trip_row_points": "+{n} points",
+  "rajaa.trip_row_points": "{n} points",
   "help.trips_heading": "الرجعة trips",
   "wallet.new_title": "No balance yet",
   "wallet.new_body": "Top up once and pay with a tap on your next order",
@@ -5848,5 +5848,6 @@
   "share.send_other": "Share another way",
   "share.ended_safe": "The trip ended safely at {time}",
   "share.ended_safe_delivery": "The order arrived at {time}",
-  "share.ended_safe_body": "Home safe. The link stopped after arrival"
+  "share.ended_safe_body": "Home safe. The link stopped after arrival",
+  "rajaa.kept_title": "Your trip"
 }

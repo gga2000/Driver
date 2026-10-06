@@ -5786,7 +5786,7 @@
   "rajaa.safe_title": "الحمد لله على السلامة",
   "rajaa.safe_route_time": "{route} · وصلت الساعة {time}",
   "rajaa.safe_told": "بلّغنا {names} إنك وصلت",
-  "rajaa.safe_points": "+{n} نقطة دخلت محفظتك",
+  "rajaa.safe_points": "{n} نقطة دخلت محفظتك",
   "rajaa.safe_rate_title": "شلون كانت الرجعة ويا {driver}؟",
   "rajaa.safe_rate_title_plain": "شلون كانت الرجعة؟",
   "rajaa.rate_tag.on_time": "على الوقت",
@@ -5806,7 +5806,7 @@
   "rajaa.preset_clear": "كل الرحلات",
   "orders.section_trips": "رحلاتك الجاية",
   "rajaa.trip_row_pin": "الرمز {pin}",
-  "rajaa.trip_row_points": "+{n} نقطة",
+  "rajaa.trip_row_points": "{n} نقطة",
   "help.trips_heading": "رحلات الرجعة",
   "wallet.new_title": "ما عندك رصيد بعد",
   "wallet.new_body": "اشحن مرة وحدة وادفع بلمسة بالطلب الجاي",
@@ -5848,5 +5848,6 @@
   "share.send_other": "شارك بطريقة ثانية",
   "share.ended_safe": "المشوار خلص بالسلامة الساعة {time}",
   "share.ended_safe_delivery": "الطلب وصل الساعة {time}",
-  "share.ended_safe_body": "الحمد لله على السلامة. الرابط وقف بعد الوصول"
+  "share.ended_safe_body": "الحمد لله على السلامة. الرابط وقف بعد الوصول",
+  "rajaa.kept_title": "رحلتك"
 }

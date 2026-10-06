@@ -28,7 +28,7 @@ export function TripRow({ booking, network, now, divider, onPress, testID }: { b
   const b = booking;
   const upcoming = b.state === 'booked' || b.state === 'checked_in' || b.state === 'held';
   const when = `${dayLabel(t, dayKey(b.departure.departAt, now))} ${clockLabel(b.departure.departAt)}`;
-  const meta = [when, seatsList(t, b.seatIds), upcoming && b.pin ? t('rajaa.trip_row_pin', { pin: b.pin }) : null, !upcoming && b.pointsEarned ? t('rajaa.trip_row_points', { n: amountParam(b.pointsEarned) }) : null]
+  const meta = [when, seatsList(t, b.seatIds), upcoming && b.pin ? t('rajaa.trip_row_pin', { pin: b.pin }) : null, !upcoming && b.pointsEarned ? t('rajaa.trip_row_points', { n: amountParam(b.pointsEarned, { sign: true }) }) : null]
     .filter(Boolean)
     .join(' · ');
   const route = tripRoute(t, b, network);

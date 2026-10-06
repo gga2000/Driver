@@ -153,6 +153,7 @@ export default function BoardingPassScreen() {
   if (passPhase(b, now) === 'kept') {
     return (
       <Screen testID="rajaa-pass" edges={['bottom']}>
+        <Stack.Screen options={{ title: t('rajaa.kept_title') }} />
         <SafeArrival booking={b} route={route} driverName={driverCard?.firstName ?? null} now={now} />
         <KeptStub booking={b} route={route} garage={garage} driver={driverCard} />
       </Screen>

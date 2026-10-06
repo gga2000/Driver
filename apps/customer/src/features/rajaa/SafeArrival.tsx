@@ -80,7 +80,7 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
           >
             <Icon name="star" size={16} color="onDeal" filled fillColor="onDeal" />
             <Text variant="label" weight={700} color="onDeal" tabular>
-              {t('rajaa.safe_points', { n: amountParam(booking.pointsEarned) })}
+              {t('rajaa.safe_points', { n: amountParam(booking.pointsEarned, { sign: true }) })}
             </Text>
           </View>
         ) : null}
