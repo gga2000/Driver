@@ -35,6 +35,7 @@ export const NOTIFY_EVENT_TYPES = [
   'order.change_to_wallet',
   'seat.booked',
   'khat.child_tapped_out',
+  'khat.sweep_missed',
   'dispatch.offer_sent',
   'dispatch.zone_nudged',
   'session.signed_out',
@@ -156,6 +157,12 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!child) return [];
       const place = (e.tripId && str(p['stopId']) ? await L.stopPlace(e.tripId, String(p['stopId'])) : null) ?? '';
       return [{ ...base, template: 'khat_child_arrived', to: child.guardianId, params: { child: child.childFirstName, place, time: localTime(e.occurredAt) } }];
+    }
+    case 'khat.sweep_missed': {
+      // "نسيت تتأكد إن السيارة فاضية؟" — the run's driver, the moment ops are alerted (Ali, 2026-10-06).
+      const driverId = str(p['driverId']);
+      if (!driverId || !e.tripId) return [];
+      return [{ ...base, template: 'khat_sweep_reminder', to: driverId, params: {}, data: { tripId: e.tripId } }];
     }
     case 'dispatch.offer_sent': {
       const driverId = str(p['driverId']);
