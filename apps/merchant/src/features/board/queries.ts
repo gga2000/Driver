@@ -5,7 +5,7 @@ import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
-import { clockOffset } from '@/lib/time';
+import { clockOffset, startServerClock } from '@/lib/time';
 import { applyRadar } from './radar';
 
 /**
@@ -53,14 +53,10 @@ export function useBoard(merchantOrgId: string | null) {
   return { ...q, offset };
 }
 
-/** Ticks every `ms` with server time (board `now` + elapsed). */
+/** Ticks every `ms` with server time (board `now` + elapsed): the board re-renders its timers on each tick. */
 export function useServerNow(offset: number, ms = 1000): number {
   const [now, setNow] = useState(() => Date.now() + offset);
-  useEffect(() => {
-    setNow(Date.now() + offset);
-    const id = setInterval(() => setNow(Date.now() + offset), ms);
-    return () => clearInterval(id);
-  }, [offset, ms]);
+  useEffect(() => startServerClock(offset, ms, setNow), [offset, ms]);
   return now;
 }
 

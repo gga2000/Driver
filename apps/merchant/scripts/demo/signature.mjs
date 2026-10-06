@@ -19,6 +19,8 @@ export default async function register(ctx) {
   const HOME = { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } };
   const { TRIPS_REPOSITORY } = await ctx.load('modules/trips/index.js');
   const { MerchantCashService } = await ctx.load('modules/ledger/index.js');
+  const { EventsService } = await ctx.load('modules/events/index.js');
+  const events = ctx.app.get(EventsService);
   const { ticketNumber } = await ctx.load('modules/merchant/index.js');
   const tripsRepo = ctx.app.get(TRIPS_REPOSITORY, { strict: false });
   const cash = ctx.app.get(MerchantCashService);
@@ -75,6 +77,10 @@ export default async function register(ctx) {
     const pickup = trip.stops.find((s) => s.type === 'pickup' && s.orderId === o.id);
     const at = new Date(Date.now() - waited * MIN - 5_000);
     await tripsRepo.updateStop(pickup.id, { arrivedAt: at }, new Date());
+    // The stop is rewritten behind the trips service's back (a real arrival can't be back-dated), so
+    // no event tells the open board: nudge the store's live channel to re-read it, as a real
+    // arrival would. On a real tablet the card turns amber on its own clock (m2a).
+    await events.emit(undefined, { type: 'demo.pass_moved', actorId: 'system:demo', occurredAt: new Date(), payload: { orderId: o.id } }, { name: 'merchant', id: khalid.orgId });
     return { orderId: o.id, number: ticketNumber(o.id), arrivedAt: at };
   });
 

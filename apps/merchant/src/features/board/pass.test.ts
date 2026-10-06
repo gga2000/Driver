@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BoardCourier, BoardOrder } from '@driver/contracts';
+import { startServerClock } from '@/lib/time';
 import { PASS_WAIT_WARN_MIN, passFirst, passState, waitingAtPass } from './pass';
 
 const T0 = Date.parse('2026-10-05T17:00:00Z');
@@ -33,5 +34,35 @@ describe('the courier at the pass (S-M4)', () => {
     const list = [ready('plain', none), ready('handed', arrived(1), at(3)), ready('late', arrived(-6)), ready('fresh', arrived(2))];
     expect(passFirst(list, T0 + 4 * 60_000).map((o) => o.id)).toEqual(['late', 'fresh', 'handed', 'plain']);
     expect(waitingAtPass(list, T0 + 4 * 60_000).map((o) => o.id)).toEqual(['late', 'fresh']);
+  });
+});
+
+describe('the pass card re-evaluates on the board clock (m2a)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('turns amber by itself at 3 min while the board stays open: same board data, only the clock ticks', () => {
+    vi.useFakeTimers();
+    const offset = 1_500; // the server runs 1.5 s ahead of the tablet
+    // The tablet opened the board 2:57 after حيدر reached the counter; the board is never re-read.
+    vi.setSystemTime(T0 + 2 * 60_000 + 57_000 - offset);
+    const order = ready('a', arrived(0));
+    const tones: string[] = [];
+    const stop = startServerClock(offset, 1_000, (now) => {
+      const p = passState(order, now);
+      tones.push(p?.kind === 'at_pass' ? `${p.tone}:${p.waitedMin}` : 'none');
+    });
+    expect(tones).toEqual(['success:2']);
+    vi.advanceTimersByTime(2_000);
+    expect(tones.at(-1)).toBe('success:2');
+    vi.advanceTimersByTime(1_000); // 3:00 at the counter
+    expect(tones.at(-1)).toBe('warning:3');
+    vi.advanceTimersByTime(60_000);
+    expect(tones.at(-1)).toBe('warning:4');
+    stop();
+    const ticks = tones.length;
+    vi.advanceTimersByTime(5_000);
+    expect(tones).toHaveLength(ticks);
   });
 });

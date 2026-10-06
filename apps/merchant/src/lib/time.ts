@@ -37,3 +37,15 @@ export function secondsLeft(until: Date | number, now: number): number {
 export function clockOffset(serverNow: Date, receivedAt: number): number {
   return serverNow.getTime() - receivedAt;
 }
+
+/**
+ * The board's clock: calls `onTick` with server time (device time + `offset`) at once and then every
+ * `ms`, until the returned stop is called. Everything time-based on the board — the 90-s rings, "من
+ * 4 د", the courier at the pass turning amber after 3 min (m2a) — is re-evaluated on these ticks, so
+ * a card changes by itself while the board stays open, without a reload or a new read of the board.
+ */
+export function startServerClock(offset: number, ms: number, onTick: (serverNow: number) => void, deviceNow: () => number = Date.now): () => void {
+  onTick(deviceNow() + offset);
+  const id = setInterval(() => onTick(deviceNow() + offset), ms);
+  return () => clearInterval(id);
+}
