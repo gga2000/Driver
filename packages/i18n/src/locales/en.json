@@ -3664,7 +3664,7 @@
   "account.people_role_rider": "took a ride",
   "account.safety": "Safety",
   "account.share_trips": "Share my trips with my emergency contact",
-  "household.approval_limit": "Limit {amount} IQD",
+  "household.approval_limit": "Limit {amount} دينار",
   "household.create": "Set up a household",
   "household.create_body": "You pay: add family, set a limit for each, and approve anything over it with one tap",
   "household.create_title": "One account for the whole home",
@@ -5826,5 +5826,13 @@
   "points.expiring_soon": "{n} points lapse on {date} · claim them now",
   "account.points_pill": "{n} points",
   "account.saved_this_year": "You saved {amount} دينار this year",
-  "account.see_wallet": "See your wallet"
+  "account.see_wallet": "See your wallet",
+  "household.approval_request_from": "{name} asks: {merchant} · {amount} دينار",
+  "household.approval_items": "{n} items",
+  "household.approval_items_one": "1 item",
+  "household.approval_items_two": "2 items",
+  "household.approval_items_few": "{n} items",
+  "household.approval_place": "to {place}",
+  "household.approve_once": "Approve this once",
+  "household.change_limit": "Change {name}'s limit"
 }

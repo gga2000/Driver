@@ -959,7 +959,22 @@ const rajaa = await (async () => {
       const kid = await identity.ensurePersonByPhone('07709876543', personId, 'demo');
       await identity.updateProfile({ personId: kid, sessionId: 'demo' }, { name: 'حسين' });
       await orgs.addMember(household.id, kid, { role: 'orderer', spendingLimitIqd: 10_000, actorId: personId });
-      await orgs.requestPayerApproval({ orgId: household.id, orderId: `demo-order-${now}`, requestedBy: minar, amountIqd: 32_000 });
+      // A real order of Minar's at مطعم خالد, so the approval names the kitchen, the dishes and where (joy w5).
+      let minarOrderId = `demo-order-${now}`;
+      try {
+        const placed = await orders.place(minar, {
+          cityId: 'aziziyah',
+          type: 'food',
+          merchantOrgId: khalid.orgId,
+          lines: [['liver_plate', 2], ['salad', 1], ['pepsi', 2]].map(([k, qty]) => ({ catalogItemId: khalid.itemIds.get(k), qty })),
+          paymentMethod: 'cash',
+          dropoff: { zoneKey: 'street_30', pin: { lat: 32.9097, lng: 45.0633 } },
+        });
+        minarOrderId = placed.id;
+      } catch {
+        // The kitchen may be closed at this hour: the approval then shows the amount alone.
+      }
+      await orgs.requestPayerApproval({ orgId: household.id, orderId: minarOrderId, requestedBy: minar, amountIqd: 32_000 });
       if (!(await places.mine(minar)).some((p) => p.access === 'owner')) {
         await places.save(minar, { cityId: 'aziziyah', label: 'custom', name: 'بيت أهل منار', pin: { lat: 32.887, lng: 45.0765 }, note: 'البيت الثالث بعد الفرن', photoIds: [], shareWithHousehold: true });
       }

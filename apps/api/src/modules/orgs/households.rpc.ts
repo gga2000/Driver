@@ -3,6 +3,7 @@ import {
   DriverError,
   type Actor,
   type ApprovalIdInput,
+  type ApprovalOrderContext,
   type CreateHouseholdInput,
   type HouseholdIdInput,
   type HouseholdsPort,
@@ -21,6 +22,9 @@ export interface HouseholdPeople {
 }
 export const HOUSEHOLD_PEOPLE = Symbol('HOUSEHOLD_PEOPLE');
 
+/** w5: reads the order behind an approval (bound by the module that can read orders and menus). */
+export type ApprovalContextReader = (orderId: string) => Promise<ApprovalOrderContext | null>;
+
 const STATE_AR: Record<PayerApprovalRequest['state'], string> = { pending: 'بانتظار موافقتك', approved: 'وافقت', declined: 'رفضت' };
 
 /**
@@ -33,6 +37,13 @@ export class HouseholdsRpc implements HouseholdsPort {
     private readonly orgs: OrgsService,
     @Inject(HOUSEHOLD_PEOPLE) private readonly people: HouseholdPeople,
   ) {}
+
+  private orderContext: ApprovalContextReader | null = null;
+
+  /** Joy w5: approvals say what was ordered, from where, for where (tracking binds this at start). */
+  bindOrderContext(reader: ApprovalContextReader): void {
+    this.orderContext = reader;
+  }
 
   async mine(actor: Actor): Promise<HouseholdView | null> {
     const home = (await this.orgs.householdsOf(actor.personId))[0];
@@ -125,7 +136,8 @@ export class HouseholdsRpc implements HouseholdsPort {
       viewerId,
     );
     const payer = this.isPayer(home, viewerId);
-    return list.map((a) => ({
+    const contexts = await Promise.all(list.map((a) => (this.orderContext ? this.orderContext(a.orderId).catch(() => null) : Promise.resolve(null))));
+    return list.map((a, i) => ({
       id: a.id,
       householdId: a.orgId,
       orderId: a.orderId,
@@ -137,6 +149,7 @@ export class HouseholdsRpc implements HouseholdsPort {
       state_ar: a.state === 'pending' && !payer ? 'بانتظار الموافقة' : STATE_AR[a.state],
       createdAt: a.createdAt,
       canResolve: payer && a.state === 'pending',
+      context: contexts[i] ?? null,
     }));
   }
 

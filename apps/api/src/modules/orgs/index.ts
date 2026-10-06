@@ -5,3 +5,4 @@ export { InMemoryOrgsRepository, PrismaOrgsRepository, ORGS_REPOSITORY } from '.
 export type { OrgsRepository, OrgFilter } from './orgs.repository.js';
 export { HouseholdsRpc, HOUSEHOLD_PEOPLE } from './households.rpc.js';
 export type { HouseholdPeople } from './households.rpc.js';
+export type { ApprovalContextReader } from './households.rpc.js';

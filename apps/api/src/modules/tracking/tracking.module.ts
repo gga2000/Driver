@@ -1,12 +1,12 @@
 import { RoutingModule } from '../routing/index.js';
-import { Module } from '@nestjs/common';
+import { Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { Accounts, LedgerModule, LedgerService } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
-import { OrgsModule, OrgsService } from '../orgs/index.js';
+import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { CORRIDORS, DeparturesService, RoutesModule } from '../routes/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
@@ -116,4 +116,14 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
   ],
   exports: [TrackingService, COURIER_VEHICLES, ShareLinksService],
 })
-export class TrackingModule {}
+export class TrackingModule implements OnModuleInit {
+  constructor(
+    private readonly households: HouseholdsRpc,
+    private readonly tracking: TrackingService,
+  ) {}
+
+  /** Joy w5: household approvals name the restaurant, the dishes and where it goes (orders + menus live here). */
+  onModuleInit(): void {
+    this.households.bindOrderContext((orderId) => this.tracking.approvalContext(orderId));
+  }
+}

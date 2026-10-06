@@ -98,4 +98,17 @@ describe('households (domain §12)', () => {
     const logs = await id.repo.vaultAccessLogs(minar.personId);
     expect(logs.filter((l) => l.accessorId === ali.personId && l.purpose === 'household_view').length).toBeGreaterThan(0);
   });
+
+  it('w5: an approval carries what was ordered, from where and for where; a failing read leaves it out', async () => {
+    const { rpc, orgs, ali, minar } = await setup();
+    const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+    await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
+    await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: minar.personId, amountIqd: 32_000 });
+    expect((await rpc.mine(ali))?.pendingApprovals[0]?.context).toBeNull();
+    const ctx = { merchantName: 'مطعم خالد', itemsSummary: '2× تكة، لبن', itemCount: 3, placeLabel: 'شارع 30' };
+    rpc.bindOrderContext(async (orderId) => (orderId === 'ord_1' ? ctx : Promise.reject(new Error('gone'))));
+    expect((await rpc.mine(ali))?.pendingApprovals[0]?.context).toEqual(ctx);
+    await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_x', requestedBy: minar.personId, amountIqd: 30_000 });
+    expect((await rpc.mine(ali))?.pendingApprovals.map((a) => a.context?.merchantName ?? null).sort()).toEqual(['مطعم خالد', null].sort());
+  });
 });

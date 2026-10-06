@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
+  AZIZIYAH_ZONES,
   AT_RISK_RULES,
   DriverError,
   latePromiseTerms,
@@ -450,6 +451,35 @@ export class TrackingService implements TrackingPort {
     // honest-delay credit hangs on it, so it must not move as the city learns or the hour bucket turns.
     const ride = await this.eta.baseMinutes(kitchen, door, order.minVehicleClass ?? 'bike');
     return promisedArrival(order, kitchen, acceptedAt, ride.minutes);
+  }
+
+  /**
+   * Joy w5: the order behind a household approval, as the payer reads it — the restaurant, the first
+   * dishes and how many, and the drop-off area. Names from the menu, like طلباتي.
+   */
+  async approvalContext(orderId: string): Promise<{ merchantName: string | null; itemsSummary: string | null; itemCount: number; placeLabel: string | null } | null> {
+    let o: Order;
+    try {
+      o = await this.orders.get(orderId);
+    } catch {
+      return null;
+    }
+    const ids = o.lines.map((l) => l.catalogItemId).filter((x): x is string => !!x);
+    const merchant = o.merchantOrgId ? await this.merchants.merchant(o.merchantOrgId) : null;
+    const menu = o.merchantOrgId && ids.length > 0 ? await this.merchants.itemNames(o.merchantOrgId, ids) : new Map<string, string>();
+    const items = o.lines
+      .filter((l) => l.availability !== 'removed')
+      .map((l) => ({ name: (l.catalogItemId ? menu.get(l.catalogItemId) : null) ?? l.freeText ?? '', qty: Math.max(1, l.qty) }))
+      .filter((i) => i.name !== '');
+    const shown = items.slice(0, 3).map((i) => (i.qty > 1 ? `${i.qty}× ${i.name}` : i.name));
+    const dropoff = (await this.orders.aggregate(orderId).catch(() => null))?.order.dropoff ?? null;
+    const zone = dropoff ? AZIZIYAH_ZONES.find((z) => z.id === dropoff.zoneKey) : undefined;
+    return {
+      merchantName: merchant?.name ?? null,
+      itemsSummary: shown.length > 0 ? `${shown.join('، ')}${items.length > 3 ? '…' : ''}` : null,
+      itemCount: items.reduce((n, i) => n + i.qty, 0),
+      placeLabel: zone ? zone.name_ar.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)) : null,
+    };
   }
 
   /**

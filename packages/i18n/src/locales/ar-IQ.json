@@ -3664,7 +3664,7 @@
   "account.people_role_rider": "ركب مشوار",
   "account.safety": "الأمان",
   "account.share_trips": "شارك رحلاتي ويا رقم الطوارئ تلقائياً",
-  "household.approval_limit": "حده {amount} دينار",
+  "household.approval_limit": "الحد {amount} دينار",
   "household.create": "سوّي حساب العائلة",
   "household.create_body": "إنت الدافع: تضيف أهلك، تحدد حد لكل واحد، وأي طلب أكثر من حده يوصلك توافق عليه بضغطة",
   "household.create_title": "حساب واحد لكل البيت",
@@ -5826,5 +5826,13 @@
   "points.expiring_soon": "{n} نقطة تنتهي {date} · استلمها هسة",
   "account.points_pill": "{n} نقطة",
   "account.saved_this_year": "وفّرت {amount} دينار هالسنة",
-  "account.see_wallet": "شوف محفظتك"
+  "account.see_wallet": "شوف محفظتك",
+  "household.approval_request_from": "طلب من {name}: {merchant} · {amount} دينار",
+  "household.approval_items": "{n} صنف",
+  "household.approval_items_one": "صنف واحد",
+  "household.approval_items_two": "صنفين",
+  "household.approval_items_few": "{n} أصناف",
+  "household.approval_place": "لـ {place}",
+  "household.approve_once": "وافق هالمرة",
+  "household.change_limit": "غيّر حد {name}"
 }

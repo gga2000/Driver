@@ -323,6 +323,20 @@ export const HouseholdMemberView = z.object({
 });
 export type HouseholdMemberView = z.infer<typeof HouseholdMemberView>;
 
+/**
+ * What the payer approves (joy w5, audit W-03): «طلب من منار: مطعم خالد · 32,000 دينار», then
+ * «4 أصناف · شارع 30». Read from the order by the server; null when the order can't be read.
+ */
+export const ApprovalOrderContext = z.object({
+  merchantName: z.string().nullable(),
+  /** "2× تكة، لبن، …" (first dishes). */
+  itemsSummary: z.string().nullable(),
+  itemCount: z.number().int().nonnegative(),
+  /** Where it goes: the drop-off area's name. */
+  placeLabel: z.string().nullable(),
+});
+export type ApprovalOrderContext = z.infer<typeof ApprovalOrderContext>;
+
 export const PayerApprovalView = z.object({
   id: z.string(),
   householdId: z.string(),
@@ -337,6 +351,8 @@ export const PayerApprovalView = z.object({
   createdAt: z.coerce.date(),
   /** True when the caller is a payer and the request is pending. */
   canResolve: z.boolean(),
+  /** w5: the order behind the request. */
+  context: ApprovalOrderContext.nullable().default(null),
 });
 export type PayerApprovalView = z.infer<typeof PayerApprovalView>;
 
