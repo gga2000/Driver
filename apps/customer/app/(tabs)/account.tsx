@@ -181,6 +181,15 @@ function Account() {
         </Card>
       </View>
 
+      {/* Joy g2 and g7: treat a friend (the referral as a gift) and the sticker pack. */}
+      <View style={{ gap: theme.space[3] }}>
+        <SectionHeader title={t('account.share_section')} />
+        <Card elevation={0} padding={0}>
+          <ListRow testID="account-invite" leading="gift" title={t('account.invite_row')} subtitle={t('account.invite_row_hint')} onPress={() => router.push('/invite')} divider />
+          <ListRow testID="account-stickers" leading="heart" title={t('account.stickers_row')} subtitle={t('account.stickers_row_hint')} onPress={() => router.push('/stickers')} />
+        </Card>
+      </View>
+
       {/* Help (audit C-13): a problem with an order, the WhatsApp line, common questions. */}
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.help_section')} />

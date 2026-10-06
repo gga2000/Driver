@@ -9,6 +9,10 @@
 //   never, security headers everywhere, and /share/* (public trip links) kept out of search engines;
 // - leaves no 404.html, so Cloudflare Pages serves index.html for every unknown path (SPA fallback) —
 //   that is what makes deep links such as /share/<token> work;
+// - writes `invite.html` (index.html with the invite link's preview card: title, description and
+//   `og:image` = <base>/invite-card.png, words from the Arabic locale) and `_redirects` so `/i/<code>`
+//   (joy g2) is served from it — WhatsApp shows the card when someone sends an invitation; the app
+//   itself boots the same and opens the landing page. Base: `--base-url` or EXPO_PUBLIC_SHARE_BASE_URL;
 // - `--serve <port>`: serves the folder locally with the same fallback, to try it before deploying.
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -21,6 +25,7 @@ const flag = (name) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const apiUrl = flag('--api-url') ?? process.env.EXPO_PUBLIC_API_URL;
+const baseUrl = (flag('--base-url') ?? process.env.EXPO_PUBLIC_SHARE_BASE_URL ?? '').replace(/\/$/, '');
 const servePort = flag('--serve');
 
 if (!dir) {
@@ -77,9 +82,36 @@ const HEADERS = `# Written by scripts/deploy/prepare-web.mjs (docs/deploy/web.md
   Cache-Control: no-cache
   X-Robots-Tag: noindex, nofollow
   Referrer-Policy: no-referrer
+
+/i/*
+  Cache-Control: no-cache
+  X-Robots-Tag: noindex, nofollow
+
+/invite.html
+  Cache-Control: no-cache
 `;
 writeFileSync(join(root, '_headers'), HEADERS);
 console.log(`✔ wrote ${join(dir, '_headers')}`);
+
+// Invite links (joy g2): the same app, with a preview card WhatsApp can read before anyone signs in.
+const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const ar = JSON.parse(readFileSync(new URL('../../packages/i18n/src/locales/ar-IQ.json', import.meta.url), 'utf8'));
+const ogTitle = escapeHtml(ar['invite.landing_title_anon']);
+const ogBody = escapeHtml(ar['invite.landing_body']);
+const ogImage = existsSync(join(root, 'invite-card.png')) ? `${baseUrl}/invite-card.png` : null;
+const ogTags = [
+  `<meta property="og:title" content="${ogTitle}" />`,
+  `<meta property="og:description" content="${ogBody}" />`,
+  '<meta property="og:type" content="website" />',
+  '<meta property="og:locale" content="ar_IQ" />',
+  ...(ogImage ? [`<meta property="og:image" content="${ogImage}" />`, '<meta property="og:image:width" content="1200" />', '<meta property="og:image:height" content="630" />'] : []),
+  '<meta name="twitter:card" content="summary_large_image" />',
+].join('\n    ');
+const indexHtml = readFileSync(join(root, 'index.html'), 'utf8');
+writeFileSync(join(root, 'invite.html'), indexHtml.replace('</head>', `    ${ogTags}\n  </head>`));
+writeFileSync(join(root, '_redirects'), '# Written by scripts/deploy/prepare-web.mjs: invite links get the page with the preview card.\n/i/*  /invite.html  200\n');
+if (!baseUrl) console.log('! no --base-url / EXPO_PUBLIC_SHARE_BASE_URL: the invite card image link is relative (WhatsApp needs an absolute one)');
+console.log(`✔ wrote invite.html${ogImage ? ' with its preview card' : ' (no invite-card.png in the export: no image on the card)'} and _redirects (/i/* → invite.html)`);
 console.log(`✔ ${bundles.length} bundle(s), SPA fallback on (no 404.html) — ready to upload ${dir}`);
 
 if (servePort) {
@@ -87,7 +119,7 @@ if (servePort) {
   createServer((req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
     let file = join(root, path);
-    if (!file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
+    if (!file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) file = join(root, path.startsWith('/i/') ? 'invite.html' : 'index.html');
     res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
     createReadStream(file).pipe(res);
   }).listen(Number(servePort), () => console.log(`serving ${dir} on http://localhost:${servePort} (every unknown path → index.html)`));

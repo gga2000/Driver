@@ -45,7 +45,7 @@ export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 's
  * Top-level segments a guest may browse. The tabs are open too: orders, wallet and account show a
  * "دخّل رقمك" card in place of their content (`GuestGate`).
  */
-export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'search', 'restaurants', 'restaurant', 'cart']);
+export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'search', 'restaurants', 'restaurant', 'cart', 'i', 'stickers']);
 
 export function resolveGuard({ status, setupPending, segments, pathname, welcomed = true, returnTo = null }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;

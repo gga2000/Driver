@@ -26,6 +26,12 @@ describe('route guard', () => {
     }
   });
 
+  it('a friend’s invitation (/i/<code>) and the sticker pack open for guests; my own invite needs sign-in (joy g2, g7)', () => {
+    expect(g('signedOut', ['i', '[code]'], false, { welcomed: false })).toBeNull();
+    expect(g('signedOut', ['stickers'])).toBeNull();
+    expect(g('signedOut', ['invite'], false, { pathname: '/invite' })).toEqual({ to: '/phone', remember: '/invite' });
+  });
+
   it('asks a guest for the phone at protected screens and remembers where they were going', () => {
     expect(g('signedOut', ['checkout'], false, { pathname: '/checkout' })).toEqual({ to: '/phone', remember: '/checkout' });
     expect(g('signedOut', ['rajaa', 'departure', '[id]'], false, { pathname: '/rajaa/departure/d1' })).toEqual({ to: '/phone', remember: '/rajaa/departure/d1' });
