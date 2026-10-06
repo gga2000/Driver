@@ -12,6 +12,7 @@ import { GarageLegend, GarageSeatMap, RiderSheet, WalkUpSheet } from '@/features
 import { blockerText, cityName, countdownLabel, departureState, riderName, seatName } from '@/features/intercity/labels';
 import {
   ANNOUNCE_RULES,
+  boardedSeats,
   clockLabel,
   corridorCity,
   departBlockerNote,
@@ -278,7 +279,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const lowFill = dep.state === 'scheduled' && toLowFill > 0 && dep.fill.filled < ANNOUNCE_RULES.minSeatsAtTMinus30;
   const busy = Object.values(actions).some((m) => m.isPending && m !== actions.position);
   const soon = minutesUntil(dep.departAt, now) <= 60;
-  const checkedIn = dep.bookings.filter((b) => b.state === 'checked_in').length;
+  const checkedIn = boardedSeats(dep.bookings);
   const stepsDone = !!dep.selfieAt && !!dep.driverCheckedInAt && dep.driverInsideGarage !== false;
   const blocker = blockerText(t, departBlockerNote(readiness), dep.departAt);
 
