@@ -80,7 +80,11 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     // Launch controls: kill switches and the zone throttle gate `place()` (playbook §3).
     { provide: ORDERS_CONTROLS, useExisting: ControlsService },
     // M3 customer catalog read: cards are open exactly when place() takes orders, fees as place() charges.
-    { provide: STOREFRONT_MERCHANTS, useFactory: (dir: MerchantDirectory, deals: PromotionsPort) => new OrdersStorefrontMerchants(dir, deals), inject: [MERCHANT_DIRECTORY, ORDERS_PROMOTIONS] },
+    {
+      provide: STOREFRONT_MERCHANTS,
+      useFactory: (dir: MerchantDirectory, deals: PromotionsPort, repo: OrdersRepository) => new OrdersStorefrontMerchants(dir, deals, repo),
+      inject: [MERCHANT_DIRECTORY, ORDERS_PROMOTIONS, ORDERS_REPOSITORY],
+    },
     // Audit d-6: the welcome screen's الرجعة line and the late-delivery promise (`catalog.today`).
     {
       provide: STOREFRONT_TODAY,

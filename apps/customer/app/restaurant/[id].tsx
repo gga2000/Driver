@@ -17,6 +17,7 @@ import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { useMenu } from '@/features/food/queries';
+import { useMyOrders } from '@/features/home/queries';
 import { useRememberViewed } from '@/features/search/viewed';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { useLocale, useT } from '@/lib/i18n';
@@ -58,6 +59,13 @@ export default function RestaurantScreen() {
   // «فتحتها قبل» on the search start screen (D-24).
   useRememberViewed(restaurant?.id, restaurant?.name);
   const categories = useMemo(() => menu.data?.categories ?? [], [menu.data]);
+  // o8: a heart on a kitchen the person has really ordered from (the home rail's favourite rule).
+  const myOrders = useMyOrders();
+  const favourite = Boolean(myOrders.data?.some((o) => o.merchantOrgId === id));
+  const popular = useMemo(() => {
+    const byId = new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i]));
+    return (menu.data?.popular ?? []).map((pid) => byId.get(pid)).filter((i): i is MenuItem => Boolean(i));
+  }, [menu.data, categories]);
   // b3: a drawing per dish, in menu order, never the same one twice in a row.
   const artById = useMemo(() => {
     const rows = categories.flatMap((c) => c.items.map((i) => ({ id: i.id, name: i.name, category: c.name })));
@@ -176,6 +184,17 @@ export default function RestaurantScreen() {
                 onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
                 testID="restaurant-back"
               />
+              <View style={{ flex: 1 }} />
+              {favourite ? (
+                <View
+                  testID="restaurant-favourite"
+                  accessible
+                  accessibilityLabel={t('restaurant.favourite')}
+                  style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginEnd: theme.space[2] }}
+                >
+                  <Icon name="heart" size={20} color="danger" fillColor="danger" filled />
+                </View>
+              ) : null}
               {cart.lines.length > 0 ? <IconButton icon="cart" variant="outline" badge={itemCount(cart)} accessibilityLabel={t('cart.title')} onPress={() => router.push('/cart')} /> : null}
             </View>
           </View>
@@ -230,6 +249,27 @@ export default function RestaurantScreen() {
                 </View>
               </View>
             </Card>
+          ) : null}
+          {popular.length > 0 ? (
+            <View style={{ paddingTop: theme.space[5] }} testID="section-popular">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Icon name="star" size={18} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
+                <Text variant="title" accessibilityRole="header">
+                  {t('restaurant.popular_title')}
+                </Text>
+              </View>
+              {popular.map((item) => (
+                <DishCard
+                  key={`popular-${item.id}`}
+                  item={item}
+                  art={artById.get(item.id)}
+                  inCart={counts.get(item.id) ?? 0}
+                  onOpen={() => setOpen(item)}
+                  onQuickAdd={(from) => quickAdd(item, from)}
+                  onDecrement={() => removeOne(item)}
+                />
+              ))}
+            </View>
           ) : null}
           {menu.isPending
             ? [0, 1, 2, 3].map((i) => <DishSkeleton key={i} />)

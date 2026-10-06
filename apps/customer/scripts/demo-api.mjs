@@ -12,6 +12,7 @@
 //   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
+//   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/season?kind=ramadan|eid|off  a Ramadan or Eid period from today (J6 home card, checkout iftar slot).
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
@@ -97,6 +98,30 @@ app.use('/demo/active-order', async (req, res) => {
 });
 
 app.use('/demo/seed', (_req, res) => json(res, 200, seeded.map((s) => ({ key: s.seed.key, orgId: s.orgId, name: s.seed.nameAr }))));
+
+// Joy o8 «الأكثر طلباً بالعزيزية»: 24 town orders at مطعم خالد (scheduled for tomorrow, so they wait and
+// never tie up couriers) — the mixed grill in every one, the liver plate in 22, lentil soup in 20, a
+// Pepsi in 12: the restaurant page then lists the first three (20 orders is the line).
+let popularSeeded = false;
+app.use('/demo/popular', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/popular' });
+    if (!popularSeeded) {
+      popularSeeded = true;
+      const tomorrow = new Date(Date.now() + 20 * 3_600_000);
+      for (let i = 0; i < 24; i++) {
+        const lines = [{ catalogItemId: khalid.itemIds.get('khalid_mix'), qty: 1 }];
+        if (i < 22) lines.push({ catalogItemId: khalid.itemIds.get('liver_plate'), qty: 1 });
+        if (i < 20) lines.push({ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 });
+        if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
+        await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
+      }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
 
 app.use('/demo/kitchen', async (req, res) => {
   try {

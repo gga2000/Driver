@@ -166,6 +166,19 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
   };
 }
 
+/**
+ * The most ordered dishes (joy o8): per dish, how many orders had it (`counts`), those with at least
+ * `minOrders`, most first (ties by menu order), at most `top`. Only dishes still on the menu.
+ */
+export function popularItems(counts: ReadonlyMap<string, number>, menuOrder: readonly string[], rules: { minOrders: number; top: number }): string[] {
+  return menuOrder
+    .map((id, i) => ({ id, i, n: counts.get(id) ?? 0 }))
+    .filter((x) => x.n >= rules.minOrders)
+    .sort((a, b) => b.n - a.n || a.i - b.i)
+    .slice(0, rules.top)
+    .map((x) => x.id);
+}
+
 /** Sections in menu order (first item of each); items without a section go last under `otherLabel`. */
 export function menuSections(items: readonly CatalogItemRecord[], at: Date, timeZone: string, otherLabel = 'أصناف ثانية'): MenuCategory[] {
   const sections = new Map<string, MenuItem[]>();

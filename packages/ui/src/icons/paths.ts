@@ -152,6 +152,8 @@ export const ICONS = {
     { d: 'M12 3v2M4.6 6.1l1.4 1.4M19.4 6.1 18 7.5' },
     { d: 'M12 13.5V16' },
   ],
+  /** A favourite kitchen (joy o8): one you have really ordered from. */
+  heart: [{ d: 'M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.1a4.3 4.3 0 0 1 7.5 2.7C19.5 15.4 12 20 12 20z' }],
   gift: [
     { rect: [4, 9.5, 16, 3.5, 1] },
     { d: 'M5.5 13v7.5h13V13' },

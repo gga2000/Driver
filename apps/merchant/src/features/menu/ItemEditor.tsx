@@ -1,8 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
-import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
+import { Button, ChipGroup, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -24,6 +24,8 @@ interface Basics {
   categoryAr: string;
   prepTimeMin: number;
   price: string;
+  /** The kitchen's labels shown to customers (joy o8): «حار», «جديد», «للعائلة». */
+  labels: DishLabel[];
 }
 
 function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
@@ -34,6 +36,7 @@ function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
     categoryAr: item?.categoryAr ?? category ?? '',
     prepTimeMin: item?.prepTimeMin ?? 15,
     price: item ? String(item.priceIqd) : '',
+    labels: [...(item?.labels ?? [])],
   };
 }
 
@@ -127,6 +130,7 @@ export function ItemEditor() {
           categoryAr,
           sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr),
           prepTimeMin: form.prepTimeMin,
+          labels: form.labels,
         });
         if (groups.length > 0) await actions.setModifiers.mutateAsync({ merchantOrgId: storeId, itemId: created.id, groups: fromDraftGroups(groups) });
         if (photo) {
@@ -149,6 +153,7 @@ export function ItemEditor() {
         categoryAr,
         ...(moved ? { sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr) } : {}),
         prepTimeMin: form.prepTimeMin,
+        labels: form.labels,
       });
       toast.show({ message: t('merchant.item.saved'), tone: 'success' });
     } catch (err) {
@@ -322,6 +327,21 @@ export function ItemEditor() {
         <Text variant="label" color="textMuted" style={{ minWidth: 40 }}>
           {t('merchant.accept.minutes_unit')}
         </Text>
+      </View>
+      <View style={{ gap: theme.space[2] }} testID="item-labels">
+        <View style={{ gap: 2 }}>
+          <Text variant="label">{t('merchant.item.labels')}</Text>
+          <Text variant="caption" color="textMuted">
+            {t('merchant.item.labels_hint')}
+          </Text>
+        </View>
+        <ChipGroup
+          mode="multi"
+          items={DISH_LABELS.map((l) => ({ id: l, label: t(`merchant.item.label_${l}`) }))}
+          value={form.labels}
+          onChange={(next) => set('labels', next.filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)))}
+          accessibilityLabel={t('merchant.item.labels')}
+        />
       </View>
       <TextField testID="item-name-en" label={t('merchant.item.name_en')} placeholder="Tikka wrap" value={form.nameEn} onChangeText={(v) => set('nameEn', v)} maxLength={80} autoCapitalize="words" />
     </Panel>

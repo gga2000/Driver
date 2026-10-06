@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basePrepMin, etaRange, foldArabic, minutesUntilLocal, nextOpening, nextOpeningIn, openState, pinOf, prepRange, twelveHour } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, minutesUntilLocal, nextOpening, nextOpeningIn, openState, pinOf, popularItems, prepRange, twelveHour } from './storefront.js';
 
 const TZ = 'Asia/Baghdad';
 const every = (start: string, end: string) => [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start, end }));
@@ -57,5 +57,23 @@ describe('storefront helpers', () => {
     expect(foldArabic('مشكّل')).toBe(foldArabic('مشكل'));
     expect(foldArabic('أكلة')).toBe('اكله');
     expect(foldArabic('چاي')).toBe(foldArabic('جاي'));
+  });
+});
+
+describe('popularItems (joy o8: «الأكثر طلباً بالعزيزية»)', () => {
+  const rules = { minOrders: 20, top: 3 };
+  it('dishes with at least 20 orders, most first, ties in menu order, top 3', () => {
+    const counts = new Map([
+      ['a', 25],
+      ['b', 40],
+      ['c', 19],
+      ['d', 25],
+      ['e', 30],
+    ]);
+    expect(popularItems(counts, ['a', 'b', 'c', 'd', 'e'], rules)).toEqual(['b', 'e', 'a']);
+  });
+  it('nothing below the line, and nothing that left the menu', () => {
+    expect(popularItems(new Map([['a', 5]]), ['a'], rules)).toEqual([]);
+    expect(popularItems(new Map([['gone', 99]]), ['a'], rules)).toEqual([]);
   });
 });

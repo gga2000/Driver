@@ -163,9 +163,18 @@ export const MenuCategory = z.object({
 });
 export type MenuCategory = z.infer<typeof MenuCategory>;
 
+/**
+ * «الأكثر طلباً بالعزيزية» (joy o8): a dish counts once per order that had it, over the last 30 days,
+ * not counting refused or cancelled orders; only dishes with at least 20 such orders show (spec §6:
+ * town-level popularity needs ≥ 20 orders, so a count never points at a few people), the top 3.
+ */
+export const POPULAR_RULES = { windowDays: 30, minOrders: 20, top: 3 } as const;
+
 export const RestaurantMenu = z.object({
   restaurant: RestaurantCard,
   categories: z.array(MenuCategory),
+  /** The kitchen's most ordered dishes (item ids, most first; `POPULAR_RULES`); empty when none qualify. */
+  popular: z.array(z.string()).optional(),
 });
 export type RestaurantMenu = z.infer<typeof RestaurantMenu>;
 

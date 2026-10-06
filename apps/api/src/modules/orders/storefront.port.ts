@@ -3,7 +3,11 @@ import type { StorefrontMerchants } from '../catalog/index.js';
 import type { MerchantDirectory } from './merchants.port.js';
 import { busyExtraMinutes } from './busy.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
+import type { OrdersRepository } from './orders.repository.js';
 import type { PromotionsPort } from './promotions.port.js';
+
+/** Orders that did not happen don't make a dish popular. */
+const NOT_COUNTED = new Set(['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded', 'failed']);
 
 /**
  * The customer catalog's view of a merchant (`catalog.restaurants` / `catalog.menu`): the kitchen
@@ -17,7 +21,20 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
   constructor(
     private readonly directory: Pick<MerchantDirectory, 'profile'>,
     private readonly promotions?: Pick<PromotionsPort, 'badges'>,
+    private readonly orders?: Pick<OrdersRepository, 'merchantOrdersBetween'>,
   ) {}
+
+  /** Joy o8: per dish, how many of the kitchen's orders in the window had it (once per order). */
+  async dishOrderCounts(orgId: string, since: Date, until: Date): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (!this.orders) return counts;
+    for (const agg of await this.orders.merchantOrdersBetween(orgId, since, until)) {
+      if (NOT_COUNTED.has(agg.order.state)) continue;
+      const dishes = new Set(agg.lines.filter((l) => l.catalogItemId && l.substitution?.state !== 'removed').map((l) => l.catalogItemId!));
+      for (const id of dishes) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }
 
   /** Live merchant deals for the card badge (the same deals `orders.quote` / `place` apply). */
   async deals(orgId: string, at: Date = new Date()): Promise<DealBadge[]> {

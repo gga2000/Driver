@@ -7,6 +7,9 @@ import { amountParam, iqd } from '@/lib/money';
 import { FoodArt, artOf, type DishArt } from './FoodArt';
 import { measure, type Rect } from './FlyToCart';
 import { canQuickAdd, fromPrice } from './modifiers';
+import { servesCopy } from './portions';
+
+const LABEL_KEY = { spicy: 'item.label_spicy', new: 'item.label_new', family: 'item.label_family' } as const;
 
 export interface DishCardProps {
   item: MenuItem;
@@ -40,6 +43,8 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
   const dealPrice = item.deal ? dealLinePrice(price.amount, item.deal) : null;
   const soldOut = !item.available;
   const quick = canQuickAdd(item);
+  const serves = servesCopy(item.serves, locale);
+  const servesText = serves ? t(serves.key, 'params' in serves ? serves.params : undefined) : null;
   return (
     <Pressable
       testID={`dish-${item.id}`}
@@ -67,6 +72,25 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
           <Text variant="footnote" color="textMuted" numberOfLines={2}>
             {item.description}
           </Text>
+        ) : null}
+        {/* o8 / o3: the kitchen's own labels and how many the dish feeds, when it says. */}
+        {(item.labels?.length ?? 0) > 0 || item.serves ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[1] }} testID={`dish-tags-${item.id}`}>
+            {(item.labels ?? []).map((l) => (
+              <View key={l} style={{ paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.pill, backgroundColor: l === 'spicy' ? theme.colors.dangerTint : l === 'new' ? theme.colors.deal : theme.colors.surfaceSunken }}>
+                <Text variant="caption" weight={600} color={l === 'spicy' ? 'dangerText' : l === 'new' ? 'onDeal' : 'text'}>
+                  {t(LABEL_KEY[l])}
+                </Text>
+              </View>
+            ))}
+            {servesText ? (
+              <View style={{ paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}>
+                <Text variant="caption" color="textMuted">
+                  {servesText}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: 2 }}>
           {dealPrice !== null && dealPrice < price.amount ? (

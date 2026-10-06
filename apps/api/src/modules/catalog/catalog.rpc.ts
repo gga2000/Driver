@@ -5,6 +5,7 @@ import {
   CATALOG_SEARCH_LIMITS,
   DriverError,
   PriceRequest,
+  POPULAR_RULES,
   SMALL_ORDER_FEE_IQD,
   carryModifierPicks,
   cashToHand,
@@ -43,7 +44,7 @@ import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
-import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** Unmet searches one caller may send per minute (joy h4). */
 export const UNMET_PER_MINUTE = 10;
@@ -101,6 +102,8 @@ export interface StorefrontMerchants {
   }>;
   /** Live merchant deals as badges (bound by orders over the promotions module); none when absent. */
   deals?(orgId: string, at: Date): Promise<DealBadge[]>;
+  /** Joy o8: per dish id, how many of the kitchen's orders since `since` had it (refused and cancelled orders left out). */
+  dishOrderCounts?(orgId: string, since: Date, until: Date): Promise<Map<string, number>>;
 }
 
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
@@ -180,7 +183,12 @@ export class CatalogRpc implements CustomerCatalogPort {
     // f10: each dish's price under a live percent deal with no minimum (the rule orders.quote applies).
     const deals = restaurant.deals ?? [];
     const categories = menuSections(items, now, this.merchants.timeZone).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
-    return { restaurant, categories };
+    // o8: «الأكثر طلباً بالعزيزية» from the kitchen's real orders (≥ 20 orders a dish, last 30 days).
+    const since = new Date(now.getTime() - POPULAR_RULES.windowDays * 86_400_000);
+    const counts = (await this.merchants.dishOrderCounts?.(s.orgId, since, now)) ?? new Map<string, number>();
+    const orderable = categories.flatMap((c) => c.items).filter((i) => i.available);
+    const popular = popularItems(counts, orderable.map((i) => i.id), POPULAR_RULES);
+    return { restaurant, categories, popular };
   }
 
   /**
