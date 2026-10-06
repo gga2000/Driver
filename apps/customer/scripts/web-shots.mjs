@@ -29,6 +29,8 @@
 //   season-* J6 on a frozen 13:00 Baghdad clock: home Ramadan card (pick, then the countdown), the
 //            timetable in notifications, checkout's «على الفطور» slot, the Eid card
 //                                                                         POST /demo/season
+//   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
+//            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -89,7 +91,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'habits'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -223,12 +225,87 @@ try {
   if (wants('chat')) await chatShots(personId);
   if (wants('ride')) await rideShots();
   if (wants('season')) await seasonShots(khalid);
+  if (wants('habits')) await habitsShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+/**
+ * Joy J7a food habits, as a person with no order running (a fresh account, so the usual and Friday
+ * cards are not under a live order): the «العزيزية اليوم» pots strip and «طلبك المعتاد؟» on home, a
+ * followed pot, Thursday 20:00 «باچر الجمعة» and its booking sheet, the restaurant page with the pot
+ * banner and «مطاعمنا», the item sheet's follow row, and the «قدر اليوم» switch.     POST /demo/usuals
+ */
+async function habitsShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('welcome-signin').waitFor({ timeout: 20_000 });
+  await byTestId('welcome-signin').click();
+  await page.locator('[data-testid="phone-input"]').fill(process.env.HABITS_PHONE ?? '0770 456 7788');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('أم علي');
+    await byTestId('setup-next').click();
+    await byTestId('chip-street_30').click();
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('no person after sign-in');
+  await demoPost(`/demo/usuals?personId=${encodeURIComponent(personId)}`);
+  await page.reload(LOADED);
+  await byTestId('home-pots').waitFor({ timeout: 15_000 }).catch(() => errors.push('pots strip not shown'));
+  await byTestId('home-usual').waitFor({ timeout: 15_000 }).catch(() => errors.push('usual card not shown'));
+  await shot('habits-home');
+  await fullShot('habits-home-full');
+  await byTestId('home-pot-follow-0').click();
+  await settle(900);
+  await byTestId('home-pots').scrollIntoViewIfNeeded();
+  await shot('habits-pot-followed');
+
+  // Thursday 20:00 in Baghdad (the next one): «باچر الجمعة» for the Friday lunch usual.
+  const local = new Date(Date.now() + 3 * 3_600_000);
+  const ahead = (4 - local.getUTCDay() + 7) % 7;
+  const thursday = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + ahead, 20, 0) - 3 * 3_600_000);
+  await page.clock.setFixedTime(thursday);
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-friday').waitFor({ timeout: 15_000 }).catch(() => errors.push('Friday card not shown'));
+  await shot('habits-friday');
+  await byTestId('home-friday-book').click();
+  await byTestId('reorder-sheet').waitFor({ timeout: 15_000 });
+  await byTestId('reorder-total').waitFor({ timeout: 15_000 });
+  await settle(1500);
+  await shot('habits-friday-sheet');
+  await byTestId('reorder-close').click();
+
+  const seed = await (await fetch(`${apiBase}/demo/seed`)).json();
+  const kareem = seed.find((r) => r.key === 'haj_kareem').orgId;
+  await page.goto(`${origin}/restaurant/${kareem}`, LOADED);
+  await byTestId('restaurant-pot').waitFor({ timeout: 15_000 }).catch(() => errors.push('pot banner not shown'));
+  await byTestId('restaurant-story').waitFor({ timeout: 5_000 }).catch(() => errors.push('story not shown'));
+  await shot('habits-restaurant');
+  await fullShot('habits-restaurant-full');
+  await byTestId('restaurant-pot-open').click();
+  await byTestId('item-follow').waitFor({ timeout: 10_000 }).catch(() => errors.push('item follow row not shown'));
+  await shot('habits-item-follow');
+
+  await page.goto(`${origin}/profile/notifications`, LOADED);
+  await byTestId('pref-dishPots').waitFor({ timeout: 15_000 }).catch(() => errors.push('dish pots switch not shown'));
+  await shot('habits-notifications');
 }
 
 /** M3 account: seed places / points / household, then profile, place editor, wallet, household. */
