@@ -171,6 +171,16 @@ describe('checkout payload builder', () => {
     ]);
     expect(parsed.lines[1]!.modifiers).toEqual([{ groupId: 'g_amount', modifierId: 'kilo', priceIqd: 11000 }]);
     expect(parsed.scheduledFor).toBeUndefined();
+    expect(parsed.usePoints).toBeUndefined();
+  });
+
+  it('«استخدم نقاطك» (W-02): asks the server to use points and sends the value the quote showed', () => {
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, paymentMethod: 'cash' as const, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: true, pointsIqd: 1500 }))).toMatchObject({ usePoints: true, pointsIqd: 1500 });
+    // Switched off: neither is sent (the server spends nothing).
+    const off = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: false, pointsIqd: 0 }));
+    expect(off.usePoints).toBeUndefined();
+    expect(off.pointsIqd).toBeUndefined();
   });
 
   it('recipient: a person on the order becomes the recipient; someone else is added with name + phone; schedule and street', () => {

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { Platform, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
 import { Screen } from '@/components/Screen';
@@ -61,8 +61,10 @@ export default function CheckoutScreen() {
   const { name: myName } = useProfile();
   const { place, dropoff } = useDeliverTo();
   const [street, setStreet] = useState(false);
+  // W-02 «استخدم نقاطك»: the server decides how many points apply (delivery fee first, then service fee).
+  const [usePoints, setUsePoints] = useState(false);
   const quote = useCartQuote(cart, dropoff, street);
-  const orderQuote = useOrderQuote(cart, dropoff, street);
+  const orderQuote = useOrderQuote(cart, dropoff, street, usePoints);
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
@@ -95,6 +97,12 @@ export default function CheckoutScreen() {
   useEffect(() => {
     if (payment === 'wallet' && priced && balance !== null && !walletRow.usable) setPayment('cash');
   }, [payment, priced, balance, walletRow.usable]);
+
+  // Points that no longer apply (spent on another order, cart changed) switch themselves off.
+  const pointsOffer = orderQuote.data?.points ?? null;
+  useEffect(() => {
+    if (usePoints && orderQuote.data && !pointsOffer) setUsePoints(false);
+  }, [usePoints, orderQuote.data, pointsOffer]);
 
   // After a lost answer, check the order by re-sending its key (it opens if it was placed): once when
   // the screen can (or the app restarted with it pending), and again each time the network comes back.
@@ -195,6 +203,8 @@ export default function CheckoutScreen() {
           courierNote,
           clientRequestId: attempt.key,
           statedTenderIqd: tender,
+          usePoints: usePoints && totals.pointsIqd > 0,
+          pointsIqd: totals.pointsIqd,
         }),
       );
       cartStore.markPlaced(order.id);
@@ -220,7 +230,7 @@ export default function CheckoutScreen() {
           const fresh = await queryClient.fetchQuery({ ...api.catalog.menu.queryOptions({ merchantId: merchant.id, dropoff }), staleTime: 0 });
           const res = reconcile(cart, fresh.categories);
           cartStore.replaceCart(res.cart);
-          await quote.refetch();
+          await Promise.all([quote.refetch(), orderQuote.refetch()]);
           setProblem(res.removed.length ? t('checkout.item_unavailable', { items: res.removed.join('، ') }) : t('checkout.price_changed'));
         } catch {
           setProblem(t('error.price_changed'));
@@ -442,6 +452,28 @@ export default function CheckoutScreen() {
             }
           />
         </Card>
+        {pointsOffer ? (
+          <Card elevation={0} padding={0}>
+            <ListRow
+              testID="checkout-points"
+              leading="gift"
+              title={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
+              subtitle={t('checkout.points_hint', { n: pointsOffer.balance })}
+              onPress={() => setUsePoints((v) => !v)}
+              chevron={false}
+              trailing={
+                <Switch
+                  testID="checkout-points-switch"
+                  accessibilityLabel={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
+                  value={usePoints}
+                  onValueChange={setUsePoints}
+                  trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+                  {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
+                />
+              }
+            />
+          </Card>
+        ) : null}
         {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd} value={tender} onChange={setTenderPick} /> : null}
       </Section>
 
