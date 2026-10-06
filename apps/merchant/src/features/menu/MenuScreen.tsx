@@ -13,6 +13,7 @@ import { Glyph } from './Glyph';
 import { categoryNames, filterMenu, itemStatus, sectionCounts, type MenuCategoryLike } from './logic';
 import { MenuItemRow } from './MenuItemRow';
 import { GlyphButton, Panel, Pill } from './parts';
+import { PotEntry } from '@/features/pot/PotEntry';
 import { useMenu, useMenuActions } from './queries';
 
 type StatusFilter = 'all' | 'sold_out_today' | 'off';
@@ -265,6 +266,7 @@ export function MenuScreen() {
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[5] }}>
           <View style={{ width: 296 }}>
             <ScrollView contentContainerStyle={{ gap: theme.space[3], paddingBottom: theme.space[8] }}>
+              <PotEntry merchantOrgId={storeId} />
               <Panel padded={false} style={{ overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[4], paddingBottom: theme.space[2] }}>
                   <Text variant="label" color="textMuted" style={{ flex: 1 }}>
@@ -305,6 +307,7 @@ export function MenuScreen() {
 
   return (
     <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} testID="menu">
+      <PotEntry merchantOrgId={storeId} />
       {search}
       {filters}
       {menu.data && sections.length > 0 && !searching ? (
