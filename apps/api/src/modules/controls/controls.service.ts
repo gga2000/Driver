@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  QUIET_MAX_DAYS,
   Vertical,
   type Actor,
   type AuditEntry,
@@ -11,8 +12,12 @@ import {
   type ControlsView,
   type KillSwitchView,
   type PublicBanner,
+  type PublicSeason,
+  type QuietDaysView,
+  type SeasonInput,
   type SetBannerInput,
   type SetKillSwitchInput,
+  type SetQuietDaysInput,
   type SetZoneCapacityInput,
   type SystemBannerView,
   type ZoneCapacityView,
@@ -22,11 +27,12 @@ import { formatClock, t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { localDateKey } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { AuditLogService, StaffNames } from './audit.js';
-import { CONTROLS_REPOSITORY, targetOf, type BannerRecord, type ControlsRepository, type KillSwitchRecord, type ZoneCapacityRecord } from './controls.repository.js';
+import { CONTROLS_REPOSITORY, targetOf, type BannerRecord, type ControlsRepository, type KillSwitchRecord, type QuietRecord, type ZoneCapacityRecord } from './controls.repository.js';
 
 /** Arabic names of the verticals, as the switches and refusals say them. */
 export const VERTICAL_AR: Record<Vertical, string> = {
@@ -52,6 +58,15 @@ const SWITCH_CACHE_MS = 2_000;
 const RECENT_MS = 24 * 3_600_000;
 const SEVERITY_RANK: Record<BannerSeverity, number> = { critical: 3, warning: 2, info: 1 };
 const SEVERITY_AR: Record<BannerSeverity, string> = { critical: 'مهم جداً', warning: 'تنبيه', info: 'معلومة' };
+/** `system.season` is polled by every open app, and the notify engine asks before each offer. */
+const QUIET_CACHE_MS = 5_000;
+/** An ordinary day: everything on. */
+const LOUD: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null };
+
+/** Whole calendar days from one YYYY-MM-DD to another (date arithmetic in UTC; no time zone involved). */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
 
 /** What a placement asks the gate (orders.place, routes booking). */
 export interface OrderGate {
@@ -105,6 +120,7 @@ export class ControlsService implements ControlsPort {
   private corridors: Array<{ id: string; name_ar: string }> = [];
   private readonly switchCache = new Map<string, { at: number; rows: KillSwitchRecord[] }>();
   private bannerCache: { at: number; rows: BannerRecord[] } | null = null;
+  private quietCache: { at: number; rows: QuietRecord[] } | null = null;
 
   constructor(
     @Inject(CONTROLS_REPOSITORY) private readonly repo: ControlsRepository,
@@ -499,5 +515,92 @@ export class ControlsService implements ControlsPort {
     });
     this.bannerCache = null;
     return this.bannerView(row, await this.names.of([row.setById]), now);
+  }
+
+  // ───────────────────────── quiet days and the season ─────────────────────────
+
+  private async liveQuiet(): Promise<QuietRecord[]> {
+    const now = this.clock.now();
+    if (this.quietCache && now.getTime() - this.quietCache.at < QUIET_CACHE_MS) return this.quietCache.rows;
+    const rows = await this.repo.liveQuiet(localDateKey(now));
+    this.quietCache = { at: now.getTime(), rows };
+    return rows;
+  }
+
+  /** The quiet period covering `at`'s Baghdad date for this city (any-city periods count), longest-running first. */
+  private quietOn(at: Date, rows: QuietRecord[], cityId?: string): QuietRecord | null {
+    const day = localDateKey(at);
+    return (
+      rows
+        .filter((q) => !q.clearedAt && q.startsOn <= day && day <= q.endsOn && (q.cityId === null || !cityId || q.cityId === cityId))
+        .sort((a, b) => b.endsOn.localeCompare(a.endsOn))[0] ?? null
+    );
+  }
+
+  /** What an open app may do today: on a quiet day no celebrations, no moment sounds and no offers. */
+  async season(input: SeasonInput): Promise<PublicSeason> {
+    const on = this.quietOn(this.clock.now(), await this.liveQuiet(), input.cityId);
+    return on ? { quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: on.endsOn } : LOUD;
+  }
+
+  /** The notify engine's gate for offers (the `marketing` category). */
+  async isQuietDay(at: Date, cityId?: string): Promise<boolean> {
+    return this.quietOn(at, await this.liveQuiet(), cityId) !== null;
+  }
+
+  private quietView(q: QuietRecord, names: Record<string, string | null>, now: Date): QuietDaysView {
+    const day = localDateKey(now);
+    return {
+      id: q.id,
+      cityId: q.cityId,
+      startsOn: q.startsOn,
+      endsOn: q.endsOn,
+      label_ar: q.labelAr,
+      active: !q.clearedAt && q.startsOn <= day && day <= q.endsOn,
+      setBy: q.setById,
+      setByName: names[q.setById] ?? null,
+      setAt: q.setAt,
+      clearedAt: q.clearedAt,
+    };
+  }
+
+  async quietDays(): Promise<QuietDaysView[]> {
+    const now = this.clock.now();
+    const rows = await this.repo.recentQuiet(30);
+    const names = await this.names.of(rows.map((r) => r.setById));
+    return rows.map((q) => this.quietView(q, names, now));
+  }
+
+  async setQuietDays(actor: Actor, input: z.output<typeof SetQuietDaysInput>): Promise<QuietDaysView> {
+    const now = this.clock.now();
+    const today = localDateKey(now);
+    if (input.startsOn < today || input.endsOn < input.startsOn || daysBetween(input.startsOn, input.endsOn) + 1 > QUIET_MAX_DAYS) throw new DriverError('quiet_invalid');
+    const row = await this.uow.run(async (tx) => {
+      const saved = await this.repo.createQuiet(
+        { cityId: input.cityId ?? null, startsOn: input.startsOn, endsOn: input.endsOn, labelAr: input.label_ar, setById: actor.personId, setAt: now, clearedAt: null, clearedById: null },
+        tx,
+      );
+      await this.audits.record(
+        { cityId: saved.cityId, actorId: actor.personId, action: 'quiet.set', subjectKind: 'quiet', subjectId: saved.id, summaryAr: `أيام هدوء: ${saved.labelAr} (${saved.startsOn} – ${saved.endsOn})`, detail: { startsOn: saved.startsOn, endsOn: saved.endsOn } },
+        tx,
+      );
+      return saved;
+    });
+    this.quietCache = null;
+    return this.quietView(row, await this.names.of([row.setById]), now);
+  }
+
+  async clearQuietDays(actor: Actor, input: { quietId: string }): Promise<QuietDaysView> {
+    const now = this.clock.now();
+    const existing = await this.repo.quiet(input.quietId);
+    if (!existing) throw new DriverError('quiet_not_found');
+    if (existing.clearedAt) return this.quietView(existing, await this.names.of([existing.setById]), now);
+    const row = await this.uow.run(async (tx) => {
+      const saved = await this.repo.clearQuiet(existing.id, actor.personId, now, tx);
+      await this.audits.record({ cityId: saved.cityId, actorId: actor.personId, action: 'quiet.clear', subjectKind: 'quiet', subjectId: saved.id, summaryAr: `شال أيام الهدوء: ${saved.labelAr}` }, tx);
+      return saved;
+    });
+    this.quietCache = null;
+    return this.quietView(row, await this.names.of([row.setById]), now);
   }
 }

@@ -7,7 +7,7 @@ import type { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { AuditLogService, StaffNames } from './audit.js';
 import { InMemoryControlsRepository } from './controls.repository.js';
-import { ControlsService, loadState, throttleMessage } from './controls.service.js';
+import { ControlsService, daysBetween, loadState, throttleMessage } from './controls.service.js';
 
 const ALI: Actor = { personId: 'p_ali', sessionId: 's1' };
 
@@ -128,5 +128,34 @@ describe('launch controls', () => {
     expect(await h.svc.banner({ app: 'customer' })).toBeNull();
     await expect(h.svc.setBanner(ALI, { severity: 'info', audiences: ['customer'], message_ar: 'طويل', expiresAt: new Date('2026-10-05T15:00:01Z') })).rejects.toMatchObject({ code: 'banner_invalid' });
     await expect(h.svc.clearBanner(ALI, { bannerId: 'bn_none' })).rejects.toMatchObject({ code: 'banner_not_found' });
+  });
+
+  it('daysBetween counts calendar days between two YYYY-MM-DD dates', () => {
+    expect(daysBetween('2026-11-13', '2026-11-13')).toBe(0);
+    expect(daysBetween('2026-11-13', '2026-11-27')).toBe(14);
+    expect(daysBetween('2026-12-31', '2027-01-01')).toBe(1);
+  });
+
+  it('quiet days: by Baghdad date, every city or one city; cleared ones go; never in the past, at most 15 days', async () => {
+    const h = await harness('2026-11-12T20:30:00Z'); // 23:30 Baghdad, 12 Nov
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null });
+    const q = await h.svc.setQuietDays(ALI, { cityId: null, startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' });
+    expect(q).toMatchObject({ active: false, setByName: 'علي', startsOn: '2026-11-13' });
+    expect((await h.svc.season({ cityId: 'aziziyah' })).quiet).toBe(false);
+    h.clock.advanceMinutes(31); // 00:01 Baghdad, 13 Nov
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13' });
+    expect(await h.svc.isQuietDay(h.clock.now())).toBe(true);
+    expect((await h.svc.quietDays())[0]).toMatchObject({ id: q.id, active: true });
+    h.clock.set('2026-11-13T21:00:00Z'); // 00:00 Baghdad, 14 Nov
+    expect((await h.svc.season({})).quiet).toBe(false);
+    const kut = await h.svc.setQuietDays(ALI, { cityId: 'kut', startsOn: '2026-11-14', endsOn: '2026-11-15', label_ar: 'الكوت فقط' });
+    expect((await h.svc.season({ cityId: 'aziziyah' })).quiet).toBe(false);
+    expect((await h.svc.season({ cityId: 'kut' })).quietUntil).toBe('2026-11-15');
+    await h.svc.clearQuietDays(ALI, { quietId: kut.id });
+    expect((await h.svc.season({ cityId: 'kut' })).quiet).toBe(false);
+    await expect(h.svc.setQuietDays(ALI, { startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'أمس' })).rejects.toMatchObject({ code: 'quiet_invalid' });
+    await expect(h.svc.setQuietDays(ALI, { startsOn: '2026-11-14', endsOn: '2026-11-29', label_ar: 'طويل' })).rejects.toMatchObject({ code: 'quiet_invalid' });
+    await expect(h.svc.clearQuietDays(ALI, { quietId: 'qd_none' })).rejects.toMatchObject({ code: 'quiet_not_found' });
+    expect((await h.svc.audit({ cityId: 'kut', subjectKind: 'quiet', limit: 10 })).map((a) => a.action)).toEqual(['quiet.clear', 'quiet.set', 'quiet.set']);
   });
 });

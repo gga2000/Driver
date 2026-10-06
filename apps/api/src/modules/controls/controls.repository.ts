@@ -47,6 +47,20 @@ export interface BannerRecord {
   clearedById: string | null;
 }
 
+/** `quiet_periods` */
+export interface QuietRecord {
+  id: string;
+  cityId: string | null;
+  /** Baghdad calendar days, inclusive, YYYY-MM-DD. */
+  startsOn: string;
+  endsOn: string;
+  labelAr: string;
+  setById: string;
+  setAt: Date;
+  clearedAt: Date | null;
+  clearedById: string | null;
+}
+
 /** `console_audit_log` */
 export interface AuditRecord {
   id: string;
@@ -76,6 +90,13 @@ export interface ControlsRepository {
   banner(id: string, tx?: Tx): Promise<BannerRecord | null>;
   createBanner(input: Omit<BannerRecord, 'id'>, tx?: Tx): Promise<BannerRecord>;
   clearBanner(id: string, by: string, at: Date, tx?: Tx): Promise<BannerRecord>;
+  /** Quiet periods not cleared that end on or after `today` (YYYY-MM-DD): today's and coming ones. */
+  liveQuiet(today: string, tx?: Tx): Promise<QuietRecord[]>;
+  /** The most recent quiet periods (any state), newest first. */
+  recentQuiet(limit: number, tx?: Tx): Promise<QuietRecord[]>;
+  quiet(id: string, tx?: Tx): Promise<QuietRecord | null>;
+  createQuiet(input: Omit<QuietRecord, 'id'>, tx?: Tx): Promise<QuietRecord>;
+  clearQuiet(id: string, by: string, at: Date, tx?: Tx): Promise<QuietRecord>;
   addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord>;
   audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
 }
@@ -86,6 +107,7 @@ export class InMemoryControlsRepository implements ControlsRepository {
   readonly switchRows = new Map<string, KillSwitchRecord>();
   readonly capacityRows = new Map<string, ZoneCapacityRecord>();
   readonly bannerRows = new Map<string, BannerRecord>();
+  readonly quietRows = new Map<string, QuietRecord>();
   readonly auditRows: AuditRecord[] = [];
   private seq = 0;
 
@@ -146,6 +168,36 @@ export class InMemoryControlsRepository implements ControlsRepository {
     return { ...b, audiences: [...b.audiences] };
   }
 
+  async liveQuiet(today: string): Promise<QuietRecord[]> {
+    return [...this.quietRows.values()].filter((q) => !q.clearedAt && q.endsOn >= today).map((q) => ({ ...q }));
+  }
+
+  async recentQuiet(limit: number): Promise<QuietRecord[]> {
+    return [...this.quietRows.values()]
+      .sort((a, b) => b.setAt.getTime() - a.setAt.getTime() || b.id.localeCompare(a.id))
+      .slice(0, limit)
+      .map((q) => ({ ...q }));
+  }
+
+  async quiet(id: string): Promise<QuietRecord | null> {
+    const q = this.quietRows.get(id);
+    return q ? { ...q } : null;
+  }
+
+  async createQuiet(input: Omit<QuietRecord, 'id'>): Promise<QuietRecord> {
+    const row = { ...input, id: this.id('qd') };
+    this.quietRows.set(row.id, row);
+    return { ...row };
+  }
+
+  async clearQuiet(id: string, by: string, at: Date): Promise<QuietRecord> {
+    const q = this.quietRows.get(id);
+    if (!q) throw new Error(`quiet ${id} not found`);
+    q.clearedAt = at;
+    q.clearedById = by;
+    return { ...q };
+  }
+
   async addAudit(input: Omit<AuditRecord, 'id'>): Promise<AuditRecord> {
     const row = { ...input, id: this.id('au') };
     this.auditRows.push(row);
@@ -187,6 +239,17 @@ const bannerFrom = (r: any): BannerRecord => ({
   messageEn: r.messageEn,
   startsAt: r.startsAt,
   expiresAt: r.expiresAt,
+  setById: r.setById,
+  setAt: r.createdAt,
+  clearedAt: r.clearedAt,
+  clearedById: r.clearedById,
+});
+const quietFrom = (r: any): QuietRecord => ({
+  id: r.id,
+  cityId: r.cityId,
+  startsOn: r.startsOn,
+  endsOn: r.endsOn,
+  labelAr: r.labelAr,
   setById: r.setById,
   setAt: r.createdAt,
   clearedAt: r.clearedAt,
@@ -252,6 +315,28 @@ export class PrismaControlsRepository implements ControlsRepository {
 
   async clearBanner(id: string, by: string, at: Date, tx?: Tx): Promise<BannerRecord> {
     return bannerFrom(await this.db(tx).systemBanner.update({ where: { id }, data: { clearedAt: at, clearedById: by } }));
+  }
+
+  async liveQuiet(today: string, tx?: Tx): Promise<QuietRecord[]> {
+    return (await this.db(tx).quietPeriod.findMany({ where: { clearedAt: null, endsOn: { gte: today } }, orderBy: { startsOn: 'asc' } })).map(quietFrom);
+  }
+
+  async recentQuiet(limit: number, tx?: Tx): Promise<QuietRecord[]> {
+    return (await this.db(tx).quietPeriod.findMany({ orderBy: { createdAt: 'desc' }, take: limit })).map(quietFrom);
+  }
+
+  async quiet(id: string, tx?: Tx): Promise<QuietRecord | null> {
+    const r = await this.db(tx).quietPeriod.findUnique({ where: { id } });
+    return r ? quietFrom(r) : null;
+  }
+
+  async createQuiet(input: Omit<QuietRecord, 'id'>, tx?: Tx): Promise<QuietRecord> {
+    const { setAt, ...rest } = input;
+    return quietFrom(await this.db(tx).quietPeriod.create({ data: { ...rest, createdAt: setAt } }));
+  }
+
+  async clearQuiet(id: string, by: string, at: Date, tx?: Tx): Promise<QuietRecord> {
+    return quietFrom(await this.db(tx).quietPeriod.update({ where: { id }, data: { clearedAt: at, clearedById: by } }));
   }
 
   async addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord> {
