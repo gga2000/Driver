@@ -13,6 +13,7 @@
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
+//   - POST /demo/season?kind=ramadan|eid|off  a Ramadan or Eid period from today (J6 home card, checkout iftar slot).
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
@@ -119,6 +120,25 @@ app.use('/demo/quiet', async (req, res) => {
     const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
     for (const q of await controls.quietDays()) if (q.active) await controls.clearQuietDays(demoOps, { quietId: q.id });
     if (url.searchParams.get('on') === '1') await controls.setQuietDays(demoOps, { cityId: null, startsOn: today, endsOn: today, label_ar: 'يوم هادئ (تجربة)' });
+    json(res, 200, await controls.season({ cityId: 'aziziyah' }));
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// Seasons (J6): a Ramadan or Eid period starting today (Baghdad date), or none. The home card, the
+// timetable picker and checkout's «على الفطور» slot then show with today's real sun times.
+app.use('/demo/season', async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const kind = url.searchParams.get('kind') ?? 'off';
+    if (req.method !== 'POST' || !['ramadan', 'eid', 'off'].includes(kind)) return json(res, 400, { error: 'POST /demo/season?kind=ramadan|eid|off' });
+    const demoOps = { personId: 'demo-ops', sessionId: 'demo' };
+    const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+    const dayAfter = (n) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+    for (const s of await controls.seasons()) if (!s.clearedAt && s.kind !== 'quiet' && s.endsOn >= today) await controls.clearSeason(demoOps, { seasonId: s.id });
+    if (kind === 'ramadan') await controls.setSeason(demoOps, { cityId: null, kind, startsOn: today, endsOn: dayAfter(29), label_ar: 'رمضان (تجربة)' });
+    if (kind === 'eid') await controls.setSeason(demoOps, { cityId: null, kind, startsOn: today, endsOn: dayAfter(2), label_ar: 'العيد (تجربة)' });
     json(res, 200, await controls.season({ cityId: 'aziziyah' }));
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });

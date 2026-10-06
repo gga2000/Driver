@@ -2,6 +2,9 @@ import type { PublicSeason, RamadanToday, Timetable, TimetableTimes } from '@dri
 
 const MINUTE_MS = 60_000;
 
+/** The iftar slot is offered while at least this far ahead: the same lead as checkout's `scheduleSlots`. */
+export const IFTAR_MIN_LEAD_MIN = 45;
+
 /** Today's times on the person's timetable; null outside Ramadan or before they pick (never assumed). */
 export function timesFor(ramadan: RamadanToday | null, pick: Timetable | null): TimetableTimes | null {
   return ramadan && pick ? ramadan.timetables[pick] : null;

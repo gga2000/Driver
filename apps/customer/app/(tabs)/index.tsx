@@ -13,6 +13,7 @@ import { nightHome } from '@/features/home/night';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useRestaurants } from '@/features/home/queries';
 import { RajaaCard } from '@/features/home/RajaaCard';
+import { SeasonCard } from '@/features/season/SeasonCard';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { ComingSoonStrip, ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
@@ -96,6 +97,8 @@ export default function Home() {
       </View>
 
       <ServicesRow onPress={onService} />
+      {/* J6: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
+      <SeasonCard />
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
       {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard /> : null}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Platform, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
-import { formatRange } from '@driver/i18n';
+import { formatMinuteCount, formatRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -31,6 +31,9 @@ import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { promiseCopy } from '@/features/track/late-promise';
+import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
+import { useTimetable } from '@/features/season/use-timetable';
+import { useSeason } from '@/lib/use-season';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
 
@@ -80,8 +83,13 @@ export default function CheckoutScreen() {
   const [otherName, setOtherName] = useState('');
   const [otherPhone, setOtherPhone] = useState('');
   const [when, setWhen] = useState<'now' | 'later'>('now');
-  const slots = useMemo(() => scheduleSlots(new Date()), []);
-  const [slot, setSlot] = useState(0);
+  const baseSlots = useMemo(() => scheduleSlots(new Date()), []);
+  // J6: in Ramadan, «على الفطور» on the person's timetable joins the list (the server's slot, before the adhan).
+  const today = useSeason();
+  const [timetable] = useTimetable();
+  const iftar = timesFor(today.ramadan, timetable);
+  const slots = useMemo(() => withIftarSlot(baseSlots, iftar, new Date(), IFTAR_MIN_LEAD_MIN), [baseSlots, iftar]);
+  const [slot, setSlot] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');
@@ -137,7 +145,8 @@ export default function CheckoutScreen() {
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
   const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
   const restaurant = menu.data?.restaurant;
-  const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
+  const chosen = slots.find((s) => String(s.at.getTime()) === slot) ?? slots[0] ?? null;
+  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
   const { groups } = groupByPerson(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
@@ -392,11 +401,16 @@ export default function CheckoutScreen() {
         />
         {when === 'later' ? (
           <ChipGroup
-            items={slots.map((s, i) => ({ id: String(i), label: t('checkout.when_at', { time: clock12(s) }) }))}
-            value={[String(slot)]}
+            items={slots.map((s) => ({ id: String(s.at.getTime()), label: s.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(s.at) }) }))}
+            value={chosen ? [String(chosen.at.getTime())] : []}
             required
-            onChange={(v) => setSlot(Number(v[0] ?? 0))}
+            onChange={(v) => setSlot(v[0] ?? null)}
           />
+        ) : null}
+        {when === 'later' && chosen?.iftar && iftar && timetable ? (
+          <Text testID="checkout-iftar-note" variant="footnote" color="textMuted">
+            {t('checkout.iftar_note', { minutes: formatMinuteCount(iftarLeadMinutes(iftar), { locale }), timetable: t(timetable === 'sunni' ? 'season.timetable_sunni' : 'season.timetable_shia') })}
+          </Text>
         ) : null}
       </Section>
 

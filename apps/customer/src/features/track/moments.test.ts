@@ -4,8 +4,8 @@ import { ALMOST_THERE_ETA_MS, almostThere, isNear, momentFeedback, momentsBetwee
 
 const snap = (phase: MomentSnapshot['phase'], near = false, orderId = 'o1', door = false): MomentSnapshot => ({ orderId, phase, near, door });
 const ride = (phase: MomentSnapshot['phase'], orderId = 'r1'): MomentSnapshot => ({ orderId, phase, near: false, door: false, ride: true });
-const LOUD: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null };
-const QUIET: PublicSeason = { quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: null };
+const LOUD: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null };
+const QUIET: PublicSeason = { quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: null, kind: 'quiet', accent: false, ramadan: null, homeCard: null };
 const DOOR = { lat: 32.9, lng: 45.07 };
 /** About `m` metres north of the door. */
 const north = (m: number) => ({ lat: DOOR.lat + m / 111_320, lng: DOOR.lng });

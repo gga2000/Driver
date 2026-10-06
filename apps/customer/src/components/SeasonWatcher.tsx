@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { useTimetable } from '@/features/season/use-timetable';
 import { useApi } from '@/lib/api';
 import { season } from '@/lib/season';
 
@@ -12,7 +13,9 @@ export const SEASON_POLL_MS = 5 * 60_000;
  */
 export function SeasonWatcher() {
   const api = useApi();
-  const q = useQuery(api.system.season.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: SEASON_POLL_MS, staleTime: SEASON_POLL_MS / 2, retry: false }));
+  // The picked Ramadan timetable rides along (J6) so the answer's own iftarAt/suhoorUntil match it.
+  const [timetable] = useTimetable();
+  const q = useQuery(api.system.season.queryOptions({ cityId: 'aziziyah', ...(timetable ? { timetable } : {}) }, { refetchInterval: SEASON_POLL_MS, staleTime: SEASON_POLL_MS / 2, retry: false }));
   useEffect(() => {
     if (q.data) season.set(q.data);
   }, [q.data]);

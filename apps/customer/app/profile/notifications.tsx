@@ -5,6 +5,7 @@ import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, u
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
+import { TimetablePicker } from '@/features/season/TimetablePicker';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
@@ -142,6 +143,9 @@ export default function NotificationSettings() {
         {/* Maps program q2: low-data mode. */}
         <DataSaverCard onChange={(p) => void saveDataSaverPref(p)} />
       </View>
+
+      {/* J6: the Ramadan timetable this person follows (iftar and suhoor in the app). */}
+      <TimetablePicker />
 
       <Card elevation={0} padding={0}>
         <ListRow leading="shield" title={t('notify.pref.safety')} subtitle={t('notify.pref.safety_hint')} chevron={false} trailing={<Icon name="check" size={20} color="accentText" />} />
