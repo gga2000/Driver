@@ -423,7 +423,7 @@ describe('driverAccount.jobReceipt and payQuery (Partner S-7)', () => {
     ]);
     expect(r).toMatchObject({ grossIqd: 5000, takeIqd: 600, takeRate: 0.12, netIqd: 4400, queryOpen: false });
     expect(r.lines[1]!.reason).toEqual({ code: 'take', params: { rate: 12 } });
-    expect(r.cash).toEqual({ collectedIqd: 5000, toMerchantIqd: 0, toCompanyIqd: 5000 });
+    expect(r.cash).toEqual({ collectedIqd: 5000, toMerchantIqd: 0, keptIqd: 4400, toCompanyIqd: 600 });
 
     const q = await h.service.payQuery(d, { key: job.key, at: job.at, message: 'العمولة أكثر من المتفق عليه' });
     expect(q.alreadyOpen).toBe(false);

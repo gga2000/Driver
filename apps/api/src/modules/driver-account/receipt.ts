@@ -1,5 +1,5 @@
 import { orderTicketNumber, type DriverLedgerView, type JobReceipt, type JobReceiptLine, type ReceiptReasonCode } from '@driver/contracts';
-import { GROSS_TYPES, jobKey, SETTLEMENT_TYPES } from './earnings.js';
+import { CASH_IN_TYPES, GROSS_TYPES, jobKey, SETTLEMENT_TYPES } from './earnings.js';
 
 /**
  * "Why was I paid this" (Partner audit S-7), pure: one job's ledger lines with the reason for each,
@@ -87,7 +87,7 @@ export function composeReceipt(view: DriverLedgerView, key: string, ctx: Receipt
   let collectedIqd = 0;
   let toMerchantIqd = 0;
   for (const l of cash) {
-    if (l.type === 'cash_collected') collectedIqd += Math.abs(l.amountIqd);
+    if (CASH_IN_TYPES.has(l.type)) collectedIqd += Math.abs(l.amountIqd);
     else if (l.type === 'merchant_paid_by_courier') toMerchantIqd += Math.abs(l.amountIqd);
   }
   const first = [...lines, ...cash].reduce((a, b) => (b.occurredAt < a.occurredAt ? b : a));
@@ -105,9 +105,21 @@ export function composeReceipt(view: DriverLedgerView, key: string, ctx: Receipt
     takeRate,
     tipsIqd,
     netIqd,
-    cash: collectedIqd > 0 ? { collectedIqd, toMerchantIqd, toCompanyIqd: Math.max(0, collectedIqd - toMerchantIqd) } : null,
+    cash: collectedIqd > 0 ? cashSplit(collectedIqd, toMerchantIqd, netIqd) : null,
     queryOpen: opts.queryOpen ?? false,
   };
+}
+
+/**
+ * Where the cash he took went: the restaurant's share if he paid it at pickup, then his own pay for
+ * the job — the hand-over nets his earnings against the cash (`owedOf` = cash − earnings), so it stays
+ * with him — and the rest is the company's (it pays a restaurant he did not pay at pickup). The three
+ * always add up to what he took. A job that paid him nothing (or less) keeps nothing back.
+ */
+export function cashSplit(collectedIqd: number, toMerchantIqd: number, netIqd: number): NonNullable<JobReceipt['cash']> {
+  const afterMerchant = Math.max(0, collectedIqd - toMerchantIqd);
+  const keptIqd = Math.min(afterMerchant, Math.max(0, netIqd));
+  return { collectedIqd, toMerchantIqd, keptIqd, toCompanyIqd: afterMerchant - keptIqd };
 }
 
 /** Pay first, then extras, tips and incentives, the take last: the order a receipt reads in. */
@@ -122,6 +134,7 @@ function order(type: string): number {
 export function receiptNote(rcpt: JobReceipt): string {
   const fmt = (n: number) => `${n < 0 ? '−' : '+'}${Math.abs(n).toLocaleString('en-US')}`;
   const parts = rcpt.lines.map((l) => `${l.label_ar} ${fmt(l.amountIqd)}`);
-  const cash = rcpt.cash ? ` · كاش ${rcpt.cash.collectedIqd.toLocaleString('en-US')} (للمطعم ${rcpt.cash.toMerchantIqd.toLocaleString('en-US')})` : '';
+  const n = (v: number) => v.toLocaleString('en-US');
+  const cash = rcpt.cash ? ` · كاش ${n(rcpt.cash.collectedIqd)} (للمطعم ${n(rcpt.cash.toMerchantIqd)} · أجرته ${n(rcpt.cash.keptIqd)} · للشركة ${n(rcpt.cash.toCompanyIqd)})` : '';
   return `${parts.join(' · ')} · الصافي ${rcpt.netIqd.toLocaleString('en-US')} دينار${cash}`;
 }

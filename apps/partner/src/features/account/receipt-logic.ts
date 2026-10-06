@@ -81,3 +81,38 @@ export function receiptTitle(r: Pick<JobReceipt, 'ticket' | 'key' | 'lines'>, t:
 export function disputePrefill(r: Pick<JobReceipt, 'ticket' | 'key' | 'lines'>, t: T): string {
   return t(isRide(r) ? 'partner.receipt_dispute_prefill_ride' : 'partner.receipt_dispute_prefill', { ref: receiptRef(r) });
 }
+
+export interface ReceiptCashRow {
+  key: 'collected' | 'merchant' | 'kept' | 'company';
+  label: string;
+  amountIqd: number;
+}
+
+/**
+ * The cash card, from the server's split (`JobReceipt.cash`): what he took, then where each part
+ * went — the restaurant at pickup, his own pay (it stays with him), the company — each only when it is
+ * not zero, so the arrows always add up to the first line. Null for a cashless job.
+ */
+export function cashRows(r: Pick<JobReceipt, 'cash'>, t: T): ReceiptCashRow[] | null {
+  const c = r.cash;
+  if (!c) return null;
+  const rows: ReceiptCashRow[] = [{ key: 'collected', label: t('partner.receipt_cash_collected'), amountIqd: c.collectedIqd }];
+  if (c.toMerchantIqd > 0) rows.push({ key: 'merchant', label: t('partner.receipt_cash_merchant'), amountIqd: c.toMerchantIqd });
+  if (c.keptIqd > 0) rows.push({ key: 'kept', label: t('partner.receipt_cash_kept'), amountIqd: c.keptIqd });
+  if (c.toCompanyIqd > 0) rows.push({ key: 'company', label: t('partner.receipt_cash_company'), amountIqd: c.toCompanyIqd });
+  return rows;
+}
+
+/**
+ * The line under the cash card. A restaurant order whose restaurant he did not pay at pickup: its
+ * share is inside the company's part (the company pays it). Otherwise, when some of the cash is his
+ * pay: why he hands over less than he took. Nothing else to say otherwise.
+ */
+export function cashNote(r: Pick<JobReceipt, 'cash' | 'lines' | 'orderId'>, t: T): string | null {
+  const c = r.cash;
+  if (!c) return null;
+  const restaurant = r.orderId !== null && !isRide(r) && r.lines.some((l) => l.type === 'delivery_fee');
+  if (restaurant && c.toMerchantIqd === 0 && c.toCompanyIqd > 0) return t('partner.receipt_cash_note_restaurant');
+  if (c.keptIqd > 0) return t('partner.receipt_cash_note_kept');
+  return null;
+}

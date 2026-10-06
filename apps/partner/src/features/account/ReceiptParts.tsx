@@ -7,7 +7,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { usePayQuery } from './queries';
-import { disputePrefill, receiptRows, receiptTitle } from './receipt-logic';
+import { cashNote, cashRows, disputePrefill, receiptRows, receiptTitle } from './receipt-logic';
 
 /** Which job, when (Baghdad clock), and what he kept: the one big number. */
 export function ReceiptHead({ r }: { r: JobReceipt }) {
@@ -89,16 +89,16 @@ export function ReceiptLines({ r }: { r: JobReceipt }) {
   );
 }
 
-/** Cash he took at the door and where it went: the restaurant at pickup, the rest to the company. */
+/**
+ * Cash he took at the door and where it went, as the server split it: the restaurant at pickup, his
+ * own pay (it stays with him), the company. The parts add up to what he took.
+ */
 export function ReceiptCash({ r }: { r: JobReceipt }) {
   const theme = useTheme();
   const t = useT();
-  if (!r.cash) return null;
-  const rows: Array<{ key: string; icon: 'cash' | 'bag' | 'wallet'; label: string; amount: number; strong?: boolean }> = [
-    { key: 'collected', icon: 'cash', label: t('partner.receipt_cash_collected'), amount: r.cash.collectedIqd, strong: true },
-    ...(r.cash.toMerchantIqd > 0 ? [{ key: 'merchant', icon: 'bag' as const, label: t('partner.receipt_cash_merchant'), amount: r.cash.toMerchantIqd }] : []),
-    { key: 'company', icon: 'wallet', label: t('partner.receipt_cash_company'), amount: r.cash.toCompanyIqd },
-  ];
+  const rows = cashRows(r, t);
+  if (!rows) return null;
+  const note = cashNote(r, t);
   return (
     <View style={{ gap: theme.space[2] }}>
       <Text variant="title" style={{ paddingHorizontal: theme.space[1] }}>
@@ -106,20 +106,25 @@ export function ReceiptCash({ r }: { r: JobReceipt }) {
       </Text>
       <Card elevation={0} padding={4} tone="sunken" testID="receipt-cash">
         <View style={{ gap: theme.space[3] }}>
-          {rows.map((x, i) => (
-            <View key={x.key} accessible accessibilityLabel={`${x.label}: ${amountParam(x.amount)} ${t('quote.currency')}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingStart: i > 0 ? theme.space[4] : 0 }}>
-              <Icon name={i > 0 ? 'arrow-forward' : x.icon} size={18} color={i > 0 ? 'textMuted' : 'warningText'} />
-              <Text variant="label" weight={x.strong ? 600 : 400} style={{ flex: 1 }}>
-                {x.label}
-              </Text>
-              <Text variant="label" weight={700} tabular color={x.strong ? 'warningText' : 'text'}>
-                {`${amountParam(x.amount)} ${t('quote.currency')}`}
-              </Text>
-            </View>
-          ))}
-          <Text variant="caption" color="textMuted">
-            {t('partner.earn_job_cash_note')}
-          </Text>
+          {rows.map((x, i) => {
+            const strong = x.key === 'collected';
+            return (
+              <View key={x.key} testID={`receipt-cash-${x.key}`} accessible accessibilityLabel={`${x.label}: ${amountParam(x.amountIqd)} ${t('quote.currency')}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingStart: i > 0 ? theme.space[4] : 0 }}>
+                <Icon name={strong ? 'cash' : 'arrow-forward'} size={18} color={strong ? 'warningText' : x.key === 'kept' ? 'successText' : 'textMuted'} />
+                <Text variant="label" weight={strong ? 600 : 400} style={{ flex: 1 }}>
+                  {x.label}
+                </Text>
+                <Text variant="label" weight={700} tabular color={strong ? 'warningText' : x.key === 'kept' ? 'successText' : 'text'}>
+                  {`${amountParam(x.amountIqd)} ${t('quote.currency')}`}
+                </Text>
+              </View>
+            );
+          })}
+          {note ? (
+            <Text testID="receipt-cash-note" variant="caption" color="textMuted">
+              {note}
+            </Text>
+          ) : null}
         </View>
       </Card>
     </View>

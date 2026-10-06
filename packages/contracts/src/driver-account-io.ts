@@ -422,7 +422,9 @@ export const JobReceipt = z.object({
       collectedIqd: Iqd,
       /** Paid to the restaurant at pickup (PIN-confirmed). */
       toMerchantIqd: Iqd,
-      /** The rest: the company's, handed over with the daily code. */
+      /** His own pay for this job, kept out of the cash (the hand-over nets earnings against cash). */
+      keptIqd: Iqd,
+      /** The rest: the company's (with the restaurant's share when he did not pay it at pickup), handed over with the daily code. */
       toCompanyIqd: Iqd,
     })
     .nullable(),

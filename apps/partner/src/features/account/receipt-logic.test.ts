@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { JobReceipt } from '@driver/contracts';
 import { createT } from '@driver/i18n';
-import { disputePrefill, ratePct, receiptRef, receiptRows, receiptTitle } from './receipt-logic';
+import { cashNote, cashRows, disputePrefill, ratePct, receiptRef, receiptRows, receiptTitle } from './receipt-logic';
 
 const t = createT('ar-IQ');
 
@@ -52,5 +52,25 @@ describe('why was I paid this (S-7)', () => {
     const food = receipt({ lines: receipt().lines.filter((l) => l.type !== 'fare') });
     expect(receiptTitle(food, t)).toBe('طلب ⁦#1284⁩');
     expect(disputePrefill(food, t)).toBe('عندي اعتراض على أجرة الطلب ⁦#1284⁩: ');
+  });
+
+  it('the cash card follows the server split and adds up; the note says where the restaurant share went', () => {
+    const food = receipt({ lines: receipt().lines.filter((l) => l.type === 'delivery_fee'), cash: { collectedIqd: 14_000, toMerchantIqd: 0, keptIqd: 1000, toCompanyIqd: 13_000 } });
+    const rows = cashRows(food, t)!;
+    expect(rows.map((x) => [x.key, x.amountIqd])).toEqual([
+      ['collected', 14_000],
+      ['kept', 1000],
+      ['company', 13_000],
+    ]);
+    expect(rows.slice(1).reduce((a, x) => a + x.amountIqd, 0)).toBe(rows[0]!.amountIqd);
+    expect(cashNote(food, t)).toBe(t('partner.receipt_cash_note_restaurant'));
+    // Paid at pickup: the restaurant row shows, and the note is about his pay instead.
+    const paid = receipt({ lines: food.lines, cash: { collectedIqd: 18_000, toMerchantIqd: 15_000, keptIqd: 2750, toCompanyIqd: 250 } });
+    expect(cashRows(paid, t)!.map((x) => x.key)).toEqual(['collected', 'merchant', 'kept', 'company']);
+    expect(cashNote(paid, t)).toBe(t('partner.receipt_cash_note_kept'));
+    // A ride: no restaurant; a cashless job: no card.
+    expect(cashNote(receipt({ cash: { collectedIqd: 5000, toMerchantIqd: 0, keptIqd: 4400, toCompanyIqd: 600 } }), t)).toBe(t('partner.receipt_cash_note_kept'));
+    expect(cashRows(receipt(), t)).toBeNull();
+    expect(cashNote(receipt(), t)).toBeNull();
   });
 });

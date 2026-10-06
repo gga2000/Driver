@@ -30,30 +30,28 @@ export default function ReceiptScreen() {
   const [dispute, setDispute] = useState(false);
   const missing = !params.key || !at || apiErrorCode(q.error) === 'not_found';
 
+  // The objection sits right under the receipt, not pinned to the bottom: a short receipt left a
+  // tall empty gap above a pinned button (review p4b).
+  const disputeAction = r ? (
+    r.queryOpen ? (
+      <View testID="receipt-query-open" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.infoTint }}>
+        <Icon name="chat" size={20} color="infoText" />
+        <View style={{ flex: 1 }}>
+          <Text variant="label" weight={600} color="infoText">
+            {t('partner.receipt_dispute_open')}
+          </Text>
+          <Text variant="caption" color="text">
+            {t('partner.receipt_dispute_open_body')}
+          </Text>
+        </View>
+      </View>
+    ) : (
+      <Button testID="receipt-dispute" label={t('partner.receipt_dispute')} icon="chat" variant="secondary" size="lg" fullWidth onPress={() => setDispute(true)} />
+    )
+  ) : null;
+
   return (
-    <Screen
-      testID="receipt"
-      edges={['bottom']}
-      footer={
-        r ? (
-          r.queryOpen ? (
-            <View testID="receipt-query-open" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.infoTint }}>
-              <Icon name="chat" size={20} color="infoText" />
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={600} color="infoText">
-                  {t('partner.receipt_dispute_open')}
-                </Text>
-                <Text variant="caption" color="text">
-                  {t('partner.receipt_dispute_open_body')}
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <Button testID="receipt-dispute" label={t('partner.receipt_dispute')} icon="chat" variant="secondary" size="lg" fullWidth onPress={() => setDispute(true)} />
-          )
-        ) : undefined
-      }
-    >
+    <Screen testID="receipt" edges={['bottom']}>
       <Stack.Screen options={{ title: t('partner.receipt_title') }} />
       {missing ? (
         <View testID="receipt-missing">
@@ -85,6 +83,7 @@ export default function ReceiptScreen() {
           <ReceiptHead r={r} />
           <ReceiptLines r={r} />
           <ReceiptCash r={r} />
+          {disputeAction}
           <DisputeSheet r={r} visible={dispute} onClose={() => setDispute(false)} />
         </>
       )}
