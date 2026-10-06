@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import type { AbsenceReason, KhatRunTrip, KhatStopView, SubstituteOffer } from '@driver/contracts';
+import { KHAT_RULES, type AbsenceReason, type KhatRunTrip, type KhatStopView, type SubstituteOffer } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Avatar, Button, Chip, DepartureTime, Icon, IconButton, SlideToConfirm, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { childrenCount } from '@/features/intercity/labels';
@@ -9,7 +10,7 @@ import { clockLabel } from '@/features/intercity/logic';
 import { zoneName } from '@/features/work/logic';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { canReportAbsent, childAction, deliveredShare, runChips, type KhatPlace } from './logic';
+import { canReportAbsent, childAction, deliveredShare, lookPauseLeft, runChips, type KhatPlace } from './logic';
 
 export const ABSENCE_REASONS: readonly AbsenceReason[] = ['guardian_notice', 'not_at_stop', 'sick', 'other'];
 
@@ -94,8 +95,10 @@ function BackSeatsArt() {
 
 /**
  * The end-of-run sweep (partner S-6): two steps before "خلص خط اليوم". First he gets out and looks at
- * the back seats and under them (the illustration); then he slides "تأكدت، السيارة فاضية". The
- * confirmation is logged on the server for ops with its time.
+ * the back seats and under them (the illustration); "باوعت، كمّل" waits `KHAT_RULES.sweepLookPauseSec`
+ * ("باوع زين… 3", Ali 2026-10-06) so it cannot be tapped without looking. Then he slides "تأكدت،
+ * السيارة فاضية". The confirmation is logged on the server for ops with its time; no confirm within
+ * `sweepAlertAfterMin` of the last drop alerts ops and reminds him by push.
  */
 export function SweepCard({ onConfirm, busy }: { onConfirm: () => void; busy: boolean }) {
   const theme = useTheme();
@@ -114,13 +117,71 @@ export function SweepCard({ onConfirm, busy }: { onConfirm: () => void; busy: bo
       </View>
       <BackSeatsArt />
       {step === 1 ? (
-        <Button testID="khat-sweep-looked" label={t('partner.kh2_sweep_looked')} size="lg" variant="secondary" fullWidth icon="check" onPress={() => setStep(2)} />
+        <LookedButton onLooked={() => setStep(2)} />
       ) : (
         <View style={{ gap: theme.space[2] }}>
           <SlideToConfirm testID="khat-sweep-slide" label={t('partner.kh2_sweep_slide')} confirmHaptic="success" loading={busy} onConfirm={onConfirm} />
           <Text variant="caption" color="textMuted" align="center">
             {t('partner.kh2_sweep_note')}
           </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const PAUSE_TICK_MS = 250;
+
+/**
+ * "باوعت، كمّل" with the forced pause: disabled and counting down ("باوع زين… 3") for
+ * `sweepLookPauseSec` from when step 1 appeared, a thin bar filling under it, then enabled with a
+ * light tap. Under reduce-motion it waits just the same; only the bar does not animate (it is not
+ * drawn). Screen readers hear that it is waiting and for how long.
+ */
+function LookedButton({ onLooked }: { onLooked: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const pauseSec = KHAT_RULES.sweepLookPauseSec;
+  const [shownAt] = useState(() => Date.now());
+  const [now, setNow] = useState(shownAt);
+  const left = lookPauseLeft(shownAt, now, pauseSec);
+  const waiting = left > 0;
+  useEffect(() => {
+    if (!waiting) return;
+    const id = setInterval(() => setNow(Date.now()), PAUSE_TICK_MS);
+    return () => clearInterval(id);
+  }, [waiting]);
+  useEffect(() => {
+    if (!waiting) theme.haptic('light');
+    // Only on the flip to ready, not on every theme change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+
+  const fill = useSharedValue(0);
+  useEffect(() => {
+    if (theme.reduceMotion) return;
+    fill.value = withTiming(1, { duration: pauseSec * 1000, easing: Easing.linear });
+    return () => cancelAnimation(fill);
+  }, [fill, pauseSec, theme.reduceMotion]);
+  const bar = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
+
+  return (
+    <View style={{ gap: theme.space[2] }}>
+      <Button
+        testID="khat-sweep-looked"
+        label={waiting ? t('partner.kh2_sweep_wait', { seconds: left }) : t('partner.kh2_sweep_looked')}
+        accessibilityLabel={waiting ? t('partner.kh2_sweep_wait_a11y', { seconds: left }) : t('partner.kh2_sweep_looked')}
+        size="lg"
+        variant="secondary"
+        fullWidth
+        icon={waiting ? 'clock' : 'check'}
+        disabled={waiting}
+        onPress={onLooked}
+      />
+      {theme.reduceMotion ? null : (
+        <View testID="khat-sweep-pause-bar" aria-hidden importantForAccessibility="no-hide-descendants" style={{ height: 4, borderRadius: 2, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', opacity: waiting ? 1 : 0 }}>
+          {/* Fills from the start edge (right in Arabic), like the offer's countdown. */}
+          <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, borderRadius: 2, backgroundColor: theme.colors.accent }, bar]} />
         </View>
       )}
     </View>

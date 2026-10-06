@@ -1,6 +1,6 @@
 // Wave-2 khat shots, child-safe run (S-6): today's run (next stop time, chips, children with a guardian
 // call), tap-in (substitute offers step aside once he is driving children), absence, the guardian
-// call, the two-step "no child left in the car" sweep, and the summary.
+// call, the two-step "no child left in the car" sweep (step 1 waits 3 s: "باوع زين… 3"), and the summary.
 export const name = 'khat';
 
 export default async function run(s) {
@@ -51,7 +51,21 @@ export default async function run(s) {
   }
   await p.wait('khat-sweep');
   await p.byTestId('khat-sweep').scrollIntoViewIfNeeded();
-  await p.shot('sweep-look', { settle: 1000 });
+  // Step 1's forced pause (KHAT_RULES.sweepLookPauseSec): "باوع زين… 3", disabled, the bar filling.
+  await p.shot('sweep-wait', { settle: 150 });
+  await p.page.waitForFunction(() => document.querySelector('[data-testid="khat-sweep-looked"]')?.getAttribute('aria-disabled') !== 'true', null, { timeout: 10_000 });
+  await p.shot('sweep-look', { settle: 400 });
+  // Reduce motion: the same wait and countdown, no filling bar (the screen reloads at step 1).
+  await p.page.emulateMedia({ reducedMotion: 'reduce' });
+  await p.reload();
+  await p.wait('khat-sweep');
+  await p.byTestId('khat-sweep').scrollIntoViewIfNeeded();
+  await p.shot('sweep-wait-reduced', { settle: 150 });
+  // Back to motion (the slide below is a hold under reduce motion), step 1 again after the reload.
+  await p.page.emulateMedia({ reducedMotion: 'no-preference' });
+  await p.reload();
+  await p.wait('khat-sweep');
+  await p.page.waitForFunction(() => document.querySelector('[data-testid="khat-sweep-looked"]')?.getAttribute('aria-disabled') !== 'true', null, { timeout: 10_000 });
   await p.byTestId('khat-sweep-looked').click();
   await p.wait('khat-sweep-slide');
   await p.byTestId('khat-sweep').scrollIntoViewIfNeeded();
