@@ -26,18 +26,20 @@ export function zoneToAsk(zones: readonly ZoneRecord[], fix: LatLng): ZoneRecord
 /**
  * Drivers' answers about one outline. "ما أعرف" counts neither way; `drivers` counts the different
  * drivers behind the "yes" answers, because three yeses from one driver is one opinion, not three.
+ * A "no" the team has marked «تم الفحص» no longer counts (Ali, 2026-10-06): they went and looked, and
+ * the outline is right. The yeses stay: they were about the same outline the team just vouched for.
  */
 export function tallyChecks(rows: readonly ZoneCheckAnswerRow[]): ZoneCheckTally {
   const yes = rows.filter((r) => r.answer === 'yes');
-  const no = rows.filter((r) => r.answer === 'no');
+  const no = rows.filter((r) => r.answer === 'no' && r.clearedAt === null);
   const flaggedAt = no.reduce<Date | null>((latest, r) => (latest === null || r.answeredAt.getTime() > latest.getTime() ? r.answeredAt : latest), null);
   return { yes: yes.length, no: no.length, drivers: new Set(yes.map((r) => r.driverId)).size, flaggedAt };
 }
 
 /**
  * The outline is confirmed by `yesToConfirm` yeses from `distinctDrivers`+ drivers, and only while no
- * driver has said "لا" about it: a "no" holds it for the field team, who fix the outline (which
- * starts the count again) rather than letting later yeses outvote it.
+ * driver has said "لا" about it: a "no" holds it for the field team, who either fix the outline (which
+ * starts the count again) or mark it «تم الفحص», rather than letting later yeses outvote it.
  */
 export function confirmsZone(tally: ZoneCheckTally): boolean {
   return tally.no === 0 && tally.yes >= ZONE_CHECK_RULES.yesToConfirm && tally.drivers >= ZONE_CHECK_RULES.distinctDrivers;

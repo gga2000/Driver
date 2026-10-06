@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import {
   AZIZIYAH_ZONES,
   DriverError,
+  ClearZoneCheckFlagInput,
   CreateZoneInput,
   RenameZoneInput,
   RemoveZoneInput,
@@ -23,7 +24,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
-import { tallyChecks } from './zone-checks.logic.js';
+import { confirmsZone, tallyChecks } from './zone-checks.logic.js';
 import { ZONE_CHECKS_REPOSITORY, type ZoneChecksRepository, type ZoneOutline } from './zone-checks.repository.js';
 import { ZONES_REPOSITORY, type ZoneRecord, type ZonesRepository } from './zones.repository.js';
 
@@ -97,13 +98,21 @@ export class ZonesService implements ZonesPort {
    * meanwhile. Runs in the caller's transaction (the answer that tipped it).
    */
   async confirmByDrivers(cityId: string, key: string, outlineAt: Date, tally: ZoneCheckTally, tx: Tx): Promise<boolean> {
+    return this.confirmOutline(ZONE_CHECKS_ACTOR, cityId, key, outlineAt, tally, tx);
+  }
+
+  /**
+   * The one path to `confirmed`: whoever tips it (the last "yes", or the team's «تم الفحص» when the
+   * yeses already add up), the zone gets the same event and audit line, with `actorId` as who did it.
+   */
+  private async confirmOutline(actorId: string, cityId: string, key: string, outlineAt: Date, tally: ZoneCheckTally, tx: Tx): Promise<boolean> {
     const now = this.clock.now();
     const row = await this.repo.confirm(cityId, key, outlineAt, now, tx);
     if (!row) return false;
     const name = westernDigits(row.nameAr ?? (SEEDS.get(cityId) ?? []).find((s) => s.id === key)?.name_ar ?? key);
-    await this.events.emit(tx, { actorId: ZONE_CHECKS_ACTOR, type: 'zone.confirmed', occurredAt: now, payload: { cityId, key, yes: tally.yes, drivers: tally.drivers } }, { name: 'zone', id: `${cityId}:${key}` });
+    await this.events.emit(tx, { actorId, type: 'zone.confirmed', occurredAt: now, payload: { cityId, key, yes: tally.yes, drivers: tally.drivers } }, { name: 'zone', id: `${cityId}:${key}` });
     await this.audits.record(
-      { cityId, actorId: ZONE_CHECKS_ACTOR, action: 'zone.confirmed', subjectKind: 'zone', subjectId: key, summaryAr: `السواق أكدوا حدود ${name}`, detail: { yes: tally.yes, drivers: tally.drivers } },
+      { cityId, actorId, action: 'zone.confirmed', subjectKind: 'zone', subjectId: key, summaryAr: `السواق أكدوا حدود ${name}`, detail: { yes: tally.yes, drivers: tally.drivers } },
       tx,
     );
     return true;
@@ -118,6 +127,42 @@ export class ZonesService implements ZonesPort {
     const name = (await this.namesOf(cityId, key, tx))?.name_ar ?? key;
     await this.events.emit(tx, { actorId: driverId, type: 'zone.flagged', occurredAt: now, payload: { cityId, key } }, { name: 'zone', id: `${cityId}:${key}` });
     await this.audits.record({ cityId, actorId: driverId, action: 'zone.flagged', subjectKind: 'zone', subjectId: key, summaryAr: `سايق جاوب إنه مو بمنطقة ${name}`, detail: {} }, tx);
+  }
+
+  /**
+   * «تم الفحص» (Ali, 2026-10-06): the team went and looked at a zone a driver said "لا" about, and the
+   * outline is right. Redrawing would also throw away the drivers' yeses, so instead the "no" answers
+   * so far stop flagging and holding the zone; a later "no" flags it again. If the yeses about this
+   * outline already add up, the zone is confirmed now, with the Console user as the one who tipped it.
+   * A zone with no open flag is left as it is (nothing written, audited or evented), so a second tap
+   * or two people clearing at once is harmless.
+   */
+  async clearCheckFlag(actor: Actor, input: z.output<typeof ClearZoneCheckFlagInput>): Promise<ZonePlacementView> {
+    await this.uow.run(async (tx) => {
+      const row = (await this.repo.list(input.cityId, tx)).find((r) => r.key === input.key);
+      if (!row) throw new DriverError('zone_unknown');
+      const outline = outlineOf(row);
+      if (!outline) return;
+      const now = this.clock.now();
+      const cleared = await this.checks.clearNo(input.cityId, outline, actor.personId, now, tx);
+      if (cleared === 0) return;
+      const name = (await this.namesOf(input.cityId, input.key, tx))?.name_ar ?? input.key;
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'zone.flag_cleared', occurredAt: now, payload: { cityId: input.cityId, key: input.key, answers: cleared } },
+        { name: 'zone', id: `${input.cityId}:${input.key}` },
+      );
+      await this.audits.record(
+        { cityId: input.cityId, actorId: actor.personId, action: 'zone.flag_cleared', subjectKind: 'zone', subjectId: input.key, summaryAr: `فحص حدود ${name} وطلعت صحيحة، وشال بلاغ السايق`, detail: { answers: cleared } },
+        tx,
+      );
+      if (row.placement !== 'placed') return;
+      const tally = tallyChecks(await this.checks.answers(input.cityId, [outline], tx));
+      if (confirmsZone(tally)) await this.confirmOutline(actor.personId, input.cityId, input.key, outline.outlineAt, tally, tx);
+    });
+    const zone = (await this.list(input.cityId)).find((z) => z.key === input.key);
+    if (!zone) throw new DriverError('zone_unknown');
+    return zone;
   }
 
   async place(actor: Actor, input: z.output<typeof PlaceZoneInput>): Promise<ZonePlacementView> {

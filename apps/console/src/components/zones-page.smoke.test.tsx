@@ -85,4 +85,20 @@ describe('Zones page', () => {
     const flagged = board({ editor, zones: [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt: new Date('2026-10-05T10:00:00Z'), checks: { yes: 1, no: 1, drivers: 1, flaggedAt: new Date('2026-10-06T08:00:00Z') } })] });
     expect(flagged).toContain('سايق قال لا');
   });
+
+  it('«تم الفحص» shows on a flagged open zone for editors only, at 44 px', () => {
+    // The button whose label is «تم الفحص» (the flag chip's hint also names it, inside a title).
+    const markButton = /<button[^>]*class="([^"]*)"[^>]*>(?:<[^>]*>)*تم الفحص(?:<[^>]*>)*<\/button>/;
+    const editor = editorReducer(closedEditor, { type: 'open', key: 'centre', ring: RING, centre: { lat: 32.903, lng: 45.06 } });
+    const placedAt = new Date('2026-10-05T10:00:00Z');
+    const flaggedZones = [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt, checks: { yes: 2, no: 1, drivers: 2, flaggedAt: new Date('2026-10-06T08:00:00Z') } })];
+    const flagged = board({ editor, zones: flaggedZones, onMarkChecked: () => undefined });
+    expect(flagged.match(markButton)?.[1]).toMatch(/\bh-11\b/);
+    expect(board({ editor, zones: flaggedZones, onMarkChecked: () => undefined, canEdit: false })).not.toMatch(markButton);
+    // After the check: no flag, no button, the count toward confirmation shows.
+    const checked = board({ editor, zones: [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt, checks: { yes: 2, no: 0, drivers: 2, flaggedAt: null } })], onMarkChecked: () => undefined });
+    expect(checked).not.toMatch(markButton);
+    expect(checked).not.toContain('سايق قال لا');
+    expect(checked).toContain('2/3 تأكيد');
+  });
 });

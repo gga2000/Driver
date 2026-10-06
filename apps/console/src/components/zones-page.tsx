@@ -105,6 +105,15 @@ export function ZonesPage() {
   const create = useMutation(trpc.ops.zones.create.mutationOptions({ onSuccess: (z) => { refresh(); dispatch({ type: 'open', key: z.key, ring: z.ring, centre: z.centre }); toast({ title: t('console.zones_created_toast', { name: z.name_ar }), tone: 'ok' }); } }));
   const rename = useMutation(trpc.ops.zones.rename.mutationOptions({ onSuccess: (z) => { refresh(); toast({ title: t('console.zones_renamed_toast', { name: z.name_ar }), tone: 'ok' }); } }));
   const remove = useMutation(trpc.ops.zones.remove.mutationOptions({ onSuccess: () => { refresh(); dispatch({ type: 'close' }); toast({ title: t('console.zones_removed_toast'), tone: 'ok' }); } }));
+  const clearFlag = useMutation(
+    trpc.ops.zones.clearCheckFlag.mutationOptions({
+      onSuccess: (z) => {
+        refresh();
+        toast({ title: t(z.placement === 'confirmed' ? 'console.zones_checked_confirmed_toast' : 'console.zones_checked_toast', { name: z.name_ar }), tone: 'ok' });
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
 
   const addZone = useCallback(() => setNameForm({ name_ar: '', name_en: '' }), []);
 
@@ -127,6 +136,12 @@ export function ZonesPage() {
     if (!window.confirm(t('console.zones_confirm_remove', { name: z.name_ar }))) return;
     remove.mutate({ cityId: CITY_ID, key: z.key });
   }, [remove]);
+
+  // A driver's "لا" is cleared only after a deliberate yes: it lifts the hold on confirmation.
+  const markChecked = useCallback((z: ZonePlacementView) => {
+    if (!window.confirm(t('console.zones_confirm_checked', { name: z.name_ar }))) return;
+    clearFlag.mutate({ cityId: CITY_ID, key: z.key });
+  }, [clearFlag]);
 
   const pick = useCallback(
     (key: string) => {
@@ -191,6 +206,8 @@ export function ZonesPage() {
       onCreate={addZone}
       onRename={renameZone}
       onRemove={removeZone}
+      onMarkChecked={markChecked}
+      markingChecked={clearFlag.isPending}
       map={<ZonesMapCanvas theme={theme} zones={zones} editor={editor} editable={canEdit} invalid={problem !== null} dispatch={dispatch} onPick={pick} />}
     />
     <Dialog open={nameForm !== null} onClose={() => setNameForm(null)} title={t(nameForm?.key ? 'console.zones_rename' : 'console.zones_add')} footer={<><Button variant="ghost" onClick={() => setNameForm(null)}>{t('console.cancel')}</Button><Button variant="primary" onClick={submitNames} loading={create.isPending || rename.isPending} disabled={!nameForm?.name_ar.trim() || !nameForm?.name_en.trim()}>{t('console.save')}</Button></>}>
@@ -224,6 +241,9 @@ export interface ZonesBoardProps {
   onCreate?: () => void;
   onRename?: (zone: ZonePlacementView) => void;
   onRemove?: (zone: ZonePlacementView) => void;
+  /** «تم الفحص» on a flagged zone (Ali, 2026-10-06): the team looked and the outline is right. */
+  onMarkChecked?: (zone: ZonePlacementView) => void;
+  markingChecked?: boolean;
   map: ReactNode;
 }
 
@@ -304,6 +324,11 @@ export function ZonesBoard(p: ZonesBoardProps) {
                 </div>
                 {p.canEdit ? (
                   <div className="ms-auto flex flex-wrap items-center gap-2">
+                    {open.checks?.flaggedAt && p.onMarkChecked ? (
+                      <Button size="lg" variant="secondary" onClick={() => p.onMarkChecked?.(open)} loading={p.markingChecked}>
+                        {t('console.zones_mark_checked')}
+                      </Button>
+                    ) : null}
                     <Button size="sm" variant="ghost" onClick={p.onUndo} disabled={p.editor.undo.length === 0}>
                       {t('console.zones_undo')}
                     </Button>

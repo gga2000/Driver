@@ -32,6 +32,8 @@ export interface ZoneCheckAnswerRow {
   driverId: string;
   answer: ZoneCheckAnswer;
   answeredAt: Date;
+  /** When the team marked this "no" «تم الفحص» in the Console; null otherwise (and for other answers). */
+  clearedAt: Date | null;
 }
 
 export interface ZoneChecksRepository {
@@ -46,6 +48,11 @@ export interface ZoneChecksRepository {
   answer(id: string, answer: ZoneCheckAnswer, at: Date, tx?: Tx): Promise<boolean>;
   /** The answered checks about these outlines (zone + `placedAt`): older outlines' answers no longer count. */
   answers(cityId: string, outlines: readonly ZoneOutline[], tx?: Tx): Promise<ZoneCheckAnswerRow[]>;
+  /**
+   * «تم الفحص»: marks this outline's unchecked "no" answers as checked by `byId` at `at`. Returns how
+   * many it marked (0 = nothing was flagging the zone). Answers given later are untouched, so they flag again.
+   */
+  clearNo(cityId: string, outline: ZoneOutline, byId: string, at: Date, tx?: Tx): Promise<number>;
 }
 
 export const ZONE_CHECKS_REPOSITORY = Symbol('ZONE_CHECKS_REPOSITORY');
@@ -55,6 +62,8 @@ const copy = (r: ZoneCheckRecord): ZoneCheckRecord => ({ ...r });
 /** Tests, the simulator and the studio's demo API: questions forgotten on restart. */
 export class InMemoryZoneChecksRepository implements ZoneChecksRepository {
   private readonly rows = new Map<string, ZoneCheckRecord>();
+  /** «تم الفحص» marks by check id: who checked that "no", and when. */
+  private readonly cleared = new Map<string, { at: Date; byId: string }>();
 
   async create(input: NewZoneCheck): Promise<boolean> {
     if ([...this.rows.values()].some((r) => r.stopId === input.stopId)) return false;
@@ -89,9 +98,17 @@ export class InMemoryZoneChecksRepository implements ZoneChecksRepository {
     const wanted = new Set(outlines.map((o) => `${o.zoneKey}|${o.outlineAt.getTime()}`));
     return [...this.rows.values()].flatMap((r) =>
       r.cityId === cityId && wanted.has(`${r.zoneKey}|${r.outlineAt.getTime()}`) && r.answer !== null && r.answeredAt !== null
-        ? [{ zoneKey: r.zoneKey, outlineAt: r.outlineAt, driverId: r.driverId, answer: r.answer, answeredAt: r.answeredAt }]
+        ? [{ zoneKey: r.zoneKey, outlineAt: r.outlineAt, driverId: r.driverId, answer: r.answer, answeredAt: r.answeredAt, clearedAt: this.cleared.get(r.id)?.at ?? null }]
         : [],
     );
+  }
+
+  async clearNo(cityId: string, outline: ZoneOutline, byId: string, at: Date): Promise<number> {
+    const flagging = [...this.rows.values()].filter(
+      (r) => r.cityId === cityId && r.zoneKey === outline.zoneKey && r.outlineAt.getTime() === outline.outlineAt.getTime() && r.answer === 'no' && !this.cleared.has(r.id),
+    );
+    for (const r of flagging) this.cleared.set(r.id, { at, byId });
+    return flagging.length;
   }
 }
 
@@ -140,8 +157,19 @@ export class PrismaZoneChecksRepository implements ZoneChecksRepository {
     if (outlines.length === 0) return [];
     const rows = await this.db(tx).zoneCheck.findMany({
       where: { cityId, OR: outlines.map((o) => ({ zoneKey: o.zoneKey, outlineAt: o.outlineAt })), answer: { not: null }, answeredAt: { not: null } },
-      select: { zoneKey: true, outlineAt: true, driverId: true, answer: true, answeredAt: true },
+      select: { zoneKey: true, outlineAt: true, driverId: true, answer: true, answeredAt: true, clearedAt: true },
     });
-    return rows.flatMap((r) => (r.answer !== null && r.answeredAt !== null ? [{ zoneKey: r.zoneKey, outlineAt: r.outlineAt, driverId: r.driverId, answer: ZoneCheckAnswer.parse(r.answer), answeredAt: r.answeredAt }] : []));
+    return rows.flatMap((r) =>
+      r.answer !== null && r.answeredAt !== null ? [{ zoneKey: r.zoneKey, outlineAt: r.outlineAt, driverId: r.driverId, answer: ZoneCheckAnswer.parse(r.answer), answeredAt: r.answeredAt, clearedAt: r.clearedAt }] : [],
+    );
+  }
+
+  async clearNo(cityId: string, outline: ZoneOutline, byId: string, at: Date, tx?: Tx): Promise<number> {
+    // Conditional update: a "no" already checked keeps who checked it first.
+    const { count } = await this.db(tx).zoneCheck.updateMany({
+      where: { cityId, zoneKey: outline.zoneKey, outlineAt: outline.outlineAt, answer: 'no', clearedAt: null },
+      data: { clearedAt: at, clearedById: byId, updatedAt: at },
+    });
+    return count;
   }
 }

@@ -18,10 +18,14 @@ export type ZonePlacement = z.infer<typeof ZonePlacement>;
 /** Drivers' answers about a zone's current outline, for the Console zone tool. */
 export const ZoneCheckTally = z.object({
   yes: z.number().int().nonnegative(),
+  /** "لا" answers the team has not checked yet (a «تم الفحص» in the Console clears the ones before it). */
   no: z.number().int().nonnegative(),
   /** Different drivers among the "yes" answers. */
   drivers: z.number().int().nonnegative(),
-  /** The latest "لا" about this outline: the zone is flagged until the outline is fixed and saved. */
+  /**
+   * The latest unchecked "لا" about this outline: the zone is flagged (and held from confirmation)
+   * until the outline is fixed and saved, or the team checks it and marks it «تم الفحص».
+   */
   flaggedAt: z.coerce.date().nullable(),
 });
 export type ZoneCheckTally = z.infer<typeof ZoneCheckTally>;
@@ -70,6 +74,11 @@ export const RenameZoneInput = z.object({
   name_en: z.string().trim().min(1).max(100),
 });
 export const RemoveZoneInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60) });
+/**
+ * «تم الفحص» (Ali, 2026-10-06): the team looked at a flagged zone and the outline is right, so the
+ * drivers' "لا" answers so far stop flagging and holding it, without redrawing the outline.
+ */
+export const ClearZoneCheckFlagInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60) });
 
 // ───────────────────────── drivers confirm zones (SP3 §5.3) ─────────────────────────
 
@@ -128,6 +137,8 @@ export interface ZonesPort {
   create?(actor: Actor, input: z.output<typeof CreateZoneInput>): Promise<ZonePlacementView>;
   rename?(actor: Actor, input: z.output<typeof RenameZoneInput>): Promise<ZonePlacementView>;
   remove?(actor: Actor, input: z.output<typeof RemoveZoneInput>): Promise<void>;
+  /** The zone as it reads after the check: no flag, and `confirmed` if the drivers' "إي" already add up. */
+  clearCheckFlag(actor: Actor, input: z.output<typeof ClearZoneCheckFlagInput>): Promise<ZonePlacementView>;
 }
 
 /** km² for people: two decimals under 1 km², one above. Western digits. */

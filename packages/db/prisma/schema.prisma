@@ -535,20 +535,24 @@ model Zone {
 /// "انت بمنطقة X؟" asked to a driver at the drop-off that ended a trip (maps program SP3: drivers
 /// confirm zones). One per stop; at most one per driver per Baghdad day. Pseudonymous ids only.
 model ZoneCheck {
-  id         String    @id @default(cuid())
-  cityId     String    @map("city_id")
-  zoneKey    String    @map("zone_key")
+  id          String    @id @default(cuid())
+  cityId      String    @map("city_id")
+  zoneKey     String    @map("zone_key")
   /// The outline asked about (`zones.placed_at` at the time): a redrawn outline starts counting again.
-  outlineAt  DateTime  @map("outline_at")
-  driverId   String    @map("driver_id")
-  tripId     String    @map("trip_id")
-  stopId     String    @unique @map("stop_id")
-  askedAt    DateTime  @map("asked_at")
+  outlineAt   DateTime  @map("outline_at")
+  driverId    String    @map("driver_id")
+  tripId      String    @map("trip_id")
+  stopId      String    @unique @map("stop_id")
+  askedAt     DateTime  @map("asked_at")
   /// yes | no | unsure; null while open (or never answered).
-  answer     String?
-  answeredAt DateTime? @map("answered_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  answer      String?
+  answeredAt  DateTime? @map("answered_at")
+  /// «تم الفحص» (Ali, 2026-10-06): the team checked this "no" in the Console; it no longer flags or holds the zone.
+  clearedAt   DateTime? @map("cleared_at")
+  /// The Console user who marked it checked (person id).
+  clearedById String?   @map("cleared_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   @@index([driverId, askedAt])
   @@index([cityId, zoneKey])

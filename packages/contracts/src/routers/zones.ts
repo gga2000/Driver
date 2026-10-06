@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
-import { CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, ZONE_EDIT_ROLES, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
+import { ClearZoneCheckFlagInput, CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, ZONE_EDIT_ROLES, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
 
 /** `ops.zones.*` — the zone outlines (maps program SP3). Saving an outline does not move any fee. */
 export const opsZonesRouter = router({
@@ -22,4 +22,7 @@ export const opsZonesRouter = router({
     .mutation(({ ctx, input }) => ctx.zones.rename!(ctx.actor, input)),
   remove: protectedProcedure(ZONE_EDIT_ROLES).input(RemoveZoneInput).output(z.void())
     .mutation(({ ctx, input }) => ctx.zones.remove!(ctx.actor, input)),
+  /** «تم الفحص»: the people who draw outlines are the ones who judge a driver's "لا" about one. */
+  clearCheckFlag: protectedProcedure(ZONE_EDIT_ROLES).input(ClearZoneCheckFlagInput).output(ZonePlacementView)
+    .mutation(({ ctx, input }) => ctx.zones.clearCheckFlag(ctx.actor, input)),
 });

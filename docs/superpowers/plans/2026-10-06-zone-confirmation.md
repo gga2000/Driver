@@ -26,7 +26,7 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.3 ("Driver confirmation"),
 2. **Drafts are never asked.** An AI hexagon has nothing drawn to confirm, and the lifecycle is draft → placed → confirmed. Confirmed zones are never asked (spec).
 3. **Only the drop-off that ends the trip.** The card shows on the job's done screen; asking about the first drop of a batch while he stands at the second would ask about the wrong place.
 4. **Answers belong to an outline version.** `zone_checks.outline_at` = the zone's `placed_at` when asked. Redrawing the outline starts the count again, clears the flag, hides any open question about the old outline, and `confirm` only succeeds if the outline is still the one asked about.
-5. **A "no" holds confirmation** until the field team fixes and saves the outline (which starts a new count). Later yeses don't outvote it. *Open question for Ali.*
+5. **A "no" holds confirmation** until the field team fixes and saves the outline (which starts a new count). Later yeses don't outvote it. Ali (2026-10-06): kept, and the team can also clear it with «تم الفحص» (see the dated section at the end).
 6. **"ما أعرف" is recorded** (`answer = 'unsure'`, counted neither way) so the same question does not come back on his next job. The brief had only yes/no.
 7. **Zone names come from the server** in the prompt (`name_ar` with Western digits, `name_en`): zones added or renamed in the Console have no seed for the app's `zoneName`.
 8. **Late events:** a quarantined (late-replay) event, or one delivered after the question would already have expired, asks nothing.
@@ -51,3 +51,14 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.3 ("Driver confirmation"),
 - [x] Partner: `ZoneCheckCard`, `useZoneCheck` / `useAnswerZoneCheck`, `zoneCheckMoment` (+ tests), `DonePanel` `ask` / `hold`.
 - [x] Console: «{yes}/3 تأكيد» on the open placed zone, «سايق قال لا» on the list row and the open zone (+ smoke test).
 - [x] Copy: ar-IQ + en (partner, console, errors), voice glossary.
+
+## Ali's decisions 2026-10-06
+
+1. **One «لا» keeps holding the zone until the team checks it** (decision 5 above, kept). Later yeses still don't outvote it.
+2. **NEW: «تم الفحص» in the Console zone tool clears the flag without redrawing.** Built:
+   - `ops.zones.clearCheckFlag({ cityId?, key })` (`ZONE_EDIT_ROLES`: admin, field ops) → the zone's `ZonePlacementView`.
+   - Storage: `zone_checks.cleared_at` / `cleared_by_id` (migration `20261006190000_zone_check_cleared`, additive, no new table). The clear marks the outline's unchecked "no" answers; the tally ignores marked ones, so a «لا» given later flags and holds again.
+   - The "إي" answers about the same outline still count (the team vouched for that outline): if they already make 3 from 2+ drivers, the zone is confirmed at the clear, through the same path as a driver confirmation (`zone.confirmed` event + audit), with the Console user as actor.
+   - The clear itself is audited (`zone.flag_cleared`, Console user, number of answers checked) and evented (`zone.flag_cleared`). A zone with no open flag (or a draft) is a no-op: nothing written, audited or evented, so a second tap is harmless. An unknown zone: `zone_unknown`.
+   - Console: on the open flagged zone, editors get «تم الفحص» (44 px), behind a short confirm like «احذف المنطقة»; the flag chip goes and the «n/3 تأكيد» count shows.
+3. **Both delivery and taxi/tuktuk drivers are asked** (`ZONE_CHECK_VERTICALS`, kept as is).

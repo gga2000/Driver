@@ -46,10 +46,27 @@ describe.skipIf(!url)('zones on Postgres (needs DATABASE_URL)', () => {
     expect(await checks.openFor('p_d1', new Date('2026-10-06T06:30:00Z'))).toMatchObject({ id: 'zc_zt_1', answer: null });
     expect(await checks.answer('zc_zt_1', 'yes', asked)).toBe(true);
     expect(await checks.answer('zc_zt_1', 'no', asked)).toBe(false);
-    expect(await checks.answers(CITY, [{ zoneKey: 'centre', outlineAt: PLACED_AT }])).toEqual([{ zoneKey: 'centre', outlineAt: PLACED_AT, driverId: 'p_d1', answer: 'yes', answeredAt: asked }]);
+    expect(await checks.answers(CITY, [{ zoneKey: 'centre', outlineAt: PLACED_AT }])).toEqual([{ zoneKey: 'centre', outlineAt: PLACED_AT, driverId: 'p_d1', answer: 'yes', answeredAt: asked, clearedAt: null }]);
     expect(await checks.answers(CITY, [{ zoneKey: 'centre', outlineAt: new Date('2026-01-01T00:00:00Z') }])).toEqual([]);
     expect(await repo.confirm(CITY, 'centre', new Date('2026-01-01T00:00:00Z'), asked)).toBeNull();
     expect(await repo.confirm(CITY, 'centre', PLACED_AT, asked)).toMatchObject({ placement: 'confirmed', placedAt: PLACED_AT });
     expect(await repo.confirm(CITY, 'centre', PLACED_AT, asked)).toBeNull();
+  });
+
+  it('«تم الفحص» marks the unchecked "no" answers once, and later answers stay unchecked', async () => {
+    const asked = new Date('2026-10-07T07:00:00Z');
+    const checkedAt = new Date('2026-10-07T09:00:00Z');
+    const outline = { zoneKey: 'centre', outlineAt: PLACED_AT };
+    const base = { cityId: CITY, zoneKey: 'centre', outlineAt: PLACED_AT, driverId: 'p_d2', tripId: 'trp_zt2', askedAt: asked };
+    await checks.create({ ...base, id: 'zc_zt_2', stopId: 'stp_zt_2' });
+    await checks.answer('zc_zt_2', 'no', asked);
+    expect(await checks.clearNo(CITY, outline, 'p_ali', checkedAt)).toBe(1);
+    expect(await checks.clearNo(CITY, outline, 'p_ops', checkedAt)).toBe(0);
+    await checks.create({ ...base, id: 'zc_zt_3', stopId: 'stp_zt_3', driverId: 'p_d3' });
+    await checks.answer('zc_zt_3', 'no', checkedAt);
+    const noes = (await checks.answers(CITY, [outline])).filter((r) => r.answer === 'no').sort((a, b) => a.driverId.localeCompare(b.driverId)).map((r) => [r.driverId, r.clearedAt]);
+    expect(noes).toEqual([['p_d2', checkedAt], ['p_d3', null]]);
+    const row = await prisma.prisma.zoneCheck.findUnique({ where: { id: 'zc_zt_2' }, select: { clearedById: true } });
+    expect(row).toEqual({ clearedById: 'p_ali' });
   });
 });

@@ -228,8 +228,95 @@ describe('ZoneChecksService: answers', () => {
   });
 });
 
+describe('«تم الفحص»: the team clears a flag without redrawing (Ali, 2026-10-06)', () => {
+  const CENTRE = { cityId: 'aziziyah', key: 'centre' } as const;
+  const actions = (h: ReturnType<typeof harness>) => h.audit.auditRows.map((a) => [a.action, a.actorId]);
+  const eventTypes = async (h: ReturnType<typeof harness>) => (await h.ev.events.forAggregate('zone', 'aziziyah:centre')).map((e) => e.type);
+
+  it('lifts the hold: the earlier "no" stops flagging, the yeses so far still count, audited and evented as the Console user', async () => {
+    const h = harness();
+    await h.place();
+    await h.dropAndAnswer(D1, 'no');
+    await h.dropAndAnswer(D2, 'yes');
+    await h.dropAndAnswer(D3, 'yes');
+    expect(await h.zone()).toMatchObject({ placement: 'placed', checks: { yes: 2, no: 1, drivers: 2 } });
+    const view = await h.zones.clearCheckFlag(ALI, CENTRE);
+    expect(view).toMatchObject({ key: 'centre', placement: 'placed', checks: { yes: 2, no: 0, drivers: 2, flaggedAt: null } });
+    expect(actions(h)).toEqual([['zone.placed', ALI.personId], ['zone.flagged', D1.personId], ['zone.flag_cleared', ALI.personId]]);
+    expect(h.audit.auditRows.at(-1)).toMatchObject({ subjectKind: 'zone', subjectId: 'centre', detail: { answers: 1 } });
+    expect(await eventTypes(h)).toEqual(['zone.placed', 'zone.flagged', 'zone.flag_cleared']);
+    // No longer held: the next "yes" confirms it, as the drivers.
+    h.nextDay();
+    await h.dropAndAnswer(D2, 'yes');
+    expect(await h.zone()).toMatchObject({ placement: 'confirmed', checks: { yes: 3, no: 0, drivers: 2 } });
+    expect(actions(h).at(-1)).toEqual(['zone.confirmed', 'system:zone-checks']);
+  });
+
+  it('a "no" after the check flags the zone again and holds it', async () => {
+    const h = harness();
+    await h.place();
+    await h.dropAndAnswer(D1, 'no');
+    await h.zones.clearCheckFlag(ALI, CENTRE);
+    h.nextDay();
+    await h.dropAndAnswer(D1, 'no');
+    expect((await h.zone()).checks).toEqual({ yes: 0, no: 1, drivers: 0, flaggedAt: h.clock.now() });
+    await h.dropAndAnswer(D2, 'yes');
+    await h.dropAndAnswer(D3, 'yes');
+    h.nextDay();
+    await h.dropAndAnswer(D2, 'yes');
+    expect(await h.zone()).toMatchObject({ placement: 'placed', checks: { yes: 3, no: 1, drivers: 2 } });
+  });
+
+  it('confirms the zone at the check when the yeses already add up (same event and audit line, the Console user as actor)', async () => {
+    const h = harness();
+    await h.place();
+    await h.dropAndAnswer(D1, 'no');
+    await h.dropAndAnswer(D2, 'yes');
+    await h.dropAndAnswer(D3, 'yes');
+    h.nextDay();
+    await h.dropAndAnswer(D2, 'yes');
+    expect((await h.zone()).placement).toBe('placed');
+    const view = await h.zones.clearCheckFlag(ALI, CENTRE);
+    expect(view).toMatchObject({ placement: 'confirmed', checks: { yes: 3, no: 0, drivers: 2, flaggedAt: null } });
+    expect(actions(h)).toEqual([['zone.placed', ALI.personId], ['zone.flagged', D1.personId], ['zone.flag_cleared', ALI.personId], ['zone.confirmed', ALI.personId]]);
+    expect(h.audit.auditRows.at(-1)).toMatchObject({ detail: { yes: 3, drivers: 2 } });
+    expect(await eventTypes(h)).toEqual(['zone.placed', 'zone.flagged', 'zone.flag_cleared', 'zone.confirmed']);
+  });
+
+  it('leaves a zone with no open flag as it is: nothing written, audited or evented (a second tap included)', async () => {
+    const h = harness();
+    await h.place();
+    await h.dropAndAnswer(D2, 'yes');
+    expect(await h.zones.clearCheckFlag(ALI, CENTRE)).toMatchObject({ placement: 'placed', checks: { yes: 1, no: 0, flaggedAt: null } });
+    expect(actions(h)).toEqual([['zone.placed', ALI.personId]]);
+    await h.dropAndAnswer(D1, 'no');
+    await h.zones.clearCheckFlag(ALI, CENTRE);
+    await h.zones.clearCheckFlag(ALI, CENTRE);
+    expect(actions(h).filter(([action]) => action === 'zone.flag_cleared')).toHaveLength(1);
+    expect((await eventTypes(h)).filter((type) => type === 'zone.flag_cleared')).toHaveLength(1);
+    // A draft has no drawn outline to judge: nothing happens either.
+    expect(await h.zones.clearCheckFlag(ALI, { cityId: 'aziziyah', key: 'street_30' })).toMatchObject({ key: 'street_30', placement: 'draft' });
+  });
+
+  it('refuses a zone the city does not have', async () => {
+    const h = harness();
+    await expect(h.zones.clearCheckFlag(ALI, { cityId: 'aziziyah', key: 'atlantis' })).rejects.toMatchObject({ code: 'zone_unknown' });
+  });
+
+  it('a later redraw still starts the count from zero', async () => {
+    const h = harness();
+    await h.place();
+    await h.dropAndAnswer(D1, 'no');
+    await h.dropAndAnswer(D2, 'yes');
+    await h.zones.clearCheckFlag(ALI, CENTRE);
+    h.clock.advance(MIN_MS);
+    await h.place();
+    expect((await h.zone()).checks).toEqual({ yes: 0, no: 0, drivers: 0, flaggedAt: null });
+  });
+});
+
 describe('zone check rules', () => {
-  const row = (driverId: string, answer: 'yes' | 'no' | 'unsure', minute = 0) => ({ zoneKey: 'centre', outlineAt: new Date(0), driverId, answer, answeredAt: new Date(minute * MIN_MS) });
+  const row = (driverId: string, answer: 'yes' | 'no' | 'unsure', minute = 0, clearedAt: Date | null = null) => ({ zoneKey: 'centre', outlineAt: new Date(0), driverId, answer, answeredAt: new Date(minute * MIN_MS), clearedAt });
   it('counts yes, no, the different yes drivers and the latest no', () => {
     expect(tallyChecks([row('a', 'yes'), row('a', 'yes'), row('b', 'unsure'), row('c', 'no', 3), row('d', 'no', 7)])).toEqual({ yes: 2, no: 2, drivers: 1, flaggedAt: new Date(7 * MIN_MS) });
   });
@@ -238,5 +325,11 @@ describe('zone check rules', () => {
     expect(confirmsZone(tallyChecks([row('a', 'yes'), row('a', 'yes'), row('a', 'yes')]))).toBe(false);
     expect(confirmsZone(tallyChecks([row('a', 'yes'), row('b', 'yes')]))).toBe(false);
     expect(confirmsZone(tallyChecks([row('a', 'yes'), row('a', 'yes'), row('b', 'yes'), row('c', 'no')]))).toBe(false);
+  });
+  it('a "no" the team checked counts neither as a "no" nor toward the flag; one after it does', () => {
+    const checked = new Date(5 * MIN_MS);
+    expect(tallyChecks([row('a', 'yes'), row('c', 'no', 3, checked)])).toEqual({ yes: 1, no: 0, drivers: 1, flaggedAt: null });
+    expect(confirmsZone(tallyChecks([row('a', 'yes'), row('a', 'yes'), row('b', 'yes'), row('c', 'no', 3, checked)]))).toBe(true);
+    expect(tallyChecks([row('c', 'no', 3, checked), row('d', 'no', 9)])).toEqual({ yes: 0, no: 1, drivers: 0, flaggedAt: new Date(9 * MIN_MS) });
   });
 });
