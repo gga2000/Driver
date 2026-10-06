@@ -35,7 +35,7 @@
         }
       ],
       ["expo-location", { "locationWhenInUsePermission": "درايفر يحتاج موقعك حتى يثبّت مكان بيتك ويوصلك الدليفري للباب" }],
-      ["expo-notifications", { "defaultChannel": "orders" }]
+      ["expo-notifications", { "defaultChannel": "orders", "sounds": ["./assets/sounds/accepted.wav", "./assets/sounds/picked_up.wav", "./assets/sounds/near.wav", "./assets/sounds/delivered.wav"] }]
     ],
     "experiments": { "typedRoutes": true }
   }
