@@ -73,7 +73,7 @@ import {
   Textarea,
   useToast,
 } from './ui';
-import { QuietDaysCard } from './quiet-days-card';
+import { SeasonsCard } from './seasons-card';
 
 /** What a switch dialog acts on. */
 export interface SwitchTarget {
@@ -167,7 +167,7 @@ export function ControlsPage() {
       )}
       {view.data && (
         <div className="mt-6">
-          <QuietDaysCard signedIn={signedIn} canEdit={roles.has('admin')} />
+          <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
         </div>
       )}
       <SwitchDialog target={target} onClose={() => setTarget(null)} />

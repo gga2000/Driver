@@ -308,6 +308,11 @@ export type SeasonView = z.infer<typeof SeasonView>;
 
 /** Shia maghrib offsets ops may set (minutes after sunset). */
 export const SHIA_OFFSET_RANGE = { min: 0, max: 40 } as const;
+/**
+ * The default Shia maghrib: this many minutes after sunset (commonly 10–15). VERIFY LOCALLY with the
+ * timetable Aziziyah's Shia mosques print; ops can set it per Ramadan period and override any day.
+ */
+export const DEFAULT_SHIA_MAGHRIB_OFFSET_MIN = 15;
 
 export const SetSeasonInput = z
   .object({

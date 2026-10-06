@@ -361,6 +361,15 @@ await controls.setSwitch(actor(ali), { cityId: 'aziziyah', scope: 'zone', key: '
 await controls.setSwitch(actor(ali), { cityId: 'aziziyah', scope: 'vertical', key: 'parcel', active: true, holdDispatch: false, reason: 'تجربة المفتاح قبل الافتتاح' });
 await controls.setSwitch(actor(ali), { cityId: 'aziziyah', scope: 'vertical', key: 'parcel', active: false, holdDispatch: false, reason: 'المفتاح يشتغل، رجعت' });
 await controls.setBanner(actor(ali), { severity: 'warning', audiences: ['customer', 'partner'], message_ar: 'المطر قوي الليلة، التوصيل يتأخر شوية. شكراً لصبركم', expiresAt: new Date(Date.now() + 4 * 3_600_000) });
+// Seasons (J6): the next mourning day, Ramadan 1448 over both start days with one day fixed to the
+// local mosque's Shia time, and Eid al-Fitr. Skipped once those dates have passed.
+const demoToday = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+if (demoToday <= '2026-11-13') await controls.setQuietDays(actor(ali), { cityId: null, startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء (3 جمادى الآخرة)' });
+if (demoToday <= '2027-02-07') {
+  const ramadan = await controls.setSeason(actor(ali), { cityId: null, kind: 'ramadan', startsOn: '2027-02-07', endsOn: '2027-03-09', label_ar: 'رمضان 1448' });
+  await controls.setIftarTime(actor(ali), { seasonId: ramadan.id, day: '2027-02-08', timetable: 'shia', time: '17:57' });
+  await controls.setSeason(actor(ali), { cityId: null, kind: 'eid', startsOn: '2027-03-09', endsOn: '2027-03-12', label_ar: 'عيد الفطر' });
+}
 
 // ───────────────────────── approvals queue ─────────────────────────
 

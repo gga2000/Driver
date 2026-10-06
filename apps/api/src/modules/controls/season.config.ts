@@ -1,4 +1,4 @@
-import type { Timetable } from '@driver/contracts';
+import { DEFAULT_SHIA_MAGHRIB_OFFSET_MIN, type Timetable } from '@driver/contracts';
 
 /** Where a city's prayer times are computed: its centre, in degrees. */
 export interface PrayerPlace {
@@ -21,7 +21,7 @@ export const SEASON_RULES = {
    * 10–15 minutes later; 15 is the cautious end. VERIFY LOCALLY against the timetable Aziziyah's
    * Shia mosques print; ops can also set it per Ramadan period and override any single day.
    */
-  maghribOffsetMin: { sunni: 0, shia: 15 } satisfies Record<Timetable, number>,
+  maghribOffsetMin: { sunni: 0, shia: DEFAULT_SHIA_MAGHRIB_OFFSET_MIN } satisfies Record<Timetable, number>,
   /**
    * Sun depression for fajr (the end of suhoor), per timetable. 18° (Muslim World League) gives
    * the earlier, safer fajr for both. VERIFY LOCALLY: some Shia timetables use 16° (later fajr)

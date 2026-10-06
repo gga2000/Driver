@@ -13,3 +13,19 @@ export function quietRange(startsOn: string, endsOn: string): string {
   const d = (s: string) => `${Number(s.slice(8, 10))}/${Number(s.slice(5, 7))}`;
   return startsOn === endsOn ? d(startsOn) : formatRange(d(startsOn), d(endsOn), 'ar-IQ', { spaced: true });
 }
+
+/** The UTC instant of "HH:MM" Baghdad time on a YYYY-MM-DD day (for the city clock, `formatClock`). */
+export function baghdadInstant(day: string, hhmm: string): Date {
+  return new Date(Date.parse(`${day}T${hhmm}:00Z`) - BAGHDAD_MS);
+}
+
+/** The switches a season keeps on, in the order the card names them (quiet days keep none). */
+export function seasonSwitchesOn(s: { celebrations: boolean; sounds: boolean; promos: boolean; accent: boolean; homeCard: boolean }): Array<'celebrations' | 'sounds' | 'promos' | 'accent' | 'card'> {
+  const on: Array<'celebrations' | 'sounds' | 'promos' | 'accent' | 'card'> = [];
+  if (s.celebrations) on.push('celebrations');
+  if (s.sounds) on.push('sounds');
+  if (s.promos) on.push('promos');
+  if (s.accent) on.push('accent');
+  if (s.homeCard) on.push('card');
+  return on;
+}
