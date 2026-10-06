@@ -1,7 +1,7 @@
 import type { PublicSeason } from '@driver/contracts';
 
 /** Before the first read, or when the read fails: an ordinary day, everything on. */
-export const LOUD_SEASON: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null };
+export const LOUD_SEASON: PublicSeason = { quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null };
 
 /**
  * Today's season as the API last said it (`system.season`, polled by `SeasonWatcher`). Sounds and
@@ -17,8 +17,8 @@ export class SeasonState {
   }
 
   set(next: PublicSeason): void {
-    const v = this.value;
-    if (v.quiet === next.quiet && v.celebrations === next.celebrations && v.sounds === next.sounds && v.promos === next.promos && v.quietUntil === next.quietUntil) return;
+    // Polled every few minutes: the same answer (Ramadan times included) must not re-render screens.
+    if (JSON.stringify(this.value) === JSON.stringify(next)) return;
     this.value = next;
     for (const fn of this.listeners) fn();
   }
