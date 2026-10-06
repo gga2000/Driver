@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardCourier, BoardOrder, MerchantBoard } from '@driver/contracts';
-import { applyRadar, arriving, distanceParts, incoming, newArrivals, radarPoint, radarRadius } from './radar';
+import { applyRadar, arriving, distanceParts, incoming, newArrivals, RADAR_LABEL_SIZE, radarLabelAt, radarPoint, radarRadius } from './radar';
 
 const courier = (over: Partial<BoardCourier> = {}): BoardCourier => ({
   state: 'on_the_way',
@@ -58,6 +58,18 @@ describe('courier radar (maps program SP7a)', () => {
     expect(north.x).toBeCloseTo(0, 5);
     expect(north.y).toBeCloseTo(-1, 5);
     expect(radarPoint(3000, 90).x).toBeCloseTo(1, 5);
+  });
+
+  it('ticket labels stay inside the radar: above the dot, below it on the top edge, never off the side', () => {
+    // 128 px radar (R = 56): a dot half way out sits with its number above it.
+    expect(radarLabelAt(64, 36, 128)).toEqual({ x: 64, y: 26 });
+    // Due north at 3 km (y = 8): above would be cut off, so the number goes under the dot.
+    const top = radarLabelAt(64, 8, 128);
+    expect(top.y).toBeGreaterThan(8);
+    expect(top.y - RADAR_LABEL_SIZE).toBeGreaterThan(8);
+    // Due east/west at the edge: the 4 digits stay inside.
+    expect(radarLabelAt(122, 64, 128).x).toBe(116);
+    expect(radarLabelAt(6, 64, 128).x).toBe(12);
   });
 
   it('distance labels: metres to the nearest 10 under a kilometre, then kilometres', () => {

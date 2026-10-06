@@ -4,7 +4,7 @@ import { RADAR_RINGS_M, type BoardOrder } from '@driver/contracts';
 import { fontFace, fontFamily } from '@driver/design-tokens';
 import { Icon, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
-import { arriving, distanceParts, incoming, radarPoint, radarRadius } from './radar';
+import { arriving, distanceParts, incoming, radarLabelAt, radarPoint, radarRadius, RADAR_DOT_R as DOT_R, RADAR_LABEL_SIZE as LABEL_SIZE } from './radar';
 
 /** Dots closer than this (px) carry one ticket label between them. */
 const LABEL_GAP = 22;
@@ -59,6 +59,16 @@ function Radar({ size, orders }: { size: number; orders: readonly BoardOrder[] }
   const c = size / 2;
   const R = c - 8;
   const labels: Array<{ x: number; y: number }> = [];
+  const dots = orders.map((o) => {
+    const here = o.courier.state === 'arrived';
+    const p = here ? { x: 0, y: 0 } : radarPoint(o.courier.distanceM ?? 0, o.courier.bearingDeg ?? 0);
+    const x = c + p.x * R;
+    const y = c + p.y * R;
+    // Couriers bunched together share one label (the nearest one's); the list says who is who.
+    const labelled = !here && !labels.some((l) => Math.hypot(l.x - x, l.y - y) < LABEL_GAP);
+    if (labelled) labels.push({ x, y });
+    return { o, here, near: arriving(o.courier), x, y, labelled };
+  });
   return (
     // Physical directions (east is right) inside the RTL app.
     <View style={{ width: size, height: size, direction: 'ltr' }} accessibilityLabel={t('merchant.radar.label')}>
@@ -70,26 +80,27 @@ function Radar({ size, orders }: { size: number; orders: readonly BoardOrder[] }
         {/* The kitchen */}
         <Circle cx={c} cy={c} r={6} fill={theme.colors.text} />
         <Circle cx={c} cy={c} r={2.5} fill={theme.colors.surface} />
-        {orders.map((o) => {
-          const here = o.courier.state === 'arrived';
-          const p = here ? { x: 0, y: 0 } : radarPoint(o.courier.distanceM ?? 0, o.courier.bearingDeg ?? 0);
-          const near = arriving(o.courier);
-          const x = c + p.x * R;
-          const y = c + p.y * R;
-          // Couriers bunched together share one label (the nearest one's); the list says who is who.
-          const labelled = !here && !labels.some((l) => Math.hypot(l.x - x, l.y - y) < LABEL_GAP);
-          if (labelled) labels.push({ x, y });
-          return (
-            <G key={o.id} testID={`radar-dot-${o.number}`}>
-              {here ? <Circle cx={c} cy={c} r={11} fill="none" stroke={theme.colors.success} strokeWidth={2.5} /> : <Circle cx={x} cy={y} r={7} fill={near ? theme.colors.success : theme.colors.accent} stroke={theme.colors.surface} strokeWidth={2} />}
-              {!labelled ? null : (
-                <SvgText x={x} y={y - 10} fontSize={9} fontWeight="700" fontFamily={RADAR_FONT} fill={theme.colors.text} textAnchor="middle">
-                  {o.number}
+        {dots.map((d) => (
+          <G key={d.o.id} testID={`radar-dot-${d.o.number}`}>
+            {d.here ? <Circle cx={c} cy={c} r={11} fill="none" stroke={theme.colors.success} strokeWidth={2.5} /> : <Circle cx={d.x} cy={d.y} r={DOT_R} fill={d.near ? theme.colors.success : theme.colors.accent} stroke={theme.colors.surface} strokeWidth={2} />}
+          </G>
+        ))}
+        {/* Ticket labels after every dot, so no later dot paints over a number; haloed, and kept inside the radar. */}
+        {dots
+          .filter((d) => d.labelled)
+          .map((d) => {
+            const at = radarLabelAt(d.x, d.y, size);
+            return (
+              <G key={`label-${d.o.id}`}>
+                <SvgText x={at.x} y={at.y} fontSize={LABEL_SIZE} fontWeight="700" fontFamily={RADAR_FONT} fill={theme.colors.surfaceSunken} stroke={theme.colors.surfaceSunken} strokeWidth={3} strokeLinejoin="round" textAnchor="middle">
+                  {d.o.number}
                 </SvgText>
-              )}
-            </G>
-          );
-        })}
+                <SvgText x={at.x} y={at.y} fontSize={LABEL_SIZE} fontWeight="700" fontFamily={RADAR_FONT} fill={theme.colors.text} textAnchor="middle">
+                  {d.o.number}
+                </SvgText>
+              </G>
+            );
+          })}
       </Svg>
     </View>
   );
