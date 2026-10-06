@@ -33,3 +33,6 @@ google-play-service-account*.json
 
 # Driver Studio (pnpm studio) logs
 .studio/
+
+# graphify knowledge graph (local only, rebuilt after each commit)
+graphify-out/
