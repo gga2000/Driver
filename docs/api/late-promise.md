@@ -54,9 +54,9 @@ door pins known — `promisedArrival` in the tracking module). Every such order 
   التوصيل" wording only for `delivery_fee`; `flat` uses the `promise.*_flat` / `track.note_late_credit_flat`
   keys ("حطينالك 1,000 دينار رصيد"). Amounts always come from the server.
 - Late banner (`LateBanner`): before the deadline «إذا ما وصل قبل {time}، نرجعلك …»; once the live ETA
-  is past the deadline (`promiseBar(…, eta).due`) «التأخير راح يتعدى 20 دقيقة، فترجعلك 1,000 دينار رصيد
-  الساعة {deadline}» (`promise.bar_due[_flat]`); once posted «رجعنالك …». The credit toast puts
-  «آسفين على التأخير» on its own line (`promise.toast_sorry`).
+  is past the deadline (`etaPastDeadline`) «الوقت الجديد بعد الموعد، فنرجعلك 1,000 دينار رصيد الساعة
+  {deadline}» (`promise.bar_past[_flat]`, the sheet's late note too); once posted «رجعنالك …». The credit
+  toast puts «آسفين على التأخير» on its own line (`promise.toast_sorry`).
 
 ## Demo hooks
 - Customer: `POST /demo/track?personId=…&scenario=late_apology` (promise moved 11 min into the past: the
