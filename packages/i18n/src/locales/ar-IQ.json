@@ -5837,5 +5837,16 @@
   "household.change_limit": "غيّر حد {name}",
   "chat.live_on_the_way": "بالطريق · {time}",
   "chat.live_at_door": "عند بابك",
-  "chat.live_at_pickup": "وصل لمكانك"
+  "chat.live_at_pickup": "وصل لمكانك",
+  "share.preview_title": "أهلك يشوفون:",
+  "share.preview_driver": "السايق",
+  "share.preview_courier": "الدليفري",
+  "share.preview_map": "مكان السيارة على الخريطة، والوقت لحد ما توصل",
+  "share.preview_map_delivery": "مكان الدليفري على الخريطة لحد ما يوصل الطلب",
+  "share.preview_never": "ما يشوفون رقمك ولا عنوانك ولا السعر",
+  "share.send_whatsapp": "دز على واتساب",
+  "share.send_other": "شارك بطريقة ثانية",
+  "share.ended_safe": "المشوار خلص بالسلامة الساعة {time}",
+  "share.ended_safe_delivery": "الطلب وصل الساعة {time}",
+  "share.ended_safe_body": "الحمد لله على السلامة. الرابط وقف بعد الوصول"
 }

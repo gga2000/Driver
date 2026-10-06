@@ -4,7 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MessageKey } from '@driver/i18n';
 import type { SharedTrip, VehicleClass } from '@driver/contracts';
-import { Avatar, EmptyState, formatClock, Icon, ltr, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
+import { Avatar, EmptyState, formatClock, Icon, ltr, SketchScene, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { useSharedTrip } from '@/features/share/queries';
 import { ShareMap } from '@/features/share/ShareMap';
@@ -45,7 +45,11 @@ export default function SharePage() {
   const trip = q.data;
   if (q.isError || (trip && trip.status === 'ended')) {
     const invalid = apiErrorCode(q.error) === 'share_link_invalid';
-    const title = trip
+    // l8: a link that ran out after a safe arrival says so — the family's last view is reassurance.
+    const safe = trip && trip.endedReason === 'expired' && trip.arrivedAt ? trip.arrivedAt : null;
+    const title = safe
+      ? t(trip?.subject === 'delivery' ? 'share.ended_safe_delivery' : 'share.ended_safe', { time: formatClock(safe) })
+      : trip
       ? t(trip.endedReason === 'revoked' ? 'share.ended_revoked' : trip.endedReason === 'cancelled' ? (trip.subject === 'delivery' ? 'share.delivery_cancelled' : 'share.ended_cancelled') : 'share.ended_expired')
       : invalid
         ? t('share.invalid_title')
@@ -55,7 +59,7 @@ export default function SharePage() {
         <Stack.Screen options={{ headerShown: false, title: t('share.page_title') }} />
         <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', gap: theme.space[8] }}>
           <Wordmark size="md" />
-          <EmptyState icon={trip ? 'clock' : 'x'} title={title} body={trip ? t('share.ended_body') : invalid ? t('share.invalid_body') : undefined} />
+          <EmptyState icon={safe ? 'check' : trip ? 'clock' : 'x'} art={safe && trip?.subject !== 'delivery' ? <SketchScene name="safe_arrival" vehicle={trip?.subject === 'intercity' ? 'minibus' : 'car'} /> : undefined} title={title} body={safe ? t('share.ended_safe_body') : trip ? t('share.ended_body') : invalid ? t('share.invalid_body') : undefined} />
           <Footer />
         </View>
       </View>

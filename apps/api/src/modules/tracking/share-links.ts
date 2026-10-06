@@ -234,7 +234,7 @@ export class ShareLinksService implements TrackingSharePort {
     const rec = await this.link(input.token);
     // The rider sees page opens, not the page's refreshes or its live stream.
     if (!input.again) await this.repo.addView(rec.id);
-    const ended = (reason: 'expired' | 'revoked' | 'cancelled', expiresAt: Date | null): SharedTrip => ({
+    const ended = (reason: 'expired' | 'revoked' | 'cancelled', expiresAt: Date | null, arrivedAt: Date | null = null): SharedTrip => ({
       status: 'ended',
       subject: rec.subjectKind,
       endedReason: reason,
@@ -248,13 +248,15 @@ export class ShareLinksService implements TrackingSharePort {
       eta: null,
       route: null,
       storeName: null,
+      arrivedAt,
       expiresAt,
       serverNow: now,
     });
     if (rec.revokedAt) return ended('revoked', null);
     const state = await this.state(rec.subjectKind, rec.subjectId, now);
     const expiresAt = expiryOf(rec.createdAt, state.completedAt);
-    if (now.getTime() >= expiresAt.getTime()) return ended('expired', expiresAt);
+    // l8: a link that ran out after the trip arrived still says it ended safely, and when.
+    if (now.getTime() >= expiresAt.getTime()) return ended('expired', expiresAt, state.status === 'arrived' ? state.completedAt : null);
     if (state.status === 'ended') return ended('cancelled', expiresAt);
     const driver = state.driverId ? await this.driverCard(rec.id, state.driverId) : null;
     return {
@@ -271,6 +273,7 @@ export class ShareLinksService implements TrackingSharePort {
       eta: state.eta,
       route: state.route,
       storeName: state.storeName,
+      arrivedAt: state.status === 'arrived' ? state.completedAt : null,
       expiresAt,
       serverNow: now,
     };

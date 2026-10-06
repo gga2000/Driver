@@ -5837,5 +5837,16 @@
   "household.change_limit": "Change {name}'s limit",
   "chat.live_on_the_way": "On the way · {time}",
   "chat.live_at_door": "At your door",
-  "chat.live_at_pickup": "At your pickup"
+  "chat.live_at_pickup": "At your pickup",
+  "share.preview_title": "Your family sees:",
+  "share.preview_driver": "The driver",
+  "share.preview_courier": "The courier",
+  "share.preview_map": "The car on the map and the time until you arrive",
+  "share.preview_map_delivery": "The courier on the map until the order arrives",
+  "share.preview_never": "They never see your number, address or price",
+  "share.send_whatsapp": "Send on WhatsApp",
+  "share.send_other": "Share another way",
+  "share.ended_safe": "The trip ended safely at {time}",
+  "share.ended_safe_delivery": "The order arrived at {time}",
+  "share.ended_safe_body": "Home safe. The link stopped after arrival"
 }

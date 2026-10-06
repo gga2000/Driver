@@ -119,6 +119,12 @@ export const SharedTrip = z.object({
   route: z.object({ fromCityId: z.string(), toCityId: z.string() }).nullable(),
   /** A delivery: the store it comes from ("من مطعم خالد", a business name, public); null otherwise. */
   storeName: z.string().nullable(),
+  /**
+   * When the trip arrived (joy l8): set while `arrived` and also on a link that expired after a safe
+   * arrival, so the family's last view is «المشوار خلص بالسلامة الساعة 6:12» rather than «انتهت». Null
+   * otherwise (and on a revoked or cancelled link).
+   */
+  arrivedAt: z.coerce.date().nullable().default(null),
   expiresAt: z.coerce.date().nullable(),
   serverNow: z.coerce.date(),
 });

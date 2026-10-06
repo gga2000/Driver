@@ -109,7 +109,7 @@ describe('ShareLinksService — rides', () => {
     expect(coming.target).toEqual({ lat: pickupPin.lat, lng: pickupPin.lng, kind: 'pickup' });
     expect(coming.eta!.getTime()).toBeGreaterThan(s.h.clock.now().getTime());
     // Exactly the public shape: no phone, no full name, no address in words, no rider.
-    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['driverFirstName', 'driverPhotoUrl', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
+    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['arrivedAt', 'driverFirstName', 'driverPhotoUrl', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
     expect(JSON.stringify(coming)).not.toMatch(/\+964|07\d{9}|c1|zakur/);
 
     await s.h.pickup(trip.id);
@@ -138,7 +138,7 @@ describe('ShareLinksService — rides', () => {
     expect(done.expiresAt).toEqual(new Date(completedAt.getTime() + 30 * MIN));
     expect(await code(s.share.createShareLink(as('c1'), { orderId: o.id }))).toBe('share_trip_over');
     s.h.clock.advance(31 * MIN);
-    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'ended', endedReason: 'expired', driverFirstName: null, plate: null });
+    expect(await s.share.shared({ token: link.token })).toMatchObject({ status: 'ended', endedReason: 'expired', driverFirstName: null, plate: null, arrivedAt: completedAt });
   });
 
   it('the rider can revoke; a forged or unknown token is refused', async () => {
