@@ -283,7 +283,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const stepsDone = !!dep.selfieAt && !!dep.driverCheckedInAt && dep.driverInsideGarage !== false;
   const blocker = blockerText(t, departBlockerNote(readiness), dep.departAt);
 
-  const footer = open ? (
+  const action = open ? (
     // Departing moves every rider's booking: a slide, never a pocket tap (P-08). Locked, it names the blocker.
     <SlideToConfirm testID="depart" label={t('partner.ic_depart_cta')} note={readiness.canDepart ? t('partner.gm_ready') : (blocker ?? undefined)} confirmHaptic="medium" disabled={!readiness.canDepart} loading={actions.depart.isPending} onConfirm={() => void depart()} />
   ) : dep.state === 'departed' ? (
@@ -291,6 +291,17 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   ) : (
     <Button label={t('partner.ic_back_board')} variant="secondary" size="lg" fullWidth onPress={() => (router.canGoBack() ? router.back() : router.replace('/intercity'))} />
   );
+  // The seat colour key is pinned right above the slide, always whole: under the map it peeked out
+  // half hidden behind «انطلقنا» (review p5a).
+  const footer =
+    tab === 'seats' ? (
+      <View style={{ gap: theme.space[3] }}>
+        <GarageLegend states={legendStates(occupants)} />
+        {action}
+      </View>
+    ) : (
+      action
+    );
 
   return (
     <Screen testID="intercity-departure" edges={['bottom']} footer={footer}>
@@ -371,7 +382,6 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
           ) : null}
           <View testID="driver-seatmap" style={{ gap: theme.space[3] }}>
             <GarageSeatMap layout={dep.vehicle.layout} occupants={occupants} editable={open} onSeat={openSeat} />
-            <GarageLegend states={legendStates(occupants)} />
             {open ? (
               <Text variant="footnote" color="textMuted" align="center">
                 {t('partner.gm_hint')}
