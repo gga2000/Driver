@@ -21,12 +21,15 @@ export function WelcomeMap({ today }: { today: CatalogToday | undefined }) {
   const theme = useTheme();
   const t = useT();
   const [active, setActive] = useState(0);
+  // The first spot's caption is there from the first paint; captions only fade in once the light moves.
+  const [moved, setMoved] = useState(false);
   const holdUntil = useRef(0);
 
   useEffect(() => {
     if (theme.reduceMotion) return;
     const id = setInterval(() => {
       if (Date.now() < holdUntil.current) return;
+      setMoved(true);
       setActive((i) => (i + 1) % SPOTS.length);
     }, SPOT_MS);
     return () => clearInterval(id);
@@ -35,10 +38,12 @@ export function WelcomeMap({ today }: { today: CatalogToday | undefined }) {
   const pick = (i: number) => {
     holdUntil.current = Date.now() + TAP_HOLD_MS;
     theme.haptic('selection');
+    setMoved(true);
     setActive(i);
   };
   const spot = SPOTS[active]!;
   const caption = spotCaption(spot.key, today, t);
+  const fade = theme.reduceMotion || !moved ? undefined : FadeIn.duration(theme.motion.duration.base);
 
   return (
     <View
@@ -55,12 +60,12 @@ export function WelcomeMap({ today }: { today: CatalogToday | undefined }) {
         style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4], paddingVertical: theme.space[3], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, minHeight: 56 }}
         accessibilityLiveRegion="polite"
       >
-        <Animated.View key={`i-${active}`} entering={theme.reduceMotion ? undefined : FadeIn.duration(theme.motion.duration.base)}>
+        <Animated.View key={`i-${active}`} entering={fade}>
           <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name={spot.icon} size={18} color="accentText" strokeWidth={2} />
           </View>
         </Animated.View>
-        <Animated.View key={`c-${active}`} entering={theme.reduceMotion ? undefined : FadeIn.duration(theme.motion.duration.base)} style={{ flex: 1 }}>
+        <Animated.View key={`c-${active}`} entering={fade} style={{ flex: 1 }}>
           <Text variant="bodyStrong" testID="welcome-map-caption" numberOfLines={2}>
             {caption}
           </Text>
