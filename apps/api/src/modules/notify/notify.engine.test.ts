@@ -225,7 +225,7 @@ describe('SMS twins', () => {
     await h.run();
     await h.service.whatsAppStatus('wamid.1', 'failed', h.clock.now(), 'wa_131026: undeliverable');
     await h.run();
-    expect(h.sms.sent.map((m) => m.body)).toEqual(['درايفر: زينب وصل مدرسة الرافدين بالسلامة الساعة 7:40.']);
+    expect(h.sms.sent.map((m) => m.body)).toEqual(['درايفر: نزول زينب عند مدرسة الرافدين بالسلامة الساعة 7:40.']);
   });
 
   it('respects smsFallback for receipts but not for safety', async () => {
