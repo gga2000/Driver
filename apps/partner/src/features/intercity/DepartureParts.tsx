@@ -1,8 +1,7 @@
 import { Linking, Pressable, View } from 'react-native';
 import { openNav, useNavApp } from '@/features/work/nav';
-import Svg, { Path } from 'react-native-svg';
-import type { DriverBookingRow, IntercitySeatId, IntercitySeatLayout } from '@driver/contracts';
-import { Avatar, Button, Icon, SEAT_ROWS, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
+import type { DriverBookingRow } from '@driver/contracts';
+import { Avatar, Button, Icon, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { paymentLabel, pickupLabel, riderName, seatsList, statusLabel, travellingAsLabel } from './labels';

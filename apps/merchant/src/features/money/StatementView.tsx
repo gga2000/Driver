@@ -3,7 +3,7 @@ import { Pressable, Share, View } from 'react-native';
 import type { StatementOrderLine, WeeklyStatement } from '@driver/contracts';
 import { Button, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
-import { ModalSheet } from '@/components/ModalSheet';
+import { ModalSheet } from '@driver/ui';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
 import { useDates } from '@/lib/dates';
 import { useLocale, useT, type TKey } from '@/lib/i18n';

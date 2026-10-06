@@ -299,6 +299,9 @@ describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider
     expect(await codeOf(driver.driver.callRider({ departureId: dep.id, bookingId: 'bk_nope' }))).toBe('NOT_FOUND');
     // The harness's own RPC has no bridge: call_unavailable.
     expect(await codeOf(as(h, 'd1', ['intercity_driver']).driver.callRider({ departureId: dep.id, bookingId: a.id }))).toBe('CONFLICT');
+  });
+});
+
 describe('today (welcome screen, audit d-6)', () => {
   it('counts open cars still leaving today in both directions and names the garage of the next car to Baghdad', async () => {
     // 12:00Z = 15:00 Baghdad: the Baghdad day ends at 21:00Z.

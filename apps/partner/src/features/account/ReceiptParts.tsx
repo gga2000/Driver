@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import type { JobReceipt } from '@driver/contracts';
-import { Button, Card, ChipGroup, formatWhen, Icon, Rule, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Card, ChipGroup, formatWhen, Icon, ModalSheet, Rule, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { ModalSheet } from './ModalSheet';
 import { usePayQuery } from './queries';
 import { disputePrefill, receiptRows, receiptTitle } from './receipt-logic';
 

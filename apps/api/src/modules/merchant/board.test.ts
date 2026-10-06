@@ -160,6 +160,8 @@ describe('merchant board — courier state', () => {
     expect(radarOf(kitchen, { lat: kitchen.lat, lng: kitchen.lng + 0.01 }).bearingDeg).toBe(90);
     expect(radarOf(kitchen, { lat: kitchen.lat - 0.005, lng: kitchen.lng }).bearingDeg).toBe(180);
     expect(Object.keys(north).sort()).toEqual(['bearingDeg', 'distanceM']);
+  });
+
   it('S-M4: carries his plate once he has the trip, so the counter knows whom to hand it to', () => {
     const here = courierView('ord_1', { trip: { state: 'arrived_pickup', courierId: 'd1', stops: stops('arrived') }, firstName: 'حيدر', vehicleClass: 'bike', etaMinutes: null, plate: 'واسط 45671' });
     expect(here).toMatchObject({ state: 'arrived', firstName: 'حيدر', plate: 'واسط 45671' });

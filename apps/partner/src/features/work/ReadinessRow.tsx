@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
-import { Button, Icon, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Icon, ModalSheet, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { pluralKey } from '@driver/i18n';
 import { Glyph } from '@/features/account/Glyph';
-import { ModalSheet } from '@/features/account/ModalSheet';
 import { playTestSound } from '@/lib/alert';
 import { useT, type TFn } from '@/lib/i18n';
 import { askGps, openSettings } from '@/lib/readiness-probe';
