@@ -874,7 +874,9 @@ const rajaa = await (async () => {
 //
 //   POST /demo/deals                                 two approved, running deals on مطعم خالد (idempotent):
 //                                                    "خصم 20% على كل المنيو" and "توصيل مجاني فوق 15,000 دينار";
-//                                                    also keeps the kitchen open around the clock for screenshots
+//                                                    also keeps the kitchen open around the clock for screenshots;
+//                                                    `?only=free_delivery` pauses the 20 % one (a free-delivery
+//                                                    order over 15,000: its late promise is the flat 1,000 دينار)
 //   POST /demo/topup/request?personId=…&amount=…     a cash top-up code for that person (as if he tapped شحن المحفظة)
 //   POST /demo/ops-agent                             a field-ops agent (0770 555 0101, "حسن") for Ops mode in the
 //                                                    Partner app (export it with this API's URL)
@@ -912,7 +914,12 @@ const rajaa = await (async () => {
         await promotions.propose({ ...base, type: 'percent', value: 20, nameAr: 'خصم الافتتاح', minOrderIqd: 0, budgetCapIqd: 500_000 });
         await promotions.propose({ ...base, type: 'free_delivery', value: 0, nameAr: 'توصيل مجاني', minOrderIqd: 15_000 });
       }
-      json(res, 200, (await promotions.list(khalid.orgId)).map((d) => ({ dealId: d.dealId, state: d.state, type: d.type })));
+      // `?only=free_delivery` pauses the 20 % deal so free delivery is the one applied (a free-delivery
+      // order: its honest-delay promise is the flat 1,000 دينار); without it both run again.
+      const only = new URL(req.url ?? '/', 'http://x').searchParams.get('only');
+      // (setActive leaves a deal already in that state alone.)
+      for (const d of await promotions.list(khalid.orgId)) await promotions.setActive(khalid.orgId, d.dealId, !only || d.type === only, 'demo-owner');
+      json(res, 200, (await promotions.list(khalid.orgId)).map((d) => ({ dealId: d.dealId, state: d.state, type: d.type, active: d.active })));
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

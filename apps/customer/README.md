@@ -174,7 +174,8 @@ answers `deal_changed` when the deal ended — checkout refetches and explains. 
 react-native-svg) → polls `wallet.topUpStatus` until an ops agent or courier confirms.
 
 Demo hooks: `POST /demo/deals` (20 % off + free delivery over 15,000 on مطعم خالد, kitchen open around the
-clock), `/demo/topup/request?personId=&amount=`, `/demo/ops-agent` (field ops `0770 555 0101`),
+clock; `?only=free_delivery` pauses the 20 % so a basket over 15,000 is a free-delivery order and checkout
+shows the flat 1,000 دينار late promise), `/demo/topup/request?personId=&amount=`, `/demo/ops-agent` (field ops `0770 555 0101`),
 `/demo/topup/confirm?code=`. `SHOTS=deals,topup` writes `deals-*.png` and `topup-*.png`; the top-up group
 also drives the Partner app's Ops mode, so export it against the same API and pass `PARTNER_DIST_DIR`.
 
