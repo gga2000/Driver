@@ -1,7 +1,7 @@
 # "الخردة علينا" — the stated note and change to the wallet (2026-10-05)
 
 Rule and status: `docs/specs/2026-10-03-edge-case-decisions.md` § "Change to wallet when the courier has
-no change" (awaiting Ali's final OK before launch). Shared rules: `packages/contracts/src/cash-change.ts`
+no change" (approved by Ali 2026-10-06: 25,000 cap, 50,000 tender limit, extra cash must be named). Shared rules: `packages/contracts/src/cash-change.ts`
 (`tenderOptions`, `tenderProblem`, `changeToWalletProblem`), used by the API and both apps.
 
 ## Inputs
