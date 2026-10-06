@@ -5,13 +5,13 @@ import { useQuery } from '@tanstack/react-query';
 import type { LaunchMetric, LaunchMetricsView } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useState } from 'react';
-import { bullet, dayBars, dayLabel, metricTone, wallStale } from '@/lib/control-room';
+import { bullet, dayBars, dayLabel, metricTone, mostUrgentTile, wallStale, wallTrend } from '@/lib/control-room';
 import { formatClock } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { BrandMark } from './shell/brand';
-import { cx, IconAlert, IconCheckCircle, IconClock, NeedLogin, QueryError } from './ui';
+import { cx, IconAlert, IconArrowUp, IconCheckCircle, IconClock, NeedLogin, QueryError } from './ui';
 
 const POLL_MS = 30_000;
 
@@ -61,6 +61,9 @@ function useClock(ms = 1000) {
 export function Wall({ data, updatedAt = 0, tv = false }: { data: LaunchMetricsView; updatedAt?: number; tv?: boolean }) {
   const now = useClock();
   const met = data.metrics.filter((m) => m.ok === true).length;
+  // S-K6: the one tile worth a look pulses once a minute (the minute is its key, so it replays).
+  const urgent = mostUrgentTile(data.metrics);
+  const minute = now ? Math.floor(now.getTime() / 60_000) : 0;
   const stale = now ? wallStale(updatedAt, now.getTime()) : false;
   const staleMin = now && updatedAt ? Math.floor((now.getTime() - updatedAt) / 60_000) : 0;
   return (
@@ -71,7 +74,7 @@ export function Wall({ data, updatedAt = 0, tv = false }: { data: LaunchMetricsV
           {t('console.wall_stale', { n: staleMin, time: formatClock(new Date(updatedAt)) })}
         </p>
       )}
-      <div className="mx-auto flex w-full max-w-[1840px] flex-1 flex-col gap-6 px-10 py-6">
+      <div className={cx('mx-auto flex w-full flex-1 flex-col gap-6 py-6', tv ? 'max-w-[1920px] px-12' : 'max-w-[1840px] px-10')}>
         <header className="flex flex-wrap items-end justify-between gap-6">
           <div className="flex items-center gap-5">
             <BrandMark size={64} />
@@ -111,9 +114,9 @@ export function Wall({ data, updatedAt = 0, tv = false }: { data: LaunchMetricsV
           </div>
         </header>
 
-        <ul className="grid flex-1 grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3 xl:grid-rows-2">
+        <ul className={cx('grid flex-1 gap-5', tv ? 'grid-cols-3 grid-rows-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 xl:grid-rows-2')}>
           {data.metrics.map((m) => (
-            <MetricTile key={m.key} m={m} />
+            <MetricTile key={m.key} m={m} pulseKey={m.key === urgent ? minute : null} />
           ))}
         </ul>
 
@@ -129,13 +132,16 @@ const STATUS = {
   pending: { icon: IconClock, word: 'console.wall_pending', pill: 'bg-surface-3 text-muted', value: 'text-muted', bar: 'bg-line-strong', edge: 'border-line' },
 } as const satisfies Record<'ok' | 'bad' | 'pending', { icon: unknown; word: MessageKey; pill: string; value: string; bar: string; edge: string }>;
 
-function MetricTile({ m }: { m: LaunchMetric }) {
+function MetricTile({ m, pulseKey = null }: { m: LaunchMetric; pulseKey?: number | null }) {
   const tone = metricTone(m);
   const s = STATUS[tone];
   const Icon = s.icon;
   const b = bullet(m.key, m.value);
+  const trend = wallTrend(m);
   return (
-    <li className={cx('flex flex-col rounded-xl border-2 bg-surface px-7 py-5', s.edge)}>
+    <li className={cx('relative flex flex-col rounded-xl border-2 bg-surface px-7 py-5', s.edge)} data-urgent={pulseKey !== null || undefined}>
+      {/* S-K6: once a minute, one ring swells out of the most urgent off-target tile (none with reduce motion). */}
+      {pulseKey !== null ? <span key={pulseKey} aria-hidden className="wall-pulse pointer-events-none absolute -inset-[2px] rounded-xl" /> : null}
       <div className="flex items-start justify-between gap-4">
         <h2 className="text-[28px] font-semibold leading-10">{m.label_ar}</h2>
         <span className={cx('inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-1.5 text-xl font-semibold', s.pill)}>
@@ -143,7 +149,18 @@ function MetricTile({ m }: { m: LaunchMetric }) {
           {t(s.word)}
         </span>
       </div>
-      <p className={cx('mt-auto pt-3 text-[96px] font-bold leading-none tracking-[-0.03em]', s.value)}>{m.display}</p>
+      <div className="mt-auto flex items-end justify-between gap-4 pt-3">
+        <p className={cx('text-[96px] font-bold leading-none tracking-[-0.03em]', s.value)}>{m.display}</p>
+        {trend ? (
+          <p
+            className={cx('flex shrink-0 items-center gap-2 pb-2 text-2xl font-semibold', trend.good === true ? 'text-ok' : trend.good === false ? 'text-bad' : 'text-muted')}
+            aria-label={t('console.wall_trend_a11y', { label: m.label_ar, direction: t(`console.wall_vs_yesterday_${trend.dir}`), value: trend.previous })}
+          >
+            {trend.dir === 'flat' ? <span aria-hidden className="inline-block h-[3px] w-6 rounded-pill bg-current" /> : <IconArrowUp size={30} className={trend.dir === 'down' ? 'rotate-180' : undefined} />}
+            <span className="num">{t('console.wall_vs_yesterday', { value: trend.previous })}</span>
+          </p>
+        ) : null}
+      </div>
       {b && (
         <div className="relative mt-3 h-3" aria-hidden>
           <span className="absolute inset-0 rounded-pill bg-surface-3" />
@@ -156,7 +173,7 @@ function MetricTile({ m }: { m: LaunchMetric }) {
           <span className="text-muted">{t('console.wall_target')}: </span>
           <span className="font-semibold">{m.target_ar}</span>
         </p>
-        {m.hint_ar && <p className="text-xl text-muted">{m.hint_ar}</p>}
+        {m.hint_ar && <p className="text-2xl text-muted">{m.hint_ar}</p>}
       </div>
     </li>
   );
@@ -174,7 +191,7 @@ function OrdersByDay({ days }: { days: LaunchMetricsView['ordersByDay'] }) {
         <h2 id="wall-orders" className="text-[28px] font-semibold">
           {t('console.wall_orders_by_day')}
         </h2>
-        <p className="flex items-center gap-2 text-xl text-muted">
+        <p className="flex items-center gap-2 text-2xl text-muted">
           <span aria-hidden className="inline-block h-0 w-8 border-t-[3px] border-dashed border-text" />
           {t('console.wall_orders_target', { n: TARGET })}
         </p>
@@ -197,7 +214,7 @@ function OrdersByDay({ days }: { days: LaunchMetricsView['ordersByDay'] }) {
         </ol>
         <ol className="mt-2 flex gap-5 border-t border-line-strong pt-2" aria-hidden>
           {days.map((d, i) => (
-            <li key={d.date} className={cx('flex-1 text-center text-xl', i === days.length - 1 ? 'font-semibold text-text' : 'text-muted')}>
+            <li key={d.date} className={cx('flex-1 text-center text-2xl', i === days.length - 1 ? 'font-semibold text-text' : 'text-muted')}>
               {i === days.length - 1 ? t('console.wall_today') : dayLabel(d.date)}
             </li>
           ))}

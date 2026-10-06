@@ -5,9 +5,11 @@ import {
   type HandoverConfirmation,
   type MerchantBalanceView,
   type MerchantCashAccount,
+  type MoneyHeadline,
   type MoneyRules,
   type MoneyToday,
   type Order,
+  type SettlementMode,
   type SettlementRequestView,
   type Statement,
   type StatementOrderLine,
@@ -148,6 +150,8 @@ export function composeStatement(input: { merchantOrgId: string; from: Date; to:
       settlements.push({ at: l.occurredAt, kind: 'payout', amountIqd: Math.abs(l.amountIqd), reference: memo.includes(':') ? memo.slice(memo.indexOf(':') + 1) : memo || null });
     }
   }
+  const netIqd = lines.reduce((s, l) => s + l.netIqd, 0);
+  const settledIqd = settlements.reduce((s, x) => s + x.amountIqd, 0);
   return {
     merchantOrgId: input.merchantOrgId,
     from: input.from,
@@ -161,10 +165,41 @@ export function composeStatement(input: { merchantOrgId: string; from: Date; to:
       itemsIqd: lines.reduce((s, l) => s + l.itemsIqd, 0),
       commissionIqd: lines.reduce((s, l) => s + l.commissionIqd, 0),
       feesIqd: lines.reduce((s, l) => s + l.feesIqd, 0),
-      netIqd: lines.reduce((s, l) => s + l.netIqd, 0),
-      settledIqd: settlements.reduce((s, x) => s + x.amountIqd, 0),
+      netIqd,
+      settledIqd,
+      adjustmentsIqd: statementAdjustments(input.statement.openingIqd, netIqd, settledIqd, input.statement.closingIqd),
     },
   };
+}
+
+/**
+ * M-17 · the bridge row: whatever moved the account besides the week's orders and the money he
+ * received (a correction, a deal not tied to an order…), so on screen
+ * `opening + net − received + adjustments = closing` always adds up.
+ */
+export function statementAdjustments(openingIqd: number, netIqd: number, settledIqd: number, closingIqd: number): number {
+  return closingIqd - openingIqd - netIqd + settledIqd;
+}
+
+/** How a merchant's money reaches him, by settlement mode (decisions §3). */
+const ARRIVES: Record<SettlementMode, NonNullable<MoneyHeadline['arrives']>> = {
+  nightly_courier: 'tonight_courier',
+  on_demand: 'on_request',
+  daily_zaincash: 'zaincash_daily',
+  weekly_bulk: 'bank_weekly',
+};
+
+/**
+ * S-M5 · the header pill in one line. An open "اطلب فلوسك" wins ("فلوسك جاية قبل 9:40 م", with the
+ * promised time once a courier or channel is set); otherwise the balance in words: owed (and how it
+ * reaches him), owe (commission taken off his next money) or zero.
+ */
+export function moneyHeadline(input: { balanceIqd: number; mode: SettlementMode; request: SettlementRequestView | null }): MoneyHeadline {
+  const r = input.request;
+  if (r && r.state !== 'handed_over' && input.balanceIqd > 0) return { kind: 'requested', amountIqd: input.balanceIqd, arrives: null, by: r.targetBy };
+  if (input.balanceIqd > 0) return { kind: 'owed', amountIqd: input.balanceIqd, arrives: ARRIVES[input.mode], by: null };
+  if (input.balanceIqd < 0) return { kind: 'owe', amountIqd: -input.balanceIqd, arrives: null, by: null };
+  return { kind: 'zero', amountIqd: 0, arrives: null, by: null };
 }
 
 /** Hand-overs older than this drop off the Money screen (the weekly statement keeps them). */
@@ -255,6 +290,7 @@ export function composeCashAccount(input: {
 
   const held = input.balance.holders.reduce((s, h) => s + h.amountIqd, 0);
   return {
+    headline: moneyHeadline({ balanceIqd: input.balance.balanceIqd, mode: input.balance.mode, request }),
     merchantOrgId: input.merchantOrgId,
     balanceIqd: input.balance.balanceIqd,
     exposureCapIqd: input.balance.exposureCapIqd,

@@ -62,5 +62,12 @@ export function useBalance(merchantOrgId: string | null, enabled: boolean) {
 export function useRequestSettlement() {
   const api = useApi();
   const qc = useQueryClient();
-  return useMutation({ ...api.ledger.requestSettlement.mutationOptions(), onSettled: () => void qc.invalidateQueries(api.ledger.merchantBalance.pathFilter()) });
+  return useMutation({
+    ...api.ledger.requestSettlement.mutationOptions(),
+    onSettled: () => {
+      void qc.invalidateQueries(api.ledger.merchantBalance.pathFilter());
+      // S-M5: the header pill turns into "فلوسك جاية قبل …".
+      void qc.invalidateQueries(api.merchantAdmin.money.cash.pathFilter());
+    },
+  });
 }

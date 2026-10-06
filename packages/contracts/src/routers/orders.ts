@@ -6,6 +6,7 @@ import {
   ListActiveOrdersInput,
   MerchantAcceptInput,
   MerchantExtendPrepInput,
+  MerchantHandOverInput,
   MerchantHeartbeatInput,
   MerchantRejectInput,
   OpenDisputeInput,
@@ -73,5 +74,7 @@ export const ordersRouter = router({
     heartbeat: protectedProcedure(MERCHANT_ROLES).input(MerchantHeartbeatInput).output(Ok).mutation(({ ctx, input }) => ctx.orders.merchantHeartbeat(ctx.actor, input)),
     /** "+5 د" once per accepted order: moves the promised ready time and tells the customer. */
     extendPrep: protectedProcedure(MERCHANT_ROLES).input(MerchantExtendPrepInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantExtendPrep(ctx.actor, input)),
+    /** "سلّمته" (S-M4): the kitchen handed the bag to the courier at the pass; idempotent, no state change. */
+    handOver: protectedProcedure(MERCHANT_ROLES).input(MerchantHandOverInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantHandOver(ctx.actor, input)),
   }),
 });

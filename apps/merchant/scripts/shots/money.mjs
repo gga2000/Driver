@@ -30,7 +30,7 @@ export default {
 
     // اليوم, before asking: the balance, cap bar and the button.
     if (await byTestId('request-on_the_way').isVisible().catch(() => false)) await demoPost('/demo/money/handover');
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'load' });
     await byTestId('cash-hero').waitFor({ timeout: 15_000 });
     await byTestId('sales').waitFor({ timeout: 15_000 });
     await shot('today', { wait: 1200 });
@@ -49,7 +49,7 @@ export default {
 
     // He hands it over with the PIN.
     await demoPost('/demo/money/handover');
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'load' });
     await byTestId('request-handed_over').waitFor({ timeout: 20_000 });
     await shot('handed-over', { wait: 1000 });
     await byTestId('request-receipt').click();

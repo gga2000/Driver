@@ -24,6 +24,7 @@ import {
   type ParticipantShare,
   type RateOrderInput,
   type Trip,
+  type TripState,
   type Vertical,
 } from '@driver/contracts';
 import type { z } from 'zod';
@@ -610,6 +611,39 @@ export class OrdersService implements OnModuleInit {
         minutes,
         from: order.promisedReadyAt.toISOString(),
         promisedReadyAt: promisedReadyAt.toISOString(),
+      });
+      return this.view(order.id, tx);
+    });
+  }
+
+  /**
+   * "سلّمته" (UI/UX audit S-M4): the kitchen records handing the order to the courier at the pass.
+   * Allowed once the order is ready and its courier is at the counter (or has already confirmed the
+   * pickup himself); records `handed_over_at` and `order.handed_over` (with the courier and how long
+   * he waited) on the order's history. Idempotent: a second tap returns the order unchanged. No state
+   * or money moves: the courier's own pickup does that.
+   */
+  async merchantHandOver(actorId: string, input: { orderId: string }): Promise<Order> {
+    return this.uow.run(async (tx) => {
+      const { order } = await this.load(input.orderId, tx);
+      if (order.handedOverAt) return this.view(order.id, tx);
+      if (!MERCHANT_ORDER_TYPES.includes(order.type) || !HAND_OVER_STATES.includes(order.state)) throw new DriverError('order_state_conflict');
+      const trip = await this.trips.activeForOrder(order.id);
+      const courierId = trip?.courierId ?? (await this.trips.courierOf(order.id))?.courierId ?? null;
+      if (!courierId) throw new DriverError('order_state_conflict');
+      const pickup = trip?.stops.find((s) => s.orderId === order.id && s.type === 'pickup') ?? null;
+      const atCounter = order.state === 'picked_up' || pickup?.state === 'arrived' || pickup?.state === 'completed' || (trip ? AT_OR_PAST_PICKUP.includes(trip.state) : false);
+      if (!atCounter) throw new DriverError('order_state_conflict');
+      const now = this.clock.now();
+      const next = await this.repo.updateIf(order.id, order.state, { handedOverAt: now }, tx);
+      if (!next) throw new DriverError('order_state_conflict');
+      const arrivedAt = pickup?.arrivedAt ?? null;
+      await this.emit(tx, 'order.handed_over', actorId, next, {
+        merchantOrgId: order.merchantOrgId,
+        courierId,
+        tripId: trip?.id ?? null,
+        at: now.toISOString(),
+        waitedSec: arrivedAt ? Math.max(0, Math.round((now.getTime() - arrivedAt.getTime()) / 1000)) : null,
       });
       return this.view(order.id, tx);
     });
@@ -1416,6 +1450,11 @@ export class OrdersService implements OnModuleInit {
 /** The receipt line of a platform promo code (money §5 launch package). */
 const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' } as const;
 
+/** "سلّمته" (S-M4) is recorded on a ready order, or right after the courier confirmed the pickup himself. */
+const HAND_OVER_STATES: readonly OrderState[] = ['ready', 'picked_up'];
+/** Trip states in which the courier is at the counter or already left it with the bag. */
+const AT_OR_PAST_PICKUP: readonly TripState[] = ['arrived_pickup', 'in_transit', 'arrived_dropoff', 'completed'];
+
 /** The discount an order carries: promotion, amount after rounding, per-line savings, its receipt line. */
 interface OrderDiscount {
   promotionId: string;
@@ -1687,6 +1726,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     merchantOfferedAt: order.merchantOfferedAt,
     promisedReadyAt: order.promisedReadyAt,
     prepExtendedAt: order.prepExtendedAt ?? null,
+    handedOverAt: order.handedOverAt ?? null,
     placedAt: order.placedAt,
     acceptedAt: order.acceptedAt,
     preparingAt: order.preparingAt,

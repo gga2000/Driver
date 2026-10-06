@@ -55,7 +55,7 @@ export interface MerchantPeoplePort {
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
   /** First name only, read from the vault and logged (purpose `courier_card`). */
   courierFirstName(courierId: string, accessorId: string): Promise<string | null>;
-  /** His vehicle class and plate (the counter tells couriers apart by it). */
+  /** His vehicle class and plate (the counter tells couriers apart by it, S-M4). */
   courierVehicle(courierId: string, vehicleId: string | null): Promise<{ vehicleClass: VehicleClass; plate: string | null } | null>;
 }
 export interface MerchantStoresPort {
@@ -318,7 +318,7 @@ export class MerchantService implements MerchantPort {
   }
 
   private async courierOf(order: Order, kitchen: LatLng | null, readerId: string): Promise<BoardCourier> {
-    const nobody = { firstName: null, vehicleClass: null, etaMinutes: null };
+    const nobody = { firstName: null, vehicleClass: null, etaMinutes: null, plate: null };
     // Only accepted orders get a courier (dispatch starts on `order.accepted`).
     if (order.state === 'placed') return courierView(order.id, { trip: null, ...nobody });
     const trip = await this.trips.activeForOrder(order.id);

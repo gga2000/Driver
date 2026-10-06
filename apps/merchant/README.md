@@ -161,6 +161,30 @@ keepGate: true })` keeps it for a shot).
 - The detail sheet carries the 90-s ring for a new order (M-11). Best sellers rank and scale by one
   measure, with "بالعدد / بالفلوس" for owners (M-13, `bestSellerRows`).
 
+## Signature moments (UI/UX audit phase 3: S-M4, S-M5, S-M6, M-17)
+
+- **The courier at the pass** (`features/board/PassCard.tsx`, `pass.ts`): when a ready order's courier is
+  at the counter the card turns green edge to edge — "حيدر وصل · سلّمه #7046", his plate (`PlateChip`),
+  the cash he collects, the items — and amber after 3 minutes ("حيدر ينتظر من 4 دقايق"). The ready column
+  puts waiting couriers first. "سلّمته" calls `orders.merchant.handOver` (records `handed_over_at` and
+  `order.handed_over` on the order's history; idempotent; no state or money change) and the card says
+  "سلّمته #7046 · 10:14 م" until his app confirms the pickup. On a phone a green strip shows the courier
+  at the pass from any tab ("شوفه").
+- **Money in one line** (`MoneyLine` in `StoreHeader`, `moneyPill` in `features/money/logic.ts`): the
+  server's `merchantAdmin.money.cash.headline` — "إلك 87,500 دينار · توصلك الليلة ويا الدليفري" with "اطلب
+  فلوسك", "عليك 4,250 دينار عمولة · تنخصم من الجاية", "فلوسك جاية قبل 9:40 م". Tablet header; the "…" menu
+  on a phone; the Money hero's sub-line. The weekly statement has the bridge row (M-17): "رصيد أول الأسبوع
+  + الصافي − اللي استلمته (+ تعديلات) = رصيد آخر الأسبوع"; "اللي استلمته" opens its lines.
+- **End of day** (`features/day/`): `merchantAdmin.daySummary` — at close, or from 00:30 to 05:00 for the
+  day before — puts "اليوم · 42 طلب · فاتك 0 · وقتك مضبوط 91% · الصافي 512,000 دينار" and one advice line
+  on the board. "شارك على واتساب": the share sheet on a phone (the server's text, Iraqi plurals); on the
+  web a 1080×1080 image of the card (Web Share with the file where the browser can, else a download).
+  "تمام" hides it for that store and day on this device. Staff see it without the net.
+- Demo (`scripts/demo/signature.mjs`): `POST /demo/signature/at-pass?waited=4` (a ready order whose
+  courier حيدر, plate واسط 45671, waited `waited` minutes; returns its `number`),
+  `/demo/signature/balance?kind=owed|owe` (87,500 owed or "عليك 4,250"), `/demo/signature/day-summary`
+  (closes the store for the day). Shots: `SHOTS=signature`.
+
 ## Real time (`live.merchantBoard`)
 
 `MerchantRuntime` keeps the selected store's `live.merchantBoard` stream open (SSE, stream token in

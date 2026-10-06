@@ -136,6 +136,8 @@ export const BoardOrder = z.object({
   catering: z.boolean(),
   /** The kitchen already used its one "+5 د" on this order (MERCHANT_PREP_EXTENSION). */
   prepExtended: z.boolean().optional(),
+  /** S-M4: when the kitchen tapped "سلّمته" (handed the bag to the courier at the pass); null = not yet. */
+  handedOverAt: z.coerce.date().nullable().optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
 

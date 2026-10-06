@@ -388,6 +388,13 @@ describe('launch control room (e2e)', () => {
       expect(wall.metrics.find((m) => m.key === 'orders_day')!.value).toBeGreaterThan(0);
       expect(wall.metrics.find((m) => m.key === 'ledger')).toMatchObject({ ok: true, display: 'متوازن' });
       expect(wall.metrics.find((m) => m.key === 'disputes_24h')).toMatchObject({ value: 0, ok: true });
+      // S-K6: every tile says which way is better; minutes are written out (no bare "د").
+      expect(wall.metrics.filter((m) => m.key !== 'ledger').every((m) => m.better === 'up' || m.better === 'down')).toBe(true);
+      expect(wall.metrics.find((m) => m.key === 'orders_day')!.previous).toEqual(expect.any(Number));
+      const med = wall.metrics.find((m) => m.key === 'median_delivery')!;
+      expect(med.display === '—' || med.display.endsWith('دقيقة')).toBe(true);
+      // S-K5: the round carries tonight's progress.
+      expect(desk.round).toMatchObject({ collectedIqd: expect.any(Number), targetIqd: desk.round.totalIqd + (desk.round.collectedIqd ?? 0) });
     });
   });
 });

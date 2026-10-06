@@ -13,14 +13,13 @@ import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { PersonName } from './named';
-import { RoundMap } from './round-map';
+import { CollectionRound } from './finance-round';
 import {
   Button,
   Card,
   Chip,
   cx,
   DataTable,
-  EmptyState,
   IconAlert,
   IconCheckCircle,
   IconChevronDown,
@@ -197,76 +196,6 @@ function LedgerCheck({ desk }: { desk: FinanceDeskView }) {
         ))}
       </dl>
     </section>
-  );
-}
-
-// ───────────────────────── the 23:00 round (S-K5) ─────────────────────────
-
-function CollectionRound({ desk }: { desk: FinanceDeskView }) {
-  const r = desk.round;
-  const couriers = r.stops.reduce((n, s) => n + s.couriers.length, 0);
-  return (
-    <Card
-      title={t('console.fin_round', { time: formatClock(r.at) })}
-      hint={r.stops.length ? t('console.fin_round_summary', { amount: formatMoney(r.totalIqd), n: couriers, stops: r.stops.length }) : undefined}
-      flush
-    >
-      {r.stops.length === 0 ? (
-        <div className="px-5 pb-5">
-          <EmptyState icon={<IconCheckCircle size={20} />} title={t('console.fin_round_empty')} hint={t('console.fin_round_empty_hint')} />
-        </div>
-      ) : (
-        <div className="grid border-t border-line lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <ol className="relative max-h-[34rem] overflow-y-auto px-5 py-4" aria-label={t('console.fin_round_list')}>
-            {r.stops.map((s, i) => {
-              const over = s.couriers.filter((c) => c.overCap).length;
-              return (
-                <li key={s.zoneKey} className="relative flex gap-4 pb-5 last:pb-0">
-                  {i < r.stops.length - 1 && <span aria-hidden className="absolute start-[13px] top-8 h-[calc(100%-28px)] w-0.5 rounded-pill bg-line" />}
-                  <span className={cx('num relative mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-pill text-dense font-bold', over ? 'bg-bad-solid text-on-bad' : 'bg-accent text-on-accent')}>{s.seq}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span className="text-[15px] font-semibold">{s.zone_ar}</span>
-                      <span className="num text-sm font-semibold">{formatMoney(s.totalIqd)}</span>
-                    </p>
-                    <p className="text-xs text-muted">
-                      {t('console.fin_stop_couriers', { n: s.couriers.length })}
-                      {over > 0 && <span className="font-semibold text-bad"> · {t('console.fin_stop_over', { n: over })}</span>}
-                    </p>
-                    <ul className="mt-1.5 flex flex-wrap gap-1.5 text-dense">
-                      {s.couriers.slice(0, 8).map((c) => (
-                        <li key={c.driverId} className={cx('inline-flex items-baseline gap-1.5 rounded-pill px-2.5 py-0.5', c.overCap ? 'bg-bad-tint text-bad' : 'bg-surface-2')}>
-                          <span className={cx('font-medium', c.overCap && 'font-semibold')}>
-                            {c.name ?? <PersonName id={c.driverId} copy={false} />}
-                            {c.overCap ? ` · ${t('console.fin_over_cap_short')}` : ''}
-                          </span>
-                          <span className={cx('num', c.overCap ? 'text-bad' : 'text-muted')}>{formatIqd(c.heldIqd)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {s.couriers.length > 8 && <p className="mt-0.5 text-xs text-muted">{t('console.fin_stop_more', { n: s.couriers.length - 8 })}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-          <div className="border-t border-line p-4 lg:border-s lg:border-t-0">
-            <RoundMap stops={r.stops} className="aspect-[4/3] w-full overflow-hidden rounded-md border border-line" />
-            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-[3px] bg-text" /> {t('console.fin_round_base')}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-pill bg-accent" /> {t('console.fin_legend_stop')}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-pill bg-bad-solid" /> {t('console.fin_legend_over')}
-              </span>
-            </p>
-          </div>
-        </div>
-      )}
-    </Card>
   );
 }
 

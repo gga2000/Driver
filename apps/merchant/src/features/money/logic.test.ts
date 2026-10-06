@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MerchantDispute, StatementOrderLine } from '@driver/contracts';
 import { hour12, hourPeriod, localDayKey, localParts, relativeDay, startOfLocalWeek } from '@/lib/calendar';
-import { balanceState, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, requestBlocker, requestProgress, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
+import { balanceState, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
 
 const H = 3_600_000;
 
@@ -122,5 +122,39 @@ describe('disputes', () => {
     expect(canSendAnswer('contest', '  ')).toBe(false);
     expect(canSendAnswer('contest', 'انحط الكباب')).toBe(true);
     expect(canSendAnswer(null, 'x')).toBe(false);
+  });
+});
+
+describe('money in one line (S-M5) and the weekly bridge (M-17)', () => {
+  it('owed: the amount, how it reaches him, and "اطلب فلوسك" beside it', () => {
+    expect(moneyPill({ kind: 'owed', amountIqd: 87_500, arrives: 'tonight_courier', by: null })).toEqual({
+      tone: 'neutral',
+      main: { key: 'merchant.moneypill.owed', amountIqd: 87_500 },
+      sub: 'merchant.moneypill.arrives_tonight_courier',
+      action: 'request',
+    });
+    expect(moneyPill({ kind: 'owed', amountIqd: 1, arrives: 'bank_weekly', by: null }).sub).toBe('merchant.moneypill.arrives_bank_weekly');
+  });
+
+  it('owe: commission in warning words, never a dead button; requested: the promised time; zero: says so', () => {
+    expect(moneyPill({ kind: 'owe', amountIqd: 4_250, arrives: null, by: null })).toMatchObject({ tone: 'warning', main: { key: 'merchant.moneypill.owe', amountIqd: 4_250 }, sub: 'merchant.moneypill.owe_when', action: 'open_money' });
+    const by = new Date('2026-10-05T18:40:00Z');
+    expect(moneyPill({ kind: 'requested', amountIqd: 87_500, arrives: null, by })).toMatchObject({ tone: 'success', main: { key: 'merchant.moneypill.requested', time: by } });
+    expect(moneyPill({ kind: 'requested', amountIqd: 87_500, arrives: null, by: null }).main.key).toBe('merchant.moneypill.requested_pending');
+    expect(moneyPill({ kind: 'zero', amountIqd: 0, arrives: null, by: null })).toMatchObject({ main: { key: 'merchant.money.pill_zero' }, action: 'open_money' });
+  });
+
+  it('the bridge: opening + net − received (+ adjustments) = closing; adjustments only when there are some', () => {
+    const totals = { orders: 9, itemsIqd: 0, commissionIqd: 0, feesIqd: 0, netIqd: 15_620, settledIqd: 250_204, adjustmentsIqd: 87_500 };
+    const b = statementBridge({ openingIqd: 142_834, closingIqd: -4_250, totals });
+    expect(b.terms.map((x) => [x.key, x.op, x.amountIqd])).toEqual([
+      ['opening', '', 142_834],
+      ['net', '+', 15_620],
+      ['settled', '−', 250_204],
+      ['adjustments', '+', 87_500],
+      ['closing', '=', -4_250],
+    ]);
+    expect(b.adds).toBe(true);
+    expect(statementBridge({ openingIqd: 0, closingIqd: 0, totals: { ...totals, netIqd: 12_750, settledIqd: 12_750, adjustmentsIqd: 0 } }).terms.map((x) => x.key)).toEqual(['opening', 'net', 'settled', 'closing']);
   });
 });

@@ -98,6 +98,7 @@ export interface CourierFacts {
   vehicleClass: BoardCourier['vehicleClass'];
   /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
   etaMinutes: number | null;
+  /** His number plate (S-M4); absent/null when the registry has none. */
   plate?: string | null;
   /** The code on his screen (`pickupCodeFor(order, courier)`); null without a courier. */
   pickupCode?: string | null;
@@ -181,6 +182,7 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     late: column === 'preparing' && o.promisedReadyAt !== null && now.getTime() > o.promisedReadyAt.getTime(),
     catering: o.cateringRequest,
     prepExtended: o.prepExtendedAt != null,
+    handedOverAt: o.handedOverAt ?? null,
   };
 }
 

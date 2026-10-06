@@ -284,6 +284,23 @@ export const SettlementRequestView = z.object({
 });
 export type SettlementRequestView = z.infer<typeof SettlementRequestView>;
 
+/**
+ * S-M5 · the money pill in one line (UI/UX audit merchant-and-console §8, M-07), worked out on the
+ * server so the header never guesses: `owed` — Driver holds this for him and `arrives` says how it
+ * reaches him ("توصلك الليلة ويا الدليفري"); `owe` — commission left on him, taken off his next money;
+ * `requested` — he asked and `by` is the promised time ("فلوسك جاية قبل 9:40 م"); `zero` — nothing.
+ */
+export const MoneyHeadline = z.object({
+  kind: z.enum(['owed', 'owe', 'zero', 'requested']),
+  /** owed / requested: what Driver holds for him; owe: the commission left on him; zero: 0. */
+  amountIqd: Iqd,
+  /** owed: how the money reaches him (from his settlement mode); null otherwise. */
+  arrives: z.enum(['tonight_courier', 'on_request', 'zaincash_daily', 'bank_weekly']).nullable(),
+  /** requested: the promised time once a courier or channel is set; null until then. */
+  by: z.coerce.date().nullable(),
+});
+export type MoneyHeadline = z.infer<typeof MoneyHeadline>;
+
 /** The merchant cash account (decisions §3) for the Money screen: balance, who holds it, the open request, hand-overs. */
 export const MerchantCashAccount = z.object({
   merchantOrgId: z.string(),
@@ -301,6 +318,8 @@ export const MerchantCashAccount = z.object({
   /** Recent courier hand-overs, newest first (14 days, at most 20). */
   handovers: z.array(CashHandover),
   lastSettledAt: z.coerce.date().nullable(),
+  /** S-M5: the header pill in one line (server-computed). */
+  headline: MoneyHeadline.optional(),
 });
 export type MerchantCashAccount = z.infer<typeof MerchantCashAccount>;
 
@@ -341,7 +360,19 @@ export const WeeklyStatement = z.object({
   lines: z.array(StatementOrderLine),
   /** Hand-overs from couriers and company payouts in the week. */
   settlements: z.array(z.object({ at: z.coerce.date(), kind: z.enum(['courier_handover', 'payout']), amountIqd: Iqd, reference: z.string().nullable() })),
-  totals: z.object({ orders: z.number().int(), itemsIqd: Iqd, commissionIqd: Iqd, feesIqd: Iqd, netIqd: Iqd, settledIqd: Iqd }),
+  totals: z.object({
+    orders: z.number().int(),
+    itemsIqd: Iqd,
+    commissionIqd: Iqd,
+    feesIqd: Iqd,
+    netIqd: Iqd,
+    settledIqd: Iqd,
+    /**
+     * M-17 bridge: everything else that moved the account in the week (corrections, payouts not tied to
+     * an order…), so `opening + net − settled + adjustments = closing` always holds on screen.
+     */
+    adjustmentsIqd: Iqd.default(0),
+  }),
 });
 export type WeeklyStatement = z.infer<typeof WeeklyStatement>;
 
@@ -425,6 +456,44 @@ export const MerchantInsights = z.object({
 });
 export type MerchantInsights = z.infer<typeof MerchantInsights>;
 
+// ───────────────────────── end of day (S-M6) ─────────────────────────
+
+/** `date` = a Baghdad local day (YYYY-MM-DD); default: the day the card is about now (see `due`). */
+export const DaySummaryInput = MerchantScope.extend({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+export type DaySummaryInput = z.input<typeof DaySummaryInput>;
+
+/** The one thing to do tomorrow, from the day's own numbers (Insights' verdicts). */
+export const DayAdviceKind = z.enum(['missed', 'prep_late', 'prep_uneven', 'prep_early', 'rejected', 'honest']);
+export type DayAdviceKind = z.infer<typeof DayAdviceKind>;
+
+/**
+ * S-M6 · the end-of-day card (UI/UX audit merchant-and-console §8): "اليوم: 42 طلب · فاتك 0 · وقتك
+ * مضبوط 91% · الصافي 512,000 دينار" and one advice line. Computed on the server for a Baghdad local
+ * day. `due` says whether the board shows it now: the store closed for the day (`closed`), or the
+ * day ended (`day_end`, from 00:30 to 05:00 for the day before). `netIqd` is the owner's (null for staff).
+ */
+export const MerchantDaySummary = z.object({
+  merchantOrgId: z.string(),
+  storeName: z.string(),
+  localDate: z.string(),
+  due: z.boolean(),
+  reason: z.enum(['closed', 'day_end']).nullable(),
+  /** Orders the kitchen took that day and that weren't cancelled. */
+  orders: z.number().int(),
+  /** Orders that timed out on the kitchen (M-01), pauses excluded. */
+  missed: z.number().int(),
+  /** Share of orders ready by the promise (2-min grace); null without a sample. */
+  onTimeShare: z.number().nullable(),
+  onTimeSamples: z.number().int(),
+  rejected: z.number().int(),
+  /** Net to the merchant that day (sales − commission + fees − own deals); owner only. */
+  netIqd: Iqd.nullable(),
+  advice: z.object({ kind: DayAdviceKind, minutes: z.number().int().nullable(), percent: z.number().int().nullable() }).nullable(),
+  /** The WhatsApp text (Iraqi plurals, Western digits), ready to share. */
+  share_ar: z.string(),
+});
+export type MerchantDaySummary = z.infer<typeof MerchantDaySummary>;
+
 // ───────────────────────── staff ─────────────────────────
 
 export const StaffMember = z.object({
@@ -490,6 +559,8 @@ export interface MerchantAdminPort {
   moneyDisputes(actor: Actor, input: MerchantScope): Promise<MerchantDispute[]>;
   moneyRespondDispute(actor: Actor, input: z.output<typeof RespondDisputeInput>): Promise<MerchantDispute>;
   insights(actor: Actor, input: z.output<typeof InsightsInput>): Promise<MerchantInsights>;
+  /** S-M6: the end-of-day card (owner and staff; the net is the owner's). */
+  daySummary(actor: Actor, input: z.output<typeof DaySummaryInput>): Promise<MerchantDaySummary>;
   staffList(actor: Actor, input: MerchantScope): Promise<StaffMember[]>;
   staffInvite(actor: Actor, input: z.output<typeof InviteStaffInput>): Promise<StaffMember>;
   staffSetRole(actor: Actor, input: z.infer<typeof SetStaffRoleInput>): Promise<StaffMember>;

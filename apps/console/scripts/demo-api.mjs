@@ -17,6 +17,8 @@
 //   0770 000 0003  زينب    support agent (10,000 a day refund limit)
 // GET /demo/seed lists them. POST /demo/cash-change → the latest order where the courier had no change
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
+// GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
+// 23:00 round, S-K5).
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -85,6 +87,20 @@ app.use('/demo/cash-change', async (_req, res) => {
     res.end(JSON.stringify({ orderId: found.orderId, courierId: found.fromAccount.slice('cash:'.length), amountIqd: found.amount }));
   } catch (err) {
     res.statusCode = 404;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// GET /demo/handover-code?driverId=… — the 4-digit code that courier's app shows today (S-K5: tick a
+// courier off on the 23:00 round with "استلمت" as field ops would, by reading it from his phone).
+let handoverCodeOf = null;
+app.use('/demo/handover-code', async (req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!handoverCodeOf) throw new Error('still seeding');
+    const driverId = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('driverId') ?? '';
+    res.end(JSON.stringify(await handoverCodeOf(driverId)));
+  } catch (err) {
+    res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
   }
 });
@@ -269,6 +285,7 @@ await controls.setBanner(actor(ali), { severity: 'warning', audiences: ['custome
 // ───────────────────────── approvals queue ─────────────────────────
 
 const accounts = get(DriverAccountService);
+handoverCodeOf = (driverId) => accounts.handoverCode({ personId: driverId, sessionId: 'demo' });
 const ops = get(OpsService);
 const couriers = [
   { phone: '07720000001', name: 'مرتضى' },

@@ -20,6 +20,10 @@ import { scheduleBanner } from '@/features/hours/logic';
 import { usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
 import { printerChipState, usePrinterSnapshot, usePrintOrder } from '@/features/print/runtime';
+import { DaySummaryCard } from '@/features/day/DaySummaryCard';
+import { dayCardKey, showDayCard } from '@/features/day/logic';
+import { useDayDismissed, useDaySummary } from '@/features/day/queries';
+import { useCashAccount } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
@@ -33,6 +37,8 @@ import { byTimeLeft, COLUMN_LABEL, COLUMNS, isRush, newOrderSummary, oneTapPrep,
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
+import { PassCard } from './PassCard';
+import { passFirst, passState, waitingAtPass } from './pass';
 import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
 import { RejectSheet } from './RejectSheet';
 import { RushQueue, StickyAcceptBar } from './Rush';
@@ -107,6 +113,8 @@ export function Board() {
   const board = useBoard(storeId);
   const status = useStoreStatus(storeId);
   const balance = useBalance(storeId, canSeeMoney);
+  // S-M5: the pill in one line comes from the server (owed and how it reaches him, owe, requested).
+  const cash = useCashAccount(storeId, canSeeMoney);
   const online = useOnline();
   const conn = useConnectionBanner({ live: useLiveMode(LIVE_MERCHANT_KEY), updatedAt: board.dataUpdatedAt || null });
   /** Offline: accept / reject / ready can't reach the server; say why instead of failing. */
@@ -115,7 +123,7 @@ export function Board() {
     toast.show({ message: t('merchant.board.offline_toast'), tone: 'warning' });
     return true;
   };
-  const { accept, ready, extend } = useOrderActions();
+  const { accept, ready, extend, handOver } = useOrderActions();
   const { setOpen } = useStoreSwitches();
   const now = useServerNow(board.offset);
   const clock = useCallback(() => Date.now() + board.offset, [board.offset]);
@@ -136,14 +144,19 @@ export function Board() {
   const [readyId, setReadyId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
+  const [handingId, setHandingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
   // Maps program SP7a: a chime when a courier is about to walk in.
   useCourierArrivals(board.data?.orders, prefs.soundOn);
+  // The ready column reads in counter order (S-M4): couriers waiting at the pass first.
+  const nowMinute = Math.floor(now / 60_000);
   const cols = useMemo(() => {
     const c = splitColumns(orders);
-    return { ...c, new: byTimeLeft(c.new) };
-  }, [orders]);
+    return { ...c, new: byTimeLeft(c.new), ready: passFirst(c.ready, nowMinute * 60_000) };
+  }, [orders, nowMinute]);
+  const atPass = waitingAtPass(cols.ready, now);
+  const firstPass = atPass[0] ? passState(atPass[0], now) : null;
   // Rush (tablet): which new ticket is open; the most urgent unless the kitchen picked another.
   const rush = wide && isRush(cols.new.length);
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -167,6 +180,10 @@ export function Board() {
   };
   const byId = (id: string | null) => (id ? (orders.find((o) => o.id === id) ?? null) : null);
   const s = status.data;
+  // S-M6: the day's card at close (or from 00:30 for the day before), until "تمام" on this device.
+  const daySummary = useDaySummary(storeId, `${s?.open ?? ''}:${s?.closed?.at?.toString() ?? ''}:${s?.schedule?.inHours ?? ''}`);
+  const { dismissed: dayDismissed, dismiss: dismissDay } = useDayDismissed();
+  const showDay = showDayCard(daySummary.data, dayDismissed);
   const busyOn = s?.busy.on ?? false;
   const oneTap = oneTapPrep(s?.defaultPrepMinutes ?? 20, busyOn);
   const waiting = plan.ringing.length + plan.snoozed.length;
@@ -241,6 +258,19 @@ export function Board() {
       setExtendingId(null);
     }
   };
+  /** "سلّمته" (S-M4): the hand-over at the pass, recorded on the order's history. */
+  const onHandOver = async (o: BoardOrder) => {
+    if (offlineGuard()) return;
+    setHandingId(o.id);
+    try {
+      await handOver.mutateAsync({ orderId: o.id });
+      toast.show({ message: t('merchant.pass.handed_toast', { number: o.number }), tone: 'success', icon: 'check' });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setHandingId(null);
+    }
+  };
   const toggleOpen = async () => {
     if (!s) return;
     if (s.open) {
@@ -266,6 +296,14 @@ export function Board() {
   };
 
   const card = (o: BoardOrder) => {
+    const pass = passState(o, now);
+    if (pass) {
+      return (
+        <View key={o.id}>
+          <PassCard order={o} pass={pass} busy={handingId === o.id} onHandOver={() => void onHandOver(o)} onOpen={() => setDetailId(o.id)} />
+        </View>
+      );
+    }
     const ringing = plan.ringing.includes(o.id);
     const compact = rush && o.column === 'new' && o.id !== expandedId;
     return (
@@ -318,6 +356,10 @@ export function Board() {
     missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
   ].filter((x) => x !== null);
 
+  const dayCard =
+    showDay && daySummary.data ? (
+      <DaySummaryCard summary={daySummary.data} todayKey={localDayKey(now)} wide={wide} onDismiss={() => dismissDay(dayCardKey(daySummary.data!.merchantOrgId, daySummary.data!.localDate))} />
+    ) : null;
   const urgent = plan.mostUrgent;
   const summary = newOrderSummary(orders, plan.snoozed);
   const sticky = !wide && segment === 'new' ? stickyAcceptTarget(cols.new) : null;
@@ -327,6 +369,7 @@ export function Board() {
         storeName={store?.name ?? ''}
         status={s}
         balance={balance.data}
+        headline={cash.data?.headline}
         canSeeMoney={canSeeMoney}
         now={now}
         wide={wide}
@@ -374,6 +417,16 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
+      {/* S-M4 on a phone: a courier at the pass is seen from any tab of the board. */}
+      {!wide && segment !== 'ready' && atPass[0] ? (
+        <InfoStrip
+          tone={firstPass?.kind === 'at_pass' && firstPass.tone === 'warning' ? 'warning' : 'success'}
+          icon="bike"
+          testID="pass-strip"
+          text={t('merchant.pass.headline', { who: atPass[0].courier.firstName?.trim() || t('merchant.pass.courier'), number: atPass[0].number })}
+          action={{ label: t('merchant.pass.show'), onPress: () => setSegment('ready'), testID: 'pass-strip-show' }}
+        />
+      ) : null}
       {/* One busy nudge at a time: the missed-orders strip already offers it when it shows its own. */}
       {suggestBusy(cols.new.length, busyOn) && s?.open && !(missedNew.length > 0 && nudge) ? (
         <InfoStrip
@@ -396,6 +449,7 @@ export function Board() {
       ) : null}
 
       <CourierRadarStrip orders={orders} compact={!wide} />
+      {wide ? dayCard : null}
 
       {wide ? (
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], paddingHorizontal: theme.space[5], paddingTop: theme.space[4] }}>
@@ -437,6 +491,7 @@ export function Board() {
             />
           </View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[4], padding: theme.space[4], paddingBottom: theme.space[10] }}>
+            {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : null}
             {loading ? skeleton : cols[segment].length === 0 ? <EmptyColumn column={segment} /> : cols[segment].map(card)}
           </ScrollView>
           {sticky ? (

@@ -391,6 +391,16 @@ copy is final Iraqi Arabic unless marked.
 - `?tv=1`: no links, 1920 grid, footers 24 px, trend arrows vs yesterday, stale line at 2 min, and the
   single most urgent tile pulses once a minute when off target.
 
+**Built 2026-10-05 (Phase 3, brief D).** S-M1, S-M2, S-M3 (Phase 1–2) and S-K1–S-K4 (Console redesign)
+were already in; S-K1 gained its strip on every page. New: S-M4 (`orders.merchant.handOver`, column
+`orders.handed_over_at`, event `order.handed_over`; no state or money change), S-M5 (server headline on
+`merchantAdmin.money.cash`, statement `adjustmentsIqd` for the M-17 bridge), S-M6
+(`merchantAdmin.daySummary`; due at close or 00:30–05:00 for the day before; local calendar day), S-K5
+(round receipts are the existing `ops.recordCashReceipt`/`driver_settlement` with the courier's daily
+code; tonight's round counts ops-round receipts from 18:00 Baghdad), S-K6 (`previous` and `better` per
+tile: the value as it stood 24 h ago; disputes and the ledger have none). Copy: no em dash; minutes
+written out ("4 دقايق", "11 دقيقة") — the wall's median no longer reads "1 د".
+
 ---
 
 ## 9. Top 12 "do next"

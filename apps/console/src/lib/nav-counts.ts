@@ -14,7 +14,8 @@ import { useTRPC } from './trpc';
  * shares its cache with the page that shows the same list.
  */
 export interface NavCounts {
-  '/dispatch'?: { n: number; alert: boolean };
+  /** `oldestSec`: how long the oldest card needing a dispatcher had waited when the board was read. */
+  '/dispatch'?: { n: number; alert: boolean; oldestSec?: number | null };
   '/support'?: { n: number; alert: boolean };
   '/approvals'?: { n: number; alert: boolean };
 }
@@ -47,8 +48,9 @@ export function useNavCounts(): NavCounts {
   );
   const out: NavCounts = {};
   if (board.data) {
-    const n = board.data.cards.filter((c) => columnOf(c) === 'needs_dispatcher').length;
-    out['/dispatch'] = { n, alert: n > 0 };
+    const needs = board.data.cards.filter((c) => columnOf(c) === 'needs_dispatcher');
+    const n = needs.length;
+    out['/dispatch'] = { n, alert: n > 0, oldestSec: n > 0 ? Math.max(...needs.map((c) => c.elapsedSec)) : null };
   }
   if (support.data)
     out['/support'] = { n: support.data.counts.open, alert: support.data.counts.breached > 0 };
