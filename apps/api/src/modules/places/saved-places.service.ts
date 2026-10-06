@@ -5,6 +5,7 @@ import {
   PLACE_AGREE_RADIUS_M,
   PLACE_CONFIRM_MAX_ACCURACY_M,
   PLACE_CONFIRMED_CONFIDENCE,
+  PLACE_ENTRANCE_MAX_M,
   type ConfirmPlaceInput,
   type DoorSample,
   type LatLng,
@@ -32,6 +33,8 @@ export interface SavedPlaceRecord {
   photoIds: string[];
   /** Couriers' arrival fixes at delivered drop-offs (maps program a3), newest `DOOR_RULES.keep`. */
   arrivalSamples: DoorSample[];
+  /** Which gate couriers go in by (maps program a4), within `PLACE_ENTRANCE_MAX_M` of the pin. */
+  entrance: LatLng | null;
   confidence: number;
   confirmedAt: Date | null;
   shareWithHousehold: boolean;
@@ -111,6 +114,13 @@ export function courierMaySeePlaceDetails(input: {
   return !trip.completedAt || input.now.getTime() <= trip.completedAt.getTime() + 3_600_000;
 }
 
+/** A marked gate, refused when it is too far from the pin to be this house's (maps program a4). */
+function entranceNear(pin: LatLng, entrance: LatLng | null): LatLng | null {
+  if (!entrance) return null;
+  if (distanceM(pin, entrance) > PLACE_ENTRANCE_MAX_M) throw new DriverError('place_entrance_too_far');
+  return entrance;
+}
+
 /** Subscriber name for the door learning (maps program a3). */
 export const PLACES_DOOR_SUBSCRIBER = 'places:door-learning';
 
@@ -181,6 +191,7 @@ export class SavedPlacesService implements OnModuleInit {
       note: input.note?.trim() || null,
       photoIds,
       arrivalSamples: [],
+      entrance: entranceNear(input.pin, input.entrance ?? null),
       confidence: INITIAL_CONFIDENCE,
       confirmedAt: null,
       shareWithHousehold: input.shareWithHousehold,
@@ -218,6 +229,9 @@ export class SavedPlacesService implements OnModuleInit {
       for (const old of rec.photoIds) if (!next.includes(old)) await this.blobs.remove(old);
       rec.photoIds = next;
     }
+    if (input.entrance !== undefined) rec.entrance = entranceNear(rec.pin, input.entrance);
+    // The house moved: a gate left far behind belongs to the old one.
+    if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
     const startedSharing = input.shareWithHousehold === true && !rec.shareWithHousehold;
     if (input.shareWithHousehold !== undefined) rec.shareWithHousehold = input.shareWithHousehold;
     rec.updatedAt = now;
@@ -245,6 +259,7 @@ export class SavedPlacesService implements OnModuleInit {
     if (moved) {
       rec.zoneId = this.zoneOrThrow(rec.cityId, input.pin);
       rec.pin = input.pin;
+      if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
       rec.confidence = OWNER_MOVE_CONFIDENCE;
     } else {
       rec.confidence = Math.max(rec.confidence, OWNER_AGREE_CONFIDENCE);
@@ -274,7 +289,8 @@ export class SavedPlacesService implements OnModuleInit {
   async deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null> {
     if (!(await this.usableBy(personId, placeId))) return null;
     const r = await this.repo.get(placeId);
-    return r ? { door: doorPoint(r.arrivalSamples, r.pin) } : null;
+    // The gate the owner marked comes first; else the door couriers' arrivals agree on.
+    return r ? { door: r.entrance ?? doorPoint(r.arrivalSamples, r.pin) } : null;
   }
 
   /**
@@ -282,11 +298,11 @@ export class SavedPlacesService implements OnModuleInit {
    * photos as signed links — only for the assigned courier, from accepting until an hour after the
    * trip (domain §7, `courierMaySeePlaceDetails`); null otherwise or when the place is gone.
    */
-  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean } | null> {
+  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean; entranceSet: boolean } | null> {
     if (!courierMaySeePlaceDetails(input)) return null;
     const r = await this.repo.get(placeId);
     if (!r) return null;
-    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null };
+    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null, entranceSet: r.entrance !== null };
   }
 
   /**
@@ -372,6 +388,7 @@ export class SavedPlacesService implements OnModuleInit {
       confirmed: r.confidence >= PLACE_CONFIRMED_CONFIDENCE,
       confirmedAt: r.confirmedAt,
       doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null,
+      entrance: r.entrance,
       sharedWithHousehold: r.shareWithHousehold,
       access: r.ownerId === viewerId ? 'owner' : 'household',
       createdAt: r.createdAt,

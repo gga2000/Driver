@@ -18,6 +18,7 @@ const view = (over: Partial<SavedPlaceView> = {}): SavedPlaceView => ({
   confirmed: true,
   confirmedAt: new Date('2026-10-03T09:00:00Z'),
   doorConfirmed: false,
+  entrance: null,
   sharedWithHousehold: false,
   access: 'owner',
   createdAt: new Date('2026-10-03T09:00:00Z'),

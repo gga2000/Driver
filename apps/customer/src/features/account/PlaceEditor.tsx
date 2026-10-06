@@ -19,9 +19,11 @@ export interface PlaceEditorValue {
   note: string;
   photos: PlacePhotoRef[];
   shareWithHousehold: boolean;
+  /** Which gate couriers come in by (maps program a4); null = the pin itself. */
+  entrance: LatLng | null;
 }
 
-export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false };
+export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false, entrance: null };
 
 const LABEL_KEY = { home: 'onboarding.place_label_home', work: 'onboarding.place_label_work', custom: 'onboarding.place_label_other' } as const;
 
@@ -40,6 +42,7 @@ export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null 
     ...(v.note.trim() ? { note: v.note.trim() } : {}),
     photoIds: v.photos.map((p) => p.id),
     shareWithHousehold: v.shareWithHousehold,
+    ...(v.entrance ? { entrance: v.entrance } : {}),
   };
 }
 
@@ -142,6 +145,8 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
         </View>
       </View>
 
+      <EntranceStep value={value} onChange={onChange} />
+
       <View style={{ gap: theme.space[3] }}>
         <Text variant="label" color="textMuted">
           {t('place.zone_fallback')}
@@ -223,6 +228,54 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Which gate (maps program a4): when the house is entered from another street or an alley, the
+ * customer marks that gate on a second map that starts at the pin, and couriers go straight to it.
+ * Optional; "شيل" goes back to the pin. Shown once the place has a pin.
+ */
+function EntranceStep({ value, onChange }: { value: PlaceEditorValue; onChange: (next: PlaceEditorValue) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (!value.pin) return null;
+  const marking = open || value.entrance !== null;
+  return (
+    <View style={{ gap: theme.space[3] }} testID="place-entrance">
+      <View style={{ gap: theme.space[1] }}>
+        <Text variant="title">{t('place.entrance_title')}</Text>
+        <Text variant="footnote" color="textMuted">
+          {t('place.entrance_hint')}
+        </Text>
+      </View>
+      {marking ? (
+        <>
+          <View accessibilityLabel={t('place.entrance_map_hint')} style={{ height: 220, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+            <PinPicker initial={value.entrance ?? value.pin} tone="pickup" onCentre={(entrance) => onChange({ ...value, entrance })} onMoving={() => undefined} recentre={null} testID="place-entrance-map" />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
+            <Text variant="label" color={value.entrance ? 'successText' : 'textMuted'} style={{ flexShrink: 1 }}>
+              {value.entrance ? t('place.entrance_set') : t('place.entrance_map_hint')}
+            </Text>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="x"
+              label={t('place.entrance_remove')}
+              onPress={() => {
+                setOpen(false);
+                onChange({ ...value, entrance: null });
+              }}
+              testID="place-entrance-remove"
+            />
+          </View>
+        </>
+      ) : (
+        <Button variant="secondary" size="sm" icon="map-pin" label={t('place.entrance_add')} onPress={() => setOpen(true)} testID="place-entrance-add" />
+      )}
     </View>
   );
 }

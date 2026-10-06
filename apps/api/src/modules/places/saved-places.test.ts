@@ -88,6 +88,24 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(true);
   });
 
+  it('which gate (a4): the owner marks it near the pin; it wins over the learned door; a far one is refused', async () => {
+    const h = harness();
+    const GATE = { lat: STREET_30.lat, lng: STREET_30.lng + 0.0004 }; // ~37 m east, the alley
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, entrance: GATE });
+    expect(home.entrance).toEqual(GATE);
+    for (const stopId of ['s1', 's2', 's3']) await h.service.learnDoor(home.id, { stopId, ...DOOR, accuracyM: 8, at: at(1) });
+    expect((await h.service.deliveryPlace('cust_a', home.id))!.door).toEqual(GATE);
+    expect(await h.service.courierDoor(home.id, { courierId: 'd1', trip: { courierId: 'd1', acceptedAt: h.clock.now(), completedAt: null }, now: h.clock.now() })).toMatchObject({ entranceSet: true, doorConfirmed: true });
+    expect(await code(h.service.save('cust_a', { ...h.base, label: 'work', name: 'الشغل', pin: STREET_30, entrance: ZAKUR }))).toBe('place_entrance_too_far');
+    // Cleared: the learned door is used again.
+    const cleared = await h.service.update('cust_a', { placeId: home.id, entrance: null });
+    expect(cleared.entrance).toBeNull();
+    expect(distanceOf((await h.service.deliveryPlace('cust_a', home.id))!.door!, DOOR)).toBeLessThan(5);
+    // Moving the house far forgets its gate.
+    await h.service.update('cust_a', { placeId: home.id, entrance: GATE });
+    expect((await h.service.update('cust_a', { placeId: home.id, pin: ZAKUR })).entrance).toBeNull();
+  });
+
   it('learns from delivered drop-offs through the outbox (stop.completed with a door)', async () => {
     const h = harness();
     h.service.onModuleInit();

@@ -50,6 +50,8 @@ export const SavedPlaceView = z.object({
    * to that door from now on. The pin above stays the customer's own.
    */
   doorConfirmed: z.boolean(),
+  /** Which gate couriers go in by (maps program a4), marked by the owner; null = the pin itself. */
+  entrance: LatLng.nullable(),
   sharedWithHousehold: z.boolean(),
   /** owner = mine (editable); household = a household member shared it with me (read-only). */
   access: z.enum(['owner', 'household']),
@@ -70,6 +72,8 @@ export const SavePlaceInput = z.object({
   /** Finished uploads from `places.photoUpload` (owner-checked). */
   photoIds: z.array(z.string().min(1)).max(PLACE_MAX_PHOTOS).default([]),
   shareWithHousehold: z.boolean().default(false),
+  /** Which gate (maps program a4): where couriers go in, within `PLACE_ENTRANCE_MAX_M` of the pin. */
+  entrance: LatLng.optional(),
   /** Client idempotency key (device-place migration): saving the same ref twice returns the first place. */
   clientRef: z.string().min(1).max(64).optional(),
 });
@@ -84,8 +88,16 @@ export const UpdatePlaceInput = z.object({
   note: PlaceNote.nullable().optional(),
   photoIds: z.array(z.string().min(1)).max(PLACE_MAX_PHOTOS).optional(),
   shareWithHousehold: z.boolean().optional(),
+  /** Which gate (a4); null removes it. */
+  entrance: LatLng.nullable().optional(),
 });
 export type UpdatePlaceInput = z.input<typeof UpdatePlaceInput>;
+
+/**
+ * A gate this far from the pin belongs to another house (maps program a4): refused when saved
+ * (`place_entrance_too_far`), forgotten when the pin itself moves that far.
+ */
+export const PLACE_ENTRANCE_MAX_M = 150;
 
 export const PlaceIdInput = z.object({ placeId: z.string().min(1) });
 export type PlaceIdInput = z.infer<typeof PlaceIdInput>;
