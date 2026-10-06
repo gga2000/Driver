@@ -181,6 +181,20 @@ export type CatalogSearchResult = z.infer<typeof CatalogSearchResult>;
 export const CATALOG_SEARCH_LIMITS = { restaurants: 20, dishes: 30 } as const;
 
 /**
+ * `catalog.picks` (joy h1, the home's daypart band; h4, search's «فطور/غدا/عشا» words): dishes whose
+ * name starts with one of the given words, from kitchens **open now** and orderable now. Earlier words
+ * first; one dish per kitchen before any kitchen's second (variety). Real dishes only: a word that
+ * matches nothing adds nothing.
+ */
+export const CatalogPicksInput = z.object({
+  cityId: CityId,
+  words: z.array(z.string().trim().min(1).max(30)).min(1).max(12),
+  dropoff: DeliveryPoint.optional(),
+  limit: z.number().int().min(1).max(12).default(3),
+});
+export type CatalogPicksInput = z.input<typeof CatalogPicksInput>;
+
+/**
  * Public catalog reads (guest browsing, Ali 2026-10-04): no account needed, limited per client IP.
  * Nothing in a card or a menu is personal.
  */
@@ -216,6 +230,7 @@ export interface CustomerCatalogPort {
   menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu>;
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
+  picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]>;
 }
 
 /**

@@ -399,3 +399,28 @@ describe('menu deal prices, the small-order fee and the first to open (J1d: f10,
     expect(cards.find((c) => c.name === 'مطعم المسافر')).toMatchObject({ open: false, opensAt: '5:00', opensInMin: 648 });
   });
 });
+
+describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
+  it('returns only dishes from kitchens open now, earlier words first, one per kitchen before a second', async () => {
+    const w = await world(); // Saturday evening: المسافر (باچة) is closed
+    const picks = await caller(w.rpc, null).picks({ cityId: 'aziziyah', words: ['باچة', 'كباب', 'شاورما', 'تكة'], limit: 3 });
+    expect(picks).toHaveLength(3);
+    expect(picks.every((d) => d.restaurantOpen && d.available)).toBe(true);
+    expect(picks.some((d) => d.name.includes('باچة'))).toBe(false);
+    // Three different kitchens before any second dish from one of them.
+    expect(new Set(picks.map((d) => d.restaurantId)).size).toBe(3);
+  });
+
+  it('at dawn the breakfast kitchen answers with its real dishes; a word nobody cooks adds nothing', async () => {
+    const w = await world('2026-10-03T04:30:00Z'); // 7:30 Baghdad: only المسافر is open
+    const picks = await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا', 'باچة', 'كاهي'], limit: 3 });
+    expect(picks.length).toBeGreaterThanOrEqual(2);
+    expect(picks.every((d) => d.restaurantName === 'مطعم المسافر')).toBe(true);
+    expect(picks[0]!.name).toContain('باچة');
+  });
+
+  it('is empty when nothing open matches', async () => {
+    const w = await world();
+    expect(await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا'], limit: 3 })).toEqual([]);
+  });
+});

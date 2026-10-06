@@ -10,6 +10,7 @@ import {
   deliveryFeesOf,
   searchScore,
   type Actor,
+  type CatalogPicksInput,
   type CatalogReader,
   type CatalogSearchDish,
   type CatalogSearchInput,
@@ -225,6 +226,59 @@ export class CatalogRpc implements CustomerCatalogPort {
    * "open"), الرجعة cars still leaving today, a tuktuk ride in the centre priced now by the same
    * engine as a booking, the garage of the next car to Baghdad, and the late-delivery promise.
    */
+  /**
+   * `catalog.picks` (joy h1/h4): real dishes for a meal's words, from kitchens open now. A dish counts
+   * when every word of the pick starts a word of its name (`searchScore` ≥ 2, so «تمن» finds «تمن
+   * وقيمة» but not «ثمن»). Earlier words rank first; the first pass takes one dish per kitchen so the
+   * row shows the town, the second fills up to `limit`.
+   */
+  async picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]> {
+    await this.admit(reader);
+    const now = this.clock.now();
+    const words = input.words.map((w) => foldArabic(w)).filter(Boolean);
+    const found: Array<{ rank: number; dish: CatalogSearchDish }> = [];
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      const items = await this.catalog.menu(s.orgId);
+      const card = await this.card(s, items, input.dropoff ?? null, now);
+      if (!card.open) continue;
+      for (const item of items) {
+        const rank = words.findIndex((w) => searchScore(w, item.nameAr) >= 2);
+        if (rank === -1) continue;
+        const view = menuItemView(item, now, this.merchants.timeZone);
+        if (!view.available) continue;
+        found.push({
+          rank,
+          dish: {
+            id: view.id,
+            name: view.name,
+            description: view.description,
+            priceIqd: view.priceIqd,
+            photoUrl: view.photoUrl,
+            available: true,
+            restaurantId: card.id,
+            restaurantName: card.name,
+            restaurantOpen: true,
+            restaurantOpensAt: null,
+          },
+        });
+      }
+    }
+    found.sort((a, b) => a.rank - b.rank || a.dish.priceIqd - b.dish.priceIqd || a.dish.name.localeCompare(b.dish.name, 'ar'));
+    const out: CatalogSearchDish[] = [];
+    const kitchens = new Set<string>();
+    for (const f of found) {
+      if (out.length >= input.limit) break;
+      if (kitchens.has(f.dish.restaurantId)) continue;
+      kitchens.add(f.dish.restaurantId);
+      out.push(f.dish);
+    }
+    for (const f of found) {
+      if (out.length >= input.limit) break;
+      if (!out.includes(f.dish)) out.push(f.dish);
+    }
+    return out;
+  }
+
   async today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday> {
     await this.admit(reader);
     const now = this.clock.now();

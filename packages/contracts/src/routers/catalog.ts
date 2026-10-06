@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CatalogPicksInput, CatalogSearchDish, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
 import type { Actor } from '../identity-io.js';
 import { publicProcedure, router, type AppContext } from '../trpc.js';
 
@@ -37,4 +37,9 @@ export const catalogRouter = router({
     .input(CatalogTodayInput)
     .output(CatalogToday)
     .query(({ ctx, input }) => ctx.catalog.today(readerOf(ctx), input)),
+  /** Dishes from kitchens open now whose names start with one of the words (home's daypart band, search's meal words). */
+  picks: publicProcedure
+    .input(CatalogPicksInput)
+    .output(z.array(CatalogSearchDish))
+    .query(({ ctx, input }) => ctx.catalog.picks(readerOf(ctx), input)),
 });
