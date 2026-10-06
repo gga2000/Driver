@@ -115,6 +115,8 @@ departures). The UI component gallery (every shared component in all its states)
 - API procedure docs: `docs/api/`. Reviews and open items: `docs/research/2026-10-04-*-review.md`.
 - Going live (Supabase Frankfurt + Fly.io + Cloudflare Pages + EAS): `docs/deploy/`. App IDs:
   `iq.driver.customer`, `iq.driver.partner`, `iq.driver.merchant` (confirmed by Ali 2026-10-05 — never change).
-- Phones: the apps are Expo SDK 52. The App Store / Play "Expo Go" app only runs the newest Expo SDK,
-  so seeing them on a real phone needs a development build (`expo run:ios` with Xcode, or an EAS
-  build — `docs/deploy/mobile.md`). Until then, review on the web studio at phone/tablet sizes.
+- Phones: the apps are Expo SDK 57 (React Native 0.86, React 19.2; upgraded from SDK 52 in J2 on
+  2026-10-06). The store "Expo Go" app only runs the newest SDK, so it can open them for a quick look
+  only while Expo Go is on SDK 57, and push (Android), background work and later native modules never
+  run there: real testing needs a development build (`expo run:ios` with Xcode, or an EAS build —
+  `docs/deploy/mobile.md`). Until then, review on the web studio at phone/tablet sizes.

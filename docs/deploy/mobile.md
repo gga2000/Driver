@@ -16,6 +16,25 @@ first build is uploaded to Play, the package name **can never change** — decid
 (The slugs were Arabic, which EAS does not accept; they are now ASCII. The visible app names are
 unchanged.)
 
+## Expo SDK
+
+All three apps are on **Expo SDK 57** (React Native 0.86, React 19.2, expo-router 57, Reanimated 4.5 with
+react-native-worklets), new architecture only. They moved from SDK 52 one major at a time on 2026-10-06
+(J2, `docs/superpowers/plans/2026-10-06-j2-expo-upgrade.md`). Rules for the next upgrade:
+
+- Keep the three apps on the same SDK. In each app: `npx expo install expo@^<N>.0.0`, then
+  `npx expo install --fix`; never type versions by hand. The repo pins exact versions, so replace any
+  `~`/`^` that `expo install` writes with the installed version, and keep `packages/ui`'s peer and dev
+  versions equal to the apps'.
+- `expo install` rewrites `app.json` in long form when it adds a config plugin: keep the compact style
+  and only add the plugin line.
+- `npx expo-doctor` must pass in every app (it did, 21/21, on SDK 57).
+- Sounds use **expo-audio** (expo-av is gone since SDK 55). Its config plugin is set to
+  `microphonePermission: false, recordAudioAndroid: false, enableBackgroundPlayback: false`: no
+  microphone, no background-audio or foreground-service permissions (Play asks to justify those).
+- `expo prebuild` now clears `android/` and `ios/` by default; they are generated, never committed.
+- The store Expo Go app runs only the newest SDK; real testing is on a development build (`expo run:android` / `expo run:ios`, or the EAS `preview` build below).
+
 ## Files
 
 - `apps/<app>/eas.json` — build profiles:

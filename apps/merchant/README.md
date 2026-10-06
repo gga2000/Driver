@@ -1,6 +1,6 @@
 # Driver Merchant app (`@driver/merchant`) — "درايفر للمطاعم"
 
-Expo SDK 52 + expo-router 4, React Native 0.76, RTL Iraqi Arabic first, phone **and** tablet. Same stack
+Expo SDK 57 + expo-router 57, React Native 0.86, RTL Iraqi Arabic first, phone **and** tablet. Same stack
 and conventions as `apps/customer` (the reference implementation): UI only from `@driver/ui`,
 session/API/guard in `src/lib`, pure logic unit-tested with Vitest.
 

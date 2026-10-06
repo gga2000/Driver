@@ -110,3 +110,24 @@ Vitest, Playwright (web screenshots).
 - [ ] Docs: CLAUDE.md SDK line, `docs/deploy/mobile.md` (SDK, Expo Go note), READMEs naming expo-av.
 - [ ] `git fetch && git rebase origin/main`; lockfile conflicts → `pnpm install` + `npx expo install --fix`
       per app; full gate again.
+
+## What happened (2026-10-06, for the next upgrade)
+
+- SDK 53: `packages/ui`'s Vite/Vitest config had to compile JSX that Reanimated 3.17 ships in `.js`
+  files, and its web interop path moved under `ReanimatedModule/`. The unknown `android.supportsRtl`
+  key was dropped (RTL comes from `extra.supportsRTL` via expo-localization). expo-audio's plugin is
+  listed with `microphonePermission: false`.
+- SDK 54: Reanimated 4 + react-native-worklets; the explicit Babel plugin line was removed (the preset
+  adds it); Metro pins worklets as a singleton; Vitest runs the worklets plugin over the two libraries
+  (serve mode only). expo-font 14 quotes the family/URL in its generated CSS, which silently broke the
+  web font alias (a system font showed): `fonts.web.ts` now reads both forms. expo-doctor asked for
+  `expo-asset` (peer of expo-audio) and for Expo's default Metro `watchFolders` to be kept.
+- SDK 55: `newArchEnabled` removed from the three `app.json`.
+- SDK 56: TypeScript 6.0 in the apps (the packages stay on the root TypeScript); expo-sharing plugin
+  listed in the partner app.
+- SDK 57: the expo-audio plugin now adds microphone, background-playback and foreground-service
+  permissions by default — turned off; `interruptionModeAndroid` dropped (deprecated);
+  `expo-status-bar` plugin listed; `@expo/dom-webview` installed directly so expo-doctor sees the SDK
+  version.
+- The screenshot scripts are flaky on main before and after (a few groups time out at random under
+  load); compare group by group.

@@ -1,7 +1,7 @@
 # Driver Partner app (`@driver/partner`, درايفر بارتنر)
 
 The app couriers, tuktuk/taxi drivers, intercity and khat drivers, fleet owners and field ops use.
-Expo SDK 52 + expo-router 4, React Native 0.76, RTL Iraqi Arabic first, the light-cream brand.
+Expo SDK 57 + expo-router 57, React Native 0.86, RTL Iraqi Arabic first, the light-cream brand.
 UI only from `@driver/ui`; copy only from `@driver/i18n` (`partner.*` keys); the structure, libs and
 scripts mirror `apps/customer` (the reference implementation).
 
@@ -235,7 +235,7 @@ development bridge in the demo API, so the toast shows the other party's real (d
   above the switch: GPS · النت · صوت الطلبات · البطارية; tap for the sheet with each fix.
 - **رقم للطوارئ** (`app/emergency.tsx`, الحساب row): name, relation, number → `identity.updateProfile`
   (vault); the driver's SOS messages this contact.
-- Native modules added (development build needed, Expo SDK 52 versions): `expo-battery`, `expo-sharing`,
+- Native modules added (development build needed, versions from `npx expo install`): `expo-battery`, `expo-sharing`,
   `react-native-view-shot`.
 - «عندي اعتراض» answered (S-7 follow-up): when support replies to or resolves the driver's pay objection in the
   Console, he gets a push that opens the job's receipt, and the receipt shows «دا نراجعه» / «انحلت» with

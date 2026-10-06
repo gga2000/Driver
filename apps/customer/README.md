@@ -1,6 +1,6 @@
 # Driver customer app (`@driver/customer`)
 
-Expo SDK 52 + expo-router 4, React Native 0.76, RTL Iraqi Arabic first. UI comes only from
+Expo SDK 57 + expo-router 57, React Native 0.86, RTL Iraqi Arabic first. UI comes only from
 `@driver/ui` (components, icons, `ThemeProvider`); copy only from `@driver/i18n`.
 
 ```
