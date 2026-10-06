@@ -1,4 +1,4 @@
-import type { DeliveryPoint, MenuCategory, MenuItem, RestaurantCard } from '@driver/contracts';
+import { carryModifierPicks, foldDishName, matchDish, type DeliveryPoint, type MenuCategory, type MenuItem, type RestaurantCard } from '@driver/contracts';
 
 /**
  * The food cart as plain data (no React, no storage): one merchant per cart (edge-case review
@@ -169,42 +169,11 @@ export function minOrderShortfall(cart: CartState): number {
   return Math.max(0, cart.merchant.minOrderIqd - itemsTotal(cart));
 }
 
-/** Arabic name folding for matching dishes across kitchens. */
-export function foldName(s: string): string {
-  return s
-    .replace(/[ً-ٰٟـ]/g, '')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/\(.*?\)/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+/** Arabic name folding for matching dishes across kitchens (the shared rule in `@driver/contracts`). */
+export const foldName = foldDishName;
 
-function words(s: string): Set<string> {
-  return new Set(
-    foldName(s)
-      .split(' ')
-      .map((w) => w.replace(/^ال/, ''))
-      .filter((w) => w.length > 1),
-  );
-}
-
-/** The target menu's closest dish by name: exact (folded) first, then most shared words (≥ half). */
-export function matchDish(name: string, items: readonly MenuItem[]): MenuItem | null {
-  const folded = foldName(name);
-  const exact = items.find((i) => foldName(i.name) === folded);
-  if (exact) return exact;
-  const want = words(name);
-  let best: { item: MenuItem; score: number } | null = null;
-  for (const item of items) {
-    const have = words(item.name);
-    const shared = [...want].filter((w) => have.has(w)).length;
-    const score = shared / Math.max(want.size, have.size, 1);
-    if (shared > 0 && score >= 0.5 && (!best || score > best.score)) best = { item, score };
-  }
-  return best?.item ?? null;
-}
+/** The target menu's closest dish by name (the shared rule the API's carry-over preview uses too). */
+export { matchDish };
 
 export interface CarryOverResult {
   cart: CartState;
@@ -247,13 +216,11 @@ export function carryOver(cart: CartState, target: CartMerchant, categories: rea
 }
 
 function carryModifiers(line: CartLine, dish: MenuItem): CartModifier[] | null {
-  const out: CartModifier[] = [];
-  for (const group of dish.modifierGroups) {
-    const picked = group.modifiers.filter((m) => m.available && line.modifiers.some((lm) => foldName(lm.name) === foldName(m.name))).slice(0, group.max);
-    if (picked.length < group.min) return null;
-    for (const m of picked) out.push({ groupId: group.id, modifierId: m.id, name: m.name, priceIqd: m.priceIqd });
-  }
-  return out;
+  const picks = carryModifierPicks(
+    line.modifiers.map((m) => m.name),
+    dish.modifierGroups,
+  );
+  return picks ? picks.map(({ groupId, modifier: m }) => ({ groupId, modifierId: m.id, name: m.name, priceIqd: m.priceIqd })) : null;
 }
 
 export interface ReconcileResult {
