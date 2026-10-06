@@ -12,8 +12,9 @@ import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy } from './late
 const toasted = new Set<string>();
 
 /**
- * Audit d-5: when the server posts the honest-delay credit, say so once — warm, not grovelling:
- * "رجعنالك 1,000 دينار رصيد. آسفين على التأخير" ("حطينالك …" for a free-delivery order).
+ * Audit d-5: when the server posts the honest-delay credit, say so once — warm, not grovelling, the
+ * credit and the apology on a line each: "رجعنالك 1,000 دينار رصيد" / "آسفين على التأخير"
+ * ("حطينالك …" for a free-delivery order), so «التأخير» never wraps alone.
  */
 export function useLatePromiseToast(view: OrderTracking | undefined): void {
   const toast = useToast();
@@ -23,7 +24,7 @@ export function useLatePromiseToast(view: OrderTracking | undefined): void {
   useEffect(() => {
     if (!orderId || !creditToastDue(toasted, orderId, p)) return;
     toasted.add(orderId);
-    toast.show({ message: t(promiseCopy(p!.basis).toast, { amount: amountParam(p!.credit!.amountIqd) }), tone: 'success', icon: 'gift' }, 6000);
+    toast.show({ message: t(promiseCopy(p!.basis).toast, { amount: amountParam(p!.credit!.amountIqd) }), detail: t('promise.toast_sorry'), tone: 'success', icon: 'gift' }, 6000);
   }, [orderId, p, toast, t]);
 }
 

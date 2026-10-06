@@ -5383,7 +5383,8 @@
   "promise.bar_past": "الوقت الجديد بعد الموعد، فنرجعلك {amount} دينار رصيد الساعة {time}",
   "promise.bar_a11y": "مرّت {elapsed} من {minutes} دقيقة بعد الموعد",
   "promise.credited": "رجعنالك {amount} دينار رصيد",
-  "promise.toast": "رجعنالك {amount} دينار رصيد. آسفين على التأخير",
+  "promise.toast": "رجعنالك {amount} دينار رصيد",
+  "promise.toast_sorry": "آسفين على التأخير",
   "promise.receipt_line": "رصيد التأخير",
   "promise.receipt_hint": "تأخرنا أكثر من {minutes} دقيقة، فرجعنالك أجرة التوصيل رصيد بمحفظتك",
   "promise.line_flat": "إذا تأخرنا أكثر من {minutes} دقيقة، نعوّضك برصيد",
@@ -5391,7 +5392,7 @@
   "promise.bar_until_flat": "إذا ما وصل قبل {time}، نحطلك {amount} دينار رصيد",
   "promise.bar_past_flat": "الوقت الجديد بعد الموعد، فنحطلك {amount} دينار رصيد الساعة {time}",
   "promise.credited_flat": "حطينالك {amount} دينار رصيد",
-  "promise.toast_flat": "حطينالك {amount} دينار رصيد. آسفين على التأخير",
+  "promise.toast_flat": "حطينالك {amount} دينار رصيد",
   "promise.receipt_hint_flat": "تأخرنا أكثر من {minutes} دقيقة، فحطينالك {amount} دينار رصيد بمحفظتك",
   "promise.apology_title": "آسفين، طلبك تأخر شوية"
 }

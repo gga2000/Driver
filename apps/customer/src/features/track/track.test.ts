@@ -205,6 +205,16 @@ describe('status → timeline', () => {
     expect(phaseOf(v)).toBe('on_the_way');
   });
 
+  it('the promise in the late note: "if" while the new time is inside the deadline, plainly coming once past it (c5b)', () => {
+    const latePromise = { afterMin: 20, creditIqd: 1000, basis: 'delivery_fee' as const, deadlineAt: at(45), credit: null, apologyAfterMin: 10, apology: null };
+    const v = view({ state: 'picked_up', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16) }, { trip: trip('in_transit'), courier, promisedAt: at(25), latePromise });
+    const inside = buildTimeline(v, { eta: at(40), lateMin: lateMinutes(at(40), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
+    expect(inside.note).toContain('إذا تعدّى التأخير 20 دقيقة');
+    const past = buildTimeline(v, { eta: at(53), lateMin: lateMinutes(at(53), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
+    expect(past.note).toContain('الوقت الجديد بعد الموعد، فنرجعلك 1,000 دينار رصيد الساعة 09:45');
+    expect(past.note).not.toContain('إذا');
+  });
+
   it('ready with a courier on the job: the status says where he is, like the kitchen board', () => {
     const ready = { state: 'ready' as const, acceptedAt: at(1), readyAt: at(5) };
     expect(phaseOf(view(ready, { trip: trip('en_route_to_pickup'), courier }))).toBe('to_pickup');

@@ -135,7 +135,13 @@ function lateNote(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Dat
   if (input.lateMin <= 0 || !input.eta) return {};
   // The honest-delay threshold is the server's (MoneyRules.latePromise); no promise, no promise text.
   const p = v.latePromise;
-  const promise = p && !p.credit ? ` ${t(promiseCopy(p.basis).noteLateCredit, { minutes: p.afterMin, amount: amountParam(p.creditIqd) })}` : '';
+  // A new time already past the deadline: the credit is coming, said plainly (c5b), not "if" — the
+  // banner's words (`etaPastDeadline`, `promise.bar_past`).
+  const due = p && !p.credit && input.eta.getTime() >= p.deadlineAt.getTime();
+  const promise =
+    p && !p.credit
+      ? ` ${due ? `${t(promiseCopy(p.basis).barPast, { amount: amountParam(p.creditIqd), time: clock(p.deadlineAt) })}.` : t(promiseCopy(p.basis).noteLateCredit, { minutes: p.afterMin, amount: amountParam(p.creditIqd) })}`
+      : '';
   return { note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })}${promise}`, late: true };
 }
 

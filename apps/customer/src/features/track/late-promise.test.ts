@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LatePromise } from '@driver/contracts';
+import { createT } from '@driver/i18n';
 import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy } from './late-promise';
 
 const MIN = 60_000;
@@ -68,5 +69,12 @@ describe('promiseCopy', () => {
   it('names the delivery fee only when the credit is the fee', () => {
     expect(promiseCopy('delivery_fee')).toMatchObject({ line: 'promise.line', checkoutHint: 'promise.checkout_hint', toast: 'promise.toast', receiptHint: 'promise.receipt_hint', noteLateCredit: 'track.note_late_credit' });
     expect(promiseCopy('flat')).toMatchObject({ line: 'promise.line_flat', checkoutHint: 'promise.checkout_hint_flat', barUntil: 'promise.bar_until_flat', barPast: 'promise.bar_past_flat', credited: 'promise.credited_flat', toast: 'promise.toast_flat', receiptHint: 'promise.receipt_hint_flat', noteLateCredit: 'track.note_late_credit_flat' });
+  });
+
+  it('the credit toast is the credit alone; the apology is its own line (c6a)', () => {
+    const t = createT('ar-IQ');
+    expect(t(promiseCopy('delivery_fee').toast, { amount: '1,000' })).toBe('رجعنالك 1,000 دينار رصيد');
+    expect(t(promiseCopy('flat').toast, { amount: '1,000' })).toBe('حطينالك 1,000 دينار رصيد');
+    expect(t('promise.toast_sorry')).toBe('آسفين على التأخير');
   });
 });
