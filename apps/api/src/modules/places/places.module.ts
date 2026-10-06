@@ -7,7 +7,15 @@ import { objectStorageFromEnv, OBJECT_STORAGE, type ObjectStoragePort } from './
 import { InMemoryPlacesRepository, PLACES_REPOSITORY, PrismaPlacesRepository, PrismaSavedPlacesRepository, type PlacesRepository } from './places.repository.js';
 import { PlacesRpc } from './places.rpc.js';
 import { PlacesService } from './places.service.js';
-import { HOUSEHOLD_PEERS, InMemorySavedPlacesRepository, SAVED_PLACES_REPOSITORY, SavedPlacesService, type HouseholdPeers, type SavedPlacesRepository } from './saved-places.service.js';
+import {
+  HOUSEHOLD_PEERS,
+  InMemorySavedPlacesRepository,
+  LEARNED_LANDMARKS,
+  SAVED_PLACES_REPOSITORY,
+  SavedPlacesService,
+  type HouseholdPeers,
+  type SavedPlacesRepository,
+} from './saved-places.service.js';
 import { UploadsController } from './uploads.controller.js';
 import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords } from './uploads.js';
 
@@ -55,6 +63,8 @@ import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords
       }),
       inject: [OrgsService],
     },
+    // Saved places name their landmark from the same list "وين رايح؟" searches (maps program a2).
+    { provide: LEARNED_LANDMARKS, useExisting: PlacesService },
     SavedPlacesService,
     PlacesRpc,
   ],

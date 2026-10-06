@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Image, Platform, Pressable, View } from 'react-native';
 import { AZIZIYAH_ZONES, PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
-import { Button, Chip, ChipGroup, Icon, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Chip, ChipGroup, Icon, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
 import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource } from './device';
 import { nearestZone, zoneCentre } from './geo';
+import { PLACE_CITY_ID, useLandmarksNear } from './queries';
+import { LANDMARK_NONE, landmarkChips, landmarkLeftBehind, landmarkName } from '@/features/places/landmark-chips';
 import { placeIcon } from '@/features/places/place-icon';
 import { PinPicker } from '@/features/places/PinPicker';
 
@@ -21,9 +23,11 @@ export interface PlaceEditorValue {
   shareWithHousehold: boolean;
   /** Which gate couriers come in by (maps program a4); null = the pin itself. */
   entrance: LatLng | null;
+  /** The landmark it is near (maps program a2, "قرب شنو؟"), from `places.landmarksNear`; null = none. */
+  landmarkId: string | null;
 }
 
-export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false, entrance: null };
+export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false, entrance: null, landmarkId: null };
 
 const LABEL_KEY = { home: 'onboarding.place_label_home', work: 'onboarding.place_label_work', custom: 'onboarding.place_label_other' } as const;
 
@@ -35,7 +39,7 @@ export function defaultPlaceName(label: SavedPlaceLabel, t: TFn): string {
 export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null {
   if (!v.pin) return null;
   return {
-    cityId: 'aziziyah',
+    cityId: PLACE_CITY_ID,
     label: v.label,
     name: (v.name.trim() || defaultPlaceName(v.label, t)).slice(0, 60),
     pin: v.pin,
@@ -43,6 +47,7 @@ export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null 
     photoIds: v.photos.map((p) => p.id),
     shareWithHousehold: v.shareWithHousehold,
     ...(v.entrance ? { entrance: v.entrance } : {}),
+    ...(v.landmarkId ? { landmarkId: v.landmarkId } : {}),
   };
 }
 
@@ -144,6 +149,8 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           <Button size="sm" variant="secondary" icon="location-arrow" label={t('place.use_my_location')} loading={locating} onPress={() => void locateMe()} />
         </View>
       </View>
+
+      <LandmarkStep value={value} onChange={onChange} />
 
       <EntranceStep value={value} onChange={onChange} />
 
@@ -275,6 +282,62 @@ function EntranceStep({ value, onChange }: { value: PlaceEditorValue; onChange: 
         </>
       ) : (
         <Button variant="secondary" size="sm" icon="map-pin" label={t('place.entrance_add')} onPress={() => setOpen(true)} testID="place-entrance-add" />
+      )}
+    </View>
+  );
+}
+
+/**
+ * "قرب شنو؟" (maps program a2): people here give directions by landmarks ("يم الجامع الكبير"), so
+ * once the place has a pin the customer may pick one of the approved landmarks near it, and the
+ * courier on the job reads «قرب X». Optional, one at most ("ولا وحدة" for none). Hidden when nothing
+ * is near or the list fails to load — the place saves fine without it.
+ */
+function LandmarkStep({ value, onChange }: { value: PlaceEditorValue; onChange: (next: PlaceEditorValue) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const near = useLandmarksNear(value.pin);
+  const leftBehind = landmarkLeftBehind(value.landmarkId, near.data, near.isSuccess && !near.isPlaceholderData);
+
+  // The house moved away from its landmark: drop it rather than have the save refused.
+  useEffect(() => {
+    if (leftBehind) onChange({ ...value, landmarkId: null });
+  }, [leftBehind, value, onChange]);
+
+  // Errors stay quiet (the step is optional) and so does a signed-out editor, whose query never runs.
+  if (!value.pin || near.isError || (!near.data && !near.isLoading)) return null;
+  if (near.data?.length === 0) return null;
+  const chosen = near.data?.find((l) => l.id === value.landmarkId) ?? null;
+  return (
+    <View style={{ gap: theme.space[3] }} testID="place-landmark">
+      <View style={{ gap: theme.space[1] }}>
+        <Text variant="title">{t('place.landmark_title')}</Text>
+        <Text variant="footnote" color="textMuted">
+          {t('place.landmark_hint')}
+        </Text>
+      </View>
+      {near.data ? (
+        <>
+          <ChipGroup
+            accessibilityLabel={t('place.landmark_title')}
+            mode="single"
+            required
+            value={[value.landmarkId ?? LANDMARK_NONE]}
+            onChange={(next) => {
+              const id = next[0] ?? LANDMARK_NONE;
+              onChange({ ...value, landmarkId: id === LANDMARK_NONE ? null : id });
+            }}
+            items={landmarkChips(near.data, locale, t)}
+          />
+          {chosen ? (
+            <Text variant="footnote" color="successText" testID="place-landmark-chosen">
+              {t('place.landmark_chosen', { name: landmarkName(chosen, locale), metres: chosen.distanceM })}
+            </Text>
+          ) : null}
+        </>
+      ) : (
+        <Skeleton height={36} width="70%" radius={theme.radius.pill} />
       )}
     </View>
   );

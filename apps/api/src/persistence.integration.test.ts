@@ -125,7 +125,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       created.uploads.push(ticket.uploadId);
       const u = new URL(ticket.uploadUrl, 'http://api');
       await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp') ?? undefined, sig: u.searchParams.get('sig') ?? undefined, contentType: 'image/jpeg', bytes: JPEG });
-      const place = await saved.save(state.ali, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: STREET_30, note: 'باب أخضر', photoIds: [ticket.uploadId], shareWithHousehold: true, clientRef: `device:${run}` });
+      const place = await saved.save(state.ali, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: STREET_30, note: 'باب أخضر', photoIds: [ticket.uploadId], shareWithHousehold: true, landmarkId: 'lm_mp_shari_30', clientRef: `device:${run}` });
       state.placeId = place.id;
       created.places.push(place.id);
       await saved.confirm(state.ali, { placeId: place.id, pin: STREET_30, accuracyM: 10 });
@@ -180,7 +180,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
 
       // Saved place: owner and household member both see it; the gate photo is a signed URL that still reads.
       const [mine] = await app.get(SavedPlacesService).mine(state.ali);
-      expect(mine).toMatchObject({ id: state.placeId, label: 'home', zoneId: 'street_30', pin: STREET_30, note: 'باب أخضر', confirmed: true, sharedWithHousehold: true, access: 'owner' });
+      expect(mine).toMatchObject({ id: state.placeId, label: 'home', zoneId: 'street_30', pin: STREET_30, note: 'باب أخضر', confirmed: true, sharedWithHousehold: true, access: 'owner', landmark: { id: 'lm_mp_shari_30', name_ar: 'تقاطع شارع 30' } });
       expect((await app.get(SavedPlacesService).mine(state.minar)).map((p) => [p.id, p.access])).toEqual([[state.placeId, 'household']]);
       const photoUrl = new URL(mine!.photos[0]!.url, 'http://api');
       const blobs = app.get<BlobStore>(BLOB_STORE);

@@ -149,6 +149,8 @@ export const ERROR_TABLE = {
   location_weak: { retryHint: 'now', status: 'BAD_REQUEST' },
   place_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   place_entrance_too_far: { retryHint: 'never', status: 'BAD_REQUEST' },
+  /** The chosen landmark is unknown or farther than `PLACE_LANDMARK_MAX_M` from the pin (maps a2). */
+  place_landmark_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   outside_zone: { retryHint: 'never', status: 'BAD_REQUEST' },
   upload_invalid: { i18n: 'error.upload_failed', retryHint: 'now', status: 'BAD_REQUEST' },
 

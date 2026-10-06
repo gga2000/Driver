@@ -6,9 +6,14 @@ import {
   PLACE_CONFIRM_MAX_ACCURACY_M,
   PLACE_CONFIRMED_CONFIDENCE,
   PLACE_ENTRANCE_MAX_M,
+  PLACE_LANDMARK_MAX_M,
   type ConfirmPlaceInput,
   type DoorSample,
+  type LandmarkNearView,
+  type LandmarkView,
   type LatLng,
+  type Place,
+  type PlaceLandmark,
   type SavedPlaceLabel,
   type SavedPlaceView,
   type SavePlaceInput,
@@ -18,6 +23,7 @@ import { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { EventsService } from '../events/index.js';
 import { doorPoint, withSample } from './door-point.js';
+import { cityLandmarks, nearestLandmarks } from './landmarks.js';
 import { BLOB_STORE, type BlobStore } from './uploads.js';
 import { distanceM, ZoneResolver } from './zones.js';
 
@@ -35,6 +41,8 @@ export interface SavedPlaceRecord {
   arrivalSamples: DoorSample[];
   /** Which gate couriers go in by (maps program a4), within `PLACE_ENTRANCE_MAX_M` of the pin. */
   entrance: LatLng | null;
+  /** The landmark it is near (maps program a2): a `cityLandmarks` id within `PLACE_LANDMARK_MAX_M` of the pin. */
+  landmarkId: string | null;
   confidence: number;
   confirmedAt: Date | null;
   shareWithHousehold: boolean;
@@ -57,6 +65,15 @@ export interface SavedPlacesRepository {
 }
 
 export const SAVED_PLACES_REPOSITORY = Symbol('SAVED_PLACES_REPOSITORY');
+/**
+ * The city's approved landmark places (`PlacesService.landmarks`, narrow), merged with the seed by
+ * `cityLandmarks`. Absent in tests that do not need them: the seed alone.
+ */
+export const LEARNED_LANDMARKS = Symbol('LEARNED_LANDMARKS');
+export interface LearnedLandmarks {
+  landmarks(cityId: string): Promise<Place[]>;
+}
+
 /** Who shares a household with whom (orgs module, narrow): the people whose shared places I may see. */
 export const HOUSEHOLD_PEERS = Symbol('HOUSEHOLD_PEERS');
 export interface HouseholdPeers {
@@ -123,6 +140,12 @@ function entranceNear(pin: LatLng, entrance: LatLng | null): LatLng | null {
   return entrance;
 }
 
+/** A landmark's names for a place and its courier; null when none was chosen or it is gone. */
+function landmarkOf(all: readonly LandmarkView[], id: string | null): PlaceLandmark | null {
+  const l = id ? all.find((x) => x.id === id) : undefined;
+  return l ? { id: l.id, name_ar: l.name_ar, name_en: l.name_en } : null;
+}
+
 /** Subscriber name for the door learning (maps program a3). */
 export const PLACES_DOOR_SUBSCRIBER = 'places:door-learning';
 
@@ -147,6 +170,7 @@ export class SavedPlacesService implements OnModuleInit {
     @Inject(HOUSEHOLD_PEERS) private readonly peers: HouseholdPeers,
     @Optional() private readonly events?: EventsService,
     @Optional() @Inject(CLOCK) clock?: Clock,
+    @Optional() @Inject(LEARNED_LANDMARKS) private readonly learned?: LearnedLandmarks,
   ) {
     this.clock = clock ?? new SystemClock();
   }
@@ -170,13 +194,13 @@ export class SavedPlacesService implements OnModuleInit {
     const visible = rows.filter((r) => r.ownerId === personId || r.shareWithHousehold);
     const order = (r: SavedPlaceRecord) => (r.ownerId === personId ? 0 : 10) + (r.label === 'home' ? 0 : r.label === 'work' ? 1 : 2);
     visible.sort((a, b) => order(a) - order(b) || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
-    return visible.map((r) => this.view(r, personId));
+    return this.viewsOf(visible, personId);
   }
 
   async save(personId: string, input: z.infer<typeof SavePlaceInput>): Promise<SavedPlaceView> {
     if (input.clientRef) {
       const existing = (await this.repo.byOwners([personId])).find((r) => r.clientRef === input.clientRef);
-      if (existing) return this.view(existing, personId);
+      if (existing) return this.viewOf(existing, personId);
     }
     const zoneId = this.zoneOrThrow(input.cityId, input.pin);
     const photoIds = await this.ownUploads(personId, input.photoIds, []);
@@ -194,6 +218,7 @@ export class SavedPlacesService implements OnModuleInit {
       photoIds,
       arrivalSamples: [],
       entrance: entranceNear(input.pin, input.entrance ?? null),
+      landmarkId: input.landmarkId ? (await this.landmarkNear(input.cityId, input.pin, input.landmarkId)).id : null,
       confidence: INITIAL_CONFIDENCE,
       confirmedAt: null,
       shareWithHousehold: input.shareWithHousehold,
@@ -204,7 +229,7 @@ export class SavedPlacesService implements OnModuleInit {
     await this.repo.put(rec);
     this.emit('place.saved', personId, { placeId: rec.id, ownerId: personId, cityId: rec.cityId, zoneId, label: rec.label, photos: photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (rec.shareWithHousehold) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);
-    return this.view(rec, personId);
+    return this.viewOf(rec, personId);
   }
 
   async update(personId: string, input: z.infer<typeof UpdatePlaceInput>): Promise<SavedPlaceView> {
@@ -229,6 +254,10 @@ export class SavedPlacesService implements OnModuleInit {
         forgetDoor = true;
       }
     }
+    // Checked against the pin after this edit, and before photos are let go: a refused landmark
+    // leaves the place as it was.
+    if (input.landmarkId !== undefined) rec.landmarkId = input.landmarkId === null ? null : (await this.landmarkNear(rec.cityId, rec.pin, input.landmarkId)).id;
+    else if (input.pin) await this.forgetFarLandmark(rec);
     if (input.photoIds) {
       const next = await this.ownUploads(personId, input.photoIds, rec.photoIds);
       for (const old of rec.photoIds) if (!next.includes(old)) await this.blobs.remove(old);
@@ -246,7 +275,7 @@ export class SavedPlacesService implements OnModuleInit {
     if (forgetDoor) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.updated', personId, { placeId: rec.id, ownerId: personId, zoneId: rec.zoneId, label: rec.label, photos: rec.photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (startedSharing) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);
-    return this.view(rec, personId);
+    return this.viewOf(rec, personId);
   }
 
   async remove(personId: string, placeId: string): Promise<{ ok: true }> {
@@ -268,6 +297,7 @@ export class SavedPlacesService implements OnModuleInit {
       rec.zoneId = this.zoneOrThrow(rec.cityId, input.pin);
       rec.pin = input.pin;
       if (rec.entrance && distanceM(rec.pin, rec.entrance) > PLACE_ENTRANCE_MAX_M) rec.entrance = null;
+      await this.forgetFarLandmark(rec);
       rec.confidence = OWNER_MOVE_CONFIDENCE;
     } else {
       rec.confidence = Math.max(rec.confidence, OWNER_AGREE_CONFIDENCE);
@@ -278,7 +308,7 @@ export class SavedPlacesService implements OnModuleInit {
     // Standing somewhere else: the door couriers learned belongs to the old spot (maps a3).
     if (moved) await this.repo.setArrivalSamples(rec.id, []);
     this.emit('place.confirmed', personId, { placeId: rec.id, ownerId: personId, by: 'owner', moved, distanceM: Math.round(d), zoneId: rec.zoneId, confidence: rec.confidence }, rec.id);
-    return this.view(rec, personId);
+    return this.viewOf(rec, personId);
   }
 
   /**
@@ -308,11 +338,16 @@ export class SavedPlacesService implements OnModuleInit {
    * photos as signed links — only for the assigned courier, from accepting until an hour after the
    * trip (domain §7, `courierMaySeePlaceDetails`); null otherwise or when the place is gone.
    */
-  async courierDoor(placeId: string, input: Parameters<typeof courierMaySeePlaceDetails>[0]): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean; entranceSet: boolean } | null> {
+  async courierDoor(
+    placeId: string,
+    input: Parameters<typeof courierMaySeePlaceDetails>[0],
+  ): Promise<{ placeNote: string | null; photos: Array<{ id: string; url: string }>; doorConfirmed: boolean; entranceSet: boolean; landmark: string | null } | null> {
     if (!courierMaySeePlaceDetails(input)) return null;
     const r = await this.repo.get(placeId);
     if (!r) return null;
-    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null, entranceSet: r.entrance !== null };
+    // «قرب الجامع الكبير» (a2): couriers here find a house by its landmark, so its Arabic name.
+    const landmark = r.landmarkId ? (landmarkOf(await this.landmarks(r.cityId), r.landmarkId)?.name_ar ?? null) : null;
+    return { placeNote: r.note, photos: r.photoIds.map((id) => ({ id, url: this.blobs.readUrl(id) })), doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null, entranceSet: r.entrance !== null, landmark };
   }
 
   /**
@@ -326,6 +361,16 @@ export class SavedPlacesService implements OnModuleInit {
     if (!r || r.arrivalSamples.some((s) => s.stopId === sample.stopId)) return false;
     await this.repo.setArrivalSamples(placeId, withSample(r.arrivalSamples, sample));
     return true;
+  }
+
+  /** The city's landmarks (`cityLandmarks`): the seed plus approved landmark places, zones from the pins. */
+  async landmarks(cityId: string): Promise<LandmarkView[]> {
+    return cityLandmarks(cityId, (await this.learned?.landmarks(cityId)) ?? [], (pin) => this.zones.resolve(cityId, pin));
+  }
+
+  /** "قرب شنو؟" (maps program a2): what the place editor offers as chips for this pin. */
+  async landmarksNear(cityId: string, pin: LatLng): Promise<LandmarkNearView[]> {
+    return nearestLandmarks(await this.landmarks(cityId), pin);
   }
 
   zoneFor(cityId: string, pin: LatLng): { zoneId: string | null; zoneName_ar: string | null; zoneName_en: string | null; inService: boolean } {
@@ -346,6 +391,26 @@ export class SavedPlacesService implements OnModuleInit {
     const zoneId = this.zones.resolve(cityId, pin);
     if (!zoneId) throw new DriverError('outside_zone');
     return zoneId;
+  }
+
+  /**
+   * The landmark a place may say it is near (a2): a known one within `PLACE_LANDMARK_MAX_M` of the
+   * pin. Why the server checks: an app could send any id, and a far "قرب" sends the courier astray.
+   */
+  private async landmarkNear(cityId: string, pin: LatLng, landmarkId: string): Promise<LandmarkView> {
+    const l = (await this.landmarks(cityId)).find((x) => x.id === landmarkId);
+    if (!l || distanceM(pin, l.pin) > PLACE_LANDMARK_MAX_M) throw new DriverError('place_landmark_invalid');
+    return l;
+  }
+
+  /**
+   * The house moved: a landmark now far from it describes the old spot. One that is gone stays
+   * stored (an approved landmark can come back) and simply does not show.
+   */
+  private async forgetFarLandmark(rec: SavedPlaceRecord): Promise<void> {
+    if (!rec.landmarkId) return;
+    const l = (await this.landmarks(rec.cityId)).find((x) => x.id === rec.landmarkId);
+    if (l && distanceM(rec.pin, l.pin) > PLACE_LANDMARK_MAX_M) rec.landmarkId = null;
   }
 
   /** Only the owner reads-for-write; anyone else (household included) gets not-found, not forbidden. */
@@ -381,7 +446,18 @@ export class SavedPlacesService implements OnModuleInit {
     }
   }
 
-  private view(r: SavedPlaceRecord, viewerId: string): SavedPlaceView {
+  /** Views with their landmarks; the city's landmarks are read once, and only when a place has one. */
+  private async viewsOf(rows: readonly SavedPlaceRecord[], viewerId: string): Promise<SavedPlaceView[]> {
+    const byCity = new Map<string, LandmarkView[]>();
+    for (const cityId of new Set(rows.filter((r) => r.landmarkId).map((r) => r.cityId))) byCity.set(cityId, await this.landmarks(cityId));
+    return rows.map((r) => this.view(r, viewerId, landmarkOf(byCity.get(r.cityId) ?? [], r.landmarkId)));
+  }
+
+  private async viewOf(r: SavedPlaceRecord, viewerId: string): Promise<SavedPlaceView> {
+    return this.view(r, viewerId, r.landmarkId ? landmarkOf(await this.landmarks(r.cityId), r.landmarkId) : null);
+  }
+
+  private view(r: SavedPlaceRecord, viewerId: string, landmark: PlaceLandmark | null): SavedPlaceView {
     const names = this.zones.names(r.cityId, r.zoneId);
     return {
       id: r.id,
@@ -399,6 +475,7 @@ export class SavedPlacesService implements OnModuleInit {
       confirmedAt: r.confirmedAt,
       doorConfirmed: doorPoint(r.arrivalSamples, r.pin) !== null,
       entrance: r.entrance,
+      landmark,
       sharedWithHousehold: r.shareWithHousehold,
       access: r.ownerId === viewerId ? 'owner' : 'household',
       createdAt: r.createdAt,

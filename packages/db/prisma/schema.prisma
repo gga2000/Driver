@@ -553,6 +553,9 @@ model Place {
   arrivalSamples     Json                                  @default("[]") @map("arrival_samples")
   /// Which gate (maps program a4): {lat, lng} the owner marked within 150 m of the pin; couriers go there.
   entrance           Json?
+  /// Landmark address (maps program a2): the `places.landmarks` id the owner said this place is near,
+  /// within 500 m of the pin. Seeded landmarks are not rows, so no relation. NULL = none.
+  landmarkId         String?                               @map("landmark_id")
   /// Customer saved place: home / work / custom. NULL = a learned place or a landmark.
   label              String?
   /// Zone key resolved from the pin on the server (saved places).

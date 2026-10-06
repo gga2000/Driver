@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import type { LatLng } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 
@@ -18,6 +19,20 @@ export function useMyPlaces() {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({ ...api.places.mine.queryOptions(), enabled: signedIn });
+}
+
+/** Saved places are Aziziyah's for now (`toSaveInput` saves them there). */
+export const PLACE_CITY_ID = 'aziziyah';
+
+/**
+ * "قرب شنو؟" (`places.landmarksNear`, maps program a2): the landmarks near the pin being saved. The
+ * pin is keyed to ~1 m so a settled map asks once; the last list stays on screen while the next loads.
+ */
+export function useLandmarksNear(pin: LatLng | null) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const key = { cityId: PLACE_CITY_ID, pin: pin ? { lat: Math.round(pin.lat * 1e5) / 1e5, lng: Math.round(pin.lng * 1e5) / 1e5 } : { lat: 0, lng: 0 } };
+  return useQuery({ ...api.places.landmarksNear.queryOptions(key), enabled: signedIn && pin !== null, placeholderData: keepPreviousData, staleTime: 10 * 60_000 });
 }
 
 /** Invalidates everything a place change can touch. */

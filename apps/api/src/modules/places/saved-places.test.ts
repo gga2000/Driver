@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError, type LatLng } from '@driver/contracts';
+import { DriverError, type LatLng, type Place } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { courierMaySeePlaceDetails, InMemorySavedPlacesRepository, SavedPlacesService } from './saved-places.service.js';
@@ -18,7 +18,9 @@ function harness() {
   const { events, repo: eventsRepo } = createInMemoryEvents({ clock });
   const blobs = new DevBlobStore(clock, { secret: 'test-secret' });
   const households = new Map<string, string[]>();
-  const service = new SavedPlacesService(new InMemorySavedPlacesRepository(), blobs, { peersOf: (id) => households.get(id) ?? [] }, events, clock);
+  /** Approved landmark places (Console), joined to the seed by `cityLandmarks`. */
+  const learned: Place[] = [];
+  const service = new SavedPlacesService(new InMemorySavedPlacesRepository(), blobs, { peersOf: (id) => households.get(id) ?? [] }, events, clock, { landmarks: async (cityId) => learned.filter((p) => p.cityId === cityId) });
   const recorded: Array<{ type: string; payload: Record<string, unknown> }> = [];
   events.subscribe('test:places', '*', async (e) => {
     recorded.push({ type: e.type, payload: e.payload as Record<string, unknown> });
@@ -31,7 +33,7 @@ function harness() {
     await blobs.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp') ?? undefined, sig: u.searchParams.get('sig') ?? undefined, contentType: 'image/jpeg', bytes: JPEG });
     return ticket.uploadId;
   }
-  return { clock, events, eventsRepo, blobs, households, service, recorded, base, photo };
+  return { clock, events, eventsRepo, blobs, households, learned, service, recorded, base, photo };
 }
 
 describe('SavedPlacesService — orders and couriers (maps program SP3d)', () => {
@@ -120,6 +122,73 @@ describe('SavedPlacesService — the door couriers reach (maps program a3)', () 
     await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(9), payload: { stopId: 's9', stopType: 'pickup' } }, { name: 'trip', id: 't9' });
     await h.service.settled();
     expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(true);
+  });
+});
+
+describe('SavedPlacesService — landmark address (maps program a2)', () => {
+  /** Seeded meeting point ~73 m from STREET_30; the Grand Mosque gate is ~670 m away. */
+  const JUNCTION = { id: 'lm_mp_shari_30', name_ar: 'تقاطع شارع 30', name_en: 'Street 30 junction' };
+  const MOSQUE = 'lm_mp_jami_kabir';
+  const onJob = (h: ReturnType<typeof harness>, placeId: string) => h.service.courierDoor(placeId, { courierId: 'd1', trip: { courierId: 'd1', acceptedAt: h.clock.now(), completedAt: null }, now: h.clock.now() });
+
+  it('offers the landmarks within 500 m, nearest first, with whole metres', async () => {
+    const h = harness();
+    const near = await h.service.landmarksNear('aziziyah', STREET_30);
+    expect(near.map((l) => [l.id, l.distanceM])).toEqual([
+      ['lm_mp_shari_30', 73],
+      ['lm_garage_bab2', 144],
+      ['lm_garage_souq', 425],
+    ]);
+    expect(near[0]).toMatchObject({ name_ar: 'تقاطع شارع 30', kind: 'meeting_point', zoneId: 'street_30' });
+    expect(await h.service.landmarksNear('aziziyah', ZAKUR)).toEqual([]);
+  });
+
+  it('a near landmark is kept and named on the place and on the courier’s job', async () => {
+    const h = harness();
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: JUNCTION.id });
+    expect(home.landmark).toEqual(JUNCTION);
+    expect((await h.service.mine('cust_a'))[0]!.landmark).toEqual(JUNCTION);
+    expect(await onJob(h, home.id)).toMatchObject({ landmark: 'تقاطع شارع 30' });
+    const plain = await h.service.save('cust_a', { ...h.base, label: 'work', name: 'الشغل', pin: STREET_30 });
+    expect(plain.landmark).toBeNull();
+    expect(await onJob(h, plain.id)).toMatchObject({ landmark: null });
+  });
+
+  it('a far or unknown landmark is refused, on save and on edit', async () => {
+    const h = harness();
+    expect(await code(h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: MOSQUE }))).toBe('place_landmark_invalid');
+    expect(await code(h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: 'lm_nowhere' }))).toBe('place_landmark_invalid');
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: JUNCTION.id });
+    expect(await code(h.service.update('cust_a', { placeId: home.id, landmarkId: MOSQUE }))).toBe('place_landmark_invalid');
+    expect((await h.service.mine('cust_a'))[0]!.landmark).toEqual(JUNCTION);
+    // Checked against the pin after the edit: moving next to the mosque and choosing it together is fine.
+    const NEAR_MOSQUE = { lat: 32.9048, lng: 45.0598 };
+    expect((await h.service.update('cust_a', { placeId: home.id, pin: NEAR_MOSQUE, landmarkId: MOSQUE })).landmark?.id).toBe(MOSQUE);
+  });
+
+  it('null clears it; a pin moved far forgets it, a small nudge keeps it', async () => {
+    const h = harness();
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: JUNCTION.id });
+    expect((await h.service.update('cust_a', { placeId: home.id, landmarkId: null })).landmark).toBeNull();
+    await h.service.update('cust_a', { placeId: home.id, landmarkId: JUNCTION.id });
+    expect((await h.service.update('cust_a', { placeId: home.id, pin: NEAR_STREET_30 })).landmark).toEqual(JUNCTION);
+    expect((await h.service.update('cust_a', { placeId: home.id, name: 'بيتنا' })).landmark).toEqual(JUNCTION);
+    expect((await h.service.update('cust_a', { placeId: home.id, pin: ZAKUR })).landmark).toBeNull();
+    // "موقعي هنا" far from the pin moves the house too.
+    const work = await h.service.save('cust_a', { ...h.base, label: 'work', name: 'الشغل', pin: STREET_30, landmarkId: JUNCTION.id });
+    expect((await h.service.confirm('cust_a', { placeId: work.id, pin: ZAKUR, accuracyM: 10 })).landmark).toBeNull();
+  });
+
+  it('an approved landmark place can be chosen; once it is gone the place shows none', async () => {
+    const h = harness();
+    const BAKERY_PIN = { lat: STREET_30.lat + 0.001, lng: STREET_30.lng }; // ~111 m north
+    h.learned.push({ id: 'pl_bakery', cityId: 'aziziyah', pin: BAKERY_PIN, name: 'فرن أبو علي', photos: [], confidence: 0.9, sharedWith: [], landmark: true });
+    expect((await h.service.landmarksNear('aziziyah', STREET_30)).map((l) => l.id)).toEqual(['lm_mp_shari_30', 'pl_bakery', 'lm_garage_bab2', 'lm_garage_souq']);
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: 'pl_bakery' });
+    expect(home.landmark).toEqual({ id: 'pl_bakery', name_ar: 'فرن أبو علي', name_en: 'فرن أبو علي' });
+    h.learned.length = 0;
+    expect((await h.service.mine('cust_a'))[0]!.landmark).toBeNull();
+    expect(await onJob(h, home.id)).toMatchObject({ landmark: null });
   });
 });
 

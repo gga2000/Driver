@@ -227,6 +227,11 @@ export const PartnerDoor = z.object({
   doorConfirmed: z.boolean(),
   /** The customer marked the gate to come in by (a4): the stop's pin is that gate. */
   entranceSet: z.boolean(),
+  /**
+   * The landmark the customer said the house is near (a2), its Arabic name ("الجامع الكبير"): the
+   * card reads «قرب الجامع الكبير», the way people here give directions. Null when none.
+   */
+  landmark: z.string().nullable(),
 });
 export type PartnerDoor = z.infer<typeof PartnerDoor>;
 

@@ -9,6 +9,8 @@ import {
   InviteMemberInput,
   RiderLandmarksInput,
   LandmarkView,
+  LandmarkNearView,
+  LandmarksNearInput,
   PayerApprovalView,
   PhotoUploadInput,
   PhotoUploadTicket,
@@ -65,6 +67,11 @@ export const placesRouter = router({
     .input(RiderLandmarksInput)
     .output(z.array(LandmarkView))
     .query(async ({ ctx, input }) => (ctx.places.landmarks ? ctx.places.landmarks(input) : [])),
+  /** "قرب شنو؟" (maps a2): landmarks within 500 m of a pin being saved, nearest first, at most 5. */
+  landmarksNear: protectedProcedure()
+    .input(LandmarksNearInput)
+    .output(z.array(LandmarkNearView))
+    .query(({ ctx, input }) => ctx.places.landmarksNear(input)),
   /** Signed upload ticket for a gate/door photo. */
   photoUpload: protectedProcedure()
     .input(PhotoUploadInput)
