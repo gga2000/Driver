@@ -280,4 +280,22 @@ describe('ChipGroup columns', () => {
     expect(screen.getByTestId('chip-n-20000').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('chip-n-50000').getAttribute('aria-checked')).toBe('false');
   });
+
+  it('a bare amount on a chip still says its unit to a screen reader', () => {
+    renderUI(
+      <ChipGroup
+        columns={3}
+        value={['1000']}
+        onChange={() => undefined}
+        items={[
+          { id: '500', label: '500', accessibilityLabel: '500 دينار' },
+          { id: '1000', label: '1,000', accessibilityLabel: '1,000 دينار' },
+          { id: '2000', label: '2,000' },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('chip-1000').getAttribute('aria-label')).toBe('1,000 دينار');
+    expect(screen.getByText('1,000')).toBeTruthy();
+    expect(screen.getByTestId('chip-2000').getAttribute('aria-label')).toBe('2,000');
+  });
 });

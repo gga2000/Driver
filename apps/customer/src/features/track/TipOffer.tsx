@@ -10,7 +10,7 @@ import { tipCard } from './rating-logic';
 
 /**
  * «تحب تكرم عباس؟» (Ali, 2026-10-06): after a 4–5 rating, an optional tip from the wallet — the chips
- * the server says his balance covers (500 / 1,000 / 2,000 دينار), one to pick, then «كرّمه بـ 1,000
+ * the server says his balance covers (500 / 1,000 / 2,000, «دينار» once in the line above), one to pick, then «كرّمه بـ 1,000
  * دينار»; «لا شكراً» closes it. With too little in the wallet there are no chips, only a gentle line
  * that cash can be handed over. Once given it says so. Amounts, eligibility and the money are the
  * server's; this only asks.
@@ -72,13 +72,15 @@ export function TipOffer({ orderId, name, enabled }: { orderId: string; name: st
       </View>
       <ChipGroup
         accessibilityLabel={t('tip.ask', { name })}
-        items={amounts.map((a) => ({ id: String(a), label: t('tip.chip', { amount: amountParam(a) }) }))}
+        // Bare amounts, «دينار» once in the line above (and spoken on each chip): three across with
+        // «1,000 دينار» and the check mark clipped the chosen one to «…,000» on a phone.
+        items={amounts.map((a) => ({ id: String(a), label: amountParam(a), accessibilityLabel: t('tip.chip', { amount: amountParam(a) }) }))}
         value={picked === null ? [] : [String(picked)]}
         onChange={(next) => setPicked(next[0] ? Number(next[0]) : null)}
         mode="single"
         columns={amounts.length}
       />
-      <Button testID="tip-send" icon="gift" label={picked === null ? t('tip.ask', { name }) : t('tip.pay', { amount: amountParam(picked) })} fullWidth disabled={picked === null || send.isPending} loading={send.isPending} onPress={submit} />
+      <Button testID="tip-send" icon="gift" label={picked === null ? t('tip.pick') : t('tip.pay', { amount: amountParam(picked) })} fullWidth disabled={picked === null || send.isPending} loading={send.isPending} onPress={submit} />
       <Button testID="tip-no-thanks" variant="ghost" label={t('tip.no_thanks')} fullWidth disabled={send.isPending} onPress={() => setDismissed(true)} />
     </View>
   );

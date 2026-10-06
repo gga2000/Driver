@@ -365,12 +365,17 @@ function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: bo
         </Text>
       </View>
     );
+    // On a phone the terms wrap, so every term (the opening too, blank) keeps a fixed operator gutter:
+    // the rows share one start edge and «−» / «=» sit inside the box, not out past «رصيد أول الأسبوع».
+    const gutter = wide ? undefined : { width: theme.space[4], alignItems: 'center' as const };
     return (
       <View key={term.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
         {term.op ? (
-          <Text variant="title" weight={700} color="textMuted" accessibilityElementsHidden importantForAccessibility="no">
+          <Text variant="title" weight={700} color="textMuted" align="center" accessibilityElementsHidden importantForAccessibility="no" style={gutter}>
             {term.op}
           </Text>
+        ) : gutter ? (
+          <View style={gutter} />
         ) : null}
         {term.key === 'settled' ? (
           <Pressable testID="bridge-settled" accessibilityRole="button" accessibilityLabel={`${t(term.label)} ${iqd(term.amountIqd, { locale })}`} onPress={() => setOpen(true)} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint })}>

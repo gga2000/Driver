@@ -9,6 +9,8 @@ import { Text } from './Text';
 
 export interface ChipProps {
   label: string;
+  /** What a screen reader says when the label leans on its group, e.g. "1,000" → "1,000 دينار". */
+  accessibilityLabel?: string;
   selected?: boolean;
   onPress?: () => void;
   icon?: IconName;
@@ -17,11 +19,16 @@ export interface ChipProps {
   /** `radio` inside single-select groups, `checkbox` otherwise. */
   role?: 'radio' | 'checkbox' | 'button';
   disabled?: boolean;
+  /**
+   * Fills an even grid cell (ChipGroup `columns`): the content is centred in a cell wider than it, so
+   * the side padding tightens and a three-across row keeps the check mark and the whole label at 360 px.
+   */
+  cell?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
-export function Chip({ label, selected = false, onPress, icon, avatar, role = 'checkbox', disabled, style, testID }: ChipProps) {
+export function Chip({ label, accessibilityLabel, selected = false, onPress, icon, avatar, role = 'checkbox', disabled, cell = false, style, testID }: ChipProps) {
   const theme = useTheme();
   const press = usePressScale(0.95);
   const pop = useSelectSpring(selected);
@@ -33,12 +40,13 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
   // Selected is never colour alone (audit S-04): a darker outline plus a check mark.
   const border = selected ? c.selectedBorder : c.border;
   const height = soft ? 44 : 36;
+  const side = cell ? theme.space[2] : theme.space[4];
 
   return (
     <AnimatedPressable
       testID={testID}
       accessibilityRole={role}
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       aria-checked={role === 'button' ? undefined : selected}
       aria-disabled={!!disabled}
       disabled={disabled}
@@ -65,8 +73,8 @@ export function Chip({ label, selected = false, onPress, icon, avatar, role = 'c
             // Centred when a grid cell makes the chip wider than its label.
             justifyContent: 'center',
             gap: theme.space[2],
-            paddingStart: avatar ? 4 : theme.space[4],
-            paddingEnd: theme.space[4],
+            paddingStart: avatar ? 4 : side,
+            paddingEnd: side,
           },
           pop,
         ]}
@@ -104,6 +112,8 @@ export function nextChipSelection(value: readonly string[], id: string, mode: 's
 export interface ChipGroupItem {
   id: string;
   label: string;
+  /** Spoken instead of `label` when the label leans on the group (a bare amount under «دينار»). */
+  accessibilityLabel?: string;
   icon?: IconName;
   avatar?: ChipProps['avatar'];
 }
@@ -145,6 +155,8 @@ export function ChipGroup({ items, value, onChange, mode = 'single', required, a
       key={it.id}
       testID={`chip-${it.id}`}
       label={it.label}
+      accessibilityLabel={it.accessibilityLabel}
+      cell={cell !== undefined}
       icon={it.icon}
       avatar={it.avatar}
       role={mode === 'single' ? 'radio' : 'checkbox'}
