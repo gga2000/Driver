@@ -29,7 +29,9 @@ src/
 scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (Playwright screenshots)
 
 الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
-POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…). `SHOTS=rajaa`
+POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…), and
+`/demo/rajaa/arrived?personId=…[&told=1]` (a whole Kut → Aziziyah trip that just arrived: the pass shows
+«الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on). `SHOTS=rajaa`
 limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
 Lock-screen pass (audit d-8): `src/features/rajaa/lockscreen/` — Android only (a no-op on the web
 and iOS), so it shows on a development build, not in the web studio; `content.test.ts` covers what it says.
