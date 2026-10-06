@@ -159,7 +159,8 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path
 The demo API seeds the four launch restaurants (`@driver/contracts/seeds`, the same data
 `pnpm db:seed` writes) and plays the kitchen: `DEMO_KITCHEN_MS` (default 20000, 0 = never)
 auto-accepts placed orders, `POST /demo/kitchen?orderId=…&action=accept|reject` decides one now,
-`GET /demo/seed` lists the restaurants' org ids. `web-shots.mjs` also runs the food flow
+`GET /demo/seed` lists the restaurants' org ids. `POST /demo/quiet?on=1|0` turns a quiet day on or off
+for today (no delivered burst, success buzz or moment sounds). `web-shots.mjs` also runs the food flow
 (`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
 `SHOTS=food` (or the older `ONLY=food`) runs only that group, `DIST_DIR` points at another export.
 
