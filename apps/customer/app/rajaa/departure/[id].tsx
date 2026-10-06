@@ -196,7 +196,7 @@ export default function BookSeat() {
             onPress={submit}
           />
           <Text variant="caption" color="textMuted" align="center">
-            {ready ? t('rajaa.hold_cta_hint') : !travellingAs ? t('intercity.travelling_as') + '…' : t('rajaa.pick_seat_first')}
+            {ready ? t('rajaa.hold_cta_hint') : !travellingAs ? t('rajaa.pick_traveller_first') : t('rajaa.pick_seat_first')}
           </Text>
         </View>
       }
@@ -323,7 +323,7 @@ export default function BookSeat() {
             icon="map-pin"
             title={publicPlaceName(m.nameAr)}
             detail={m.draft ? `${t('rajaa.pickup_short_way')} · ${t('rajaa.pickup_draft')}` : t('rajaa.pickup_short_way')}
-            trailing={`+${amountParam(m.feeIqd)}`}
+            trailing={iqd(m.feeIqd, { locale, sign: true })}
             selected={pickup.kind === 'meeting_point' && pickup.meetingPointId === m.id}
             onPress={() => setPickup({ kind: 'meeting_point', meetingPointId: m.id })}
           />
@@ -333,7 +333,7 @@ export default function BookSeat() {
           icon="home"
           title={t('rajaa.pickup_door')}
           detail={!homePin ? t('rajaa.pickup_door_no_location') : dep.doorPickupsLeft <= 0 ? t('rajaa.pickup_door_full') : t('rajaa.pickup_door_hint')}
-          trailing={doorOk ? `+${amountParam(doorFee ?? 0)}` : undefined}
+          trailing={doorOk ? iqd(doorFee ?? 0, { locale, sign: true }) : undefined}
           selected={pickup.kind === 'door'}
           disabled={!doorOk}
           onPress={() => setPickup({ kind: 'door' })}

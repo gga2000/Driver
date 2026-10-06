@@ -21,7 +21,7 @@ import {
   type StatusTone,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { amountParam, iqd } from '@/lib/money';
+import { iqd } from '@/lib/money';
 import { ChangeReceiptLine } from './ChangeCredited';
 import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';
@@ -349,7 +349,7 @@ export function PriceSection({ view }: { view: OrderTracking }) {
                 {t('promise.receipt_line')}
               </Text>
               <Text variant="label" weight={700} color="successText" tabular>
-                {amountParam(credit.amountIqd, { sign: true })}
+                {iqd(credit.amountIqd, { locale, sign: true })}
               </Text>
             </View>
             <Text variant="caption" color="textMuted">

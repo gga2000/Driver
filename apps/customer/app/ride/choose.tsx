@@ -15,7 +15,7 @@ import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { color as palette } from '@driver/design-tokens';
 
 /**
@@ -190,7 +190,7 @@ export default function RideChoose() {
               onChange={(m) => rideStore.update({ doorPickup: m === 'door' })}
               options={[
                 { value: 'street', label: t('ride.pickup_street') },
-                { value: 'door', label: extra ? `${t('ride.pickup_door')} ${amountParam(extra, { sign: true })}` : t('ride.pickup_door') },
+                { value: 'door', label: extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door') },
               ]}
             />
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>

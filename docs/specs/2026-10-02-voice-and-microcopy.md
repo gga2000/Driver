@@ -124,7 +124,7 @@ Four audiences, one voice:
 | 22 | `khat.substitute_intro` | اليوم السايق البديل {name} بدل {regular}. متحقق من درايفر، نفس الخط ونفس التوقيت | Today substitute driver {name} covers for {regular}. Verified by Driver, same route and times |
 | 23 | `parcel.pin_recipient_body` | رمز استلام طردك من {sender}: {pin}. گوله للدليفري بس | Your PIN for the parcel from {sender}: {pin}. Tell it to the courier only |
 | 24 | `errand.substitution_prompt` | {item} ماكو. أكو {alternative} بـ {amount} دينار. يصير؟ | {item} isn’t available. There’s {alternative} for {amount} IQD. OK? |
-| 25 | `household.approval_request` | {name} يريد يطلب بـ {amount} دينار، أكثر من حده. توافق؟ | {name} wants to order for {amount} IQD, above their limit. Approve? |
+| 25 | `household.approval_request` | طلب من {name}: {amount} دينار (no gendered verb, C-28) | Request from {name}: {amount} IQD |
 | 26 | `safety.sos_sent` | وصلنا تنبيهك. الديسباتشر يشوف موقعك هسة ويتصل بيك | Alert received. Dispatch sees your location and is calling you |
 | 27 | `partner.cap_warning` | اقتربت من سقف الكاش ({percent}%). سوّي تسوية حتى ما تتوقف الطلبات | You’re at {percent}% of your cash cap. Settle soon so offers don’t stop |
 | 28 | `partner.nudge_acceptance` | قبولك هالأسبوع {value}%. من تقبل 85% وأكثر تصير أول واحد يوصله الطلب | Your acceptance this week is {value}%. At 85%+ you’re first to get offers |

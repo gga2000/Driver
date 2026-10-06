@@ -21,6 +21,7 @@ describe('one vocabulary (audit S-09, glossary §4)', () => {
       i: 'حالة الطلب تغيّرت. حدّث الصفحة',
       'trip.x': 'الرحلة ماشية',
       j: 'عندك {minutes} دقايق',
+      k: 'توفّر {amount}',
     };
     const found = voiceProblems(cases).map((p) => p.key);
     expect(found.sort()).toEqual(Object.keys(cases).sort());
@@ -29,7 +30,8 @@ describe('one vocabulary (audit S-09, glossary §4)', () => {
   it('leaves fine Iraqi copy alone (العزيزية, القدام, الطلبات, دقيقة, هسة, رحلة on الرجعة)', () => {
     const ok = {
       a: 'سوق العزيزية لباب بيتك',
-      b: 'القدام فاضي +{amount}',
+      b: 'القدام فاضي +{amount} دينار',
+      'console.x': 'فرق {amount}',
       c: 'متأخر {minutes} دقيقة',
       d: 'ماكو دليفري عنده كاش هسة',
       'rajaa.x': 'رحلتك باچر الساعة 7:30 ص',

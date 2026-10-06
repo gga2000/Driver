@@ -1,8 +1,8 @@
 import { View } from 'react-native';
 import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { Card, DepartureTime, Icon, SeatMap, StatusPill, Text, useTheme, type SeatInfo, type StatusTone } from '@driver/ui';
-import { useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
+import { useLocale, useT } from '@/lib/i18n';
+import { amountParam, iqd } from '@/lib/money';
 import { seatsLeftLabel } from './labels';
 import { RajaaDriver } from './RajaaDriver';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, toSeatMap, type FillTone } from './logic';
@@ -31,6 +31,7 @@ export function MiniSeatMap({ dep, scale = 0.78 }: { dep: Pick<DepartureCard, 'v
 export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; onPress?: () => void }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const tone = fillTone(dep.fill);
   const full = tone === 'full';
   const mins = minutesUntil(dep.departAt, now);
@@ -92,7 +93,7 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
           <Text variant="caption" color="textMuted">
             {[
               t('rajaa.pickup_short_garage'),
-              hasWay ? `${t('rajaa.pickup_short_way')} +${amountParam(wayFrom)}` : null,
+              hasWay ? `${t('rajaa.pickup_short_way')} ${iqd(wayFrom, { locale, sign: true })}` : null,
               dep.doorPickupsLeft > 0 ? t('rajaa.pickup_short_door') : null,
             ]
               .filter(Boolean)

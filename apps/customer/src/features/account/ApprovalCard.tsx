@@ -7,7 +7,7 @@ import { amountParam } from '@/lib/money';
 import { useResolveApproval } from './queries';
 
 /**
- * One payer-approval request (domain §12): "{name} يريد يطلب بـ X، أكثر من حده. توافق؟" with
+ * One payer-approval request (domain §12, C-28): "طلب من منار: 32,000 دينار" (no gendered verb) with
  * one-tap وافق / ارفض for the payer; the requester sees it waiting.
  */
 export function ApprovalCard({ approval }: { approval: PayerApprovalView }) {

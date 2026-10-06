@@ -78,6 +78,11 @@ export const EXCLAMATION_ALLOWED: ReadonlySet<string> = new Set([
  */
 const TAXI_FAMILIES = /^(?:trip|ride)\./;
 
+/** Every amount says «دينار» after it (voice §5): "+500 دينار", "توفّر 150 دينار", "× 15,000 دينار". */
+const BARE_AMOUNT = /\{amount\}(?! دينار)(?!%)/;
+/** The Console is our own terse ops tool; WhatsApp templates use {{n}}. */
+const AMOUNT_EXEMPT = /^console\./;
+
 export interface VoiceProblem {
   key: string;
   value: string;
@@ -101,6 +106,7 @@ export function voiceProblems(table: Record<string, string>): VoiceProblem[] {
     if (/(?![\u2190-\u21FF])\p{Extended_Pictographic}/u.test(value)) out.push({ key, value, problem: 'emoji' });
     if (value.includes('!') && !EXCLAMATION_ALLOWED.has(key)) out.push({ key, value, problem: 'exclamation mark' });
     if (TAXI_FAMILIES.test(key) && /رحل[ةت]/.test(value)) out.push({ key, value, problem: '«رحلة» on a taxi ride → مشوار' });
+    if (!AMOUNT_EXEMPT.test(key) && BARE_AMOUNT.test(value)) out.push({ key, value, problem: '{amount} without «دينار» → "{amount} دينار" (voice §5, C-29)' });
   }
   return out;
 }

@@ -8,7 +8,7 @@ import { Button, ChipGroup, Icon, ltr, Text, useCountUp, useTheme, useToast } fr
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
-import { amountParam } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
@@ -158,6 +158,7 @@ function BurstDot({ p, angle, reach, size, color }: { p: SharedValue<number>; an
 function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   if (pay.kind === 'paid') {
     return (
       <View testID="arrival-paid" style={{ width: '100%', flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.successTint, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
@@ -196,7 +197,7 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="label" weight={600} color="successText">
-              {`${t('quote.change_to_wallet')} ${amountParam(pay.changeIqd, { sign: true })}`}
+              {`${t('quote.change_to_wallet')} ${iqd(pay.changeIqd, { locale, sign: true })}`}
             </Text>
             <Text variant="caption" color="textMuted">
               {t('track.cash_change_note', { price: amountParam(pay.priceIqd), change: amountParam(pay.changeIqd) })}

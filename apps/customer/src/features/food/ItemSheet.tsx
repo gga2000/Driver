@@ -277,7 +277,7 @@ function ModifierGroupBlock({ group, basePrice, selected, onToggle, missing }: {
             <Chip
               key={m.id}
               testID={`mod-${m.id}`}
-              label={m.priceIqd > 0 ? `${m.name} ${amountParam(m.priceIqd, { sign: true })}` : m.name}
+              label={m.priceIqd > 0 ? `${m.name} ${iqd(m.priceIqd, { locale, sign: true })}` : m.name}
               selected={selected.includes(m.id)}
               role={group.max === 1 ? 'radio' : 'checkbox'}
               disabled={!m.available}
