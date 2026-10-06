@@ -21,8 +21,7 @@
       "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"], "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"] }
     },
     "android": {
-      "package": "iq.driver.partner",
-      "supportsRtl": true
+      "package": "iq.driver.partner"
     },
     "plugins": [
       "expo-router",
@@ -35,7 +34,10 @@
         }
       ],
       ["expo-location", { "locationWhenInUsePermission": "درايفر بارتنر يحتاج موقعك حتى يوصلك طلبات قريبة ويعرف الزبون وين صرت" }],
-      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }]
+      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],
+      "expo-font",
+      "expo-secure-store",
+      ["expo-audio", { "microphonePermission": false }]
     ],
     "experiments": { "typedRoutes": true }
   }

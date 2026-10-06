@@ -7,7 +7,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, transformWithEsbuild, type Plugin } from 'vite';
 
 const webExtensions = ['.web.tsx', '.web.ts', '.web.jsx', '.web.mjs', '.web.js', '.tsx', '.ts', '.jsx', '.mjs', '.js', '.json'];
 const rnPackages = ['react-native-web', 'react-native-reanimated', 'react-native-svg', 'react-native-gesture-handler'];
@@ -22,7 +22,8 @@ function rnWebInterop(): Plugin {
     name: 'driver-rn-web-interop',
     enforce: 'pre',
     transform(code, id) {
-      if (/react-native-reanimated[\\/]lib[\\/]module[\\/]js-reanimated[\\/]webUtils\.web\.js$/.test(id)) {
+      // (Reanimated 3.17 moved it under ReanimatedModule/.)
+      if (/react-native-reanimated[\\/]lib[\\/]module[\\/](ReanimatedModule[\\/])?js-reanimated[\\/]webUtils\.web\.js$/.test(id)) {
         return [
           "import _createReactDOMStyle from 'react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle';",
           "import { createTransformValue as _t, createTextShadowValue as _s } from 'react-native-web/dist/exports/StyleSheet/preprocess';",
@@ -41,12 +42,29 @@ function rnWebInterop(): Plugin {
   };
 }
 
+/**
+ * Some React Native libraries publish JSX inside plain `.js` files (Reanimated ≥ 3.17's
+ * `lib/module`). Metro's Babel takes it; Vite needs it compiled before import analysis.
+ */
+function jsxInRnLibraries(): Plugin {
+  const lib = /node_modules[\\/](react-native-[\w-]+)[\\/]lib[\\/]module[\\/].*\.js$/;
+  return {
+    name: 'driver-rn-jsx-in-js',
+    enforce: 'pre',
+    async transform(code, id) {
+      if (!lib.test(id) || !/<[A-Za-z>]/.test(code)) return null;
+      return transformWithEsbuild(code, id, { loader: 'jsx', jsx: 'automatic' });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL('./gallery', import.meta.url)),
   base: './',
   publicDir: false,
   plugins: [
     rnWebInterop(),
+    jsxInRnLibraries(),
     react({
       babel: { plugins: ['react-native-reanimated/plugin'] },
     }),

@@ -21,8 +21,7 @@
       "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"] }
     },
     "android": {
-      "package": "iq.driver.customer",
-      "supportsRtl": true
+      "package": "iq.driver.customer"
     },
     "plugins": [
       "expo-router",
@@ -35,7 +34,11 @@
         }
       ],
       ["expo-location", { "locationWhenInUsePermission": "درايفر يحتاج موقعك حتى يثبّت مكان بيتك ويوصلك الدليفري للباب" }],
-      ["expo-notifications", { "defaultChannel": "orders", "sounds": ["./assets/sounds/accepted.wav", "./assets/sounds/picked_up.wav", "./assets/sounds/near.wav", "./assets/sounds/delivered.wav"] }]
+      ["expo-notifications", { "defaultChannel": "orders", "sounds": ["./assets/sounds/accepted.wav", "./assets/sounds/picked_up.wav", "./assets/sounds/near.wav", "./assets/sounds/delivered.wav"] }],
+      "expo-font",
+      "expo-secure-store",
+      ["expo-audio", { "microphonePermission": false }],
+      "expo-asset"
     ],
     "experiments": { "typedRoutes": true }
   }

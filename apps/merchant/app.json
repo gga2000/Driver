@@ -27,7 +27,6 @@
     },
     "android": {
       "package": "iq.driver.merchant",
-      "supportsRtl": true,
       "permissions": ["BLUETOOTH_CONNECT", "BLUETOOTH_SCAN", "VIBRATE"]
     },
     "web": { "name": "درايفر للمطاعم", "shortName": "درايفر للمطاعم", "lang": "ar", "themeColor": "#FBF6EE", "backgroundColor": "#FBF6EE" },
@@ -35,7 +34,10 @@
       "expo-router",
       ["expo-localization", {}],
       ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }],
-      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }]
+      ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],
+      "expo-font",
+      "expo-secure-store",
+      ["expo-audio", { "microphonePermission": false }]
     ],
     "experiments": { "typedRoutes": true }
   }
