@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Platform, Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
@@ -14,6 +15,11 @@ export interface ToastData {
   tone?: Exclude<StatusTone, 'accent'>;
   icon?: IconName;
   action?: { label: string; onPress: () => void };
+  /**
+   * `bottom` (default) floats above the tab bar. `top` sits under the status bar, for screens whose
+   * last content is an action the toast must not cover (the boarding pass's cancel, C-38 / R-10).
+   */
+  placement?: 'bottom' | 'top';
 }
 
 const DEFAULT_ICON: Record<NonNullable<ToastData['tone']>, IconName> = {
@@ -42,9 +48,11 @@ export interface ToastProps extends ToastData {
  * icon chip, so the message stays high-contrast whatever the tone. The close button is a full 44 px
  * target, next to the action when there is one.
  */
-export function Toast({ message, tone = 'neutral', icon, action, onDismiss, leaving = false, onExited, onHold, style }: ToastProps) {
+export function Toast({ message, tone = 'neutral', icon, action, placement = 'bottom', onDismiss, leaving = false, onExited, onHold, style }: ToastProps) {
   const theme = useTheme();
-  const y = useSharedValue(theme.reduceMotion ? 0 : 24);
+  // Enters and leaves toward its own edge: up from the bottom, down from the top.
+  const edge = placement === 'top' ? -1 : 1;
+  const y = useSharedValue(theme.reduceMotion ? 0 : 24 * edge);
   const o = useSharedValue(theme.reduceMotion ? 1 : 0);
   useEffect(() => {
     y.value = withSpring(0, theme.motion.spring.gentle);
@@ -60,11 +68,11 @@ export function Toast({ message, tone = 'neutral', icon, action, onDismiss, leav
     }
     const [x1, y1, x2, y2] = theme.motion.bezier.accelerate;
     const timing = { duration: theme.motion.duration.fast, easing: Easing.bezier(x1, y1, x2, y2) };
-    y.value = withTiming(16, timing);
+    y.value = withTiming(16 * edge, timing);
     o.value = withTiming(0, timing, (finished) => {
       if (finished) runOnJS(done)();
     });
-  }, [leaving, onExited, o, y, theme.reduceMotion, theme.motion]);
+  }, [leaving, onExited, o, y, edge, theme.reduceMotion, theme.motion]);
   const enter = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: y.value }] }));
   const c = STATUS_TONES[tone];
   // Inverted surface: the brand ink on light, cream on dark.
@@ -178,6 +186,7 @@ function useScreenReader(): boolean {
  */
 export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const screenReader = useScreenReader();
   const [current, setCurrent] = useState<Live | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -232,7 +241,13 @@ export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { child
     <ToastContext.Provider value={api}>
       {children}
       {current ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', start: theme.space[4], end: theme.space[4], bottom: bottomOffset, alignItems: 'center' }}>
+        <View
+          pointerEvents="box-none"
+          style={[
+            { position: 'absolute', start: theme.space[4], end: theme.space[4], alignItems: 'center' },
+            current.placement === 'top' ? { top: insets.top + theme.space[2] } : { bottom: bottomOffset },
+          ]}
+        >
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>
             <Toast key={current.id} {...current} leaving={leaving} onExited={onExited} onHold={setHeld} onDismiss={hide} />
           </View>
