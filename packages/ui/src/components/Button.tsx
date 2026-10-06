@@ -27,7 +27,7 @@ export interface ButtonProps {
   loadingLabel?: string;
   disabled?: boolean;
   fullWidth?: boolean;
-  /** Haptic fired on press; false to silence. Defaults: destructive → warning, else light. */
+  /** Haptic fired on press; false to silence. Defaults: destructive → warning, primary → light, others → the theme's `secondaryButtonHaptic`. */
   haptic?: HapticKind | false;
   /** What a screen reader says instead of `label` (e.g. why the button is waiting). */
   accessibilityLabel?: string;
@@ -67,7 +67,9 @@ export function Button({
   const p = PALETTE[variant];
   const fg = theme.colors[p.fg];
   const inactive = disabled || loading;
-  const hapticKind = haptic ?? (variant === 'destructive' ? 'warning' : 'light');
+  // Haptics only mean something when rare (joy S2-18): the theme decides whether secondary and ghost
+  // buttons buzz (istikan: no; light: today's light tap).
+  const hapticKind = haptic ?? (variant === 'destructive' ? 'warning' : variant === 'primary' ? 'light' : theme.secondaryButtonHaptic);
   const textVariant = size === 'sm' ? 'label' : 'button';
 
   return (

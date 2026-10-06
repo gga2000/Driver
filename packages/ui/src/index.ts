@@ -21,7 +21,7 @@ export { Text, type TextProps } from './components/Text';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './components/Button';
 export { IconButton, type IconButtonProps, type IconButtonVariant } from './components/IconButton';
 export { Chip, ChipGroup, nextChipSelection, type ChipProps, type ChipGroupProps, type ChipGroupItem } from './components/Chip';
-export { Avatar, toneFor, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
+export { Avatar, toneFor, identityIndex, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
 export { Card, type CardProps } from './components/Card';
 export { DataSaverCard } from './components/DataSaverCard';
 export { ListRow, type ListRowProps } from './components/ListRow';
