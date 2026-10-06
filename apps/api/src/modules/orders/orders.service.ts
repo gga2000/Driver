@@ -67,6 +67,7 @@ import {
 } from './orders.repository.js';
 import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
+import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, resolveParticipants, type ParticipantResolver } from './participants.js';
 
@@ -189,6 +190,8 @@ export class OrdersService implements OnModuleInit {
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
+  /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
+  slotCaps: SlotCapRules = SLOT_CAP_RULES;
 
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
@@ -256,6 +259,14 @@ export class OrdersService implements OnModuleInit {
       merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
       scheduledFor: input.scheduledFor ?? null,
     });
+    // J6: a kitchen capped per slot (Ramadan's iftar rush) refuses one order too many for that slot.
+    if (merchantType && input.scheduledFor && input.merchantOrgId) {
+      const merchantOrgId = input.merchantOrgId;
+      if (this.slotCaps.perSlot !== null || merchantOrgId in this.slotCaps.byMerchant) {
+        const live = await this.repo.findMany({ merchantOrgId, states: ACTIVE_ORDER_STATES });
+        if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
+      }
+    }
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
