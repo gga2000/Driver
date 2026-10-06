@@ -257,6 +257,16 @@ describe('khat sweep alert', () => {
     expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'kut' })).toEqual([]);
   });
 
+  it('keeps a finished run on today\'s list until the car is checked (app restart, reminder push)', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    expect((await h.t.trips.get(h.trip.id)).state).toBe('completed');
+    const [run] = (await h.khat.todayRun(h.driver, {})).trips;
+    expect(run).toMatchObject({ tripId: h.trip.id, delivered: 2, emptyCarCheckedAt: null });
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    expect((await h.khat.todayRun(h.driver, {})).trips).toEqual([]);
+  });
+
   it('does not fire when the driver checked the car in time', async () => {
     const h = await sweepSetup();
     await h.finishRun();

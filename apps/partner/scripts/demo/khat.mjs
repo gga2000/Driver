@@ -42,6 +42,10 @@ export default async function register(demo) {
     for (const t of await services.trips.forDriver(personId)) {
       if (t.vertical === 'khat') await services.trips.cancel(t.id, 'platform', 'demo-dispatcher', 'demo_reset').catch(() => undefined);
     }
+    // A finished run whose car was never checked stays on his list (and opens first): check it off.
+    for (const t of await services.trips.completedForDriver(personId, new Date(Date.now() - 24 * 60 * MIN))) {
+      if (t.vertical === 'khat') await khat.confirmEmptyCar({ personId, sessionId: 'demo' }, { tripId: t.id }).catch(() => undefined);
+    }
   }
 
   async function seed(query) {

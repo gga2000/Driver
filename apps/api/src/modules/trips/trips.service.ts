@@ -746,6 +746,12 @@ export class TripsService implements OnModuleInit {
     return Promise.all(trips.map((t) => this.view(t.id)));
   }
 
+  /** The driver's trips completed at or after `since` (khat: a finished run still waiting for its sweep). */
+  async completedForDriver(driverId: string, since: Date): Promise<Trip[]> {
+    const trips = await this.repo.findTrips({ courierId: driverId, states: ['completed'], completedSince: since });
+    return Promise.all(trips.map((t) => this.view(t.id)));
+  }
+
   /** The non-terminal trip an order is currently attached to, if any. */
   async activeForOrder(orderId: string): Promise<Trip | null> {
     for (const link of await this.repo.linksForOrder(orderId)) {

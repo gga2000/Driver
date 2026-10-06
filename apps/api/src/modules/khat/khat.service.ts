@@ -31,6 +31,7 @@ import { IdentityService, shortDisplayName } from '../identity/index.js';
 import { TripsService } from '../trips/index.js';
 import { KHAT_REPOSITORY, type AbsenceRecord, type KhatRepository, type SweepAlertRecord } from './khat.repository.js';
 
+const DAY_MS = 24 * 60 * 60_000;
 const DONE_TRIP_STATES = new Set(['driver_cancelled', 'customer_cancelled', 'platform_cancelled', 'failed']);
 
 /** The masked-call bridge for guardian calls (shared with chat and الرجعة; optional in harnesses). */
@@ -176,9 +177,19 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     for (const off of this.offs.splice(0)) off();
   }
 
+  /**
+   * Today's runs. A run completes with its last drop-off, but it stays listed until the driver has
+   * confirmed the car is empty, so the sweep is still there after an app restart or when the
+   * reminder push opens the app (Ali, 2026-10-06).
+   */
   async todayRun(actor: Actor, input: { date?: Date | undefined }): Promise<TodayRunView> {
-    const localDate = localDateKey(input.date ?? this.clock.now());
-    const trips = (await this.trips.forDriver(actor.personId)).filter((t) => t.vertical === 'khat' && !DONE_TRIP_STATES.has(t.state) && localDateKey(runAt(t)) === localDate);
+    const at = input.date ?? this.clock.now();
+    const localDate = localDateKey(at);
+    const isToday = (t: Trip) => t.vertical === 'khat' && !DONE_TRIP_STATES.has(t.state) && localDateKey(runAt(t)) === localDate;
+    const going = (await this.trips.forDriver(actor.personId)).filter(isToday);
+    const finished = (await this.trips.completedForDriver(actor.personId, new Date(at.getTime() - DAY_MS))).filter(isToday);
+    const finishedSwept = await Promise.all(finished.map((t) => this.emptyCarCheckedAt(t.id)));
+    const trips = [...going, ...finished.filter((t, i) => !finishedSwept[i] && !going.some((g) => g.id === t.id))];
     trips.sort((a, b) => runAt(a).getTime() - runAt(b).getTime());
     const refs = trips.flatMap((t) => t.stops.map((s) => s.childRef).filter((r): r is string => Boolean(r)));
     const names = refs.length > 0 ? await this.identity.childFirstNamesForRun(actor.personId, refs) : {};

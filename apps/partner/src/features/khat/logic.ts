@@ -92,8 +92,13 @@ export function runStart(trip: Pick<KhatRunTrip, 'stops'>): Date | null {
   return ws.length ? new Date(Math.min(...ws.map((d) => d.getTime()))) : null;
 }
 
-/** The run to open on: the first one not finished, else the last. */
+/**
+ * The run to open on: a finished run whose car nobody checked yet (the sweep comes first, even after
+ * an app restart), else the first one not finished, else the last.
+ */
 export function activeRunIndex(trips: readonly KhatRunTrip[]): number {
+  const unswept = trips.findIndex((t) => needsSweep(t));
+  if (unswept !== -1) return unswept;
   const i = trips.findIndex((t) => !runFinished(t));
   return i === -1 ? Math.max(0, trips.length - 1) : i;
 }
@@ -116,6 +121,16 @@ export function runUnderway(trip: Pick<KhatRunTrip, 'stops' | 'state' | 'onBoard
 /** Every child is dropped or absent but nobody has checked the back seats yet: the two-step sweep. */
 export function needsSweep(trip: Pick<KhatRunTrip, 'stops' | 'state' | 'emptyCarCheckedAt'>): boolean {
   return runFinished(trip) && !trip.emptyCarCheckedAt;
+}
+
+/**
+ * Step 1 of the sweep is a forced pause (Ali, 2026-10-06): "باوعت، كمّل" waits `pauseSec` from when
+ * the step appeared, so a tap without looking is not possible. Whole seconds left, counting down
+ * 3 → 2 → 1 → 0 (0 = the button works). A clock that jumps back never makes the wait longer.
+ */
+export function lookPauseLeft(shownAt: number, now: number, pauseSec: number): number {
+  const elapsed = Math.max(0, now - shownAt);
+  return Math.max(0, Math.ceil((pauseSec * 1000 - elapsed) / 1000));
 }
 
 /** The next time on the run: the current place's window (the stop he is driving to). */
