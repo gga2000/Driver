@@ -38,7 +38,11 @@ door pins known — `promisedArrival` in the tracking module). Every such order 
 - Amount (`latePromiseTerms`): the delivery fee the customer paid (fee − a free-delivery deal), basis
   `delivery_fee`; when that is 0, `freeDeliveryCreditIqd` (1,000), basis `flat`.
 - Ledger: one balanced group `late_promise:<orderId>` — `credit_issued` `platform` → `customer:<id>`,
-  memo `late_promise`. Platform-funded, whoever funded the free delivery. A replay posts nothing.
+  memo `late_promise` (`LATE_PROMISE_MEMO`, `@driver/contracts`). Platform-funded, whoever funded the
+  free delivery. A replay posts nothing.
+- Wallet: `wallet.transactions` reads that line as kind `late_credit`, «تعويض التأخير · طلب #3808»
+  ("Late delivery credit · Order #3808"), for the fee back and the flat 1,000 alike; other
+  `credit_issued` lines stay «رصيد مضاف».
 - Simulator invariant `late_credit_once_per_delivery` checks once / deliveries only / payer / amount.
 
 ## Outputs
@@ -49,6 +53,10 @@ door pins known — `promisedArrival` in the tracking module). Every such order 
 - Customer copy: `promiseCopy(basis)` in `apps/customer/src/features/track/late-promise.ts` — "أجرة
   التوصيل" wording only for `delivery_fee`; `flat` uses the `promise.*_flat` / `track.note_late_credit_flat`
   keys ("حطينالك 1,000 دينار رصيد"). Amounts always come from the server.
+- Late banner (`LateBanner`): before the deadline «إذا ما وصل قبل {time}، نرجعلك …»; once the live ETA
+  is past the deadline (`promiseBar(…, eta).due`) «التأخير راح يتعدى 20 دقيقة، فترجعلك 1,000 دينار رصيد
+  الساعة {deadline}» (`promise.bar_due[_flat]`); once posted «رجعنالك …». The credit toast puts
+  «آسفين على التأخير» on its own line (`promise.toast_sorry`).
 
 ## Demo hooks
 - Customer: `POST /demo/track?personId=…&scenario=late_apology` (promise moved 11 min into the past: the

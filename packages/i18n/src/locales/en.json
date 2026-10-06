@@ -3384,6 +3384,7 @@
   "wallet.line.penalty": "Fee",
   "wallet.line.cash_change": "Change to wallet",
   "wallet.line.change_to_wallet": "Change from your cash",
+  "wallet.line.late_credit": "Late delivery credit",
   "wallet.line.debt": "Short cash",
   "wallet.line.adjustment": "Adjustment",
   "wallet.line.points": "Points",

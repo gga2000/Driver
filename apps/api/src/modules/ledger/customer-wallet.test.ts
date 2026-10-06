@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Actor, LedgerEvent } from '@driver/contracts';
+import { LATE_PROMISE_MEMO, orderTicketNumber, type Actor, type LedgerEvent } from '@driver/contracts';
 import { Accounts } from './accounts.js';
 import { claimablePending, CustomerWalletService, moneyLines, pageLines, pointsWorthIqd, type WalletHouseholds } from './customer-wallet.js';
 import type { PostingGroup } from './postings.js';
@@ -84,6 +84,27 @@ describe('customer wallet: readable lines', () => {
       ['change_to_wallet', 3_250, 'باقي الكاش', 'الدليفري ما عنده خردة، صارت رصيد إلك'],
     ]);
     expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(3_400);
+  });
+
+  it('the honest-delay credit says it was for the late order («تعويض التأخير · طلب #…»), fee back or free-delivery 1,000; other credits stay «رصيد مضاف»', async () => {
+    const h = walletHarness();
+    const late = (orderId: string, amount: number, at: string): PostingGroup => ({
+      id: `late_promise:${orderId}`,
+      kind: 'money',
+      occurredAt: new Date(at),
+      refs: { orderId },
+      lines: [{ type: 'credit_issued', amount, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1'), memo: LATE_PROMISE_MEMO }],
+      controls: [],
+    });
+    await h.ledger.recordAll(group('goodwill:1', 'money', '2026-10-01T10:00:00Z', [{ type: 'credit_issued', amount: 2_000, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1'), memo: 'support' }]));
+    await h.ledger.recordAll(late('o7', 500, '2026-10-02T10:00:00Z'));
+    await h.ledger.recordAll(late('o8', 1_000, '2026-10-03T10:00:00Z'));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar, l.title_en, l.detail_en, l.orderId ?? null])).toEqual([
+      ['credit', 2_000, 'رصيد مضاف', null, 'Credit issued', null, null],
+      ['late_credit', 500, 'تعويض التأخير', `طلب #${orderTicketNumber('o7')}`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
+      ['late_credit', 1_000, 'تعويض التأخير', `طلب #${orderTicketNumber('o8')}`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
+    ]);
   });
 
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {

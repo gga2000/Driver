@@ -1,9 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   AZIZIYAH_ZONES,
+  LATE_PROMISE_MEMO,
   ledgerLineLabel,
   walletLineDetail,
   walletLineTitle,
+  walletOrderDetail,
   type Actor,
   type ClaimPointsOutput,
   type LedgerEvent,
@@ -64,6 +66,8 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
     case 'refund_cash_delivered':
       return 'refund';
     case 'credit_issued':
+      // The honest-delay credit (fee back, or the free-delivery 1,000) names itself and its order.
+      return e.memo === LATE_PROMISE_MEMO ? 'late_credit' : 'credit';
     case 'late_penalty_rider_credit':
     case 'cash_rounding_credit':
       return 'credit';
@@ -86,7 +90,8 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
  * and how it was paid), not its internal splits; when cash and the charge differ, the difference is
  * its own line (change kept as credit, or short cash owed). The rest of a note the courier had no
  * change for ("الخردة علينا") is a line of its own too, "باقي الكاش", apart from the rounding change.
- * Credits, refunds and fees stand alone.
+ * Credits, refunds and fees stand alone; the honest-delay credit says so and names its order
+ * («تعويض التأخير · طلب #3808»).
  * Pure: the caller passes the account's ledger events.
  */
 export function moneyLines(account: string, events: readonly LedgerEvent[]): WalletLine[] {
@@ -166,7 +171,9 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       const signed = signedFor(account, e);
       if (signed === 0) continue;
       const kind = singleKind(e, signed);
-      const label = kind === 'topup' ? { ar: walletLineTitle('topup', 'ar-IQ'), en: walletLineTitle('topup', 'en') } : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
+      const label =
+        kind === 'topup' || kind === 'late_credit' ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') } : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
+      const orderDetail = kind === 'late_credit' && e.orderId ? { ar: walletOrderDetail(e.orderId, 'ar-IQ'), en: walletOrderDetail(e.orderId, 'en') } : null;
       out.push({
         id: e.id,
         occurredAt: e.occurredAt,
@@ -174,8 +181,8 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         kind,
         title_ar: label.ar,
         title_en: label.en,
-        detail_ar: null,
-        detail_en: null,
+        detail_ar: orderDetail?.ar ?? null,
+        detail_en: orderDetail?.en ?? null,
         amount: signed,
         unit: 'iqd',
         method: null,

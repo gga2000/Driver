@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { t, type Locale, type MessageKey } from '@driver/i18n';
 import { CityId, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
+import { orderTicketNumber } from './order.js';
 
 /**
  * Customer account surfaces (customer spec §9–10): saved places, the wallet (money, points,
@@ -162,7 +163,7 @@ export const WalletBalanceView = z.object({
 });
 export type WalletBalanceView = z.infer<typeof WalletBalanceView>;
 
-export const WalletLineKind = z.enum(['food', 'grocery', 'errand', 'ride', 'seat', 'subscription', 'parcel', 'purchase', 'topup', 'credit', 'refund', 'penalty', 'cash_change', 'change_to_wallet', 'debt', 'adjustment', 'points']);
+export const WalletLineKind = z.enum(['food', 'grocery', 'errand', 'ride', 'seat', 'subscription', 'parcel', 'purchase', 'topup', 'credit', 'refund', 'penalty', 'cash_change', 'change_to_wallet', 'late_credit', 'debt', 'adjustment', 'points']);
 export type WalletLineKind = z.infer<typeof WalletLineKind>;
 
 /** One readable line: a whole order (not its internal splits), a credit, or a points movement. */
@@ -220,6 +221,11 @@ export type TopupOptionsView = z.infer<typeof TopupOptionsView>;
 /** Arabic (default) or English title of a wallet line kind (`wallet.line.<kind>` in packages/i18n). */
 export function walletLineTitle(kind: WalletLineKind, locale: Locale = 'ar-IQ'): string {
   return t(`wallet.line.${kind}` as MessageKey, undefined, locale);
+}
+
+/** The order a wallet line belongs to, as the customer knows it: "طلب #3808". */
+export function walletOrderDetail(orderId: string, locale: Locale = 'ar-IQ'): string {
+  return t('order.number', { id: orderTicketNumber(orderId) }, locale);
 }
 
 /** Wallet line details (`wallet.detail.<key>`). */

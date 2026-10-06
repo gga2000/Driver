@@ -239,6 +239,12 @@ export function cashToHand(priceIqd: number, stepIqd: number = CASH_STEP_IQD): {
  * when he pays none (free-delivery deal) — a fixed `flat` amount, so the apps can say "أجرة التوصيل"
  * only when it is one.
  */
+/**
+ * Memo on the honest-delay credit line (`credit_issued`), so wallets, receipts and finance can tell
+ * it apart from other credits: the customer's wallet names it «تعويض التأخير · طلب #3808».
+ */
+export const LATE_PROMISE_MEMO = 'late_promise';
+
 export const LatePromiseBasis = z.enum(['delivery_fee', 'flat']);
 export type LatePromiseBasis = z.infer<typeof LatePromiseBasis>;
 

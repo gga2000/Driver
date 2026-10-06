@@ -1,11 +1,12 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { LATE_PROMISE_MEMO } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, type LedgerService } from '../ledger/index.js';
 import { TrackingService, type TrackingLateApologyPort, type TrackingLateCreditPort } from './tracking.service.js';
 
-/** Memo on the honest-delay credit line, so wallets, receipts and finance can tell it apart. */
-export const LATE_PROMISE_MEMO = 'late_promise';
+/** Memo on the honest-delay credit line (shared with the wallet's reading of it, `@driver/contracts`). */
+export { LATE_PROMISE_MEMO };
 
 /** Posting group of an order's honest-delay credit: one per order, so a replay posts nothing. */
 export const latePromiseGroupId = (orderId: string): string => `${LATE_PROMISE_MEMO}:${orderId}`;

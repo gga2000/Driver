@@ -3384,6 +3384,7 @@
   "wallet.line.penalty": "رسوم",
   "wallet.line.cash_change": "الباقي رصيد",
   "wallet.line.change_to_wallet": "باقي الكاش",
+  "wallet.line.late_credit": "تعويض التأخير",
   "wallet.line.debt": "نقص بالكاش",
   "wallet.line.adjustment": "تصحيح",
   "wallet.line.points": "نقاط",
