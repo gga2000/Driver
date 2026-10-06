@@ -21,7 +21,7 @@ import { chatRouter } from './routers/chat.js';
 import { trackingRouter } from './routers/tracking.js';
 import { liveRouter } from './routers/live.js';
 import { notifyRouter } from './routers/notify.js';
-import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter } from './routers/control-room.js';
+import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, seasonProcedures } from './routers/control-room.js';
 import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { publicProcedure, router, t } from './trpc.js';
@@ -68,7 +68,7 @@ export const appRouter = router({
   drivers: driversRouter,
   merchants: merchantsRouter,
   // Launch control room: `system.banner` (public) and its admin side join the system router.
-  system: t.mergeRouters(systemRouter, router(bannerProcedures)),
+  system: t.mergeRouters(systemRouter, router({ ...bannerProcedures, ...seasonProcedures })),
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,

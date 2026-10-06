@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
+import { LocalDate } from './store-hours.js';
 
 /**
  * Launch-week control room (launch playbook §3 controls, §4 rota, §6 metrics): kill switches,
@@ -178,6 +179,56 @@ export const SetBannerInput = z.object({
 export type SetBannerInput = z.input<typeof SetBannerInput>;
 
 export const ClearBannerInput = z.object({ bannerId: z.string().min(1) });
+
+// ───────────────────────── quiet days and the season (customer joy J1a) ─────────────────────────
+
+/** The longest quiet stretch set in one go (Muharram 1–13 is 13 days). */
+export const QUIET_MAX_DAYS = 15;
+
+/**
+ * What an open app may do today (public read, every app polls it). On a quiet day (mourning, set by
+ * ops in the Console) there are no celebrations, no moment sounds and no offers. The J6 season system
+ * adds fields here; clients ignore what they don't know.
+ */
+export const PublicSeason = z.object({
+  quiet: z.boolean(),
+  celebrations: z.boolean(),
+  sounds: z.boolean(),
+  promos: z.boolean(),
+  /** The last quiet day (inclusive) while quiet, else null. */
+  quietUntil: LocalDate.nullable(),
+});
+export type PublicSeason = z.infer<typeof PublicSeason>;
+
+export const SeasonInput = z.object({ cityId: CityId.optional() });
+export type SeasonInput = z.infer<typeof SeasonInput>;
+
+export const QuietDaysView = z.object({
+  id: z.string(),
+  cityId: z.string().nullable(),
+  startsOn: LocalDate,
+  endsOn: LocalDate,
+  label_ar: z.string(),
+  active: z.boolean(),
+  setBy: z.string(),
+  setByName: z.string().nullable(),
+  setAt: z.coerce.date(),
+  clearedAt: z.coerce.date().nullable(),
+});
+export type QuietDaysView = z.infer<typeof QuietDaysView>;
+
+export const SetQuietDaysInput = z
+  .object({
+    /** null/absent = every city. */
+    cityId: CityId.nullable().optional(),
+    startsOn: LocalDate,
+    endsOn: LocalDate,
+    label_ar: z.string().trim().min(3).max(80),
+  })
+  .refine((v) => v.endsOn >= v.startsOn, { message: 'endsOn is before startsOn', path: ['endsOn'] });
+export type SetQuietDaysInput = z.input<typeof SetQuietDaysInput>;
+
+export const ClearQuietDaysInput = z.object({ quietId: z.string().min(1) });
 
 // ───────────────────────── approvals queue ─────────────────────────
 
@@ -394,6 +445,10 @@ export interface ControlsPort {
   banners(): Promise<SystemBannerView[]>;
   setBanner(actor: Actor, input: z.output<typeof SetBannerInput>): Promise<SystemBannerView>;
   clearBanner(actor: Actor, input: { bannerId: string }): Promise<SystemBannerView>;
+  season(input: SeasonInput): Promise<PublicSeason>;
+  quietDays(): Promise<QuietDaysView[]>;
+  setQuietDays(actor: Actor, input: z.output<typeof SetQuietDaysInput>): Promise<QuietDaysView>;
+  clearQuietDays(actor: Actor, input: { quietId: string }): Promise<QuietDaysView>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */

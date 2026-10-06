@@ -1208,6 +1208,8 @@
   "error.zone_overlap": "المنطقة تتداخل ويا منطقة ثانية",
   "error.banner_invalid": "وقت الإعلان مو صحيح: لازم ينتهي خلال 24 ساعة",
   "error.banner_not_found": "ما لگينا الإعلان",
+  "error.quiet_invalid": "أيام الهدوء مو صحيحة: لازم تبدي اليوم أو بعده، وما تزيد على 15 يوم",
+  "error.quiet_not_found": "ما لگينا أيام الهدوء",
   "error.approval_not_found": "ما لگينا الطلب بالقائمة. يمكن أحد ثاني قرّر عليه",
   "error.approval_own_item": "ما تگدر توافق أو ترفض شي يخصّك. خلي زميلك يقرّر",
   "error.approval_state_conflict": "هذا الطلب انقرّر قبل. حدّث القائمة",

@@ -1208,6 +1208,8 @@
   "error.zone_overlap": "The zone overlaps another zone",
   "error.banner_invalid": "A banner must end within 24 hours and after it starts",
   "error.banner_not_found": "Banner not found",
+  "error.quiet_invalid": "Quiet days must start today or later and last at most 15 days",
+  "error.quiet_not_found": "Quiet days not found",
   "error.approval_not_found": "Approval item not found (maybe already decided)",
   "error.approval_own_item": "You cannot decide on your own item",
   "error.approval_state_conflict": "This item was already decided",
