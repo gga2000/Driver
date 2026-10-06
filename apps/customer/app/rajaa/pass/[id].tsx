@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { Share, View } from 'react-native';
 import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { bookingStateLabel, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
+import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { passPhase } from '@/features/rajaa/pass';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
-import { cancelRule, clockLabel, boardingOpensAt, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
+import { cancelRule, clockLabel, boardingOpensAt, endpoints, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
+import { ShareMomentButton } from '@/features/share-card/ShareMomentButton';
 import { currentLocation } from '@/features/rajaa/location';
 import { garageName, useBoardingPass, useBooking, useCancelSeat, useDriverCards, useImHere, useMyBookings, useNetwork } from '@/features/rajaa/queries';
 import { firstSeatId } from '@/features/firsts/firsts';
@@ -155,6 +156,8 @@ export default function BoardingPassScreen() {
       <Screen testID="rajaa-pass" edges={['bottom']}>
         <Stack.Screen options={{ title: t('rajaa.kept_title') }} />
         <SafeArrival booking={b} route={route} driverName={driverCard?.firstName ?? null} now={now} />
+        {/* Joy l5: a picture of the safe arrival to share (no address, the first name only if chosen). */}
+        <ShareMomentButton moment={{ kind: 'rajaa', toCity: corridor ? cityName(t, endpoints(corridor.cityId, b.departure.direction).to) : null }} id={b.id} />
         <KeptStub booking={b} route={route} garage={garage} driver={driverCard} />
       </Screen>
     );

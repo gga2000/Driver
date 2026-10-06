@@ -36,6 +36,11 @@ export async function shareBlob(blob: Blob, fileName: string, title: string): Pr
   return 'saved';
 }
 
+/** A local file path is a phone thing: the web shares blobs (`shareBlob`). */
+export async function shareLocalFile(_uri: string, _mimeType: string, _title: string): Promise<ShareResult> {
+  return 'failed';
+}
+
 /** Shares a bundled picture (a sticker): fetched from the app's own assets, then `shareBlob`. */
 export async function shareAsset(moduleId: number, fileName: string, mimeType: string, title: string): Promise<ShareResult> {
   try {

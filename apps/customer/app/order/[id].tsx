@@ -15,6 +15,10 @@ import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
+import { useGift } from '@/features/gift/gift-store';
+import { useGiftHeadsUp } from '@/features/gift/GiftHeadsUp';
+import { ShareCardPanel } from '@/features/share-card/ShareCardPanel';
+import type { ShareMoment } from '@/features/share-card/share-card';
 import { shareUrl } from '@/features/rajaa/share';
 import { SosControl } from '@/features/safety/SosControl';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
@@ -168,6 +172,19 @@ export default function OrderLiveScreen() {
     );
 
   const [panel, setPanel] = useState<Panel>(null);
+  // Joy g1: a gift sent from this phone can still send its heads-up while the meal is on its way.
+  const gift = useGift(v?.order.id);
+  const giftHeadsUp = useGiftHeadsUp(v?.order.id, gift, v?.merchant?.name ?? '');
+  // Joy l5: after a good moment (delivered, finished ride), a picture to share; then the invite (g2).
+  const [cardOpen, setCardOpen] = useState(false);
+  const happy = phase === 'arrived' || phase === 'done';
+  const moment: ShareMoment | null = !v
+    ? null
+    : ride
+      ? { kind: 'ride', vehicle: v.courier?.vehicleClass === 'tuktuk' || v.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'car' }
+      : v.merchant
+        ? { kind: 'food', dishName: v.items[0]?.name ?? null, merchant: v.merchant.name }
+        : null;
   // "عباس وصل" (L-02): shown at the pickup until closed; "طالع هسة" goes once per order.
   const [hereClosedFor, setHereClosedFor] = useState<string | null>(null);
   // Rides only: «طالع هسة» goes as the chat's coming-out message (food's «أني نازل» is orders.comingOut).
@@ -409,7 +426,14 @@ export default function OrderLiveScreen() {
             <SheetHeader
               phase={phase}
               status={statusLine(v, t, { now })}
-              pill={[ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey), v.merchant?.name].filter(Boolean).join(' · ')}
+              pill={[
+                ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey),
+                v.merchant?.name,
+                // g1: «عزيمة لـ أمي» (the recipient's label on the order; never a number).
+                v.order.gift ? t('gift.for', { name: v.order.participants.find((p) => p.role === 'recipient')?.label ?? t('checkout.recipient_other') }) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
               // At the door there is no time left to show (f3): the card says what to do instead.
               eta={atDoor ? null : eta}
               now={now}
@@ -483,6 +507,11 @@ export default function OrderLiveScreen() {
                 <ActionRow icon="check" label={t('ride.confirm_arrived')} hint={t('ride.confirm_arrived_hint')} onPress={endRide} testID="action-ride-arrived" />
               ) : null}
               {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} testID="action-share" />}
+              {gift && !happy && phase !== 'cancelled' ? (
+                <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
+              ) : null}
+              {happy && moment ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
+              {happy ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
               <ActionRow icon="chat" label={t('order.report_problem')} onPress={() => setPanel('dispute')} testID="action-report" />
               {canCancel ? <ActionRow icon="x" tone="dangerText" label={ride ? t('trip.cancel') : t('trip.cancel')} onPress={() => setPanel('cancel')} testID="action-cancel" /> : null}
             </View>
@@ -516,6 +545,7 @@ export default function OrderLiveScreen() {
         />
       ) : null}
       {v && rating ? <RatingPanel view={v} onDone={() => setRating(false)} /> : null}
+      {v && moment ? <ShareCardPanel moment={moment} id={v.order.id} visible={cardOpen} onClose={() => setCardOpen(false)} /> : null}
     </View>
   );
 }
