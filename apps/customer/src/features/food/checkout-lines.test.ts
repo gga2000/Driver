@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { earnCopy, payCopy, payerOf, paymentOf, receiverHint } from './checkout-lines';
+import { earnCopy, etaClockAt, payCopy, payerOf, paymentOf, receiverHint } from './checkout-lines';
 
 describe('earnCopy (o7): the server’s points estimate in words', () => {
   it('solo and group orders', () => {
@@ -30,5 +30,12 @@ describe('who pays (o12) maps onto the existing payment methods', () => {
   it('says what the courier asks the receiver', () => {
     expect(receiverHint('أبو علي', 'wallet')).toEqual({ key: 'checkout.receiver_paid_hint', params: { name: 'أبو علي' } });
     expect(receiverHint('أبو علي', 'cash')).toEqual({ key: 'checkout.receiver_cash_hint', params: { name: 'أبو علي' } });
+  });
+});
+
+describe('etaClockAt (o9): a clock time', () => {
+  it('the far end of the range from now, rounded up to 5 minutes', () => {
+    expect(etaClockAt(new Date('2026-10-06T16:02:00Z'), 40).toISOString()).toBe('2026-10-06T16:45:00.000Z');
+    expect(etaClockAt(new Date('2026-10-06T16:00:00Z'), 40).toISOString()).toBe('2026-10-06T16:40:00.000Z');
   });
 });

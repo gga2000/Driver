@@ -47,3 +47,12 @@ export function paymentOf(payer: Payer): 'cash' | 'wallet' {
 export function receiverHint(name: string, payment: 'cash' | 'wallet'): Copy {
   return payment === 'wallet' ? { key: 'checkout.receiver_paid_hint', params: { name } } : { key: 'checkout.receiver_cash_hint', params: { name } };
 }
+
+/**
+ * The ETA as a clock time (o9, audit F-32): the far end of the kitchen + ride range from now, rounded
+ * up to 5 minutes — «يوصلك تقريباً 7:40 م» is easier to plan a family dinner around than a duration.
+ */
+export function etaClockAt(now: Date, maxMinutes: number): Date {
+  const step = 5 * 60_000;
+  return new Date(Math.ceil((now.getTime() + maxMinutes * 60_000) / step) * step);
+}

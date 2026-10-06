@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform, Switch, View } from 'react-native';
+import { Platform, Pressable, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, tenderOptions } from '@driver/contracts';
-import { formatMinuteCount, formatRange } from '@driver/i18n';
+import { formatClock, formatMinutesRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
-import { groupByPerson, reconcile } from '@/features/food/cart';
+import { TABLE, groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { afterFailure, attemptFor, attemptSignature, shouldReplay } from '@/features/food/place-attempt';
 import {
@@ -23,7 +23,9 @@ import {
   type Recipient,
 } from '@/features/food/checkout';
 import { useWalletBalance } from '@/features/account/queries';
+import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
+import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
 import { useMyOrders } from '@/features/home/queries';
@@ -31,9 +33,6 @@ import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { promiseCopy } from '@/features/track/late-promise';
-import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
-import { useTimetable } from '@/features/season/use-timetable';
-import { useSeason } from '@/lib/use-season';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
 
@@ -83,17 +82,15 @@ export default function CheckoutScreen() {
   const [otherName, setOtherName] = useState('');
   const [otherPhone, setOtherPhone] = useState('');
   const [when, setWhen] = useState<'now' | 'later'>('now');
-  const baseSlots = useMemo(() => scheduleSlots(new Date()), []);
-  // J6: in Ramadan, «على الفطور» on the person's timetable joins the list (the server's slot, before the adhan).
-  const today = useSeason();
-  const [timetable] = useTimetable();
-  const iftar = timesFor(today.ramadan, timetable);
-  const slots = useMemo(() => withIftarSlot(baseSlots, iftar, new Date(), IFTAR_MIN_LEAD_MIN), [baseSlots, iftar]);
-  const [slot, setSlot] = useState<string | null>(null);
+  const slots = useMemo(() => scheduleSlots(new Date()), []);
+  const [slot, setSlot] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');
   const [courierNote, setCourierNote] = useState('');
+  // o9: the receiver and the time are compact rows that open on «غيّر»; the notes open on a tap.
+  const [open, setOpen] = useState<{ receiver: boolean; when: boolean; kitchenNote: boolean; courierNote: boolean }>({ receiver: false, when: false, kitchenNote: false, courierNote: false });
+  const toggle = (k: keyof typeof open) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   // One try at a time, whatever the taps (a web double click lands before the button re-renders).
   const inFlight = useRef(false);
   const [replaying, setReplaying] = useState(false);
@@ -145,8 +142,7 @@ export default function CheckoutScreen() {
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
   const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
   const restaurant = menu.data?.restaurant;
-  const chosen = slots.find((s) => String(s.at.getTime()) === slot) ?? slots[0] ?? null;
-  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
+  const scheduledFor = when === 'later' ? (slots[slot] ?? null) : null;
   const { groups } = groupByPerson(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
@@ -268,6 +264,16 @@ export default function CheckoutScreen() {
   };
   onPlaceRef.current = onPlace;
 
+  const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
+  const payLine = payCopy(amountParam(totals?.totalIqd ?? 0), payment, receiver);
+  const etaMax = restaurant?.etaMaxMinutes ?? null;
+  const whenValue = scheduledFor ? t('checkout.when_at', { time: clock12(scheduledFor) }) : t('checkout.when_now');
+  const receiverValue = recipientId === 'me' ? t('checkout.recipient_me') : recipientId === 'other' ? otherName.trim() || t('checkout.recipient_other') : (recipientName ?? t('checkout.recipient_other'));
+  const choosePayer = (payer: Payer) => {
+    const next = paymentOf(payer);
+    if (next === 'wallet' && !walletRow.usable) return;
+    setPayment(next);
+  };
   const buttonLabel = totals
     ? scheduledFor
       ? t('checkout.place_scheduled', { time: clock12(scheduledFor), amount: amountParam(totals.totalIqd) })
@@ -286,6 +292,7 @@ export default function CheckoutScreen() {
           </Text>
         </View>
       ) : null}
+      <EarnPill points={orderQuote.data?.pointsEarn} grouped={groups.length > 1} />
       <Button
         testID="checkout-place"
         size="lg"
@@ -298,30 +305,37 @@ export default function CheckoutScreen() {
         onPress={() => void onPlace()}
         accessibilityHint={lostAnswer ? t('checkout.lost_answer') : undefined}
       />
+      {/* o9: how the money moves, said once, right under the button. */}
+      {totals ? (
+        <Text variant="caption" color="textMuted" align="center" tabular testID="checkout-pay-line">
+          {t(payLine.key, payLine.params)}
+        </Text>
+      ) : null}
     </View>
   );
 
   return (
     <Screen edges={['bottom']} footer={footer} testID="checkout">
+      {/* o9: summary → place → payment → price → who/when → notes. */}
       <Section title={t('checkout.summary', { name: merchant.name })}>
         <Card elevation={0} padding={3}>
           <View style={{ gap: theme.space[2] }}>
             {groups.map((g) => (
               <View key={g.personId} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-                <Avatar size={28} name={g.person?.name ?? myName ?? t('item.for_me_chip')} tone={g.person ? undefined : 'accent'} />
+                {g.personId === TABLE ? <Avatar size={28} icon="family" tone="accent" /> : <Avatar size={28} name={g.person?.name ?? myName ?? t('item.for_me_chip')} tone={g.person ? undefined : 'accent'} />}
                 <Text variant="footnote" style={{ flex: 1 }} numberOfLines={2}>
                   <Text variant="footnote" weight={600}>
-                    {g.person?.name ?? t('cart.for_me_section')}:{' '}
+                    {g.personId === TABLE ? t('cart.for_table_section') : (g.person?.name ?? t('cart.for_me_section'))}:{' '}
                   </Text>
                   {g.lines.map((l) => (l.qty > 1 ? `${l.name} ×${l.qty}` : l.name)).join('، ')}
                 </Text>
               </View>
             ))}
-            {restaurant?.etaMinMinutes != null && restaurant.etaMaxMinutes != null && !scheduledFor ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                <Icon name="clock" size={16} color="accentText" />
-                <Text variant="footnote" color="accentText" weight={600}>
-                  {t('checkout.eta', { range: formatRange(restaurant.etaMinMinutes, restaurant.etaMaxMinutes, locale) })}
+            {etaMax !== null && restaurant?.etaMinMinutes != null && !scheduledFor ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="checkout-eta">
+                <Icon name="clock" size={16} color="liveText" />
+                <Text variant="footnote" color="liveText" weight={600} tabular>
+                  {t('checkout.eta_clock', { time: formatClock(etaClockAt(new Date(), etaMax), { locale }), range: formatMinutesRange(restaurant.etaMinMinutes, etaMax, { locale }) })}
                 </Text>
               </View>
             ) : null}
@@ -363,111 +377,71 @@ export default function CheckoutScreen() {
         </Text>
       </Section>
 
-      <Section title={t('checkout.recipient')}>
-        <ChipGroup items={recipientItems} value={[recipientId]} required onChange={(v) => setRecipientId(v[0] ?? 'me')} accessibilityLabel={t('checkout.recipient')} />
-        {recipientId === 'other' ? (
-          <View style={{ gap: theme.space[2] }}>
-            <TextField testID="checkout-recipient-name" value={otherName} onChangeText={setOtherName} placeholder={t('checkout.recipient_name')} error={fieldErrors.name} />
-            <TextField
-              testID="checkout-recipient-phone"
-              value={otherPhone}
-              onChangeText={(v) => setOtherPhone(formatPhoneInput(v))}
-              placeholder={t('checkout.recipient_phone')}
-              keyboardType="phone-pad"
-              error={fieldErrors.phone}
+      <Section title={recipientId !== 'me' ? t('checkout.payer_title') : t('checkout.payment')}>
+        {recipientId !== 'me' ? (
+          // o12: ordering for someone else — who pays, in the two ways that exist (no new money rule).
+          <View style={{ gap: theme.space[2] }} testID="checkout-payer">
+            <ChipGroup
+              items={[
+                { id: 'them_cash', label: recipientName ? t('checkout.payer_them', { name: recipientName }) : t('checkout.payer_them_generic'), icon: 'cash' },
+                { id: 'me_wallet', label: t('checkout.payer_me'), icon: 'wallet' },
+              ]}
+              value={[payerOf(payment)]}
+              required
+              onChange={(v) => choosePayer(v[0] === 'me_wallet' ? 'me_wallet' : 'them_cash')}
+              accessibilityLabel={t('checkout.payer_title')}
             />
-          </View>
-        ) : null}
-        {recipientName ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-            <Icon name="phone" size={16} color="textMuted" />
-            <Text variant="footnote" color="textMuted">
-              {t('checkout.recipient_hint', { name: recipientName })}
-            </Text>
-          </View>
-        ) : null}
-      </Section>
-
-      <Section title={t('checkout.when')}>
-        <ChipGroup
-          items={[
-            { id: 'now', label: t('checkout.when_now'), icon: 'bike' },
-            { id: 'later', label: t('checkout.schedule'), icon: 'clock' },
-          ]}
-          value={[when]}
-          required
-          onChange={(v) => setWhen(v[0] === 'later' ? 'later' : 'now')}
-          accessibilityLabel={t('checkout.when')}
-        />
-        {when === 'later' ? (
-          <ChipGroup
-            items={slots.map((s) => ({ id: String(s.at.getTime()), label: s.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(s.at) }) }))}
-            value={chosen ? [String(chosen.at.getTime())] : []}
-            required
-            onChange={(v) => setSlot(v[0] ?? null)}
-          />
-        ) : null}
-        {when === 'later' && chosen?.iftar && iftar && timetable ? (
-          <Text testID="checkout-iftar-note" variant="footnote" color="textMuted">
-            {t('checkout.iftar_note', { minutes: formatMinuteCount(iftarLeadMinutes(iftar), { locale }), timetable: t(timetable === 'sunni' ? 'season.timetable_sunni' : 'season.timetable_shia') })}
-          </Text>
-        ) : null}
-      </Section>
-
-      <Section title={t('checkout.notes')}>
-        <TextField
-          testID="checkout-note-kitchen"
-          label={t('checkout.note_kitchen')}
-          placeholder={t('checkout.note_kitchen_placeholder')}
-          value={kitchenNote}
-          onChangeText={setKitchenNote}
-          maxLength={500}
-          multiline
-        />
-        <TextField
-          testID="checkout-note-courier"
-          label={t('checkout.note_courier')}
-          placeholder={t('checkout.note_courier_placeholder')}
-          value={courierNote}
-          onChangeText={setCourierNote}
-          maxLength={300}
-          multiline
-        />
-      </Section>
-
-      <Section title={t('checkout.payment')}>
-        <Card elevation={0} padding={0}>
-          <ListRow
-            testID="checkout-pay-cash"
-            leading="cash"
-            title={t('checkout.pay_cash')}
-            subtitle={t('checkout.cash_change_hint')}
-            selected={payment === 'cash'}
-            onPress={() => setPayment('cash')}
-            chevron={false}
-            divider
-          />
-          <ListRow
-            testID="checkout-pay-wallet"
-            leading="wallet"
-            title={t('checkout.pay_wallet')}
-            subtitle={
-              balance === null
-                ? '…'
-                : walletRow.usable || walletRow.missingIqd === 0
-                  ? t('checkout.wallet_balance', { amount: amountParam(balance) })
-                  : t('checkout.wallet_short', { balance: amountParam(balance), missing: amountParam(walletRow.missingIqd) })
-            }
-            selected={payment === 'wallet'}
-            onPress={walletRow.usable ? () => setPayment('wallet') : undefined}
-            chevron={false}
-            trailing={
-              payment === 'wallet' ? undefined : balance !== null && !walletRow.usable ? (
+            {balance !== null && !walletRow.usable && walletRow.missingIqd > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+                  {t('checkout.payer_wallet_short', { missing: amountParam(walletRow.missingIqd) })}
+                </Text>
                 <Button size="sm" variant="secondary" icon="plus" label={t('checkout.wallet_topup')} onPress={() => router.push('/topup')} testID="checkout-wallet-topup" />
-              ) : undefined
-            }
-          />
-        </Card>
+              </View>
+            ) : null}
+            {recipientName ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Icon name="phone" size={16} color="textMuted" />
+                <Text variant="footnote" color="textMuted" style={{ flex: 1 }} testID="checkout-receiver-hint">
+                  {t(receiverHint(recipientName, payment).key, receiverHint(recipientName, payment).params)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <Card elevation={0} padding={0}>
+            <ListRow
+              testID="checkout-pay-cash"
+              leading="cash"
+              title={t('checkout.pay_cash')}
+              subtitle={t('checkout.cash_change_hint')}
+              selected={payment === 'cash'}
+              onPress={() => setPayment('cash')}
+              chevron={false}
+              divider
+            />
+            <ListRow
+              testID="checkout-pay-wallet"
+              leading="wallet"
+              title={t('checkout.pay_wallet')}
+              subtitle={
+                balance === null
+                  ? '…'
+                  : walletRow.usable || walletRow.missingIqd === 0
+                    ? t('checkout.wallet_balance', { amount: amountParam(balance) })
+                    : t('checkout.wallet_short', { balance: amountParam(balance), missing: amountParam(walletRow.missingIqd) })
+              }
+              selected={payment === 'wallet'}
+              onPress={walletRow.usable ? () => setPayment('wallet') : undefined}
+              chevron={false}
+              trailing={
+                payment === 'wallet' ? undefined : balance !== null && !walletRow.usable ? (
+                  <Button size="sm" variant="secondary" icon="plus" label={t('checkout.wallet_topup')} onPress={() => router.push('/topup')} testID="checkout-wallet-topup" />
+                ) : undefined
+              }
+            />
+          </Card>
+        )}
         {pointsOffer ? (
           <Card elevation={0} padding={0}>
             <ListRow
@@ -504,7 +478,127 @@ export default function CheckoutScreen() {
           </View>
         )}
       </Section>
+
+      <Card elevation={0} padding={0}>
+        <ChoiceRow testID="checkout-row-receiver" icon="user" label={t('checkout.row_receiver')} value={receiverValue} open={open.receiver} onPress={() => toggle('receiver')} divider />
+        {open.receiver ? (
+          <View style={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[4] }}>
+            <ChipGroup items={recipientItems} value={[recipientId]} required onChange={(v) => setRecipientId(v[0] ?? 'me')} accessibilityLabel={t('checkout.recipient')} />
+            {recipientId === 'other' ? (
+              <View style={{ gap: theme.space[2] }}>
+                <TextField testID="checkout-recipient-name" value={otherName} onChangeText={setOtherName} placeholder={t('checkout.recipient_name')} error={fieldErrors.name} />
+                <TextField
+                  testID="checkout-recipient-phone"
+                  value={otherPhone}
+                  onChangeText={(v) => setOtherPhone(formatPhoneInput(v))}
+                  placeholder={t('checkout.recipient_phone')}
+                  keyboardType="phone-pad"
+                  error={fieldErrors.phone}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        <ChoiceRow testID="checkout-row-when" icon="clock" label={t('checkout.row_when')} value={whenValue} open={open.when} onPress={() => toggle('when')} />
+        {open.when ? (
+          <View style={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[4] }}>
+            <ChipGroup
+              items={[
+                { id: 'now', label: t('checkout.when_now'), icon: 'bike' },
+                { id: 'later', label: t('checkout.schedule'), icon: 'clock' },
+              ]}
+              value={[when]}
+              required
+              onChange={(v) => setWhen(v[0] === 'later' ? 'later' : 'now')}
+              accessibilityLabel={t('checkout.when')}
+            />
+            {when === 'later' ? (
+              <ChipGroup items={slots.map((sl, i) => ({ id: String(i), label: t('checkout.when_at', { time: clock12(sl) }) }))} value={[String(slot)]} required onChange={(v) => setSlot(Number(v[0] ?? 0))} />
+            ) : null}
+          </View>
+        ) : null}
+      </Card>
+
+      <View style={{ gap: theme.space[2] }}>
+        {open.kitchenNote || kitchenNote ? (
+          <TextField
+            testID="checkout-note-kitchen"
+            label={t('checkout.note_kitchen')}
+            placeholder={t('checkout.note_kitchen_placeholder')}
+            value={kitchenNote}
+            onChangeText={setKitchenNote}
+            maxLength={500}
+            multiline
+          />
+        ) : (
+          <NoteLink testID="checkout-add-note-kitchen" label={t('checkout.note_kitchen')} onPress={() => toggle('kitchenNote')} />
+        )}
+        {open.courierNote || courierNote ? (
+          <TextField
+            testID="checkout-note-courier"
+            label={t('checkout.note_courier')}
+            placeholder={t('checkout.note_courier_placeholder')}
+            value={courierNote}
+            onChangeText={setCourierNote}
+            maxLength={300}
+            multiline
+          />
+        ) : (
+          <NoteLink testID="checkout-add-note-courier" label={t('checkout.note_courier')} onPress={() => toggle('courierNote')} />
+        )}
+      </View>
     </Screen>
+  );
+}
+
+/** «يستلم: أنا · غيّر» — a choice already made, shown as one line until the person wants to change it (o9). */
+function ChoiceRow({ icon, label, value, open, onPress, divider, testID }: { icon: 'user' | 'clock'; label: string; value: string; open: boolean; onPress: () => void; divider?: boolean; testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={t('checkout.row_change_a11y', { what: label, value })}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        minHeight: 52,
+        paddingHorizontal: theme.space[4],
+        borderBottomWidth: divider && !open ? 1 : 0,
+        borderBottomColor: theme.colors.border,
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      <Icon name={icon} size={18} color="textMuted" />
+      <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
+        <Text variant="body" color="textMuted">
+          {label}:{' '}
+        </Text>
+        <Text variant="body" weight={600}>
+          {value}
+        </Text>
+      </Text>
+      <Text variant="label" weight={600} color="accentText">
+        {t('checkout.row_change')}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** «+ ملاحظة للمطبخ»: an optional field stays a link until it is wanted (form CRO, audit F-18). */
+function NoteLink({ label, onPress, testID }: { label: string; onPress: () => void; testID?: string }) {
+  const theme = useTheme();
+  return (
+    <Pressable testID={testID} accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, alignSelf: 'flex-start', opacity: pressed ? 0.7 : 1 })}>
+      <Icon name="plus" size={16} color="accentText" strokeWidth={2.4} />
+      <Text variant="label" weight={600} color="accentText">
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
