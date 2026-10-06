@@ -58,10 +58,16 @@ export default {
       await shot('at-pass', { element: card() });
     });
     await step('ready-column', async () => shot('ready-column'));
+    // The hook only moves his arrival time back (no live event), so reload rather than wait for the
+    // board's slow safety poll; the card must say "حيدر ينتظر من 4 دقايق" before the shot.
     await post('/demo/signature/at-pass?waited=4');
-    await page.waitForTimeout(2500);
+    await page.reload({ waitUntil: 'load' });
+    await h.startShift();
+    await byTestId('board').waitFor({ timeout: 15_000 });
+    await readyTab();
     await step('at-pass-waiting', async () => {
-      await byTestId(`pass-${pass.number}`).waitFor({ timeout: 4000 });
+      await byTestId(`pass-${pass.number}`).filter({ hasText: 'ينتظر من' }).waitFor({ timeout: 15_000 });
+      await page.waitForTimeout(600);
       await card().scrollIntoViewIfNeeded();
       await shot('at-pass-waiting', { element: card() });
     });
@@ -125,6 +131,13 @@ export default {
     await step('statement-bridge', async () => {
       await byTestId('statement-bridge').waitFor({ timeout: 3000 });
       await shot('statement-bridge', { element: byTestId('statement-bridge') });
+    });
+    // Scrolled to the end, the last row («رصيد آخر الأسبوع») clears the floating "3 طلبات تنتظر" pill.
+    await step('statement-end', async () => {
+      await page.evaluate(() => {
+        for (const el of document.querySelectorAll('div')) if (el.scrollHeight > el.clientHeight + 10 && getComputedStyle(el).overflowY !== 'visible') el.scrollTop = el.scrollHeight;
+      });
+      await shot('statement-end', { wait: 800 });
     });
   },
 };

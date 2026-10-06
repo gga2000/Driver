@@ -95,4 +95,13 @@ describe('end of day (S-M6) — the WhatsApp text', () => {
     const s = composeDaySummary({ merchantOrgId: 'm', storeName: 'م', day: { localDate: '2026-10-05', due: true, reason: 'closed' }, orders: [], netIqd: 0 });
     expect(s).toMatchObject({ due: false, reason: null, orders: 0, advice: null });
   });
+
+  it('no net while every order is still in the kitchen or on the road (money is booked at delivery)', () => {
+    const day = { localDate: '2026-10-05', due: true, reason: 'closed' as const };
+    const open = [order({ id: 'a', state: 'preparing' }), order({ id: 'b', state: 'ready' })];
+    const pending = composeDaySummary({ merchantOrgId: 'm', storeName: 'م', day, orders: open, netIqd: 0 });
+    expect(pending).toMatchObject({ orders: 2, netIqd: null });
+    expect(pending.share_ar).not.toContain('الصافي');
+    expect(composeDaySummary({ merchantOrgId: 'm', storeName: 'م', day, orders: open, netIqd: 12_750 }).netIqd).toBe(12_750);
+  });
 });

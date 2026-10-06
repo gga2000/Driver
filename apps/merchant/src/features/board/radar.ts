@@ -72,3 +72,21 @@ export function distanceParts(distanceM: number): { key: 'merchant.radar.metres'
   const km = distanceM / 1000;
   return { key: 'merchant.radar.km', value: km < 10 ? km.toFixed(1) : String(Math.round(km)) };
 }
+
+/** A courier's dot radius on the radar, px. */
+export const RADAR_DOT_R = 7;
+/** Ticket number size on the radar, px (about 2/3 of it above the baseline). */
+export const RADAR_LABEL_SIZE = 9;
+/** Half the width of a 4-digit ticket at that size, px: the label never runs off the side. */
+const LABEL_HALF_W = 12;
+
+/**
+ * Where a dot's ticket number sits (text baseline, centred): just above the dot, or just below it when
+ * the dot is on the top edge (a courier due north at 3 km) and the number would be cut off.
+ */
+export function radarLabelAt(x: number, y: number, size: number): { x: number; y: number } {
+  const above = y - RADAR_DOT_R - 3;
+  const top = above - RADAR_LABEL_SIZE * 0.75;
+  const ly = top >= 1 ? above : y + RADAR_DOT_R + 3 + RADAR_LABEL_SIZE * 0.75;
+  return { x: Math.min(size - LABEL_HALF_W, Math.max(LABEL_HALF_W, x)), y: ly };
+}

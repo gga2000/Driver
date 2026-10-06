@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { FinanceDeskView, RoundStop } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { arabicDay } from '@/lib/control-room';
 import { formatClock, formatIqd, formatMoney } from '@/lib/format';
 import { hasAny, useMyRoles } from '@/lib/me';
@@ -45,7 +45,7 @@ export function CollectionRound({ desk }: { desk: FinanceDeskView }) {
     <section data-testid="cash-round">
       <Card
         title={t('console.fin_round', { time: formatClock(r.at) })}
-        hint={r.stops.length ? t('console.fin_round_summary', { amount: formatMoney(r.totalIqd), n: couriers, stops: r.stops.length }) : undefined}
+        hint={r.stops.length ? t('console.fin_round_summary', { amount: formatMoney(r.totalIqd), n: couriers, stops: t('console.fin_round_stops', { n: r.stops.length }) }) : undefined}
         actions={
           r.stops.length ? (
             <Button icon={<IconPrinter size={16} />} onClick={print} data-testid="round-print">
@@ -87,7 +87,9 @@ export function CollectionRound({ desk }: { desk: FinanceDeskView }) {
           </>
         )}
       </Card>
-      <CollectDialog courier={collecting} onClose={() => setCollecting(null)} />
+      {/* The dialog follows the desk as it refreshes: what he holds can change while it is open (he
+          hands a restaurant its cash, pays at an agent). Gone from the round means he holds nothing. */}
+      <CollectDialog courier={collecting ? (r.stops.flatMap((st) => st.couriers).find((c) => c.driverId === collecting.driverId) ?? { ...collecting, heldIqd: 0 }) : null} onClose={() => setCollecting(null)} />
       <RoundPrint desk={desk} />
     </section>
   );
@@ -183,12 +185,17 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
   const [amount, setAmount] = useState('');
   const [code, setCode] = useState('');
   const [key, setKey] = useState('');
+  const driverId = courier?.driverId ?? null;
+  const held = courier?.heldIqd ?? 0;
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  // A fresh form per courier opened — not on every desk refresh, which would wipe what was typed.
   useEffect(() => {
-    if (!courier) return;
-    setAmount(formatIqd(courier.heldIqd));
+    if (!driverId) return;
+    setAmount(formatIqd(heldRef.current));
     setCode('');
-    setKey(receiptKey(courier.driverId, Date.now()));
-  }, [courier]);
+    setKey(receiptKey(driverId, Date.now()));
+  }, [driverId]);
   const record = useMutation(
     trpc.ops.recordCashReceipt.mutationOptions({
       onSuccess: (r) => {
@@ -196,10 +203,14 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
         void qc.invalidateQueries(trpc.finance.desk.pathFilter());
         onClose();
       },
-      onError: (e) => toast({ title: t('console.fin_collect_failed'), body: e.message, tone: 'bad' }),
+      onError: (e) => {
+        // He handed some cash on (or the desk was a poll behind) since the dialog opened: refresh what
+        // he holds, so the field shows "أكثر من اللي بيده" against today's number.
+        if (e.data?.code === 'cash_receipt_exceeds_held') void qc.invalidateQueries(trpc.finance.desk.pathFilter());
+        toast({ title: t('console.fin_collect_failed'), body: e.message, tone: 'bad' });
+      },
     }),
   );
-  const held = courier?.heldIqd ?? 0;
   const value = parseAmount(amount);
   const problem = collectAmountProblem(value, held);
   const ready = problem === null && codeValid(code);

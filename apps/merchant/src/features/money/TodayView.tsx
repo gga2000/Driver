@@ -342,7 +342,7 @@ function SalesPanel({ today, now, onStatement }: { today: MoneyToday; now: numbe
   return (
     <Panel
       title={t('merchant.money.sales_title')}
-      caption={`${dates.day(now, now)} · ${t('merchant.money.sales_orders', { count: today.orders })}`}
+      caption={today.orders > 0 ? `${dates.day(now, now)} · ${t('merchant.money.sales_orders', { count: today.orders })}` : dates.day(now, now)}
       icon="chart"
       testID="sales"
       aside={<Button label={t('merchant.money.tab_statement')} variant="ghost" size="sm" onPress={onStatement} testID="sales-statement" />}

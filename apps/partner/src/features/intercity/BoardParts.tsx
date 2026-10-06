@@ -7,7 +7,7 @@ import { Card, Icon, StatusPill, Text, useTheme, type StatusTone } from '@driver
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { cityName, countdownLabel, demandLine, departureState, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from './labels';
-import { clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
+import { boardedSeats, clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
 
 /** Section title with an optional one-line explainer. */
 export function SectionHead({ title, sub, trailing }: { title: string; sub?: string; trailing?: ReactNode }) {
@@ -81,7 +81,7 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
   const t = useT();
   const live = dep.state === 'scheduled' || dep.state === 'boarding';
   const pending = pendingPickups(dep).length;
-  const checked = dep.bookings.filter((b) => b.state === 'checked_in').length;
+  const checked = boardedSeats(dep.bookings);
   const to = cityName(t, destinationCity(corridorCity(dep.corridorId), dep.direction));
   return (
     <Card testID={`my-departure-${dep.id}`} onPress={() => router.push(`/intercity/departure/${dep.id}`)} accessibilityLabel={`${timeWithPeriod(t, dep.departAt)} ${garage?.nameAr ?? ''}`} padding={0} style={{ overflow: 'hidden' }}>

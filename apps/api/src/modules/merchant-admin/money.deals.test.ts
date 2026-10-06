@@ -36,6 +36,18 @@ describe('merchant money with its own deals (G-87)', () => {
     ]);
   });
 
+  it('money.today counts the orders its sales are made of, not the kitchen\'s open orders', async () => {
+    const h = ledgerHarness();
+    await h.ledger.recordAll(postOrderClosed(workedExample({ orderId: 'od' }), AZIZIYAH_MONEY_RULES).money);
+    const statement = await h.ledger.statement(Accounts.merchantCash('m1'));
+    // One delivered order (booked), two still cooking or on the shelf (nothing booked yet).
+    const orders = new Map([order('od'), order('ok', { state: 'preparing' }), order('or', { state: 'ready' })]);
+    const today = composeMoneyToday({ merchantOrgId: 'm1', localDate: '2026-10-03', statement, orders, balance: await h.merchantCash.balance('m1'), rules: AZIZIYAH_MONEY_RULES });
+    expect(today).toMatchObject({ orders: 1, salesIqd: 15000 });
+    const none = composeMoneyToday({ merchantOrgId: 'm1', localDate: '2026-10-03', statement: { ...statement, lines: [] }, orders, balance: await h.merchantCash.balance('m1'), rules: AZIZIYAH_MONEY_RULES });
+    expect(none).toMatchObject({ orders: 0, salesIqd: 0, netIqd: 0 });
+  });
+
   it('statement: a rounded deal shows the exact deal and the rounding given back; the net is the ledger cost', async () => {
     const h = ledgerHarness();
     // 15 % of 15,000 = 2,250 promised; the total rounded up to the 500 step, so the deal cost 2,000.

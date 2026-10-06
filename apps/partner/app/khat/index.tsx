@@ -1,6 +1,6 @@
 import { router, Stack } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshControl, View, type ScrollView } from 'react-native';
 import type { AbsenceReason, KhatRunTrip, KhatStopView } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
@@ -38,6 +38,7 @@ export default function KhatRun() {
   // The run he just finished is kept from the last answer so the sweep and the summary stay on
   // screen even if today's list moves on.
   const [finishedRun, setFinishedRun] = useState<KhatRunTrip | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const trips = useMemo(() => {
     const live = run.data?.trips ?? [];
     if (!finishedRun) return live;
@@ -110,6 +111,8 @@ export default function KhatRun() {
     try {
       const after = await actions.confirmEmptyCar.mutateAsync({ tripId: trip.tripId });
       setFinishedRun(after);
+      // The sweep card was far down the list; the run's summary and "خلص خط اليوم" are at the top.
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
       theme.haptic('success');
       toast.show({ message: t('partner.kh2_sweep_saved'), tone: 'success', icon: 'check' });
     } catch (err) {
@@ -134,7 +137,7 @@ export default function KhatRun() {
   const sweep = trip ? needsSweep(trip) : false;
 
   return (
-    <Screen testID="khat-run" edges={['bottom']} refreshControl={<RefreshControl refreshing={run.isRefetching} onRefresh={() => void Promise.all([run.refetch(), subs.refetch()])} />}>
+    <Screen testID="khat-run" edges={['bottom']} scrollRef={scrollRef} refreshControl={<RefreshControl refreshing={run.isRefetching} onRefresh={() => void Promise.all([run.refetch(), subs.refetch()])} />}>
       <Stack.Screen options={{ title: t('partner.khat_card_title'), headerRight: trip && !finished ? () => <SosControl subject={{ kind: 'trip', id: trip.tripId }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
 
       {offers.length > 0 && !underway ? (

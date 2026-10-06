@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
 import {
+  boardedSeats,
   clampDepart,
   clampOffer,
   clockLabel,
@@ -119,6 +120,17 @@ describe('the departure', () => {
     expect(occ.get('back_left')).toMatchObject({ kind: 'rider', firstName: null, status: 'late' });
     expect(occ.get('back_middle')).toMatchObject({ kind: 'free' });
     expect(occ.get('back_right')).toMatchObject({ kind: 'walkup', travellingAs: 'rijal' });
+  });
+
+  it('counts boarded seats, not bookings (one booking can hold two seats)', () => {
+    const bookings = [
+      row({ bookingId: 'z', seatIds: ['front'], state: 'checked_in' }),
+      row({ bookingId: 'm', seatIds: ['rear_left', 'rear_middle'], state: 'checked_in' }),
+      row({ bookingId: 'h', seatIds: ['middle_left'] }),
+      row({ bookingId: 'a', seatIds: [], state: 'no_show' }),
+    ];
+    expect(boardedSeats(bookings)).toBe(3);
+    expect(boardedSeats([])).toBe(0);
   });
 
   it('rider status and manifest order: the late and pending first, no-shows last', () => {

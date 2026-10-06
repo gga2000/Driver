@@ -120,11 +120,13 @@ export function composeMoneyToday(input: {
   const commissionIqd = lines.reduce((s, l) => s + l.commissionIqd, 0);
   const feesIqd = lines.reduce((s, l) => s + l.feesIqd, 0);
   const dealsIqd = [...deals.values()].reduce((s, d) => s + d.itemsIqd + d.deliveryIqd, 0);
-  const counted = [...input.orders.values()].filter((o) => !['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'placed'].includes(o.state)).length;
+  // The orders the sales figure is made of: an order's money is booked when it is delivered, so the
+  // kitchen's open orders are not counted next to sales that don't include them yet.
+  const sold = lines.filter((l) => l.itemsIqd > 0).length;
   return {
     merchantOrgId: input.merchantOrgId,
     localDate: input.localDate,
-    orders: counted,
+    orders: sold,
     salesIqd,
     commissionIqd,
     commissionByTier: [...tiers.entries()].map(([tier, t]) => ({ tier, pct: tierPct(tier, input.rules), ...t })),

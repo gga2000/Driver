@@ -54,7 +54,8 @@ export function Page({ title, subtitle, back, aside, children, scroll = true, ma
     <SafeAreaView testID={testID} edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       {header}
       {scroll ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={[column, { paddingBottom: theme.space[10], gap: theme.space[5] }, contentStyle]} keyboardShouldPersistTaps="handled">
+        // Phone: the last row scrolls clear of the floating "3 طلبات تنتظر" pill (48 px over the tab bar).
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[column, { paddingBottom: theme.space[wide ? 10 : 20], gap: theme.space[5] }, contentStyle]} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
       ) : (

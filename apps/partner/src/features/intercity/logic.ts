@@ -228,6 +228,14 @@ export function riderStatus(b: DriverBookingRow): RiderStatus {
   return 'waiting';
 }
 
+/**
+ * Seats already boarded: a booking can hold two or three seats (مريم and her sister), so "صعدوا" counts
+ * seats, the same unit as "6 من 7 مقاعد" and the green seats on the map — not bookings.
+ */
+export function boardedSeats(bookings: readonly Pick<DriverBookingRow, 'state' | 'seatIds'>[]): number {
+  return bookings.reduce((n, b) => (b.state === 'checked_in' ? n + b.seatIds.length : n), 0);
+}
+
 /** Seat → who sits there (booked riders by first name, walk-ups, free seats with their premium). */
 export function seatOccupants(dep: Pick<DriverDepartureView, 'seats' | 'bookings' | 'walkUps'>, names: readonly DepartureRiderName[] = []): Map<IntercitySeatId, SeatOccupant> {
   const nameOf = new Map(names.map((n) => [n.bookingId, n.firstName]));
