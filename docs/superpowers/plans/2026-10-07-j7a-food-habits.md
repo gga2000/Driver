@@ -95,7 +95,7 @@ Event `catalog.pot_posted {merchantOrgId, itemId, dishName, restaurantName, loca
 | `packages/contracts/src/merchant-admin-io.ts`, `routers/merchant-admin.ts` | `pot.*`, `story.*` |
 | `packages/contracts/src/tracking.ts`, `routers/orders.ts` | `Usual`, `orders.usuals` |
 | `packages/contracts/src/notify-io.ts` | category `dish_pot`, pref `dishPots`, template `dish_pot_today` |
-| `packages/db/prisma/schema.prisma` + `20261007130000_food_habits` | `daily_pots`, `dish_follows`, `notify_preferences.dish_pots` |
+| `packages/db/prisma/schema.prisma` + `20261007170000_food_habits` | `daily_pots`, `dish_follows`, `notify_preferences.dish_pots` |
 | `apps/api/src/modules/catalog/*` | repository (memory + Prisma), `CatalogService` pots/follows/story, `CatalogRpc` reads |
 | `apps/api/src/modules/merchant-admin/*` | pot/story procedures, event with followers |
 | `apps/api/src/modules/tracking/usuals.ts` (+ test), `tracking.service.ts` | usuals |
