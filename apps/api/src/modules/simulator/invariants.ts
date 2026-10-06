@@ -15,13 +15,13 @@ export interface QuarantinedEvent {
   recordedAt: Date;
 }
 
-/** G-91 inputs the ledger does not hold: who is covered, their offer answers, the settled peak shifts. */
+/** G-91 inputs the ledger does not hold: who is covered, their offer answers, the settled shifts. */
 export interface GuaranteeSnapshot {
   /** Drivers the guarantee covers (city switch on, cap role covered: the bike couriers). */
   covered: string[];
   /** Every offer answer the drivers gave (accepted, declined, timed out), from the events log. */
   offers: Array<{ driverId: string; at: Date; accepted: boolean }>;
-  /** The day's peak shifts that were over when the Sunday settlement ran (empty in live runs). */
+  /** The shifts starting on the day's date that were over when the Sunday settlement ran (empty in live runs). */
   windows: Array<{ id: string; from: Date; to: Date }>;
 }
 
@@ -368,14 +368,14 @@ export const INVARIANTS: readonly Definition[] = [
   {
     name: 'shift_guarantee_once_and_exact',
     description:
-      'G-91 shift guarantee: switched off (Ali, 2026-10-06; MoneyRules.guarantee.enabled false) → no top-up for any driver in any peak shift and nobody covered; when on, at most one top-up per driver per peak shift, platform-funded, only to covered drivers who met the conditions (≥ 85 % acceptance, ≤ 1 cancel after accept, ≥ 3 completed jobs), equal to max(0, 10,000 − what the shift’s jobs earned) — recounted here from the trips, offer answers and ledger rows',
+      'G-91 shift guarantee: switched off (Ali, 2026-10-06; MoneyRules.guarantee.enabled false) → no top-up for any driver in any shift and nobody covered; when on, at most one top-up per driver per shift (06:00–15:00, 15:00–02:00), platform-funded, only to covered drivers who met the conditions (≥ 85 % acceptance, ≤ 1 cancel after accept, ≥ 3 completed jobs), equal to max(0, 10,000 − what the shift’s jobs earned) — recounted here from the trips, offer answers and ledger rows',
     run: (s) => {
       const bad: string[] = [];
       const g = AZIZIYAH_MONEY_RULES.guarantee;
       const snap = s.guarantee ?? { covered: [], offers: [], windows: [] };
       const rows = s.ledger.filter((e) => e.type === 'driver_incentive' && (e.memo ?? '').startsWith('guarantee:'));
       if (!g.enabled) {
-        // Switched off: every driver who answered an offer, in every settled peak shift of the day, got nothing.
+        // Switched off: every driver who answered an offer, in every settled shift of the day, got nothing.
         for (const e of rows) bad.push(`${e.id}: guarantee ${e.amount} paid to ${e.toAccount} for ${(e.memo ?? '').slice('guarantee:'.length)} while the guarantee is switched off`);
         for (const driverId of snap.covered) bad.push(`${driverId} is covered while the guarantee is switched off`);
         const drivers = new Set(snap.offers.map((o) => o.driverId));
@@ -395,7 +395,7 @@ export const INVARIANTS: readonly Definition[] = [
       for (const key of paid.keys()) {
         const [driverId, windowId] = key.split('|') as [string, string];
         if (!covered.has(driverId)) bad.push(`${driverId} is not covered but was paid for ${windowId}`);
-        else if (!settled.has(windowId)) bad.push(`${driverId} paid for ${windowId}, not a settled peak shift of the day`);
+        else if (!settled.has(windowId)) bad.push(`${driverId} paid for ${windowId}, not a settled shift of the day`);
       }
       let checked = rows.length;
       for (const driverId of snap.covered) {

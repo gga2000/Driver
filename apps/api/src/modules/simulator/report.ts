@@ -70,7 +70,7 @@ export interface SimulationReport {
     /** "الخردة علينا": drop-offs where the courier had no change and the rest went to the wallet. */
     noChangeCredits: number;
     noChangeCreditIqd: number;
-    /** G-91 shift-guarantee top-ups the Sunday settlement paid for the day's peak shifts. */
+    /** G-91 shift-guarantee top-ups the Sunday settlement paid for the day's shifts (06:00–15:00 and 15:00–02:00). */
     guaranteeTopUps: number;
     guaranteeTopUpIqd: number;
   };

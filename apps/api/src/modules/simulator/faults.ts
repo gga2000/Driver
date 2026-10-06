@@ -83,7 +83,7 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     // The same shift's top-up posted a second time (a Sunday re-run without the once-per-shift key).
     // Switched off (Aziziyah, Ali 2026-10-06) nobody is covered: any courier who answered an offer is paid.
     const driverId = s.guarantee?.covered[0] ?? first(s.guarantee?.offers ?? [], 'a driver who answered an offer').driverId;
-    const w = first(s.guarantee?.windows ?? [], 'a settled peak shift');
+    const w = first(s.guarantee?.windows ?? [], 'a settled shift');
     const paid = s.ledger.find((e) => e.type === 'driver_incentive' && e.memo === `guarantee:${w.id}`);
     const to = paid?.toAccount ?? `driver:${driverId}`;
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'driver_incentive', amount: 2500, fromAccount: 'platform', toAccount: to, memo: `guarantee:${w.id}`, postingGroupId: `incentive:guarantee:fault:${i}` }));

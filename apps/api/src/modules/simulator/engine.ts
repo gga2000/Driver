@@ -88,7 +88,7 @@ export class Simulation implements SimContext {
   private lastRetryDrainT = -Infinity;
   private unsubscribe: (() => void) | null = null;
   private cards: BoardCard[] = [];
-  /** The day's peak shifts were settled (in-process runs); a live run stops before any Sunday run. */
+  /** The day's guarantee shifts were settled (in-process runs); a live run stops before any Sunday run. */
   private guaranteeSettled = false;
 
   constructor(
@@ -357,11 +357,29 @@ export class Simulation implements SimContext {
 
   /**
    * The Sunday run's G-91 settlement for the simulated day (in-process only: the fake clock is past
-   * the day): every covered courier's peak shifts that are over get their top-up, once.
+   * the day): every covered courier's shifts that started on the day's local date get their top-up,
+   * once. The evening shift runs to 02:00 the next morning, so the fake clock is moved to its end
+   * first when the tail finished earlier (live runs never get here with a clock to move).
    */
   async settleGuarantees(): Promise<void> {
     this.guaranteeSettled = true;
-    await this.call('ledger.guarantee', () => this.s.guarantee.settle({ from: new Date(this.dayStart), to: new Date(this.dayEnd) }));
+    const range = this.guaranteeRange();
+    const lastEnd = Math.max(...this.dayShifts().map((w) => w.to.getTime()));
+    if (this.opts.advanceClock && this.t < lastEnd) this.t = this.opts.advanceClock(lastEnd - this.t).getTime();
+    await this.call('ledger.guarantee', () => this.s.guarantee.settle(range));
+  }
+
+  /** The simulated day's local date, midnight to midnight: the guarantee shifts that start on it. */
+  private guaranteeRange(): { from: Date; to: Date } {
+    const offsetMs = AZIZIYAH_MONEY_RULES.nightly.utcOffsetMin * 60_000;
+    const from = Math.floor((this.dayStart + offsetMs) / 86_400_000) * 86_400_000 - offsetMs;
+    return { from: new Date(from), to: new Date(from + 86_400_000) };
+  }
+
+  /** The guarantee shifts that start on the simulated day (the evening one ends 02:00 the next morning). */
+  private dayShifts() {
+    const range = this.guaranteeRange();
+    return peakWindows(range, AZIZIYAH_MONEY_RULES.guarantee.peaks, AZIZIYAH_MONEY_RULES.nightly.utcOffsetMin).filter((w) => w.from >= range.from && w.from < range.to);
   }
 
   /** Nightly courier return route (decisions §3): every courier hands each merchant its cash. */
@@ -414,7 +432,7 @@ export class Simulation implements SimContext {
     for (const account of await this.s.ledger.accounts()) for (const e of await this.s.ledger.eventsFor(account)) ledgerById.set(e.id, e);
     const merchants = [];
     for (const r of this.restaurants) merchants.push({ merchantId: r.orgId, balanceIqd: (await this.s.merchantCash.balance(r.orgId)).balanceIqd });
-    // G-91: who the guarantee covers, their offer answers (from the log), and the peak shifts of the day.
+    // G-91: who the guarantee covers, their offer answers (from the log), and the settled shifts of the day.
     const covered: string[] = [];
     const offerAnswers: GuaranteeSnapshot['offers'] = [];
     for (const d of this.drivers) {
@@ -425,8 +443,9 @@ export class Simulation implements SimContext {
       }
     }
     const now = this.appNow().getTime();
-    const windows = !this.guaranteeSettled ? [] : peakWindows({ from: new Date(this.dayStart), to: new Date(this.dayEnd) }, AZIZIYAH_MONEY_RULES.guarantee.peaks, AZIZIYAH_MONEY_RULES.nightly.utcOffsetMin)
-      .filter((w) => w.from.getTime() >= this.dayStart && w.to.getTime() <= Math.min(this.dayEnd, now))
+    // The same shifts `settle` paid: started on the day's date and over by now.
+    const windows = !this.guaranteeSettled ? [] : this.dayShifts()
+      .filter((w) => w.to.getTime() <= now)
       .map((w) => ({ id: w.id, from: w.from, to: w.to }));
     return {
       orders,
