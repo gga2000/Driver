@@ -177,8 +177,9 @@ function CashAtDoor({ pay }: { pay: ReturnType<typeof cashAtDoor> }) {
     return (
       <View style={{ width: '100%', gap: theme.space[3] }}>
         <ChangeCreditStrip amountIqd={pay.creditedIqd} />
-        <Text variant="footnote" color="textMuted" align="center" tabular testID="arrival-paid-note">
-          {t('cashchange.receipt_paid', { amount: amountParam(pay.paidIqd) })}
+        {/* The order's total first, so the credit is not a sum to work out: "الطلب 14,000 دينار · دفعت 25,000 دينار كاش". */}
+        <Text variant="label" weight={600} align="center" tabular testID="arrival-paid-note">
+          {t('cashchange.arrival_paid_total', { total: amountParam(pay.cashIqd), paid: amountParam(pay.paidIqd) })}
         </Text>
       </View>
     );

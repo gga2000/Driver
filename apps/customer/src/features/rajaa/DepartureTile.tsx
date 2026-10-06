@@ -57,7 +57,7 @@ export function DepartureTile({ dep, now, driver, onPress }: { dep: DepartureCar
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
           <View style={{ flex: 1, gap: theme.space[1] }}>
             {/* The board itself (audit d-2): split-flap time, then "بعد 25 دقيقة" or "الصعود بدأ". */}
-            <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="card" note={boarding ? t('rajaa.boarding_now') : undefined} countdown={mins > 0 && mins < 120} />
+            <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="card" note={boarding ? t('rajaa.boarding_now') : undefined} noteTone={boarding ? 'accent' : 'muted'} countdown={mins > 0 && mins < 120} />
             <Text variant="footnote" color="textMuted">
               {t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
             </Text>
