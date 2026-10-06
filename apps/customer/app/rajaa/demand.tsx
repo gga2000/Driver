@@ -6,7 +6,7 @@ import { formatHourRange, type MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
+import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, demandWindows, endpoints, holdCountdown, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
@@ -256,7 +256,7 @@ export default function DemandScreen() {
       <Section title={t('intercity.travelling_as')} hint={t('rajaa.travelling_as_hint')}>
         <ChipGroup
           required
-          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: 'user' as const }))}
+          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
           value={travellingAs ? [travellingAs] : []}
           onChange={(next) => setTravellingAs((next[0] as TravellingAs | undefined) ?? null)}
         />

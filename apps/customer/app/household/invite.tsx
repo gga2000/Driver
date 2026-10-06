@@ -44,7 +44,7 @@ export default function InviteMember() {
           value={[role]}
           onChange={(next) => setRole((next[0] as 'orderer' | 'member' | undefined) ?? role)}
           items={[
-            { id: 'orderer', label: t('household.role_orderer'), icon: 'bag' },
+            { id: 'orderer', label: t('household.role_orderer'), icon: 'food' },
             { id: 'member', label: t('household.role_member'), icon: 'user' },
           ]}
         />

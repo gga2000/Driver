@@ -263,7 +263,7 @@ export function OrderItems({ view }: { view: OrderTracking }) {
     <View testID="order-items" style={{ gap: theme.space[3] }}>
       {view.merchant ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Icon name="bag" size={18} color="textMuted" />
+          <Icon name="food" size={18} color="textMuted" />
           <Text variant="bodyStrong">{view.merchant.name}</Text>
         </View>
       ) : null}

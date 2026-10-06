@@ -27,9 +27,10 @@ export function Card({ children, elevation = 1, padding = 4, tone = 'surface', o
     borderRadius: theme.radius.xl,
     padding: theme.space[padding],
     borderWidth: elevation === 0 || tone !== 'surface' ? 1 : 0,
-    borderColor: tone === 'tint' ? theme.colors.accent : theme.colors.border,
+    // No accent box around a tint card in istikan (joy S2-11); light keeps its accent border.
+    borderColor: tone === 'tint' ? theme.colors.tintBorder : theme.colors.border,
     shadowColor: theme.colors.shadow,
-    shadowOpacity: theme.name === 'dark' ? 0 : e.shadowOpacity,
+    shadowOpacity: theme.scheme === 'dark' ? 0 : e.shadowOpacity,
     shadowRadius: e.shadowRadius,
     shadowOffset: e.shadowOffset,
     elevation: e.elevation,

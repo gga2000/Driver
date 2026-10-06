@@ -551,6 +551,8 @@ model Place {
   flaggedAt          DateTime?                             @map("flagged_at")
   /// Courier arrival taps near the pin: [{lat, lng, at, distanceM}] — pin drifts toward the median after 3+.
   arrivalSamples     Json                                  @default("[]") @map("arrival_samples")
+  /// Which gate (maps program a4): {lat, lng} the owner marked within 150 m of the pin; couriers go there.
+  entrance           Json?
   /// Customer saved place: home / work / custom. NULL = a learned place or a landmark.
   label              String?
   /// Zone key resolved from the pin on the server (saved places).

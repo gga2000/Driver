@@ -7,8 +7,8 @@ import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
 import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource } from './device';
 import { nearestZone, zoneCentre } from './geo';
-import { PinMap } from './PinMap';
 import { placeIcon } from '@/features/places/place-icon';
+import { PinPicker } from '@/features/places/PinPicker';
 
 export interface PlaceEditorValue {
   label: SavedPlaceLabel;
@@ -19,9 +19,11 @@ export interface PlaceEditorValue {
   note: string;
   photos: PlacePhotoRef[];
   shareWithHousehold: boolean;
+  /** Which gate couriers come in by (maps program a4); null = the pin itself. */
+  entrance: LatLng | null;
 }
 
-export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false };
+export const EMPTY_PLACE_EDITOR: PlaceEditorValue = { label: 'home', name: '', pin: null, zoneId: null, note: '', photos: [], shareWithHousehold: false, entrance: null };
 
 const LABEL_KEY = { home: 'onboarding.place_label_home', work: 'onboarding.place_label_work', custom: 'onboarding.place_label_other' } as const;
 
@@ -40,16 +42,20 @@ export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null 
     ...(v.note.trim() ? { note: v.note.trim() } : {}),
     photoIds: v.photos.map((p) => p.id),
     shareWithHousehold: v.shareWithHousehold,
+    ...(v.entrance ? { entrance: v.entrance } : {}),
   };
 }
 
 /** Centre and near zones first (most orders); "كل المناطق" shows all 34. */
 const COMMON_ZONES = AZIZIYAH_ZONES.filter((z) => z.tier === 'centre' || z.tier === 'near');
+/** Where the map opens for a new place with no zone yet: the middle of the town. */
+const AZIZIYAH_CENTRE: LatLng = { lat: 32.9085, lng: 45.0655 };
 
 /**
- * Saved-place editor (domain §7, customer spec §10): what the place is, where exactly (tap the map,
- * use the phone's GPS, or pick a zone when the map is hard), a note for the courier, a gate photo,
- * and household sharing. Controlled; the screen owns saving.
+ * Saved-place editor (domain §7, customer spec §10): what the place is, where exactly (move the map
+ * under the pin as on the ride screen — maps program a1 — use the phone's GPS with its accuracy shown,
+ * or pick a zone when the map is hard), a note for the courier, a gate photo, and household sharing.
+ * Controlled; the screen owns saving.
  */
 export function PlaceEditor({ value, onChange, canShare = false }: { value: PlaceEditorValue; onChange: (next: PlaceEditorValue) => void; canShare?: boolean }) {
   const theme = useTheme();
@@ -60,6 +66,10 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
   const [allZones, setAllZones] = useState(false);
   const [locating, setLocating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Where the map opens (the saved pin, else the zone, else the town), and camera moves asked for.
+  const [start] = useState<LatLng>(() => value.pin ?? (value.zoneId ? zoneCentre(value.zoneId) : null) ?? AZIZIYAH_CENTRE);
+  const [recentre, setRecentre] = useState<{ pin: LatLng; seq: number; accuracyM?: number } | null>(null);
+  const moveTo = (pin: LatLng, accuracyM?: number | null) => setRecentre((r) => ({ pin, seq: (r?.seq ?? 0) + 1, ...(accuracyM ? { accuracyM } : {}) }));
 
   const zones = useMemo(() => {
     const list = allZones ? AZIZIYAH_ZONES : COMMON_ZONES;
@@ -80,7 +90,7 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
     setLocating(false);
     if (fix === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger' });
     else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
-    else setPin(fix.pin);
+    else moveTo(fix.pin, fix.accuracyM);
   };
 
   const addPhoto = async (source: PhotoSource) => {
@@ -121,7 +131,9 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
         <Text variant="footnote" color="textMuted">
           {t('place.map_hint')}
         </Text>
-        <PinMap testID="place-map" pin={value.pin} zoneId={value.zoneId} onPin={setPin} accessibilityLabel={t('place.map_hint')} />
+        <View testID="place-map" accessibilityLabel={t('place.map_hint')} style={{ height: 280, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+          <PinPicker initial={start} onCentre={setPin} onMoving={() => undefined} recentre={recentre} />
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
             <Icon name="map-pin" size={18} color={value.zoneId ? 'accentText' : 'textMuted'} />
@@ -133,6 +145,8 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
         </View>
       </View>
 
+      <EntranceStep value={value} onChange={onChange} />
+
       <View style={{ gap: theme.space[3] }}>
         <Text variant="label" color="textMuted">
           {t('place.zone_fallback')}
@@ -143,7 +157,7 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           value={value.zoneId ? [value.zoneId] : []}
           onChange={(next) => {
             const c = next[0] ? zoneCentre(next[0]) : null;
-            if (c && next[0]) onChange({ ...value, pin: c, zoneId: next[0] });
+            if (c) moveTo(c);
           }}
           items={zones.map((z) => ({ id: z.id, label: zoneName(z.id, locale) }))}
         />
@@ -214,6 +228,54 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Which gate (maps program a4): when the house is entered from another street or an alley, the
+ * customer marks that gate on a second map that starts at the pin, and couriers go straight to it.
+ * Optional; "شيل" goes back to the pin. Shown once the place has a pin.
+ */
+function EntranceStep({ value, onChange }: { value: PlaceEditorValue; onChange: (next: PlaceEditorValue) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (!value.pin) return null;
+  const marking = open || value.entrance !== null;
+  return (
+    <View style={{ gap: theme.space[3] }} testID="place-entrance">
+      <View style={{ gap: theme.space[1] }}>
+        <Text variant="title">{t('place.entrance_title')}</Text>
+        <Text variant="footnote" color="textMuted">
+          {t('place.entrance_hint')}
+        </Text>
+      </View>
+      {marking ? (
+        <>
+          <View accessibilityLabel={t('place.entrance_map_hint')} style={{ height: 220, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+            <PinPicker initial={value.entrance ?? value.pin} tone="pickup" onCentre={(entrance) => onChange({ ...value, entrance })} onMoving={() => undefined} recentre={null} testID="place-entrance-map" />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
+            <Text variant="label" color={value.entrance ? 'successText' : 'textMuted'} style={{ flexShrink: 1 }}>
+              {value.entrance ? t('place.entrance_set') : t('place.entrance_map_hint')}
+            </Text>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="x"
+              label={t('place.entrance_remove')}
+              onPress={() => {
+                setOpen(false);
+                onChange({ ...value, entrance: null });
+              }}
+              testID="place-entrance-remove"
+            />
+          </View>
+        </>
+      ) : (
+        <Button variant="secondary" size="sm" icon="map-pin" label={t('place.entrance_add')} onPress={() => setOpen(true)} testID="place-entrance-add" />
+      )}
     </View>
   );
 }

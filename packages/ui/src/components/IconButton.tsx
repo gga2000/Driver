@@ -6,7 +6,8 @@ import { AnimatedPressable, usePressScale } from '../motion/motion';
 import { useTheme, type HapticKind } from '../theme/ThemeProvider';
 import { Badge } from './Badge';
 
-export type IconButtonVariant = 'plain' | 'tonal' | 'accent' | 'outline';
+/** `stepper`: the stepper's "+" (an accent blob in light, a neutral key with a strong ring in istikan). */
+export type IconButtonVariant = 'plain' | 'tonal' | 'accent' | 'outline' | 'stepper';
 
 export interface IconButtonProps {
   icon: IconName;
@@ -28,6 +29,7 @@ const PALETTE: Record<IconButtonVariant, { bg?: ThemeColorKey; fg: ThemeColorKey
   tonal: { bg: 'surfaceSunken', fg: 'text' },
   accent: { bg: 'accent', fg: 'onAccent' },
   outline: { bg: 'surface', fg: 'text', border: 'border' },
+  stepper: { bg: 'stepperPlus', fg: 'onStepperPlus', border: 'stepperPlusBorder' },
 };
 
 export function IconButton({
@@ -67,7 +69,7 @@ export function IconButton({
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: p.bg ? theme.colors[p.bg] : 'transparent',
-          borderWidth: p.border ? 1 : 0,
+          borderWidth: p.border ? (variant === 'stepper' ? 1.5 : 1) : 0,
           borderColor: p.border ? theme.colors[p.border] : undefined,
           opacity: disabled ? theme.state.disabledOpacity : 1,
         },

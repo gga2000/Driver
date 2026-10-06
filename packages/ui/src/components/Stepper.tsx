@@ -74,7 +74,7 @@ export function Stepper({ value, onChange, min = 0, max = 99, size = 'md', acces
       <IconButton
         icon="plus"
         size={btn}
-        variant="accent"
+        variant="stepper"
         accessibilityLabel={t('ui.increase')}
         disabled={value >= max}
         onPress={() => onChange(clampStep(value, 1, min, max))}

@@ -19,10 +19,10 @@ export const MAP_H = 280;
 
 /** Where each spot sits on `WelcomeMap`'s drawing: the old market, the bridge, a garage on the Baghdad road… */
 export const SPOTS: readonly Spot[] = [
-  { key: 'food', icon: 'bag', x: 236 / MAP_W, y: 150 / MAP_H },
-  { key: 'tuktuk', icon: 'tuktuk', x: 128 / MAP_W, y: 132 / MAP_H },
-  { key: 'seat', icon: 'garage', x: 300 / MAP_W, y: 52 / MAP_H },
-  { key: 'taxi', icon: 'car', x: 300 / MAP_W, y: 196 / MAP_H },
+  { key: 'food', icon: 'food', x: 236 / MAP_W, y: 150 / MAP_H },
+  { key: 'tuktuk', icon: 'tuktuk-fringe', x: 128 / MAP_W, y: 132 / MAP_H },
+  { key: 'seat', icon: 'rajaa', x: 300 / MAP_W, y: 52 / MAP_H },
+  { key: 'taxi', icon: 'taxi', x: 300 / MAP_W, y: 196 / MAP_H },
   { key: 'home', icon: 'home', x: 196 / MAP_W, y: 236 / MAP_H },
   { key: 'soon', icon: 'parcel', x: 52 / MAP_W, y: 222 / MAP_H },
 ];

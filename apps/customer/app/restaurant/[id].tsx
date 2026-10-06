@@ -253,7 +253,7 @@ function Facts({ r }: { r: RestaurantCard }) {
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[3] }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Icon name="star" size={16} color="accent" filled />
+          <Icon name="star" size={16} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
           <Text variant="label" weight={600} tabular>
             {r.rating ? t('restaurant.rating', { rating: r.rating.avg.toFixed(1), count: r.rating.count }) : t('restaurant.rating_new')}
           </Text>

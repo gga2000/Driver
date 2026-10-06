@@ -82,8 +82,8 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
   const enter = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: y.value }] }));
   const c = STATUS_TONES[tone];
   // Inverted surface: the brand ink on light, cream on dark.
-  const bg = theme.name === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
-  const fg = theme.name === 'light' ? theme.colors.bg : theme.colors.text;
+  const bg = theme.scheme === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
+  const fg = theme.scheme === 'light' ? theme.colors.bg : theme.colors.text;
   const hold = (held: boolean) => () => onHold?.(held);
   return (
     <Animated.View
@@ -141,7 +141,7 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
             onBlur={hold(false)}
             style={{ paddingHorizontal: theme.space[2], minHeight: theme.hitTarget, minWidth: theme.hitTarget, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text variant="label" weight={700} color={theme.name === 'light' ? theme.colors.accentTint : theme.colors.accentText}>
+            <Text variant="label" weight={700} color={theme.scheme === 'light' ? theme.colors.accentTint : theme.colors.accentText}>
               {action.label}
             </Text>
           </Pressable>

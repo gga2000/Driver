@@ -211,7 +211,13 @@ importers:
       '@driver/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@expo-google-fonts/alexandria':
+        specifier: 0.4.2
+        version: 0.4.2
       '@expo-google-fonts/ibm-plex-sans-arabic':
+        specifier: 0.4.2
+        version: 0.4.2
+      '@expo-google-fonts/marhey':
         specifier: 0.4.2
         version: 0.4.2
       '@expo/metro-runtime':
@@ -1919,8 +1925,14 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+  '@expo-google-fonts/alexandria@0.4.2':
+    resolution: {integrity: sha512-maaOCuuDgt0ek1wxquTOgT4EKxDRvDxNSXuMyHP9esxFW56EZm9Xd+PTurzeYXHhDL6p9F5sn8AWVSXQ5wVlaQ==}
+
   '@expo-google-fonts/ibm-plex-sans-arabic@0.4.2':
     resolution: {integrity: sha512-Cx24iSo/4pWBKHVf69tbVLDUiHWCSTHrhKPw/+SYWLDnyiX10WXh+amNWRSo9N3ruwd+qk9AQgDaIY1KO0u1Ig==}
+
+  '@expo-google-fonts/marhey@0.4.2':
+    resolution: {integrity: sha512-XZ3bVxfsBLpnBtvLhTmwA4OS1MlaIh+sv8LJqb5xppUtjEw6k4EfgO3R1jt8qAhbIa9WBGkCgfd4uRmC4arhQg==}
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
@@ -9525,7 +9537,11 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@expo-google-fonts/alexandria@0.4.2': {}
+
   '@expo-google-fonts/ibm-plex-sans-arabic@0.4.2': {}
+
+  '@expo-google-fonts/marhey@0.4.2': {}
 
   '@expo/bunyan@4.0.1':
     dependencies:
