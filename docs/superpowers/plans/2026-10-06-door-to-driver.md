@@ -17,3 +17,7 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.3 (f6, a5). Next slices: a
 3. Customer: `deliveryPointOf` sends `placeId` for synced places (+ test).
 4. Partner: `DoorCard` (first-visit banner + call, note, thumbnails, full-screen viewer, opens on arrival); copy.
 5. Verify over the wire with the demo (done: door note, signed photo, firstVisit true), typecheck, lint, tests, commit, push, CI.
+
+## Slice 2 — self-fixing door points (a3)
+
+`DOOR_RULES` (contracts place.ts: accuracy ≤ 30 m, cluster 60 m, 3 agreeing, newest 10, ≤ 150 m from the pin). `ArriveStopInput.accuracyM` → `stops.arrival_accuracy_m` (migration `20261006170000_stop_arrival_accuracy`; a tap without a fix uses the last trail point's accuracy). `stop.completed` carries `door { placeId, lat, lng, accuracyM }` for drop-offs at saved places; `SavedPlacesService` subscribes (`places:door-learning`) and `learnDoor` keeps one sample per drop-off in `places.arrival_samples` (own writer, never overwritten by an owner's edit). `doorPoint` = median of the cluster, null until 3 agree; samples far from the current pin are ignored (moving the pin forgets the old door). Orders get `dropoff.door` from `deliveryPlace` (a client's door is dropped); dispatch's drop-off stop targets the door (navigation and the 60 m geofence), the customer's pin is unchanged. `SavedPlaceView.doorConfirmed` ("الباب مأكّد" on the place screen), `PartnerDoor.doorConfirmed` (chip on the job). The partner app sends the fix accuracy with "وصلت" (also when replayed offline).

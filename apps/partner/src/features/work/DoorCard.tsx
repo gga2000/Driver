@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, Modal, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PartnerDoor } from '@driver/contracts';
-import { Button, Icon, Text, useTheme } from '@driver/ui';
+import { Button, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { absoluteUrl } from '@/features/account/photo';
 import { useT } from '@/lib/i18n';
 
 const THUMB = 72;
 
 /**
- * The customer's door on a drop-off at a saved place (maps program f6, a5): "first time here, call
- * before you get there", the place's standing note, and its door photos. The photo opens full screen
+ * The customer's door on a drop-off at a saved place (maps program f6, a5, a3): "first time here, call
+ * before you get there", the place's standing note, its door photos, and "الباب مأكّد" once earlier
+ * couriers' arrivals agree (the stop's pin is then that door). The photo opens full screen
  * by itself once when he arrives (the moment he is looking for the door), and on a tap any time.
  */
 export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor; arrived: boolean; onCall: () => void; stopId: string }) {
@@ -42,11 +43,14 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
         </View>
       ) : null}
 
-      {door.placeNote || door.photos.length > 0 ? (
+      {door.placeNote || door.photos.length > 0 || door.doorConfirmed ? (
         <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
-          <Text variant="caption" weight={600} color="textMuted">
-            {t('partner.door_title')}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            <Text variant="caption" weight={600} color="textMuted" style={{ flex: 1 }}>
+              {t('partner.door_title')}
+            </Text>
+            {door.doorConfirmed ? <StatusPill size="sm" tone="success" icon="check" label={t('partner.door_confirmed')} /> : null}
+          </View>
           {door.placeNote ? (
             <Text variant="label" testID="job-door-note">
               {door.placeNote}

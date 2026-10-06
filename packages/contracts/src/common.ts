@@ -22,7 +22,16 @@ export type LatLng = z.infer<typeof LatLng>;
  * the customer's saved place it was picked from (maps program SP3d) — the server keeps it only when
  * the orderer may use that place, and the courier then sees its door photos and note during the job.
  */
-export const DeliveryPoint = z.object({ zoneKey: z.string().min(1), pin: LatLng.optional(), placeId: z.string().min(1).max(64).optional() });
+export const DeliveryPoint = z.object({
+  zoneKey: z.string().min(1),
+  pin: LatLng.optional(),
+  placeId: z.string().min(1).max(64).optional(),
+  /**
+   * Set by the server only (a client's value is dropped): the saved place's door as couriers' arrivals
+   * learned it (maps program a3). The courier navigates and arrives there; `pin` stays the customer's.
+   */
+  door: LatLng.optional(),
+});
 export type DeliveryPoint = z.infer<typeof DeliveryPoint>;
 
 export const CityId = z.string().min(1);

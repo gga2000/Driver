@@ -34,6 +34,18 @@ describe('OrdersService — placing', () => {
     expect((await h.repo.find(theirs.id))!.order.dropoff).toEqual({ zoneKey: 'zakur', pin: HOME });
   });
 
+  it('goes to the door couriers learned for the place; a door sent by the app is never kept (maps a3)', async () => {
+    const h = ordersHarness();
+    const HOME = { lat: 32.8871, lng: 45.0766 };
+    const DOOR = { lat: 32.8872, lng: 45.0766 };
+    h.placeOwners.set('pl_mine', 'c1');
+    h.placeDoors.set('pl_mine', DOOR);
+    const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'zakur', pin: HOME, placeId: 'pl_mine', door: { lat: 1, lng: 1 } } }));
+    expect((await h.repo.find(o.id))!.order.dropoff).toEqual({ zoneKey: 'zakur', pin: HOME, placeId: 'pl_mine', door: DOOR });
+    const forged = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'zakur', pin: HOME, door: { lat: 1, lng: 1 } } }));
+    expect((await h.repo.find(forged.id))!.order.dropoff).toEqual({ zoneKey: 'zakur', pin: HOME });
+  });
+
   it('tags lines to participants; phone-only participants keep only a hash', async () => {
     const h = ordersHarness();
     h.people.set('07701111111', 'p_a');

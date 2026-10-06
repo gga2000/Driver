@@ -45,6 +45,11 @@ export const SavedPlaceView = z.object({
   confirmed: z.boolean(),
   /** Last time the owner stood there and tapped "موقعي هنا". */
   confirmedAt: z.coerce.date().nullable(),
+  /**
+   * Couriers' arrivals agree on where the door is ("الباب مأكّد", maps program a3): couriers navigate
+   * to that door from now on. The pin above stays the customer's own.
+   */
+  doorConfirmed: z.boolean(),
   sharedWithHousehold: z.boolean(),
   /** owner = mine (editable); household = a household member shared it with me (read-only). */
   access: z.enum(['owner', 'household']),

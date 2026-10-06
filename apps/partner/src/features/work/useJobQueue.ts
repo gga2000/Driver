@@ -21,7 +21,7 @@ let client: Client | null = null;
 function send(c: Client, a: QueuedAction): Promise<Trip> {
   const stamp = { occurredAt: new Date(a.occurredAt), deviceUptimeMs: a.deviceUptimeMs, idempotencyKey: a.idempotencyKey };
   return a.kind === 'arrive'
-    ? c.trips.arrive.mutate({ tripId: a.tripId, stopId: a.stopId, ...(a.pin ? { pin: a.pin } : {}), ...stamp })
+    ? c.trips.arrive.mutate({ tripId: a.tripId, stopId: a.stopId, ...(a.pin ? { pin: a.pin } : {}), ...(a.accuracyM !== undefined ? { accuracyM: a.accuracyM } : {}), ...stamp })
     : c.trips.completeStop.mutate({ tripId: a.tripId, stopId: a.stopId, handover: a.handover, ...stamp });
 }
 

@@ -28,11 +28,11 @@ export interface DeviceStamp {
 }
 
 export type QueuedAction =
-  | ({ kind: 'arrive'; tripId: string; stopId: string; pin?: LatLng } & DeviceStamp)
+  | ({ kind: 'arrive'; tripId: string; stopId: string; pin?: LatLng; accuracyM?: number } & DeviceStamp)
   | ({ kind: 'complete'; tripId: string; stopId: string; handover: HandoverProof } & DeviceStamp);
 
 /** What the screen asks for, before the stamp. */
-export type JobTap = { kind: 'arrive'; tripId: string; stopId: string; pin?: LatLng } | { kind: 'complete'; tripId: string; stopId: string; handover: HandoverProof };
+export type JobTap = { kind: 'arrive'; tripId: string; stopId: string; pin?: LatLng; accuracyM?: number } | { kind: 'complete'; tripId: string; stopId: string; handover: HandoverProof };
 
 export interface QueueStore {
   load(): Promise<string | null>;
@@ -170,7 +170,7 @@ const defaultClock = {
 export function toInput(a: QueuedAction) {
   const stamp = { occurredAt: new Date(a.occurredAt), deviceUptimeMs: a.deviceUptimeMs, idempotencyKey: a.idempotencyKey };
   return a.kind === 'arrive'
-    ? { tripId: a.tripId, stopId: a.stopId, ...(a.pin ? { pin: a.pin } : {}), ...stamp }
+    ? { tripId: a.tripId, stopId: a.stopId, ...(a.pin ? { pin: a.pin } : {}), ...(a.accuracyM !== undefined ? { accuracyM: a.accuracyM } : {}), ...stamp }
     : { tripId: a.tripId, stopId: a.stopId, handover: a.handover, ...stamp };
 }
 

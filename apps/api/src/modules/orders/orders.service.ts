@@ -20,6 +20,7 @@ import {
   type CancellationFee,
   type ComingOutResult,
   type DeliveryPoint,
+  type LatLng,
   type DisputeKind,
   type DomainEventInput,
   type HandoverProof,
@@ -106,10 +107,11 @@ export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
 
 /**
  * Saved places (maps program SP3d): an order keeps the link to the place it goes to only when the
- * orderer may use it (theirs, or shared by the household), so the courier sees that place's door.
+ * orderer may use it (theirs, or shared by the household), so the courier sees that place's door —
+ * and goes to the door couriers' arrivals learned (a3). Null = not theirs, or gone.
  */
 export interface OrdersPlacesPort {
-  usableBy(personId: string, placeId: string): Promise<boolean>;
+  deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null>;
 }
 
 export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
@@ -217,13 +219,17 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
-   * A point's saved-place link, kept only when the orderer may use that place (maps program SP3d). A
-   * place someone else owns, or one deleted since, drops the link; the pin and zone stay as sent.
+   * A point's saved-place link, kept only when the orderer may use that place (maps program SP3d),
+   * with the door learned for it (a3). A place someone else owns, or one deleted since, drops the
+   * link; a client's own `door` is never kept; the pin and zone stay as sent.
    */
   private async placeLink(ordererId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
-    if (!point?.placeId) return point;
-    if (this.places && (await this.places.usableBy(ordererId, point.placeId))) return point;
-    return point.pin ? { zoneKey: point.zoneKey, pin: point.pin } : { zoneKey: point.zoneKey };
+    if (!point) return point;
+    const base: DeliveryPoint = point.pin ? { zoneKey: point.zoneKey, pin: point.pin } : { zoneKey: point.zoneKey };
+    if (!point.placeId || !this.places) return base;
+    const place = await this.places.deliveryPlace(ordererId, point.placeId);
+    if (!place) return base;
+    return { ...base, placeId: point.placeId, ...(place.door ? { door: place.door } : {}) };
   }
 
   /** The order already placed with this request's key, as `place` answered it; null when none. */

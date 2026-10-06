@@ -138,6 +138,21 @@ describe('TripsService — stops, geofence and arrival', () => {
     expect(h.events.last('trip.completed')!.payload).toMatchObject({ by: 'driver', orderIds: ['ord_1'] });
   });
 
+  it('maps a3: a delivered drop-off at a saved place carries the arrival fix and its accuracy as the door', async () => {
+    const h = tripsHarness();
+    const t = await h.trips.createForOrders({ cityId: 'aziziyah', vertical: 'food', orders: [{ orderId: 'ord_1', minVehicleClass: null }], stops: [{ orderId: 'ord_1', type: 'pickup', zoneKey: 'centre', target: PINS.kitchen }, { orderId: 'ord_1', type: 'dropoff', zoneKey: 'zakur', target: PINS.home, placeId: 'pl_home' }] });
+    await h.trips.offer(t.id, { driverIds: ['d1'] });
+    await h.trips.accept(t.id, 'd1', { vehicleClass: 'bike' });
+    const [pickup, dropoff] = t.stops;
+    await h.trips.arrive(t.id, pickup!.id, 'd1', { pin: PINS.kitchen, accuracyM: 50 });
+    await h.trips.completeStop(t.id, pickup!.id, 'd1');
+    // The pickup carries no door: only drop-offs at saved places teach one.
+    expect(h.events.last('stop.completed')!.payload).not.toHaveProperty('door');
+    await h.trips.arrive(t.id, dropoff!.id, 'd1', { pin: PINS.home, accuracyM: 9 });
+    await h.trips.completeStop(t.id, dropoff!.id, 'd1', { handover: { cashCollectedIqd: 16500 } });
+    expect(h.events.last('stop.completed')!.payload).toMatchObject({ stopType: 'dropoff', door: { placeId: 'pl_home', lat: PINS.home.lat, lng: PINS.home.lng, accuracyM: 9 } });
+  });
+
   it('idempotent replay: repeated accept / arrive / complete change nothing and emit nothing', async () => {
     const h = tripsHarness();
     const t = await h.acceptedTrip();

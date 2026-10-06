@@ -252,7 +252,14 @@ export const ReportPositionOutput = z.object({
 });
 export type ReportPositionOutput = z.infer<typeof ReportPositionOutput>;
 
-export const ArriveStopInput = z.object({ tripId: z.string().min(1), stopId: z.string().min(1), pin: LatLng.optional(), ...DeviceStamp });
+export const ArriveStopInput = z.object({
+  tripId: z.string().min(1),
+  stopId: z.string().min(1),
+  pin: LatLng.optional(),
+  /** The fix's GPS accuracy in metres (maps program a3: precise arrivals teach a saved place its door). */
+  accuracyM: z.number().min(0).max(5000).optional(),
+  ...DeviceStamp,
+});
 export type ArriveStopInput = z.infer<typeof ArriveStopInput>;
 
 export const CompleteStopInput = z.object({ tripId: z.string().min(1), stopId: z.string().min(1), handover: HandoverProof.default({}), ...DeviceStamp });
