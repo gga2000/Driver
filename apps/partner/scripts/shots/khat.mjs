@@ -58,7 +58,7 @@ export default async function run(s) {
   await p.shot('sweep-slide', { settle: 600 });
   await p.slide('khat-sweep-slide');
   await p.wait('khat-done');
-  await p.page.evaluate(() => document.querySelector('[data-testid="khat-progress"]')?.scrollIntoView({ block: 'start' }));
+  // The screen scrolls back to the top by itself: the run's summary card, then "خلص خط اليوم".
   await p.shot('done', { settle: 1200 });
   await p.close();
 }
