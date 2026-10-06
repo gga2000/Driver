@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DOMAIN_EVENT_PAYLOADS, REPLAY_RULES } from '@driver/contracts';
 import { at, line, logEvent, order, participant } from './fixtures';
 import { countByFilter, eventLabel, eventTimeline, filterOrders, groupLinesByParticipant, orderTimeline, priceCheck, priceRows, searchInput } from './orders';
 
@@ -112,6 +113,17 @@ describe('event log timeline', () => {
   it('labels known types in Arabic and falls back to the raw type', () => {
     expect(eventLabel('order.placed')).not.toBe('order.placed');
     expect(eventLabel('order.something_new')).toBe('order.something_new');
+  });
+
+  it('every moment on the replay and every order/trip/stop event has an Arabic label (no raw "stop.courier_near")', () => {
+    const orderEvents = Object.keys(DOMAIN_EVENT_PAYLOADS).filter((type) => /^(order|trip|stop)\./.test(type));
+    // Order/trip events written outside the cross-module registry (orders + trips services).
+    const logged = [
+      'order.change_to_wallet', 'order.courier_unassigned', 'order.driver_cancelled', 'order.points_allocated', 'order.prep_extended', 'order.rematch_needed', 'order.handed_over',
+      'trip.order_failed', 'trip.unreachable_started', 'trip.unreachable_extended', 'trip.unreachable_escalated', 'trip.unreachable_fail_allowed', 'stop.courier_near', 'stop.skipped',
+    ];
+    const missing = [...new Set([...REPLAY_RULES.marks, ...orderEvents, ...logged])].filter((type) => eventLabel(type) === type);
+    expect(missing).toEqual([]);
   });
 
   it('merges order and trip logs, de-duplicates, keeps recording order and the quarantine mark', () => {
