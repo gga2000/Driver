@@ -6,6 +6,7 @@ import type { Locale, MessageKey } from '@driver/i18n';
 import { formatClock, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
+import { usePhotoFallback } from '../logic/photo-fallback';
 import { chatRows, lastSeqOf, newClientId, pinUrl, roleKey, telUrl, type ChatRow, type PendingMessage, type SendBody } from '../logic/chat';
 import { withAlpha } from '../theme/color';
 import { useTheme } from '../theme/ThemeProvider';
@@ -372,6 +373,8 @@ function Bubble({
   children: ReactNode;
 }) {
   const theme = useTheme();
+  // A photo link that expired shows as the word «صورة» instead of an empty grey square.
+  const shown = usePhotoFallback(kind === 'photo' ? photo : null);
   const r = theme.radius.xl;
   // Mine sits on the far side (left in RTL), its tail corner towards the edge it hangs from.
   const corners = mine ? { borderTopLeftRadius: r, borderTopRightRadius: r, borderBottomStartRadius: r, borderBottomEndRadius: 6 } : { borderTopLeftRadius: r, borderTopRightRadius: r, borderBottomEndRadius: r, borderBottomStartRadius: 6 };
@@ -397,8 +400,8 @@ function Bubble({
           {senderLabel}
         </Text>
       ) : null}
-      {kind === 'photo' && photo ? (
-        <Image source={{ uri: photo }} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
+      {kind === 'photo' && shown.uri ? (
+        <Image source={{ uri: shown.uri }} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
       ) : kind === 'location' && location ? (
         <Pressable onPress={() => void Linking.openURL(pinUrl(location)).catch(() => undefined)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingVertical: 2 }}>
           <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.accent, 0.18) }}>
@@ -411,6 +414,10 @@ function Bubble({
             </Text>
           </View>
         </Pressable>
+      ) : kind === 'photo' ? (
+        <Text variant="body" color="textMuted" style={{ paddingHorizontal: theme.space[2], paddingVertical: theme.space[1] }}>
+          {t('chat.photo_label')}
+        </Text>
       ) : (
         <Text variant="body" style={{ lineHeight: 26 }} selectable>
           {text ?? ''}

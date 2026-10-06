@@ -4,7 +4,7 @@ import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, wi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, useTheme, useToast, type SceneVehicle } from '@driver/ui';
+import { Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
@@ -67,6 +67,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   // L-09: «ويا عباس · 12 دقيقة» under «وصلت بالسلامة», and «قيّم عباس» (rides rate in one step).
   const rideCopy = ride ? rideArrivalCopy(t, view) : null;
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
+  // The saved gate photo is a signed link; if it no longer loads the card goes, like having none.
+  const gate = usePhotoFallback(photo ? photoUri(photo) : null);
   const pay = cashAtDoor(view.order);
   const today = useSeason();
   // «أول مرة» (joy g8): the first meal delivered or the first tuktuk ride, once in a lifetime.
@@ -109,10 +111,11 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           <RideArrivalSummary view={view} />
         ) : (
           <>
-            {photo ? (
+            {gate.uri ? (
               <View testID="arrival-photo" style={{ width: '100%', flexShrink: 1, gap: theme.space[1] }}>
                 <Image
-                  source={{ uri: photoUri(photo) }}
+                  source={{ uri: gate.uri }}
+                  onError={gate.onError}
                   accessibilityLabel={t('track.arrived_gate')}
                   resizeMode="cover"
                   style={{ width: '100%', height: 200, maxHeight: 220, borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}

@@ -81,6 +81,7 @@ export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
 export * from './logic/sos';
+export * from './logic/photo-fallback';
 export * from './logic/voice';
 export * from './format';
 

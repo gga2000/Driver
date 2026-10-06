@@ -2,6 +2,7 @@ import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
+import { usePhotoFallback } from '../logic/photo-fallback';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
@@ -58,6 +59,8 @@ export function Avatar({ name = '', uri, icon, size = 40, tone, ring, style }: A
   const id = theme.identity[identityIndex(name, theme.identity.length)]!;
   const t = tone ? { bg: theme.colors[TONES[tone].bg], fg: theme.colors[TONES[tone].fg] } : { bg: id.fill, fg: id.on };
   const inner = ring ? size - 6 : size;
+  // An expired signed link shows the initial (or icon), not a broken image.
+  const photo = usePhotoFallback(uri);
   return (
     <View
       accessibilityElementsHidden
@@ -86,8 +89,8 @@ export function Avatar({ name = '', uri, icon, size = 40, tone, ring, style }: A
           overflow: 'hidden',
         }}
       >
-        {uri ? (
-          <Image source={{ uri }} style={{ width: inner, height: inner }} />
+        {photo.uri ? (
+          <Image source={{ uri: photo.uri }} onError={photo.onError} style={{ width: inner, height: inner }} />
         ) : icon ? (
           <Icon name={icon} size={Math.round(inner * 0.5)} color={t.fg} strokeWidth={2} />
         ) : (
