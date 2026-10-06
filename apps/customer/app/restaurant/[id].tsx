@@ -4,10 +4,11 @@ import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem, RestaurantCard } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
 import { CartBar } from '@/features/food/CartBar';
+import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
@@ -19,6 +20,8 @@ import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const HERO_H = 210;
+/** Width of the night-market drawing in the closed card (joy J4). */
+const NIGHT_THUMB = 88;
 
 /**
  * Restaurant page (spec §3): hero (photo or illustrated placeholder), the card facts up front —
@@ -112,6 +115,7 @@ export default function RestaurantScreen() {
         <RetryState
           kind={kind}
           locale={locale}
+          art={kind === 'offline' || kind === 'unreachable' ? <SketchScene name="offline" /> : undefined}
           {...(kind === 'slow' ? { title: t('food.menu_slow') } : kind === 'server' ? { title: t('restaurant.load_failed') } : {})}
           onRetry={() => {
             restartSlow();
@@ -178,8 +182,15 @@ export default function RestaurantScreen() {
         >
           {closed && restaurant ? (
             <Card elevation={0} tone="sunken" padding={3} style={{ marginTop: theme.space[2] }} testID="restaurant-closed">
-              <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-                <Icon name="clock" size={20} color="warningText" />
+              <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+                {/* Joy J4: closed at night shows the crescent over the market; by day or paused, the clock. */}
+                {closedArt(restaurant.closedReason, new Date()) === 'clock' ? (
+                  <Icon name="clock" size={20} color="warningText" />
+                ) : (
+                  <View style={{ width: NIGHT_THUMB }} testID="restaurant-closed-night">
+                    <SketchScene name="night" />
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text variant="label" weight={600}>
                     {restaurant.closedReason === 'paused'
