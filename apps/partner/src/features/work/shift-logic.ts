@@ -1,6 +1,6 @@
 import type { ShiftSummary } from '@driver/contracts';
 import { formatClock, formatDay, formatDuration, pluralKey, type MessageKey } from '@driver/i18n';
-import { windowLabel } from '@/features/intercity/logic';
+import { clockLabel, windowLabel } from '@/features/intercity/logic';
 import { amountParam } from '@/lib/money';
 
 /**
@@ -37,7 +37,8 @@ export function shiftStats(s: ShiftSummary, t: T): ShiftStat[] {
     out.push({
       key: 'best',
       label: t('partner.shiftsum_best_hour'),
-      value: windowLabel(s.bestHour.from, s.bestHour.to),
+      // The hour's start only ("10:00 ص"): a "10:00–11:00 ص" range flips in an RTL tile and wraps its ص.
+      value: clockLabel(s.bestHour.from),
       sub: t('partner.shiftsum_best_hour_sub', { amount: amountParam(s.bestHour.netIqd) }),
     });
   }

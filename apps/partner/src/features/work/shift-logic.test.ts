@@ -30,10 +30,10 @@ describe('end of shift words (S-4)', () => {
     expect(shiftRange(summary(), t)).toBe('من 3:00 م لـ 7:00 م · 4 ساعات');
   });
 
-  it('stats: jobs, time online, tips only when there were some, best hour as a window with its money', () => {
+  it('stats: jobs, time online, tips only when there were some, best hour as its start time with its money', () => {
     const s = shiftStats(summary(), t);
     expect(s.map((x) => x.key)).toEqual(['jobs', 'online', 'tips', 'best']);
-    expect(s.find((x) => x.key === 'best')).toMatchObject({ value: '1:00–2:00 م', sub: '4,500 دينار بهالساعة' });
+    expect(s.find((x) => x.key === 'best')).toMatchObject({ value: '1:00 م', sub: '4,500 دينار بهالساعة' });
     expect(s.find((x) => x.key === 'tips')?.value).toBe('2,000 دينار');
     expect(shiftStats(summary({ tipsIqd: 0, bestHour: null, jobs: 0 }), t).map((x) => x.key)).toEqual(['jobs', 'online']);
   });
