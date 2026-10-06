@@ -192,6 +192,8 @@ export const ERROR_TABLE = {
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },
   share_link_invalid: { retryHint: 'never', status: 'NOT_FOUND' },
+  /** "Send drivers here" for this zone went out less than 10 minutes ago. */
+  nudge_too_soon: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   /** The delivery photo is not an upload of this courier (or never arrived). */
   handover_photo_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   share_not_shareable: { retryHint: 'never', status: 'BAD_REQUEST' },

@@ -18,6 +18,7 @@ import { GEO_INDEX, InMemoryGeoIndex, RedisGeoIndex } from './geo-index.js';
 import { DISPATCH_QUEUE, DISPATCH_QUEUE_NAME, OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
 import { RoutingModule } from '../routing/index.js';
 import { NEARBY_SECRET, NearbyService, nearbySecret } from './nearby.service.js';
+import { ZoneDemandService } from './zone-demand.service.js';
 import { DispatchOfferCheck } from './offer-check.js';
 import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
@@ -107,6 +108,7 @@ export class DispatchRuntime implements OnModuleDestroy {
     PresenceService,
     { provide: NEARBY_SECRET, useFactory: nearbySecret },
     NearbyService,
+    ZoneDemandService,
     OfferOrchestrator,
     DispatchRuntime,
     DispatchService,

@@ -36,6 +36,7 @@ export const NOTIFY_EVENT_TYPES = [
   'seat.booked',
   'khat.child_tapped_out',
   'dispatch.offer_sent',
+  'dispatch.zone_nudged',
   'session.signed_out',
 ] as const;
 
@@ -161,6 +162,12 @@ export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps)
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'dispatch.zone_nudged': {
+      // "Send drivers here" (maps program o5): one push per free driver around the busy zone.
+      const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
+      const zone = str(p['zoneName_ar']) ?? '';
+      return ids.map((to) => ({ ...base, template: 'partner_zone_nudge' as const, to, params: { zone }, data: { zoneId: str(p['zoneId']) ?? '' } }));
     }
     default:
       return [];

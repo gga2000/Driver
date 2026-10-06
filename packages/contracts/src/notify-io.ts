@@ -105,6 +105,7 @@ export const NotifyTemplateId = z.enum([
   'ride_receipt',
   'merchant_new_order',
   'partner_new_job',
+  'partner_zone_nudge',
   'merchant_cash_handover',
   'courier_cash_receipt',
   'wallet_topup_receipt',
@@ -231,6 +232,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'partner',
     push: { title: 'push.partner_new_job.title', body: 'push.partner_offer.body', androidChannel: 'offers', deepLink: 'driver-partner://offer' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  /** "Send drivers here" (maps program o5): free drivers around a zone the Console saw busy. */
+  partner_zone_nudge: {
+    id: 'partner_zone_nudge',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_zone_nudge.title', body: 'push.partner_zone_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
     primary: ['push'],
     quietHours: 'send',
   },

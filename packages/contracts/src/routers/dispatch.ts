@@ -5,6 +5,9 @@ import {
   DispatchBoardInput,
   NearbyVehicles,
   NearbyVehiclesInput,
+  NudgeZoneInput,
+  NudgeZoneResult,
+  ZoneDemandInput,
   OfferSeenInput,
   OfferSeenOutput,
   OverrideInput,
@@ -14,6 +17,7 @@ import {
   SetPolicyInput,
 } from '../dispatch-io.js';
 import { DriverPositions, DriverPositionsInput } from '../console-io.js';
+import { PartnerDemandMap } from '../partner-io.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -49,6 +53,16 @@ export const dispatchRouter = router({
     .input(OfferSeenInput)
     .output(OfferSeenOutput)
     .mutation(({ ctx, input }) => ctx.dispatch.offerSeen(ctx.actor, input)),
+  /** Busy zones for the Console map (maps program o5). */
+  zoneDemand: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ZoneDemandInput)
+    .output(PartnerDemandMap)
+    .query(({ ctx, input }) => ctx.dispatch.zoneDemand(input.cityId)),
+  /** "Send drivers here": a push to the free drivers around a busy zone, once per 10 minutes. */
+  nudgeZone: protectedProcedure(DISPATCH_CONSOLE_ROLES)
+    .input(NudgeZoneInput)
+    .output(NudgeZoneResult)
+    .mutation(({ ctx, input }) => ctx.dispatch.nudgeZone(ctx.actor, input)),
   /** Any signed-in customer about to book a ride: free taxis or tuktuks nearby, blurred (maps program c10). */
   nearby: protectedProcedure()
     .input(NearbyVehiclesInput)

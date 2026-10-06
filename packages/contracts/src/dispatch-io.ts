@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import { DispatchPolicyKind } from './city-config.js';
 import type { Actor } from './identity-io.js';
+import type { PartnerDemandMap } from './partner-io.js';
 
 
 /** Where a dispatch request stands; the Console board groups cards by this. */
@@ -158,6 +159,28 @@ export const NearbyVehicles = z.object({
 });
 export type NearbyVehicles = z.infer<typeof NearbyVehicles>;
 
+/**
+ * "Send drivers here" (maps program o5): a dispatcher nudges the free drivers around a busy zone with
+ * a push. Never more than once per zone per `cooldownMin`, never more than `maxDrivers` at a time.
+ */
+export const NUDGE_RULES = {
+  cooldownMin: 10,
+  /** Free drivers within this distance of the zone (and not already in it) are nudged. */
+  radiusKm: 4,
+  maxDrivers: 15,
+} as const;
+
+export const ZoneDemandInput = z.object({ cityId: CityId });
+export const NudgeZoneInput = z.object({ cityId: CityId, zoneId: z.string().min(1) });
+export type NudgeZoneInput = z.infer<typeof NudgeZoneInput>;
+export const NudgeZoneResult = z.object({
+  /** Drivers the push went to. */
+  sent: z.number().int().min(0),
+  /** The next nudge for this zone is allowed from here. */
+  nextAt: z.coerce.date(),
+});
+export type NudgeZoneResult = z.infer<typeof NudgeZoneResult>;
+
 export interface DispatchPort {
   board(cityId: string): Promise<DispatchBoard>;
   override(actor: Actor, input: OverrideInput): Promise<OverrideOutput>;
@@ -166,4 +189,8 @@ export interface DispatchPort {
   offerSeen(actor: Actor, input: z.infer<typeof OfferSeenInput>): Promise<z.infer<typeof OfferSeenOutput>>;
   /** Signed-in customers: free vehicles of one kind near a pickup, blurred (`NEARBY_RULES`). */
   nearby(actor: Actor, input: NearbyVehiclesInput): Promise<NearbyVehicles>;
+  /** Console: the city's busy zones (waiting now, usual this hour, drivers there; maps program o5). */
+  zoneDemand(cityId: string): Promise<PartnerDemandMap>;
+  /** Console: push the free drivers around a busy zone (maps program o5). Throws `nudge_too_soon`. */
+  nudgeZone(actor: Actor, input: NudgeZoneInput): Promise<NudgeZoneResult>;
 }

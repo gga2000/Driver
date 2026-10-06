@@ -8,7 +8,10 @@ import type {
   DispatchPort,
   NearbyVehicles,
   NearbyVehiclesInput,
+  NudgeZoneInput,
+  NudgeZoneResult,
   OverrideInput,
+  PartnerDemandMap,
   OverrideOutput,
   RespondInput,
   RespondOutput,
@@ -20,6 +23,7 @@ import type { OfferRecord } from './dispatch.repository.js';
 import type { DispatchRequest } from './dispatch.store.js';
 import { liveDriver, type LiveDriver } from './driver-pins.js';
 import { NearbyService } from './nearby.service.js';
+import { ZoneDemandService } from './zone-demand.service.js';
 import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
@@ -61,6 +65,7 @@ export class DispatchService implements DispatchPort {
     @Optional() private readonly orchestrator?: OfferOrchestrator,
     @Optional() private readonly presenceService?: PresenceService,
     @Optional() private readonly nearbyService?: NearbyService,
+    @Optional() private readonly zoneDemandService?: ZoneDemandService,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.policies = new Map((policies ?? defaultPolicies()).map((p) => [p.kind, p]));
@@ -145,6 +150,18 @@ export class DispatchService implements DispatchPort {
   nearby(_actor: Actor, input: NearbyVehiclesInput): Promise<NearbyVehicles> {
     if (!this.nearbyService) throw new DispatchError('not_wired', 'nearby vehicles are not wired');
     return this.nearbyService.nearby(input);
+  }
+
+  /** Console: busy zones (maps program o5). */
+  zoneDemand(cityId: string): Promise<PartnerDemandMap> {
+    if (!this.zoneDemandService) throw new DispatchError('not_wired', 'zone demand is not wired');
+    return this.zoneDemandService.demand(cityId);
+  }
+
+  /** Console: "send drivers here" (maps program o5). */
+  nudgeZone(actor: Actor, input: NudgeZoneInput): Promise<NudgeZoneResult> {
+    if (!this.zoneDemandService) throw new DispatchError('not_wired', 'zone demand is not wired');
+    return this.zoneDemandService.nudge(actor.personId, input);
   }
 
   // ───────────────────────── Console reads ─────────────────────────

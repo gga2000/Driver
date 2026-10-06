@@ -12,6 +12,7 @@ import { capTierLabel, pinStateLabel, tierLabel, tripStateLabel, vehicleLabel, v
 import { buildLiveGeoJSON, countMarkers, driverPosition, filterLive, markerStateForPin, orderTags, type MapFilter } from '@/lib/live-map';
 import { LIVE_POLL_MS, useActiveTrips, useDispatchBoard, useDriverPins } from '@/lib/live';
 import { useAtRiskDrivers } from '@/lib/at-risk';
+import { useZoneDemand } from '@/lib/zone-demand';
 import { orderLabel, personText, useNames } from '@/lib/names';
 import { useTheme } from '@/lib/prefs';
 import { useSignedIn } from '@/lib/session';
@@ -19,6 +20,7 @@ import type { MapHoverTarget, MapSelection } from './live-map-canvas';
 import { CashLine, DriverHoverCard, OrderHoverCard, StateGlyph, TierLegend } from './map-cards';
 import { CopyId, PersonName } from './named';
 import { TripDetails } from './trip-details';
+import { ZoneDemandPanel } from './zone-demand-panel';
 import { Button, buttonCls, Chip, cx, Drawer, IconCheck, Kbd, LiveBadge, Mono, NetworkBanner, QueryError, Row, Tabs } from './ui';
 
 const LiveMapCanvas = dynamic(() => import('./live-map-canvas'), {
@@ -57,6 +59,8 @@ export function MapPage() {
   const tripList = useMemo(() => trips.data ?? [], [trips.data]);
   // Maps program o4: ring the couriers whose order is predicted to be late.
   const riskDrivers = useAtRiskDrivers(tripList);
+  // Maps program o5: busy zones shaded on the map, numbers and "send drivers here" in the zone panel.
+  const demand = useZoneDemand();
   const tripsById = useMemo(() => new Map<string, Trip>(tripList.map((x) => [x.id, x])), [tripList]);
   const cards = useMemo(() => board.data?.cards ?? [], [board.data]);
   const cardById = useMemo(() => new Map(cards.map((c) => [c.tripId, c])), [cards]);
@@ -213,6 +217,7 @@ export function MapPage() {
         <div className="relative h-[60vh] min-h-[360px] lg:h-auto lg:min-w-0 lg:flex-1">
           <LiveMapCanvas
             atRiskDrivers={riskDrivers}
+            heat={demand.data?.zones}
             live={live}
             theme={theme}
             selected={selected}
@@ -281,6 +286,11 @@ export function MapPage() {
             <p className="mb-1.5 text-xs font-semibold text-muted">{t('console.legend_tiers')}</p>
             <TierLegend theme={theme} />
             <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-text">
+              {/* Maps program o5: the busy-zone fill. */}
+              <li className="flex items-center gap-1.5">
+                <span aria-hidden className="inline-block h-3 w-3 rounded-sm border-2 border-accent bg-accent/40" />
+                {t('console.heat_legend')}
+              </li>
               <li className="flex items-center gap-1.5">
                 <span aria-hidden className="inline-block h-3 w-3 rounded-pill border-[2.5px] border-accent-text bg-surface" />
                 {t('console.legend_garage')}
@@ -520,6 +530,7 @@ function SelectionBody({
           <Row k={t('console.id')} v={<Mono>{`${z.id} · ${z.extId}`}</Mono>} />
           <Row k={t('console.zone_live_cards')} v={<span className="num">{live}</span>} />
         </dl>
+        <ZoneDemandPanel zoneId={z.id} />
         <p className="text-xs text-faint">{t('console.zone_draft_note')}</p>
       </div>
     );

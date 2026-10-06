@@ -2,10 +2,10 @@
 
 import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapGeoJSONFeature, type StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { AZIZIYAH_ZONES } from '@driver/contracts';
+import { AZIZIYAH_ZONES, type DemandLevel } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useQuery } from '@tanstack/react-query';
-import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, buildPlacedZonesGeoJSON, GARAGES, labelDigits, LAYER, SOURCE } from '@driver/map';
+import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, buildPlacedZonesGeoJSON, buildZonesGeoJSON, GARAGES, labelDigits, LAYER, MAP_COLORS, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
 import { useTRPC } from '@/lib/trpc';
 import { MARKER_SHAPES } from '@/lib/marker-shapes';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -57,7 +57,14 @@ export interface LiveMapCanvasProps {
   onDropTrip?: ((tripId: string, driverId: string) => void) | undefined;
   /** Couriers carrying an order predicted to be late (maps program o4): a pulsing ring. */
   atRiskDrivers?: ReadonlySet<string> | undefined;
+  /** Busy zones (maps program o5): filled in the accent, strong where orders outnumber drivers. */
+  heat?: ReadonlyArray<{ zoneId: string; level: DemandLevel }> | undefined;
 }
+
+/** The busy-zone fill (maps program o5). */
+const HEAT_SOURCE = 'ops-heat';
+const HEAT_LAYER = 'ops-heat-fill';
+const HEAT_OUTLINE = 'ops-heat-line';
 
 const CLICKABLE = [LAYER.tripStops, LAYER.tripLines, LAYER.garages, LAYER.zoneFill];
 /** Zone names show from this zoom (they crowd the centre below it). */
@@ -311,6 +318,28 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
     }
     layoutRef.current();
   }, [ready, zonesQuery.data]);
+
+  // ── busy zones (maps program o5): a fill over the zones, from the shapes on the map ──
+  const heat = props.heat;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const level = new Map((heat ?? []).filter((h) => h.level !== 'calm').map((h) => [h.zoneId, h.level]));
+    const shapes = zonesQuery.data ? buildPlacedZonesGeoJSON(zonesQuery.data) : buildZonesGeoJSON();
+    const data = { type: 'FeatureCollection' as const, features: shapes.features.filter((f) => level.has(f.properties.id)).map((f) => ({ ...f, properties: { ...f.properties, level: level.get(f.properties.id) } })) };
+    const source = map.getSource<GeoJSONSource>(HEAT_SOURCE);
+    if (source) source.setData(data);
+    else {
+      map.addSource(HEAT_SOURCE, { type: 'geojson', data });
+      const accent = theme === 'light' ? MAP_COLORS_LIGHT.accent : MAP_COLORS.accent;
+      map.addLayer(
+        { id: HEAT_LAYER, type: 'fill', source: HEAT_SOURCE, paint: { 'fill-color': accent, 'fill-opacity': ['match', ['get', 'level'], 'hot', 0.36, 0.16] } },
+        map.getLayer(LAYER.zoneLine) ? LAYER.zoneLine : undefined,
+      );
+      // A bold outline, so a busy zone reads apart from the tier wash under it.
+      map.addLayer({ id: HEAT_OUTLINE, type: 'line', source: HEAT_SOURCE, paint: { 'line-color': accent, 'line-width': ['match', ['get', 'level'], 'hot', 3, 1.5], 'line-opacity': 0.95 } });
+    }
+  }, [ready, heat, zonesQuery.data, theme]);
 
   // ── routes (style layers) ──
   useEffect(() => {

@@ -55,6 +55,11 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', stopId: 'st1', notifyGuardian: true }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_child_arrived', to: 'guardian', params: { child: 'زينب', place: 'مدرسة الرافدين', time: '12:30 م' } }]);
     expect(await one(event('khat.child_tapped_out', { childRef: 'chref_z', notifyGuardian: false }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
+    // Maps program o5: "send drivers here" is one push per free driver around the zone.
+    expect(await one(event('dispatch.zone_nudged', { zoneId: 'centre', zoneName_ar: 'العزيزية (مركز)', driverIds: ['d1', 'd2'] }))).toEqual([
+      { template: 'partner_zone_nudge', to: 'd1', params: { zone: 'العزيزية (مركز)' } },
+      { template: 'partner_zone_nudge', to: 'd2', params: { zone: 'العزيزية (مركز)' } },
+    ]);
     expect(await one(event('order.accepted', {}, { orderId: 'gone' }))).toEqual([]);
     // M-12: the kitchen's one "+5 د" — the customer hears "المطعم زاد 5 دقايق".
     expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_prep_extended', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
