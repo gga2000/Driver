@@ -5823,5 +5823,8 @@
   "wallet.filter_empty": "No lines of this kind",
   "points.first_title": "Your first order earns points",
   "points.earn_rules": "Every food order, ride or الرجعة seat earns points, up to {max} per order",
-  "points.expiring_soon": "{n} points lapse on {date} · claim them now"
+  "points.expiring_soon": "{n} points lapse on {date} · claim them now",
+  "account.points_pill": "{n} points",
+  "account.saved_this_year": "You saved {amount} دينار this year",
+  "account.see_wallet": "See your wallet"
 }

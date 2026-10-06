@@ -1,12 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, Platform, View } from 'react-native';
+import { Image, Platform, Pressable, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
 import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
-import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople } from '@/features/account/queries';
+import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople, useWalletBalance } from '@/features/account/queries';
+import { amountParam } from '@/lib/money';
 import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
 import { useApiClient } from '@/lib/api';
@@ -37,6 +38,8 @@ function Account() {
   const people = useSavedPeople();
   const household = useHousehold();
   const children = useGuardianChildren();
+  // w10: the header knows you — your points and what you saved this year (both from the server).
+  const wallet = useWalletBalance().data;
   const [signingOut, setSigningOut] = useState(false);
   const name = me.data?.name ?? prof.name ?? null;
 
@@ -87,6 +90,27 @@ function Account() {
           </View>
           <Button testID="account-edit-name" size="sm" variant="secondary" label={name ? t('action.edit') : t('account.set_name')} onPress={() => router.push('/profile/name')} />
         </View>
+        {wallet && (wallet.points > 0 || wallet.savedThisYearIqd > 0) ? (
+          <Pressable
+            testID="account-wallet-strip"
+            accessibilityRole="button"
+            onPress={() => router.push('/wallet')}
+            style={({ pressed }) => ({ marginTop: theme.space[4], flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 44, paddingTop: theme.space[3], borderTopWidth: 1, borderTopColor: theme.colors.border, opacity: pressed ? 0.7 : 1 })}
+          >
+            {wallet.points > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1], paddingVertical: 4, paddingHorizontal: theme.space[2], borderRadius: theme.radius.pill, backgroundColor: theme.colors.deal }}>
+                <Icon name="star" size={14} color="onDeal" filled fillColor="onDeal" />
+                <Text variant="label" weight={700} color="onDeal" tabular>
+                  {t('account.points_pill', { n: amountParam(wallet.points) })}
+                </Text>
+              </View>
+            ) : null}
+            <Text variant="footnote" color={wallet.savedThisYearIqd > 0 ? 'successText' : 'textMuted'} weight={wallet.savedThisYearIqd > 0 ? 600 : 400} style={{ flex: 1 }}>
+              {wallet.savedThisYearIqd > 0 ? t('account.saved_this_year', { amount: amountParam(wallet.savedThisYearIqd) }) : t('account.see_wallet')}
+            </Text>
+            <Icon name="chevron-forward" size={18} color="textMuted" />
+          </Pressable>
+        ) : null}
       </Card>
 
       <View style={{ gap: theme.space[3] }}>

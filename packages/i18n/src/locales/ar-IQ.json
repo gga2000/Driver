@@ -5823,5 +5823,8 @@
   "wallet.filter_empty": "ماكو حركات من هذا النوع",
   "points.first_title": "أول طلب يجيبلك نقاط",
   "points.earn_rules": "كل طلب أكل أو مشوار أو رجعة يجيبلك نقاط، لحد {max} نقطة بالطلب الواحد",
-  "points.expiring_soon": "{n} نقطة تنتهي {date} · استلمها هسة"
+  "points.expiring_soon": "{n} نقطة تنتهي {date} · استلمها هسة",
+  "account.points_pill": "{n} نقطة",
+  "account.saved_this_year": "وفّرت {amount} دينار هالسنة",
+  "account.see_wallet": "شوف محفظتك"
 }
