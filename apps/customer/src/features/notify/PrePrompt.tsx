@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Card, Icon, Text, useTheme } from '@driver/ui';
+import { Button, Card, SketchScene, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
@@ -46,6 +46,9 @@ export function usePushAsk(active: boolean): { visible: boolean; busy: boolean; 
   return { visible, busy, allow: () => void allow(), later };
 }
 
+/** Width of the doorbell drawing at the start of the ask card. */
+const DOORBELL_WIDTH = 88;
+
 /**
  * Joy f1 (L-01): the ask as an inline card, never a sheet over the live map. Food: under the ring on
  * the kitchen-waiting screen («نخبرك أول ما المطعم يقبل؟»); rides: in the collapsed sheet once a driver
@@ -57,8 +60,9 @@ export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | '
   return (
     <Card elevation={0} padding={3} testID="push-ask" style={{ alignSelf: 'stretch', gap: theme.space[3] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="bell" size={20} color="accentText" strokeWidth={2.2} />
+        {/* Joy J4 (S2-12): the doorbell drawing, not a bell in a circle. */}
+        <View style={{ width: DOORBELL_WIDTH }}>
+          <SketchScene name="doorbell" />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" weight={700}>

@@ -336,13 +336,13 @@ describe('PartnerService', () => {
     const places: NonNullable<PartnerDeps['places']> = {
       courierDoor: async (placeId, input) => {
         asked.push({ placeId, courierId: input.courierId });
-        return { placeNote: 'الباب الأسود', photos: [{ id: 'up1', url: 'https://cdn/up1?sig=x' }] };
+        return { placeNote: 'الباب الأسود', photos: [{ id: 'up1', url: 'https://cdn/up1?sig=x' }], doorConfirmed: false };
       },
       dropoffsAt: async (placeId) => visits.get(placeId) ?? 0,
     };
     const t = trip('t1', [{ ...stop('s2', 1, 'dropoff', 'zakur', HOME), placeId: 'pl_home' }, stop('s1', 0, 'pickup', 'street_30', KITCHEN)]);
     const first = await harness({ trips: [t], places }).activeJob(actor);
-    expect(first!.stops.find((s) => s.stopId === 's2')!.door).toEqual({ placeNote: 'الباب الأسود', photos: [{ id: 'up1', url: 'https://cdn/up1?sig=x' }], firstVisit: true });
+    expect(first!.stops.find((s) => s.stopId === 's2')!.door).toEqual({ placeNote: 'الباب الأسود', photos: [{ id: 'up1', url: 'https://cdn/up1?sig=x' }], doorConfirmed: false, firstVisit: true });
     // Pickups and drop-offs without a saved place have no door.
     expect(first!.stops.find((s) => s.stopId === 's1')!.door).toBeNull();
     expect(asked).toEqual([{ placeId: 'pl_home', courierId: actor.personId }]);

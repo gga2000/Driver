@@ -1250,6 +1250,8 @@ model Stop {
   arrivedOutsideGeofence Boolean                                @default(false) @map("arrived_outside_geofence")
   arrivalPin             Unsupported("geography(Point, 4326)")?
   arrivalDistanceM       Int?                                   @map("arrival_distance_m")
+  /// GPS accuracy of the arrival fix (maps program a3: only precise arrivals teach a door).
+  arrivalAccuracyM       Float?                                 @map("arrival_accuracy_m")
   completedAt            DateTime?                              @map("completed_at")
   skippedAt              DateTime?                              @map("skipped_at")
   skipReason             String?                                @map("skip_reason")
@@ -1640,6 +1642,39 @@ model SeatBooking {
   @@index([departureId, state])
   @@index([riderId, state])
   @@map("seat_bookings")
+  @@schema("public")
+}
+
+/// Seat PIN safeguards (Ali 2026-10-06): every PIN a driver typed at a الرجعة departure and what it did,
+/// so ops see who typed which rider's PIN on which seat. Append-only (a trigger rejects UPDATE and
+/// DELETE); ids only, never the PIN. No foreign keys: the log outlives the rows it names. `alert` is
+/// set on the attempt that raised an ops alert (the Console safety strip reads those rows).
+model IntercityPinAttempt {
+  id               String   @id @default(cuid())
+  departureId      String   @map("departure_id")
+  /// The ops desk that watches the car (Aziziyah's watches every garage).
+  cityId           String   @map("city_id")
+  /// Who typed it (the departure's driver).
+  driverId         String   @map("driver_id")
+  /// The seat's booking it was typed on (garage mode); null on the plain PIN pad.
+  targetBookingId  String?  @map("target_booking_id")
+  /// The booking on this car that the PIN belongs to, if any.
+  matchedBookingId String?  @map("matched_booking_id")
+  /// checked_in | wrong_pin | other_booking | not_boardable
+  result           String
+  /// cross_use | wrong_repeated, on the attempt that alerted ops; null otherwise.
+  alert            String?
+  /// Refused PINs on that seat (or the pad) in this departure, this one included.
+  refusedOnSeat    Int      @map("refused_on_seat")
+  at               DateTime
+  createdAt        DateTime @default(now()) @map("created_at")
+  /// Never changes (append-only); kept for the schema-wide column convention.
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([departureId, at])
+  @@index([cityId, alert, at])
+  @@index([driverId, at])
+  @@map("intercity_pin_attempts")
   @@schema("public")
 }
 

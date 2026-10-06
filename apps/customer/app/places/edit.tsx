@@ -115,6 +115,20 @@ export default function EditPlace() {
           <Text variant="footnote" color="textMuted">
             {place.confirmed ? t('place.confirmed_body') : t('place.unconfirmed_body')}
           </Text>
+          {/* Maps program a3: couriers' arrivals agree on the door; the next courier goes straight to it. */}
+          {place.doorConfirmed ? (
+            <View testID="place-door-confirmed" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+              <Icon name="check" size={18} color="successText" />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="label" weight={600}>
+                  {t('place.door_confirmed')}
+                </Text>
+                <Text variant="footnote" color="textMuted">
+                  {t('place.door_confirmed_body')}
+                </Text>
+              </View>
+            </View>
+          ) : null}
           {readOnly ? null : (
             <Button testID="place-confirm" variant={place.confirmed ? 'secondary' : 'primary'} icon="location-arrow" label={t('place.im_here')} loading={locating || confirm.isPending} onPress={() => void confirmHere()} />
           )}

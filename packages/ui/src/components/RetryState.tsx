@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { t as sharedT, type Locale } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
@@ -21,6 +22,8 @@ export interface RetryStateProps {
   /** A second, quieter way out ("اتصل بالدعم"). */
   secondary?: { label: string; onPress: () => void; icon?: IconName };
   locale?: Locale;
+  /** A sketchbook scene (joy J4, e.g. the offline Tigris) in place of the icon tile. */
+  art?: ReactNode;
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }
@@ -29,7 +32,7 @@ export interface RetryStateProps {
  * The standard "couldn't load" state: what went wrong in plain words (never "Failed to fetch"), and a
  * retry. Skeletons turn into this after `useLoadTimeout`; queries that fail show it at once.
  */
-export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, locale, testID = 'retry-state', style }: RetryStateProps) {
+export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, locale, art, testID = 'retry-state', style }: RetryStateProps) {
   const theme = useTheme();
   const tr = (key: Parameters<typeof sharedT>[0]) => sharedT(key, undefined, locale);
   const copy: Record<RetryKind, [string, string]> = {
@@ -42,9 +45,13 @@ export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, 
   const danger = kind === 'server';
   return (
     <View testID={`${testID}-${kind}`} accessibilityLiveRegion="polite" style={[{ alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[8], paddingHorizontal: theme.space[6] }, style]}>
-      <View style={{ width: 72, height: 72, borderRadius: 24, backgroundColor: danger ? theme.colors.dangerTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name={ICON[kind]} size={32} color={danger ? 'dangerText' : 'textMuted'} strokeWidth={1.8} />
-      </View>
+      {art ? (
+        <View style={{ width: '100%', maxWidth: 280, marginBottom: theme.space[1] }}>{art}</View>
+      ) : (
+        <View testID={`${testID}-icon`} style={{ width: 72, height: 72, borderRadius: 24, backgroundColor: danger ? theme.colors.dangerTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={ICON[kind]} size={32} color={danger ? 'dangerText' : 'textMuted'} strokeWidth={1.8} />
+        </View>
+      )}
       <Text variant="title" align="center">
         {title ?? defTitle}
       </Text>

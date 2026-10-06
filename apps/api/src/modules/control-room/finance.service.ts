@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_CENTRE,
   AZIZIYAH_ZONES,
@@ -31,11 +31,23 @@ export const ROUND_WINDOW_UNTIL_HOUR = 6;
 const UNKNOWN_ZONE = 'unknown';
 const HOUR_MS = 3_600_000;
 
+/**
+ * Where the round's window starts, as a local hour (DI): `ROUND_WINDOW_FROM_HOUR` in production; the
+ * Console demo sets env CASH_ROUND_FROM_HOUR=0 so a receipt counts as collected at any hour.
+ */
+export const CASH_ROUND_FROM_HOUR = Symbol('CASH_ROUND_FROM_HOUR');
+
+/** CASH_ROUND_FROM_HOUR from the environment when it is a whole hour 0–23, else 18:00. */
+export function cashRoundFromHourEnv(raw: string | undefined): number {
+  const v = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw);
+  return Number.isInteger(v) && v >= 0 && v <= 23 ? v : ROUND_WINDOW_FROM_HOUR;
+}
+
 /** Tonight's round window start: 18:00 today, or 18:00 yesterday while it is still before 06:00. */
-export function roundWindowStart(now: Date): Date {
+export function roundWindowStart(now: Date, fromHour: number = ROUND_WINDOW_FROM_HOUR): Date {
   const today = startOfLocalDay(now);
   const day = localHour(now) < ROUND_WINDOW_UNTIL_HOUR ? new Date(today.getTime() - 24 * HOUR_MS) : today;
-  return new Date(day.getTime() + ROUND_WINDOW_FROM_HOUR * HOUR_MS);
+  return new Date(day.getTime() + fromHour * HOUR_MS);
 }
 
 /** One courier's ops-round receipts in the window, summed, with the latest time and reference. */
@@ -118,6 +130,7 @@ export class FinanceDeskService {
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(CASH_ROUND_FROM_HOUR) private readonly roundFromHour: number = ROUND_WINDOW_FROM_HOUR,
   ) {}
 
   private zoneName(cityId: string, zoneKey: string | null): string | null {
@@ -228,7 +241,7 @@ export class FinanceDeskService {
 
   /** Tonight's ops-round receipts, and the couriers who were emptied by them (no longer cash holders). */
   private async tonight(actor: Actor, cityId: string, now: Date, couriers: CourierCashRow[]) {
-    const from = roundWindowStart(now);
+    const from = roundWindowStart(now, this.roundFromHour);
     const collected = roundCollections(await this.ledger.eventsOfTypes(['driver_settlement'], from, new Date(now.getTime() + 1)));
     const holders = new Set(couriers.map((c) => c.driverId));
     const emptied = [...collected.keys()].filter((id) => !holders.has(id));

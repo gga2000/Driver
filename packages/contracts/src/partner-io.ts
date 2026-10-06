@@ -223,6 +223,8 @@ export const PartnerDoor = z.object({
   photos: z.array(z.object({ id: z.string(), url: z.string() })),
   /** No delivery reached this place before: "اتصل قبل لا توصل" (a5). */
   firstVisit: z.boolean(),
+  /** Earlier couriers' arrivals agree on the door (a3): the stop's pin is that door ("الباب مأكّد"). */
+  doorConfirmed: z.boolean(),
 });
 export type PartnerDoor = z.infer<typeof PartnerDoor>;
 

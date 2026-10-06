@@ -1,7 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { describe, expect, it } from 'vitest';
-import type { AppContext, RoleKind } from '@driver/contracts';
+import { PIN_ATTEMPT_RULES, type AppContext, type RoleKind } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
+import { pinAlertFor } from './departures.service.js';
 import { RoutesRpc } from './routes.rpc.js';
 import { BAB1, BAB2, NAHDHA, routesHarness, type RoutesHarness } from './test-harness.js';
 
@@ -321,6 +322,170 @@ describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider
     expect(await codeOf(driver.driver.callRider({ departureId: dep.id, bookingId: 'bk_nope' }))).toBe('NOT_FOUND');
     // The harness's own RPC has no bridge: call_unavailable.
     expect(await codeOf(as(h, 'd1', ['intercity_driver']).driver.callRider({ departureId: dep.id, bookingId: a.id }))).toBe('CONFLICT');
+  });
+});
+
+describe('seat PIN safeguards (Ali 2026-10-06): every PIN typed is logged, cross-use and repeated wrong PINs alert ops', () => {
+  const wrongPins = (...taken: Array<string | null | undefined>) => ['0000', '1111', '2222', '3333', '4444', '5555', '6666'].filter((p) => !taken.includes(p));
+
+  it('a rider\'s PIN typed on another rider\'s seat stays refused, is logged and raises one cross-use alert with the attempt history', async () => {
+    const h = routesHarness();
+    h.riderNames.set('r1', 'زينب علي حسن');
+    h.riderNames.set('r2', 'مصطفى كريم');
+    h.riderNames.set('d1', 'حيدر كاظم جواد');
+    const driver = as(h, 'd1', ['intercity_driver']);
+    const ops = as(h, 'ops1', ['dispatcher']);
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    const b = await h.book('r2', dep.id, ['back_left']);
+
+    expect(await codeOf(driver.driver.checkIn({ departureId: dep.id, pin: b.pin!, bookingId: a.id }))).toBe('BAD_REQUEST');
+    expect((await h.departures.booking(a.id)).state).toBe('booked');
+    expect((await h.departures.booking(b.id)).state).toBe('booked');
+
+    const events = h.events.ofType('seat.pin_alert');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorId).toBe('d1');
+    expect(events[0]!.payload).toMatchObject({ departureId: dep.id, cityId: 'aziziyah', alert: 'cross_use', targetBookingId: a.id, targetSeatIds: ['front'], matchedBookingId: b.id, matchedSeatIds: ['back_left'], result: 'other_booking', refusedOnSeat: 1 });
+
+    // Then the right PIN on the right seat boards (and is logged too).
+    await driver.driver.checkIn({ departureId: dep.id, pin: a.pin!, bookingId: a.id });
+
+    const [alert, ...rest] = await ops.ops.pinAlerts({ cityId: 'aziziyah' });
+    expect(rest).toEqual([]);
+    expect(alert).toMatchObject({
+      kind: 'cross_use',
+      departureId: dep.id,
+      garageNameAr: 'كراج البوابة 1',
+      driver: { personId: 'd1', displayName: 'حيدر ك.', phoneMasked: '0770 ••• ••01' },
+      targetBookingId: a.id,
+      targetSeatIds: ['front'],
+      matchedBookingId: b.id,
+      matchedSeatIds: ['back_left'],
+      refusedOnSeat: 1,
+    });
+    expect(alert!.attempts.map((x) => [x.result, x.driverId, x.targetBookingId, x.matchedBookingId, x.alert])).toEqual([
+      ['other_booking', 'd1', a.id, b.id, 'cross_use'],
+      ['checked_in', 'd1', a.id, a.id, null],
+    ]);
+    // The driver's card is a logged vault read for the staff member asking; riders' names are never read.
+    expect(h.nameReads).toEqual([{ personId: 'd1', accessorId: 'ops1', purpose: 'intercity_pin_alert' }]);
+    // Ids, seats and the driver's short name only: no PIN, no rider name, no number.
+    const wire = JSON.stringify([alert, events[0]!.payload, await h.repo.pinAttemptsFor(dep.id)]);
+    for (const secret of [a.pin!, b.pin!, 'زينب', 'مصطفى', 'كاظم جواد', '+964']) expect(wire).not.toContain(secret);
+    // The same history straight from the departure.
+    expect((await ops.ops.pinAttempts({ departureId: dep.id })).map((x) => x.result)).toEqual(['other_booking', 'checked_in']);
+
+    // Ops roles only.
+    expect(await codeOf(driver.ops.pinAlerts({ cityId: 'aziziyah' }))).toBe('FORBIDDEN');
+    expect(await codeOf(as(h, 'r1', ['customer']).ops.pinAttempts({ departureId: dep.id }))).toBe('FORBIDDEN');
+
+    // The row leaves the strip after PIN_ATTEMPT_RULES.alertShowMin; the log stays.
+    h.advance(PIN_ATTEMPT_RULES.alertShowMin + 1);
+    expect(await ops.ops.pinAlerts({ cityId: 'aziziyah' })).toEqual([]);
+    expect(await ops.ops.pinAttempts({ departureId: dep.id })).toHaveLength(2);
+  });
+
+  it(`the ${PIN_ATTEMPT_RULES.wrongOnSeatAlertAt}rd refused PIN on one seat alerts once; the plain pad counts on its own`, async () => {
+    const h = routesHarness();
+    const driver = as(h, 'd1', ['intercity_driver']);
+    const ops = as(h, 'ops1', ['support']);
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    const wrong = wrongPins(a.pin);
+    const onSeat = (pin: string) => codeOf(driver.driver.checkIn({ departureId: dep.id, pin, bookingId: a.id }));
+    const onPad = (pin: string) => codeOf(driver.driver.checkIn({ departureId: dep.id, pin }));
+
+    for (const pin of wrong.slice(0, PIN_ATTEMPT_RULES.wrongOnSeatAlertAt - 1)) expect(await onSeat(pin)).toBe('BAD_REQUEST');
+    // Wrong PINs on the pad do not add to the seat's count.
+    for (const pin of wrong.slice(0, PIN_ATTEMPT_RULES.wrongOnSeatAlertAt - 1)) expect(await onPad(pin)).toBe('BAD_REQUEST');
+    expect(await ops.ops.pinAlerts({ cityId: 'aziziyah' })).toEqual([]);
+
+    expect(await onSeat(wrong[2]!)).toBe('BAD_REQUEST');
+    const [seatAlert] = await ops.ops.pinAlerts({ cityId: 'aziziyah' });
+    expect(seatAlert).toMatchObject({ kind: 'wrong_repeated', targetBookingId: a.id, targetSeatIds: ['front'], matchedBookingId: null, refusedOnSeat: PIN_ATTEMPT_RULES.wrongOnSeatAlertAt });
+
+    // A 4th on the seat does not alert again; the pad's 3rd does (its own count, no seat).
+    expect(await onSeat(wrong[3]!)).toBe('BAD_REQUEST');
+    expect(await onPad(wrong[2]!)).toBe('BAD_REQUEST');
+    const alerts = await ops.ops.pinAlerts({ cityId: 'aziziyah' });
+    expect(alerts.map((x) => [x.kind, x.targetBookingId, x.refusedOnSeat])).toEqual([
+      ['wrong_repeated', null, 3],
+      ['wrong_repeated', a.id, 3],
+    ]);
+    expect(h.events.ofType('seat.pin_alert')).toHaveLength(2);
+    expect(alerts[0]!.attempts).toHaveLength(7);
+
+    // The seat still boards with its own PIN, and that is logged as a success.
+    await driver.driver.checkIn({ departureId: dep.id, pin: a.pin!, bookingId: a.id });
+    expect((await h.departures.booking(a.id)).state).toBe('checked_in');
+    expect((await h.repo.pinAttemptsFor(dep.id)).at(-1)).toMatchObject({ result: 'checked_in', targetBookingId: a.id, matchedBookingId: a.id, alert: null, refusedOnSeat: 0 });
+    // A rider already on board, his PIN again: refused as not boardable, not a cross-use.
+    expect(await onSeat(a.pin!)).toBe('BAD_REQUEST');
+    expect((await h.repo.pinAttemptsFor(dep.id)).at(-1)).toMatchObject({ result: 'not_boardable', matchedBookingId: a.id, alert: null });
+  });
+
+  it('a successful PIN on the plain pad is logged with whose booking it boarded', async () => {
+    const h = routesHarness();
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['back_right']);
+    await h.checkIn(dep.id, a.id);
+    expect(await h.repo.pinAttemptsFor(dep.id)).toEqual([
+      expect.objectContaining({ departureId: dep.id, cityId: 'aziziyah', driverId: 'd1', targetBookingId: null, matchedBookingId: a.id, result: 'checked_in', alert: null, at: h.clock.now() }),
+    ]);
+    expect(h.events.ofType('seat.pin_alert')).toEqual([]);
+  });
+
+  it('another driver cannot type PINs on a car that is not his (nothing logged)', async () => {
+    const h = routesHarness();
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    expect(await codeOf(as(h, 'd2', ['intercity_driver']).driver.checkIn({ departureId: dep.id, pin: a.pin!, bookingId: a.id }))).toBe('FORBIDDEN');
+    expect(await h.repo.pinAttemptsFor(dep.id)).toEqual([]);
+  });
+
+  it('the strip\'s call: a masked call from the staff member to the driver, logged on the departure without numbers', async () => {
+    const h = routesHarness();
+    const opened: Array<{ orderId: string; callerId: string; calleeId: string }> = [];
+    const calls = {
+      open: async (req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date) => {
+        opened.push(req);
+        return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
+      },
+    };
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const ops = t.createCallerFactory(appRouter)({
+      auth: { sub: 'ops1', sid: 's_ops1', iss: 'driver-api', iat: 0, exp: 0 },
+      authError: null,
+      identity: { hasRole: async (_: string, kind: RoleKind) => kind === 'dispatcher' },
+      routes: rpc,
+    } as unknown as AppContext).routes;
+    const dep = await h.announce();
+    const a = await h.book('r1', dep.id, ['front']);
+    const b = await h.book('r2', dep.id, ['back_left']);
+    await expect(h.departures.checkIn('d1', dep.id, b.pin!, a.id)).rejects.toMatchObject({ code: 'pin_invalid' });
+    const [alert] = await ops.ops.pinAlerts({ cityId: 'aziziyah' });
+    // No identity reader: the row still shows, without a name.
+    expect(alert!.driver).toEqual({ personId: 'd1', displayName: null, phoneMasked: null });
+    expect(await ops.ops.callPinAlertDriver({ alertId: alert!.alertId })).toMatchObject({ mode: 'proxy', dial: '+9647800000000' });
+    expect(opened).toEqual([expect.objectContaining({ orderId: dep.id, callerId: 'ops1', calleeId: 'd1' })]);
+    const logged = h.events.last('departure.pin_alert_call_requested');
+    expect(logged?.actorId).toBe('ops1');
+    expect(logged?.payload).toMatchObject({ departureId: dep.id, attemptId: alert!.alertId, driverId: 'd1', mode: 'proxy' });
+    expect(JSON.stringify(logged?.payload)).not.toContain('+964');
+    expect(await codeOf(ops.ops.callPinAlertDriver({ alertId: 'pa_nope' }))).toBe('NOT_FOUND');
+  });
+});
+
+describe('pinAlertFor', () => {
+  it('cross-use always alerts; wrong PINs alert at the limit, once per seat; a boarding never does', () => {
+    expect(pinAlertFor('other_booking', 1, false)).toBe('cross_use');
+    expect(pinAlertFor('other_booking', 5, true)).toBe('cross_use');
+    expect(pinAlertFor('wrong_pin', PIN_ATTEMPT_RULES.wrongOnSeatAlertAt - 1, false)).toBeNull();
+    expect(pinAlertFor('wrong_pin', PIN_ATTEMPT_RULES.wrongOnSeatAlertAt, false)).toBe('wrong_repeated');
+    expect(pinAlertFor('not_boardable', PIN_ATTEMPT_RULES.wrongOnSeatAlertAt + 1, false)).toBe('wrong_repeated');
+    expect(pinAlertFor('wrong_pin', PIN_ATTEMPT_RULES.wrongOnSeatAlertAt + 1, true)).toBeNull();
+    expect(pinAlertFor('checked_in', 9, false)).toBeNull();
   });
 });
 

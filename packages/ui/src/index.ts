@@ -7,6 +7,11 @@ export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 export { Icon, type IconProps } from './icons/Icon';
 export { ICONS, ICON_NAMES, MIRRORED, type IconName } from './icons/paths';
 
+// Illustration: the Aziziyah sketchbook (joy J4)
+export { SKETCH } from './art/kit';
+export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
+export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
+
 // Motion
 export { usePressScale, useSelectSpring, usePulse, AnimatedPressable } from './motion/motion';
 export { useCountUp } from './motion/useCountUp';

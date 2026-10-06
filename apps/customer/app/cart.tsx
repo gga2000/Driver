@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
 import type { MenuItem } from '@driver/contracts';
-import { Avatar, Button, Card, EmptyState, Icon, IconButton, PriceBreakdown, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, EmptyState, Icon, IconButton, PriceBreakdown, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { groupByPerson, itemsTotal, ME, minOrderShortfall } from '@/features/food/cart';
 import { CartLineRow } from '@/features/food/CartLineRow';
@@ -58,7 +58,7 @@ export default function CartScreen() {
   if (!cart.merchant || cart.lines.length === 0) {
     return (
       <Screen edges={['bottom']} testID="cart">
-        <EmptyState icon="cart" title={t('cart.empty')} body={t('cart.empty_hint')} action={{ label: t('shell.back_home'), onPress: () => (router.canDismiss() ? router.dismissAll() : router.replace('/')) }} />
+        <EmptyState icon="cart" art={<SketchScene name="empty_cart" />} title={t('cart.empty')} body={t('cart.empty_hint')} action={{ label: t('shell.back_home'), onPress: () => (router.canDismiss() ? router.dismissAll() : router.replace('/')) }} />
       </Screen>
     );
   }

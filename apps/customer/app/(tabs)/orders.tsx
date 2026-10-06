@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { Card, EmptyState, Skeleton, Text, useNow, useTheme } from '@driver/ui';
+import { Card, EmptyState, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { canReorder, sectionByDay } from '@/features/orders/history';
@@ -62,7 +62,7 @@ function Orders() {
       ) : history.isError ? (
         <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
       ) : sections.length === 0 ? (
-        <EmptyState icon="receipt" title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
+        <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
       ) : (
         sections.map((s) => (
           <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>

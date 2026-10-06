@@ -483,7 +483,8 @@ export class TripsService implements OnModuleInit {
    * §10) with the device time on the event; the distance to the stop is stored and a tap outside
    * the 60 m geofence is flagged, never blocked. Replays are no-ops.
    */
-  async arrive(tripId: string, stopId: string, driverId: string, input: { pin?: LatLng | undefined } & DeviceStamp = {}): Promise<Trip> {
+  async arrive(tripId: string, stopId: string, driverId: string, arrival: { pin?: LatLng | undefined; accuracyM?: number | undefined } & DeviceStamp = {}): Promise<Trip> {
+    const { accuracyM, ...input } = arrival;
     return this.uow.run(async (tx) => {
       const trip = await this.loadForCourier(tripId, driverId, tx);
       const stop = await this.stop(tripId, stopId, tx);
@@ -496,9 +497,12 @@ export class TripsService implements OnModuleInit {
       }
       if (!PROGRESS_STATES.includes(trip.state)) throw new DriverError('trip_state_conflict');
       const now = this.clock.now();
-      const pin = input.pin ?? (await this.repo.lastTrailPoint({ tripId }, tx))?.pin ?? null;
+      // Without a fix on the tap, his last trail point (and its own accuracy) stands in.
+      const trail = input.pin ? null : await this.repo.lastTrailPoint({ tripId }, tx);
+      const pin = input.pin ?? trail?.pin ?? null;
+      const arrivalAccuracyM = input.pin ? (accuracyM ?? null) : (trail?.accuracyM ?? null);
       const { distanceM, outside } = evaluateArrival(pin, stop.target);
-      await this.repo.updateStop(stop.id, { state: 'arrived', arrivedAt: now, arrivalPin: pin, arrivalDistanceM: distanceM, arrivedOutsideGeofence: outside }, now, tx);
+      await this.repo.updateStop(stop.id, { state: 'arrived', arrivedAt: now, arrivalPin: pin, arrivalDistanceM: distanceM, arrivalAccuracyM, arrivedOutsideGeofence: outside }, now, tx);
       await this.emit(
         tx,
         'stop.arrived',
@@ -584,6 +588,10 @@ export class TripsService implements OnModuleInit {
           photo: Boolean(handover.photoUrl ?? handover.photoUploadId),
           pinOk: handover.pinOk ?? null,
           serverReceivedAt: now.toISOString(),
+          // Maps program a3: a delivered drop-off at a saved place teaches it where its door is.
+          ...(stop.type === 'dropoff' && stop.placeId && stop.arrivalPin && stop.arrivalAccuracyM !== null
+            ? { door: { placeId: stop.placeId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM } }
+            : {}),
         },
         stamp,
       );

@@ -36,6 +36,12 @@ describe('stamps', () => {
     expect(input.occurredAt).toEqual(new Date('2026-10-04T09:00:00.000Z'));
     expect(input).toMatchObject({ tripId: 'trip_1', stopId: 's1', deviceUptimeMs: 12_346, idempotencyKey: a.idempotencyKey });
   });
+
+  it('an arrival keeps its fix and the fix accuracy for the replay (maps program a3)', () => {
+    const a = stampTap({ kind: 'arrive', tripId: 'trip_1', stopId: 's1', pin: { lat: 32.887, lng: 45.0765 }, accuracyM: 9 });
+    expect(toInput(a)).toMatchObject({ pin: { lat: 32.887, lng: 45.0765 }, accuracyM: 9 });
+    expect(toInput(stampTap({ kind: 'arrive', tripId: 'trip_1', stopId: 's1' }))).not.toHaveProperty('accuracyM');
+  });
 });
 
 describe('offline queue', () => {

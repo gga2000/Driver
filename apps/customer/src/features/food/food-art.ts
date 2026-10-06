@@ -1,30 +1,13 @@
+import type { DishKind } from '@driver/ui';
+
 /**
- * Which drawing a dish gets (b3, UI/UX audit F-01 / S2-07) — the interim until the illustrated set
- * and real photos (J4). Pure: the motif follows the dish itself (its name, then its menu section),
+ * Which drawing a dish gets (b3, UI/UX audit F-01 / S2-07; the J4 sketchbook set in `@driver/ui`)
+ * until real photos replace them dish by dish. Pure: the motif follows the dish itself (its name, then its menu section),
  * never the kitchen, so a kebab menu is no longer nine identical plates; water is a bottle, laban and
  * شنينة a glass, soft drinks a can. Each dish also gets one of a few looks (tilt, garnish, plate
  * tint) from a hash of its id, and adjacent rows never share a drawing.
  */
-export type Motif =
-  | 'kebab'
-  | 'tikka'
-  | 'liver'
-  | 'chicken'
-  | 'wrap'
-  | 'shawarma'
-  | 'falafel'
-  | 'rice'
-  | 'soup'
-  | 'salad'
-  | 'pickles'
-  | 'bread'
-  | 'sweet'
-  | 'tea'
-  | 'water'
-  | 'laban'
-  | 'can'
-  | 'juice'
-  | 'plate';
+export type Motif = DishKind;
 
 /** Name rules, first match wins (drinks before food words: «ليمون بالنعناع» is a drink, «لفة كبد» a wrap). */
 const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
@@ -33,19 +16,30 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/لبن|شنينة|عيران/, 'laban'],
   [/بيبسي|ببسي|كولا|سفن|ميرندا|غازي/, 'can'],
   [/عصير|ليمون|برتقال/, 'juice'],
+  [/فلافل/, 'falafel'],
   [/لفة|سندويش|ساندويج/, 'wrap'],
   [/شاورما|صاج/, 'shawarma'],
-  [/فلافل/, 'falafel'],
   [/كنافة|زلابية|بقلاوة|حلو|كيك|مهلبي/, 'sweet'],
   [/طرشي|مخلل|عمبة/, 'pickles'],
-  [/شوربة|عدس|باچة|باجة|تشريب/, 'soup'],
-  [/تمن|برياني|قوزي|مقلوبة/, 'rice'],
-  [/سلطة|جاجيك|حمص|فتوش|تبولة/, 'salad'],
+  // J4: the Iraqi dishes that now have their own drawing, before the general words they contain.
+  [/باچة|باجة|پاچة|پاجة/, 'pacha'],
+  [/دولمة|دولمه|محشي|يبرق/, 'dolma'],
+  [/مسگوف|مسكوف|سمچ|سمك/, 'fish'],
+  [/كبة|كبه|كبّة/, 'kubba'],
+  [/بامية|باميا|بامياء/, 'okra'],
+  [/فاصوليا|لوبيا/, 'beans'],
+  [/حمص/, 'hummus'],
+  [/كيلو|صينية|سفرة|مشكّل|مشكل/, 'tray'],
+  [/وجبة كباب|صحن كباب/, 'plate'],
+  [/شوربة|عدس|تشريب/, 'soup'],
+  [/تمن|برياني|قوزي|مقلوبة|مرق|قيمة/, 'rice'],
+  [/سلطة|جاجيك|فتوش|تبولة/, 'salad'],
   [/كبد|معلاك|قلوب/, 'liver'],
+  [/طماطة مشوية|طماطم مشوي/, 'salad'],
   [/دجاج|طاووق|فروج|مسحب/, 'chicken'],
   [/تكة|تكه/, 'tikka'],
-  [/كباب|مشوي|مشكّل|مشكل|شيش/, 'kebab'],
-  [/خبز|منقوشة|مناقيش|كاهي|عجين|صمون|قيمر|كيمر/, 'bread'],
+  [/كباب|مشوي|شيش/, 'kebab'],
+  [/صمون|خبز|منقوشة|مناقيش|كاهي|عجين|قيمر|كيمر/, 'bread'],
 ];
 
 /** Menu-section fallbacks for names the rules don't know. */
@@ -60,7 +54,7 @@ const BY_SECTION: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/مشويات|لفات/, 'kebab'],
 ];
 
-/** How many looks each motif has (tilt, garnish, plate tint). */
+/** How many looks each motif has (tilt, garnish, plate tint); equals `DISH_LOOKS` in `@driver/ui`. */
 export const ART_LOOKS = 3;
 
 export function motifForDish(name: string, section?: string): Motif {
@@ -72,7 +66,8 @@ export function motifForDish(name: string, section?: string): Motif {
 /** A kitchen's hero scene, from its cuisine tags. */
 export function motifForKitchen(tags: readonly string[]): Motif {
   if (tags.includes('shawarma')) return 'shawarma';
-  if (tags.includes('breakfast') || tags.includes('pacha')) return 'tea';
+  if (tags.includes('pacha')) return 'pacha';
+  if (tags.includes('breakfast')) return 'tea';
   if (tags.includes('grill') || tags.includes('kebab')) return 'kebab';
   if (tags.includes('falafel')) return 'falafel';
   return 'rice';

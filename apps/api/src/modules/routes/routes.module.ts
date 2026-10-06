@@ -59,6 +59,7 @@ import { RoutesWriter } from './writer.js';
       provide: ROUTES_RIDER_NAMES,
       useFactory: (identity: IdentityService): RiderNamesReader => ({
         firstNamesFor: (ids, accessorId, purpose) => identity.firstNamesFor(ids, accessorId, purpose),
+        memberCards: (ids, accessorId, purpose) => identity.memberCards(ids, accessorId, purpose),
       }),
       inject: [IdentityService],
     },

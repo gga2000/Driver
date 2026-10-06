@@ -30,6 +30,11 @@ import {
   IntercityNetwork,
   MarkWalkUpInput,
   PickOfferInput,
+  PinAlertCallInput,
+  PinAlertsInput,
+  PinAlertView,
+  PinAttemptsInput,
+  PinAttemptView,
   PostDemandInput,
   PostRequestInput,
   RequestIdInput,
@@ -41,6 +46,7 @@ import {
   RespondPickupInput,
   SelfieInput,
 } from '../routes-io.js';
+import { SafetyCallSession } from '../safety-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Drivers who announce departures and offer on the request board. */
@@ -239,5 +245,24 @@ export const routesRouter = router({
       .input(GarageOpsInput)
       .output(GarageOpsView)
       .query(({ ctx, input }) => ctx.routes.garageView(ctx.actor, input)),
+    /**
+     * Seat-PIN alerts for the Console safety strip (Ali 2026-10-06): a rider's PIN typed on another
+     * rider's seat, or `PIN_ATTEMPT_RULES.wrongOnSeatAlertAt` refused PINs on one seat, each with the
+     * car's PIN history. Polled like the SOS banner.
+     */
+    pinAlerts: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(PinAlertsInput)
+      .output(z.array(PinAlertView))
+      .query(({ ctx, input }) => ctx.routes.pinAlerts(ctx.actor, input)),
+    /** Every PIN typed on one departure and what it did (ids and seats only). */
+    pinAttempts: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(PinAttemptsInput)
+      .output(z.array(PinAttemptView))
+      .query(({ ctx, input }) => ctx.routes.pinAttempts(ctx.actor, input)),
+    /** Masked call to the driver of a PIN alert (logged on the departure, never a number). */
+    callPinAlertDriver: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(PinAlertCallInput)
+      .output(SafetyCallSession)
+      .mutation(({ ctx, input }) => ctx.routes.callPinAlertDriver(ctx.actor, input)),
   }),
 });

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CityId, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import type { CallSession } from './chat-io.js';
+import type { SafetyCallSession } from './safety-io.js';
 
 /**
  * الرجعة — the intercity system (customer spec §2, domain §2 Departure/Seat, edge-case decisions
@@ -624,6 +625,93 @@ export const CheckInInput = z.object({
 });
 export type CheckInInput = z.infer<typeof CheckInInput>;
 
+/**
+ * Seat PIN safeguards (Ali 2026-10-06: the PIN stays on the rider's lock screen, "but record which
+ * user input which pin and if another user input the pin for other user"). Every PIN a driver types
+ * at a departure is logged (`intercity_pin_attempts`, ids only, never the PIN), and ops get a row on
+ * the Console safety strip when a PIN that belongs to one booking is typed on another rider's seat,
+ * or when one seat sees `wrongOnSeatAlertAt` refused PINs.
+ */
+export const PIN_ATTEMPT_RULES = {
+  /** The refused PIN on one seat (or on the plain PIN pad) of one departure that alerts ops, once. */
+  wrongOnSeatAlertAt: 3,
+  /** A PIN alert stays on the Console strip this long after it was raised (the log stays for good). */
+  alertShowMin: 60,
+} as const;
+
+/**
+ * What one typed PIN did: boarded its rider; matched no booking on the car; belonged to another
+ * booking than the seat it was typed on (cross-use, refused); or belonged to a booking that cannot
+ * board now (already on board, cancelled, still only held).
+ */
+export const PinAttemptResult = z.enum(['checked_in', 'wrong_pin', 'other_booking', 'not_boardable']);
+export type PinAttemptResult = z.infer<typeof PinAttemptResult>;
+
+/** Why an attempt alerted ops: a rider's PIN on another rider's seat, or the Nth refused PIN on one seat. */
+export const PinAlertKind = z.enum(['cross_use', 'wrong_repeated']);
+export type PinAlertKind = z.infer<typeof PinAlertKind>;
+
+/** One logged PIN attempt as the Console shows it (seats, never the PIN or a rider's name). */
+export const PinAttemptView = z.object({
+  attemptId: z.string(),
+  at: z.coerce.date(),
+  /** Who typed it (the departure's driver). */
+  driverId: z.string(),
+  /** The seat's booking it was typed on (garage mode); null on the plain PIN pad. */
+  targetBookingId: z.string().nullable(),
+  targetSeatIds: z.array(IntercitySeatId),
+  /** The booking on this car that the PIN belongs to, if any. */
+  matchedBookingId: z.string().nullable(),
+  matchedSeatIds: z.array(IntercitySeatId),
+  result: PinAttemptResult,
+  /** Set on the attempt that raised an ops alert. */
+  alert: PinAlertKind.nullable(),
+});
+export type PinAttemptView = z.infer<typeof PinAttemptView>;
+
+/**
+ * A PIN alert on the Console safety strip (under the SOS banner, with the خطوط sweep rows): the
+ * attempt that raised it, the car, the driver (name and masked number: a logged vault read for the
+ * staff member asking) and the departure's whole PIN history, oldest first.
+ */
+export const PinAlertView = z.object({
+  /** The attempt that raised it. */
+  alertId: z.string(),
+  kind: PinAlertKind,
+  cityId: z.string(),
+  departureId: z.string(),
+  garageNameAr: z.string(),
+  corridorNameAr: z.string(),
+  departAt: z.coerce.date(),
+  driver: z.object({
+    personId: z.string(),
+    /** "حيدر ك."; null when the vault has no name. */
+    displayName: z.string().nullable(),
+    phoneMasked: z.string().nullable(),
+  }),
+  targetBookingId: z.string().nullable(),
+  targetSeatIds: z.array(IntercitySeatId),
+  matchedBookingId: z.string().nullable(),
+  matchedSeatIds: z.array(IntercitySeatId),
+  /** Refused PINs on that seat (or the pad) in this departure when the alert was raised. */
+  refusedOnSeat: z.number().int(),
+  raisedAt: z.coerce.date(),
+  attempts: z.array(PinAttemptView),
+});
+export type PinAlertView = z.infer<typeof PinAlertView>;
+
+/** The city's PIN alerts of the last `PIN_ATTEMPT_RULES.alertShowMin`, newest first. */
+export const PinAlertsInput = z.object({ cityId: z.string().min(1) });
+export type PinAlertsInput = z.infer<typeof PinAlertsInput>;
+
+/** The dispatcher's masked call to the driver from a PIN alert. */
+export const PinAlertCallInput = z.object({ alertId: z.string().min(1).max(80) });
+export type PinAlertCallInput = z.infer<typeof PinAlertCallInput>;
+
+/** Any departure's PIN history (ops): the same rows the alert carries. */
+export const PinAttemptsInput = z.object({ departureId: z.string().min(1) });
+export type PinAttemptsInput = z.infer<typeof PinAttemptsInput>;
+
 export const DepartureBookingInput = z.object({
   departureId: z.string().min(1),
   bookingId: z.string().min(1),
@@ -806,4 +894,10 @@ export interface RoutesPort {
   myRequestRides(actor: Actor): Promise<DriverRequestRide[]>;
   // ops
   garageView(actor: Actor, input: GarageOpsInput): Promise<GarageOpsView>;
+  /** Console safety strip: seat-PIN alerts (cross-use, repeated wrong PINs) with each car's PIN history. */
+  pinAlerts(actor: Actor, input: PinAlertsInput): Promise<PinAlertView[]>;
+  /** A departure's PIN history, oldest first. */
+  pinAttempts(actor: Actor, input: PinAttemptsInput): Promise<PinAttemptView[]>;
+  /** The strip's call button: a masked call from the staff member to the car's driver. */
+  callPinAlertDriver(actor: Actor, input: PinAlertCallInput): Promise<SafetyCallSession>;
 }

@@ -23,3 +23,31 @@ export const Place = z.object({
   landmark: z.boolean().default(false),
 });
 export type Place = z.infer<typeof Place>;
+
+/**
+ * Self-fixing door points (maps program a3). Each delivered drop-off at a saved place leaves the
+ * courier's arrival fix; once enough of them agree, their median is the door — used for the courier's
+ * navigation and arrival geofence. The customer's own pin is never moved.
+ */
+export const DOOR_RULES = {
+  /** An arrival fix less accurate than this teaches nothing. */
+  maxAccuracyM: 30,
+  /** Fixes within this distance of their median are the same door. */
+  clusterM: 60,
+  /** Agreeing fixes needed before the door counts as known ("الباب مأكّد"). */
+  minSamples: 3,
+  /** Only the latest fixes count (a family that moves door, a new gate). */
+  keep: 10,
+  /** Fixes this far from the customer's pin belong to another place (the pin was moved since). */
+  maxFromPinM: 150,
+} as const;
+
+export const DoorSample = z.object({
+  /** The drop-off it came from (a redelivered event adds nothing). */
+  stopId: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  accuracyM: z.number().min(0),
+  at: z.coerce.date(),
+});
+export type DoorSample = z.infer<typeof DoorSample>;

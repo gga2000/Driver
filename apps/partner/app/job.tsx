@@ -222,8 +222,9 @@ function JobView({
       if (action.kind === 'arrive') {
         // A real fix only: without one the server judges the arrival from his last reported position
         // (a made-up town-centre pin would flag every web/desktop arrival as outside the geofence).
+        // Its accuracy goes along: precise arrivals teach a saved place its door (maps program a3).
         const fix = await currentFix(4000);
-        const res = await queue.run({ kind: 'arrive', tripId: job.tripId, stopId: stop.stopId, ...(fix ? { pin: fix } : {}) });
+        const res = await queue.run({ kind: 'arrive', tripId: job.tripId, stopId: stop.stopId, ...(fix ? { pin: { lat: fix.lat, lng: fix.lng }, ...(fix.accuracyM !== undefined ? { accuracyM: fix.accuracyM } : {}) } : {}) });
         if (res.status === 'queued') return savedToast();
         const s = res.trip.stops.find((x) => x.id === stop.stopId);
         if (s?.arrivedOutsideGeofence) toast.show({ message: t('partner.arrived_outside'), tone: 'warning' });

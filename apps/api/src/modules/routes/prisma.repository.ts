@@ -1,4 +1,4 @@
-import type { BookingState, IntercitySeatId } from '@driver/contracts';
+import { PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -8,6 +8,7 @@ import type {
   DepartureRecord,
   Fix,
   PickupRecord,
+  PinAttemptRecord,
   RequestOfferRecord,
   RequestPlaceRecord,
   RequestRecord,
@@ -314,9 +315,66 @@ export class PrismaRoutesRepository implements RoutesRepository {
     });
     return rows.map(toRequest);
   }
+
+  // ───────────────────────── seat PIN attempts ─────────────────────────
+
+  async addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void> {
+    await this.db(tx).intercityPinAttempt.create({
+      data: {
+        id: a.id,
+        departureId: a.departureId,
+        cityId: a.cityId,
+        driverId: a.driverId,
+        targetBookingId: a.targetBookingId,
+        matchedBookingId: a.matchedBookingId,
+        result: a.result,
+        alert: a.alert,
+        refusedOnSeat: a.refusedOnSeat,
+        at: a.at,
+      },
+    });
+  }
+
+  async pinAttemptsFor(departureId: string, tx?: Tx): Promise<PinAttemptRecord[]> {
+    const rows = await this.db(tx).intercityPinAttempt.findMany({
+      where: { departureId },
+      orderBy: [{ at: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(toPinAttempt);
+  }
+
+  async pinAlertsSince(cityId: string, since: Date, tx?: Tx): Promise<PinAttemptRecord[]> {
+    const rows = await this.db(tx).intercityPinAttempt.findMany({
+      where: { cityId, alert: { not: null }, at: { gte: since } },
+      orderBy: [{ at: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map(toPinAttempt);
+  }
+
+  async getPinAttempt(id: string, tx?: Tx): Promise<PinAttemptRecord | null> {
+    const row = await this.db(tx).intercityPinAttempt.findUnique({ where: { id } });
+    return row ? toPinAttempt(row) : null;
+  }
 }
 
 // ───────────────────────── row mapping ─────────────────────────
+
+type PinAttemptRow = Awaited<ReturnType<Tx['intercityPinAttempt']['findUniqueOrThrow']>>;
+
+function toPinAttempt(r: PinAttemptRow): PinAttemptRecord {
+  return {
+    id: r.id,
+    departureId: r.departureId,
+    cityId: r.cityId,
+    driverId: r.driverId,
+    targetBookingId: r.targetBookingId,
+    matchedBookingId: r.matchedBookingId,
+    result: PinAttemptResult.parse(r.result),
+    alert: r.alert === null ? null : PinAlertKind.parse(r.alert),
+    refusedOnSeat: r.refusedOnSeat,
+    at: r.at,
+  };
+}
 
 interface FixJson {
   lat: number;

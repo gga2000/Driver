@@ -61,6 +61,49 @@ describe('SavedPlacesService — orders and couriers (maps program SP3d)', () =>
   });
 });
 
+describe('SavedPlacesService — the door couriers reach (maps program a3)', () => {
+  /** ~10 m north of the pin: where couriers actually stop. */
+  const DOOR = { lat: STREET_30.lat + 0.0001, lng: STREET_30.lng };
+  const at = (min: number) => new Date(Date.UTC(2026, 9, 3, 9, min));
+
+  it('three precise arrivals that agree confirm the door; the pin stays the customer’s', async () => {
+    const h = harness();
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30 });
+    expect(home.doorConfirmed).toBe(false);
+    expect(await h.service.learnDoor(home.id, { stopId: 's1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(true);
+    // A redelivered event and a blurry fix teach nothing.
+    expect(await h.service.learnDoor(home.id, { stopId: 's1', ...DOOR, accuracyM: 8, at: at(1) })).toBe(false);
+    expect(await h.service.learnDoor(home.id, { stopId: 's2', ...DOOR, accuracyM: 45, at: at(2) })).toBe(false);
+    await h.service.learnDoor(home.id, { stopId: 's3', lat: DOOR.lat + 0.00002, lng: DOOR.lng, accuracyM: 12, at: at(3) });
+    expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(false);
+    await h.service.learnDoor(home.id, { stopId: 's4', lat: DOOR.lat, lng: DOOR.lng + 0.00002, accuracyM: 6, at: at(4) });
+    const [after] = await h.service.mine('cust_a');
+    expect(after).toMatchObject({ doorConfirmed: true, pin: STREET_30 });
+    // The order goes to the door; another customer gets nothing.
+    const place = await h.service.deliveryPlace('cust_a', home.id);
+    expect(distanceOf(place!.door!, DOOR)).toBeLessThan(5);
+    expect(await h.service.deliveryPlace('stranger', home.id)).toBeNull();
+    // The owner's later edit keeps what couriers taught.
+    await h.service.update('cust_a', { placeId: home.id, note: 'الباب الأسود' });
+    expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(true);
+  });
+
+  it('learns from delivered drop-offs through the outbox (stop.completed with a door)', async () => {
+    const h = harness();
+    h.service.onModuleInit();
+    const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30 });
+    for (const [i, stopId] of ['s1', 's2', 's3'].entries()) {
+      await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(i), payload: { stopId, stopType: 'dropoff', door: { placeId: home.id, lat: DOOR.lat, lng: DOOR.lng, accuracyM: 10 } } }, { name: 'trip', id: `t${i}` });
+    }
+    // A pickup (no door) is ignored.
+    await h.events.emit(undefined, { actorId: 'd1', type: 'stop.completed', occurredAt: at(9), payload: { stopId: 's9', stopType: 'pickup' } }, { name: 'trip', id: 't9' });
+    await h.service.settled();
+    expect((await h.service.mine('cust_a'))[0]!.doorConfirmed).toBe(true);
+  });
+});
+
+const distanceOf = (a: LatLng, b: LatLng) => Math.hypot((a.lat - b.lat) * 111_000, (a.lng - b.lng) * 93_000);
+
 const code = async (p: Promise<unknown>) => {
   try {
     await p;
