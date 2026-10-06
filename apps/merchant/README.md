@@ -86,6 +86,12 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
   rejected is deleted. `merchantAdmin.menuPhotos.*`; owners act, staff read; push «صور المنيو جاهزة» opens the screen. Demo: the
   shoot is handed over with 3 drawn plates; `POST /demo/menu-photos/reset` | `/demo/menu-photos/scheduled` | `/demo/menu-photos/clear`
   (`scripts/demo/menu-photos.mjs`).
+- **قدر اليوم** (`app/pot.tsx`, `src/features/pot/`, joy h2): a row on top of المنيو and an المزيد tile. One tap posts
+  last week's same-day dish («نفسها اليوم»); otherwise pick from the dishes cooked lately or the menu (on sale only, with how many
+  follow each), an optional 60-character note and «لحد». `merchantAdmin.pot.set` / `clear`; owner and staff. Followers get one push.
+- **قصة مطعمك** (`app/story.tsx`, joy h5): 1–3 lines and the year opened, «اعرضها للزباين» (the owner's consent) and a preview;
+  `merchantAdmin.story.set`, owner only, staff read. Demo (`scripts/demo/pot.mjs`): Khalid has last week's pot, two recent ones,
+  four followers and a shown story; `POST /demo/pot/reset` | `/demo/pot/clear` | `/demo/story/clear`.
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).

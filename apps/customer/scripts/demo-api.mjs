@@ -18,6 +18,7 @@
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
+//   - POST /demo/usuals?personId=…, /demo/pot?key=…&item=…             joy J7a: usuals, «غدا الجمعة», «قدر اليوم» (pots + stories seeded)
 //   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
@@ -560,6 +561,70 @@ app.use('/demo/history', async (req, res) => {
     await catalog.setAvailability(haj.orgId, haj.itemIds.get('hummus'), true);
     for (const h of HISTORY) orderIds.push(await deliveredOrder(personId, h));
     await catalog.setAvailability(haj.orgId, haj.itemIds.get('hummus'), false);
+    json(res, 200, { orderIds });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// ───────────────────────── joy J7a: food habits ─────────────────────────
+// Seeded at start (demo data, not the real seed: a pot is today's, a story needs the owner's yes):
+//   «قدر اليوم» at مشويات الحاج كريم (تمن وبامية, «ويا لحم غنم») and مطعم المسافر (دولمة, until 22:00),
+//   and two kitchen stories shown on the restaurant page (مطعم خالد, مشويات الحاج كريم).
+// Hooks:
+//   POST /demo/usuals?personId=…   two delivered orders of the same meal a week and two weeks ago at this
+//                                   hour (home: «طلبك المعتاد؟»), and the same lunch on the last two
+//                                   Fridays at 13:30 (Thursday evening / Friday morning: «باچر الجمعة»;
+//                                   open the web build with `?now=<Thursday>T20:00:00+03:00`)
+//   POST /demo/pot?key=haj_kareem&item=rice_fasoulia[&clear=1]   posts (or clears) a kitchen's pot the
+//                                   way the Merchant app does; followers get the «قدر اليوم» push
+const { EventsService } = await load('modules/events/index.js');
+const events = app.get(EventsService);
+const byKey = (key) => seeded.find((s) => s.seed.key === key);
+
+async function demoPot(key, item, note = null, until = null) {
+  const r = byKey(key);
+  const { pot, item: dish, followerIds } = await catalog.postPot(r.orgId, { itemId: r.itemIds.get(item), note, until }, 'demo-owner');
+  await events.emit(undefined, { actorId: 'demo-owner', type: 'catalog.pot_posted', occurredAt: new Date(), payload: { merchantOrgId: r.orgId, itemId: dish.id, dishName: dish.nameAr, restaurantName: r.seed.nameAr, localDate: pot.localDate, note, until, followerIds } }, { name: 'org', id: r.orgId });
+  return pot;
+}
+await demoPot('haj_kareem', 'rice_bamia', 'ويا لحم غنم');
+await demoPot('musafir', 'dolma', null, '22:00');
+await catalog.setStory(byKey('khalid').orgId, { text: 'نشوي على الفحم من أيام أبوي، ونفس الخلطة.\nالكباب ينگطع بالساطور كل صبح.', sinceYear: 2009, shown: true });
+await catalog.setStory(byKey('haj_kareem').orgId, { text: 'الحاج كريم بدأ بمنقلة وحدة بالسوق. هسة ولده واقف على نفس المنقلة.', sinceYear: 1998, shown: true });
+
+app.use('/demo/pot', async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const key = url.searchParams.get('key') ?? 'haj_kareem';
+    if (req.method !== 'POST' || !byKey(key)) return json(res, 400, { error: 'POST /demo/pot?key=<kitchen>&item=<dish>[&clear=1]' });
+    if (url.searchParams.get('clear') === '1') {
+      await catalog.clearPot(byKey(key).orgId);
+      return json(res, 200, { cleared: key });
+    }
+    const pot = await demoPot(key, url.searchParams.get('item') ?? 'rice_bamia', url.searchParams.get('note'), url.searchParams.get('until'));
+    json(res, 200, { pot });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+/** The last `n`-th Friday before now, at 13:30 Baghdad, as days ago (fractional) for `deliveredOrder`. */
+function fridayDaysAgo(n) {
+  const nowMs = Date.now();
+  const local = new Date(nowMs + 3 * 3_600_000);
+  const back = ((local.getUTCDay() - 5 + 7) % 7 || 7) + 7 * (n - 1);
+  const target = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - back, 13, 30) - 3 * 3_600_000;
+  return (nowMs - target) / 86_400_000;
+}
+
+app.use('/demo/usuals', async (req, res) => {
+  try {
+    const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+    if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/usuals?personId=…' });
+    const orderIds = [];
+    for (const daysAgo of [14, 7]) orderIds.push(await deliveredOrder(personId, { key: 'haj_kareem', daysAgo, lines: [['rice_bamia', 2], ['erbil_laban', 2]] }));
+    for (const n of [2, 1]) orderIds.push(await deliveredOrder(personId, { key: 'musafir', daysAgo: fridayDaysAgo(n), lines: [['dolma', 1], ['quzi', 1]] }));
     json(res, 200, { orderIds });
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });

@@ -78,6 +78,17 @@ and iOS), so it shows on a development build, not in the web studio; `content.te
 - Demo: `POST /demo/history?personId=…` adds three delivered orders (yesterday, 3 and 9 days ago)
   and runs حمص out at مشويات الحاج كريم so a reorder shows the explanation sheet. الرجعة demo
   drivers are named people now.
+- **Food habits (joy J7a, `docs/api/food-habits.md`)**: home «العزيزية اليوم» strip of today's pots
+  (`features/home/PotsStrip.tsx`, `catalog.pots`) with the follow bell («خبرني لمن يطبخوه»,
+  `catalog.followDish`); «طلبك المعتاد؟» (`UsualCard`, `orders.usuals`) and Thursday evening / Friday
+  morning «باچر الجمعة · تحجز غداكم؟» (`FridayCard`), both through the express reorder sheet (the Friday
+  one books a scheduled order); on the restaurant page the pot banner and «مطاعمنا» story
+  (`features/food/KitchenHabits.tsx`), and the item sheet's follow row for recent pot dishes; the
+  «قدر اليوم» switch in notifications. Pure logic in `features/home/habits.ts` (tested).
+  Demo: pots at الحاج كريم and المسافر and two stories are seeded; `POST /demo/usuals?personId=…` adds the
+  orders that make a usual for this hour and a Friday lunch usual (see it with `?now=<a Thursday>T20:00:00+03:00`);
+  `POST /demo/pot?key=haj_kareem&item=rice_fasoulia` posts a pot like the Merchant app (followers get the push),
+  `&clear=1` takes it off.
 
 ## Session and API
 
