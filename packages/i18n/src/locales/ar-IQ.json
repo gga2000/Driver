@@ -2890,6 +2890,8 @@
   "home.band.dinner": "للعشا",
   "home.band.late": "للسهرة",
   "home.band_dish_a11y": "{dish} من {restaurant}، {price}",
+  "home.points_chip": "{n} نقطة",
+  "home.points_chip_a11y": "عندك {n} نقطة، افتح المحفظة",
   "home.live_arrives": "طلبك يوصل",
   "home.live_line": "{name} · {status}",
   "home.reorder_meta": "{when} · {amount} دينار",

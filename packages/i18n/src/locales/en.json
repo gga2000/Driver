@@ -2890,6 +2890,8 @@
   "home.band.dinner": "For dinner",
   "home.band.late": "For late night",
   "home.band_dish_a11y": "{dish} from {restaurant}, {price}",
+  "home.points_chip": "{n} pts",
+  "home.points_chip_a11y": "You have {n} points, open the wallet",
   "home.live_arrives": "Your order arrives",
   "home.live_line": "{name} · {status}",
   "home.reorder_meta": "{when} · {amount} IQD",
