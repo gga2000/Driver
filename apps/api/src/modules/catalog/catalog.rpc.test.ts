@@ -202,6 +202,38 @@ describe('catalog.search', () => {
   });
 });
 
+describe('catalog.carryOver (joy o15: a rejection that explains)', () => {
+  it('suggests the other grill kitchen first and says how much of the cart it makes and about what it costs', async () => {
+    const w = await world();
+    const khalid = w.byKey('khalid');
+    const preview = await caller(w.rpc).carryOver({
+      cityId: 'aziziyah',
+      merchantId: khalid.orgId,
+      dropoff: ZAKUR,
+      lines: [
+        { name: 'كباب بالكيلو', qty: 1, choices: ['نص كيلو'] },
+        { name: 'لفة تكة', qty: 2, choices: ['صمون حجري'] },
+      ],
+    });
+    expect(preview.options.length).toBeGreaterThan(0);
+    const haj = preview.options[0]!;
+    expect(haj.restaurant.name).toBe('مشويات الحاج كريم');
+    expect(haj.of).toBe(2);
+    expect(haj.moved + haj.missing.length).toBe(2);
+    expect(preview.options.map((o) => o.restaurant.id)).not.toContain(khalid.orgId);
+    if (haj.moved > 0) {
+      expect(haj.totalIqd! % 250).toBe(0);
+      expect(haj.totalIqd!).toBeGreaterThan((haj.restaurant.deliveryFeeIqd ?? 0) + (haj.restaurant.serviceFeeIqd ?? 0));
+    }
+  });
+
+  it('without a deliver-to point there is no total, only what carries over', async () => {
+    const w = await world();
+    const preview = await caller(w.rpc, null).carryOver({ cityId: 'aziziyah', merchantId: w.byKey('khalid').orgId, lines: [{ name: 'شوربة عدس', qty: 1, choices: [] }] });
+    for (const o of preview.options) expect(o.totalIqd).toBeNull();
+  });
+});
+
 describe('catalog.menu', () => {
   it('returns sections in menu order with variants first and the min/max rules — through the router', async () => {
     const w = await world();

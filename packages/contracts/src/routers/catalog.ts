@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CarryOverInput, CarryOverPreview, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
 import type { Actor } from '../identity-io.js';
 import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
 
@@ -32,6 +32,11 @@ export const catalogRouter = router({
     .input(CatalogSearchInput)
     .output(CatalogSearchResult)
     .query(({ ctx, input }) => ctx.catalog.search(readerOf(ctx), input)),
+  /** After a rejection (joy o15): similar open kitchens, how much of the cart each makes, about what it costs. */
+  carryOver: publicProcedure
+    .input(CarryOverInput)
+    .output(CarryOverPreview)
+    .query(({ ctx, input }) => ctx.catalog.carryOver(readerOf(ctx), input)),
   /** The welcome screen's live proof (audit d-6): open kitchens, الرجعة cars today, a tuktuk fare, the garage, the delay promise. */
   today: publicProcedure
     .input(CatalogTodayInput)

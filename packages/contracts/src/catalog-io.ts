@@ -291,8 +291,41 @@ export const CatalogToday = z.object({
 export type CatalogToday = z.infer<typeof CatalogToday>;
 
 /** What the API supplies to the `catalog` router (implemented by `modules/catalog`). */
+/**
+ * `catalog.carryOver` (joy o15, audit F-23): after a kitchen says no, the similar open kitchens and,
+ * for each, how much of the cart they make (by the shared carry-over rule) and about what it costs
+ * there — menu prices, the card's delivery and service fees to `dropoff`, the small-order fee, cash
+ * rounded to 250. No deal is applied here ("تقريباً"); checkout's `orders.quote` is the exact figure.
+ */
+export const CarryOverInput = z.object({
+  cityId: CityId,
+  /** The kitchen that said no. */
+  merchantId: z.string().min(1),
+  dropoff: DeliveryPoint.optional(),
+  lines: z
+    .array(z.object({ name: z.string().trim().min(1).max(80), qty: z.number().int().min(1).max(99), choices: z.array(z.string().max(60)).max(30).default([]) }))
+    .min(1)
+    .max(50),
+});
+export type CarryOverInput = z.input<typeof CarryOverInput>;
+
+export const CarryOverOption = z.object({
+  restaurant: RestaurantCard,
+  /** Lines that carry over / lines in the cart. */
+  moved: z.number().int().min(0),
+  of: z.number().int().min(1),
+  /** Names of the dishes this kitchen does not make (or has run out of). */
+  missing: z.array(z.string()),
+  /** About what the carried cart costs there in cash; null without a deliver-to point or when nothing moves. */
+  totalIqd: Iqd.nullable(),
+});
+export type CarryOverOption = z.infer<typeof CarryOverOption>;
+export const CarryOverPreview = z.object({ options: z.array(CarryOverOption) });
+export type CarryOverPreview = z.infer<typeof CarryOverPreview>;
+
 export interface CustomerCatalogPort {
   restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]>;
+  carryOver(reader: Actor | CatalogReader, input: z.infer<typeof CarryOverInput>): Promise<CarryOverPreview>;
   menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu>;
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;

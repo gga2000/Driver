@@ -6,11 +6,18 @@ import {
   DriverError,
   PriceRequest,
   SMALL_ORDER_FEE_IQD,
+  carryModifierPicks,
+  cashToHand,
+  matchDish,
   menuDealOf,
+  similarKitchens,
+  smallOrderFeeIqd,
   deliveryFeesOf,
   searchScore,
   type Actor,
   type CatalogPicksInput,
+  type CarryOverInput,
+  type CarryOverPreview,
   type CatalogReader,
   type CatalogSearchDish,
   type CatalogSearchInput,
@@ -174,6 +181,45 @@ export class CatalogRpc implements CustomerCatalogPort {
     const deals = restaurant.deals ?? [];
     const categories = menuSections(items, now, this.merchants.timeZone).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
     return { restaurant, categories };
+  }
+
+  /**
+   * `catalog.carryOver` (joy o15): the two similar open kitchens (shared cuisine tags first) and, for
+   * each, which lines of the refused cart it makes — the same dish-and-choices rule the app moves the
+   * cart with — and about what that cart costs there: menu prices + the card's fees to the drop-off
+   * + the small-order fee, cash rounded to 250. Deals are left to checkout's exact quote.
+   */
+  async carryOver(reader: Actor | CatalogReader, input: z.infer<typeof CarryOverInput>): Promise<CarryOverPreview> {
+    await this.admit(reader);
+    const now = this.clock.now();
+    const rejected = await this.catalog.storefront(input.merchantId);
+    const cards: Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }> = [];
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      const items = await this.catalog.menu(s.orgId);
+      cards.push({ card: await this.card(s, items, input.dropoff ?? null, now), items });
+    }
+    const picked = similarKitchens({ id: input.merchantId, tags: rejected?.tags ?? [] }, cards.map((c) => c.card));
+    const options = picked.map((card) => {
+      const items = cards.find((c) => c.card.id === card.id)!.items;
+      const menu = menuSections(items, now, this.merchants.timeZone).flatMap((c) => c.items);
+      let itemsIqd = 0;
+      let moved = 0;
+      const missing: string[] = [];
+      for (const line of input.lines) {
+        const dish = matchDish(line.name, menu);
+        const picks = dish?.available ? carryModifierPicks(line.choices, dish.modifierGroups) : null;
+        if (!dish || !picks) {
+          missing.push(line.name);
+          continue;
+        }
+        moved += 1;
+        itemsIqd += (dish.priceIqd + picks.reduce((a, p) => a + p.modifier.priceIqd, 0)) * line.qty;
+      }
+      const fees = card.deliveryFeeIqd !== null && card.serviceFeeIqd !== null ? card.deliveryFeeIqd + card.serviceFeeIqd : null;
+      const totalIqd = moved > 0 && fees !== null ? cashToHand(itemsIqd + fees + smallOrderFeeIqd(itemsIqd, card.minOrderIqd)).cashIqd : null;
+      return { restaurant: card, moved, of: input.lines.length, missing, totalIqd };
+    });
+    return { options };
   }
 
   /**

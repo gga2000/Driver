@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, View } from 'react-native';
@@ -13,8 +13,8 @@ import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
 import { trackingMessage } from '@/features/food/checkout-lines';
 import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from '@/features/food/kitchen-moment';
 import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
-import { isKitchenAccepted, isKitchenRejection, useCancelOrder, useCatalogRestaurants, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
-import { similarOpenRestaurants } from '@/features/food/similar';
+import { CITY_ID, isKitchenAccepted, isKitchenRejection, useCancelOrder, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
+import { carryLines, optionCopy, rejectionReason } from '@/features/food/rejection';
 import { whatsappUrl } from '@/features/help/whatsapp';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { shareUrl } from '@/features/rajaa/share';
@@ -138,7 +138,7 @@ export default function KitchenScreen() {
     );
   }
 
-  if (isKitchenRejection(o)) return <Rejected orderId={o.id} />;
+  if (isKitchenRejection(o)) return <Rejected orderId={o.id} reason={o.cancellationReason} />;
 
   const offeredAt = o.merchantOfferedAt ?? o.placedAt;
   const waiting = o.state === 'placed';
@@ -208,7 +208,7 @@ function useNow(everyMs: number | null): number {
 }
 
 /** The kitchen said no: nothing charged; two similar open kitchens, cart carried over on a tap. */
-function Rejected({ orderId }: { orderId: string }) {
+function Rejected({ orderId, reason }: { orderId: string; reason: string | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -217,12 +217,16 @@ function Rejected({ orderId }: { orderId: string }) {
   const queryClient = useQueryClient();
   const { placed } = useCartStore();
   const { dropoff } = useDeliverTo();
-  const list = useCatalogRestaurants({ openNow: true });
   const [moving, setMoving] = useState<string | null>(null);
   const cart = placed?.orderId === orderId ? placed.cart : null;
   const rejectedId = cart?.merchant?.id ?? '';
-  const rejectedCard = list.data?.find((c) => c.id === rejectedId);
-  const suggestions = list.data ? similarOpenRestaurants({ id: rejectedId, tags: rejectedCard?.tags ?? [] }, list.data) : [];
+  // o15: the server picks the similar kitchens and says how much of this cart each makes and about what it costs.
+  const preview = useQuery({
+    ...api.catalog.carryOver.queryOptions({ cityId: cart?.merchant?.cityId ?? CITY_ID, merchantId: rejectedId || 'none', ...(dropoff ? { dropoff } : {}), lines: cart ? carryLines(cart) : [{ name: '-', qty: 1, choices: [] }] }),
+    enabled: Boolean(cart && rejectedId && cart.lines.length > 0),
+  });
+  const suggestions = preview.data?.options ?? [];
+  const why = rejectionReason(reason);
 
   const move = async (target: RestaurantCard) => {
     if (!cart) return;
@@ -253,9 +257,14 @@ function Rejected({ orderId }: { orderId: string }) {
         <View style={{ width: '100%', maxWidth: 260, marginBottom: theme.space[2] }}>
           <SketchScene name="rejected" />
         </View>
-        <Text variant="heading" align="center">
-          {t('order.status.merchant_rejected')}
+        <Text variant="heading" align="center" testID="kitchen-rejected-title">
+          {cart?.merchant?.name ? t('kitchen.rejected_title', { name: cart.merchant.name }) : t('order.status.merchant_rejected')}
         </Text>
+        {why ? (
+          <Text variant="body" weight={600} align="center" testID="kitchen-rejected-reason">
+            {t(why.key, why.params)}
+          </Text>
+        ) : null}
         <Text variant="body" color="textMuted" align="center">
           {t('order.status.merchant_rejected_hint')}
         </Text>
@@ -263,12 +272,14 @@ function Rejected({ orderId }: { orderId: string }) {
 
       <View style={{ gap: theme.space[3] }}>
         <Text variant="title">{t('kitchen.suggest_title')}</Text>
-        {list.isPending ? (
+        {preview.isPending && preview.fetchStatus !== 'idle' ? (
           <Skeleton height={120} />
+        ) : preview.isError ? (
+          <Button variant="secondary" label={t('action.retry')} onPress={() => void preview.refetch()} />
         ) : suggestions.length === 0 ? (
           <EmptyState icon="clock" title={t('kitchen.no_suggestions')} />
         ) : (
-          suggestions.map((r) => (
+          suggestions.map(({ restaurant: r, ...fit }) => (
             <Card key={r.id} padding={0} style={{ overflow: 'hidden' }} testID={`suggest-${r.id}`}>
               <View style={{ flexDirection: 'row' }}>
                 <View style={{ width: 104 }}>
@@ -294,6 +305,14 @@ function Rejected({ orderId }: { orderId: string }) {
                       </Text>
                     ) : null}
                   </View>
+                  {(() => {
+                    const c = optionCopy(fit, amountParam);
+                    return (
+                      <Text variant="footnote" weight={600} color={fit.moved === fit.of ? 'successText' : 'textMuted'} tabular testID={`suggest-fit-${r.id}`}>
+                        {t(c.key, c.params)}
+                      </Text>
+                    );
+                  })()}
                   <Button size="sm" label={t('kitchen.move_cart')} icon="cart" loading={moving === r.id} onPress={() => void move(r)} testID={`suggest-move-${r.id}`} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
                 </View>
               </View>
