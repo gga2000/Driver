@@ -2897,6 +2897,7 @@ model DishFollow {
   merchantOrgId String   @map("merchant_org_id")
   itemId        String   @map("item_id")
   createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@unique([personId, itemId])
   @@index([itemId])
