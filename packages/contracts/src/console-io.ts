@@ -363,6 +363,55 @@ export function consoleItemKey(orgId: string, itemId: string): string {
 
 // ───────────────────────── the port ─────────────────────────
 
+/**
+ * Replay of one order (maps program o2): the courier's stored GPS trail per trip (30 days, decision
+ * D6), the stops, and the moments that matter (accepted, arrived, picked up, delivered) with where
+ * they happened. Settles "he never came" in seconds.
+ */
+export const REPLAY_RULES = {
+  /** Points per trip at most (evenly thinned beyond). */
+  maxPoints: 3_000,
+  /** Event types marked on the replay's timeline. */
+  marks: ['trip.accepted', 'stop.geofence_entered', 'stop.arrived', 'stop.completed', 'stop.courier_near', 'trip.unreachable_started', 'trip.completed', 'order.cancelled'] as readonly string[],
+} as const;
+
+export const OrderReplay = z.object({
+  orderId: z.string(),
+  legs: z.array(
+    z.object({
+      tripId: z.string(),
+      courierId: z.string().nullable(),
+      points: z.array(z.object({ lat: z.number(), lng: z.number(), at: z.coerce.date(), speedKmh: z.number().nullable() })),
+      stops: z.array(z.object({ type: z.string(), lat: z.number(), lng: z.number(), arrivedAt: z.coerce.date().nullable(), completedAt: z.coerce.date().nullable() })),
+    }),
+  ),
+  marks: z.array(z.object({ id: z.string(), type: z.string(), at: z.coerce.date(), lat: z.number().nullable(), lng: z.number().nullable() })),
+  /** The trips are older than the trail's 30 days: the path itself is gone, the marks stay. */
+  trailPurged: z.boolean(),
+});
+export type OrderReplay = z.infer<typeof OrderReplay>;
+
+/**
+ * An order predicted to arrive late before it is (maps program o4): his live ETA against what the
+ * customer was promised.
+ */
+export const AT_RISK_RULES = {
+  /** Predicted arrival later than the promise by more than this is at risk. */
+  marginMin: 2,
+  /** One prediction per order is reused this long (every Console tab polls). */
+  cacheMs: 30_000,
+} as const;
+
+export const AtRiskOrder = z.object({
+  orderId: z.string(),
+  predictedAt: z.coerce.date(),
+  promisedAt: z.coerce.date(),
+  /** Minutes the prediction is past the promise. */
+  lateByMin: z.number().int().min(1),
+});
+export type AtRiskOrder = z.infer<typeof AtRiskOrder>;
+export const AtRiskInput = z.object({ cityId: CityId });
+
 /** What the API's `console` module exposes to the transport. Authorization happens in the routers. */
 export interface ConsolePort {
   /** Batched display names (vault reads logged against `accessorId`, the staff member asking). */
@@ -375,6 +424,8 @@ export interface ConsolePort {
   /** Every ledger line carrying this order id, in time order (the money story on the order page). */
   orderLedger(orderId: string): Promise<OrderLedgerLine[]>;
   tripEvents(tripId: string): Promise<EventLogEntry[]>;
+  /** The order's courier path and its moments (maps program o2). */
+  orderReplay(orderId: string): Promise<OrderReplay>;
   rightNow(cityId: string): Promise<RightNow>;
   outbox(): Promise<OutboxView>;
   merchants(cityId: string): Promise<MerchantRow[]>;

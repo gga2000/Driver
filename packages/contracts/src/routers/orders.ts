@@ -18,7 +18,7 @@ import {
   RespondPartialInput,
 } from '../order.js';
 import { CourierPosition, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
-import { EventLog, OrderLedgerLine, OrderSearchInput, OrderSearchPage } from '../console-io.js';
+import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 
@@ -60,6 +60,10 @@ export const ordersRouter = router({
   search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
   /** The order's actor event log (quarantined late replays included and marked). */
   events: protectedProcedure(CONSOLE_READ_ROLES).input(OrderIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.orderEvents(input.orderId)),
+  /** The courier's path and the order's moments, for the Console replay (maps program o2). */
+  replay: protectedProcedure(CONSOLE_READ_ROLES).input(OrderIdInput).output(OrderReplay).query(({ ctx, input }) => ctx.console.orderReplay(input.orderId)),
+  /** Live orders predicted to be late before they are (maps program o4). */
+  atRisk: protectedProcedure(CONSOLE_READ_ROLES).input(AtRiskInput).output(z.array(AtRiskOrder)).query(({ ctx, input }) => ctx.tracking.atRisk(input.cityId)),
   /** The order's ledger lines (Console order page: the money in words). */
   ledger: protectedProcedure(CONSOLE_READ_ROLES)
     .input(OrderIdInput)

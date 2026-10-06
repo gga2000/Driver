@@ -32,6 +32,7 @@ import { useSignedIn } from '@/lib/session';
 import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
 import { CopyId, ItemName, OrgName, PersonName } from './named';
+import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
 import {
   Avatar,
@@ -89,6 +90,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const courierId = lastTrip.data?.courierId ?? null;
   const row = summary.data?.rows.find((r) => r.id === orderId);
   const lateMin = row?.lateMin ?? null;
+  const atRisk = useQuery(trpc.orders.atRisk.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: queryRetry, refetchInterval: 30_000 }));
+  const risk = atRisk.data?.find((r) => r.orderId === orderId) ?? null;
 
   if (!signedIn)
     return (
@@ -128,11 +131,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const aside = details.length > 0 || o.partial !== null;
   return (
     <Frame>
-      <Header o={o} lateMin={lateMin} courierId={courierId} now={now} />
+      <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} now={now} />
       <section aria-labelledby="order-story" className="rounded-lg border border-line bg-surface shadow-card">
         <Facts o={o} courierId={courierId} zoneKey={row?.zoneKey ?? null} />
         <Story o={o} events={events} now={now} logError={log.error} />
       </section>
+      <OrderReplay orderId={o.id} />
       <div className={cx('mt-5 grid items-start gap-5', aside && 'lg:grid-cols-[minmax(0,1fr)_320px]')}>
         <MainPanel o={o} />
         {aside ? <DetailsCard o={o} rows={details} /> : null}
@@ -155,7 +159,7 @@ function Frame({ children }: { children: ReactNode }) {
 
 // ───────────────────────── header + actions ─────────────────────────
 
-function Header({ o, lateMin, courierId, now }: { o: Order; lateMin: number | null; courierId: string | null; now: Date }) {
+function Header({ o, lateMin, riskMin, courierId, now }: { o: Order; lateMin: number | null; riskMin: number | null; courierId: string | null; now: Date }) {
   return (
     <header className="mb-5 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
@@ -169,6 +173,13 @@ function Header({ o, lateMin, courierId, now }: { o: Order; lateMin: number | nu
             <Chip tone="bad">
               <IconClock size={13} />
               {t('console.orders_late_by', { time: compactDuration(lateMin * 60_000) })}
+            </Chip>
+          )}
+          {/* Maps program o4: not late yet, but his live ETA lands past the promise. */}
+          {lateMin === null && riskMin !== null && (
+            <Chip tone="warn" data-testid="order-at-risk">
+              <IconClock size={13} />
+              {t('console.orders_at_risk_by', { time: compactDuration(riskMin * 60_000) })}
             </Chip>
           )}
         </h1>

@@ -150,6 +150,8 @@ export interface TripsRepository extends TripOrderLookup {
 
   addTrailPoint(point: TrailPointRecord, tx?: Tx): Promise<void>;
   lastTrailPoint(filter: { tripId?: string; driverId?: string }, tx?: Tx): Promise<TrailPointRecord | null>;
+  /** Every stored trail point of a trip, oldest first (the Console replay, maps program o2). */
+  trailForTrip(tripId: string): Promise<TrailPointRecord[]>;
   /**
    * Deletes up to `batch` trail points older than `cutoff`, except those of `keepTripIds` (decision D6:
    * 30 days, then the trip row is the summary). Returns how many went; a short count means done.
@@ -387,6 +389,13 @@ export class PrismaTripsRepository implements TripsRepository {
               ${p.speedKmh}, ${p.bearing}, ${p.accuracyM}, ${now}, ${now}, ${now})`;
   }
 
+  async trailForTrip(tripId: string): Promise<TrailPointRecord[]> {
+    type Row = { trip_id: string | null; driver_id: string; at: Date; lat: number; lng: number; speed_kmh: number | null; bearing: number | null; accuracy_m: number | null };
+    const rows = await this.db().$queryRaw<Row[]>`SELECT trip_id, driver_id, at, ST_Y(pin::geometry) AS lat, ST_X(pin::geometry) AS lng, speed_kmh, bearing, accuracy_m
+         FROM "public"."trail_points" WHERE trip_id = ${tripId} ORDER BY at ASC`;
+    return rows.map((r) => ({ tripId: r.trip_id, driverId: r.driver_id, at: r.at, pin: { lat: Number(r.lat), lng: Number(r.lng) }, speedKmh: r.speed_kmh, bearing: r.bearing, accuracyM: r.accuracy_m }));
+  }
+
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }, tx?: Tx) {
     const db = this.db(tx);
     type Row = { trip_id: string | null; driver_id: string; at: Date; lat: number; lng: number; speed_kmh: number | null; bearing: number | null; accuracy_m: number | null };
@@ -600,6 +609,10 @@ export class InMemoryTripsRepository implements TripsRepository {
     const later = (prev: TrailPointRecord | undefined) => !prev || p.at.getTime() >= prev.at.getTime();
     if (p.tripId && later(this.lastByTrip.get(p.tripId))) this.lastByTrip.set(p.tripId, p);
     if (later(this.lastByDriver.get(p.driverId))) this.lastByDriver.set(p.driverId, p);
+  }
+
+  async trailForTrip(tripId: string): Promise<TrailPointRecord[]> {
+    return this.trail.filter((p) => p.tripId === tripId).sort((a, b) => a.at.getTime() - b.at.getTime()).map((p) => ({ ...p }));
   }
 
   async lastTrailPoint(filter: { tripId?: string; driverId?: string }) {

@@ -85,6 +85,8 @@ export function OrdersPage() {
   );
   // The late view's count rides on the tab (one light read, whatever view is open).
   const late = useQuery(trpc.orders.search.queryOptions({ cityId: CITY_ID, late: true, limit: 100 }, { enabled: signedIn, retry: queryRetry, refetchInterval: SLOW_POLL_MS * 2 }));
+  const atRisk = useQuery(trpc.orders.atRisk.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: queryRetry, refetchInterval: 30_000 }));
+  const riskOf = useMemo(() => new Map((atRisk.data ?? []).map((r) => [r.orderId, r.lateByMin])), [atRisk.data]);
   const lateCount = late.data?.rows.length ?? 0;
 
   const loaded = useMemo(() => {
@@ -145,6 +147,12 @@ export function OrdersPage() {
           <span className="num inline-flex items-center gap-1 whitespace-nowrap font-semibold text-bad" title={t('console.orders_late_by', { time: compactDuration(o.lateMin * 60_000) })}>
             <IconClock size={14} className="shrink-0" />
             {compactDuration(o.lateMin * 60_000)}
+          </span>
+        ) : riskOf.has(o.id) ? (
+          // Maps program o4: on time so far, but his live ETA lands past the promise.
+          <span className="num inline-flex items-center gap-1 whitespace-nowrap font-semibold text-warn" data-testid={`at-risk-${o.id}`} title={t('console.orders_at_risk_by', { time: compactDuration(riskOf.get(o.id)! * 60_000) })}>
+            <IconClock size={14} className="shrink-0" />
+            {t('console.orders_at_risk_short', { time: compactDuration(riskOf.get(o.id)! * 60_000) })}
           </span>
         ) : null,
     },

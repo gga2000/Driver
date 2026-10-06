@@ -28,7 +28,7 @@ import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
 import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
-import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
+import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TrailPointRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
 import {
   UNREACHABLE_ESCALATE_AFTER_MS,
   UNREACHABLE_FAIL_AFTER_MS,
@@ -371,6 +371,17 @@ export class TripsService implements OnModuleInit {
   }
 
   /** One retention batch (decision D6): trail points older than `cutoff`, except `keepTripIds`'. */
+  /** A trip's stored GPS trail, oldest first (the Console replay, maps program o2; 30 days). */
+  trailOf(tripId: string): Promise<TrailPointRecord[]> {
+    return this.repo.trailForTrip(tripId);
+  }
+
+  /** Every trip that ever carried this order, oldest link first (reassignments included). */
+  async tripIdsForOrder(orderId: string): Promise<string[]> {
+    const links = [...(await this.repo.linksForOrder(orderId))].sort((a, b) => a.attachedAt.getTime() - b.attachedAt.getTime());
+    return [...new Set(links.map((l) => l.tripId))];
+  }
+
   /** Pickups per zone of trips created in `[from, to)` (the driver map's forecast, maps program d5). */
   pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>> {
     return this.repo.pickupsByZone(cityId, from, to);

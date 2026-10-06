@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
+  AT_RISK_RULES,
   DriverError,
   latePromiseCreditIqd,
   MIN_PER_EARLIER_DROP,
@@ -41,6 +42,8 @@ export interface TrackingOrdersPort {
   get(orderId: string): Promise<Order>;
   /** The person's own orders (orderer), any state. */
   listForPerson(personId: string): Promise<Order[]>;
+  /** The city's live orders (Console at-risk list). Optional for fakes. */
+  listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
 }
 export interface TrackingTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -102,6 +105,9 @@ const SETTLED_ORDER_STATES: ReadonlySet<Order['state']> = new Set([
 /** Courier cards are cached per trip and reader so a polling screen logs one vault read per trip, not one per poll. */
 const CARD_CACHE_MAX = 2000;
 
+/** At-risk predictions kept at most (one per live order). */
+const RISK_CACHE_MAX = 2_000;
+
 /**
  * Customer live order/ride screen reads (customer app spec §4). Only the orderer or a participant
  * of the order may read it. The courier is shown by first name, vehicle, plate and "verified today";
@@ -125,6 +131,8 @@ export class TrackingService implements TrackingPort {
 
   /** Minutes past the promised time after which the delivery fee comes back (`MoneyRules.latePromise`). */
   private readonly latePromiseAfterMin = AZIZIYAH_MONEY_RULES.latePromise.afterMin;
+  /** The at-risk predictions, by order (`AT_RISK_RULES.cacheMs`). */
+  private readonly risks = new Map<string, { at: number; risk: { orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number } | null }>();
 
   async track(actor: Actor, input: { orderId: string }): Promise<OrderTracking> {
     const agg = await this.assertOwner(actor, input.orderId);
@@ -271,6 +279,45 @@ export class TrackingService implements TrackingPort {
     const merchant = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
     const promisedAt = await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt);
     await this.latePromise(order, await this.currentTrip(order.id), promisedAt, this.clock.now(), tx);
+  }
+
+  /**
+   * Late before it's late (maps program o4): the city's live deliveries whose one ETA lands more than
+   * `AT_RISK_RULES.marginMin` after what the customer was promised — worst first. One prediction per
+   * order is reused for `cacheMs` (every Console tab polls this).
+   */
+  async atRisk(cityId: string): Promise<Array<{ orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number }>> {
+    if (!this.orders.listActive) return [];
+    const now = this.clock.now();
+    const out: Array<{ orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number }> = [];
+    for (const order of await this.orders.listActive({ cityId })) {
+      if (order.type === 'ride') continue;
+      const hit = this.risks.get(order.id);
+      let risk = hit && now.getTime() - hit.at < AT_RISK_RULES.cacheMs ? hit.risk : undefined;
+      if (risk === undefined) {
+        risk = await this.riskOf(order, now).catch(() => null);
+        if (this.risks.size >= RISK_CACHE_MAX) this.risks.delete(this.risks.keys().next().value!);
+        this.risks.set(order.id, { at: now.getTime(), risk });
+      }
+      if (risk) out.push(risk);
+    }
+    return out.sort((a, b) => b.lateByMin - a.lateByMin);
+  }
+
+  private async riskOf(order: Order, now: Date): Promise<{ orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number } | null> {
+    if (SETTLED_ORDER_STATES.has(order.state) || order.deliveredAt) return null;
+    const trip = await this.trips.activeForOrder(order.id);
+    if (!trip?.courierId || !positionVisible(trip.state)) return null;
+    const fix = await this.trips.lastPosition(trip.id);
+    if (!fix || fix.driverId !== trip.courierId) return null;
+    const eta = await this.liveEta(order, trip, fix.pin, now);
+    if (!eta) return null;
+    const agg = await this.orders.aggregate(order.id);
+    const merchant = agg.order.merchantOrgId ? await this.merchants.merchant(agg.order.merchantOrgId) : null;
+    const promised = await this.promise(agg.order, merchant?.pin ?? null, order.acceptedAt);
+    if (!promised) return null;
+    const lateByMin = Math.ceil((eta.at.getTime() - promised.getTime()) / 60_000);
+    return lateByMin > AT_RISK_RULES.marginMin ? { orderId: order.id, predictedAt: eta.at, promisedAt: promised, lateByMin } : null;
   }
 
   /** The promised arrival: the kitchen's promised ready time plus the kitchen → door ride. */

@@ -215,6 +215,8 @@ export const OrderRoute = z.object({
 export type OrderRoute = z.infer<typeof OrderRoute>;
 
 export interface TrackingPort {
+  /** Console: live orders of the city whose predicted arrival is past the promise (maps program o4), latest first. */
+  atRisk(cityId: string): Promise<Array<{ orderId: string; predictedAt: Date; promisedAt: Date; lateByMin: number }>>;
   /** The orderer or a participant only. */
   track(actor: Actor, input: { orderId: string }): Promise<OrderTracking>;
   /** The orderer or a participant only; null outside accept → complete or before the first fix. */

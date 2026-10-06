@@ -289,3 +289,20 @@ describe('TrackingService — the road ahead (maps program SP5a)', () => {
     expect(await tracking.route(as('c1'), { orderId: o.id })).toMatchObject({ polyline6: null, basis: 'estimated' });
   });
 });
+
+describe('TrackingService — late before it is late (maps program o4)', () => {
+  it('flags a delivery whose live ETA lands past the promise; a courier on time is not flagged', async () => {
+    const { h, tracking } = setup();
+    const onTime = await acceptedOrder(h);
+    const late = await acceptedOrder(h);
+    const t1 = await h.tripFor(onTime.id);
+    const t2 = await h.tripFor(late.id, { driverId: 'd2' });
+    // d1 waits at the kitchen; d2 is 20 km out of town.
+    await h.trips.reportPosition('d1', { tripId: t1.id, pin: KITCHEN, at: h.clock.now(), speedKmh: 0 });
+    await h.trips.reportPosition('d2', { tripId: t2.id, pin: { lat: KITCHEN.lat + 0.18, lng: KITCHEN.lng }, at: h.clock.now(), bearing: 180, speedKmh: 30 });
+    const risks = await tracking.atRisk('aziziyah');
+    expect(risks.map((r) => r.orderId)).toEqual([late.id]);
+    expect(risks[0]!.lateByMin).toBeGreaterThan(2);
+    expect(risks[0]!.predictedAt.getTime()).toBeGreaterThan(risks[0]!.promisedAt.getTime());
+  });
+});

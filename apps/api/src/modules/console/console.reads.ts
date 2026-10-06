@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   consoleItemKey,
   ledgerLineLabel,
+  REPLAY_RULES,
   RosterRole,
   type ConsoleNames,
   type ConsoleNamesInput,
@@ -12,6 +13,7 @@ import {
   type DriversListInput,
   type DriversPage,
   type EventLogEntry,
+  type OrderReplay,
   type MerchantRow,
   type OrderLedgerLine,
   type OrderSearchInput,
@@ -21,6 +23,8 @@ import {
   type SimulatorStartInput,
   type SimulatorStatus,
 } from '@driver/contracts';
+import { TripsService } from '../trips/index.js';
+import { replayMarks, thinPoints, trailPurged } from './replay.js';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { CatalogService } from '../catalog/index.js';
@@ -72,6 +76,8 @@ export class ConsoleReadService implements ConsolePort {
     private readonly catalog: CatalogService,
     /** Today's jobs/earnings and documents on the roster rows; rows carry null without it. */
     @Optional() private readonly accounts?: DriverAccountService,
+    /** The replay's trails (maps program o2); the replay is empty without it. */
+    @Optional() private readonly trips?: TripsService,
   ) {}
 
   // ───────────────────────── names (K-01) ─────────────────────────
@@ -255,6 +261,31 @@ export class ConsoleReadService implements ConsolePort {
       toAccount: e.toAccount,
       memo: e.memo ?? null,
     }));
+  }
+
+  async orderReplay(orderId: string): Promise<OrderReplay> {
+    const now = this.clock.now();
+    const tripIds = this.trips ? await this.trips.tripIdsForOrder(orderId) : [];
+    const legs: OrderReplay['legs'] = [];
+    const events: EventLogEntry[] = [...(await this.orderEvents(orderId))];
+    let lastActivity: Date | null = null;
+    for (const tripId of tripIds) {
+      const trip = await this.trips!.get(tripId);
+      const trail = await this.trips!.trailOf(tripId);
+      events.push(...(await this.tripEvents(tripId)));
+      const ended = trip.completedAt ?? trip.cancelledAt ?? trip.updatedAt;
+      if (!lastActivity || ended.getTime() > lastActivity.getTime()) lastActivity = ended;
+      legs.push({
+        tripId,
+        courierId: trip.courierId,
+        points: thinPoints(trail, REPLAY_RULES.maxPoints).map((p) => ({ lat: p.pin.lat, lng: p.pin.lng, at: p.at, speedKmh: p.speedKmh })),
+        stops: trip.stops
+          .filter((s) => s.orderId === orderId && s.target)
+          .map((s) => ({ type: s.type, lat: s.target!.lat, lng: s.target!.lng, arrivedAt: s.arrivedAt, completedAt: s.completedAt })),
+      });
+    }
+    const points = legs.reduce((n, l) => n + l.points.length, 0);
+    return { orderId, legs, marks: replayMarks(events), trailPurged: trailPurged(points, lastActivity, now) };
   }
 
   async tripEvents(tripId: string): Promise<EventLogEntry[]> {

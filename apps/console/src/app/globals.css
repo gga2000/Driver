@@ -89,6 +89,16 @@ select {
     0 0 4px rgb(var(--c-surface)),
     0 0 6px rgb(var(--c-surface));
 }
+/* The order replay's courier (maps program o2). */
+.replay-courier {
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgb(var(--c-accent));
+  border: 3px solid rgb(var(--c-surface));
+  box-shadow: 0 1px 4px rgb(var(--c-text) / 0.35);
+}
+
 .ops-label[data-kind='garage'] {
   font-weight: 700;
   color: rgb(var(--c-accent-text));
