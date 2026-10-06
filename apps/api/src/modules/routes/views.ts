@@ -172,6 +172,7 @@ export function bookingView(
   b: BookingRecord,
   dep: DepartureRecord,
   owner: boolean,
+  pointsEarned: number | null = null,
 ): BookingView {
   return {
     id: b.id,
@@ -198,6 +199,9 @@ export function bookingView(
     lateMinutes: b.lateMinutes,
     departure: departureSummary(dep),
     createdAt: b.createdAt,
+    completedAt: b.completedAt,
+    rating: b.rating ?? null,
+    pointsEarned,
   };
 }
 

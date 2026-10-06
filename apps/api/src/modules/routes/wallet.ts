@@ -1,4 +1,6 @@
+import type { LedgerEvent } from '@driver/contracts';
 import { Accounts, type LedgerService } from '../ledger/index.js';
+import type { RoutesPointsReader } from './tokens.js';
 
 /**
  * The rider's wallet as the routes module needs it: the balance the ledger owes the customer
@@ -31,5 +33,24 @@ export class FakeWallet implements WalletPort {
 
   async balance(customerId: string): Promise<number> {
     return this.balances.get(customerId) ?? 0;
+  }
+}
+
+/**
+ * Points one booking's seats earned (joy r2): the points the ledger posted to the rider under the
+ * booking's seat groups (`seat:<bookingId>.<seat>:points`). Null when none are posted (yet).
+ */
+export function bookingPoints(events: readonly Pick<LedgerEvent, 'kind' | 'toAccount' | 'postingGroupId' | 'amount'>[], riderId: string, bookingId: string): number | null {
+  const account = Accounts.points(riderId);
+  const prefix = `seat:${bookingId}.`;
+  const mine = events.filter((e) => e.kind === 'points' && e.toAccount === account && (e.postingGroupId ?? '').startsWith(prefix) && (e.postingGroupId ?? '').endsWith(':points'));
+  return mine.length > 0 ? mine.reduce((s, e) => s + e.amount, 0) : null;
+}
+
+export class LedgerPoints implements RoutesPointsReader {
+  constructor(private readonly ledger: Pick<LedgerService, 'eventsFor'>) {}
+
+  async pointsForBooking(riderId: string, bookingId: string): Promise<number | null> {
+    return bookingPoints(await this.ledger.eventsFor(Accounts.points(riderId)), riderId, bookingId);
   }
 }

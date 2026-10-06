@@ -41,3 +41,13 @@ export const ROUTES_CALLS = Symbol('ROUTES_CALLS');
 export interface RoutesCallPort {
   open(req: { callId: string; orderId: string; callerId: string; calleeId: string }, now: Date): Promise<{ mode: 'proxy' | 'dev_direct'; dial: string; expiresAt: Date }>;
 }
+
+/**
+ * Points a completed seat earned (joy r2: «+15 نقطة» on the safe-arrival card), read from the ledger
+ * where `seat.completed` posted them (`seat:<bookingId>.<seat>:points`); null until they are posted.
+ */
+export const ROUTES_POINTS = Symbol('ROUTES_POINTS');
+
+export interface RoutesPointsReader {
+  pointsForBooking(riderId: string, bookingId: string): Promise<number | null>;
+}

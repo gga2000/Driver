@@ -19,8 +19,8 @@ import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
 import { randomIds, ROUTES_IDS } from './support.js';
 import { callBridgeFor } from '../../shared/call-bridge.js';
-import { CHECKPOINT_WAIVER, ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader, type RoutesCallPort } from './tokens.js';
-import { LedgerWallet, ROUTES_WALLET } from './wallet.js';
+import { CHECKPOINT_WAIVER, ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_POINTS, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader, type RoutesCallPort } from './tokens.js';
+import { LedgerPoints, LedgerWallet, ROUTES_WALLET } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
 /**
@@ -51,6 +51,8 @@ import { RoutesWriter } from './writer.js';
       useFactory: (ledger: LedgerService) => new LedgerWallet(ledger),
       inject: [LedgerService],
     },
+    // r2: «+15 نقطة» on the safe-arrival card, read from where the ledger posted the seat's points.
+    { provide: ROUTES_POINTS, useFactory: (ledger: LedgerService) => new LedgerPoints(ledger), inject: [LedgerService] },
     { provide: ROUTES_NETWORK, useValue: INTERCITY_NETWORK },
     { provide: ROUTES_RULES, useValue: INTERCITY_RULES },
     { provide: ROUTES_MONEY_RULES, useValue: AZIZIYAH_MONEY_RULES },

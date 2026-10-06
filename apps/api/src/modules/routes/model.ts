@@ -1,4 +1,5 @@
 import type {
+  BookingRating,
   BookingOrigin,
   BookingState,
   DemandPostState,
@@ -115,6 +116,8 @@ export interface BookingRecord {
   movedFromBookingId: string | null;
   movedToBookingId: string | null;
   createdAt: Date;
+  /** r2: the rider's stars and chips after the trip; absent/null = not rated. */
+  rating?: BookingRating | null;
 }
 
 export interface DemandPostRecord {

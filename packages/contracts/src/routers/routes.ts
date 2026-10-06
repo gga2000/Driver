@@ -6,6 +6,7 @@ import {
   BoardingPass,
   BoardInput,
   BookingIdInput,
+  RateBookingInput,
   BookingView,
   BookSeatInput,
   CancelDepartureInput,
@@ -93,6 +94,11 @@ export const routesRouter = router({
   myBookings: protectedProcedure()
     .output(z.array(BookingView))
     .query(({ ctx }) => ctx.routes.myBookings(ctx.actor)),
+  /** «شلون كانت الرجعة؟» (joy r2): stars and chips, once, on the rider's own completed booking. */
+  rateBooking: protectedProcedure()
+    .input(RateBookingInput)
+    .output(BookingView)
+    .mutation(({ ctx, input }) => ctx.routes.rateBooking(ctx.actor, input)),
   boardingPass: protectedProcedure()
     .input(BookingIdInput)
     .output(BoardingPass)

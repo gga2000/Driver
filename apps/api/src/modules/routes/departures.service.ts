@@ -13,6 +13,7 @@ import {
   type PinAttemptResult,
   type SeatPayment,
   type TravellingAs,
+  type RajaaRatingTag,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -916,6 +917,17 @@ export class DeparturesService {
   }
 
   /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
+  /** «شلون كانت الرجعة؟» (joy r2): once, on the rider's own completed booking. */
+  rate(riderId: string, bookingId: string, rating: { stars: number; tags: readonly RajaaRatingTag[] }): Promise<BookingRecord> {
+    return this.writer.run(async (tx) => {
+      const b = await this.ownBooking(riderId, bookingId, tx);
+      if (b.state !== 'completed' || b.rating) throw new DriverError('booking_state_conflict');
+      b.rating = { stars: rating.stars, tags: [...new Set(rating.tags)], at: this.now() };
+      await this.repo.saveBooking(b, tx);
+      return b;
+    });
+  }
+
   imHere(
     riderId: string,
     bookingId: string,

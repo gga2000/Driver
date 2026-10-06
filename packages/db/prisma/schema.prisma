@@ -1741,6 +1741,8 @@ model SeatBooking {
   demandPostId       String?          @map("demand_post_id")
   movedFromBookingId String?          @map("moved_from_booking_id")
   movedToBookingId   String?          @map("moved_to_booking_id")
+  /// Joy r2: the rider's rating after the trip {stars, tags, at}; null = not rated.
+  rating             Json?
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 

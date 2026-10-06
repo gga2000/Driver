@@ -1,4 +1,4 @@
-import { PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { BookingRating, PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -155,6 +155,7 @@ export class PrismaRoutesRepository implements RoutesRepository {
       demandPostId: b.demandPostId,
       movedFromBookingId: b.movedFromBookingId,
       movedToBookingId: b.movedToBookingId,
+      rating: b.rating ? ({ stars: b.rating.stars, tags: [...b.rating.tags], at: b.rating.at.toISOString() } as Prisma.InputJsonObject) : Prisma.DbNull,
     };
     await this.db(tx).seatBooking.upsert({
       where: { id: b.id },
@@ -474,6 +475,7 @@ function toBooking(r: BookingRow): BookingRecord {
     movedFromBookingId: r.movedFromBookingId,
     movedToBookingId: r.movedToBookingId,
     createdAt: r.createdAt,
+    rating: r.rating ? (BookingRating.safeParse(r.rating).data ?? null) : null,
   };
 }
 

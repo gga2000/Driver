@@ -120,8 +120,15 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect(gone.state).toBe('departed');
     const done = await driver.driver.arrive({ departureId: dep.id });
     expect(done.bookings[0]!.state).toBe('completed');
-    expect((await rider.myBookings())[0]).toMatchObject({ state: 'completed', pin: null });
+    expect((await rider.myBookings())[0]).toMatchObject({ state: 'completed', pin: null, rating: null });
     expect(await driver.driver.mine()).toHaveLength(1);
+
+    // r2: «شلون كانت الرجعة؟» once, on the rider's own completed booking.
+    expect(await codeOf(other.rateBooking({ bookingId: held.id, stars: 5 }))).toBe('NOT_FOUND');
+    const rated = await rider.rateBooking({ bookingId: held.id, stars: 5, tags: ['on_time', 'clean_car', 'on_time'] });
+    expect(rated.rating).toMatchObject({ stars: 5, tags: ['on_time', 'clean_car'] });
+    expect(rated.completedAt).toBeInstanceOf(Date);
+    expect(await codeOf(rider.rateBooking({ bookingId: held.id, stars: 1 }))).toBe('CONFLICT');
   });
 
   it('demand board, request board and the ops garage view validate too', async () => {

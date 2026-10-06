@@ -320,6 +320,25 @@ export const DepartureSummary = z.object({
 });
 export type DepartureSummary = z.infer<typeof DepartureSummary>;
 
+/**
+ * «شلون كانت الرجعة؟» (joy r2, audit R-04): the rider's chips under the stars after a completed trip —
+ * the good ones (on time, calm driving, clean car, respectful) and, at 3★ or less, what went wrong
+ * (late, fast driving, jumped the queue).
+ */
+export const RajaaRatingTag = z.enum(['on_time', 'calm_driving', 'clean_car', 'respectful', 'late', 'fast_driving', 'queue_jump']);
+export type RajaaRatingTag = z.infer<typeof RajaaRatingTag>;
+export const RAJAA_GOOD_TAGS: readonly RajaaRatingTag[] = ['on_time', 'calm_driving', 'clean_car', 'respectful'];
+export const RAJAA_LOW_TAGS: readonly RajaaRatingTag[] = ['late', 'fast_driving', 'queue_jump'];
+/** Stars at or under this ask what went wrong. */
+export const RAJAA_LOW_STARS = 3;
+
+export const BookingRating = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+export type BookingRating = z.infer<typeof BookingRating>;
+
+/** Once, on the rider's own completed booking. */
+export const RateBookingInput = z.object({ bookingId: z.string().min(1), stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag).max(7).default([]) });
+export type RateBookingInput = z.input<typeof RateBookingInput>;
+
 export const BookingView = z.object({
   id: z.string(),
   departureId: z.string(),
@@ -347,6 +366,12 @@ export const BookingView = z.object({
   lateMinutes: z.number().int().nullable(),
   departure: DepartureSummary,
   createdAt: z.coerce.date(),
+  /** r2: when the trip completed (the car arrived); null before. */
+  completedAt: z.coerce.date().nullable().default(null),
+  /** r2: the rider's rating, once given. */
+  rating: BookingRating.nullable().default(null),
+  /** r2: points this trip earned (ledger), once posted; null before or when none. */
+  pointsEarned: z.number().int().nullable().default(null),
 });
 export type BookingView = z.infer<typeof BookingView>;
 
@@ -859,6 +884,8 @@ export interface RoutesPort {
   bookSeat(actor: Actor, input: BookSeatInput): Promise<BookingView>;
   cancelSeat(actor: Actor, input: BookingIdInput): Promise<BookingView>;
   myBookings(actor: Actor): Promise<BookingView[]>;
+  /** r2: «شلون كانت الرجعة؟» once, on the rider's own completed booking. */
+  rateBooking(actor: Actor, input: z.infer<typeof RateBookingInput>): Promise<BookingView>;
   boardingPass(actor: Actor, input: BookingIdInput): Promise<BoardingPass>;
   imHere(actor: Actor, input: ImHereInput): Promise<ImHereOutput>;
   postDemand(actor: Actor, input: z.infer<typeof PostDemandInput>): Promise<DemandPostView>;

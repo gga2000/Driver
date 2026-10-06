@@ -34,7 +34,7 @@ import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type Pi
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS } from './support.js';
-import { ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesCallPort, type RoutesControlsPort } from './tokens.js';
+import { ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesCallPort, type RoutesControlsPort, ROUTES_POINTS, type RoutesPointsReader } from './tokens.js';
 import { HOME_CITY } from './intercity.config.js';
 import {
   bookingView,
@@ -72,6 +72,7 @@ export class RoutesRpc implements RoutesPort {
     @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
     @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
     @Optional() @Inject(ROUTES_CALLS) private readonly calls: RoutesCallPort | null = null,
+    @Optional() @Inject(ROUTES_POINTS) private readonly points: RoutesPointsReader | null = null,
   ) {}
 
   /** Seats booked (held seats that were booked, any later state but cancelled) since `since` — launch wall. */
@@ -194,6 +195,10 @@ export class RoutesRpc implements RoutesPort {
     for (const b of await this.repo.bookingsOfRider(actor.personId))
       out.push(await this.view(b, true));
     return out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async rateBooking(actor: Actor, input: In<'rateBooking'>): Promise<BookingView> {
+    return this.view(await this.departures.rate(actor.personId, input.bookingId, { stars: input.stars, tags: input.tags }), true);
   }
 
   async boardingPass(actor: Actor, input: In<'boardingPass'>): Promise<BoardingPass> {
@@ -638,7 +643,8 @@ export class RoutesRpc implements RoutesPort {
 
   private async view(b: BookingRecord, owner: boolean): Promise<BookingView> {
     const dep = await this.departures.departure(b.departureId);
-    return bookingView(this.departures, b, dep, owner && LIVE.includes(b.state));
+    const points = owner && b.state === 'completed' && this.points ? await this.points.pointsForBooking(b.riderId, b.id) : null;
+    return bookingView(this.departures, b, dep, owner && LIVE.includes(b.state), points);
   }
 
   private async driverView(dep: DepartureRecord): Promise<DriverDepartureView> {
