@@ -78,6 +78,14 @@ import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 
+/** A household member as placement reads them (role and limits). */
+type HouseholdMember = NonNullable<Awaited<ReturnType<OrdersHouseholdsPort['member']>>>;
+
+/** The lock key of one member's spending on one household wallet (in-process and advisory). */
+export function householdSpendKey(householdId: string, personId: string): string {
+  return `orders.household_spend:${householdId}:${personId}`;
+}
+
 /** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
 export interface OrdersTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -200,6 +208,8 @@ export class OrdersService implements OnModuleInit {
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
+  /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
+  private readonly householdLock = new KeyedLock();
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
   slotCaps: SlotCapRules = SLOT_CAP_RULES;
 
@@ -298,104 +308,122 @@ export class OrdersService implements OnModuleInit {
     // on the server-computed total.
     const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
-    // Joy w4: the household wallet — only its payers and orderers, kitchen and shop orders only; over
-    // a per-order limit or the month's budget the order waits for the payer (never a silent block).
-    const askPayer = input.householdOrgId ? await this.householdCheck(ordererId, input.householdOrgId, Boolean(merchantType), total, now) : null;
+    // Joy w4: the household wallet — only its payers and orderers, kitchen and shop orders only. Whether
+    // the payer is asked is decided inside the transaction below, under the member's lock.
+    const member = input.householdOrgId ? await this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : null;
+    const spendKey = input.householdOrgId ? householdSpendKey(input.householdOrgId, ordererId) : null;
     // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders.
     if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
       const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
       if (available < total) throw new DriverError('wallet_insufficient');
     }
 
-    return this.uow.run(async (tx) => {
-      if (input.clientRequestId) {
-        // Another API instance placing with the same key commits (or rolls back) before we look.
-        await advisoryXactLock(tx, `orders.place:${ordererId}:${input.clientRequestId}`);
-        const prior = await this.replay(ordererId, input, tx);
-        if (prior) return prior;
-      }
-      // The deal's spend is reserved in this transaction, atomically against its budget cap: two
-      // orders can never both spend the last of it (the later one is asked to refresh).
-      if (p.discount && p.discount.meta.funder === 'merchant' && discount > 0) {
-        if (!(await this.promotions.reserve(p.discount.promotionId, discount, tx))) throw new DriverError('deal_changed');
-      }
-      const agg = await this.repo.create(
-        {
-          cityId: input.cityId,
-          type: input.type,
-          ordererId,
-          merchantOrgId: input.merchantOrgId ?? null,
-          householdOrgId: input.householdOrgId ?? null,
-          quoteId: input.quoteId ?? null,
-          paymentMethod: input.paymentMethod,
-          itemsTotalIqd: itemsTotal,
-          deliveryFeeIqd: fees.deliveryFeeIqd,
-          serviceFeeIqd: fees.serviceFeeIqd,
-          discountIqd: discount,
-          promotionId: discount > 0 ? (p.discount?.promotionId ?? null) : null,
-          discountMeta: discount > 0 ? (p.discount?.meta ?? null) : null,
-          smallOrderFeeIqd: p.smallOrderFee,
-          pointsRedeemed: p.pointsRedeemed,
-          tipIqd: input.tipIqd,
-          totalIqd: total,
-          note: input.note ?? null,
-          courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
-          clientRequestId: input.clientRequestId ?? null,
-          statedTenderIqd: input.statedTenderIqd ?? null,
-          scheduledFor: input.scheduledFor ?? null,
-          minVehicleClass: caps?.minVehicleClass ?? null,
-          dropoff: input.dropoff ?? null,
-          placedAt: now,
-          heldForPayer: askPayer !== null,
-          familyTable: input.familyTable ?? false,
-        },
-        newLines,
-        participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
-        tx,
-      );
-      const order = agg.order;
-      await this.emit(tx, 'order.placed', ordererId, order, {
-        type: order.type,
-        cityId: order.cityId,
-        merchantOrgId: order.merchantOrgId,
-        totalIqd: order.totalIqd,
-        itemsTotalIqd: order.itemsTotalIqd,
-        paymentMethod: order.paymentMethod,
-        minVehicleClass: order.minVehicleClass,
-        cateringRequest: caps?.catering ?? false,
-        scheduledFor: order.scheduledFor?.toISOString() ?? null,
-        participantCount: agg.participants.length,
-        arrivingCallRequired: risk?.requiresArrivingCall ?? false,
-        // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
-        ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null } } : {}),
-        ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
-      });
-      for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
-      if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
+    const write = () =>
+      this.uow.run(async (tx) => {
+        if (input.clientRequestId) {
+          // Another API instance placing with the same key commits (or rolls back) before we look.
+          await advisoryXactLock(tx, `orders.place:${ordererId}:${input.clientRequestId}`);
+          const prior = await this.replay(ordererId, input, tx);
+          if (prior) return prior;
+        }
+        // Joy w4: the member's month is read and this order written under one lock per household member
+        // (this instance's KeyedLock below, every instance's advisory lock here), so two orders placed
+        // together can never both slip under the budget: the second sees the first and is held.
+        let askPayer: HouseholdApprovalReason | null = null;
+        if (member && spendKey && input.householdOrgId) {
+          await advisoryXactLock(tx, spendKey);
+          askPayer = await this.householdReason(member, input.householdOrgId, ordererId, total, now, tx);
+        }
+        // The deal's spend is reserved in this transaction, atomically against its budget cap: two
+        // orders can never both spend the last of it (the later one is asked to refresh).
+        if (p.discount && p.discount.meta.funder === 'merchant' && discount > 0) {
+          if (!(await this.promotions.reserve(p.discount.promotionId, discount, tx))) throw new DriverError('deal_changed');
+        }
+        const agg = await this.repo.create(
+          {
+            cityId: input.cityId,
+            type: input.type,
+            ordererId,
+            merchantOrgId: input.merchantOrgId ?? null,
+            householdOrgId: input.householdOrgId ?? null,
+            quoteId: input.quoteId ?? null,
+            paymentMethod: input.paymentMethod,
+            itemsTotalIqd: itemsTotal,
+            deliveryFeeIqd: fees.deliveryFeeIqd,
+            serviceFeeIqd: fees.serviceFeeIqd,
+            discountIqd: discount,
+            promotionId: discount > 0 ? (p.discount?.promotionId ?? null) : null,
+            discountMeta: discount > 0 ? (p.discount?.meta ?? null) : null,
+            smallOrderFeeIqd: p.smallOrderFee,
+            pointsRedeemed: p.pointsRedeemed,
+            tipIqd: input.tipIqd,
+            totalIqd: total,
+            note: input.note ?? null,
+            courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
+            clientRequestId: input.clientRequestId ?? null,
+            statedTenderIqd: input.statedTenderIqd ?? null,
+            scheduledFor: input.scheduledFor ?? null,
+            minVehicleClass: caps?.minVehicleClass ?? null,
+            dropoff: input.dropoff ?? null,
+            placedAt: now,
+            heldForPayer: askPayer !== null,
+            familyTable: input.familyTable ?? false,
+          },
+          newLines,
+          participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+          tx,
+        );
+        const order = agg.order;
+        await this.emit(tx, 'order.placed', ordererId, order, {
+          type: order.type,
+          cityId: order.cityId,
+          merchantOrgId: order.merchantOrgId,
+          totalIqd: order.totalIqd,
+          itemsTotalIqd: order.itemsTotalIqd,
+          paymentMethod: order.paymentMethod,
+          minVehicleClass: order.minVehicleClass,
+          cateringRequest: caps?.catering ?? false,
+          scheduledFor: order.scheduledFor?.toISOString() ?? null,
+          participantCount: agg.participants.length,
+          arrivingCallRequired: risk?.requiresArrivingCall ?? false,
+          // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
+          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null } } : {}),
+          ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
+        });
+        for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
+        if (caps?.catering) await this.emit(tx, 'order.catering_request', SYSTEM, order, { itemsTotalIqd: itemsTotal, dispatcherCard: true });
 
-      if (askPayer && order.householdOrgId && this.households) {
-        // Held: the kitchen sees nothing until the payer says yes; the request commits with the order.
-        await this.households.requestApproval({ householdId: order.householdOrgId, orderId: order.id, requestedBy: ordererId, amountIqd: total, reason: askPayer });
-        await this.emit(tx, 'order.awaiting_payer', ordererId, order, { householdId: order.householdOrgId, reason: askPayer, totalIqd: total, waitMin: HOUSEHOLD_RULES.approvalWaitMin });
-        await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
-      } else if (merchantType && profile) {
-        await this.scheduleOffer(order, profile, now, tx);
-      }
-      return this.view(order.id, tx);
-    });
+        if (askPayer && order.householdOrgId && this.households) {
+          // Held: the kitchen sees nothing until the payer says yes; the request commits with the order.
+          await this.households.requestApproval({ householdId: order.householdOrgId, orderId: order.id, requestedBy: ordererId, amountIqd: total, reason: askPayer });
+          await this.emit(tx, 'order.awaiting_payer', ordererId, order, { householdId: order.householdOrgId, reason: askPayer, totalIqd: total, waitMin: HOUSEHOLD_RULES.approvalWaitMin });
+          await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
+        } else if (merchantType && profile) {
+          await this.scheduleOffer(order, profile, now, tx);
+        }
+        return this.view(order.id, tx);
+      });
+    return spendKey ? this.householdLock.run(spendKey, write) : write();
   }
 
   /**
    * Joy w4 at placement: refuses anyone but the household's payers and orderers, and anything but a
-   * kitchen or shop order (a driver search can't wait for a yes); then the shared rule says whether
-   * the payer is asked, on the member's spend on this wallet this Baghdad month.
+   * kitchen or shop order (a driver search can't wait for a yes).
    */
-  private async householdCheck(ordererId: string, householdId: string, merchantOrder: boolean, totalIqd: number, now: Date): Promise<HouseholdApprovalReason | null> {
+  private async householdMember(ordererId: string, householdId: string, merchantOrder: boolean): Promise<HouseholdMember> {
     const member = this.households ? await this.households.member(householdId, ordererId) : null;
     if (!member || member.role === 'member') throw new DriverError('household_cannot_order');
     if (!merchantOrder) throw new DriverError('household_wallet_food_only');
+    return member;
+  }
+
+  /**
+   * Whether the payer is asked, by the shared rule, on the member's spend on this wallet this Baghdad
+   * month — read in `tx`, under the member's lock (see `placeOnce`).
+   */
+  private async householdReason(member: HouseholdMember, householdId: string, ordererId: string, totalIqd: number, now: Date, tx: Tx): Promise<HouseholdApprovalReason | null> {
     const { from, to } = baghdadMonthRange(baghdadMonth(now));
-    const month = await this.repo.householdOrdersBetween(householdId, [], from, to);
+    const month = await this.repo.householdOrdersBetween(householdId, [], from, to, tx);
     return householdApproval({
       role: member.role,
       orderLimitIqd: member.spendingLimitIqd,

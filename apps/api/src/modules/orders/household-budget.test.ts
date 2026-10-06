@@ -76,6 +76,20 @@ describe('orders.place on the household wallet (joy w4)', () => {
     expect(first.id).not.toBe(third.id);
   });
 
+  it('two orders placed at the same moment never both slip under the month: the second is held', async () => {
+    const { h, home, onHome } = await family();
+    await h.orgs.setMonthlyBudget(home.id, 'c1', 30_000, 'p1'); // each 16,500 fits alone; both don't
+    const [a, b] = await Promise.all([h.orders.place('c1', onHome()), h.orders.place('c1', onHome())]);
+    expect([a.heldForPayer ?? false, b.heldForPayer ?? false].sort()).toEqual([false, true]);
+    const held = a.heldForPayer ? a : b;
+    expect((await h.orgs.approvalForOrder(home.id, held.id))?.reason).toBe('month_budget');
+    // Another member's orders are not serialised behind his (one lock per member).
+    await h.orgs.addMember(home.id, 'c2', { role: 'orderer', actorId: 'p1' });
+    h.cashRisk.prior.set('c2', 3);
+    const [c, d] = await Promise.all([h.orders.place('c2', onHome()), h.orders.place('p1', onHome())]);
+    expect([c.heldForPayer, d.heldForPayer]).toEqual([undefined, undefined]);
+  });
+
   it('a new Baghdad month starts the budget again', async () => {
     const { h, onHome } = await family('2026-10-31T09:00:00Z'); // noon on the 31st, Baghdad
     await h.orders.place('c1', onHome());

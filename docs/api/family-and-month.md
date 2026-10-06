@@ -30,7 +30,11 @@ is a household spending limit that asks the payer; it never blocks an order sile
    offer time). No → `platform_cancelled`, reason `payer_declined`, free. Silence for 30 min →
    `platform_cancelled`, `payer_no_answer`, free, request `withdrawn`. An answer whose hand-off was
    lost is applied by the timer. The orderer cancelling a held order → free, request `withdrawn`.
-5. `PlaceOrderInput.familyTable` (the cart has «للسفرة» lines) → `orders.family_table`.
+5. Two orders at once can't both slip under: the member's month is read and the order written inside
+   one transaction holding `pg_advisory_xact_lock(hashtext('orders.household_spend:<household>:<person>'))`
+   (every API instance), behind an in-process `KeyedLock` on the same key (the in-memory twin). The
+   second order sees the first and is held. One lock per member: other members never wait.
+6. `PlaceOrderInput.familyTable` (the cart has «للسفرة» lines) → `orders.family_table`.
 
 ### Views
 
