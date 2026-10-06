@@ -40,7 +40,8 @@ export function PhotoStrip({ photos, onOpen, photoLabel, testIDPrefix }: { photo
 
 /**
  * Full-screen photo viewer: a tap moves to the next photo (or closes the last one alone), the title
- * pill says which place and which photo («باب الزبون · 1/2»). `index` null = closed.
+ * pill says which place and which photo («باب الزبون · 1/2»). `index` null = closed. The backdrop is
+ * solid near-black (`photoBackdrop`) in every theme so the job, the map and SOS never show through.
  */
 export function PhotoViewer({ photos, index, onIndex, title, testIDPrefix }: { photos: readonly PlacePhoto[]; index: number | null; onIndex: (i: number | null) => void; title: string; testIDPrefix: string }) {
   const theme = useTheme();
@@ -50,16 +51,16 @@ export function PhotoViewer({ photos, index, onIndex, title, testIDPrefix }: { p
   const close = () => onIndex(null);
   return (
     <Modal visible={Boolean(photo)} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
-      <View testID={`${testIDPrefix}-viewer`} style={{ flex: 1, backgroundColor: theme.colors.scrim, paddingTop: insets.top + theme.space[3], paddingBottom: insets.bottom + theme.space[4], paddingHorizontal: theme.space[4], gap: theme.space[3] }}>
+      <View testID={`${testIDPrefix}-viewer`} style={{ flex: 1, backgroundColor: theme.colors.photoBackdrop, paddingTop: insets.top + theme.space[3], paddingBottom: insets.bottom + theme.space[4], paddingHorizontal: theme.space[4], gap: theme.space[3] }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <View style={{ flex: 1, alignSelf: 'flex-start', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface }}>
-            <Text variant="label" weight={600}>
+          <View style={{ flex: 1, alignSelf: 'flex-start', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.pill, backgroundColor: theme.colors.photoChrome }}>
+            <Text variant="label" weight={600} color="onPhotoBackdrop">
               {title}
               {photos.length > 1 && index !== null ? ` · ${index + 1}/${photos.length}` : ''}
             </Text>
           </View>
-          <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={t('action.close')} testID={`${testIDPrefix}-close`} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface }}>
-            <Icon name="x" size={22} color="text" />
+          <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={t('action.close')} testID={`${testIDPrefix}-close`} style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.photoChrome, borderWidth: 1.5, borderColor: theme.colors.onPhotoBackdrop }}>
+            <Icon name="x" size={22} color="onPhotoBackdrop" />
           </Pressable>
         </View>
         {photo ? (

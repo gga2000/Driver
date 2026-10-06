@@ -180,6 +180,15 @@ export interface ThemeColors {
   seatTaken: string;
   /** Map/scrim overlays behind sheets. */
   scrim: string;
+  /**
+   * Solid near-black behind a full-screen photo (door, pickup spot), the same in every theme: the
+   * photo is the only thing on screen, so nothing of the job, the map or SOS shows through.
+   */
+  photoBackdrop: string;
+  /** The title pill and close button floating on `photoBackdrop`. */
+  photoChrome: string;
+  /** Text and icons on `photoBackdrop` and `photoChrome`. */
+  onPhotoBackdrop: string;
   /** Shimmer highlight that sweeps across `surfaceSunken`. */
   shimmer: string;
   /** Shadow hue: warm brown, never neutral grey. */
@@ -247,6 +256,9 @@ const light: ThemeColors = {
   onDeal: '#1F1A14',
   seatTaken: '#E8DFD0',
   scrim: 'rgba(31, 26, 20, 0.45)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
   shimmer: '#FBF6EE',
   shadow: '#5A3A12',
 };
@@ -309,6 +321,9 @@ const dark: ThemeColors = {
   onDeal: '#1F1A14',
   seatTaken: '#3A3229',
   scrim: 'rgba(0, 0, 0, 0.6)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
   shimmer: '#2A231C',
   shadow: '#000000',
 };
@@ -379,6 +394,9 @@ const istikan: ThemeColors = {
   onDeal: '#24170E',
   seatTaken: '#E9DDC9',
   scrim: 'rgba(36, 23, 14, 0.45)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
   shimmer: '#FAF4E9',
   shadow: '#5A3A12',
 };
@@ -467,6 +485,8 @@ export const contrastPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey
   { fg: 'liveText', bg: 'bg', use: 'live and moving copy on the screen' },
   { fg: 'liveText', bg: 'surface', use: 'live and moving copy on a card' },
   { fg: 'onDeal', bg: 'deal', use: 'deal sticker' },
+  { fg: 'onPhotoBackdrop', bg: 'photoBackdrop', use: 'full-screen photo viewer copy' },
+  { fg: 'onPhotoBackdrop', bg: 'photoChrome', use: 'photo viewer title pill' },
 ];
 
 /**
@@ -494,6 +514,8 @@ export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey;
   { fg: 'onSelected', bg: 'selected', use: 'check icon on a selected chip' },
   { fg: 'onSelectedMark', bg: 'selectedMark', use: 'check on a chosen person chip' },
   { fg: 'accent', bg: 'inverse', use: 'live dot and progress on the live-order card', only: ['light', 'istikan'] },
+  { fg: 'onPhotoBackdrop', bg: 'photoChrome', use: 'close ✕ on the photo viewer' },
+  { fg: 'onPhotoBackdrop', bg: 'photoBackdrop', use: 'close button ring on the photo viewer' },
   // Istikan-only cues: in light the same roles are today's accent fills (unchanged for the other apps).
   { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan'] },
   { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan'] },

@@ -15,6 +15,13 @@ describe('design tokens', () => {
     };
     walk(color);
   });
+  it('the photo viewer backdrop is solid near-black in every theme, never the see-through scrim', () => {
+    for (const t of Object.values(themes)) {
+      expect(t.photoBackdrop).toBe(themes.light.photoBackdrop);
+      expect(contrastRatio(t.photoBackdrop, '#000000')).toBeLessThan(1.2);
+      expect(contrastRatio(t.onPhotoBackdrop, t.photoBackdrop)).toBeGreaterThan(7);
+    }
+  });
   it('theme roles are hex, except the translucent scrim', () => {
     for (const t of Object.values(themes)) {
       for (const [k, v] of Object.entries(t)) {
