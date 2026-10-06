@@ -80,8 +80,8 @@ const TAXI_FAMILIES = /^(?:trip|ride)\./;
 
 /** Every amount says «دينار» after it (voice §5): "+500 دينار", "توفّر 150 دينار", "× 15,000 دينار". */
 const BARE_AMOUNT = /\{amount\}(?! دينار)(?!%)/;
-/** The Console is our own terse ops tool; WhatsApp templates use {{n}}. */
-const AMOUNT_EXEMPT = /^console\./;
+/** The Console is our own terse ops tool; the merchant table formats some amounts with the unit already (its own sweep). */
+const AMOUNT_EXEMPT = /^(?:console|merchant)\./;
 
 export interface VoiceProblem {
   key: string;
