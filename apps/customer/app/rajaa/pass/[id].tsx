@@ -176,7 +176,7 @@ export default function BoardingPassScreen() {
             <StatusPill size="sm" tone={b.state === 'checked_in' ? 'success' : 'accent'} icon="check" label={bookingStateLabel(t, b.state)} />
           </View>
           {/* The garage-board time (audit d-2): split-flap digits and the countdown to the car. */}
-          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} />
+          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} passStyle locale={locale} />
           <Text variant="footnote" color="textMuted">
             {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
           </Text>

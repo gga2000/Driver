@@ -4,16 +4,16 @@
  * is not today ("باچر"), and a countdown ("بعد 52 دقيقة"). Everything here is the city's one clock
  * (Asia/Baghdad, `@driver/i18n`), whatever the phone's time zone. Plain TypeScript, unit-tested.
  */
-import { cityDayDiff, cityParts, formatDay, formatDuration, t, type Locale } from '@driver/i18n';
+import { cityDayDiff, cityParts, dayPart, formatDay, formatDuration, t, type Locale, type MessageKey } from '@driver/i18n';
 
 const MIN = 60_000;
 
 export interface DepartureParts {
   /** "7:05": the digits the split-flap cells show (no part of day). */
   digits: string;
-  /** "ص" / "م". */
+  /** "ص" / "م", or the part of day in words ("المسا") with `partOfDay`. */
   period: string;
-  /** Null today; "باچر", "أمس", a weekday within the week, else "3/10". */
+  /** Null today ("اليوم" with `alwaysDay`); "باچر", "أمس", a weekday within the week, else "3/10". */
   day: string | null;
   /** "بعد 52 دقيقة" · "بعد ساعة و20 دقيقة" · "هسة"; null once the time has passed or it is not today/tomorrow. */
   countdown: string | null;
@@ -38,16 +38,25 @@ export function departureCountdown(at: number, now: number, locale: Locale = 'ar
   return t('departure_time.in', { duration: formatDuration(ms, { locale }) }, locale);
 }
 
-export function departureParts(at: Date | number, now: Date | number, opts: { locale?: Locale; countdown?: boolean } = {}): DepartureParts {
-  const { locale = 'ar-IQ', countdown = true } = opts;
+export interface DeparturePartsOptions {
+  locale?: Locale;
+  countdown?: boolean;
+  /** Name the day even when it is today ("اليوم"): the boarding pass, booked the night before (R-06). */
+  alwaysDay?: boolean;
+  /** The part of day in words ("6:15 المسا") instead of ص/م; English keeps AM/PM. */
+  partOfDay?: boolean;
+}
+
+export function departureParts(at: Date | number, now: Date | number, opts: DeparturePartsOptions = {}): DepartureParts {
+  const { locale = 'ar-IQ', countdown = true, alwaysDay = false, partOfDay = false } = opts;
   const atMs = typeof at === 'number' ? at : at.getTime();
   const nowMs = typeof now === 'number' ? now : now.getTime();
   const p = cityParts(atMs);
   const h = p.hour % 12 || 12;
   const digits = `${h}:${String(p.minute).padStart(2, '0')}`;
-  const period = t(p.hour < 12 ? 'time.am' : 'time.pm', undefined, locale);
+  const period = partOfDay ? t(`time.part_${dayPart(atMs)}` as MessageKey, undefined, locale) : t(p.hour < 12 ? 'time.am' : 'time.pm', undefined, locale);
   const diff = cityDayDiff(atMs, nowMs);
-  const day = diff === 0 ? null : formatDay(atMs, nowMs, { locale });
+  const day = diff === 0 && !alwaysDay ? null : formatDay(atMs, nowMs, { locale });
   // A countdown is only worth reading for today and tomorrow; further out the day says it.
   const cd = countdown && diff >= 0 && diff <= 1 ? departureCountdown(atMs, nowMs, locale) : null;
   const minutesLeft = departureMinutesLeft(atMs, nowMs);

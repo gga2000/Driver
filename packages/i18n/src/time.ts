@@ -140,6 +140,62 @@ export function formatMinutesRange(low: number, high: number, opts: { locale?: L
   return t('time.minutes_range', { range: `\u2066${low}–${high}\u2069` }, opts.locale);
 }
 
+/** The Iraqi parts of the day (R-06): what people say after an hour so 8 can't be morning or night. */
+export type DayPart = 'late' | 'morning' | 'noon' | 'afternoon' | 'evening' | 'night';
+
+/** 0–3 بالليل · 4–11 الصبح · 12–14 الظهر · 15–17 العصر · 18–19 المسا · 20–23 بالليل (city clock). */
+export function dayPart(at: Date | number, offsetMin = CITY_UTC_OFFSET_MIN): DayPart {
+  const h = cityParts(at, offsetMin).hour;
+  if (h < 4) return 'late';
+  if (h < 12) return 'morning';
+  if (h < 15) return 'noon';
+  if (h < 18) return 'afternoon';
+  if (h < 20) return 'evening';
+  return 'night';
+}
+
+/** "4" or "4:30" on the 12-hour city clock, no part of day. */
+function hourDigits(at: Date | number, offsetMin: number): string {
+  const p = cityParts(at, offsetMin);
+  const h = p.hour % 12 || 12;
+  return p.minute === 0 ? String(h) : `${h}:${String(p.minute).padStart(2, '0')}`;
+}
+
+function partWord(part: DayPart, locale: Locale): string {
+  return t(`time.part_${part}` as MessageKey, undefined, locale);
+}
+
+/** "4 العصر", "6:15 المسا", "9 بالليل" ("4 PM"): an hour people can't misread as the other half of the day. */
+export function formatHourPart(at: Date | number, opts: { locale?: Locale; offsetMin?: number } = {}): string {
+  const { locale = 'ar-IQ', offsetMin = CITY_UTC_OFFSET_MIN } = opts;
+  return `${hourDigits(at, offsetMin)} ${partWord(dayPart(at, offsetMin), locale)}`;
+}
+
+/**
+ * A window's two ends for "بين {from} و {to}" or "{from}–{to}": the part of day once when both ends
+ * share it ("8" … "10 بالليل", "4" … "6 العصر"), on each end otherwise ("5:50 العصر" … "6:55 المسا").
+ * The end is the moment the window closes, so its part is read a minute before ("4–6 العصر", not المسا).
+ */
+export function hourWindow(start: Date | number, end: Date | number, opts: { locale?: Locale; offsetMin?: number } = {}): { from: string; to: string } {
+  const { locale = 'ar-IQ', offsetMin = CITY_UTC_OFFSET_MIN } = opts;
+  const startPart = dayPart(start, offsetMin);
+  const endMs = typeof end === 'number' ? end : end.getTime();
+  const endPart = dayPart(endMs - MIN, offsetMin);
+  const to = `${hourDigits(endMs, offsetMin)} ${partWord(endPart, locale)}`;
+  const from = hourDigits(start, offsetMin);
+  return { from: startPart === endPart ? from : `${from} ${partWord(startPart, locale)}`, to };
+}
+
+/** A chip-sized window: "⁦4–6⁩ العصر" (digits isolated so RTL keeps 4 before 6), else "5:50 العصر – 6:55 المسا". */
+export function formatHourRange(start: Date | number, end: Date | number, opts: { locale?: Locale; offsetMin?: number } = {}): string {
+  const { offsetMin = CITY_UTC_OFFSET_MIN } = opts;
+  const w = hourWindow(start, end, opts);
+  if (w.from.includes(' ')) return `${w.from} – ${w.to}`;
+  const endMs = typeof end === 'number' ? end : end.getTime();
+  const toDigits = hourDigits(endMs, offsetMin);
+  return `\u2066${w.from}–${toDigits}\u2069${w.to.slice(toDigits.length)}`;
+}
+
 /** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`); `h:mm:ss` from one hour up. */
 export function formatCountdown(remainingMs: number): string {
   const total = Math.max(0, Math.ceil(remainingMs / 1000));

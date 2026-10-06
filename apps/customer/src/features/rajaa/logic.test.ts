@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardSeat, BookingView, DemandBucket, DepartureCard, IntercitySeatId } from '@driver/contracts';
+import { createT } from '@driver/i18n';
 import {
   activeBooking,
   blockedReason,
@@ -9,6 +10,7 @@ import {
   carAvailable,
   clockCountdown,
   clockLabel,
+  windowLabel,
   compareDepartures,
   demandBanner,
   demandWindows,
@@ -19,7 +21,6 @@ import {
   flip,
   groupBoard,
   holdCountdown,
-  hourLabel,
   isBoardingOpen,
   labelWindow,
   maxSeatsFor,
@@ -49,6 +50,7 @@ const MIN = 60_000;
 /** 2026-10-03 12:00 Baghdad (09:00 UTC). */
 const NOON = new Date('2026-10-03T09:00:00Z');
 const at = (min: number) => new Date(NOON.getTime() + min * MIN);
+const tAr = createT('ar-IQ');
 
 const GARAGES = [
   { id: 'mp_garage_souq', cityId: 'aziziyah', nameAr: 'كراج السوق', lat: 32.9062, lng: 45.0612 },
@@ -314,10 +316,10 @@ describe('demand windows', () => {
       expect(w.end.getTime() - w.start.getTime()).toBeLessThanOrEqual(12 * 60 * MIN);
     }
   });
-  it('labels hours on a 12-hour Baghdad clock', () => {
-    expect(hourLabel(at(240))).toBe('4');
-    expect(hourLabel(at(270))).toBe('4:30');
-    expect(hourLabel(at(720))).toBe('12');
+  it('labels windows with the part of day (R-06)', () => {
+    expect(windowLabel(tAr, at(240), at(360))).toBe('بين 4 و 6 العصر');
+    expect(windowLabel(tAr, at(480), at(600))).toBe('بين 8 و 10 بالليل');
+    expect(windowLabel(tAr, at(5 * 60 + 52), at(6 * 60 + 53))).toBe('بين 5:50 العصر و 6:55 المسا');
     expect(clockLabel(at(-5 * 60 + 5))).toBe('7:05 ص');
     expect(labelWindow(at(3), at(62))).toEqual({ start: at(0), end: at(65) });
   });

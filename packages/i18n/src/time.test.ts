@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cityDayDiff, cityParts, formatClock, formatCountdown, formatDay, formatDuration, formatMinuteCount, formatMinutes, formatMinutesRange, formatWhen, minuteNoun } from './time.js';
+import { cityDayDiff, cityParts, formatClock, formatCountdown, formatDay, formatDuration, formatMinuteCount, formatMinutes, formatMinutesRange, formatHourPart, formatHourRange, formatWhen, dayPart, hourWindow, minuteNoun } from './time.js';
 import { agreeMinutes, t } from './translate.js';
 
 // 2026-10-01 is a Thursday. Baghdad is UTC+3: 19:30Z is 22:30 there.
@@ -119,5 +119,31 @@ describe('minutes, natural Iraqi forms (J-D9)', () => {
     expect(agreeMinutes('أول 3 دقايق مجاناً', {})).toBe('أول 3 دقايق مجاناً');
     expect(agreeMinutes('{n} دقيقتين', { n: 4 })).toBe('{n} دقيقتين');
     expect(agreeMinutes('عندك {minutes} دقيقة', undefined)).toBe('عندك {minutes} دقيقة');
+  });
+});
+
+describe('the part of day on hours and windows (R-06)', () => {
+  // Baghdad is UTC+3: 13:00Z is 4 pm there.
+  it('names the part of day the Iraqi way', () => {
+    const parts = [2, 6, 12, 15, 18, 21].map((h) => dayPart(at(`2026-10-01T${String((h + 21) % 24).padStart(2, '0')}:00:00Z`)));
+    expect(parts).toEqual(['late', 'morning', 'noon', 'afternoon', 'evening', 'night']);
+  });
+  it('an hour with its part, minutes only when not on the hour', () => {
+    expect(formatHourPart(at('2026-10-01T13:00:00Z'))).toBe('4 العصر');
+    expect(formatHourPart(at('2026-10-01T15:15:00Z'))).toBe('6:15 المسا');
+    expect(formatHourPart(at('2026-10-01T05:30:00Z'))).toBe('8:30 الصبح');
+    expect(formatHourPart(at('2026-10-01T18:00:00Z'))).toBe('9 بالليل');
+    expect(formatHourPart(at('2026-10-01T13:00:00Z'), { locale: 'en' })).toBe('4 PM');
+  });
+  it('a window says the part once when both ends share it; its end is read a minute early', () => {
+    expect(hourWindow(at('2026-10-01T17:00:00Z'), at('2026-10-01T19:00:00Z'))).toEqual({ from: '8', to: '10 بالليل' });
+    expect(hourWindow(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'))).toEqual({ from: '4', to: '6 العصر' });
+    expect(hourWindow(at('2026-10-01T14:50:00Z'), at('2026-10-01T15:55:00Z'))).toEqual({ from: '5:50 العصر', to: '6:55 المسا' });
+    expect(hourWindow(at('2026-10-01T15:00:00Z'), at('2026-10-01T21:00:00Z'))).toEqual({ from: '6 المسا', to: '12 بالليل' });
+    expect(hourWindow(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'), { locale: 'en' })).toEqual({ from: '4', to: '6 PM' });
+  });
+  it('a chip-sized range keeps its digits left to right', () => {
+    expect(formatHourRange(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'))).toBe('\u20664–6\u2069 العصر');
+    expect(formatHourRange(at('2026-10-01T14:50:00Z'), at('2026-10-01T15:55:00Z'))).toBe('5:50 العصر – 6:55 المسا');
   });
 });
