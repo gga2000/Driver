@@ -11,6 +11,8 @@
 // PLAYWRIGHT_MODULE / CHROMIUM_PATH are set, plain JPEG bytes otherwise); support tickets (two
 // disputes, a WhatsApp complaint, one open for 26 hours).
 //
+// مطعم خالد has a pickup spot set by its owner (Console › المطاعم, /stores/<id>; GET /demo/seed gives the link).
+//
 // People (log in at /login with the phone; the dev OTP fills itself):
 //   0770 000 0001  علي     admin + dispatcher + support + finance (sees and changes everything)
 //   0770 000 0002  حيدر    field ops (took the photos, drafted the merchant: those are his own items)
@@ -26,6 +28,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
+import { pickupWindowPng } from '../../partner/scripts/door-photo.mjs';
 
 const apiDir = fileURLToPath(new URL('../../api/', import.meta.url));
 const requireFromApi = createRequire(join(apiDir, 'package.json'));
@@ -50,6 +53,7 @@ const { DriverAccountService } = await load('modules/driver-account/index.js');
 const { OpsService } = await load('modules/ops/index.js');
 const { FleetService, FLEET_REPOSITORY } = await load('modules/fleet/index.js');
 const { MerchantAdminService } = await load('modules/merchant-admin/index.js');
+const { MerchantService } = await load('modules/merchant/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 const { SupportService, SUPPORT_REPOSITORY } = await load('modules/support/index.js');
 const { EventsService } = await load('modules/events/index.js');
@@ -427,6 +431,15 @@ await get(MerchantAdminService).dealsPropose(actor(khalidOwner), {
   budgetCapIqd: 150_000,
   minOrderIqd: 10_000,
 });
+// Pickup spot (Console › المطاعم, Ali 2026-10-07): Khalid set his takeaway window and a note from the
+// Merchant app, so /stores/<khalid> opens on the owner's spot; علي (0770 000 0001) and حيدر (…0002)
+// can change it there, زينب (support) can't see the page. The photo is the owner's own upload.
+await get(MerchantService).setPickupSpot(actor(khalidOwner), {
+  merchantOrgId: khalid.orgId,
+  note: 'الاستلام من الشباك اليسار، جنب باب المطبخ',
+  photoIds: [await upload(khalidOwner, pickupWindowPng(), 'image/png')],
+});
+people.khalid = { phone: '07740000001', id: khalidOwner, storeId: khalid.orgId, stores: `/stores/${khalid.orgId}` };
 // A chat on the order behind the WhatsApp ticket, read-only on /orders/[id] and the desk.
 try {
   const { ChatService } = await load('modules/chat/index.js');

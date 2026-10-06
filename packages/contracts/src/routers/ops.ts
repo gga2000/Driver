@@ -24,6 +24,7 @@ import {
   OpsMenuPhotoRef,
   ScheduleMenuPhotosInput,
 } from '../menu-photos-io.js';
+import { ConsolePickupSpotView, MerchantOrgInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
@@ -61,6 +62,26 @@ export const opsMenuPhotosRouter = router({
     .input(MenuPhotoQueueInput)
     .output(z.array(MenuPhotoRequestView))
     .query(({ ctx, input }) => ctx.menuPhotos.queue(ctx.actor, input)),
+});
+
+/**
+ * `ops.pickupSpots.*` — Console › المطاعم (Ali 2026-10-07): field ops and admins see every store's
+ * pickup spot and set it for the owner (same rules as `merchant.setPickupSpot`, audited). Support
+ * neither reads nor changes it.
+ */
+export const opsPickupSpotsRouter = router({
+  stores: protectedProcedure(PICKUP_SPOT_CONSOLE_ROLES)
+    .input(PickupStoresInput)
+    .output(z.array(PickupStoreRow))
+    .query(({ ctx, input }) => ctx.pickupSpots.stores(ctx.actor, input)),
+  get: protectedProcedure(PICKUP_SPOT_CONSOLE_ROLES)
+    .input(MerchantOrgInput)
+    .output(ConsolePickupSpotView)
+    .query(({ ctx, input }) => ctx.pickupSpots.get(ctx.actor, input)),
+  set: protectedProcedure(PICKUP_SPOT_CONSOLE_ROLES)
+    .input(SetPickupSpotInput)
+    .output(ConsolePickupSpotView)
+    .mutation(({ ctx, input }) => ctx.pickupSpots.set(ctx.actor, input)),
 });
 
 /** `ops.*` — Ops mode in the Partner app for field staff. */
@@ -112,4 +133,6 @@ export const opsRouter = router({
   menuPhotos: opsMenuPhotosRouter,
   /** Zone outlines drawn on a real map (Console › المناطق; admin / field ops to change). */
   zones: opsZonesRouter,
+  /** Stores' pickup spots set from the Console (field ops, admin). */
+  pickupSpots: opsPickupSpotsRouter,
 });

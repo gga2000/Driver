@@ -22,7 +22,7 @@ import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
-import type { MerchantPort } from './merchant-io.js';
+import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
@@ -56,6 +56,8 @@ export interface AppContext {
   ops: OpsPort;
   /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
   menuPhotos: MenuPhotosPort;
+  /** Console › المطاعم: stores' pickup spots set by field ops (`modules/ops` over `modules/merchant`). */
+  pickupSpots: PickupSpotsOpsPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
   merchantAdmin: MerchantAdminPort;
   orders: OrdersPort;

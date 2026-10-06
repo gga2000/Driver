@@ -126,7 +126,7 @@ export interface ControlsRepository {
   /** Replaces a Ramadan period's per-day iftar overrides. */
   setIftarOverrides(id: string, overrides: IftarOverrides, tx?: Tx): Promise<QuietRecord>;
   addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord>;
-  audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
+  audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
 }
 
 export const CONTROLS_REPOSITORY = Symbol('CONTROLS_REPOSITORY');
@@ -239,9 +239,9 @@ export class InMemoryControlsRepository implements ControlsRepository {
     return { ...row };
   }
 
-  async audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }): Promise<AuditRecord[]> {
+  async audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }): Promise<AuditRecord[]> {
     return this.auditRows
-      .filter((a) => (!filter.cityId || a.cityId === null || a.cityId === filter.cityId) && (!filter.subjectKind || a.subjectKind === filter.subjectKind))
+      .filter((a) => (!filter.cityId || a.cityId === null || a.cityId === filter.cityId) && (!filter.subjectKind || a.subjectKind === filter.subjectKind) && (!filter.subjectId || a.subjectId === filter.subjectId))
       .sort((a, b) => b.at.getTime() - a.at.getTime() || Number(b.id.slice(3)) - Number(a.id.slice(3)))
       .slice(0, filter.limit)
       .map((a) => ({ ...a }));
@@ -391,11 +391,12 @@ export class PrismaControlsRepository implements ControlsRepository {
     return auditFrom(await this.db(tx).consoleAuditLog.create({ data: { ...input, detail: input.detail as never } }));
   }
 
-  async audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]> {
+  async audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]> {
     const rows = await this.db(tx).consoleAuditLog.findMany({
       where: {
         ...(filter.cityId ? { OR: [{ cityId: filter.cityId }, { cityId: null }] } : {}),
         ...(filter.subjectKind ? { subjectKind: filter.subjectKind } : {}),
+        ...(filter.subjectId ? { subjectId: filter.subjectId } : {}),
       },
       orderBy: [{ at: 'desc' }, { id: 'desc' }],
       take: filter.limit,

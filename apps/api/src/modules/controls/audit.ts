@@ -62,7 +62,7 @@ export class AuditLogService {
     return this.repo.addAudit({ ...input, detail: input.detail ?? {}, at: this.clock.now() }, tx);
   }
 
-  async list(filter: { cityId?: string | undefined; subjectKind?: string | undefined; limit: number }): Promise<AuditEntry[]> {
+  async list(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }): Promise<AuditEntry[]> {
     const rows = await this.repo.audit(filter);
     const names = await this.names.of(rows.map((r) => r.actorId));
     return rows.map((r) => ({ id: r.id, at: r.at, actorId: r.actorId, actorName: names[r.actorId] ?? null, action: r.action, subjectKind: r.subjectKind, subjectId: r.subjectId, summary_ar: r.summaryAr, detail: r.detail }));

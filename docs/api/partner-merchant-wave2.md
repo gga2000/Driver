@@ -288,6 +288,23 @@ Courier side: `partner.activeJob` stops carry an additive `pickupSpot {note, pho
 completed or skipped — only for the assigned courier from accepting until an hour after the trip (`courierMaySeePlaceDetails`, the
 customer's door rule). Gone once he picked up.
 
+### `ops.pickupSpots.*` — set from the Console (Ali 2026-10-07)
+
+| Procedure | Roles | Input | Output |
+|---|---|---|---|
+| `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt}` by name |
+| `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null` |
+| `ops.pickupSpots.set` | same | `SetPickupSpotInput` (the owner's input) | `ConsolePickupSpotView` |
+
+Console › المطاعم (`/stores`, `/stores/[id]`). `set` goes through `MerchantService.consoleSetPickupSpot`: the owner's rules
+unchanged (new photos must be the caller's own `places.photoUpload`, dropped photos deleted, empty clears) and the same
+`merchant.pickup_spot_set` event with `by: 'console'`; then a `console_audit_log` row (`store.pickup_spot_set`, subject
+`store:<orgId>`). `consoleEdit` is that row while it is newer than the owner's last save. Unknown org or a household →
+`org_not_found`. Draft rules shared by both apps: `pickupDraft` (`@driver/contracts`).
+
+`merchant.customerZones` («منين زبائنك») is owner only since 2026-10-07 (staff `FORBIDDEN`, the money screens' check);
+`merchant.deliveryArea` stays owner and staff.
+
 ## UI/UX audit Phase 1 — missed orders and "+5 د" (2026-10-04)
 
 | Procedure | Roles | Input | Output |

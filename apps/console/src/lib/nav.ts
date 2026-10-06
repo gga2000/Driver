@@ -1,4 +1,4 @@
-import { SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -25,6 +25,7 @@ export type IconName =
   | 'controls'
   | 'wall'
   | 'zones'
+  | 'stores'
   | 'safety'
   | 'system';
 
@@ -71,6 +72,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         roles: APPROVALS,
         jump: 'a',
       },
+      // Stores' pickup spots (Ali 2026-10-07): field ops and admins set them; not support.
+      { href: '/stores', key: 'console.nav_stores', icon: 'stores', roles: PICKUP_SPOT_CONSOLE_ROLES, jump: 'k' },
     ],
   },
   {

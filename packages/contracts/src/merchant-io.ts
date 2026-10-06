@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { RoleKind } from './auth.js';
 import { ZoneTier } from './city-config.js';
 import { Iqd, LatLng } from './common.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
@@ -330,6 +331,47 @@ export const SetPickupSpotInput = MerchantOrgInput.extend({
     .refine((ids) => new Set(ids).size === ids.length, { message: 'a photo appears twice' }),
 });
 export type SetPickupSpotInput = z.infer<typeof SetPickupSpotInput>;
+
+// ───────────────────────── pickup spot from the Console (Ali 2026-10-07) ─────────────────────────
+
+/**
+ * Who sets a store's pickup spot from the Console (`ops.pickupSpots.*`): field ops, who stand at the
+ * window when they visit, and admins. Not support: it changes what every courier is told.
+ */
+export const PICKUP_SPOT_CONSOLE_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
+
+export const PickupStoresInput = z.object({ cityId: z.string().min(1) });
+export type PickupStoresInput = z.infer<typeof PickupStoresInput>;
+
+/** One store on Console › المطاعم: its name and how its pickup spot stands (no links: the list loads no photos). */
+export const PickupStoreRow = z.object({
+  merchantOrgId: z.string(),
+  name: z.string(),
+  type: z.enum(['restaurant', 'grocer']),
+  note: z.string().nullable(),
+  photos: z.number().int().min(0).max(PICKUP_SPOT_RULES.maxPhotos),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
+
+/**
+ * A store's pickup spot as the Console edits it: the owner's view (`canEdit` is true) with the store's
+ * name, and the latest Console change from the audit log — null when the owner saved it last or
+ * nobody ever set it, so the page can say who the couriers are hearing from.
+ */
+export const ConsolePickupSpotView = PickupSpotView.extend({
+  storeName: z.string(),
+  consoleEdit: z.object({ at: z.coerce.date(), byName: z.string().nullable() }).nullable(),
+});
+export type ConsolePickupSpotView = z.infer<typeof ConsolePickupSpotView>;
+
+/** What the API supplies to `ops.pickupSpots.*` (implemented in `modules/ops` over the merchant module). */
+export interface PickupSpotsOpsPort {
+  stores(actor: Actor, input: PickupStoresInput): Promise<PickupStoreRow[]>;
+  get(actor: Actor, input: MerchantOrgInput): Promise<ConsolePickupSpotView>;
+  /** Same rules as the owner's save (photos the caller uploaded, 2 at most, 140 characters); audited. */
+  set(actor: Actor, input: SetPickupSpotInput): Promise<ConsolePickupSpotView>;
+}
 
 // ───────────────────────── delivery area and fees (maps program r5) ─────────────────────────
 

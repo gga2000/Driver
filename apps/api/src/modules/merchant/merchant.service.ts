@@ -352,7 +352,31 @@ export class MerchantService implements MerchantPort {
   async setPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     await this.assertOwner(actor, org.id);
-    const before = (await this.stores.merchantSettings(org.id)).pickupSpot ?? null;
+    return this.replacePickupSpot(actor, org.id, input, 'merchant');
+  }
+
+  /**
+   * Any store's pickup spot for the Console (`ops.pickupSpots.*`, Ali 2026-10-07): field ops set it
+   * for owners who can't. The caller's router has already checked the Console role; there is no
+   * store scope to check, only that it is a restaurant or grocer.
+   */
+  async consolePickupSpot(merchantOrgId: string): Promise<PickupSpotView> {
+    const org = await this.storeOrg(merchantOrgId);
+    return this.pickupView(org.id, (await this.stores.merchantSettings(org.id)).pickupSpot ?? null, true);
+  }
+
+  /**
+   * The owner's save, made from the Console: the very same rules (photos the caller uploaded himself,
+   * dropped photos deleted, an empty spot cleared) and the same `merchant.pickup_spot_set` event,
+   * marked `by: 'console'`. The Console audit row is the caller's (ops module).
+   */
+  async consoleSetPickupSpot(actor: Actor, input: SetPickupSpotInput): Promise<PickupSpotView> {
+    const org = await this.storeOrg(input.merchantOrgId);
+    return this.replacePickupSpot(actor, org.id, input, 'console');
+  }
+
+  private async replacePickupSpot(actor: Actor, merchantOrgId: string, input: SetPickupSpotInput, by: 'merchant' | 'console'): Promise<PickupSpotView> {
+    const before = (await this.stores.merchantSettings(merchantOrgId)).pickupSpot ?? null;
     const kept = new Set(before?.photoRefs ?? []);
     for (const id of input.photoIds) {
       if (kept.has(id)) continue;
@@ -360,10 +384,10 @@ export class MerchantService implements MerchantPort {
     }
     const note = input.note?.trim() || null;
     const spot: MerchantPickupSpot | null = note || input.photoIds.length > 0 ? { note, photoRefs: [...input.photoIds], updatedAt: this.clock.now() } : null;
-    const saved = await this.stores.setMerchantSettings(org.id, { pickupSpot: spot });
+    const saved = await this.stores.setMerchantSettings(merchantOrgId, { pickupSpot: spot });
     for (const old of before?.photoRefs ?? []) if (!input.photoIds.includes(old)) await this.photos?.remove(old);
-    await this.events.record('merchant.pickup_spot_set', actor.personId, org.id, { photos: input.photoIds.length, note: note !== null });
-    return this.pickupView(org.id, saved.pickupSpot ?? null, true);
+    await this.events.record('merchant.pickup_spot_set', actor.personId, merchantOrgId, { photos: input.photoIds.length, note: note !== null, ...(by === 'console' ? { by } : {}) });
+    return this.pickupView(merchantOrgId, saved.pickupSpot ?? null, true);
   }
 
   /**
@@ -505,6 +529,11 @@ export class MerchantService implements MerchantPort {
     if (!(await this.people.hasRole(actor.personId, OWNER, merchantOrgId)) && !(await this.people.hasRole(actor.personId, STAFF, merchantOrgId))) {
       throw new DriverError('forbidden');
     }
+    return this.storeOrg(merchantOrgId);
+  }
+
+  /** The org, which must be a restaurant or grocer (`org_not_found` otherwise). */
+  private async storeOrg(merchantOrgId: string): Promise<Org> {
     let org: Org;
     try {
       org = await this.stores.get(merchantOrgId);

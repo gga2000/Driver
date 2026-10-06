@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Image, Platform, View } from 'react-native';
-import { PICKUP_SPOT_RULES } from '@driver/contracts';
+import { PICKUP_SPOT_RULES, pickupDraft, type PickupDraft } from '@driver/contracts';
 import { Button, EmptyState, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
@@ -10,7 +10,6 @@ import { usePhotoUpload } from '@/features/menu/queries';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { addPhoto, canAddPhoto, draftFrom, noteLeft, removePhoto, sameDraft, toInput, withNote, type PickupDraft } from './logic';
 import { usePickupSpot, useSavePickupSpot } from './queries';
 
 /** Note box height: about three lines, enough for «الاستلام من الشباك اليسار، جنب باب المطبخ». */
@@ -54,10 +53,10 @@ export function PickupSpotScreen() {
   }
 
   const view = spot.data;
-  const base = draftFrom(view);
+  const base = pickupDraft.from(view);
   const current = draft ?? base;
   const editable = view.canEdit;
-  const dirty = !sameDraft(current, base);
+  const dirty = !pickupDraft.same(current, base);
   const change = (next: PickupDraft) => setDraft(next);
 
   const choose = async (source: PhotoSource) => {
@@ -72,7 +71,7 @@ export function PickupSpotScreen() {
     try {
       const id = await upload(photo);
       // The local file shows until the save returns the signed link.
-      setDraft((d) => addPhoto(d ?? base, { id, url: photo.uri }));
+      setDraft((d) => pickupDraft.addPhoto(d ?? base, { id, url: photo.uri }));
     } catch (err) {
       fail(err);
     } finally {
@@ -83,7 +82,7 @@ export function PickupSpotScreen() {
   const submit = async () => {
     if (!storeId) return;
     try {
-      await save.mutateAsync(toInput(storeId, current));
+      await save.mutateAsync(pickupDraft.toInput(storeId, current));
       setDraft(null);
       toast.show({ message: t('merchant.pickup.saved'), tone: 'success' });
     } catch (err) {
@@ -96,7 +95,7 @@ export function PickupSpotScreen() {
       <Image source={{ uri: absoluteUrl(p.url) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityLabel={t('merchant.pickup.photo_alt', { n: i + 1 })} accessibilityIgnoresInvertColors />
       {editable ? (
         <View style={{ position: 'absolute', top: theme.space[2], end: theme.space[2] }}>
-          <GlyphButton glyph="trash" variant="outline" color="dangerText" label={t('merchant.pickup.photo_remove', { n: i + 1 })} testID={`pickup-photo-remove-${i}`} onPress={() => change(removePhoto(current, p.id))} />
+          <GlyphButton glyph="trash" variant="outline" color="dangerText" label={t('merchant.pickup.photo_remove', { n: i + 1 })} testID={`pickup-photo-remove-${i}`} onPress={() => change(pickupDraft.removePhoto(current, p.id))} />
         </View>
       ) : null}
     </View>
@@ -136,7 +135,7 @@ export function PickupSpotScreen() {
             </Text>
           </View>
         ) : null}
-        {editable && canAddPhoto(current) ? (
+        {editable && pickupDraft.canAddPhoto(current) ? (
           <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
             <Button testID="pickup-photo-library" variant="secondary" label={t('merchant.pickup.photo_add')} trailing={<Glyph name="photo" size={18} strokeWidth={2} />} disabled={uploading} onPress={() => void choose('library')} style={{ flex: 1 }} />
             {Platform.OS !== 'web' ? <Button testID="pickup-photo-camera" variant="secondary" label={t('merchant.pickup.photo_camera')} trailing={<Glyph name="camera" size={18} strokeWidth={2} />} disabled={uploading} onPress={() => void choose('camera')} style={{ flex: 1 }} /> : null}
@@ -154,11 +153,11 @@ export function PickupSpotScreen() {
           <TextField
             testID="pickup-note-input"
             value={current.note}
-            onChangeText={(v) => change(withNote(current, v))}
+            onChangeText={(v) => change(pickupDraft.withNote(current, v))}
             placeholder={t('merchant.pickup.note_placeholder')}
             multiline
             maxLength={PICKUP_SPOT_RULES.noteMaxChars}
-            hint={t('merchant.pickup.note_left', { count: noteLeft(current) })}
+            hint={t('merchant.pickup.note_left', { count: pickupDraft.noteLeft(current) })}
             style={{ minHeight: NOTE_HEIGHT }}
           />
         ) : (
