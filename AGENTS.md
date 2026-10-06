@@ -10,11 +10,13 @@ all pass. The Phase 3 merge had broken `apps/customer/scripts/demo-api.mjs` (fix
 
 Open product decisions Ali has not yet made (ask before building further on these):
 tips after a 5-star rating; the real WhatsApp support number; public driver photos; who is on duty
-for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit;
-the change-to-wallet cap (currently 25,000 دينار, see `docs/api/cash-change-to-wallet.md` and the
-dated section in `docs/specs/2026-10-03-edge-case-decisions.md`); whether the honest-delay threshold
-is 10 or 20 minutes (spec says 10, app copy says 20 — reconcile); whether the shift guarantee bonus
-should actually be paid (no code pays it yet, so don't show progress toward it).
+for SOS and the escalation target; a masked-call provider; confirming police number 104 for Wasit.
+
+Decided by Ali on 2026-10-06 (see the dated section at the end of
+`docs/specs/2026-10-03-edge-case-decisions.md`): change-to-wallet limits approved (25,000 cap, 50,000
+tender limit) and extra cash must be named; honest delay in two steps (10 min apology + new time, 20
+min delivery fee back; free delivery → 1,000 دينار); the G-91 shift guarantee is paid by the server;
+خطوط sweep alert to ops after 5 min, seat PIN stays on the lock screen, 3-second pause before the sweep.
 
 A separate session may be working on `packages/map/**`, map feature folders, the zones/places API,
 and the Console zones/map pages — check recent commits (`git log --oneline -20`) before touching those.
