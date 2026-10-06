@@ -87,6 +87,38 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
   }
 }
 
+/** `seat:<bookingId>.<seat>:money|points` → the booking; `topup:<id>` → the top-up request (w8). */
+function lineRefs(groupId: string | null | undefined, memo: string | null | undefined): Pick<WalletLine, 'bookingId' | 'topUpId' | 'reference'> {
+  const seat = groupId ? /^seat:([^.]+)\./.exec(groupId) : null;
+  if (seat) return { bookingId: seat[1]! };
+  const topup = groupId ? /^topup:(.+)$/.exec(groupId) : null;
+  if (topup) {
+    // memo `topup:<channel>:<reference>` (the receipt's T-XXXX-XXXX).
+    const reference = memo?.split(':')[2];
+    return { topUpId: topup[1]!, ...(reference ? { reference } : {}) };
+  }
+  return {};
+}
+
+/** 1 January of `now`'s year in Baghdad (UTC+3, no DST). */
+export function baghdadYearStart(now: Date): Date {
+  const local = new Date(now.getTime() + 3 * 3_600_000);
+  return new Date(Date.UTC(local.getUTCFullYear(), 0, 1) - 3 * 3_600_000);
+}
+
+/**
+ * «وفّرت هالسنة» (w10): what came back into the customer's account since 1 January — points spent on
+ * fees and deals or promotions (`promo_funded`), the late-delivery credit and change kept in the wallet
+ * (`cash_change_to_wallet`). Pure: the caller passes the account's events.
+ */
+export function savedThisYear(account: string, events: readonly LedgerEvent[], now: Date): number {
+  const from = baghdadYearStart(now).getTime();
+  return events
+    .filter((e) => e.kind === 'money' && e.toAccount === account && e.occurredAt.getTime() >= from && e.occurredAt.getTime() <= now.getTime())
+    .filter((e) => e.type === 'promo_funded' || e.type === 'cash_change_to_wallet' || (e.type === 'credit_issued' && e.memo === LATE_PROMISE_MEMO))
+    .reduce((s, e) => s + e.amount, 0);
+}
+
 /**
  * Readable wallet lines for one account (customer spec §9): a whole order is ONE line (what it cost
  * and how it was paid), not its internal splits; when cash and the charge differ, the difference is
@@ -108,7 +140,7 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
   const out: WalletLine[] = [];
   for (const [groupId, list] of groups) {
     const first = list[0]!;
-    const refs = { ...(first.orderId ? { orderId: first.orderId } : {}), ...(first.tripId ? { tripId: first.tripId } : {}) };
+    const refs = { ...(first.orderId ? { orderId: first.orderId } : {}), ...(first.tripId ? { tripId: first.tripId } : {}), ...lineRefs(first.postingGroupId, first.memo) };
     const purchases = list.filter((e) => e.fromAccount === account && PURCHASE_TYPES.has(e.type));
     if (purchases.length > 0) {
       const net = list.reduce((s, e) => s + signedFor(account, e), 0);
@@ -190,6 +222,7 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         method: null,
         ...(e.orderId ? { orderId: e.orderId } : {}),
         ...(e.tripId ? { tripId: e.tripId } : {}),
+        ...lineRefs(e.postingGroupId, e.memo),
       });
     }
   }
@@ -214,6 +247,7 @@ export function pointsLines(account: string, events: readonly LedgerEvent[]): Wa
       method: null,
       ...(e.orderId ? { orderId: e.orderId } : {}),
       ...(e.tripId ? { tripId: e.tripId } : {}),
+      ...lineRefs(e.postingGroupId, e.memo),
     }))
     .filter((l) => l.amount !== 0);
 }
@@ -295,7 +329,7 @@ export class CustomerWalletService implements WalletPort {
 
   async balance(actor: Actor): Promise<WalletBalanceView> {
     const id = actor.personId;
-    const [money, points, pending] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id)]);
+    const [money, points, pending, events] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id), this.ledger.eventsFor(Accounts.customer(id))]);
     const home = await this.households.householdOf(id);
     const householdBalance = home ? (await this.ledger.balance(Accounts.household(home.id))).amount : 0;
     return {
@@ -307,6 +341,8 @@ export class CustomerWalletService implements WalletPort {
       pendingExpiresAt: pending.expiresAt,
       pointValueIqd: this.rules.points.pointValueIqd,
       household: home ? { id: home.id, name: home.name, role: home.role, balanceIqd: householdBalance } : null,
+      pointsMaxPerOrder: this.rules.points.maxPerOrder,
+      savedThisYearIqd: savedThisYear(Accounts.customer(id), events, this.clock.now()),
     };
   }
 

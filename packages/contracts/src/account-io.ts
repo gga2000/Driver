@@ -210,6 +210,14 @@ export const WalletBalanceView = z.object({
   pendingExpiresAt: z.coerce.date().nullable(),
   pointValueIqd: Iqd,
   household: WalletHouseholdBalance.nullable(),
+  /** w1: the most points one order or trip can earn (city money rules), for the earn-rules line. */
+  pointsMaxPerOrder: z.number().int().nonnegative().default(0),
+  /**
+   * w10 «وفّرت {amount} دينار هالسنة»: since 1 January (Baghdad), what came back to the customer —
+   * points spent on fees, deals and promotions, the late-delivery credits and change kept in the
+   * wallet ("الخردة علينا"). A sum of ledger lines; nothing is estimated.
+   */
+  savedThisYearIqd: Iqd.default(0),
 });
 export type WalletBalanceView = z.infer<typeof WalletBalanceView>;
 
@@ -233,6 +241,11 @@ export const WalletLine = z.object({
   method: z.enum(['cash', 'wallet']).nullable(),
   orderId: z.string().optional(),
   tripId: z.string().optional(),
+  /** w8: a الرجعة seat's booking (the line opens its pass). */
+  bookingId: z.string().optional(),
+  /** w8: a top-up's request id and receipt reference (the line opens its receipt). */
+  topUpId: z.string().optional(),
+  reference: z.string().optional(),
 });
 export type WalletLine = z.infer<typeof WalletLine>;
 
