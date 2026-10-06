@@ -104,6 +104,11 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
+/** A kitchen's look (tilt, plate, garnish) from its id: two grill kitchens in a list don't show the same plate. */
+export function kitchenLook(id: string): number {
+  return hash(id) % ART_LOOKS;
+}
+
 /** One dish's drawing on its own (cart upsell, search, the item sheet). */
 export function artOf(dish: { id: string; name: string; category?: string }): DishArt {
   return { motif: motifForDish(dish.name, dish.category), look: hash(dish.id) % ART_LOOKS };

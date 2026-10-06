@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { Card, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { formatRange } from '@driver/i18n';
 import { DealSticker } from '@/features/food/DealBadge';
-import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
+import { FoodArt, kitchenLook, motifForKitchen } from '@/features/food/FoodArt';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -35,7 +35,7 @@ export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; tes
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
         {/* The kitchen's dish, the same drawing as its menu hero (joy S2-13): food, not a letter. */}
         <View testID={`${testID ?? `restaurant-row-${r.id}`}-art`} style={{ width: ART, height: ART, borderRadius: theme.radius.lg, overflow: 'hidden', opacity: r.open ? 1 : 0.6 }}>
-          <FoodArt motif={motifForKitchen(r.tags)} />
+          <FoodArt motif={motifForKitchen(r.tags)} look={kitchenLook(r.id)} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
