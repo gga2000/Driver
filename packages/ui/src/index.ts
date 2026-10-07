@@ -45,6 +45,7 @@ export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from 
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
+export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
 export { SlideToConfirm, type SlideToConfirmProps, type SlideTone } from './components/SlideToConfirm';
 export { CountdownButton, type CountdownButtonProps } from './components/CountdownButton';

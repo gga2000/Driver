@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
+import { parseSentryDsn, type ParsedDsn } from '@driver/contracts/crash-report';
 
 /**
  * Where unexpected errors go besides the log. With `SENTRY_DSN` unset (the default) it is a no-op;
@@ -15,25 +16,8 @@ export interface ErrorReporter {
 
 export const noopReporter: ErrorReporter = { enabled: false, capture: () => undefined, flush: async () => undefined };
 
-interface ParsedDsn {
-  envelopeUrl: string;
-  publicKey: string;
-  dsn: string;
-}
-
-/** `https://<key>@<host>[/<path>]/<projectId>` → the project's envelope endpoint. Null when malformed. */
-export function parseSentryDsn(dsn: string): ParsedDsn | null {
-  try {
-    const u = new URL(dsn);
-    const parts = u.pathname.split('/').filter(Boolean);
-    const projectId = parts.pop();
-    if (!u.username || !projectId || !/^\d+$/.test(projectId)) return null;
-    const prefix = parts.length ? `/${parts.join('/')}` : '';
-    return { envelopeUrl: `${u.protocol}//${u.host}${prefix}/api/${projectId}/envelope/`, publicKey: u.username, dsn };
-  } catch {
-    return null;
-  }
-}
+// The DSN → envelope endpoint parsing is shared with the apps' and the Console's crash reports.
+export { parseSentryDsn };
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<unknown>;
 
