@@ -18,7 +18,7 @@ import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
-import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService, trustedContactOwner } from './notify.service.js';
+import { emergencyContactOwner, giftRecipientParticipant, NOTIFY_ENGINE, NotifyService, trustedContactOwner } from './notify.service.js';
 import { registerNotifySubscribers } from './notify.subscribers.js';
 import { pushPortsFromEnv } from './providers/push.js';
 import { whatsAppPortFromEnv } from './providers/whatsapp.js';
@@ -88,7 +88,8 @@ function envInt(name: string, fallback: number): number {
           orNull(async () => {
             const o = await orders.get(orderId);
             const riderId = o.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
-            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod };
+            const giftRecipientId = o.gift ? (o.participants.find((p) => p.role === 'recipient')?.id ?? null) : null;
+            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod, giftRecipientId };
           }),
         storeName: (orgId) => orNull(async () => (await orgs.get(orgId)).name),
         orgPeople: async (orgId, kinds) => (await orNull(async () => (await identity.orgRoleHolders(orgId, kinds)).filter((r) => !r.frozen).map((r) => r.personId))) ?? [],
@@ -211,6 +212,13 @@ function envInt(name: string, fallback: number): number {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
             // (logged vault read against the person, accessor system:notify).
+            // G0-10: a gift's recipient, by the number the sender typed (logged vault read; 24 h, 3 a day).
+            const giftParticipant = giftRecipientParticipant(to);
+            if (giftParticipant) {
+              if (!opts.phone) return { locale: 'ar-IQ', phoneE164: null };
+              const phoneE164 = await identity.giftRecipientPhone(giftParticipant, 'system:notify', opts.purpose);
+              return phoneE164 ? { locale: 'ar-IQ', phoneE164 } : null;
+            }
             const trusted = trustedContactOwner(to);
             if (trusted) {
               // w9: a trusted person of the safety page, by list position (logged vault read).

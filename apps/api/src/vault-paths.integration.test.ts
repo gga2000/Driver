@@ -169,6 +169,25 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
     expect(row.orderId).toBe(food.id);
   }, 60_000);
 
+  it('G0-10: a gift order texts the person receiving it once, the number read from the vault', async () => {
+    clock.set(DAY);
+    const khalid = AZIZIYAH_RESTAURANTS.find((r) => r.key === 'khalid')!;
+    const gift = await app.get(OrdersService).place(people.customer, {
+      cityId: 'aziziyah',
+      type: 'food',
+      merchantOrgId: khalid.orgId,
+      lines: [{ catalogItemId: `${khalid.orgId}_pepsi`, qty: 2 }],
+      dropoff: { zoneKey: 'street_30', pin: STREET_30 },
+      participants: [{ ref: 'r', role: 'recipient', label: 'أمي', phone: phone(9) }],
+      gift: { hidePrices: false },
+    });
+    const participant = (await db.participant.findFirst({ where: { orderId: gift.id, role: 'recipient' } }))!;
+    const e = await app.get(EventsService).emit(undefined, { type: 'stop.courier_near', actorId: people.driver, occurredAt: clock.now(), orderId: gift.id, payload: { stopId: `stop_g_${run}`, distanceM: 280 } }, { name: 'order', id: gift.id });
+    const row = await waitFor('the gift SMS sent', async () => (await deliveries('gift_courier_near', `gr:${participant.id}`)).find((d) => d.eventId === e.id && d.status === 'sent'));
+    // The vault read is logged against the sender (the last test checks no log row was lost).
+    expect(row.channel).toBe('sms');
+  }, 60_000);
+
   it('LOAD-02: a night ride booked for someone else — the rider SMS (rider name), the trusted people (contacts), the safe arrival (trusted accounts)', async () => {
     clock.set(NIGHT);
     const orders = app.get(OrdersService);

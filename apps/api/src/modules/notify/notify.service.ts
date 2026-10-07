@@ -72,6 +72,17 @@ export function trustedContactOwner(recipient: string): { personId: string; inde
   return m ? { personId: m[1]!, index: Number(m[2]) } : null;
 }
 
+/**
+ * The person receiving a gift order (G0-10), who may have no account: `gr:<participantId>`, resolved
+ * through identity's logged vault read of the number the sender typed. Gets the one gift SMS.
+ */
+export const giftRecipientAddress = (participantId: string): string => `gr:${participantId}`;
+
+/** The recipient participant a gift address names, or null for anything else. */
+export function giftRecipientParticipant(recipient: string): string | null {
+  return recipient.startsWith('gr:') && recipient.length > 3 ? recipient.slice(3) : null;
+}
+
 /** Expo push tokens look like `ExponentPushToken[…]` (or `ExpoPushToken[…]`). */
 const EXPO_TOKEN = /^Expo(nent)?PushToken\[[^\]]+\]$/;
 

@@ -195,6 +195,7 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     this.referrals.bindOrders({ placedCount: (personId) => this.orders.placedCount(personId) });
     // Ride ideas c9/s3: a ride for someone else — the rider is a person, their name stays in identity's vault.
     this.orders.bindRiders(identityRiders(this.identity, orgsHouseholds(this.orgs)));
+    this.orders.bindGiftRecipients({ remember: (input) => this.identity.rememberGiftRecipient(input) });
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
     this.trips.bindStartCodes({ codeOf: (orderId) => this.orders.startCodeOf(orderId) });
     this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });

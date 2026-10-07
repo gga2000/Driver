@@ -439,6 +439,26 @@ model ParticipantIdentity {
   @@schema("identity_vault")
 }
 
+/// Joy g1 «عزيمة» gift orders (G0-10): the number the sender typed for the person receiving the gift,
+/// so the one «الدليفري يوصلك» SMS reaches them when the courier is almost there. Keyed by the
+/// recipient participant; read once by notify (a VaultAccessLog row against the sender) and only
+/// within 24 h of the order.
+model RecipientContact {
+  id            String   @id @default(cuid())
+  participantId String   @unique @map("participant_id")
+  orderId       String   @map("order_id")
+  /// The sender (the orderer), who typed the number.
+  givenById     String   @map("given_by_id")
+  phoneE164     String   @map("phone_e164")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@index([phoneE164, createdAt])
+  @@map("recipient_contacts")
+  @@schema("identity_vault")
+}
+
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
 model VaultAccessLog {
   id           String   @id @default(cuid())
