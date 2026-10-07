@@ -107,6 +107,21 @@ export function playChatPing(): void {
   buzz(CHAT_VIBRATION);
 }
 
+/** Partner redesign d3: the job is done — one soft bell «tink», quieter than any alert. */
+export const DONE_GAIN = 0.14;
+export function playDoneTink(): void {
+  const c = audio();
+  if (!c) return;
+  try {
+    if (c.state === 'suspended') void c.resume?.();
+    const t = c.currentTime + 0.01;
+    tone(c, 2093, t, 0.7, DONE_GAIN);
+    tone(c, 1046.5, t, 0.5, DONE_GAIN * 0.4);
+  } catch {
+    /* audio blocked: the check and the count still tell him */
+  }
+}
+
 function buzz(pattern: number[]) {
   const nav = (globalThis as { navigator?: { vibrate?: (p: number[] | number) => boolean } }).navigator;
   try {

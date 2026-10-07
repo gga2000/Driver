@@ -112,6 +112,11 @@ export interface ChatThreadProps {
   liveStatus?: { text: string; onPress?: () => void } | null;
   /** Joy l7: the server's quick replies reordered for the moment (at the door «طالع هسة» first). */
   orderReplies?: (keys: readonly QuickReplyKey[]) => QuickReplyKey[];
+  /**
+   * Partner redesign b11: lay the quick replies out in wrapping rows instead of one sideways scroll, so
+   * none is cut at the screen's edge (pair it with a short `orderReplies` list). Default: the scroll.
+   */
+  wrapQuickReplies?: boolean;
   /** Hold-to-record voice notes; omit to leave them out (the kitchen). Shown only where `voiceAllowedIn(kind)`. */
   voice?: ChatVoice;
 }
@@ -145,11 +150,13 @@ export function ChatThread({
   currentLocation,
   liveStatus,
   orderReplies,
+  wrapQuickReplies = false,
   voice: voiceProp,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
   const v = thread.data;
+  const replies = v ? (orderReplies ? orderReplies(v.quickReplies) : v.quickReplies) : [];
   const ride = v?.ride ?? false;
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingMessage[]>([]);
@@ -502,12 +509,20 @@ export function ChatThread({
               <Banner icon="clock" text={t('chat.not_open')} testID="chat-not-open" />
             ) : (
               <>
-                {v.quickReplies.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
-                    {(orderReplies ? orderReplies(v.quickReplies) : v.quickReplies).map((k) => (
-                      <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
-                    ))}
-                  </ScrollView>
+                {replies.length > 0 ? (
+                  wrapQuickReplies ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </View>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </ScrollView>
+                  )
                 ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[2] }}>
                   {rec.phase === 'recording' ? (

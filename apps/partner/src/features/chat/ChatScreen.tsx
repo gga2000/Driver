@@ -6,6 +6,9 @@ import { absoluteUrl, pickPhoto, uploadPhoto } from '@/features/account/photo';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
+import { railStage, stepReplies } from '@/features/work/job-steps';
+import { isRide } from '@/features/work/logic';
+import { useActiveJob } from '@/features/work/queries';
 import { CALLS_LIVE } from './calls';
 import { useChatActions, useChatThread } from './queries';
 import { useChatVoice } from './useChatVoice';
@@ -25,6 +28,11 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
   const voice = useChatVoice(orderId, kind);
   const toast = useToast();
+  // r5 / b11: the one-tap messages that are true at his step on this order, at most three, wrapped.
+  const job = useActiveJob().data;
+  const mine = job?.stops.find((s) => s.stopId === job.currentStopId && s.orderId === orderId) ?? null;
+  const stage = mine ? railStage(mine) : null;
+  const ride = job ? isRide(job.vertical) : (thread.data?.ride ?? false);
   return (
     <ChatThread
       orderId={orderId}
@@ -39,6 +47,8 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       // G0-10 «Chat first»: the call shows greyed «قريباً»; a tap says the chat is the way for now.
       call={() => (CALLS_LIVE ? void call() : toast.show({ message: t('partner.call_soon_toast'), tone: 'info', icon: 'chat' }))}
       calling={busy}
+      orderReplies={(keys) => stepReplies(keys, kind, ride, stage)}
+      wrapQuickReplies
       callSoon={CALLS_LIVE ? undefined : t('soon.badge')}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/job'))}
       errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)}

@@ -319,6 +319,11 @@ export const PartnerJobStop = z.object({
    * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * Partner redesign j2: the public landmark the stop is near («يم جامع الرسول»), the way drivers give
+   * directions — a town place from the landmark list, never a person's door; null when none is close.
+   */
+  landmark: z.string().nullable().default(null),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

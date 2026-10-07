@@ -127,6 +127,12 @@ export function ShiftCash({ s, onCode }: { s: ShiftSummary; onCode: () => void }
           {owes ? (
             <>
               <CashMeter owedIqd={s.cash.owedIqd} heldIqd={s.cash.heldIqd} capIqd={s.cash.capIqd} overCap={s.cash.overCap} testID="shift-cash-meter" />
+              {/* b8: next to «ما وصلك طلب بهالشفت», say where the cash to hand in came from. */}
+              {s.jobs === 0 ? (
+                <Text variant="footnote" color="textMuted" testID="shift-cash-earlier">
+                  {t('partner.shiftsum_cash_earlier')}
+                </Text>
+              ) : null}
               <Button testID="shift-code" label={t('partner.shiftsum_code_cta')} icon="receipt" variant={s.cash.overCap ? 'primary' : 'secondary'} fullWidth onPress={onCode} />
             </>
           ) : (

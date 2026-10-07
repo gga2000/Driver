@@ -332,6 +332,8 @@ export class PartnerService implements PartnerPort {
           ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
           // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
           rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
+          // j2: the public landmark it is near, for the headline and the spoken prompt.
+          landmark: s.target ? nearestLandmark(s.target) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
