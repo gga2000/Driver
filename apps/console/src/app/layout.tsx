@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import type { ReactNode } from 'react';
 import { themes } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
@@ -25,7 +26,10 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // The CSP nonce from src/middleware.ts (CON-06): the pre-paint script must carry it to run. Browsers
+  // hide a nonce from the DOM once read, so React would report it as a mismatch: the two tags opt out.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html
       lang="ar-IQ"
@@ -36,8 +40,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <head>
         {/* Theme variables generated from @driver/design-tokens at build time (src/theme/palette.ts). */}
-        <style id="driver-theme" dangerouslySetInnerHTML={{ __html: themeCss() }} />
-        <script dangerouslySetInnerHTML={{ __html: PREPAINT_SCRIPT }} />
+        <style id="driver-theme" nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeCss() }} />
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: PREPAINT_SCRIPT }} />
       </head>
       <body className="min-h-screen font-sans">
         <Providers>
