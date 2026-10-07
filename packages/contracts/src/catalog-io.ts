@@ -210,6 +210,8 @@ export const CatalogSearchDish = z.object({
   photoUrl: z.string().nullable(),
   /** Orderable now (sold out or outside its schedule = false). */
   available: z.boolean(),
+  /** No option group asks for a choice: a card can add it in one tap (home's band +), else it opens the dish. */
+  quickAdd: z.boolean(),
   restaurantId: z.string(),
   restaurantName: z.string(),
   restaurantOpen: z.boolean(),
