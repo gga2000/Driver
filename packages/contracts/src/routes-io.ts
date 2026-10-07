@@ -223,6 +223,8 @@ export const IntercityVehicle = z.object({
   noSmoking: z.boolean().default(false),
   /** The driver's word for this run: the boot takes big suitcases → «جناط كبيرة». */
   bigBags: z.boolean().default(false),
+  /** The driver's word for this run (idea b7): the AC works (cool in summer, warm in winter) → «مكيّفة». */
+  ac: z.boolean().default(false),
 });
 export type IntercityVehicle = z.infer<typeof IntercityVehicle>;
 
@@ -654,6 +656,7 @@ export const AnnounceInput = z
       model: z.string().max(60).optional(),
       color: z.string().max(30).optional(),
       noSmoking: z.boolean().optional(),
+      ac: z.boolean().optional(),
       bigBags: z.boolean().optional(),
     }),
     familyOnly: z.boolean().default(false),

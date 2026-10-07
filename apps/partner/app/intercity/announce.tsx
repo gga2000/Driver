@@ -65,6 +65,8 @@ export default function Announce() {
   // His word for the car (x15): riders see «ما يدخن» / «جناط كبيرة» on his profile and rate him on it.
   const [noSmoking, setNoSmoking] = useState(false);
   const [bigBags, setBigBags] = useState(false);
+  // b7: riders see «مكيّفة» on the board (cool in summer, warm in winter).
+  const [ac, setAc] = useState(false);
   const [plateError, setPlateError] = useState(false);
 
   // Defaults: the first garage of the side; the busiest demand window; his last car and plate.
@@ -85,6 +87,7 @@ export default function Announce() {
       if (last.vehicle.modelKey === 'other') setOtherModel(last.vehicle.model ?? '');
       setNoSmoking(last.vehicle.noSmoking);
       setBigBags(last.vehicle.bigBags);
+      setAc(last.vehicle.ac);
     }
     setCarSet(true);
   }, [carSet, mine.data]);
@@ -143,6 +146,7 @@ export default function Announce() {
           ...(fittingModel === 'other' ? { model: otherModel.trim() } : {}),
           noSmoking,
           bigBags,
+          ac,
         },
         familyOnly,
       });
@@ -293,6 +297,7 @@ export default function Announce() {
           error={plateError ? t('partner.ic_announce_plate_needed') : undefined}
           leadingIcon="car"
         />
+        <Toggle label={t('partner.ic_announce_ac')} hint={t('partner.ic_announce_ac_hint')} value={ac} onChange={setAc} testID="announce-ac" />
         <Toggle label={t('partner.ic_announce_no_smoking')} hint={t('partner.ic_announce_promise_hint')} value={noSmoking} onChange={setNoSmoking} testID="announce-no-smoking" />
         <Toggle label={t('partner.ic_announce_big_bags')} hint={t('partner.ic_announce_promise_hint')} value={bigBags} onChange={setBigBags} testID="announce-big-bags" />
         <Toggle label={t('partner.ic_announce_family')} hint={t('partner.ic_announce_family_hint')} value={familyOnly} onChange={setFamilyOnly} testID="announce-family" />

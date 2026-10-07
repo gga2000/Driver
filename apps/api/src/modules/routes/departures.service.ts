@@ -360,6 +360,7 @@ export class DeparturesService {
           model: vehicleModelText(input.vehicle.modelKey, input.vehicle.model),
           color: input.vehicle.color ?? null,
           noSmoking: input.vehicle.noSmoking ?? false,
+          ac: input.vehicle.ac ?? false,
           bigBags: input.vehicle.bigBags ?? false,
         },
         familyOnly: input.familyOnly,

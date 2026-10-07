@@ -57,6 +57,8 @@ export interface DepartureRecord {
     /** The driver's word for this run (x15 «ما يدخن», «جناط كبيرة»); false on older runs. */
     noSmoking: boolean;
     bigBags: boolean;
+    /** The driver's word for this run (b7 «مكيّفة»); false on older runs. */
+    ac: boolean;
   };
   familyOnly: boolean;
   seatPriceIqd: number;

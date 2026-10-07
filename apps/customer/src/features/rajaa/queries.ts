@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPostView, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
@@ -45,6 +45,22 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
     staleTime: 2_000,
     refetchInterval: opts.poll === false ? false : RAJAA_RULES.pollMs,
     placeholderData: (prev) => prev,
+  });
+}
+
+/**
+ * Today's cars on every line, for the «بغداد» / «الكوت» cards (s1): one read per corridor, the same
+ * span as the board, not polled (the picked line's own board polls).
+ */
+export function useCorridorBoards(corridorIds: readonly string[], direction: IntercityDirection, span: { from: Date; to: Date }) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQueries({
+    queries: corridorIds.map((corridorId) => ({
+      ...api.routes.board.queryOptions({ corridorId, direction, from: span.from, to: span.to }),
+      enabled: signedIn,
+      staleTime: 30_000,
+    })),
   });
 }
 

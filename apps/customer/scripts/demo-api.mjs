@@ -879,7 +879,7 @@ const rajaa = await (async () => {
   });
 
   // Baghdad side — كراج النهضة → العزيزية.
-  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: { ...saloon('12345 بغداد', 'النترا', 'بيضاء'), noSmoking: true } });
+  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: { ...saloon('12345 بغداد', 'النترا', 'بيضاء'), noSmoking: true, ac: true } });
   await seat(d1, ['front'], 'rijal');
   await seat(d1, ['back_left'], 'rijal');
   await seat(d1, ['back_right'], 'rijal');
@@ -919,6 +919,18 @@ const rajaa = await (async () => {
   await seat(k1, ['back_left', 'back_middle'], 'aila');
   const k2 = await announce(D.drv_6J2L, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', inMin: 100, vehicle: saloon('39921 واسط', 'إلنترا', 'حمراء') });
   await seat(k2, ['back_right'], 'nisa');
+
+  // Tomorrow (the board's day strip, s2): Baghdad → Aziziyah at 7:00 and 16:30, Aziziyah → Baghdad at
+  // 6:30, Baghdad time. Minutes from now to a Baghdad wall-clock time tomorrow:
+  const tomorrowAt = (h, m) => {
+    const baghdad = new Date(Date.now() + 3 * 60 * MIN);
+    const midnight = Date.UTC(baghdad.getUTCFullYear(), baghdad.getUTCMonth(), baghdad.getUTCDate()) - 3 * 60 * MIN;
+    return Math.round((midnight + (24 + h) * 60 * MIN + m * MIN - Date.now()) / MIN);
+  };
+  const t1 = await announce(D.drv_2X8P, { garageId: 'mp_garage_nahdha', inMin: tomorrowAt(7, 0), vehicle: { ...saloon('77821 بغداد', 'سوناتا', 'فضية'), ac: true } });
+  await seat(t1, ['front'], 'rijal');
+  await announce(D.drv_9B3H, { garageId: 'mp_garage_nahdha', inMin: tomorrowAt(16, 30), vehicle: { kind: 'suv', layout: 6, plate: '30211 بغداد', modelKey: 'tahoe', color: 'سوداء', ac: true } });
+  await announce(D.drv_8T6W, { garageId: 'mp_garage_bab2', inMin: tomorrowAt(6, 30), vehicle: { kind: 'van', layout: 7, plate: '62210 واسط', modelKey: 'starex', color: 'بيضاء' } });
 
   // Demand: 7 people for the coming hour (the "waiting with you" count) and 9 in a later 2-hour
   // window (the board banner), on the way back from Baghdad. None contains an announced time.

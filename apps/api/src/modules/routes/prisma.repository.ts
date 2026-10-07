@@ -445,9 +445,9 @@ type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & 
 /** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
 /** Snapshots written before a field existed read its default (no model, no promises about the car). */
 function vehicleFromSnapshot(json: unknown): DepartureRecord['vehicle'] {
-  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey' | 'noSmoking' | 'bigBags'> & { modelKey?: unknown; noSmoking?: unknown; bigBags?: unknown };
+  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey' | 'noSmoking' | 'bigBags' | 'ac'> & { modelKey?: unknown; noSmoking?: unknown; bigBags?: unknown; ac?: unknown };
   const key = VehicleModelKey.safeParse(v.modelKey);
-  return { ...v, modelKey: key.success ? key.data : null, noSmoking: v.noSmoking === true, bigBags: v.bigBags === true };
+  return { ...v, modelKey: key.success ? key.data : null, noSmoking: v.noSmoking === true, bigBags: v.bigBags === true, ac: v.ac === true };
 }
 
 const RatingJson = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });

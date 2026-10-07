@@ -782,6 +782,18 @@ async function rajaaShots(personId) {
   await shot('rajaa-board');
   await fullShot('rajaa-board-full');
 
+  // Narrowing (s2, s5, s7, x3): tomorrow's cars, then tomorrow night with none → one-tap «نبّهني».
+  await byTestId('board-day-tomorrow').click();
+  await settle(800);
+  await shot('rajaa-board-tomorrow');
+  await byTestId('board-part-night').click();
+  await byTestId('board-wish').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('rajaa-board-wish');
+  await byTestId('board-day-today').click();
+  await byTestId('board-part-all').click();
+  await firstCar.waitFor({ timeout: 15_000 });
+
   // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
   await firstCar.click();
   await byTestId('rajaa-book').waitFor({ timeout: 15_000 });

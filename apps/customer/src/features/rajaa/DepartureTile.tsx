@@ -1,12 +1,13 @@
 import { View } from 'react-native';
-import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
+import type { DepartureCard, IntercitySeatId, RajaaDriverCard } from '@driver/contracts';
 import { Avatar, Card, DepartureTime, Icon, PlateChip, StatusPill, Text, useTheme, type StatusTone } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
 import type { SeatFit } from './fit';
 import { fitLabel, fitReason, seatsLeftLabel, vehicleDesc } from './labels';
-import { clockLabel, fillTone, isBoardingOpen, minutesUntil, type FillTone } from './logic';
+import { clockLabel, fillTone, isBoardingOpen, minutesUntil, ROW_SEATS, type FillTone } from './logic';
+import { arrivalAt } from './board-filters';
 import { compactRecord, rodeBefore } from './driver-record';
 
 const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'accent', last: 'warning', full: 'neutral' };
@@ -25,6 +26,7 @@ export function DepartureTile({
   onPress,
   favourite,
   selected,
+  arrive,
 }: {
   dep: DepartureCard;
   now: Date;
@@ -36,12 +38,16 @@ export function DepartureTile({
   favourite?: boolean;
   /** The car chosen on a regular trip's «أكدها» (joy r5): the tile shows it picked. */
   selected?: boolean;
+  /** s6: «توصل بغداد حوالي 9:30» from the corridor's travel time. */
+  arrive?: { city: string; travelMin: number };
 }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const tone = fillTone(dep.fill);
-  const pill = fit ? fitLabel(t, fit) : seatsLeftLabel(t, dep.fill.free);
+  // b4: every car leaves early when it fills, so the last seat says so.
+  const lastSeat = dep.fill.free === 1 && (!fit || fit.kind === 'fits');
+  const pill = lastSeat ? t('rajaa.last_seat_go') : fit ? fitLabel(t, fit) : seatsLeftLabel(t, dep.fill.free);
   const pillTone: StatusTone = fit && fit.kind !== 'fits' ? 'neutral' : fit?.kind === 'fits' && fit.n === 1 ? 'warning' : FILL_TONE[tone];
   const mins = minutesUntil(dep.departAt, now);
   const boarding = dep.state === 'boarding' || isBoardingOpen(dep.departAt, now);
@@ -73,13 +79,21 @@ export function DepartureTile({
         {/* Time · seats for you · price: the three things a rider scans for. */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
           <View style={{ flex: 1, gap: 2 }}>
-            <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="compact" note={boarding ? t('rajaa.boarding_now') : undefined} noteTone={boarding ? 'accent' : 'muted'} countdown={mins > 0 && mins < 120} />
+            <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="compact" countdown={mins > 0 && mins < 120} />
+            {/* b3: the car at the garage loading now pulses. */}
+            {boarding ? <StatusPill testID={`departure-loading-${dep.id}`} size="sm" tone="accent" live label={t('rajaa.loading_now')} style={{ alignSelf: 'flex-start' }} /> : null}
             <Text variant="caption" color="textMuted">
               {t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
             </Text>
+            {arrive ? (
+              <Text variant="caption" color="textMuted" testID={`departure-arrive-${dep.id}`}>
+                {t('rajaa.arrive_about', { city: arrive.city, time: clockLabel(arrivalAt(dep, arrive.travelMin)) })}
+              </Text>
+            ) : null}
           </View>
           <View style={{ alignItems: 'flex-end', gap: theme.space[1] }}>
-            <StatusPill size="sm" tone={pillTone} label={pill} />
+            <StatusPill size="sm" tone={pillTone} label={pill} testID={`departure-pill-${dep.id}`} />
+            <SeatDots dep={dep} />
             <Text variant="bodyStrong" tabular>
               {iqd(dep.seatPriceIqd, { locale })}
             </Text>
@@ -124,6 +138,7 @@ export function DepartureTile({
               dep.doorPickupsLeft > 0 ? t('rajaa.pickup_short_door') : null,
               dep.frontSeat === 'free' ? t('rajaa.front_free', { amount: amountParam(dep.frontPremiumIqd) }) : null,
               dep.familyOnly ? t('intercity.family_only') : null,
+              dep.vehicle.ac ? t('rajaa.badge_ac') : null,
             ]
               .filter(Boolean)
               .join(' · ')}
@@ -132,6 +147,34 @@ export function DepartureTile({
         </View>
       </View>
     </Card>
+  );
+}
+
+/**
+ * b2: the car's seats as small dots, row by row as they sit (front first): a free front seat in the
+ * accent, other free seats light, taken seats dark, a free seat that isn't for you faint. Fill at a
+ * glance; the pill beside it says it in words, so the dots are hidden from screen readers.
+ */
+function SeatDots({ dep }: { dep: DepartureCard }) {
+  const theme = useTheme();
+  const rows = ROW_SEATS[dep.vehicle.layout];
+  const byId = new Map(dep.seats.map((x) => [x.id, x]));
+  // Seen from above with the nose up: the driver's place on the left (an outline), the front seat beside him.
+  const order: (IntercitySeatId | 'driver')[][] = [dep.frontSeat !== 'none' ? (['driver', 'front'] as const).slice() : [], rows.middle ?? [], rows.back ?? [], rows.rear ?? []].filter((r) => r.length > 0);
+  return (
+    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{ gap: 2, alignItems: 'flex-end' }} testID={`departure-dots-${dep.id}`}>
+      {order.map((row, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 2, direction: 'ltr' }}>
+          {row.map((id) => {
+            if (id === 'driver') return <View key={id} style={{ width: 9, height: 10, borderRadius: 3, borderWidth: 1, borderColor: theme.colors.border }} />;
+            const seat = byId.get(id);
+            const free = seat?.state === 'free';
+            const color = !seat ? theme.colors.border : free ? (seat.blocked ? theme.colors.border : id === 'front' ? theme.colors.accent : theme.colors.surfaceSunken) : theme.colors.textMuted;
+            return <View key={id} style={{ width: 9, height: 10, borderRadius: 3, backgroundColor: color, borderWidth: free && !seat?.blocked && id !== 'front' ? 1 : 0, borderColor: theme.colors.borderStrong, opacity: free && seat?.blocked ? 0.5 : 1 }} />;
+          })}
+        </View>
+      ))}
+    </View>
   );
 }
 
