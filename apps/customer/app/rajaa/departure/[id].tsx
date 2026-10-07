@@ -6,6 +6,7 @@ import type { MessageKey } from '@driver/i18n';
 import {
   Button,
   Card,
+  CarSeatArt,
   Chip,
   ChipGroup,
   EmptyState,
@@ -23,6 +24,7 @@ import {
   type SelectRejection,
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { carArtFor } from '@/features/rajaa/car-art';
 import { seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import {
@@ -179,6 +181,17 @@ export default function BookSeat() {
 
   const max = travellingAs ? maxSeatsFor(travellingAs, dep.vehicle.layout) : 1;
   const ready = !!travellingAs && seatIds.length > 0;
+  // The driver's own car under the seats when it has a picture (Ali, 2026-10-07); the drawn map otherwise.
+  const art = carArtFor(dep.vehicle);
+  const mapSeats = toSeatMap(dep.seats) as SeatInfo[];
+  const mapSelection = mode === 'seats' ? selection : seatIds;
+  const onSeats =
+    travellingAs && mode === 'seats'
+      ? (s: SeatInfo['id'][]) => {
+          setSelection(s as IntercitySeatId[]);
+          setBlocked(null);
+        }
+      : undefined;
 
   return (
     <Screen
@@ -281,17 +294,21 @@ export default function BookSeat() {
           </Text>
         ) : null}
         <View style={{ opacity: travellingAs ? 1 : 0.45 }}>
-          <SeatMap
-            layout={dep.vehicle.layout}
-            seats={toSeatMap(dep.seats) as SeatInfo[]}
-            selection={mode === 'seats' ? selection : seatIds}
-            max={max}
-            onChange={travellingAs && mode === 'seats' ? (s) => {
-              setSelection(s as IntercitySeatId[]);
-              setBlocked(null);
-            } : undefined}
-            onReject={onReject}
-          />
+          {art ? (
+            <CarSeatArt
+              art={art}
+              carName={dep.vehicle.model ?? undefined}
+              layout={dep.vehicle.layout}
+              seats={mapSeats}
+              selection={mapSelection}
+              max={max}
+              onChange={onSeats}
+              onReject={onReject}
+              {...(driverCard?.firstName ? { driverLabel: driverCard.firstName } : {})}
+            />
+          ) : (
+            <SeatMap layout={dep.vehicle.layout} seats={mapSeats} selection={mapSelection} max={max} onChange={onSeats} onReject={onReject} />
+          )}
         </View>
         {blocked ? (
           <Card testID="rajaa-blocked-note" tone="sunken" elevation={0} padding={4}>

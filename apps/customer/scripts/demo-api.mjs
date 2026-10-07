@@ -66,6 +66,10 @@ const khalid = seeded.find((s) => s.seed.key === 'khalid');
 /** مطعم خالد's pin: the pickup for the live-order demo. */
 const kitchen = khalid.seed.pin;
 
+/** Demo cars by their Iraqi name: a listed model by key (its picture draws under the seats), the rest `other`. */
+const DEMO_MODEL_KEYS = { 'النترا': 'elantra', 'إلنترا': 'elantra', 'كورولا': 'corolla', 'سيراتو': 'cerato', 'سوناتا': 'sonata', 'أكسنت': 'accent' };
+const demoModel = (name) => (DEMO_MODEL_KEYS[name] ? { modelKey: DEMO_MODEL_KEYS[name] } : { modelKey: 'other', model: name });
+
 const json = (res, status, body) => {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
@@ -762,19 +766,20 @@ const rajaa = await (async () => {
     });
     await deps.book(b.riderId, b.id, 'cash');
   }
-  const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+  // A listed model draws the driver's own car under the seats (Ali, 2026-10-07); anything else is `other` by name.
+  const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, ...demoModel(model), color });
 
   // Baghdad side — كراج النهضة → العزيزية.
-  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: saloon('12345 بغداد', 'كامري', 'بيضاء') });
+  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: saloon('12345 بغداد', 'النترا', 'بيضاء') });
   await seat(d1, ['front'], 'rijal');
   await seat(d1, ['back_left'], 'rijal');
   await seat(d1, ['back_right'], 'rijal');
-  const d2 = await announce(D.drv_4M9T, { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', model: 'جي إم سي', color: 'رصاصي' } });
+  const d2 = await announce(D.drv_4M9T, { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', modelKey: 'gmc', color: 'رصاصي' } });
   await seat(d2, ['middle_left', 'middle_middle'], 'nisa');
   await seat(d2, ['rear_left'], 'rijal');
   await deps.markWalkUp(D.drv_4M9T, d2.id, { seatId: 'rear_right', travellingAs: 'rijal' });
   await deps.selfie(D.drv_4M9T, d2.id, 'demo/selfie.jpg');
-  const d3 = await announce(D.drv_9B3H, { garageId: 'mp_garage_nahdha', inMin: 80, vehicle: { kind: 'suv', layout: 6, plate: '30211 بغداد', model: 'تاهو', color: 'سوداء' }, familyOnly: true });
+  const d3 = await announce(D.drv_9B3H, { garageId: 'mp_garage_nahdha', inMin: 80, vehicle: { kind: 'suv', layout: 6, plate: '30211 بغداد', modelKey: 'tahoe', color: 'سوداء' }, familyOnly: true });
   await seat(d3, ['middle_left', 'middle_right'], 'aila');
   const d4 = await announce(D.drv_2X8P, { garageId: 'mp_garage_nahdha', inMin: 130, vehicle: saloon('77821 بغداد', 'سوناتا', 'فضية') });
   await seat(d4, ['front'], 'rijal');
@@ -792,11 +797,11 @@ const rajaa = await (async () => {
   }, 10_000).unref();
 
   // Aziziyah side — the three gates → بغداد (السوق left empty on purpose).
-  const a1 = await announce(D.drv_5R1D, { garageId: 'mp_garage_bab1', inMin: 45, vehicle: saloon('51234 واسط', 'كامري', 'بيضاء') });
+  const a1 = await announce(D.drv_5R1D, { garageId: 'mp_garage_bab1', inMin: 45, vehicle: saloon('51234 واسط', 'النترا', 'بيضاء') });
   await seat(a1, ['back_left'], 'nisa');
   await seat(a1, ['back_middle'], 'nisa');
   await seat(a1, ['front'], 'rijal');
-  const a2 = await announce(D.drv_8T6W, { garageId: 'mp_garage_bab2', inMin: 95, vehicle: { kind: 'van', layout: 7, plate: '62210 واسط', model: 'ستاركس', color: 'بيضاء' } });
+  const a2 = await announce(D.drv_8T6W, { garageId: 'mp_garage_bab2', inMin: 95, vehicle: { kind: 'van', layout: 7, plate: '62210 واسط', modelKey: 'starex', color: 'بيضاء' } });
   await seat(a2, ['rear_left'], 'rijal');
 
   // Kut corridor, both ways.
@@ -1597,7 +1602,7 @@ const rajaa = await (async () => {
     const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
     const actor = (personId) => ({ personId, sessionId: 'demo' });
     const at5 = (ms) => new Date(Math.ceil(ms / MIN5) * MIN5);
-    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, ...demoModel(model), color });
     const point = (p) => ({ zoneKey: p.zoneId, pin: p.pin, placeId: p.id });
     /** Baghdad minutes since midnight of an instant. */
     const minuteOfDay = (d) => {

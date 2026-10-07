@@ -14,6 +14,7 @@ import type {
   RequestState,
   SeatPayment,
   TravellingAs,
+  VehicleModelKey,
 } from '@driver/contracts';
 
 /** The records the routes module stores (in memory, or Prisma: departures + seat_bookings + demand_posts + ride_requests). */
@@ -48,6 +49,8 @@ export interface DepartureRecord {
   vehicle: {
     kind: IntercityVehicleKind;
     plate: string;
+    /** Listed model (the rider's seat screen draws it); null on runs announced before the list. */
+    modelKey: VehicleModelKey | null;
     model: string | null;
     color: string | null;
   };

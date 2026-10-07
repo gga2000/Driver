@@ -29,6 +29,7 @@ export * from './auth.js';
 export * from './dispatch-io.js';
 export * from './console-io.js';
 export * from './routes-io.js';
+export * from './vehicle-models.js';
 export * from './deals.js';
 export * from './catalog-io.js';
 export * from './habits-io.js';

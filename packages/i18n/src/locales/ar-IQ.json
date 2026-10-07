@@ -6461,5 +6461,20 @@
   "ride.fav_title": "سايقك المفضل",
   "partner.offer_favourite_title": "الزبون طلبك إنت",
   "partner.offer_favourite_body": "مشوار محجوز، يجيك أول دقيقة قبل باقي السواق",
-  "dinner.slot_after": "بعد وصولك · {time}"
+  "dinner.slot_after": "بعد وصولك · {time}",
+  "vehicle.model_elantra": "النترا",
+  "vehicle.model_corolla": "كورولا",
+  "vehicle.model_cerato": "سيراتو",
+  "vehicle.model_sonata": "سوناتا",
+  "vehicle.model_accent": "أكسنت",
+  "vehicle.model_tahoe": "تاهو",
+  "vehicle.model_gmc": "جمسي",
+  "vehicle.model_starex": "ستاركس",
+  "vehicle.model_other": "غيرها",
+  "partner.ic_announce_model": "شنو سيارتك؟",
+  "partner.ic_announce_model_hint": "الركاب يشوفون سيارتك نفسها من يختارون مقعدهم",
+  "partner.ic_announce_model_other": "اسم السيارة",
+  "partner.ic_announce_model_other_ph": "مثلاً: كامري",
+  "partner.ic_announce_model_needed": "اكتب اسم سيارتك حتى يعرفها الركاب",
+  "partner.ic_announce_model_pick": "اختار سيارتك حتى يشوفها الركاب"
 }

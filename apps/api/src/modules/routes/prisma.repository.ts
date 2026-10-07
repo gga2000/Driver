@@ -1,4 +1,4 @@
-import { BookingRating, PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { BookingRating, PinAlertKind, PinAttemptResult, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -407,6 +407,13 @@ type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & 
   offers: Array<Awaited<ReturnType<Tx['rideRequestOffer']['findUniqueOrThrow']>>>;
 };
 
+/** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
+function vehicleFromSnapshot(json: unknown): DepartureRecord['vehicle'] {
+  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey'> & { modelKey?: unknown };
+  const key = VehicleModelKey.safeParse(v.modelKey);
+  return { ...v, modelKey: key.success ? key.data : null };
+}
+
 function toDeparture(r: DepartureRow): DepartureRecord {
   const run = (r.runState ?? {}) as unknown as Partial<RunState>;
   return {
@@ -422,7 +429,7 @@ function toDeparture(r: DepartureRow): DepartureRecord {
     announcedAt: r.announcedAt,
     state: r.state,
     layout: (r.seatLayout ?? 4) as DepartureRecord['layout'],
-    vehicle: r.vehicleSnapshot as unknown as DepartureRecord['vehicle'],
+    vehicle: vehicleFromSnapshot(r.vehicleSnapshot),
     familyOnly: r.familyOnly,
     seatPriceIqd: r.seatPriceIqd ?? 0,
     frontPremiumIqd: r.frontPremiumIqd,

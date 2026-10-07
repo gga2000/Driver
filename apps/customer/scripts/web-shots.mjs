@@ -15,7 +15,7 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
-//   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+//   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
@@ -782,6 +782,7 @@ async function rajaaShots(personId) {
   // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
   await firstCar.click();
   await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  await shot('rajaa-seat-top');
   await byTestId('chip-nisa').click();
   await page.waitForTimeout(1200); // board refetch with travellingAs
   await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
@@ -795,6 +796,9 @@ async function rajaaShots(personId) {
   await page.waitForTimeout(1200);
   await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
   await byTestId('rajaa-quote').waitFor({ timeout: 10_000 });
+  // The driver's own car under the seats (an Elantra on this run), with the picked seat.
+  await byTestId('car-seat-art').scrollIntoViewIfNeeded().catch(() => errors.push('car picture not shown on the seat screen'));
+  await shot('rajaa-seat-picked');
   await byTestId('rajaa-hold').click();
   await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);

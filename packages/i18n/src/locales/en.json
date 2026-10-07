@@ -6461,5 +6461,20 @@
   "ride.fav_title": "Your favourite driver",
   "partner.offer_favourite_title": "The rider asked for you",
   "partner.offer_favourite_body": "A booked ride: yours for a minute before other drivers",
-  "dinner.slot_after": "After you arrive · {time}"
+  "dinner.slot_after": "After you arrive · {time}",
+  "vehicle.model_elantra": "Elantra",
+  "vehicle.model_corolla": "Corolla",
+  "vehicle.model_cerato": "Cerato",
+  "vehicle.model_sonata": "Sonata",
+  "vehicle.model_accent": "Accent",
+  "vehicle.model_tahoe": "Tahoe",
+  "vehicle.model_gmc": "GMC",
+  "vehicle.model_starex": "Starex",
+  "vehicle.model_other": "Another car",
+  "partner.ic_announce_model": "Which car is it?",
+  "partner.ic_announce_model_hint": "Riders see your own car when they pick a seat",
+  "partner.ic_announce_model_other": "Car name",
+  "partner.ic_announce_model_other_ph": "e.g. Camry",
+  "partner.ic_announce_model_needed": "Name your car so riders recognise it",
+  "partner.ic_announce_model_pick": "Pick your car so riders can see it"
 }

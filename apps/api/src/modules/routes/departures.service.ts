@@ -14,7 +14,9 @@ import {
   type SeatPayment,
   type TravellingAs,
   type RajaaRatingTag,
+  type VehicleModelKey,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -85,6 +87,15 @@ const TRAIL_MAX = 300;
 export interface PinVerdict {
   result: PinAttemptResult;
   matched: BookingRecord | null;
+}
+
+/**
+ * The car's name as riders, pushes, SOS and share pages read it: a listed model by its Iraqi name
+ * («النترا»), `other` (or a pre-list client) by what the driver typed.
+ */
+export function vehicleModelText(modelKey: VehicleModelKey | undefined, typed: string | undefined): string | null {
+  if (modelKey && modelKey !== 'other') return t(`vehicle.model_${modelKey}`, undefined, 'ar-IQ');
+  return typed?.trim() || null;
 }
 
 /**
@@ -343,7 +354,8 @@ export class DeparturesService {
         vehicle: {
           kind: input.vehicle.kind,
           plate: input.vehicle.plate,
-          model: input.vehicle.model ?? null,
+          modelKey: input.vehicle.modelKey ?? null,
+          model: vehicleModelText(input.vehicle.modelKey, input.vehicle.model),
           color: input.vehicle.color ?? null,
         },
         familyOnly: input.familyOnly,

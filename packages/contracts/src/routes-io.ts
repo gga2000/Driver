@@ -3,6 +3,7 @@ import { CityId, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import type { CallSession } from './chat-io.js';
 import type { SafetyCallSession } from './safety-io.js';
+import { modelFitsLayout, VehicleModelKey } from './vehicle-models.js';
 
 /**
  * الرجعة — the intercity system (customer spec §2, domain §2 Departure/Seat, edge-case decisions
@@ -213,6 +214,9 @@ export const IntercityVehicle = z.object({
   kind: IntercityVehicleKind,
   layout: IntercitySeatLayout,
   plate: z.string(),
+  /** The listed model (`vehicle-models.ts`); null on runs announced before the list existed. */
+  modelKey: VehicleModelKey.nullable().default(null),
+  /** Free text: the model when `modelKey` is `other` (or a pre-list run). */
   model: z.string().nullable(),
   color: z.string().nullable(),
 });
@@ -604,6 +608,7 @@ export const AnnounceInput = z
       kind: IntercityVehicleKind,
       layout: IntercitySeatLayout,
       plate: z.string().min(2).max(20),
+      modelKey: VehicleModelKey.optional(),
       model: z.string().max(60).optional(),
       color: z.string().max(30).optional(),
     }),
@@ -612,6 +617,14 @@ export const AnnounceInput = z
   .refine((a) => a.latestDepartureAt.getTime() >= a.departAt.getTime(), {
     message: 'latestDepartureAt must not be before departAt',
     path: ['latestDepartureAt'],
+  })
+  .refine((a) => !a.vehicle.modelKey || modelFitsLayout(a.vehicle.modelKey, a.vehicle.layout), {
+    message: 'this model cannot carry that seat layout',
+    path: ['vehicle', 'modelKey'],
+  })
+  .refine((a) => a.vehicle.modelKey !== 'other' || !!a.vehicle.model?.trim(), {
+    message: 'name the model when it is not on the list',
+    path: ['vehicle', 'model'],
   });
 export type AnnounceInput = z.input<typeof AnnounceInput>;
 
