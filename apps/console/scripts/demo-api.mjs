@@ -337,6 +337,11 @@ if (seedYesterday) {
 
 const orgs = get(OrgsService);
 const stores = await seedStorefronts(orgs, get(CatalogService), AZIZIYAH_RESTAURANTS.map((r) => ({ ...r, hours: [] })), 'demo-owner');
+// Landmarks on the live map from zoom 15 (maps b3): around the centre, شارع 30 and زاكور.
+{
+  const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
+  await seedDemoLandmarks(get(PlacesService));
+}
 await orgs.settled?.();
 const khalid = stores.find((s) => s.seed.key === 'khalid');
 const orders = get(OrdersService);
