@@ -2,10 +2,14 @@
 # providers or trpc.module.ts needs the label `reviewed:<head sha>` from the reviewer thread, and a PR
 # labelled `freeze` may only gain fix:/test:/rebase: commits. Rules and how to read a failure:
 # docs/ci.md § review-gate. Logic: scripts/ci/review-gate.mjs.
+#
+# pull_request_target, not pull_request: the workflow file and the checked-out gate script come from
+# the BASE branch, so a PR that edits the gate cannot judge itself with its own edited copy. Safe because
+# nothing from the PR is checked out or run; the script only reads the PR through the API.
 name: review-gate
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, labeled, unlabeled, reopened]
 
 concurrency:
@@ -23,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Default ref under pull_request_target = the base branch. Never check out the PR head here.
       - uses: actions/checkout@v4
         with:
           sparse-checkout: scripts/ci
@@ -35,4 +40,11 @@ jobs:
       - name: Review label and freeze rules
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/ci/review-gate.mjs
+        run: |
+          if [ ! -f scripts/ci/review-gate.mjs ]; then
+            # Only the PR that first adds the gate: the base branch has no gate yet. The reviewer
+            # thread still reviews that PR by hand (its label is checked once the gate is on the base).
+            echo "The base branch has no review gate yet; nothing to check."
+            exit 0
+          fi
+          node scripts/ci/review-gate.mjs

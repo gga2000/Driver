@@ -29,6 +29,8 @@ export const GATED_PATHS = [
   [/^apps\/api\/src\/trpc\/trpc\.module\.ts$/, 'trpc.module.ts'],
   // The gate itself: otherwise a PR could loosen the rules it is judged by.
   [/^(scripts\/ci\/review-gate\.mjs|scripts\/ci\/freeze\.json|\.github\/workflows\/review-gate\.yml)$/, 'the review gate itself'],
+  // The e2e ratchet: adding a flow here would let a broken money/sign-in flow pass e2e-postgres.
+  [/^scripts\/e2e\/known-failures\.json$/, 'e2e known-failures list'],
 ];
 
 /** Changed files that fall under a gated path, with the reason. */

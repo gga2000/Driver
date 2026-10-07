@@ -46,6 +46,7 @@ test('every gated path is recognised, and look-alikes are not', () => {
     'apps/api/src/modules/notify/providers/sms.ts',
     'apps/api/src/trpc/trpc.module.ts',
     'scripts/ci/review-gate.mjs',
+    'scripts/e2e/known-failures.json',
   ];
   assert.equal(gatedFiles(gated).length, gated.length);
   const free = ['apps/api/src/modules/notify/notify.service.ts', 'apps/api/src/modules/ordersx/x.ts', 'apps/api/src/trpc/router.ts', 'packages/db/prisma/seed.ts'];

@@ -233,13 +233,19 @@ review" can never come from a different person; this label stands in for it.
 
 - A PR that changes money modules (`apps/api/src/modules/{ledger,orders,routes,topups,referrals}`),
   sign-in (`modules/identity`), any migration, `schema.prisma`, `modules/notify/providers` or
-  `src/trpc/trpc.module.ts` (or the gate's own files) needs a label **`reviewed:<head sha>`**: the full
+  `src/trpc/trpc.module.ts`, `scripts/e2e/known-failures.json` (or the gate's own files) needs a label **`reviewed:<head sha>`**: the full
   commit id of the PR's current head, or its first 7 or more characters.
 - **Only the reviewer thread sets that label**, after reviewing that exact commit; the author never
   does. A new push changes the head, so the old label stops matching and the check goes red until
   someone reviews again and adds a new label. Old `reviewed:` labels can stay; only the current head counts.
 - Adding or removing a label re-runs the check, so there is no need to push again.
 - A failure lists the files that need review and the exact label to add.
+- The workflow runs on `pull_request_target`, so the gate that judges a PR is always the base branch's
+  copy: a PR that edits the gate is judged by the old rules and cannot pass itself. It never checks out
+  or runs PR code. (The one PR that first added the gate passed with "no review gate yet".)
+- **Limit:** every thread pushes as the same GitHub user, so GitHub cannot tell who added a label. The
+  rule "only the reviewer thread labels" is a promise between threads, not something GitHub enforces.
+  A second GitHub account for the reviewer (or a GitHub App) would close that gap.
 
 ### Freeze
 
