@@ -5,7 +5,7 @@ import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
@@ -16,6 +16,7 @@ import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
@@ -24,6 +25,8 @@ import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('light');
@@ -57,14 +60,17 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider theme="light" fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? 'rtl' : undefined}>
-          <ToastProvider bottomOffset={96}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SystemBanner />
-              <RootNavigator />
-            </ApiProvider>
-          </ToastProvider>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
+          <CrashBoundary reporter={crashReporter}>
+            <ToastProvider bottomOffset={96}>
+              <ApiProvider>
+                <StatusBar style="dark" />
+                {/* Launch status banner from the Console (system.banner), above every screen. */}
+                <SystemBanner />
+                <RootNavigator />
+              </ApiProvider>
+            </ToastProvider>
+          </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -46,6 +46,8 @@
 //            checkout, and on the الرجعة pass, the notification switch     POST /demo/ride-habits, /demo/dinner
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
+//   crash-*  the root crash screen («صار خلل بالتطبيق», a demo render error from `?crash=1`, dev tools
+//            only) and home again after «جرّب مرة ثانية»
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -107,7 +109,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -246,6 +248,7 @@ try {
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
+  if (wants('crash')) await crashShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -904,6 +907,20 @@ async function dealsShots(khalid) {
  * Wallet top-up with cash: شحن المحفظة → amount → code + QR; then the ops agent (Partner app, Ops
  * mode, its own browser context) keys the code in and confirms; the customer's screen becomes the receipt.
  */
+/** The root crash screen: `?crash=1` throws one render error (dev tools only); the retry mounts home again. */
+async function crashShots() {
+  const before = errors.length;
+  await page.goto(`${origin}/?crash=1`, LOADED);
+  await byTestId('crash-screen').waitFor({ timeout: 15_000 });
+  await shot('crash-screen');
+  await byTestId('crash-screen-state-retry').click();
+  const back = await byTestId('home').waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+  // The demo crash logs itself on purpose (React's caught-error report): not a failure.
+  errors.splice(before);
+  if (!back) errors.push('crash retry did not bring home back');
+  await shot('crash-retried');
+}
+
 async function topupShots() {
   await page.goto(`${origin}/wallet`, LOADED);
   await byTestId('wallet-topup').waitFor({ timeout: 15_000 });
