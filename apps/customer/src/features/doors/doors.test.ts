@@ -15,6 +15,8 @@ function shop(id: string, over: Partial<RestaurantSummary> = {}): RestaurantSumm
   return {
     id,
     name: id,
+    cityId: 'aziziyah',
+    pickup: null,
     cuisine: '',
     zoneId: null,
     rating: 4.5,

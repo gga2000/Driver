@@ -4,7 +4,7 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { cravingPicks, cravingRow, doorCravings, hourWords, usualOrder } from './cravings';
 
 function shop(id: string, tags: string[], extra: Partial<RestaurantSummary> = {}): RestaurantSummary {
-  return { id, name: id, cuisine: '', zoneId: null, rating: 4.5, ratingCount: 20, prepMinMinutes: 5, prepMaxMinutes: 10, etaMinMinutes: 15, etaMaxMinutes: 20, deliveryFeeIqd: 1500, minOrderIqd: 2000, open: true, favourite: false, tags, dealCount: 0, ...extra };
+  return { id, name: id, cityId: 'aziziyah', pickup: null, cuisine: '', zoneId: null, rating: 4.5, ratingCount: 20, prepMinMinutes: 5, prepMaxMinutes: 10, etaMinMinutes: 15, etaMaxMinutes: 20, deliveryFeeIqd: 1500, minOrderIqd: 2000, open: true, favourite: false, tags, dealCount: 0, ...extra };
 }
 function dish(id: string, restaurantId: string, name = id): CatalogSearchDish {
   return { id, name, description: null, priceIqd: 3000, photoUrl: null, available: true, quickAdd: true, restaurantId, restaurantName: restaurantId, restaurantOpen: true, restaurantOpensAt: null };
