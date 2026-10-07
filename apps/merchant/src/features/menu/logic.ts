@@ -357,3 +357,15 @@ export function checkImport(rows: readonly ImportRow[]): ImportCheck {
   }
   return out;
 }
+
+// ───────────────────────── glass display ─────────────────────────
+
+/** Narrowest a tray may get: the name, the price and «خلص اليوم · يرجع باچر» still fit. */
+export const TRAY_MIN_WIDTH = { phone: 150, tablet: 172 } as const;
+
+/** Trays a row for a shelf this wide: two at least (a phone), as many as fit, six at most. */
+export function trayColumns(width: number, gap: number, wide: boolean): number {
+  if (width <= 0) return wide ? 4 : 2;
+  const min = wide ? TRAY_MIN_WIDTH.tablet : TRAY_MIN_WIDTH.phone;
+  return Math.max(2, Math.min(6, Math.floor((width + gap) / (min + gap))));
+}

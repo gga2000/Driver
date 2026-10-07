@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
 import { Button, EmptyState, SearchField, Skeleton, Text, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
@@ -11,13 +11,13 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { CategoryNameSheet, ReorderSheet } from './CategorySheets';
 import { Glyph } from './Glyph';
-import { categoryNames, filterMenu, itemStatus, sectionCounts, type MenuCategoryLike } from './logic';
-import { MenuItemRow } from './MenuItemRow';
+import { categoryNames, filterMenu, itemStatus, sectionCounts, trayColumns, type MenuCategoryLike } from './logic';
+import { Tray } from './Tray';
 import { GlyphButton, Panel, Pill } from './parts';
 import { PotEntry } from '@/features/pot/PotEntry';
 import { useMenu, useMenuActions } from './queries';
 
-type StatusFilter = 'all' | 'sold_out_today' | 'off';
+type StatusFilter = 'all' | 'sold_out_today' | 'off' | 'no_photo';
 type Section = MenuCategoryLike<AdminMenuItem> & { key: string; pending?: boolean };
 
 /** Minute ticker: "خلص اليوم" flips back by itself at midnight. */
@@ -31,8 +31,10 @@ function useMinuteNow(): number {
 }
 
 /**
- * المنيو. Tablet: sections on the start side, the chosen section's dishes beside them. Phone: one
- * column with section chips. Both: search, "what's off right now" filters, instant switches.
+ * المنيو as a glass display (counter step 4). Tablet: sections on the start side, the chosen section's
+ * trays beside them. Phone: two trays a row under section chips. Both: search and "what's off right now"
+ * filters; one tap on a tray marks it «خلص اليوم» and a second tap brings it back (m1–m3). Hiding a dish
+ * for good lives in its editor (m2), so each tray has one control.
  */
 export function MenuScreen() {
   const theme = useTheme();
@@ -57,6 +59,7 @@ export function MenuScreen() {
   const named = useMemo(() => categoryNames(categories), [categories]);
   const allItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
   const counts = useMemo(() => sectionCounts(allItems, now), [allItems, now]);
+  const noPhoto = useMemo(() => allItems.filter((i) => !i.photoUrl).length, [allItems]);
 
   // Sections on screen: the menu's, plus new empty ones the owner just named.
   const sections: Section[] = useMemo(() => {
@@ -70,7 +73,8 @@ export function MenuScreen() {
   const visible: Section[] = useMemo(() => {
     let list: Section[] = sections;
     if (query.trim()) list = filterMenu(list, query).map((c) => ({ ...c, key: c.nameAr ?? '__none' }));
-    if (status !== 'all') list = list.map((c) => ({ ...c, items: c.items.filter((i) => itemStatus(i, now) === status) })).filter((c) => c.items.length > 0);
+    if (status === 'no_photo') list = list.map((c) => ({ ...c, items: c.items.filter((i) => !i.photoUrl) })).filter((c) => c.items.length > 0);
+    else if (status !== 'all') list = list.map((c) => ({ ...c, items: c.items.filter((i) => itemStatus(i, now) === status) })).filter((c) => c.items.length > 0);
     return list;
   }, [sections, query, status, now]);
 
@@ -78,24 +82,19 @@ export function MenuScreen() {
   const paneSections = wide && !searching ? sections.filter((s) => s.key === selectedKey) : !wide && !searching && selected ? sections.filter((s) => s.key === selected) : visible;
 
   const openItem = useCallback((item: AdminMenuItem) => router.push({ pathname: '/menu/item', params: { id: item.id } }), []);
+  // p1: «ماكو صورة · دوس وصوّر» opens the dish with its photo tips on top.
+  const openPhoto = useCallback((item: AdminMenuItem) => router.push({ pathname: '/menu/item', params: { id: item.id, photo: '1' } }), []);
   const addItem = (category: string | null) => router.push({ pathname: '/menu/item', params: category ? { category } : {} });
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
 
-  const onToggle = useCallback(
-    (item: AdminMenuItem, on: boolean) => {
+  // A second tap on a «خلص اليوم» tray: back on the menu now (the undo on the toast does the same).
+  const onBack = useCallback(
+    (item: AdminMenuItem) => {
       if (!storeId) return;
       actions.setAvailability.mutate(
-        { merchantOrgId: storeId, itemId: item.id, available: on },
-        {
-          onSuccess: () =>
-            toast.show(
-              on
-                ? { message: t('merchant.menu.toast_on', { name: item.nameAr }), tone: 'success' }
-                : { message: t('merchant.menu.toast_off', { name: item.nameAr }), tone: 'neutral', action: { label: t('merchant.menu.undo'), onPress: () => actions.setAvailability.mutate({ merchantOrgId: storeId, itemId: item.id, available: true }) } },
-            ),
-          onError: fail,
-        },
+        { merchantOrgId: storeId, itemId: item.id, available: true },
+        { onSuccess: () => toast.show({ message: t('merchant.menu.toast_on', { name: item.nameAr }), tone: 'success' }), onError: fail },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,6 +183,7 @@ export function MenuScreen() {
       <FilterChip testID="filter-all" label={t('merchant.menu.filter_all', { count: counts.total })} selected={status === 'all'} onPress={() => setStatus('all')} />
       <FilterChip testID="filter-sold-out" label={t('merchant.menu.filter_sold_out', { count: counts.soldOutToday })} selected={status === 'sold_out_today'} onPress={() => setStatus('sold_out_today')} tone="warning" />
       <FilterChip testID="filter-off" label={t('merchant.menu.filter_off', { count: counts.off })} selected={status === 'off'} onPress={() => setStatus('off')} tone="neutral" />
+      {noPhoto > 0 || status === 'no_photo' ? <FilterChip testID="filter-no-photo" label={t('merchant.display.filter_no_photo', { count: noPhoto })} selected={status === 'no_photo'} onPress={() => setStatus('no_photo')} tone="neutral" /> : null}
     </ScrollView>
   );
 
@@ -194,9 +194,9 @@ export function MenuScreen() {
       return menu.isError ? (
         <EmptyState icon="x" title={t('merchant.menu.load_failed')} action={{ label: t('merchant.menu.retry'), onPress: () => void menu.refetch() }} />
       ) : (
-        <View style={{ gap: theme.space[3] }}>
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} height={84} radius={theme.radius.xl} />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
+          {Array.from({ length: wide ? 8 : 4 }, (_, i) => (
+            <Skeleton key={i} width={wide ? 196 : '47%'} height={wide ? 220 : 200} radius={theme.radius.xl} />
           ))}
         </View>
       );
@@ -224,7 +224,7 @@ export function MenuScreen() {
       return (
         <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8] }}>
           <Text variant="bodyStrong" align="center">
-            {status !== 'all' && !query.trim() ? (status === 'off' ? t('merchant.menu.none_off') : t('merchant.menu.none_sold_out')) : t('merchant.menu.no_results', { query: query.trim() })}
+            {status !== 'all' && !query.trim() ? (status === 'off' ? t('merchant.menu.none_off') : status === 'no_photo' ? t('merchant.display.none_no_photo') : t('merchant.menu.none_sold_out')) : t('merchant.menu.no_results', { query: query.trim() })}
           </Text>
         </Panel>
       );
@@ -242,8 +242,9 @@ export function MenuScreen() {
             onRename={s.nameAr ? () => setNameSheet({ renameFrom: s.nameAr }) : undefined}
             onAdd={() => addItem(s.nameAr)}
             onOpen={openItem}
-            onToggle={onToggle}
+            onBack={onBack}
             onSoldOut={onSoldOut}
+            onPhoto={openPhoto}
           />
         ))}
       </View>
@@ -260,10 +261,11 @@ export function MenuScreen() {
   if (wide) {
     return (
       <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} scroll={false} maxWidth={1320} testID="menu">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4], paddingBottom: theme.space[4] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4], paddingBottom: theme.space[2] }}>
           {search}
           {filters}
         </View>
+        <DisplayHint text={t('merchant.display.hint')} />
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[5] }}>
           <View style={{ width: 296 }}>
             <ScrollView contentContainerStyle={{ gap: theme.space[3], paddingBottom: theme.space[8] }}>
@@ -311,6 +313,7 @@ export function MenuScreen() {
       <PotEntry merchantOrgId={storeId} />
       {search}
       {filters}
+      <DisplayHint text={t('merchant.display.hint_short')} />
       {menu.data && sections.length > 0 && !searching ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], paddingEnd: theme.space[2] }} style={{ flexGrow: 0, marginTop: -theme.space[2] }}>
           <SectionChip testID="menu-cat-all" label={t('merchant.menu.all_sections')} selected={selected === null} onPress={() => setSelected(null)} />
@@ -432,8 +435,9 @@ function SectionBlock({
   onRename,
   onAdd,
   onOpen,
-  onToggle,
+  onBack,
   onSoldOut,
+  onPhoto,
 }: {
   section: Section;
   now: number;
@@ -443,8 +447,9 @@ function SectionBlock({
   onRename?: (() => void) | undefined;
   onAdd: () => void;
   onOpen: (item: AdminMenuItem) => void;
-  onToggle: (item: AdminMenuItem, on: boolean) => void;
+  onBack: (item: AdminMenuItem) => void;
   onSoldOut: (item: AdminMenuItem) => void;
+  onPhoto: (item: AdminMenuItem) => void;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -476,12 +481,52 @@ function SectionBlock({
           <Button label={t('merchant.menu.add_first')} icon="plus" onPress={onAdd} />
         </Panel>
       ) : (
-        <Panel padded={false} style={{ overflow: 'hidden' }}>
-          {section.items.map((item, i) => (
-            <MenuItemRow key={item.id} item={item} now={now} wide={wide} last={i === section.items.length - 1} onOpen={onOpen} onToggle={onToggle} onSoldOut={onSoldOut} />
-          ))}
-        </Panel>
+        <TrayGrid items={section.items} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
       )}
+    </View>
+  );
+}
+
+/**
+ * The glass display's shelf: as many trays a row as fit (two on a phone, four to six on a tablet), every
+ * row the same height so the prices line up; a short last row keeps its trays tray-sized.
+ */
+function TrayGrid({ items, now, wide, onOpen, onBack, onSoldOut, onPhoto }: { items: readonly AdminMenuItem[]; now: number; wide: boolean; onOpen: (item: AdminMenuItem) => void; onBack: (item: AdminMenuItem) => void; onSoldOut: (item: AdminMenuItem) => void; onPhoto: (item: AdminMenuItem) => void }) {
+  const [width, setWidth] = useState(0);
+  const focused = useIsFocused();
+  const gap = wide ? 14 : 10;
+  const cols = trayColumns(width, gap, wide);
+  const rows: AdminMenuItem[][] = [];
+  for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
+  // On the web a screen under another stays in the page, hidden, and the dish drawings' gradients are
+  // looked up page-wide: hidden copies would blank the same drawing in the dish editor on top. Off screen
+  // there is nothing to see, so the shelf steps aside until the menu is back.
+  if (Platform.OS === 'web' && !focused) return null;
+  return (
+    <View testID="tray-grid" onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ gap }}>
+      {rows.map((row, r) => (
+        <View key={r} style={{ flexDirection: 'row', gap }}>
+          {row.map((item) => (
+            <Tray key={item.id} item={item} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
+          ))}
+          {Array.from({ length: cols - row.length }, (_, i) => (
+            <View key={`gap-${i}`} style={{ flex: 1 }} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** How the display reads at a glance: one line under the search, muted. */
+function DisplayHint({ text }: { text: string }) {
+  const theme = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingBottom: theme.space[2] }}>
+      <Glyph name="hourglass" size={16} color="textMuted" strokeWidth={2} />
+      <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+        {text}
+      </Text>
     </View>
   );
 }

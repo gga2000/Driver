@@ -22,6 +22,7 @@ import {
   setRequired,
   sortOrderForNew,
   toDraftGroups,
+  trayColumns,
   withAvailability,
   withSoldOutToday,
   type DraftGroup,
@@ -173,5 +174,15 @@ describe('photo import', () => {
       problems: 1,
       blank: 1,
     });
+  });
+});
+
+describe('glass display columns', () => {
+  it('fits two trays on a phone and four to six on a tablet', () => {
+    expect(trayColumns(358, 10, false)).toBe(2);
+    expect(trayColumns(0, 10, false)).toBe(2);
+    expect(trayColumns(700, 14, true)).toBe(3);
+    expect(trayColumns(960, 14, true)).toBe(5);
+    expect(trayColumns(2000, 14, true)).toBe(6);
   });
 });
