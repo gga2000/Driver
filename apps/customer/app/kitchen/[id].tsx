@@ -9,10 +9,10 @@ import { Button, Card, EmptyState, Icon, SketchScene, Skeleton, Text, useTheme, 
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
-import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
+import { FoodArt, artOf, motifForKitchen } from '@/features/food/FoodArt';
 import { trackingMessage } from '@/features/food/checkout-lines';
 import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from '@/features/food/kitchen-moment';
-import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
+import { AcceptedCard, KitchenCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
 import { CITY_ID, isKitchenAccepted, isKitchenRejection, useCancelOrder, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { carryLines, optionCopy, rejectionReason } from '@/features/food/rejection';
 import { whatsappUrl } from '@/features/help/whatsapp';
@@ -26,6 +26,7 @@ import { amountParam } from '@/lib/money';
 import { useProfile } from '@/lib/profile';
 import { playCue } from '@/lib/sound';
 import { useSeason } from '@/lib/use-season';
+import { useUiSwitch } from '@/lib/ui-switches';
 
 /** The merchant's acceptance window (domain §2: 90 s, then the order auto-rejects). */
 const ACCEPT_MS = 90_000;
@@ -61,6 +62,8 @@ export default function KitchenScreen() {
   const fade = useSharedValue(1);
   const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
   const now = useNow(o?.state === 'placed' ? 5_000 : null);
+  // After-order redesign step 1 (w1–w3): the kitchen card and a quiet cancel link, behind the basket switch.
+  const v2 = useUiSwitch('basket_v2');
 
   useEffect(() => {
     if (!o || !id) return;
@@ -154,7 +157,9 @@ export default function KitchenScreen() {
         edges={['top', 'bottom']}
         contentStyle={{ flexGrow: 1 }}
         footer={
-          waiting ? (
+          waiting && v2 ? (
+            <Button testID="kitchen-cancel" variant="ghost" fullWidth label={t('kitchen.cancel_link')} loading={cancel.isPending} onPress={() => void onCancel()} />
+          ) : waiting ? (
             <View style={{ gap: theme.space[1] }}>
               <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
               <Text variant="caption" color="textMuted" align="center">
@@ -165,8 +170,26 @@ export default function KitchenScreen() {
         }
       >
         <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[5], paddingVertical: theme.space[4] }}>
-          <KitchenMark startedAt={offeredAt.getTime()} acceptMs={ACCEPT_MS} accepted={Boolean(yes)} animate={!theme.reduceMotion} />
-          {yes ? (
+          {v2 ? (
+            <KitchenCard art={artOf(mineCart?.lines[0] ? { id: mineCart.lines[0].itemId, name: mineCart.lines[0].name } : { id: o.id, name: '' })} startedAt={offeredAt.getTime()} acceptMs={ACCEPT_MS} now={now} accepted={Boolean(yes) || isKitchenAccepted(o)}>
+              {yes ? (
+                <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
+              ) : (
+                <View style={{ alignItems: 'center', gap: theme.space[1] }}>
+                  <Text variant="title" face="display" align="center" testID="kitchen-title">
+                    {name ? t('kitchen.sent_title', { name }) : t('order.status.placed')}
+                  </Text>
+                  <Text variant="body" color={slow ? 'warningText' : 'textMuted'} align="center" testID="kitchen-hint" accessibilityLiveRegion="polite">
+                    {slow ? t('kitchen.slow_hint') : t('kitchen.sent_hint')}
+                  </Text>
+                </View>
+              )}
+              <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} saffron />
+            </KitchenCard>
+          ) : (
+            <KitchenMark startedAt={offeredAt.getTime()} acceptMs={ACCEPT_MS} accepted={Boolean(yes)} animate={!theme.reduceMotion} />
+          )}
+          {v2 ? null : yes ? (
             <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
           ) : (
             <View style={{ alignItems: 'center', gap: theme.space[2] }}>
@@ -178,7 +201,7 @@ export default function KitchenScreen() {
               </Text>
             </View>
           )}
-          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
+          {v2 ? null : <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />}
           <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
           {gift && id && !yes ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
           {recipient && !gift && !yes ? (

@@ -6688,5 +6688,14 @@
   "restaurant.after_meal": "{dish} with it?",
   "restaurant.after_meal_a11y": "Add {dish}, {amount} IQD",
   "restaurant.top_drinks": "Most ordered",
-  "item.remembered": "Like last time"
+  "item.remembered": "Like last time",
+  "basket.title": "Your basket",
+  "basket.tab_all": "All {n}",
+  "basket.add_same_kitchen": "Add from the same kitchen",
+  "basket.upsell_deal": "One of these gets you the deal",
+  "basket.items_total": "Items",
+  "basket.fees_at_checkout": "Delivery, fees and deals show in the next step",
+  "kitchen.cancel_link": "Cancel the order, free until the restaurant accepts",
+  "kitchen.ring_waiting_a11y": "The restaurant is looking at your order",
+  "kitchen.ring_accepted_a11y": "The restaurant accepted your order"
 }

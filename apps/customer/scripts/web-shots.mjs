@@ -46,6 +46,8 @@
 //            checkout, and on the الرجعة pass, the notification switch     POST /demo/ride-habits, /demo/dinner
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
+//   basket-* the V2 basket (`basket_v2` switch, on in dev builds): a cart for two (all, سارة's tab), the
+//            kitchen card waiting, slow (after 45 s; start the demo API with DEMO_KITCHEN_MS=0) and accepted
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -107,7 +109,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -246,6 +248,7 @@ try {
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
+  if (wants('basket')) await basketShots(khalid);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -594,7 +597,7 @@ async function foodFlow(khalid) {
 
   // One-tap add (no required choice): a Pepsi for me.
   await byTestId(`dish-add-${item('pepsi')}`).click();
-  await byTestId('cart-bar').waitFor();
+  await page.locator('[data-testid="cart-bar"]:visible').waitFor();
 
   // Tikka wrap for سارة: bread (required), cheese, a new person with a phone, a note.
   await byTestId(`dish-${item('tikka_wrap')}`).click();
@@ -628,8 +631,8 @@ async function foodFlow(khalid) {
   await byTestId('item-add').click();
   await byTestId('item-sheet').waitFor({ state: 'detached' });
 
-  await byTestId('cart-bar').click();
-  await byTestId('cart-price-total').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="cart-bar"]:visible').click();
+  await page.locator('[data-testid="cart-price-total"], [data-testid="basket-total"]').first().waitFor({ timeout: 15_000 });
   await page.waitForTimeout(3800); // let the last "added" toast go
   await shot('food-cart');
   await fullShot('food-cart-full');
@@ -656,7 +659,7 @@ async function foodFlow(khalid) {
   await byTestId('item-sheet').waitFor();
   await byTestId('item-add').click();
   await byTestId('item-sheet').waitFor({ state: 'detached' });
-  await byTestId('cart-bar').click();
+  await page.locator('[data-testid="cart-bar"]:visible').click();
   await byTestId('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await byTestId('checkout-place').click();
@@ -880,8 +883,8 @@ async function dealsShots(khalid) {
     }
     await page.waitForTimeout(300);
   }
-  await byTestId('cart-bar').click();
-  await byTestId('cart-price-total').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="cart-bar"]:visible').click();
+  await page.locator('[data-testid="cart-price-total"], [data-testid="basket-total"]').first().waitFor({ timeout: 15_000 });
   await byTestId('cart-deal-saving').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(3800); // let the last "added" toast go
   await shot('deals-cart');
@@ -1114,7 +1117,7 @@ async function seasonShots(khalid) {
     await byTestId('item-add').click();
     await byTestId('item-sheet').waitFor({ state: 'detached' });
   }
-  await byTestId('cart-bar').click();
+  await page.locator('[data-testid="cart-bar"]:visible').click();
   await byTestId('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await byTestId('chip-later').click();
@@ -1292,7 +1295,7 @@ async function giftShots(khalid, personId) {
   await byTestId('item-sheet').waitFor();
   await byTestId('item-add').click();
   await byTestId('item-sheet').waitFor({ state: 'detached' });
-  await byTestId('cart-bar').click();
+  await page.locator('[data-testid="cart-bar"]:visible').click();
   await byTestId('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await byTestId('checkout-row-receiver').click();
@@ -1474,4 +1477,59 @@ async function liveShots(personId) {
     await settle(1500);
     await shot('live-reveal-ride');
   } else errors.push('ride reveal did not show');
+}
+
+/** The V2 basket and kitchen card (switch `basket_v2`, on in DEV_TOOLS builds). */
+async function basketShots(khalid) {
+  const item = (key) => `${khalid}_${key}`;
+  const cartBar = page.locator('[data-testid="cart-bar"]:visible');
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${item('pepsi')}`).waitFor({ timeout: 15_000 });
+  await byTestId(`dish-add-${item('pepsi')}`).click();
+  await cartBar.waitFor();
+  await byTestId(`dish-${item('tikka_wrap')}`).click();
+  await byTestId('item-sheet').waitFor();
+  await byTestId(`mod-${item('tikka_wrap')}_mg_1_m_2`).click();
+  await byTestId(`mod-${item('tikka_wrap')}_mg_2_m_4`).click();
+  const sara = page.getByText('سارة', { exact: true });
+  if ((await sara.count()) > 0) await sara.first().click();
+  else {
+    await page.getByText('ضيف شخص', { exact: true }).click();
+    await page.locator('[data-testid="item-person-name"]').fill('سارة');
+    await page.locator('[data-testid="item-person-phone"]').fill('07701234567');
+    await byTestId('item-person-save').click();
+  }
+  await byTestId('item-add').click();
+  await byTestId('item-sheet').waitFor({ state: 'detached' });
+  await cartBar.click();
+  await byTestId('basket-total').waitFor({ timeout: 15_000 });
+  await byTestId('cart-price').waitFor({ timeout: 15_000 }).catch(() => errors.push('basket quote not ready'));
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('basket-cart');
+  // The hint strip and the place sit under the tray: scroll the basket to its end.
+  await page.mouse.move(W / 2, 300);
+  await page.mouse.wheel(0, 2000);
+  await shot('basket-cart-end');
+  const tabs = page.locator('[data-testid^="basket-tab-"]');
+  if ((await tabs.count()) > 1) {
+    await tabs.nth(1).click();
+    await shot('basket-cart-person');
+    await tabs.first().click();
+  } else errors.push('basket person tabs not shown');
+
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-place').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-place').click();
+  await byTestId('kitchen-card').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(6000); // the ring glides a little
+  await shot('basket-kitchen-waiting');
+  // Slow (45 s without an answer); needs the demo kitchen's auto-accept off (DEMO_KITCHEN_MS=0).
+  await page.waitForTimeout(42_000);
+  if (/\/kitchen\//.test(page.url())) await shot('basket-kitchen-slow');
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  const accept = await fetch(`${apiBase}/demo/kitchen?orderId=${orderId}&action=accept`, { method: 'POST' });
+  if (!accept.ok) errors.push(`kitchen accept: ${accept.status} ${await accept.text()}`);
+  await byTestId('kitchen-accepted').waitFor({ timeout: 15_000 }).catch(() => errors.push('kitchen accepted card not shown'));
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: join(outDir, 'basket-kitchen-accepted.png') });
 }

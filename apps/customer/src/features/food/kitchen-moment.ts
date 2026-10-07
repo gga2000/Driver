@@ -107,3 +107,14 @@ export const SLOW_ANSWER_MS = 45_000;
 export function answerIsSlow(offeredAt: Date, now: number): boolean {
   return now - offeredAt.getTime() >= SLOW_ANSWER_MS;
 }
+
+/**
+ * How full the kitchen-wait ring is (after-order design w2): it eases toward 95 % (about 90 % after the kitchen's
+ * answer window) and never fills or counts down by itself, so a slow kitchen never looks like a clock
+ * running out; only the kitchen's yes closes it.
+ */
+export function softRingProgress(startedAt: number, acceptMs: number, now: number, accepted: boolean): number {
+  if (accepted) return 1;
+  const elapsed = Math.max(0, now - startedAt);
+  return Math.round(0.95 * (1 - Math.exp((-3 * elapsed) / acceptMs)) * 1000) / 1000;
+}
