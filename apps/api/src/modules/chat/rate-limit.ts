@@ -1,4 +1,4 @@
-import { DriverError } from '@driver/contracts';
+import { DriverError, type ErrorCode } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
 import type { WindowCounter } from '../../shared/window-counter.js';
 
@@ -12,12 +12,14 @@ export class SharedSlidingWindowLimiter {
     private readonly name: string,
     private readonly limit: number,
     private readonly windowMs: number,
+    /** The error a refused hit throws (`rate_limited` unless the limit has its own words). */
+    private readonly code: ErrorCode = 'rate_limited',
   ) {}
 
-  /** Records one hit for `key`, or throws `rate_limited` (with `retryAfterSec`) when over the limit. */
+  /** Records one hit for `key`, or throws `code` (with `retryAfterSec`) when over the limit. */
   async hit(key: string): Promise<void> {
     const r = await this.counter.hit(`chat:${this.name}:${key}`, this.windowMs, this.limit);
-    if (!r.allowed) throw new DriverError('rate_limited', { retryAfterSec: r.retryAfterSec });
+    if (!r.allowed) throw new DriverError(this.code, { retryAfterSec: r.retryAfterSec });
   }
 }
 

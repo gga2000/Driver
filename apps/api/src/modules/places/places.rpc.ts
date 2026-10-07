@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   Actor,
+  LandmarkFeed,
+  LandmarkFeedInput,
   LandmarkNearView,
   LandmarksNearInput,
   LandmarkView,
@@ -17,6 +19,7 @@ import type {
   ZoneForPinOutput,
 } from '@driver/contracts';
 import type { z } from 'zod';
+import { LandmarkFeedService } from './landmark-feed.js';
 import { SavedPlacesService } from './saved-places.service.js';
 import { BLOB_STORE, type BlobStore } from './uploads.js';
 
@@ -25,6 +28,7 @@ import { BLOB_STORE, type BlobStore } from './uploads.js';
 export class PlacesRpc implements PlacesPort {
   constructor(
     private readonly saved: SavedPlacesService,
+    private readonly feed: LandmarkFeedService,
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
   ) {}
 
@@ -60,6 +64,11 @@ export class PlacesRpc implements PlacesPort {
   /** "قرب شنو؟" (maps program a2): the landmarks near a pin being saved. */
   landmarksNear(input: z.infer<typeof LandmarksNearInput>): Promise<LandmarkNearView[]> {
     return this.saved.landmarksNear(input.cityId, input.pin);
+  }
+
+  /** The map's landmark layer (maps program b3): approved landmarks, etag-cached. Public. */
+  landmarkFeed(input: z.output<typeof LandmarkFeedInput>): Promise<LandmarkFeed> {
+    return this.feed.feed(input);
   }
 
   photoUpload(actor: Actor, input: PhotoUploadInput): Promise<PhotoUploadTicket> {

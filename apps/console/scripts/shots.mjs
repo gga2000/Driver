@@ -78,6 +78,13 @@ if (href) {
   await shot('07-support-case');
 }
 
+// «كلّم الدعم»: the case opened from an order's support chat.
+const seed = await fetch(`${API}/demo/seed`).then((r) => r.json()).catch(() => ({}));
+if (seed.people?.supportChat?.desk) {
+  await go(seed.people.supportChat.desk);
+  await shot('07b-support-chat-case');
+}
+
 await go('/finance');
 await shot('08-finance');
 await go('/wall');

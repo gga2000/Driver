@@ -1,4 +1,4 @@
-import { AZIZIYAH_LANDMARKS, PLACE_LANDMARK_CHOICES, PLACE_LANDMARK_MAX_M, westernDigits, type LandmarkNearView, type LandmarkView, type LatLng, type Place } from '@driver/contracts';
+import { AZIZIYAH_LANDMARKS, landmarkCategoryOf, PLACE_LANDMARK_CHOICES, PLACE_LANDMARK_MAX_M, westernDigits, type LandmarkNearView, type LandmarkView, type LatLng, type Place } from '@driver/contracts';
 import { distanceM } from './zones.js';
 
 /** Seeded landmarks are not rows: their ids are the seed key with this prefix. */
@@ -9,7 +9,8 @@ const SEED_PREFIX = 'lm_';
  * saved place's landmark, the courier's «قرب X»), so an id means the same landmark everywhere: the
  * seeded garages and meeting points (Aziziyah), then the approved landmark places (`learned`) whose
  * pin is in service and whose name the seed does not already carry. `zoneOf` resolves each pin on the
- * server, like saved places. Names read with Western digits (voice spec), as zone names do.
+ * server, like saved places. Names read with Western digits (voice spec), as zone names do. Each gets
+ * its map icon (maps program b3): the row's own category, else `landmarkCategoryOf` its name.
  */
 export function cityLandmarks(cityId: string, learned: readonly Place[], zoneOf: (pin: LatLng) => string | null): LandmarkView[] {
   const seeded: LandmarkView[] =
@@ -21,6 +22,7 @@ export function cityLandmarks(cityId: string, learned: readonly Place[], zoneOf:
           pin: { lat: l.lat, lng: l.lng },
           zoneId: zoneOf({ lat: l.lat, lng: l.lng }) ?? l.zoneId,
           kind: l.kind,
+          category: landmarkCategoryOf(l.name_ar, l.kind),
           aliases_ar: [...(l.aliases_ar ?? [])],
           photoUrl: null,
         }))
@@ -29,7 +31,7 @@ export function cityLandmarks(cityId: string, learned: readonly Place[], zoneOf:
   for (const p of learned) {
     const zoneId = zoneOf(p.pin);
     if (!zoneId || seeded.some((s) => s.name_ar === westernDigits(p.name))) continue;
-    out.push({ id: p.id, name_ar: westernDigits(p.name), name_en: p.name, pin: p.pin, zoneId, kind: 'landmark', aliases_ar: [], photoUrl: p.photos[0]?.url ?? null });
+    out.push({ id: p.id, name_ar: westernDigits(p.name), name_en: p.name, pin: p.pin, zoneId, kind: 'landmark', category: p.landmarkCategory ?? landmarkCategoryOf(p.name), aliases_ar: [], photoUrl: p.photos[0]?.url ?? null });
   }
   return out;
 }

@@ -1,8 +1,9 @@
 import { memo } from 'react';
 import { Platform, type StyleProp, type ViewStyle } from 'react-native';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg from 'react-native-svg';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { useTheme } from '../theme/ThemeProvider';
+import { glyphElements } from './GlyphShapes';
 import { MIRRORED, iconShapes, type IconName } from './paths';
 
 export interface IconProps {
@@ -44,15 +45,7 @@ export const Icon = memo(function Icon({ name, size = 24, color = 'text', stroke
           ? ({ 'aria-hidden': true } as object)
           : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const })}
     >
-      {iconShapes(name).map((shape, i) => {
-        if ('d' in shape) return <Path key={i} d={shape.d} fill={fill} />;
-        if ('circle' in shape) {
-          const [cx, cy, r] = shape.circle;
-          return <Circle key={i} cx={cx} cy={cy} r={r} fill={fill} />;
-        }
-        const [x, y, w, h, r] = shape.rect;
-        return <Rect key={i} x={x} y={y} width={w} height={h} rx={r} fill={fill} />;
-      })}
+      {glyphElements(iconShapes(name), fill)}
     </Svg>
   );
 });

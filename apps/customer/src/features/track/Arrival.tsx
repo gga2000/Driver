@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
+import { FOOD_RATED_TYPES, type CourierRatingReason, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Avatar, Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
@@ -21,7 +21,7 @@ import { rideArrivalCopy } from './arrival-copy';
 import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
-import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
+import { courierReasons, disputeKindFor, keepFitting, lowReasons, LOW_SCORE, ratingBranch } from './rating-logic';
 import { ComplimentCard } from './Compliments';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
@@ -266,12 +266,14 @@ export function Stars({ value, onPick, testID }: { value: number; onPick: (n: nu
 }
 
 /**
- * Two taps: the courier/driver, then the food (kitchen orders only). 4–5 stars send `orders.rate`
- * straight away; then the points this order earned count up and fly into the wallet. 1–3 on either
- * (audit C-12) asks what went wrong — one-tap reasons stored as rating tags — and offers "افتح شكوى",
- * which opens the complaint (`orders.openDispute`, a support ticket) before the rating is stored, so
- * the case stays open with support. After a 4–5 rating «تحب تكرم عباس؟» offers a tip from the wallet
- * (`TipOffer`; the server decides whether and which chips).
+ * Two steps: the courier/driver, then the food (kitchen orders only). Step 1 is the courier's own
+ * rating (before-launch §6): his stars, then optional one-tap reasons under them — what went wrong
+ * for 1–3 — and «كمّل»; 4–5 moves straight on (the kind words come after as compliments). The food's stars send `orders.rate` straight away;
+ * then the points this order earned count up and fly into the wallet. 1–3 on either (audit C-12)
+ * offers "افتح شكوى" (a low food score first asks what was wrong with the food), which opens the
+ * complaint (`orders.openDispute`, a support ticket) before the rating is stored, so the case stays
+ * open with support. After a 4–5 rating «تحب تكرم عباس؟» offers a tip from the wallet (`TipOffer`;
+ * the server decides whether and which chips).
  */
 export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () => void }) {
   const theme = useTheme();
@@ -286,6 +288,7 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
   const [step, setStep] = useState<1 | 2 | 'reasons' | 'done'>(view.order.rating ? 'done' : 1);
   const [delivery, setDelivery] = useState(view.order.rating?.delivery ?? 0);
   const [foodScore, setFoodScore] = useState(view.order.rating?.food ?? 0);
+  const [picked, setPicked] = useState<CourierRatingReason[]>([]);
   const [tags, setTags] = useState<RatingTag[]>([]);
   const [complained, setComplained] = useState(false);
   const name = view.courier?.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
@@ -294,14 +297,23 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
   // The tip is asked only after a good rating (4–5 on everything he rated); the server checks it again.
   const rated = view.order.rating ?? null;
   const goodRating = ratingBranch(rated?.delivery ?? delivery, food ? (rated?.food ?? foodScore) || null : null) === 'thanks' && (rated?.delivery ?? delivery) > 0;
+  const offered = courierReasons(delivery, view.order.type);
+  const foodReasons = lowReasons(view.order.type, food ? foodScore : null);
 
   const fail = (e: unknown) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' });
-  const submit = (d: number, f: number | null, withTags: readonly RatingTag[] = []) =>
-    rate.mutate({ orderId: view.order.id, delivery: d, ...(f ? { food: f } : {}), ...(withTags.length ? { tags: [...withTags] } : {}) }, { onSuccess: () => setStep('done'), onError: fail });
+  const submit = (d: number, f: number | null, withTags: readonly RatingTag[] = []) => {
+    // Only the reasons that fit the final score go (a 2 changed to a 5 sends none).
+    const reasons = keepFitting(picked, d, view.order.type);
+    rate.mutate(
+      { orderId: view.order.id, delivery: d, ...(f ? { food: f } : {}), ...(withTags.length ? { tags: [...withTags] } : {}), ...(reasons.length ? { courierReasons: reasons } : {}) },
+      { onSuccess: () => setStep('done'), onError: fail },
+    );
+  };
   const finish = (d: number, f: number | null) => (ratingBranch(d, f) === 'recover' ? setStep('reasons') : submit(d, f));
+  const nextFromCourier = () => (food ? setStep(2) : finish(delivery, null));
   const complain = () => {
-    const kind = disputeKindFor(tags, view.order.type);
-    const note = tags.map((tag) => reasonLabel(t, tag, ride)).join('، ');
+    const kind = disputeKindFor(tags, view.order.type, picked);
+    const note = [...tags.map((tag) => reasonLabel(t, tag, ride)), ...picked.map((r) => t(`rating.courier.${r}` as MessageKey))].join('، ');
     dispute.mutate(
       { orderId: view.order.id, kind, ...(note ? { note } : {}) },
       {
@@ -327,15 +339,42 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
         </View>
       ) : null}
       {step === 1 ? (
-        <Stars
-          value={delivery}
-          testID="stars-delivery"
-          onPick={(n) => {
-            setDelivery(n);
-            if (food) setTimeout(() => setStep(2), 220);
-            else finish(n, null);
-          }}
-        />
+        <View style={{ gap: theme.space[4] }}>
+          <Stars
+            value={delivery}
+            testID="stars-delivery"
+            onPick={(n) => {
+              setDelivery(n);
+              setPicked((p) => keepFitting(p, n, view.order.type));
+              // 4–5 moves straight on (the kind words come after, «شنو عجبك بـ حيدر؟»); 1–3 asks what went wrong.
+              if (n > LOW_SCORE) {
+                if (food) setTimeout(() => setStep(2), 220);
+                else finish(n, null);
+              }
+            }}
+          />
+          {delivery > 0 && delivery <= LOW_SCORE ? (
+            <View testID="courier-reasons" style={{ gap: theme.space[3] }}>
+              <View style={{ alignItems: 'center', gap: 2 }}>
+                <Text variant="label" weight={600} align="center">
+                  {t('rating.courier_low_q', { name })}
+                </Text>
+                <Text variant="caption" color="textMuted" align="center">
+                  {t('rating.courier_optional')}
+                </Text>
+              </View>
+              <ChipGroup
+                accessibilityLabel={t('rating.courier_low_q', { name })}
+                items={offered.map((r) => ({ id: r, label: t(`rating.courier.${r}` as MessageKey) }))}
+                value={picked}
+                onChange={(next) => setPicked(next as CourierRatingReason[])}
+                mode="multi"
+                style={{ justifyContent: 'center' }}
+              />
+              <Button testID="rating-courier-next" label={food ? t('action.next') : t('rating.send')} fullWidth loading={rate.isPending} disabled={busy} onPress={nextFromCourier} />
+            </View>
+          ) : null}
+        </View>
       ) : step === 2 && food ? (
         <Stars
           value={foodScore}
@@ -349,26 +388,30 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
         <View testID="rating-reasons" style={{ gap: theme.space[4] }}>
           <View style={{ alignItems: 'center', gap: theme.space[1] }}>
             <Text variant="heading" align="center">
-              {t('rating.low_title')}
+              {foodReasons.length > 0 ? t('rating.low_title') : t('rating.sorry_title')}
             </Text>
             <Text variant="footnote" color="textMuted" align="center">
-              {t('rating.low_sub')}
+              {foodReasons.length > 0 ? t('rating.low_sub') : t('rating.open_complaint_hint')}
             </Text>
           </View>
-          <ChipGroup
-            accessibilityLabel={t('rating.low_title')}
-            items={lowReasons(view.order.type).map((tag) => ({ id: tag, label: reasonLabel(t, tag, ride) }))}
-            value={tags}
-            onChange={(next) => setTags(next as RatingTag[])}
-            mode="multi"
-            style={{ justifyContent: 'center' }}
-          />
+          {foodReasons.length > 0 ? (
+            <ChipGroup
+              accessibilityLabel={t('rating.low_title')}
+              items={foodReasons.map((tag) => ({ id: tag, label: reasonLabel(t, tag, ride) }))}
+              value={tags}
+              onChange={(next) => setTags(next as RatingTag[])}
+              mode="multi"
+              style={{ justifyContent: 'center' }}
+            />
+          ) : null}
           {canComplain ? (
             <View style={{ gap: theme.space[1] }}>
               <Button testID="rating-complain" icon="chat" label={t('rating.open_complaint')} fullWidth loading={dispute.isPending} disabled={busy} onPress={complain} />
-              <Text variant="caption" color="textMuted" align="center">
-                {t('rating.open_complaint_hint')}
-              </Text>
+              {foodReasons.length > 0 ? (
+                <Text variant="caption" color="textMuted" align="center">
+                  {t('rating.open_complaint_hint')}
+                </Text>
+              ) : null}
             </View>
           ) : null}
           <Button testID="rating-send" variant="secondary" label={t('rating.send')} fullWidth loading={rate.isPending && !dispute.isPending} disabled={busy} onPress={() => submit(delivery, food ? foodScore : null, tags)} />
@@ -390,7 +433,7 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
         </View>
       )}
       {step === 1 || step === 2 ? (
-        <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onDone} disabled={busy} loading={rate.isPending} />
+        <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onDone} disabled={busy} loading={rate.isPending && step === 2} />
       ) : step === 'done' ? (
         <Button label={t('action.done')} fullWidth onPress={onDone} testID="rating-done" />
       ) : null}

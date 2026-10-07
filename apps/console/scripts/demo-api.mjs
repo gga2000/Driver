@@ -337,6 +337,11 @@ if (seedYesterday) {
 
 const orgs = get(OrgsService);
 const stores = await seedStorefronts(orgs, get(CatalogService), AZIZIYAH_RESTAURANTS.map((r) => ({ ...r, hours: [] })), 'demo-owner');
+// Landmarks on the live map from zoom 15 (maps b3): around the centre, شارع 30 and زاكور.
+{
+  const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
+  await seedDemoLandmarks(get(PlacesService));
+}
 await orgs.settled?.();
 const khalid = stores.find((s) => s.seed.key === 'khalid');
 const orders = get(OrdersService);
@@ -477,6 +482,24 @@ if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتص�
 const missing = queue.find((r) => r.orderId === placed[7].id);
 if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
 await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
+// «كلّم الدعم»: a customer wrote in his order's support chat (it opens a chat case by itself); زينب
+// answered into the chat, and he wrote again. The case reads as one conversation on /support.
+try {
+  const { ChatService } = await load('modules/chat/index.js');
+  const chat = get(ChatService);
+  const sayS = (text, i) => chat.send(actor(customers[11]), { orderId: placed[11].id, kind: 'customer_support', clientId: `demo-support-chat-${i}`, text });
+  await sayS('الطلب صارله 50 دقيقة وما وصل، والدليفري ما يرد', 1);
+  await new Promise((r) => setTimeout(r, 300));
+  const chatCase = (await support.list(actor(ali), { cityId: 'aziziyah', status: 'active', limit: 100 })).rows.find((r) => r.channel === 'chat' && r.orderId === placed[11].id);
+  if (chatCase) {
+    await support.reply(actor(zainab), { ticketId: chatCase.id, text: 'هلا بيك، شفت طلبك. الدليفري بالطريق ويوصلك خلال 10 دقايق، وآسفين على التأخير', internal: false });
+    await support.reply(actor(zainab), { ticketId: chatCase.id, text: 'الدليفري علق بزحمة جسر الكوت، تابعته بالخريطة', internal: true });
+  }
+  await sayS('زين، بس إذا وصل بارد شنو أسوي؟', 2);
+  people.supportChat = { orderId: placed[11].id, customer: customers[11], ticketId: chatCase?.id ?? null, desk: chatCase ? `/support/${chatCase.id}` : null };
+} catch (err) {
+  console.warn('demo support chat skipped:', err?.message ?? err);
+}
 const solved = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'question', channel: 'in_app', subject: 'شلون أشحن المحفظة كاش؟', customerId: customers[3] });
 await support.resolve(actor(zainab), { ticketId: solved.id, resolution: 'شرحناله الشحن عن طريق المندوب أو وكيل' });
 

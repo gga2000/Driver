@@ -13,6 +13,9 @@ export type { SavedPlaceRecord, SavedPlacesRepository, HouseholdPeers } from './
 export { InMemoryPlacesRepository, PrismaPlacesRepository, PrismaSavedPlacesRepository, PLACES_REPOSITORY } from './places.repository.js';
 export type { PlacesRepository } from './places.repository.js';
 export { PlacesRpc } from './places.rpc.js';
+export { LandmarkFeedService, landmarkFeedEtag } from './landmark-feed.js';
+export type { ApprovedLandmarkPhotos } from './landmark-feed.js';
+export { DEMO_LANDMARKS, seedDemoLandmarks } from './demo-landmarks.js';
 export { BLOB_STORE, DevBlobStore, ownsStoredUpload, ObjectBlobStore, InMemoryUploadRecords, PrismaUploadRecords, sniffImage } from './uploads.js';
 export type { BlobStore, BlobRecord, UploadRecords } from './uploads.js';
 export { DevObjectStorage, S3ObjectStorage, OBJECT_STORAGE, objectStorageFromEnv, s3ConfigFromEnv } from './object-storage.js';

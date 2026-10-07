@@ -77,7 +77,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
   });
 
   const as = (personId: string): Actor => ({ personId, sessionId: `s_${run}` });
-  const state = { ali: '', minar: '', storeId: '', homeId: '', approvalId: '', placeId: '', uploadId: '', landmarkId: '' };
+  const state = { ali: '', minar: '', storeId: '', homeId: '', approvalId: '', placeId: '', uploadId: '', landmarkId: '', proposedId: '' };
 
   it('first boot: writes merchant settings, a household with an approved request, a saved place with a gate photo, a landmark', async () => {
     const app = await boot();
@@ -133,9 +133,13 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       created.places.push(place.id);
       await saved.confirm(state.ali, { placeId: place.id, pin: STREET_30, accuracyM: 10 });
 
-      const landmark = await app.get(PlacesService).save({ cityId: 'aziziyah', pin: KITCHEN, name: `جامع ${run}`, photos: [{ id: 'p1', url: 'https://example.test/mosque.jpg' }], confidence: 1, sharedWith: [], landmark: true });
+      const landmark = await app.get(PlacesService).save({ cityId: 'aziziyah', pin: KITCHEN, name: `جامع ${run}`, photos: [{ id: 'p1', url: 'https://example.test/mosque.jpg' }], confidence: 1, sharedWith: [], landmark: true, landmarkCategory: 'mosque' });
       state.landmarkId = landmark.id;
       created.places.push(landmark.id);
+      // A landmark still waiting for the Console is not one yet (maps b3: the map shows approved only).
+      const proposed = await app.get(PlacesService).save({ cityId: 'aziziyah', pin: KITCHEN, name: `مدرسة ${run}`, photos: [], confidence: 1, sharedWith: [], landmark: true, landmarkState: 'proposed' });
+      state.proposedId = proposed.id;
+      created.places.push(proposed.id);
 
       // Every change committed with its event (one transaction): the org stream is in Postgres.
       const prisma = app.get(PrismaService).prisma;
@@ -196,7 +200,10 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       expect(again.id).toBe(state.placeId);
 
       const places = app.get(PlacesService);
-      expect((await places.landmarks('aziziyah')).find((p) => p.id === state.landmarkId)).toMatchObject({ name: `جامع ${run}`, pin: KITCHEN, photos: [{ url: 'https://example.test/mosque.jpg' }] });
+      expect((await places.landmarks('aziziyah')).find((p) => p.id === state.landmarkId)).toMatchObject({ name: `جامع ${run}`, pin: KITCHEN, photos: [{ url: 'https://example.test/mosque.jpg' }], landmarkCategory: 'mosque', landmarkState: 'approved' });
+      expect((await places.landmarks('aziziyah')).some((p) => p.id === state.proposedId)).toBe(false);
+      expect(await places.get(state.proposedId)).toMatchObject({ landmarkState: 'proposed' });
+      expect((await places.get(state.proposedId))?.landmarkCategory).toBeUndefined();
       const near = await places.nearby('aziziyah', { lat: KITCHEN.lat + 0.001, lng: KITCHEN.lng }, 0.5);
       expect(near.find((p) => p.id === state.landmarkId)?.distanceKm).toBeCloseTo(0.111, 2);
       expect(near.some((p) => p.id === state.placeId)).toBe(false); // saved places are not city knowledge
