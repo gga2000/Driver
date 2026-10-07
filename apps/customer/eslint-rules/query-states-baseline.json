@@ -13,7 +13,7 @@
   "app/household/index.tsx": 4,
   "app/household/invite.tsx": 2,
   "app/household/member.tsx": 2,
-  "app/kitchen/[id].tsx": 2,
+  "app/kitchen/[id].tsx": 1,
   "app/order/[id].tsx": 6,
   "app/places/edit.tsx": 4,
   "app/places/new.tsx": 2,

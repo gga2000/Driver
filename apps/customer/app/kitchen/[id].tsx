@@ -5,7 +5,7 @@ import { Linking, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { travelMinutes, type RestaurantCard } from '@driver/contracts';
 import { formatClock, formatRange } from '@driver/i18n';
-import { Button, Card, EmptyState, Icon, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, QueryBoundary, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -132,12 +132,24 @@ export default function KitchenScreen() {
   };
 
   if (!o) {
+    // VIS-03: an order that can't be loaded says why (no network, slow, our server) with a retry, and an
+    // order that isn't there (an old link) says so with the way to طلباتي; never skeletons forever.
     return (
-      <Screen testID="kitchen" edges={['top', 'bottom']}>
-        <View style={{ alignItems: 'center', gap: theme.space[4], paddingTop: theme.space[16] }}>
-          <Skeleton height={176} width={280} radius={24} />
-          <Skeleton height={22} width="60%" />
-        </View>
+      <Screen testID="kitchen" edges={['top', 'bottom']} contentStyle={{ flexGrow: 1 }}>
+        <QueryBoundary
+          query={order}
+          locale={locale}
+          testID="kitchen-state"
+          gone={{ icon: 'receipt', title: t('track.not_found'), action: { label: t('nav.orders'), onPress: () => router.replace('/orders') } }}
+          skeleton={
+            <View style={{ alignItems: 'center', gap: theme.space[4], paddingTop: theme.space[16] }}>
+              <Skeleton height={176} width={280} radius={24} />
+              <Skeleton height={22} width="60%" />
+            </View>
+          }
+        >
+          {() => null}
+        </QueryBoundary>
       </Screen>
     );
   }

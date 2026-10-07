@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { TERMINAL_ORDER_STATES, type DeliveryPoint, type Order, type RestaurantsInput } from '@driver/contracts';
+import { classifyError } from '@driver/contracts/net-client';
 import { useApi } from '@/lib/api';
 import { deliveryPointOf, selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
@@ -118,6 +119,8 @@ export function useKitchenAnswer(orderId: string | undefined) {
     enabled: signedIn && Boolean(orderId),
     refetchInterval: (q) => {
       const o = q.state.data as Order | undefined;
+      // An order the server says isn't there (an old link) stops asking; a failure for now keeps trying.
+      if (!o && q.state.error && !classifyError(q.state.error).transient) return false;
       return !o || o.state === 'placed' ? 2000 : false;
     },
   });
