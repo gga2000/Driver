@@ -1230,6 +1230,15 @@ async function rideShots() {
   await settle(900);
   await shot('ride-choose');
   await fullShot('ride-choose-full');
+  // x1: a July afternoon on the server's clock — «اليوم حار، نبعثلك سيارة مكيّفة» under the car.
+  await nightShot('/', 'ride-choose-hot', 'ride-climate-hot', {
+    at: Date.UTC(2026, 6, 14, 11),
+    act: async (p) => {
+      await p.locator('[data-testid="service-taxi"]').click({ timeout: 15_000 });
+      await p.locator('[data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
+      await p.locator('[data-testid="ride-price-taxi"]').waitFor({ timeout: 15_000 });
+    },
+  });
 
   await byTestId('ride-details-taxi').click();
   await byTestId('ride-fare-panel').waitFor();
@@ -1299,6 +1308,23 @@ async function rideShots() {
   await settle(400);
   await shot('ride-family');
   await byTestId('ride-family').click();
+  // x5 «عندي غراض»: bags and a gas cylinder; with the car chosen the tuktuk row says it fits best.
+  await byTestId('ride-cargo').scrollIntoViewIfNeeded();
+  await byTestId('chip-bags').click();
+  await byTestId('chip-gas').click();
+  await settle(400);
+  await shot('ride-cargo');
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
+  await byTestId('ride-vehicle-taxi').click();
+  await byTestId('ride-fit-tuktuk').waitFor({ timeout: 10_000 }).catch(() => errors.push('tuktuk cargo hint not shown'));
+  await settle(600);
+  await shot('ride-cargo-hint');
+  await byTestId('ride-vehicle-tuktuk').click();
+  await byTestId('ride-options').click();
+  await byTestId('ride-cargo').scrollIntoViewIfNeeded();
+  await byTestId('chip-bags').click();
+  await byTestId('chip-gas').click();
   await byTestId('ride-options-done').click();
   await byTestId('ride-options-panel').waitFor({ state: 'detached' });
   await settle(600);
@@ -1459,15 +1485,16 @@ async function rideShots() {
  * amount, so the app's server-corrected clock reads 22:30 in Baghdad while every countdown keeps its
  * real length (unless it already is night). `etaInSec` pins the driver's ETA that far ahead of that
  * clock (the "a minute away" card). Shoots `name` once `testID` shows; `act` runs first on the page.
+ * `at` (epoch ms) moves the server's clock to that instant instead (x1: a July afternoon).
  */
-async function nightShot(path, name, testID, { etaInSec = null, act = null } = {}) {
+async function nightShot(path, name, testID, { etaInSec = null, act = null, at = null } = {}) {
   if (!wanted(name)) return;
   const now = Date.now();
   const bagh = new Date(now + 3 * 3_600_000);
   const h = bagh.getUTCHours();
   const night = h >= 21 || h < 6;
   const target = Date.UTC(bagh.getUTCFullYear(), bagh.getUTCMonth(), bagh.getUTCDate(), 19, 30);
-  const shift = night ? 0 : target - now;
+  const shift = at !== null ? at - now : night ? 0 : target - now;
   const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
   const move = (node) => {
     if (Array.isArray(node)) return node.map(move);

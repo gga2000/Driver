@@ -107,6 +107,8 @@ does not change.
 winter (Dec–Feb) and on Nov/Mar nights. On hot (cold) times, ride candidates with the **confirmed** `ac`
 (`heating`) tag move ahead of the rest, each group in its usual rank order (`preferFirst`). Food and
 other verticals are unaffected.
+Step 4 (x1, docs/api/climate-check.md): a taxi ride's first two waves now go **only** to those cars,
+and a driver who said «لا» to «المكيّفة شغالة اليوم؟» is not one of them for the rest of his shift.
 
 ## Vehicle facts (`dispatch/vehicle-facts.ts`, token `VEHICLE_FACTS`)
 

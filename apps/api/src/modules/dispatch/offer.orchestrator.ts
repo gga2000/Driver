@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { climateAt, DriverError, NUDGE_RULES, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type DispatchStatus, type Vertical } from '@driver/contracts';
+import { CLIMATE_DISPATCH_RULES, climateAt, DriverError, NUDGE_RULES, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type DispatchStatus, type VehicleFeature, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
@@ -357,9 +357,13 @@ export class OfferOrchestrator {
       const w = waves[i]!;
       const offered = new Set((await this.repo.listByTrip(r.tripId)).map((o) => o.driverId));
       const all = await this.candidates(r, cfg, { requireIdle: true, exclude: offered, ...(w.radiusKm !== undefined ? { radiusKm: w.radiusKm } : {}) });
+      // x1: on a hot (cold) day a car ride's first waves go only to cars with working AC (heating); an
+      // empty one opens the next at once, and the last wave is always everyone's.
+      const climate = i < Math.min(CLIMATE_DISPATCH_RULES.onlyWaves, waves.length - 1) ? await this.climateOnly(r, all) : null;
+      const pool = climate?.drivers ?? all;
       // s6 «عوائل»: the first wave only to family-fit drivers when any is free; everyone from the second.
-      const family = i === 0 && r.familyPreferred ? await this.familyFit(all) : [];
-      const ranked = family.length > 0 ? family : all;
+      const family = i === 0 && r.familyPreferred ? await this.familyFit(pool) : [];
+      const ranked = family.length > 0 ? family : pool;
       const chosen = w.size === 'all' ? ranked : ranked.slice(0, w.size);
       r.wave = i + 1;
       r.pass = 1;
@@ -368,7 +372,7 @@ export class OfferOrchestrator {
       const expiresAt = this.now() + w.seconds * 1000;
       await this.createOffers(r, 'smart_broadcast', chosen, { wave: i + 1, pass: 1, expiresAt, compensation: () => 0 });
       await this.trips.offer(r.tripId, chosen.map((c) => c.ranked.driverId), w.seconds);
-      await this.emit('dispatch.wave_sent', r, { wave: i + 1, driverIds: chosen.map((c) => c.ranked.driverId), seconds: w.seconds, radiusKm: w.radiusKm ?? null });
+      await this.emit('dispatch.wave_sent', r, { wave: i + 1, driverIds: chosen.map((c) => c.ranked.driverId), seconds: w.seconds, radiusKm: w.radiusKm ?? null, ...(climate ? { only: climate.feature } : {}) });
       r.nextTimerAt = expiresAt;
       await this.store.saveRequest(r);
       await this.schedule('wave_end', r, expiresAt, i + 1);
@@ -1160,6 +1164,18 @@ export class OfferOrchestrator {
     if (!feature || !this.facts || !RIDE_VERTICALS.has(r.vertical) || ranked.length < 2) return ranked;
     const features = await this.facts.confirmedFeatures(ranked.map((d) => d.driverId));
     return preferFirst(ranked, (id) => features.get(id)?.includes(feature) ?? false);
+  }
+
+  /**
+   * x1: on a hot or cold day, a taxi ride's candidates whose car has the climate's feature confirmed and
+   * not said off this shift (`VehicleFactsPort` already leaves a «لا» out), in rank order; null when the
+   * rule does not apply (mild weather, tuktuks, no vehicle facts bound).
+   */
+  private async climateOnly(r: DispatchRequest, cands: readonly Candidate[]): Promise<{ feature: VehicleFeature; drivers: Candidate[] } | null> {
+    const feature = climateFeature(climateAt(this.clock.now()));
+    if (!feature || !this.facts || r.vertical !== 'taxi') return null;
+    const features = await this.facts.confirmedFeatures(cands.map((c) => c.ranked.driverId));
+    return { feature, drivers: cands.filter((c) => features.get(c.ranked.driverId)?.includes(feature)) };
   }
 
   /** s6: the candidates fit for a «عوائل» ride (`familyFit`), in their rank order. */

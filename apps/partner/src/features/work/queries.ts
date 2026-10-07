@@ -134,6 +134,16 @@ export function useGoOffline() {
   });
 }
 
+/** «المكيّفة شغالة اليوم؟» (ride idea x1): the answer comes back on the status the home reads. */
+export function useAnswerClimateCheck() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.partner.answerClimateCheck.mutationOptions(),
+    onSuccess: (status) => qc.setQueryData(api.partner.status.queryKey(), status),
+  });
+}
+
 export function useRespond() {
   const api = useApi();
   return useMutation(api.dispatch.respond.mutationOptions());

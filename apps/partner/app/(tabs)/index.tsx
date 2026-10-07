@@ -11,6 +11,7 @@ import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
 import { DriverMap } from '@/features/map/DriverMap';
 import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip } from '@/features/work/HomeParts';
+import { ClimateCheckCard } from '@/features/work/ClimateCheck';
 import { VEHICLE_ICON } from '@/features/work/logic';
 import { OnlineSwitch } from '@/features/work/OnlineSwitch';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
@@ -147,6 +148,8 @@ export default function Home() {
 
               {s.canDrive && gate ? <GateBanner kind={gate} /> : null}
               {s.canDrive ? <CashBar cash={s.cash} /> : null}
+              {/* Ride idea x1: «المكيّفة شغالة اليوم؟» once a shift on a hot (cold) day. */}
+              {online && s.climateCheck ? <ClimateCheckCard check={s.climateCheck} /> : null}
               {/* S-8: GPS · النت · صوت الطلبات · البطارية, every shift, right above the switch. */}
               {s.canDrive && !gate ? <ReadinessRow /> : null}
               {s.canDrive && gate ? <BlockedSwitch kind={gate} /> : null}

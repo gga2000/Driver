@@ -203,18 +203,27 @@ describe('the weather (ride step 3, n6)', () => {
     ]);
   }
 
+  // x1 (step 4) narrows a car ride's first waves to those cars; climate.orchestrator.test.ts has the rest.
   it('on a hot day cars with confirmed AC are offered the ride first', async () => {
     const h = dispatchHarness(SUMMER);
     await cars(h);
     await ride(h);
-    expect(h.trips.offers[0]?.driverIds).toEqual(['ac', 'near', 'near2']);
+    expect(h.trips.offers[0]?.driverIds).toEqual(['ac']);
   });
 
   it('on a cold day cars with confirmed heating are', async () => {
     const h = dispatchHarness(WINTER);
     await cars(h);
     await ride(h);
-    expect(h.trips.offers[0]?.driverIds).toEqual(['heat', 'near', 'near2']);
+    expect(h.trips.offers[0]?.driverIds).toEqual(['heat']);
+  });
+
+  it('a hot day’s tuktuk ride is only reordered, never narrowed (tuktuks have no AC)', async () => {
+    const h = dispatchHarness(SUMMER);
+    await h.online('tuk1', 0.1, { vehicle: 'tuktuk' });
+    await h.online('tuk2', 0.2, { vehicle: 'tuktuk' });
+    await ride(h, { vertical: 'tuktuk' });
+    expect(h.trips.offers[0]?.driverIds).toEqual(['tuk1', 'tuk2']);
   });
 
   it('on a mild day the ranking alone decides', async () => {

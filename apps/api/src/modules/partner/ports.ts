@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { EtaBasis, LatLng, Order, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -111,6 +111,14 @@ export interface PartnerDeps {
   };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
+  /**
+   * Ride idea x1, «المكيّفة شغالة اليوم؟»: this shift's question for his car (the fleet registry's
+   * confirmed features, dispatch's `ClimateChecks`) and his answer. Absent in fakes = never asked.
+   */
+  climate?: {
+    check(driverId: string): Promise<PartnerClimateCheck | null>;
+    answer(driverId: string, working: boolean): Promise<PartnerClimateCheck>;
+  };
 }
 
 export const PARTNER_DEPS = Symbol('PARTNER_DEPS');

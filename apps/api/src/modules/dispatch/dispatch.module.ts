@@ -24,6 +24,7 @@ import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type Trip
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
 import { TripsServiceTripOffers } from './trips.adapter.js';
+import { ClimateChecks, InMemoryShiftCheckStore, PrismaShiftCheckStore, SHIFT_CHECK_STORE } from './climate-checks.js';
 import { InMemoryVehicleFacts, PrismaVehicleFacts, VEHICLE_FACTS } from './vehicle-facts.js';
 import { ZoneDirectory } from './zones.js';
 
@@ -102,14 +103,22 @@ export class DispatchRuntime implements OnModuleDestroy {
     },
     { provide: DISPATCH_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     { provide: TRIP_OFFERS, useFactory: (trips: TripsService) => new TripsServiceTripOffers(trips), inject: [TripsService] },
-    // Ride step 3: the car riders are told about (model, colour, confirmed features) and trip counts.
+    // Ride idea x1: «المكيّفة شغالة اليوم؟» — a driver's answer for the shift (`driver_shift_checks`).
+    {
+      provide: SHIFT_CHECK_STORE,
+      useFactory: (prisma: PrismaService) => (prisma.configured ? new PrismaShiftCheckStore(prisma) : new InMemoryShiftCheckStore()),
+      inject: [PrismaService],
+    },
+    ClimateChecks,
+    // Ride step 3: the car riders are told about (model, colour, confirmed features) and trip counts;
+    // x1: less what the driver said is not working this shift.
     {
       provide: VEHICLE_FACTS,
-      useFactory: (prisma: PrismaService, trips: TripsService) =>
+      useFactory: (prisma: PrismaService, trips: TripsService, checks: ClimateChecks) =>
         prisma.configured
-          ? new PrismaVehicleFacts(prisma)
-          : new InMemoryVehicleFacts(async (driverId) => (await trips.completedForDriver(driverId, new Date(0))).filter((t) => t.state === 'completed').length),
-      inject: [PrismaService, TripsService],
+          ? new PrismaVehicleFacts(prisma, (ids) => checks.offNow(ids))
+          : new InMemoryVehicleFacts(async (driverId) => (await trips.completedForDriver(driverId, new Date(0))).filter((t) => t.state === 'completed').length, (ids) => checks.offNow(ids)),
+      inject: [PrismaService, TripsService, ClimateChecks],
     },
     { provide: CAPS, useExisting: LEDGER_CAPS_PORT },
     { provide: DEPARTURES, useExisting: RoutesDeparturesPort },
@@ -123,7 +132,7 @@ export class DispatchRuntime implements OnModuleDestroy {
     DispatchRuntime,
     DispatchService,
   ],
-  exports: [DispatchService, VEHICLE_FACTS],
+  exports: [DispatchService, VEHICLE_FACTS, ClimateChecks],
 })
 export class DispatchModule implements OnModuleInit, OnModuleDestroy {
   private unsubscribe: Array<() => void> = [];

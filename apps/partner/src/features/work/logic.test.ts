@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { capShare, clock, driversKey, inZone, jobAction, jobsKey, keepScreenOn, km, mapsUrl, OFFER_WARN_FROM_S, offerWarnTick, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneCheckMoment, zoneName } from './logic';
+import { capShare, cargoLine, clock, driversKey, inZone, jobAction, jobsKey, keepScreenOn, km, mapsUrl, OFFER_WARN_FROM_S, offerWarnTick, secondsLeft, taskProgress, todayKey, unreachablePhase, waitingKey, zoneCheckMoment, zoneName } from './logic';
 
 const t = createT('ar-IQ');
 
@@ -93,5 +93,13 @@ describe('zone check on the done screen (maps SP3)', () => {
     expect(zoneCheckMoment({ ...base, readAt: 1200, check: Q })).toEqual({ check: Q, hold: true });
     expect(zoneCheckMoment({ ...base, readAt: 1200, check: Q, answeredId: 'zc_1' })).toEqual({ check: null, hold: false });
     expect(zoneCheckMoment({ ...base, counted: false, readAt: 1200, check: Q })).toEqual({ check: null, hold: false });
+  });
+});
+
+describe('«عنده غراض» (ride idea x5)', () => {
+  const t = createT('ar-IQ');
+  it('names what the rider carries, in chip order; nothing said, no line', () => {
+    expect(cargoLine(['bags', 'gas'], t)).toBe('عنده غراض: أكياس سوق، قنينة غاز');
+    expect(cargoLine([], t)).toBeNull();
   });
 });

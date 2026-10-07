@@ -8,7 +8,7 @@ import type { PartnerOffer } from '@driver/contracts';
 import { CountdownButton, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
-import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import { cargoLine, isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
@@ -56,6 +56,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const api = useApi();
   const answered = useRef(false);
   const ride = isRide(offer.vertical);
+  const cargo = cargoLine(offer.rideCargo ?? [], t);
   const durationMs = offer.ringSec * 1000;
   const startedAt = offer.expiresAt.getTime() - durationMs;
   const [left, setLeft] = useState(() => secondsLeft(offer.expiresAt, Date.now()));
@@ -298,6 +299,23 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
                 </Text>
               </View>
             </Animated.View>
+          ) : null}
+
+          {/* Ride idea x5: «عنده غراض: قنينة غاز» — so he knows there is room before he accepts. */}
+          {cargo ? (
+            <View testID="offer-cargo" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="bag" size={18} color="accentText" strokeWidth={2.4} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} color="accentText">
+                  {cargo}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_cargo_hint')}
+                </Text>
+              </View>
+            </View>
           ) : null}
 
           {/* 3 · pickup → drop-off */}

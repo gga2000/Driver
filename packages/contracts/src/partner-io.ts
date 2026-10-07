@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { RoleKind } from './auth.js';
+import { AnswerClimateCheckInput, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
+import { RideCargo } from './ride-cargo.js';
 import type { OrderRoute } from './tracking.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass } from './trip.js';
 
@@ -127,6 +129,8 @@ export const PartnerStatus = z.object({
   offerId: z.string().nullable(),
   /** Daily check-in / lock-out / expired documents; null for people without a driving role. */
   gate: PartnerOnlineGate.nullable(),
+  /** «المكيّفة شغالة اليوم؟» (ride idea x1): the shift's question on a hot / cold day; null when none applies. */
+  climateCheck: PartnerClimateCheck.nullable().default(null),
 });
 export type PartnerStatus = z.infer<typeof PartnerStatus>;
 
@@ -217,6 +221,8 @@ export const PartnerOffer = z.object({
   favourite: z.boolean().default(false),
   /** «راكب ينتظرك» (ride step 3, n4): the waiting rider nudged him on this offer; null = not. */
   nudgedAt: z.coerce.date().nullable().default(null),
+  /** «عنده غراض: قنينة غاز» (ride idea x5): what the rider carries, so he knows before accepting; [] = nothing said. */
+  rideCargo: z.array(RideCargo).default([]),
 });
 export type PartnerOffer =z.infer<typeof PartnerOffer>;
 
@@ -296,6 +302,8 @@ export const PartnerJob = z.object({
   unreachable: UnreachableStatus.nullable(),
   pay: PartnerPay,
   merchant: PartnerMerchantPrep.nullable(),
+  /** Ride idea x5: what the rider carries (bags, a gas cylinder, something big); [] = nothing said. */
+  rideCargo: z.array(RideCargo).default([]),
 });
 export type PartnerJob = z.infer<typeof PartnerJob>;
 
@@ -320,6 +328,8 @@ export interface PartnerPort {
   jobRoute(actor: Actor): Promise<OrderRoute>;
   /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
   demandMap(actor: Actor): Promise<PartnerDemandMap>;
+  /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
+  answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
 }
 
 /** Where the orders are (maps program d5). */

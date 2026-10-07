@@ -2,10 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   DEMAND_MAP_RULES,
   DriverError,
+  sortCargo,
   PARTNER_DRIVING_ROLES,
   partnerCurrentStop,
   partnerModesOf,
   type Actor,
+  type AnswerClimateCheckInput,
   type Order,
   type OrderRoute,
   type PartnerDemandMap,
@@ -15,11 +17,15 @@ import {
   type PartnerPickupSpot,
   type PartnerJobStop,
   type PartnerMerchantPrep,
+  type PartnerClimateCheck,
   type PartnerOffer,
   type PartnerOfferRouteInput,
   type PartnerPort,
   type PartnerStatus,
   type QuoteComponent,
+  type RideCargo,
+  type RoleKind,
+  type VehicleClass,
   type Trip,
 } from '@driver/contracts';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
@@ -27,6 +33,11 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
+
+/** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
+function cargoOf(orders: readonly Order[]): RideCargo[] {
+  return sortCargo(orders.flatMap((o) => (o.type === 'ride' ? (o.rideCargo ?? []) : [])));
+}
 
 /** The demand forecast is re-read at most this often per city. */
 const FORECAST_CACHE_MS = 5 * 60_000;
@@ -60,10 +71,11 @@ export class PartnerService implements PartnerPort {
     const modes = partnerModesOf(roles);
     const canDrive = roles.some((r) => PARTNER_DRIVING_ROLES.includes(r));
     const cityId = presence?.cityId ?? DEFAULT_CITY;
-    const [offer, demand, gate] = await Promise.all([
+    const [offer, demand, gate, climateCheck] = await Promise.all([
       canDrive && presence ? this.deps.dispatch.openOffer(id, cityId) : Promise.resolve(null),
       canDrive ? this.demand(cityId, presence) : Promise.resolve(null),
       canDrive ? this.deps.gate.onlineGate(id) : Promise.resolve(null),
+      presence ? this.climateCheckOf(id, roles, presence.vehicle) : Promise.resolve(null),
     ]);
     const heldIqd = Math.max(0, -cap.cashIqd);
     return {
@@ -91,7 +103,28 @@ export class PartnerService implements PartnerPort {
       activeTripId: trips[0]?.id ?? null,
       offerId: offer?.offer.id ?? null,
       gate,
+      climateCheck,
     };
+  }
+
+  /**
+   * Ride idea x1, «المكيّفة شغالة اليوم؟»: asked of an online ride driver on a car on a hot (cold)
+   * shift when ops confirmed its AC (heating); null otherwise. Couriers and tuktuks are never asked.
+   */
+  private async climateCheckOf(driverId: string, roles: readonly RoleKind[], vehicle: VehicleClass): Promise<PartnerClimateCheck | null> {
+    const climate = this.deps.climate;
+    if (!climate || !servedVerticals(roles, vehicle).includes('taxi')) return null;
+    return climate.check(driverId);
+  }
+
+  /** نعم / لا for this shift; only while the question stands (`climate_check_none` otherwise). */
+  async answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus> {
+    const id = actor.personId;
+    const [roles, presence] = await Promise.all([this.deps.roles.activeRoles(id), this.deps.presence.get(id)]);
+    const check = presence ? await this.climateCheckOf(id, roles, presence.vehicle) : null;
+    if (!check || !this.deps.climate) throw new DriverError('climate_check_none');
+    await this.deps.climate.answer(id, input.working);
+    return this.status(actor);
   }
 
   /**
@@ -179,6 +212,8 @@ export class PartnerService implements PartnerPort {
       favourite: offer.policy === FAVOURITE_OFFER_POLICY,
       // Ride step 3 (n4): the waiting rider nudged him — «راكب ينتظرك» and a soft chime on the card.
       nudgedAt: offer.nudgedAt ?? null,
+      // Ride idea x5: «عنده غراض: قنينة غاز», before he accepts.
+      rideCargo: cargoOf(orders),
     };
   }
 
@@ -304,6 +339,7 @@ export class PartnerService implements PartnerPort {
       unreachable: trip.unreachable,
       pay,
       merchant: this.prepOf(orders[0], now, names),
+      rideCargo: cargoOf(orders),
     };
   }
 

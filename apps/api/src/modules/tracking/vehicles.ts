@@ -2,7 +2,7 @@ import { sortFeatures, VehicleColour, vehicleColourKey, VehicleFeature, type Veh
 import { t } from '@driver/i18n';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 
-/** What the courier card shows about the vehicle: class, plate, model, colour and confirmed features. */
+/** What the courier card shows about the vehicle: class, plate, model, colour and confirmed features (less this shift's «لا», x1). */
 export interface CourierVehicle {
   vehicleClass: VehicleClass;
   plate: string;
@@ -49,16 +49,33 @@ export function courierVehicleFromRow(row: { class: string; plate: string; model
   };
 }
 
+/**
+ * Ride idea x1: what the courier said is not working this shift (dispatch's `ClimateChecks.offNow`), so
+ * a «لا» to «المكيّفة شغالة اليوم؟» takes «مكيّفة» off his card until the shift ends. Absent = none.
+ */
+export type FeaturesOffNow = (courierIds: readonly string[]) => Promise<Map<string, readonly VehicleFeature[]>>;
+
+const NONE_OFF: FeaturesOffNow = async () => new Map();
+
+async function withShiftChecks(v: CourierVehicle | null, courierId: string, offNow: FeaturesOffNow): Promise<CourierVehicle | null> {
+  if (!v || v.features.length === 0) return v;
+  const off = (await offNow([courierId])).get(courierId) ?? [];
+  return off.length > 0 ? { ...v, features: v.features.filter((f) => !off.includes(f)) } : v;
+}
+
 /** Bound when DATABASE_URL is set. */
 export class PrismaCourierVehicles implements CourierVehicleDirectory {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly offNow: FeaturesOffNow = NONE_OFF,
+  ) {}
 
   async forCourier(courierId: string, vehicleId: string | null): Promise<CourierVehicle | null> {
     const db = this.prisma.prisma;
     const row =
       (vehicleId ? await db.vehicle.findUnique({ where: { id: vehicleId } }) : null) ??
       (await db.vehicle.findFirst({ where: { activeDriverId: courierId, active: true }, orderBy: { updatedAt: 'desc' } }));
-    return row ? courierVehicleFromRow(row) : null;
+    return withShiftChecks(row ? courierVehicleFromRow(row) : null, courierId, this.offNow);
   }
 }
 
@@ -69,6 +86,8 @@ export type CourierVehicleInput = Pick<CourierVehicle, 'vehicleClass' | 'plate'>
 export class InMemoryCourierVehicles implements CourierVehicleDirectory {
   private readonly byCourier = new Map<string, CourierVehicle>();
 
+  constructor(private readonly offNow: FeaturesOffNow = NONE_OFF) {}
+
   /** `features` are the confirmed ones (what the card shows); the label is built from model + colour. */
   register(courierId: string, vehicle: CourierVehicleInput): void {
     const model = vehicle.model ?? null;
@@ -78,6 +97,6 @@ export class InMemoryCourierVehicles implements CourierVehicleDirectory {
 
   async forCourier(courierId: string): Promise<CourierVehicle | null> {
     const v = this.byCourier.get(courierId);
-    return v ? { ...v, features: [...v.features] } : null;
+    return withShiftChecks(v ? { ...v, features: [...v.features] } : null, courierId, this.offNow);
   }
 }

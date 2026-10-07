@@ -177,6 +177,13 @@ portrait; courier's new one «تنتظر الموافقة», tuktuk's «مرفو
 waiting at مشويات الحاج كريم keep the demand hint at "الطلب عالي بالمركز"; demo offers go out
 through the dispatcher override, the tuktuk ride through the real wave-1 broadcast.
 
+Ride step 4 (ideas x1, x5; `scripts/demo/98-souq.mjs`): taxi `0770 111 0017` (سيف علي, a white تويوتا
+كورولا with AC and «عوائل» confirmed, checked in, offline). `POST /demo/weather?at=hot|cold|real` sets
+the clock the shift question reads (a July / January day; dispatch keeps the real clock): online on a
+hot shift he is asked «المكيّفة شغالة اليوم؟» on home (docs/api/climate-check.md).
+`POST /demo/souq-offer?who=tuktuk|taxi` offers him a ride whose rider carries bags and a gas cylinder
+(«عنده غراض: …» on the card), `POST /demo/souq-job?who=…` the same ride accepted. Shots: `SHOTS=souq`.
+
 ## Known gaps (wave 1)
 
 - Background location is built (`src/lib/background-location.native.ts`, maps program SP1 f2): while

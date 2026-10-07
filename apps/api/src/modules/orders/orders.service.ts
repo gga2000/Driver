@@ -22,6 +22,7 @@ import {
   parseOrderTicket,
   redeemablePoints,
   rideScheduleProblem,
+  sortCargo,
   smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
@@ -426,6 +427,7 @@ export class OrdersService implements OnModuleInit {
             familyTable: input.familyTable ?? false,
             preferredDriverId,
             familyPreferred: input.type === 'ride' && input.familyPreferred === true,
+            rideCargo: input.type === 'ride' ? sortCargo(input.rideCargo ?? []) : [],
           },
           newLines,
           participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
@@ -1218,6 +1220,8 @@ export class OrdersService implements OnModuleInit {
       ...(s.order.courierNote ? { courierNote: s.order.courierNote } : {}),
       // Ride step 3 (s6): «عوائل» carries over to the other vehicle.
       ...(s.order.familyPreferred ? { familyPreferred: true } : {}),
+      // x5: so do the rider's bags.
+      ...(s.order.rideCargo?.length ? { rideCargo: [...s.order.rideCargo] } : {}),
       clientRequestId: input.clientRequestId,
     });
     return this.uow.run(async () => {
@@ -2192,6 +2196,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     ...(order.familyTable ? { familyTable: true } : {}),
     ...(order.preferredDriverId ? { preferredDriverId: order.preferredDriverId } : {}),
     ...(order.familyPreferred ? { familyPreferred: true } : {}),
+    ...(order.rideCargo?.length ? { rideCargo: [...order.rideCargo] } : {}),
     quoteId: order.quoteId,
     paymentMethod: order.paymentMethod,
     itemsTotalIqd: order.itemsTotalIqd,
