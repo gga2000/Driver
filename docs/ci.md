@@ -245,7 +245,9 @@ review" can never come from a different person; this label stands in for it.
   or runs PR code. (The one PR that first added the gate passed with "no review gate yet".)
 - **Limit:** every thread pushes as the same GitHub user, so GitHub cannot tell who added a label. The
   rule "only the reviewer thread labels" is a promise between threads, not something GitHub enforces.
-  A second GitHub account for the reviewer (or a GitHub App) would close that gap.
+  A second GitHub account for the reviewer (or a GitHub App) would close that gap. The freeze rule
+  also reads each commit's author date, which a commit can carry from before the freeze, so it guards
+  against mistakes, not against someone working around it.
 
 ### Freeze
 
