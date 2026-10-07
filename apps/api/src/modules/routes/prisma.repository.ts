@@ -334,6 +334,15 @@ export class PrismaRoutesRepository implements RoutesRepository {
     }
   }
 
+  async markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean> {
+    // One targeted update: the row's state, pick, deposit and offers are never written back here.
+    const n = await this.db(tx).$executeRaw`
+      UPDATE "public"."ride_requests"
+         SET seen_driver_ids = array_append(seen_driver_ids, ${driverId}::text)
+       WHERE id = ${id}::text AND state = 'open' AND NOT (${driverId}::text = ANY(seen_driver_ids))`;
+    return n > 0;
+  }
+
   async getRequest(id: string, tx?: Tx): Promise<RequestRecord | null> {
     const row = await this.db(tx).rideRequest.findUnique({
       where: { id },

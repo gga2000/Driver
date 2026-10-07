@@ -233,9 +233,9 @@ export class RequestBoardService {
 
   /**
    * y4: a driver opened the request. Recorded once per driver while it is open, so the rider sees
-   * «N سواق شافوا طلبك»; no event (nothing to settle or notify). Like every request write it runs
-   * under the routes writer (in-process mutex + the transaction's advisory lock, taken before the
-   * read), so it can never read «open», lose to a pick, and write «open» back over it.
+   * «N سواق شافوا طلبك»; no event (nothing to settle or notify). It runs under the routes writer
+   * (in-process mutex + the transaction's advisory lock, taken before the read) and writes only the
+   * seen list, in one conditional update, so it can never put a picked request back to «open».
    */
   seen(driverId: string, postId: string): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
@@ -247,9 +247,7 @@ export class RequestBoardService {
         if (!r.offers.some((o) => o.driverId === driverId)) throw new DriverError('request_not_found');
         return r;
       }
-      if (r.seenDriverIds.includes(driverId)) return r;
-      r.seenDriverIds.push(driverId);
-      await this.repo.saveRequest(r, tx);
+      if (await this.repo.markRequestSeen(postId, driverId, tx)) r.seenDriverIds.push(driverId);
       return r;
     });
   }

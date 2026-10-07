@@ -88,6 +88,11 @@ export interface RoutesRepository {
   listDemand(f: DemandFilter, tx?: Tx): Promise<DemandPostRecord[]>;
 
   saveRequest(r: RequestRecord, tx?: Tx): Promise<void>;
+  /**
+   * y4: adds the driver to `seenDriverIds` only, and only while the request is open and he isn't
+   * counted yet; never rewrites the state, the pick, the deposit or the offers. True when it added him.
+   */
+  markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean>;
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
   /** y5: completed private trips per driver (his offer was picked and the trip completed). */
@@ -236,6 +241,13 @@ export class InMemoryRoutesRepository implements RoutesRepository {
 
   async saveRequest(r: RequestRecord): Promise<void> {
     this.requests.set(r.id, clone(r));
+  }
+
+  async markRequestSeen(id: string, driverId: string): Promise<boolean> {
+    const r = this.requests.get(id);
+    if (!r || r.state !== 'open' || r.seenDriverIds.includes(driverId)) return false;
+    r.seenDriverIds.push(driverId);
+    return true;
   }
 
   async getRequest(id: string): Promise<RequestRecord | null> {
