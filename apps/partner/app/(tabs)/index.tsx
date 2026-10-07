@@ -3,8 +3,9 @@ import { router } from 'expo-router';
 import { Linking, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { agoText, EmptyState, Icon, Skeleton, SlideToConfirm, Text, useConnectionBanner, useTheme, useToast, type IconName } from '@driver/ui';
-import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
-import { gateKind } from '@/features/account/logic';
+import { BlockedSwitch, GateBanner, PapersBanner } from '@/features/account/GateParts';
+import { gateKind, papersReminder } from '@/features/account/logic';
+import { useDocuments } from '@/features/account/queries';
 import { LostItemStrips } from '@/features/chat/LostItems';
 import { FleetInviteBanner } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
@@ -56,6 +57,8 @@ export default function Home() {
   const demandMap = useDemandMap(online && (s?.canDrive ?? false));
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
+  // a3: a paper reaches home only in its last 14 days.
+  const papers = papersReminder(useDocuments().data);
   // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
   const invites = useFleetInvites(s?.canDrive ?? false);
   const invite = splitInvites(invites.data ?? []).pending[0] ?? null;
@@ -91,12 +94,14 @@ export default function Home() {
     if (s.activeTripId) present.push('job');
     if (s.canDrive && gate) present.push('gate');
     if (s.canDrive && (cashLoudness(s.cash) === 'near' || cashLoudness(s.cash) === 'blocked')) present.push('cash');
+    if (s.canDrive && papers && gate !== 'document') present.push('papers');
     if (invite && !s.activeTripId) present.push('invite');
     if (online && s.climateCheck) present.push('climate');
     for (const k of attentionOrder(present)) {
       if (k === 'job') attention.push({ key: k, node: <ActiveJobBanner /> });
       if (k === 'gate' && gate) attention.push({ key: k, node: <GateBanner kind={gate} /> });
       if (k === 'cash') attention.push({ key: k, node: <CashLine cash={s.cash} /> });
+      if (k === 'papers' && papers) attention.push({ key: k, node: <PapersBanner kind={papers.kind} days={papers.days} /> });
       if (k === 'invite' && invite) attention.push({ key: k, node: <FleetInviteBanner invite={invite} /> });
       if (k === 'climate' && s.climateCheck) attention.push({ key: k, node: <ClimateCheckCard check={s.climateCheck} /> });
     }

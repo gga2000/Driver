@@ -27,9 +27,9 @@ export function cashLoudness(cash: PartnerCash): CashLoudness {
 }
 
 /** h9: the things that may need him on home, most urgent first. */
-export type AttentionKind = 'job' | 'gate' | 'cash' | 'invite' | 'lost' | 'climate' | 'zone';
+export type AttentionKind = 'job' | 'gate' | 'cash' | 'papers' | 'invite' | 'lost' | 'climate' | 'zone';
 
-const ATTENTION_ORDER: readonly AttentionKind[] = ['job', 'gate', 'cash', 'lost', 'invite', 'climate', 'zone'];
+const ATTENTION_ORDER: readonly AttentionKind[] = ['job', 'gate', 'cash', 'lost', 'papers', 'invite', 'climate', 'zone'];
 
 /** Sorts what applies by urgency: the first is shown, the rest fold into «+2 بعد». */
 export function attentionOrder(present: readonly AttentionKind[]): AttentionKind[] {

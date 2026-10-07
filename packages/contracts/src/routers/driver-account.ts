@@ -16,6 +16,7 @@ import {
   OnlineGate,
   PayQueryInput,
   PayQueryResult,
+  MyBestView,
   ShiftSummary,
   ShiftSummaryInput,
   ReviewDocumentInput,
@@ -106,6 +107,10 @@ export const driverAccountRouter = router({
   compliments: protectedProcedure(DRIVING_ROLES)
     .output(CourierCompliments)
     .query(({ ctx }) => ctx.driverAccount.compliments(ctx.actor)),
+  /** His week and his best (partner redesign e3 / e4): «أحسن وقت إلك», his best day, this week so far. */
+  myBest: protectedProcedure(DRIVING_ROLES)
+    .output(MyBestView)
+    .query(({ ctx }) => ctx.driverAccount.myBest(ctx.actor)),
   /**
    * «هيج يشوفك الزبون» (partner redesign r4): the profile a rider opens on his ride, of the driver
    * himself (photo, rating, trips, on time, since, car, confirmed features, top compliments).

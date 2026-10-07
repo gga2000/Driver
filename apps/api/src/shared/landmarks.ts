@@ -4,7 +4,7 @@ import { AZIZIYAH_LANDMARKS, type LatLng } from '@driver/contracts';
 export const STOP_LANDMARK_MAX_KM = 0.6;
 
 /** Flat-earth km to 0.1 (town distances; the same rounding the partner offer uses). */
-function kmApprox(a: LatLng, b: LatLng): number {
+export function kmApprox(a: LatLng, b: LatLng): number {
   const k = 111.32;
   const dx = (b.lng - a.lng) * k * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
   const dy = (b.lat - a.lat) * k;

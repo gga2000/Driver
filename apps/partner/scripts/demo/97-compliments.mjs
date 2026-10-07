@@ -13,10 +13,12 @@
 // through `orders.compliment`); the orders are demo ids, so only their ticket numbers show.
 const HOUR = 3_600_000;
 
+// The first and third are on today's tipped deliveries (50-driver-account: demo-day-4, demo-day-1), so the
+// earnings tab shows the tip in green with the customer's words beside it (partner redesign e5).
 const PAST = [
-  { h: 1, keys: ['polite', 'hot_food'] },
+  { h: 1, keys: ['polite', 'hot_food'], orderId: 'demo-day-4' },
   { h: 2.5, keys: ['fast'] },
-  { h: 3.5, keys: ['polite', 'found_home'] },
+  { h: 3.5, keys: ['polite', 'found_home'], orderId: 'demo-day-1' },
   { h: 26, keys: ['polite'] },
   { h: 30, keys: ['fast', 'polite'] },
   { h: 52, keys: ['hot_food'] },
@@ -34,12 +36,12 @@ export default async function register(demo) {
   const { ORDER_COMPLIMENTS_REPOSITORY } = await demo.load('modules/orders/index.js');
   const repo = demo.app.get(ORDER_COMPLIMENTS_REPOSITORY);
   let seq = 0;
-  const add = (courierId, keys, at, orderType = 'food') => {
+  const add = (courierId, keys, at, orderType = 'food', orderId = null) => {
     seq += 1;
-    return repo.create({ orderId: `demo_cmp_${seq}_${courierId.slice(-4)}`, courierId, customerId: `demo-fan-${seq}`, orderType, keys, createdAt: at });
+    return repo.create({ orderId: orderId ?? `demo_cmp_${seq}_${courierId.slice(-4)}`, courierId, customerId: `demo-fan-${seq}`, orderType, keys, createdAt: at });
   };
   const courier = demo.people.get('courier');
-  if (courier) for (const p of PAST) await add(courier.personId, p.keys, new Date(Date.now() - p.h * HOUR));
+  if (courier) for (const p of PAST) await add(courier.personId, p.keys, new Date(Date.now() - p.h * HOUR), 'food', p.orderId ?? null);
   const tuktuk = demo.people.get('tuktuk');
   const RIDES = [['polite', 'smooth_ride'], ['clean_car'], ['polite'], ['polite', 'clean_car'], ['smooth_ride'], ['polite']];
   if (tuktuk) for (const [i, keys] of RIDES.entries()) await add(tuktuk.personId, keys, new Date(Date.now() - (6 + i * 30) * HOUR), 'ride');

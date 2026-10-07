@@ -23,11 +23,11 @@ function enter(reduceMotion: boolean, i: number) {
  * The shift's one big number (S-4): net counting up, per hour under it, the whole day when he had
  * more than one shift. An empty shift says so instead of showing a lonely 0.
  */
-export function ShiftHero({ s }: { s: ShiftSummary }) {
+export function ShiftHero({ s, wholeDay = false }: { s: ShiftSummary; wholeDay?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const net = useCountFrom(s.netIqd, 1000);
-  const day = dayLine(s, t);
+  const day = wholeDay ? null : dayLine(s, t);
   return (
     <Animated.View entering={enter(theme.reduceMotion, 0)}>
       <Card elevation={1} padding={5} testID="shift-hero">
@@ -41,7 +41,7 @@ export function ShiftHero({ s }: { s: ShiftSummary }) {
         ) : (
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" color="textMuted">
-              {t('partner.shiftsum_net_label')}
+              {t(wholeDay ? 'partner.e5_day_net' : 'partner.shiftsum_net_label')}
             </Text>
             <View accessible accessibilityLabel={`${amountParam(s.netIqd)} ${t('quote.currency')}`} style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
               <Text variant="numeralMd" tabular testID="shift-net">
@@ -51,7 +51,7 @@ export function ShiftHero({ s }: { s: ShiftSummary }) {
                 {t('quote.currency')}
               </Text>
             </View>
-            {s.perHourIqd !== null ? (
+            {wholeDay ? null : s.perHourIqd !== null ? (
               <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], paddingVertical: theme.space[1] }}>
                 <Icon name="clock" size={16} color="accentText" />
                 <Text testID="shift-per-hour" variant="label" weight={600} color="accentText" tabular>
@@ -75,13 +75,13 @@ export function ShiftHero({ s }: { s: ShiftSummary }) {
   );
 }
 
-const STAT_ICON: Record<'jobs' | 'online' | 'tips' | 'best', IconName> = { jobs: 'bag', online: 'clock', tips: 'gift', best: 'star' };
+const STAT_ICON: Record<'jobs' | 'online' | 'tips' | 'best' | 'km', IconName> = { jobs: 'bag', online: 'clock', tips: 'gift', best: 'star', km: 'location-arrow' };
 
 /** Jobs, time online, tips, best hour: two to a row. */
-export function ShiftStats({ s }: { s: ShiftSummary }) {
+export function ShiftStats({ s, wholeDay = false }: { s: ShiftSummary; wholeDay?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const stats = shiftStats(s, t);
+  const stats = shiftStats(s, t, { wholeDay });
   return (
     <Animated.View entering={enter(theme.reduceMotion, 1)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }} testID="shift-stats">
       {stats.map((x) => (
@@ -172,16 +172,16 @@ export function ShiftGuarantee({ s }: { s: ShiftSummary }) {
 }
 
 /** Joy l4: «قالوا عنك بهالشفت» — the kind words customers picked for him this shift (nothing when none). */
-export function ShiftCompliments({ s, onOpen }: { s: ShiftSummary; onOpen: () => void }) {
+export function ShiftCompliments({ s, onOpen, wholeDay = false }: { s: ShiftSummary; onOpen: () => void; wholeDay?: boolean }) {
   const theme = useTheme();
   const t = useT();
   if (s.compliments.length === 0) return null;
   return (
     <Animated.View entering={enter(theme.reduceMotion, 3)}>
-      <Card elevation={1} padding={4} testID="shift-compliments" onPress={onOpen} accessibilityLabel={`${t('partner.shiftsum_compliments')}: ${s.compliments.map((c) => t('partner.compliments_word_count', { word: t(`compliment.${c.key}`), n: c.count })).join('، ')}`}>
+      <Card elevation={1} padding={4} testID="shift-compliments" onPress={onOpen} accessibilityLabel={`${t(wholeDay ? 'partner.e5_day_compliments' : 'partner.shiftsum_compliments')}: ${s.compliments.map((c) => t('partner.compliments_word_count', { word: t(`compliment.${c.key}`), n: c.count })).join('، ')}`}>
         <View style={{ gap: theme.space[3] }}>
           <Text variant="label" weight={600}>
-            {t('partner.shiftsum_compliments')}
+            {t(wholeDay ? 'partner.e5_day_compliments' : 'partner.shiftsum_compliments')}
           </Text>
           <ComplimentPills counts={s.compliments} />
         </View>
@@ -290,6 +290,13 @@ export const ShareDayCard = forwardRef<View, { model: ShareCardModel }>(function
         ))}
       </View>
       <View style={{ flex: 1 }} />
+      {model.quote ? (
+        <View style={{ alignSelf: 'flex-start', backgroundColor: theme.colors.successTint, borderRadius: theme.radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
+          <Text variant="label" weight={600} color="successText">
+            {model.quote}
+          </Text>
+        </View>
+      ) : null}
       <View style={{ height: 3, backgroundColor: theme.colors.accent, borderRadius: 2 }} />
       <Text variant="caption" color="textMuted">
         {model.tag}

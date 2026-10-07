@@ -21,6 +21,8 @@ describe('home logic', () => {
   it('attention: the job first, then the gate and cash, the climate question last', () => {
     expect(attentionOrder(['climate', 'invite', 'job'])).toEqual(['job', 'invite', 'climate']);
     expect(attentionOrder(['lost', 'gate'])).toEqual(['gate', 'lost']);
+    // a3: a paper in its last 14 days waits behind cash and lost items, before an invite.
+    expect(attentionOrder(['invite', 'papers', 'cash'])).toEqual(['cash', 'papers', 'invite']);
     expect(attentionOrder([])).toEqual([]);
   });
 
