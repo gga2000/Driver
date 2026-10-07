@@ -6763,5 +6763,9 @@
   "track2.thanks_title": "بالعافية",
   "track2.thanks_sub": "طلبك من {merchant} وصل {time}",
   "track2.tip_pick_hint": "اختار مبلغ من فوق",
-  "track2.ended_orders": "طلباتي"
+  "track2.ended_orders": "طلباتي",
+  "orders2.receipt_hint": "يفتح الوصل",
+  "orders2.live_title": "{merchant} · {status}",
+  "orders2.problem_hint": "شي ناقص أو غلط؟ گلّنا ونحلّها",
+  "orders2.arrived_at": "وصل {time}"
 }

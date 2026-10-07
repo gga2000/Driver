@@ -6,7 +6,8 @@ import { cityDayDiff, formatClock, type MessageKey } from '@driver/i18n';
 import { Avatar, Button, Card, Icon, IconButton, Skeleton, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
-import { TABLE, addLine, groupByPerson, type CartState } from '@/features/food/cart';
+import { TABLE, addLine, groupByPerson, lineTotal, type CartState } from '@/features/food/cart';
+import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { cartStore } from '@/features/food/cart-store';
 import { buildPlaceOrderInput, checkoutTotals } from '@/features/food/checkout';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
@@ -17,6 +18,7 @@ import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useProfile } from '@/lib/profile';
+import { useUiSwitch } from '@/lib/ui-switches';
 import { useReorder, type ReorderState } from './queries';
 import type { ReorderMissReason, ReorderResult, ReorderSwap } from './reorder';
 
@@ -141,7 +143,9 @@ function Express({
   const placeOrder = usePlaceOrder();
   const totals = quote.data && (orderQuote.data || orderQuote.isError) ? checkoutTotals(cart, quote.data, orderQuote.data, 'cash') : null;
   const nothing = cart.lines.length === 0;
-  const { groups } = groupByPerson(cart);
+  const { groups, grouped } = groupByPerson(cart);
+  // After-order Step 4 (`orders_v2`, o4): the dishes as a tray, each with its picture and today's price.
+  const tray = useUiSwitch('orders_v2');
   const swaps = result.swaps.filter((s) => !taken.includes(s.item.id));
   const quoteFailed = quote.isError;
   useEffect(() => setCart(result.cart), [result.cart]);
@@ -198,7 +202,9 @@ function Express({
         {result.closed && !scheduledFor ? <Note icon="clock" tone="warningTint" fg="warningText" text={result.opensAt ? t('reorder.closed', { time: result.opensAt }) : t('reorder.closed_no_time')} /> : null}
         {nothing ? <Note icon="x" tone="dangerTint" fg="dangerText" text={t('reorder.nothing')} testID="reorder-nothing" /> : null}
 
-        {!nothing ? (
+        {!nothing && tray ? (
+          <Tray groups={groups} grouped={grouped} />
+        ) : !nothing ? (
           <View style={{ gap: theme.space[2] }} testID="reorder-added">
             {groups.map((g) => (
               <View key={g.personId} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
@@ -315,6 +321,37 @@ function Express({
         )}
       </View>
     </>
+  );
+}
+
+/** The tray (o4): each dish back on it with its picture, who it is for (when shared) and today's price. */
+function Tray({ groups, grouped }: { groups: ReturnType<typeof groupByPerson>['groups']; grouped: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const lines = groups.flatMap((g) => g.lines.map((l) => ({ line: l, who: !grouped ? null : g.personId === TABLE ? t('cart.for_table_section') : (g.person?.name ?? t('cart.for_me_section')) })));
+  return (
+    <View testID="reorder-added" style={{ borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken, padding: theme.space[2], gap: theme.space[1] }}>
+      {lines.map(({ line, who }) => (
+        <View key={line.key} testID={`reorder-tray-${line.itemId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface }}>
+          <View style={{ width: 44, height: 44, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.accentTint }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <FoodArt {...artOf({ id: line.itemId, name: line.name })} stage={theme.colors.accentTint} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text variant="body" weight={600} numberOfLines={2}>
+              {line.qty > 1 ? `${line.name} ×${line.qty}` : line.name}
+            </Text>
+            {who ? (
+              <Text variant="caption" color="textMuted" numberOfLines={1}>
+                {who}
+              </Text>
+            ) : null}
+          </View>
+          <Text variant="body" weight={600} tabular>
+            {amountParam(lineTotal(line))}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 

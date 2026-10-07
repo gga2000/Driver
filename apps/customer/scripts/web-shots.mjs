@@ -116,7 +116,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket', 'checkout', 'track2'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket', 'checkout', 'track2', 'orders2'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -258,6 +258,7 @@ try {
   if (wants('basket')) await basketShots(khalid);
   if (wants('checkout')) await checkoutShots(khalid);
   if (wants('track2')) await track2Shots(personId);
+  if (wants('orders2')) await orders2Shots(personId);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -1690,5 +1691,50 @@ async function track2Shots(personId) {
     await byTestId('change-credited').waitFor({ timeout: 10_000 }).catch(() => errors.push('change-to-wallet strip not shown'));
     await settle(2000);
     await shot('track2-thanks-credit');
+  }
+}
+
+/**
+ * After-order Step 4 (`orders_v2`): «طلباتي» with a live kitchen order on top (its four dots), dish
+ * pictures and the saffron «اطلبه مرة ثانية» on finished food rows, rides in their own rows; the tray
+ * sheet; and a past order's receipt (the paper slip with «عندي مشكلة»).
+ */
+async function orders2Shots(personId) {
+  const pid = encodeURIComponent(personId ?? '');
+  // Rides in their own rows next to the food ones (a finished taxi ride and a الرجعة seat).
+  await demoPost(`/demo/ride-habits?personId=${pid}`);
+  // Three delivered food orders from three kitchens on earlier days (one has a dish that ran out).
+  await demoPost(`/demo/history?personId=${pid}`);
+  const credit = await demoPost(`/demo/track?personId=${pid}&scenario=arrived&rated=1&tender=25000&nochange=1`);
+  const k = await demoPost(`/demo/track?personId=${pid}&scenario=kitchen&tender=20000`);
+  if (k) await demoPost(`/demo/track/kitchen?orderId=${k.orderId}&step=preparing`);
+  await page.goto(`${origin}/orders`, LOADED);
+  await byTestId('orders').waitFor({ timeout: 20_000 });
+  if (k) await byTestId(`order-live-${k.orderId}`).waitFor({ timeout: 20_000 }).catch(() => errors.push('live order card not shown'));
+  await settle(2000);
+  await shot('orders2-list');
+  // The finished food rows under the day headings, with their dish pictures and «اطلبه مرة ثانية».
+  const past = page.locator('[data-testid^="order-open-"]').first();
+  if (await past.waitFor({ timeout: 10_000 }).then(() => true).catch(() => false)) {
+    await past.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await settle(800);
+    await shot('orders2-list-past');
+  } else errors.push('no finished food row');
+  if (credit) {
+    const again = byTestId(`reorder-${credit.orderId}`);
+    if (await again.waitFor({ timeout: 10_000 }).then(() => true).catch(() => false)) {
+      await again.click();
+      await byTestId('reorder-sheet').waitFor({ timeout: 15_000 });
+      await byTestId('reorder-total').waitFor({ timeout: 15_000 }).catch(() => {});
+      await settle(2500);
+      await shot('orders2-again');
+      await byTestId('reorder-close').click();
+      await byTestId('reorder-sheet').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    } else errors.push('no «اطلبه مرة ثانية» on the delivered row');
+    await page.goto(`${origin}/order/${credit.orderId}?view=receipt`, LOADED);
+    await byTestId('receipt-slip').waitFor({ timeout: 20_000 });
+    await settle(1500);
+    await shot('orders2-receipt');
+    await fullShot('orders2-receipt-full');
   }
 }

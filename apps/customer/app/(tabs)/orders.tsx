@@ -6,6 +6,8 @@ import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { canReorder, sectionByDay } from '@/features/orders/history';
 import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
+import { canOrderAgain, drawsAsFood } from '@/features/orders/orders-v2';
+import { FoodOrderRow, LiveOrderCard } from '@/features/orders/OrdersV2Parts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
@@ -14,6 +16,7 @@ import { TripRow } from '@/features/rajaa/TripRow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
+import { useUiSwitch } from '@/lib/ui-switches';
 
 /**
  * طلباتي (audit C-15 / C-44): `orders.history` — what's running now pinned on top, then by day
@@ -32,6 +35,7 @@ function Orders() {
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
+  const v2 = useUiSwitch('orders_v2');
   const tick = useNow(true, 60_000);
   const now = useMemo(() => new Date(tick), [tick]);
   // r4: الرجعة seats live here too — coming trips pinned on top, past ones in their day.
@@ -84,32 +88,48 @@ function Orders() {
             </Card>
           </View>
         ) : null}
-        {sections.map((s) => (
-          <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
-            <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
-              {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
-            </Text>
-            <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
-              {s.rows.map((item, i) =>
-                item.kind === 'trip' ? (
-                  <TripRow key={item.booking.id} booking={item.booking} network={network.data} now={now} divider={i < s.rows.length - 1} />
-                ) : (
-                  <OrderRow
-                    key={item.row.order.id}
-                    row={item.row}
-                    now={now}
-                    divider={i < s.rows.length - 1}
-                    action={
-                      canReorder(item.row.order) && (!me || item.row.order.ordererId === me) ? (
-                        <ReorderButton testID={`reorder-${item.row.order.id}`} loading={reorder.busyOrderId === item.row.order.id} onPress={() => void reorder.start(item.row)} />
-                      ) : undefined
-                    }
-                  />
-                ),
-              )}
-            </Card>
-          </View>
-        ))}
+        {sections.map((s) => {
+          // After-order Step 4 (`orders_v2`): a running kitchen order is a live card with its road (o2);
+          // rides, seats and parcels keep their own rows in the same place.
+          const live = v2 && s.running ? s.rows.filter((r) => r.kind === 'order' && drawsAsFood(r.row)) : [];
+          const rows = live.length > 0 ? s.rows.filter((r) => !live.includes(r)) : s.rows;
+          return (
+            <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
+              <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
+                {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
+              </Text>
+              {live.map((item) => (item.kind === 'order' ? <LiveOrderCard key={item.row.order.id} row={item.row} /> : null))}
+              {rows.length > 0 ? (
+                <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
+                  {rows.map((item, i) =>
+                    item.kind === 'trip' ? (
+                      <TripRow key={item.booking.id} booking={item.booking} network={network.data} now={now} divider={i < rows.length - 1} />
+                    ) : v2 && drawsAsFood(item.row) ? (
+                      <FoodOrderRow
+                        key={item.row.order.id}
+                        row={item.row}
+                        divider={i < rows.length - 1}
+                        again={canOrderAgain(item.row, me) ? { loading: reorder.busyOrderId === item.row.order.id, onPress: () => void reorder.start(item.row) } : undefined}
+                      />
+                    ) : (
+                      <OrderRow
+                        key={item.row.order.id}
+                        row={item.row}
+                        now={now}
+                        divider={i < rows.length - 1}
+                        action={
+                          canReorder(item.row.order) && (!me || item.row.order.ordererId === me) ? (
+                            <ReorderButton testID={`reorder-${item.row.order.id}`} loading={reorder.busyOrderId === item.row.order.id} onPress={() => void reorder.start(item.row)} />
+                          ) : undefined
+                        }
+                      />
+                    ),
+                  )}
+                </Card>
+              ) : null}
+            </View>
+          );
+        })}
         </>
       )}
       {reorder.sheet}

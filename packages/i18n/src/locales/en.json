@@ -6763,5 +6763,9 @@
   "track2.thanks_title": "Enjoy your meal",
   "track2.thanks_sub": "Your order from {merchant} arrived {time}",
   "track2.tip_pick_hint": "Pick an amount above",
-  "track2.ended_orders": "My orders"
+  "track2.ended_orders": "My orders",
+  "orders2.receipt_hint": "Opens the receipt",
+  "orders2.live_title": "{merchant} · {status}",
+  "orders2.problem_hint": "Something missing or wrong? Tell us and we'll fix it",
+  "orders2.arrived_at": "Arrived {time}"
 }

@@ -44,6 +44,7 @@ import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { ReceiptScreen } from '@/features/orders/ReceiptScreen';
 import { TrackFlow } from '@/features/track/TrackFlow';
 import { followsInTrackV2 } from '@/features/track/track-v2';
 import { useUiSwitch } from '@/lib/ui-switches';
@@ -75,12 +76,16 @@ type Panel = 'cancel' | 'dispute' | 'street' | 'share' | null;
  * choice costs nothing; while it loads the new screen's own skeleton shows.
  */
 export default function OrderRoute() {
-  const { id = '' } = useLocalSearchParams<{ id: string }>();
+  const { id = '', view } = useLocalSearchParams<{ id: string; view?: string }>();
   const v2 = useUiSwitch('track_v2');
+  const receipts = useUiSwitch('orders_v2');
   const track = useTracking(id);
   const type = track.data?.order.type;
   // Decided by the order's type only, so a failed refresh never swaps screens under the customer.
-  return v2 && (type === undefined || followsInTrackV2(type)) ? <TrackFlow id={id} /> : <OrderLiveScreen />;
+  const kitchen = type === undefined || followsInTrackV2(type);
+  // «طلباتي» opens a finished kitchen order as its receipt (after-order o7); pushes and links keep the live screen.
+  if (receipts && view === 'receipt' && kitchen) return <ReceiptScreen id={id} />;
+  return v2 && kitchen ? <TrackFlow id={id} /> : <OrderLiveScreen />;
 }
 
 /**

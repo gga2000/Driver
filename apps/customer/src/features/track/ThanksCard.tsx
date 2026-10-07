@@ -78,7 +78,7 @@ export function ThanksCard({ view, canRate }: { view: OrderTracking; canRate: bo
 }
 
 /** What he paid, said after the fact: «دفعت 17,500 دينار كاش», the coin strip, the honest-delay credit. */
-function PaidCard({ view }: { view: OrderTracking }) {
+export function PaidCard({ view }: { view: OrderTracking }) {
   const theme = useTheme();
   const t = useT();
   const paid = paidLine(view.order);
