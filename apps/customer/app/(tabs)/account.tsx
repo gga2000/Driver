@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Image, Platform, Pressable, Switch, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
 import { settleWithin } from '@driver/contracts/net-client';
-import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, Icon, ListRow, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
@@ -151,31 +151,49 @@ function Account() {
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.places')} action={{ label: t('home.add_place'), onPress: () => router.push('/places/new') }} />
-        <Card elevation={0} padding={0}>
-          {places.isPending ? (
-            <View style={{ padding: theme.space[4], gap: theme.space[3] }}>
-              <Skeleton height={44} />
-              <Skeleton height={44} />
-            </View>
-          ) : placeList.length === 0 ? (
-            <ListRow leading="map-pin" title={t('empty.saved_places')} subtitle={t('onboarding.place_hint')} onPress={() => router.push('/places/new')} />
-          ) : (
-            placeList.map((p, i) => <PlaceRow key={p.id} place={p} divider={i < placeList.length - 1} />)
+        {/* W8: a failed read is never "no saved places" (or "nobody yet" below): it says so, with a retry. */}
+        <QueryBoundary
+          query={places}
+          size="inline"
+          staleNote={false}
+          locale={locale}
+          testID="account-places-state"
+          skeleton={
+            <Card elevation={0} padding={4}>
+              <View style={{ gap: theme.space[3] }}>
+                <Skeleton height={44} />
+                <Skeleton height={44} />
+              </View>
+            </Card>
+          }
+        >
+          {() => (
+            <Card elevation={0} padding={0}>
+              {placeList.length === 0 ? (
+                <ListRow leading="map-pin" title={t('empty.saved_places')} subtitle={t('onboarding.place_hint')} onPress={() => router.push('/places/new')} />
+              ) : (
+                placeList.map((p, i) => <PlaceRow key={p.id} place={p} divider={i < placeList.length - 1} />)
+              )}
+            </Card>
           )}
-        </Card>
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.people')} />
-        <Card elevation={0} padding={0}>
-          {(people.data ?? []).length === 0 ? (
-            <ListRow leading="user" title={t('account.people_empty')} subtitle={t('account.people_hint')} chevron={false} />
-          ) : (
-            (people.data ?? []).slice(0, 6).map((p, i, list) => (
-              <ListRow key={p.key} leading={<Avatar name={p.name} size={40} />} title={p.name} subtitle={t('account.people_last', { role: t(p.role === 'rider' ? 'account.people_role_rider' : 'account.people_role_recipient') })} chevron={false} divider={i < list.length - 1} />
-            ))
+        <QueryBoundary query={people} size="inline" staleNote={false} locale={locale} testID="account-people-state" skeleton={<Skeleton height={64} />}>
+          {(saved) => (
+            <Card elevation={0} padding={0}>
+              {saved.length === 0 ? (
+                <ListRow leading="user" title={t('account.people_empty')} subtitle={t('account.people_hint')} chevron={false} />
+              ) : (
+                saved.slice(0, 6).map((p, i, list) => (
+                  <ListRow key={p.key} leading={<Avatar name={p.name} size={40} />} title={p.name} subtitle={t('account.people_last', { role: t(p.role === 'rider' ? 'account.people_role_rider' : 'account.people_role_recipient') })} chevron={false} divider={i < list.length - 1} />
+                ))
+              )}
+            </Card>
           )}
-        </Card>
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>
@@ -190,7 +208,8 @@ function Account() {
                 ? [t('account.safety_people', { names: trusted.map((p) => p.name).join('، ') }), sharing ? t('account.safety_sharing_on') : null].filter(Boolean).join(' · ')
                 : t('account.emergency_hint')
             }
-            value={trusted.length > 0 ? undefined : t('account.add')}
+            // «أضف» only once the server said there is nobody yet; a failed read never claims the list is empty.
+            value={me.isSuccess && trusted.length === 0 ? t('account.add') : undefined}
             onPress={() => router.push('/profile/safety')}
             divider
           />
@@ -198,12 +217,12 @@ function Account() {
             testID="account-household"
             leading="family"
             title={t('household.title')}
-            subtitle={household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')}
+            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')) : undefined}
             onPress={() => router.push('/household')}
             divider
           />
           {/* خطوط children's photos (Ali, 2026-10-06): only for guardians with a child registered. */}
-          {(children.data ?? []).length > 0 ? (
+          {children.isSuccess && children.data.length > 0 ? (
             <ListRow testID="account-children" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} divider />
           ) : null}
           <ListRow testID="account-notifications" leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} onPress={() => router.push('/profile/notifications')} />

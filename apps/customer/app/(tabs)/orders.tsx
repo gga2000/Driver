@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { Card, EmptyState, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
+import { Card, EmptyState, QueryBoundary, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { BookedRideRow } from '@/features/orders/BookedRideRow';
@@ -13,7 +13,6 @@ import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
 import { pastTrips, upcomingTrips, withTrips } from '@/features/rajaa/trips';
 import { TripRow } from '@/features/rajaa/TripRow';
 import { isBookedRide } from '@/features/ride-habits/logic';
-import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
 
@@ -74,7 +73,27 @@ function Orders() {
       <Text variant="heading" accessibilityRole="header">
         {t('nav.orders')}
       </Text>
-      {history.isPending ? (
+      {/* W8: a failed seat-bookings read says so in one row above the orders (not while the whole list failed). */}
+      {bookings.isError && bookings.data === undefined && history.data !== undefined ? (
+        <QueryBoundary
+          query={bookings}
+          size="inline"
+          locale={locale}
+          testID="orders-trips-state"
+          skeleton={null}
+          retry={{ server: { title: t('orders.trips_failed') }, slow: { title: t('orders.trips_failed') }, unreachable: { title: t('orders.trips_failed') } }}
+        >
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+      {/* W8: no network, slow or a server failure each say so with a retry; orders already on the phone stay
+          on screen (marked old) when a refresh fails, instead of being swapped for an error. */}
+      <QueryBoundary
+        query={history}
+        locale={locale}
+        testID="orders-state"
+        style={{ gap: theme.space[5] }}
+        skeleton={
         <Card elevation={0} padding={0}>
           <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
             {[0, 1, 2].map((i) => (
@@ -89,9 +108,9 @@ function Orders() {
             ))}
           </View>
         </Card>
-      ) : history.isError ? (
-        <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
-      ) : sections.length === 0 && coming.length === 0 ? (
+        }
+      >
+        {() => (sections.length === 0 && coming.length === 0 ? (
         <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
       ) : (
         <>
@@ -138,7 +157,8 @@ function Orders() {
           </View>
         ))}
         </>
-      )}
+      ))}
+      </QueryBoundary>
       {reorder.sheet}
     </Screen>
   );

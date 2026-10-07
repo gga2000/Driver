@@ -7325,5 +7325,6 @@
   "place.far_move": "إي، هنا المكان",
   "place.far_keep": "لا، خلّي الموقع مثل ما هو",
   "place.distance_m": "{n} متر",
-  "place.distance_km": "{n} كم"
+  "place.distance_km": "{n} كم",
+  "orders.trips_failed": "ما گدرنا نجيب حجوزات السفر"
 }

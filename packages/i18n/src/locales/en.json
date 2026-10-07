@@ -7325,5 +7325,6 @@
   "place.far_move": "Yes, this is the place",
   "place.far_keep": "No, keep it where it is",
   "place.distance_m": "{n} m",
-  "place.distance_km": "{n} km"
+  "place.distance_km": "{n} km",
+  "orders.trips_failed": "Couldn't load your trip bookings"
 }

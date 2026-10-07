@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Card, EmptyState, Icon, ModalSheet, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, ModalSheet, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { currentFix, locationDeniedToast, type Fix } from '@/features/account/device';
 import { distanceText, judgeDistance, judgeHereFix } from '@/features/account/place-fix';
@@ -40,10 +40,13 @@ export default function EditPlace() {
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
 
-  if (places.isPending) {
+  // W8: a list that failed to load is not "this place is gone": it says why, with a retry.
+  if (places.data === undefined) {
     return (
       <Screen edges={['bottom']}>
-        <Skeleton height={300} />
+        <QueryBoundary query={places} locale={locale} testID="place-edit-state" skeleton={<Skeleton height={300} />}>
+          {() => null}
+        </QueryBoundary>
       </Screen>
     );
   }
