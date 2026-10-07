@@ -179,8 +179,11 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 
 ## Known gaps (wave 1)
 
-- Background location and a real heartbeat endpoint: presence is refreshed by re-sending
-  `partner.goOnline` every 30 s while the app is open.
+- Background location is built (`src/lib/background-location.native.ts`, maps program SP1 f2): while
+  online or on a job with the app in the background, an expo-location task with Android's foreground
+  service ("درايفر يتابع موقعك أثناء الشغل") re-sends `partner.goOnline` every 30 s and reports job fixes.
+  It asks for "allow all the time" after a disclosure; declined means on-screen updates only, as before.
+  Not yet tried on a real phone (needs a development build); the web build has no background task.
 - SOS is a stub button (decision 3 in docs/research/ui-ux-audit/README.md: built before launch).
   (Call and chat are live: see "Chat and masked calls" below.)
 - Offers, the job, gate and cash are pushed over `live.partner`; queries keep a 60-s safety refetch

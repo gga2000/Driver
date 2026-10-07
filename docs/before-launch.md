@@ -52,7 +52,7 @@ we can't open to the public without it.
 | What | Blocks launch | Details |
 |---|---|---|
 | Phones show a simple zone sketch, not a real street map (the web version has the real map) | Yes | maps spec §2 |
-| The driver app only sends its location while it's open (no background location) | Yes | `apps/partner/README.md` "Known gaps" |
+| The driver app's location with the app closed: built 2026-10-07 (Android foreground service + background task), **not yet tried on a real phone**; Google Play needs the background-location declaration (disclosure screen + short video) | Yes | `apps/partner/README.md` "Known gaps" |
 | Live updates on phones tested on web only, not on a device | Probably | `docs/api/live.md` |
 | Selfie check and face match accept any photo; menu import from a photo is a stub | Probably | `docs/api/partner-merchant-wave2.md` |
 | Receipt printer (Bluetooth) and the restaurant's camera for evidence photos | Probably | `apps/merchant/README.md` |
