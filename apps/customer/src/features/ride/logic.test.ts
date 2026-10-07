@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
   addNoteChip,
+  surchargeEndsInMin,
+  memberSpan,
   rideNearDue,
   standsAwayM,
   tripProgress,
@@ -346,5 +348,22 @@ describe('step 2 (ride ideas w2, w7, a4, m2, m4, p4)', () => {
     expect(standsAwayM({ lat: 32.9011, lng: 45.06 }, pin)).toBe(120);
     expect(standsAwayM({ lat: 32.95, lng: 45.06 }, pin)).toBeNull();
     expect(standsAwayM(null, pin)).toBeNull();
+  });
+  it('member since: new under a month, then months, then whole years', () => {
+    const now = Date.UTC(2026, 9, 7);
+    expect(memberSpan(new Date(Date.UTC(2026, 8, 20)), now)).toEqual({ unit: 'new', n: 0 });
+    expect(memberSpan(new Date(Date.UTC(2026, 1, 1)), now)).toEqual({ unit: 'months', n: 8 });
+    expect(memberSpan(new Date(Date.UTC(2024, 5, 1)), now)).toEqual({ unit: 'years', n: 2 });
+    expect(memberSpan(null, now)).toBeNull();
+  });
+  it('timing tip: minutes until a surcharge window ends, only in its last half hour', () => {
+    // 16:45 Baghdad = 13:45 UTC.
+    const at = (h: number, m: number) => new Date(Date.UTC(2026, 9, 7, h - 3, m));
+    expect(surchargeEndsInMin([14, 17], at(16, 45))).toBe(15);
+    expect(surchargeEndsInMin([14, 17], at(16, 0))).toBeNull();
+    expect(surchargeEndsInMin([14, 17], at(17, 5))).toBeNull();
+    // A window over midnight (night 23–5): 04:50 is 10 minutes from its end.
+    expect(surchargeEndsInMin([23, 5], at(4, 50))).toBe(10);
+    expect(surchargeEndsInMin(null, at(4, 50))).toBeNull();
   });
 });

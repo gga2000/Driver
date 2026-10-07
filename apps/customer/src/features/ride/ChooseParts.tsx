@@ -8,7 +8,7 @@ import { Button, Chip, formatClock, Icon, PriceBreakdown, Skeleton, Text, useThe
 import { BottomPanel } from '@/features/track/Panels';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { addNoteChip, fareLines, hour12, ruleHours, type RideVertical, type Spot, type Surcharge } from './logic';
+import { addNoteChip, fareLines, hour12, ruleHours, surchargeEndsInMin, type RideVertical, type Spot, type Surcharge } from './logic';
 import { TAXI_ART, TUKTUK_ART } from './vehicle-art';
 
 export const VEHICLE: Record<RideVertical, { name: MessageKey; hint: MessageKey; icon: IconName }> = {
@@ -71,15 +71,24 @@ export function SurchargeBanner({ s, city, vertical }: { s: Surcharge; city: Cit
       : s.key === 'peak'
         ? t('ride.peak_banner', { amount: amountParam(s.amount) })
         : t('ride.weather_banner', { amount: amountParam(s.amount) });
+  // Ride idea g4: the honest tip — the surcharge ends soon, so waiting a little costs less.
+  const endsIn = s.key === 'weather' ? null : surchargeEndsInMin(hours, new Date());
   return (
     <View
       testID={`ride-surcharge-${s.key}`}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.infoTint }}
+      style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.infoTint }}
     >
-      <Icon name={s.key === 'night' ? 'clock' : 'bell'} size={16} color="infoText" strokeWidth={2.2} />
-      <Text variant="footnote" weight={600} color="infoText" style={{ flex: 1 }}>
-        {text}
-      </Text>
+      <Icon name={s.key === 'night' ? 'clock' : 'bell'} size={16} color="infoText" strokeWidth={2.2} style={{ marginTop: 2 }} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="footnote" weight={600} color="infoText">
+          {text}
+        </Text>
+        {endsIn !== null ? (
+          <Text variant="footnote" color="infoText" testID={`ride-surcharge-tip-${s.key}`}>
+            {t(s.key === 'night' ? 'ride.night_ends_tip' : 'ride.peak_ends_tip', { n: endsIn, amount: amountParam(s.amount) })}
+          </Text>
+        ) : null}
+      </View>
     </View>
   );
 }

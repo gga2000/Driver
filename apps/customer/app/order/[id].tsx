@@ -8,7 +8,10 @@ import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Tex
 import { newClientId, threadOf } from '@/features/chat/logic';
 import { newRequestKey } from '@/features/food/place-attempt';
 import { FREE_CANCEL_H, FreeCancelChip, NameThisPlace, RideRoute, rideVehicleLabel, SEARCH_PROGRESS_H, SearchProgress, searchElapsedSec, useSearchNote, useSearchProgress, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
-import { RideNearCard, ScreenLight } from '@/features/ride/ArrivalParts';
+import { RideNearCard, ScreenLight, StartCode } from '@/features/ride/ArrivalParts';
+import { useLostItem } from '@/features/ride/driver-queries';
+import { AvoidDriverSheet, DriverProfileSheet } from '@/features/ride/DriverProfileSheet';
+import { OfferedDrivers } from '@/features/ride/OfferedDrivers';
 import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
 import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
@@ -72,7 +75,8 @@ type Panel = 'cancel' | 'dispute' | 'street' | 'share' | null;
  * Live order / ride screen (customer app spec §4): map ≈ 60 % with the gliding courier, a
  * draggable sheet (collapsed: status + ETA; expanded: timeline, courier card, order, price,
  * actions), the unreachable protocol, the arrival moment and the two-tap rating.
- * `?sheet=1|2` opens the sheet at a detent (deep links from notifications, screenshots).
+ * `?sheet=0|1|2` opens the sheet at a detent (deep links from notifications, screenshots); a
+ * searching ride opens at 1, on the drivers who were sent it.
  */
 export default function OrderLiveScreen() {
   const theme = useTheme();
@@ -189,6 +193,11 @@ export default function OrderLiveScreen() {
     );
 
   const [panel, setPanel] = useState<Panel>(null);
+  // Ride ideas n5/s5: a driver's profile (one offered this ride, or the driver of it), and «ما أريده مرة ثانية».
+  const [profileFor, setProfileFor] = useState<{ offerId: string | null } | null>(null);
+  const [avoidOpen, setAvoidOpen] = useState(false);
+  // Ride idea s7: «نسيت غرض» reopens the chat with the driver for a day after the ride.
+  const lostItem = useLostItem();
   // Joy g1: a gift sent from this phone can still send its heads-up while the meal is on its way.
   const gift = useGift(v?.order.id);
   const giftHeadsUp = useGiftHeadsUp(v?.order.id, gift, v?.merchant?.name ?? '');
@@ -344,8 +353,21 @@ export default function OrderLiveScreen() {
       onChat={() => openChat('customer_courier')}
       onCall={call}
       onShare={() => void share()}
+      {...(ride ? { onProfile: () => setProfileFor({ offerId: null }) } : {})}
     />
   ) : null;
+  const lostItemOpen = Boolean(ride && v?.courier && v.trip?.completedAt && now - v.trip.completedAt.getTime() < 24 * 3_600_000);
+  const askLostItem = () =>
+    lostItem.mutate(
+      { orderId: id },
+      {
+        onSuccess: () => {
+          void threads.refetch();
+          openChat('customer_courier');
+        },
+        onError: (e) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'warning' }),
+      },
+    );
 
   return (
     <View testID="order-live" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -416,6 +438,7 @@ export default function OrderLiveScreen() {
           now={now}
           clock={clock}
           night={night}
+          startCode={v.trip?.startCode ?? null}
           onLight={() => setLightFor(id)}
           sent={rideComingOut?.orderId === id && rideComingOut.state === 'sent'}
           sending={rideComingOut?.orderId === id && rideComingOut.state === 'sending'}
@@ -463,9 +486,10 @@ export default function OrderLiveScreen() {
 
       <Sheet
         // The calm receipt (f2) opens the sheet at its middle detent: remount once it is decided.
-        key={receipt ? 'receipt' : 'live'}
+        // While a ride searches the sheet opens at its middle, on the drivers who were sent it (n3).
+        key={receipt ? 'receipt' : searching ? 'search' : 'live'}
         snapPoints={[collapsed, 0.62, 0.9]}
-        initialSnap={sheet === '2' ? 2 : sheet === '1' || receipt ? 1 : 0}
+        initialSnap={sheet === '2' ? 2 : sheet === '1' || receipt || (searching && sheet !== '0') ? 1 : 0}
         testID="track-sheet"
         header={
           v && phase ? (
@@ -519,6 +543,7 @@ export default function OrderLiveScreen() {
                 <Button label={v.order.type === 'ride' ? rideArrivalCopy(t, v).rate : t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
               </View>
             ) : null}
+            {ride && v.trip?.startCode && (phase === 'to_pickup' || phase === 'at_pickup') ? <StartCode code={v.trip.startCode} /> : null}
             {ride && night && v.courier && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? (
               <NightShareCard shared={Boolean(shareLink && !shareLink.revokedAt)} onShare={() => void share()} />
             ) : null}
@@ -526,6 +551,7 @@ export default function OrderLiveScreen() {
             {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
             {ride ? <RideRoute view={v} /> : null}
             {ride && (phase === 'arrived' || phase === 'done') ? <NameThisPlace view={v} /> : null}
+            {searching ? <OfferedDrivers orderId={id} onProfile={(offerId) => setProfileFor({ offerId })} /> : null}
             {searching && canCancel ? (
               <View style={{ gap: theme.space[1] }}>
                 <Button label={t('ride.cancel_free_button')} variant="secondary" icon="x" fullWidth onPress={() => setPanel('cancel')} testID="ride-cancel-searching" />
@@ -575,6 +601,8 @@ export default function OrderLiveScreen() {
                 <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
               ) : null}
               {happy && moment ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
+              {lostItemOpen ? <ActionRow icon="bag" label={t('ride.lost_item')} hint={t('ride.lost_item_hint')} onPress={askLostItem} testID="action-lost-item" /> : null}
+              {ride && happy && v.courier ? <ActionRow icon="x" label={t('ride.avoid_button')} onPress={() => setAvoidOpen(true)} testID="action-avoid" /> : null}
               {happy ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
               {supportThread && (supportThread.status === 'open' || supportThread.lastMessageAt) ? (
                 <ActionRow
@@ -631,6 +659,24 @@ export default function OrderLiveScreen() {
         />
       ) : null}
       {v && rating ? <RatingPanel view={v} onDone={() => setRating(false)} /> : null}
+      {v && ride ? (
+        <DriverProfileSheet
+          orderId={id}
+          offerId={profileFor?.offerId ?? null}
+          visible={profileFor !== null}
+          now={now}
+          onClose={() => setProfileFor(null)}
+          {...(happy && profileFor?.offerId === null
+            ? {
+                onAvoid: () => {
+                  setProfileFor(null);
+                  setAvoidOpen(true);
+                },
+              }
+            : {})}
+        />
+      ) : null}
+      {v?.courier && ride ? <AvoidDriverSheet orderId={id} name={v.courier.firstName ?? t('track.driver_fallback')} visible={avoidOpen} onClose={() => setAvoidOpen(false)} /> : null}
       {v?.courier && ride ? <ScreenLight visible={lightFor === id && (phase === 'to_pickup' || phase === 'at_pickup')} vertical={rideVertical} courier={v.courier} onClose={() => setLightFor(null)} /> : null}
       {v && moment ? <ShareCardPanel moment={moment} id={v.order.id} visible={cardOpen} onClose={() => setCardOpen(false)} /> : null}
     </View>

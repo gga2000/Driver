@@ -326,6 +326,8 @@ export interface RidePlaceArgs {
   scheduledFor?: Date | null;
   /** Joy l9: one of the rider's favourites, asked first (booked rides only). */
   favouriteId?: string | null;
+  /** Ride idea s6: family drivers first. */
+  familyPreferred?: boolean;
 }
 
 /** The exact `orders.place` payload for a ride (what scripts/e2e/three-apps.mjs sends, plus options). */
@@ -345,6 +347,7 @@ export function buildRidePlaceInput(a: RidePlaceArgs): PlaceOrderInput {
     ...(a.clientRequestId ? { clientRequestId: a.clientRequestId } : {}),
     ...(a.scheduledFor ? { scheduledFor: a.scheduledFor } : {}),
     ...(a.scheduledFor && a.favouriteId ? { favouriteId: a.favouriteId } : {}),
+    ...(a.familyPreferred ? { familyPreferred: true } : {}),
   };
 }
 
@@ -540,4 +543,33 @@ export function standsAwayM(driver: LatLng | null, pickup: LatLng | null): numbe
   if (d > 400) return null;
   if (d <= 15) return 0;
   return d < 50 ? Math.round(d / 5) * 5 : Math.round(d / 10) * 10;
+}
+
+/** Ride idea n5: how long he has driven here, in the unit a person says («من 8 أشهر», «من سنتين»). */
+export function memberSpan(since: Date | null, now: number): { unit: 'new' | 'months' | 'years'; n: number } | null {
+  if (!since) return null;
+  const months = Math.floor((now - since.getTime()) / (30.44 * 86_400_000));
+  if (months < 1) return { unit: 'new', n: 0 };
+  if (months < 12) return { unit: 'months', n: months };
+  return { unit: 'years', n: Math.floor(months / 12) };
+}
+
+/** Ride idea g4: the honest timing tip shows when a time surcharge ends within this many minutes. */
+export const SURCHARGE_TIP_MIN = 30;
+
+/**
+ * Ride idea g4: minutes until a time surcharge's window `[from, to)` (Baghdad hours) ends, when that is
+ * `SURCHARGE_TIP_MIN` or less — «وقت الذروة يخلص بعد 15 دقيقة» — so a rider who can wait pays less.
+ * Null outside the window or when the end is further off. Information only: the price is the server's.
+ */
+export function surchargeEndsInMin(hours: [number, number] | null, now: Date): number | null {
+  if (!hours) return null;
+  const local = new Date(now.getTime() + 3 * 3_600_000);
+  const mins = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const from = hours[0] * 60;
+  const to = hours[1] * 60;
+  const inside = from <= to ? mins >= from && mins < to : mins >= from || mins < to;
+  if (!inside) return null;
+  const left = (to - mins + 1440) % 1440;
+  return left > 0 && left <= SURCHARGE_TIP_MIN ? left : null;
 }

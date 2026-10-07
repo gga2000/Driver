@@ -3,7 +3,7 @@ import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import type { CourierCard } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import { Avatar, Button, CountdownRing, Icon, PlateChip, Text, useTheme } from '@driver/ui';
-import { LightButton } from '@/features/ride/ArrivalParts';
+import { LightButton, StartCode } from '@/features/ride/ArrivalParts';
 import { FREE_WAIT_SEC, WaitCounter } from '@/features/ride/LiveParts';
 import type { RideVertical } from '@/features/ride/logic';
 import { rideSwatch } from '@/features/ride/swatch';
@@ -29,6 +29,7 @@ export function DriverHereCard({
   now,
   clock,
   night,
+  startCode,
   sent,
   sending,
   canReply,
@@ -53,6 +54,8 @@ export function DriverHereCard({
   now: number;
   clock: () => number;
   night: boolean;
+  /** Night rides (s1): the 4 digits the driver needs before the trip can start. */
+  startCode: string | null;
   /** "طالع هسة" already went: the button turns into a quiet confirmation. */
   sent: boolean;
   sending: boolean;
@@ -128,6 +131,7 @@ export function DriverHereCard({
         {courier.plate ? <PlateChip plate={courier.plate} accessibilityLabel={t('driver.plate')} size="xl" testID="driver-here-plate" /> : null}
       </View>
       <View style={{ padding: theme.space[4], gap: theme.space[3] }}>
+        {startCode ? <StartCode code={startCode} compact /> : null}
         {arrivedAt ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             {free ? (

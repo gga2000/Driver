@@ -159,3 +159,41 @@ function LightFace({ vertical, courier, onClose }: { vertical: RideVertical; cou
     </View>
   );
 }
+
+/**
+ * Ride idea s1: at night the trip can't start without the rider's 4 digits — «گول للسايق هذا الكود قبل
+ * ما تصعد», the digits large and spaced so they can be read out at the kerb, and why.
+ */
+export function StartCode({ code, compact = false }: { code: string; compact?: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View
+      testID="ride-start-code"
+      accessible
+      accessibilityLabel={`${t('ride.start_code_title')}: ${code.split('').join(' ')}`}
+      style={{ gap: theme.space[2], padding: compact ? theme.space[3] : theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <Icon name="lock" size={16} color="text" strokeWidth={2.2} />
+        <Text variant="label" weight={700} style={{ flex: 1 }}>
+          {t('ride.start_code_title')}
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: theme.space[2] }}>
+        {code.split('').map((d, i) => (
+          <View key={i} style={{ width: compact ? 44 : 52, height: compact ? 52 : 60, borderRadius: theme.radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.borderStrong }}>
+            <Text variant="display" tabular style={{ fontSize: compact ? 28 : 32, lineHeight: compact ? 36 : 40 }} testID={`ride-start-code-${i}`}>
+              {d}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {compact ? null : (
+        <Text variant="footnote" color="textMuted" align="center">
+          {t('ride.start_code_why')}
+        </Text>
+      )}
+    </View>
+  );
+}

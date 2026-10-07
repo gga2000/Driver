@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, Stack } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
+import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
@@ -113,7 +113,7 @@ export default function RideChoose() {
     inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav }),
+        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred }),
       );
       attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
@@ -222,7 +222,7 @@ export default function RideChoose() {
 
           <OptionsRow
             when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
-            payment={d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash')}
+            payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null].filter(Boolean).join(' · ')}
             pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
             note={d.note}
             onPress={() => setOptionsOpen(true)}
@@ -310,6 +310,27 @@ export default function RideChoose() {
               </Text>
             </View>
           ) : null}
+
+          {/* Ride idea s6: «سايق للعوائل». */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 56 }}>
+            <Icon name="family" size={22} color="textMuted" />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="label" weight={600}>
+                {t('ride.family_pref')}
+              </Text>
+              <Text variant="footnote" color="textMuted">
+                {t('ride.family_pref_hint')}
+              </Text>
+            </View>
+            <Switch
+              testID="ride-family"
+              accessibilityLabel={t('ride.family_pref')}
+              value={d.familyPreferred}
+              trackColor={{ false: theme.colors.borderStrong, true: theme.colors.selected }}
+              thumbColor={theme.colors.surface}
+              onValueChange={(familyPreferred) => rideStore.update({ familyPreferred })}
+            />
+          </View>
 
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="textMuted">

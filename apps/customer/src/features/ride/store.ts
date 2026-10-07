@@ -20,6 +20,8 @@ export interface RideDraft {
   note: string;
   /** The rider chose to try a tuktuk to/from an edge zone. */
   allowEdgeTuktuk: boolean;
+  /** Ride idea s6 «سايق للعوائل»: the first wave goes to long-verified, top-rated drivers with family cars. */
+  familyPreferred: boolean;
 }
 
 export interface RideMemo {
@@ -47,7 +49,7 @@ export interface RideStoreState extends PersistedRide {
 
 const KEY = 'driver.customer.ride';
 const MAX_MEMOS = 20;
-export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false };
+export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false };
 
 export function createRideStore(store: KeyValueStorage) {
   let state: RideStoreState = { loaded: false, draft: EMPTY_DRAFT, recent: [], memos: {} };
@@ -91,9 +93,9 @@ export function createRideStore(store: KeyValueStorage) {
       })();
       return loading;
     },
-    /** A fresh booking from home (keeps nothing of the last one but the payment choice). */
+    /** A fresh booking from home (keeps nothing of the last one but the payment and family-driver choices). */
     start(vertical: RideVertical) {
-      emit({ ...state, draft: { ...EMPTY_DRAFT, vertical, payment: state.draft.payment } });
+      emit({ ...state, draft: { ...EMPTY_DRAFT, vertical, payment: state.draft.payment, familyPreferred: state.draft.familyPreferred } });
     },
     update(patch: Partial<RideDraft>) {
       emit({ ...state, draft: { ...state.draft, ...patch } });

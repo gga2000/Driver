@@ -23,8 +23,10 @@
 //                                                                         POST /demo/ops-agent
 //   chat-*   order screen chat/call/share, courier + kitchen + support threads, quick reply, masked call,
 //            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
-//   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
-//            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
+//   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door, family driver), edge
+//            zone, pin, searching with the drivers sent it («نبّهه», a profile), cancel preview, matched,
+//            a minute away, the screen light and safety shield (a night tab), the arrived card, on the
+//            trip, night share, arrival, rating, the receipt's lost-item and not-again rows
 //                                                                         POST /demo/ride
 //   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
 //            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
@@ -1252,6 +1254,12 @@ async function rideShots() {
   await byTestId('ride-note-chip-1').click();
   await settle(400);
   await shot('ride-options');
+  // s6: «سايق للعوائل» in the same panel (switched back off, so this tuktuk goes to everyone).
+  await byTestId('ride-family').scrollIntoViewIfNeeded();
+  await byTestId('ride-family').click();
+  await settle(400);
+  await shot('ride-family');
+  await byTestId('ride-family').click();
   await byTestId('ride-options-done').click();
   await byTestId('ride-options-panel').waitFor({ state: 'detached' });
   await settle(600);
@@ -1262,6 +1270,20 @@ async function rideShots() {
   await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(4200);
   await shot('ride-searching');
+  // n3/n4: the drivers who were sent it, «نبّهه» on the first; n5 his profile on tap.
+  const nudge = page.locator('[data-testid^="ride-nudge-"]').first();
+  if (await nudge.waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await nudge.click();
+    await page.locator('[data-testid^="ride-nudged-"]').first().waitFor({ timeout: 10_000 }).catch(() => errors.push('nudge not confirmed'));
+    await settle(600);
+    await shot('ride-nudged');
+    await page.locator('[data-testid^="ride-offer-open-"]').first().click();
+    await byTestId('driver-profile-body').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver profile not shown'));
+    await settle(700);
+    await shot('ride-profile');
+    await page.keyboard.press('Escape');
+    await byTestId('driver-profile').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+  } else errors.push('offered drivers not shown while searching');
   await byTestId('ride-cancel-searching').waitFor({ state: 'attached', timeout: 5_000 }).catch(() => undefined);
   await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-cancel-searching').waitFor({ timeout: 15_000 });
@@ -1371,6 +1393,21 @@ async function rideShots() {
   await byTestId('ride-name-place').waitFor({ timeout: 15_000 }).catch(() => errors.push('name-this-place not shown'));
   await byTestId('ride-name-place').scrollIntoViewIfNeeded().catch(() => undefined);
   await shot('ride-receipt-name');
+  // s7 «نسيت غرض» and s5 «ما أريده مرة ثانية» among the receipt's actions.
+  await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
+  await byTestId('action-lost-item').waitFor({ timeout: 15_000 }).catch(() => errors.push('lost-item row not shown'));
+  await byTestId('action-lost-item').scrollIntoViewIfNeeded().catch(() => undefined);
+  await settle(500);
+  await shot('ride-receipt-actions');
+  await byTestId('action-avoid').click();
+  await byTestId('avoid-sheet').waitFor({ timeout: 10_000 }).catch(() => errors.push('avoid sheet not shown'));
+  await settle(600);
+  await shot('ride-avoid');
+  await byTestId('avoid-cancel').click();
+  await byTestId('action-lost-item').click();
+  await page.waitForURL(/\/chat\//, { timeout: 15_000 }).catch(() => errors.push('lost item did not open the chat'));
+  await settle(1200);
+  await shot('ride-lost-item-chat');
   await page.goto(`${origin}/ride`, LOADED);
   await byTestId('ride-picks').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart picks not shown after a ride'));
   await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));
