@@ -135,10 +135,10 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     // A second press while one is still open joins it: one person, one red banner.
     const open = recent.find((r) => LIVE_STATES.includes(r.state));
     if (open) return this.joinPress(open, input.position, now);
-    if (recent.length >= SAFETY_RULES.maxPerHour) {
-      const oldest = recent[recent.length - 1]!;
-      throw new DriverError('sos_rate_limited', { retryAfterSec: Math.max(1, Math.ceil((oldest.raisedAt.getTime() + HOUR_MS - now.getTime()) / 1000)) });
-    }
+    // An SOS is never refused (FLOW-08). Cancelled false alarms don't count; past the hourly limit the
+    // alert still goes out, flagged on its timeline so the desk knows it may be a repeat.
+    const kept = recent.filter((r) => r.state !== 'cancelled').length;
+    const repeated = kept >= SAFETY_RULES.maxPerHour;
     const subject = await resolveSubject(this.sources, actor.personId, input.subject, now);
     // No GPS on the phone: start from where the car last was (when the person is in it).
     const position: SosPosition | null = input.position ?? (subject.carFix ? { lat: subject.carFix.lat, lng: subject.carFix.lng, accuracyM: null, at: subject.carFix.at } : null);
@@ -181,7 +181,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
           tx,
         );
         if (position) await this.repo.addFix({ incidentId: created.id, lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, deviceAt: position.at, at: now }, tx);
-        await this.repo.addEntry({ incidentId: created.id, kind: 'raised', at: now, byId: null, note: null, data: { role: subject.role, ...(input.category ? { category: input.category } : {}) } }, tx);
+        await this.repo.addEntry({ incidentId: created.id, kind: 'raised', at: now, byId: null, note: null, data: { role: subject.role, ...(input.category ? { category: input.category } : {}), ...(repeated ? { repeated: String(kept) } : {}) } }, tx);
         if (!contact) await this.repo.addEntry({ incidentId: created.id, kind: 'contact', at: now, byId: null, note: null, data: { status: 'none' } }, tx);
         // Server time on purpose: the device's clock is in the payload, never a reason to quarantine an SOS.
         const ev = await this.events.emit(

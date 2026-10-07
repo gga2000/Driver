@@ -197,15 +197,32 @@ describe('SafetyService — raising an SOS', () => {
     await expect(h.raise(RIDER, 'press-after-cancel')).resolves.toBeDefined(); // joins the open one
   });
 
-  it('rate-limits new incidents per person per hour', async () => {
+  it('never refuses an SOS: cancelled false alarms do not count toward the hourly limit (FLOW-08)', async () => {
     const h = harness();
     for (let i = 0; i < SAFETY_RULES.maxPerHour; i++) {
       const v = await h.raise(RIDER, `press-rl-${i}`);
       await h.svc.cancel(RIDER, { incidentId: v.incidentId });
     }
-    await expect(h.raise(RIDER, 'press-rl-x')).rejects.toMatchObject({ code: 'sos_rate_limited' });
+    const real = await h.raise(RIDER, 'press-rl-x');
+    expect(real).toMatchObject({ state: 'open' });
+    const kase = await h.svc.get(HAIDER, { id: real.incidentId });
+    expect(kase.timeline.find((e) => e.kind === 'raised')?.data['repeated']).toBeUndefined();
+  });
+
+  it('past the hourly limit of real alerts, still opens the incident, flagged as possibly repeated', async () => {
+    const h = harness();
+    for (let i = 0; i < SAFETY_RULES.maxPerHour; i++) {
+      const v = await h.raise(RIDER, `press-rr-${i}`);
+      await h.svc.resolve(HAIDER, { id: v.incidentId, outcome: 'safe', note: 'اتصلنا، بخير' });
+    }
+    const v = await h.raise(RIDER, 'press-rr-x');
+    expect(v).toMatchObject({ state: 'open' });
+    const kase = await h.svc.get(HAIDER, { id: v.incidentId });
+    expect(kase.timeline.find((e) => e.kind === 'raised')?.data['repeated']).toBe(String(SAFETY_RULES.maxPerHour));
+    await h.svc.resolve(HAIDER, { id: v.incidentId, outcome: 'safe', note: 'اتصلنا، بخير' });
     h.clock.advance(61 * 60_000);
-    await expect(h.raise(RIDER, 'press-rl-y')).resolves.toMatchObject({ state: 'open' });
+    const w = await h.raise(RIDER, 'press-rr-y');
+    expect((await h.svc.get(HAIDER, { id: w.incidentId })).timeline.find((e) => e.kind === 'raised')?.data['repeated']).toBeUndefined();
   });
 });
 
