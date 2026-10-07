@@ -34,6 +34,7 @@ import type { SupportPort } from './support-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
+import type { PhoneBookingPort } from './phone-booking-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -115,6 +116,8 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
+  phoneBookings: PhoneBookingPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

@@ -124,6 +124,8 @@ export const NotifyTemplateId = z.enum([
   'ride_receipt',
   'ride_matched',
   'driver_arrived',
+  'phone_ride_matched',
+  'phone_driver_arrived',
   'merchant_new_order',
   'partner_new_job',
   'partner_zone_nudge',
@@ -186,6 +188,11 @@ export interface NotifyTemplateDef {
     silent?: boolean;
   };
   whatsapp?: WhatsAppTemplateDef;
+  /**
+   * An SMS-first message (a person without the app, taxi/tuktuk step 4): its own short text (`sms.*`,
+   * `{name}` params). Without it the SMS is the WhatsApp text, else "title — body".
+   */
+  sms?: { body: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -283,6 +290,24 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'customer',
     push: { title: 'push.driver_arrived.title', body: 'push.driver_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // Taxi/tuktuk step 4 (v4): a ride booked by phone from the Console. The caller has no app, so the
+  // driver's name, car, plate, minutes away and the trip link go by SMS; then «وصل» at the pickup.
+  phone_ride_matched: {
+    id: 'phone_ride_matched',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { body: 'sms.phone_ride_matched' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  phone_driver_arrived: {
+    id: 'phone_driver_arrived',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { body: 'sms.phone_driver_arrived' },
+    primary: ['sms'],
     quietHours: 'send',
   },
   merchant_new_order: {

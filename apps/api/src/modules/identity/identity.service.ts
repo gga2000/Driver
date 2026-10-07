@@ -709,15 +709,22 @@ export class IdentityService implements IdentityPort {
 
   /**
    * Household invite by phone (domain §12): the Person behind the number, created pseudonymously when
-   * the number has never signed in (as a guardian link does). The number stays in the vault.
+   * the number has never signed in (as a guardian link does). The number stays in the vault. With
+   * `name` (a phone booking's caller) the vault's name is set when it has none.
    */
-  async ensurePersonByPhone(rawPhone: string, actorId: string, via: string): Promise<string> {
+  async ensurePersonByPhone(rawPhone: string, actorId: string, via: string, opts: { name?: string } = {}): Promise<string> {
     const { e164, hash } = this.phone(rawPhone);
+    const name = opts.name?.trim() || null;
     return this.uow.run(async (tx) => {
       const existing = await this.repo.findPersonByPhoneHash(hash, tx);
-      if (existing) return existing.id;
+      if (existing) {
+        // A name staff heard on the phone (taxi/tuktuk step 4) fills an empty vault name only: the
+        // name a person gave themselves, or an earlier call's, is never overwritten.
+        if (name && !(await this.repo.readIdentity(existing.id, tx))?.name) await this.repo.updateIdentity(existing.id, { name }, tx);
+        return existing.id;
+      }
       const now = this.clock.now();
-      const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: e164, phoneHash: hash, name: null, now }, tx);
+      const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: e164, phoneHash: hash, name, now }, tx);
       await this.events.emit(tx, { actorId, type: 'person.registered', occurredAt: now, payload: { personId: person.id, via } }, { name: 'person', id: person.id });
       return person.id;
     });

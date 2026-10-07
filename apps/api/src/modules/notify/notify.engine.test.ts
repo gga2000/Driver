@@ -283,6 +283,30 @@ describe('SMS twins', () => {
     await h.run(120 * SEC);
     expect(h.sms.sent).toHaveLength(0);
   });
+
+  it('a ride booked by phone texts the caller its own short SMS at once, logged with the text; the caller may turn it off', async () => {
+    const h = notifyHarness();
+    const params = { driver: 'عباس', car: 'كيا سيراتو · فضي، لوحة 23456 واسط', eta: 'يوصلك بعد 4 دقايق', link: 'https://driver.iq/share/tok_1' };
+    await h.service.dispatch({ eventId: 'ev1', template: 'phone_ride_matched', to: 'cust', orderId: 'ord_1', params });
+    await h.service.dispatch({ eventId: 'ev2', template: 'phone_driver_arrived', to: 'cust', orderId: 'ord_1', params: { driver: 'عباس', car: params.car, amount: '4,000' } });
+    await h.run();
+    expect(h.sms.sent.map((m) => m.body)).toEqual([
+      'درايفر: عباس جاي ياخذك: كيا سيراتو · فضي، لوحة 23456 واسط. يوصلك بعد 4 دقايق. تابعه: https://driver.iq/share/tok_1',
+      'درايفر: عباس وصل وينتظرك: كيا سيراتو · فضي، لوحة 23456 واسط. الأجرة 4,000 دينار كاش.',
+    ]);
+    const rows = await h.rows({ orderId: 'ord_1' });
+    expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([
+      ['phone_ride_matched', 'sms', 'sent'],
+      ['phone_driver_arrived', 'sms', 'sent'],
+    ]);
+    expect(rows[0]!.payload.body).toBe(h.sms.sent[0]!.body);
+
+    const off = notifyHarness();
+    await off.service.setPreferences(off.actor('cust'), { smsFallback: false });
+    await off.service.dispatch({ eventId: 'ev1', template: 'phone_ride_matched', to: 'cust', params });
+    await off.run();
+    expect(off.sms.sent).toHaveLength(0);
+  });
 });
 
 describe('retries and token pruning', () => {
