@@ -350,7 +350,7 @@ export default function CheckoutScreen() {
   const whenValue = !scheduledFor
     ? t('checkout.when_now')
     : chosen?.dinner
-      ? t('dinner.slot', { time: clock12(scheduledFor) })
+      ? t(dinnerTime.data?.lateByMin ? 'dinner.slot_after' : 'dinner.slot', { time: clock12(scheduledFor) })
       : chosen?.iftar && iftar
       ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) })
       : `${day === 1 ? t('time.tomorrow') : t('time.today')} ${t('checkout.when_at', { time: clock12(scheduledFor) })}`;
@@ -658,7 +658,7 @@ export default function CheckoutScreen() {
                 />
                 {slots.length > 0 ? (
                   <ChipGroup
-                    items={slots.map((sl) => ({ id: String(sl.at.getTime()), ...(sl.dinner ? { icon: 'food' as const } : {}), label: sl.dinner ? t('dinner.slot', { time: clock12(sl.at) }) : sl.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(sl.at) }) }))}
+                    items={slots.map((sl) => ({ id: String(sl.at.getTime()), ...(sl.dinner ? { icon: 'food' as const } : {}), label: sl.dinner ? t(dinnerTime.data?.lateByMin ? 'dinner.slot_after' : 'dinner.slot', { time: clock12(sl.at) }) : sl.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(sl.at) }) }))}
                     value={chosen ? [String(chosen.at.getTime())] : []}
                     required
                     onChange={(v) => setSlot(v[0] ?? null)}

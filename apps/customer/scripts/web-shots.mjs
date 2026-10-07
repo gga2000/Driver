@@ -326,12 +326,15 @@ async function tripsShots(khalid) {
   await byTestId(`regular-edit-${seed.regularRideId}`).click();
   await byTestId('regular-save').waitFor({ timeout: 15_000 });
   await shot('trips-edit-ride');
-  await fullShot('trips-edit-ride-full');
+  await page.locator('[data-testid="regular-save"]:visible').first().scrollIntoViewIfNeeded();
+  await shot('trips-edit-ride-bottom');
   await page.goto(`${origin}/regular`, LOADED);
   await byTestId('regular-add-rajaa').click();
   await byTestId('regular-save').waitFor({ timeout: 15_000 });
   await settle(800);
-  await fullShot('trips-edit-rajaa-full');
+  await shot('trips-edit-rajaa');
+  await page.locator('[data-testid="regular-save"]:visible').first().scrollIntoViewIfNeeded();
+  await shot('trips-edit-rajaa-bottom');
 
   await page.goto(`${origin}/drivers`, LOADED);
   await page.locator('[data-testid^="driver-fav_"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('favourites not shown'));
@@ -346,7 +349,10 @@ async function tripsShots(khalid) {
 
   // Booking a ride for later with the favourite: home → work, «لوكت ثاني», حسين.
   await page.goto(`${origin}/ride`, LOADED);
-  await page.locator('[data-testid^="ride-saved-"]').last().click();
+  // The where-to screen may open on «من» or on «إلى»: الدائرة, then البيت if it was the pickup.
+  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+  await settle(600);
+  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
   await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(async () => {
     errors.push('choose screen not shown');
     await page.screenshot({ path: join(outDir, 'trips-debug-choose.png') });
@@ -373,28 +379,32 @@ async function tripsShots(khalid) {
   await shot('trips-pass-favourite');
 
   // «عشاك يوصل وياك»: a taxi home on the road → home card → the kitchens → checkout's «وياك».
-  await demoPost(`/demo/dinner?personId=${encodeURIComponent(personId)}`);
+  const homeRide = await demoPost(`/demo/dinner?personId=${encodeURIComponent(personId)}`);
   await page.goto(`${origin}/`, LOADED);
   await byTestId('home-dinner').waitFor({ timeout: 20_000 }).catch(() => errors.push('dinner card on home not shown'));
   await shot('trips-dinner-home');
   await byTestId('home-dinner-go').click();
   await byTestId('dinner-banner').waitFor({ timeout: 15_000 }).catch(() => errors.push('dinner banner not shown'));
   await shot('trips-dinner-list');
-  await byTestId(`restaurant-${khalid}`).click();
-  await byTestId(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
-  await byTestId(`dish-add-${khalid}_pepsi`).click();
-  if (await byTestId('item-sheet').isVisible().catch(() => false)) {
-    await byTestId('item-add').click();
+  // Screens stay mounted under the new one on web: the visible copy of each element.
+  const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
+  await visible(`restaurant-row-${khalid}`).click();
+  await visible(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
+  await visible(`dish-add-${khalid}_pepsi`).click();
+  if (await visible('item-sheet').isVisible().catch(() => false)) {
+    await visible('item-add').click();
     await byTestId('item-sheet').waitFor({ state: 'detached' });
   }
-  await byTestId('cart-bar').click();
-  await byTestId('cart-checkout').click();
+  await visible('cart-bar').click();
+  await visible('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await byTestId('checkout-dinner-note').waitFor({ timeout: 15_000 }).catch(() => errors.push('dinner note at checkout not shown'));
   await byTestId('checkout-row-when').scrollIntoViewIfNeeded().catch(() => {});
   await settle(900);
   await shot('trips-dinner-checkout');
 
+  // The taxi gets home first (one trip on at a time offers dinner), then a seat back from Kut.
+  if (homeRide?.orderId) await demoPost(`/demo/ride/advance?orderId=${homeRide.orderId}`);
   const seat = await demoPost(`/demo/dinner?personId=${encodeURIComponent(personId)}&kind=rajaa`);
   if (seat?.bookingId) {
     await page.goto(`${origin}/rajaa/pass/${seat.bookingId}`, LOADED);

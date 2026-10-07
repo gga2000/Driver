@@ -6320,7 +6320,7 @@
   "dinner.slot": "With you · {time}",
   "dinner.with": "It reaches {place} about when you do, at {time}",
   "dinner.after": "The kitchen needs time: it arrives {minutes} after you (you arrive at {time})",
-  "dinner.banner": "Dinner to {place} arriving with you: pick an open kitchen",
+  "dinner.banner": "Dinner reaches {place} with you: pick an open kitchen",
   "dinner.banner_close": "No, thanks",
   "habits.account_section": "My rides",
   "habits.regular_title": "My regular trips",
@@ -6460,5 +6460,6 @@
   "ride.book_later": "Book {vehicle} · {when} · {amount} IQD",
   "ride.fav_title": "Your favourite driver",
   "partner.offer_favourite_title": "The rider asked for you",
-  "partner.offer_favourite_body": "A booked ride: yours for a minute before other drivers"
+  "partner.offer_favourite_body": "A booked ride: yours for a minute before other drivers",
+  "dinner.slot_after": "After you arrive · {time}"
 }

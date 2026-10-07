@@ -6320,7 +6320,7 @@
   "dinner.slot": "وياك · {time}",
   "dinner.with": "يوصل {place} وياك تقريباً، وأنت توصل {time}",
   "dinner.after": "المطعم يحتاج وكت: يوصل بعدك بـ {minutes} (أنت توصل {time})",
-  "dinner.banner": "عشا لـ{place} يوصل وياك: اختار مطعم مفتوح",
+  "dinner.banner": "عشاك يوصل {place} وياك: اختار مطعم مفتوح",
   "dinner.banner_close": "لا، شكراً",
   "habits.account_section": "مشاويري",
   "habits.regular_title": "رحلاتي الثابتة",
@@ -6460,5 +6460,6 @@
   "ride.book_later": "احجز {vehicle} · {when} · {amount} دينار",
   "ride.fav_title": "سايقك المفضل",
   "partner.offer_favourite_title": "الزبون طلبك إنت",
-  "partner.offer_favourite_body": "مشوار محجوز، يجيك أول دقيقة قبل باقي السواق"
+  "partner.offer_favourite_body": "مشوار محجوز، يجيك أول دقيقة قبل باقي السواق",
+  "dinner.slot_after": "بعد وصولك · {time}"
 }

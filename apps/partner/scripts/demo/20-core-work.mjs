@@ -171,6 +171,30 @@ export default async function register(demo) {
     if (kind !== 'batch') await clear(p.personId);
     await ensureOnline(query.who, p.personId, p.vehicle ?? 'bike');
 
+    if (kind === 'favourite') {
+      // Joy l9: the buyer kept this driver as a favourite after a good ride; the tuktuk he booked for
+      // later asks for him, and its search starts now (the timer dispatch would fire 15 min before):
+      // the offer rings for him alone for a minute, saying «الزبون طلبك إنت».
+      const { RIDE_HABITS_REPOSITORY } = await demo.load('modules/ride-habits/index.js');
+      const { OfferOrchestrator } = await demo.load('modules/dispatch/offer.orchestrator.js');
+      const fav = await demo.app.get(RIDE_HABITS_REPOSITORY).addFavourite(buyer(), p.personId, 'tuktuk', new Date());
+      const ride = await orders.place(buyer(), {
+        cityId: CITY,
+        type: 'ride',
+        rideVertical: 'tuktuk',
+        pickup: { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } },
+        dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
+        scheduledFor: new Date(Date.now() + 25 * 60_000),
+        favouriteId: fav.id,
+      });
+      const trip = await trips.activeForOrder(ride.id);
+      const orchestrator = demo.app.get(OfferOrchestrator);
+      const r = await orchestrator.getRequest(trip.id);
+      await orchestrator.onTimer({ kind: 'broadcast_start', tripId: trip.id, epoch: r.epoch, step: 0 });
+      const open = await dispatch.openOffer(p.personId, CITY);
+      return demo.json(res, 200, { kind, offerId: open?.offer.id ?? null, tripId: trip.id });
+    }
+
     if (kind === 'ride') {
       const ride = await orders.place(buyer(), {
         cityId: CITY,
