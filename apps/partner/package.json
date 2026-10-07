@@ -48,6 +48,7 @@
     "expo-secure-store": "57.0.4",
     "expo-sharing": "57.0.22",
     "expo-status-bar": "57.0.1",
+    "expo-task-manager": "57.0.21",
     "expo-updates": "57.0.25",
     "maplibre-gl": "5.24.0",
     "query-string": "7.1.3",

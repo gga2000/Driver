@@ -6,7 +6,7 @@ import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness, workedExample } from '../ledger/test-harness.js';
 import { roundCollections } from '../control-room/index.js';
 import { OrgsService } from '../orgs/index.js';
-import { DevBlobStore, PlacesService, type BlobStore } from '../places/index.js';
+import { DevBlobStore, InMemorySavedPlacesRepository, LandmarkFeedService, PlacesService, SavedPlacesService, type BlobStore } from '../places/index.js';
 import { InMemoryOpsRepository } from './ops.repository.js';
 import { OpsService } from './ops.service.js';
 import { InMemoryWindowCounter } from '../../shared/window-counter.js';
@@ -244,6 +244,33 @@ describe('ops.landmarks', () => {
     ]);
     expect((await h.ops.landmarks(h.staff, { cityId: 'aziziyah', zoneKey: 'centre' })).map((l) => l.placeId)).toEqual([mosque.id]);
     expect(park.landmark).toBe(true);
+  });
+});
+
+describe('approved landmark photos on the map (maps program b3)', () => {
+  it('the newest approved photo of a landmark is in the feed as soon as it is approved; a rejected one never', async () => {
+    const h = await setup();
+    const saved = new SavedPlacesService(new InMemorySavedPlacesRepository(), h.blobs, { peersOf: () => [] }, h.ev.events, h.clock, h.places);
+    const feed = new LandmarkFeedService(saved, h.blobs, h.clock);
+    const ops = new OpsService(h.repo, h.accounts, h.lh.merchantCash, h.lh.caps, h.lh.ledger, h.orgs, h.id.service, h.ev.events, h.blobs, h.ev.uow, h.clock, h.places, undefined, feed);
+    ops.onModuleInit();
+    const mosque = await h.places.save({ cityId: 'aziziyah', pin: { lat: 32.905, lng: 45.06 }, name: 'الجامع الكبير', photos: [], confidence: 1, sharedWith: [], landmark: true });
+    const reviewer = (await h.id.login('07700000002')).actor;
+    const photoOf = async () => {
+      const f = await feed.feed({ cityId: 'aziziyah' });
+      return f.changed ? (f.landmarks.find((l) => l.id === mosque.id)?.photoUrl ?? null) : 'unchanged';
+    };
+    expect(await photoOf()).toBeNull();
+
+    const rejected = await ops.addLandmarkPhoto(h.staff, { target: { kind: 'landmark', id: mosque.id }, uploadId: await upload(h.blobs, h.staff.personId), localNames: [] });
+    await ops.reviewLandmarkPhoto(reviewer, { photoId: rejected.photoId, approve: false, reason: 'ضبابية' });
+    expect(await photoOf()).toBeNull();
+
+    const good = await upload(h.blobs, h.staff.personId);
+    const approved = await ops.addLandmarkPhoto(h.staff, { target: { kind: 'landmark', id: mosque.id }, uploadId: good, localNames: [] });
+    await ops.reviewLandmarkPhoto(reviewer, { photoId: approved.photoId, approve: true });
+    expect(await photoOf()).toContain(`/files/${good}?`);
+    expect(await h.repo.latestApprovedUploads([mosque.id, 'lm_none'])).toEqual(new Map([[mosque.id, good]]));
   });
 });
 

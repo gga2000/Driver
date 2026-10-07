@@ -208,9 +208,11 @@ export default function OrderLiveScreen() {
 
   // Chat, masked call and share-trip (notifications & support §2; safety §5).
   const client = useApiClient();
-  const threads = useChatThreads(id, Boolean(v && (v.courier || v.merchant) && !track.isError));
+  // «احجي ويا الدعم» is there from placement, so the threads are read for every order.
+  const threads = useChatThreads(id, Boolean(v && !track.isError));
   const courierThread = threadOf(threads.data, 'customer_courier');
   const merchantThread = threadOf(threads.data, 'customer_merchant');
+  const supportThread = threadOf(threads.data, 'customer_support');
   const { call: maskedCall } = useMaskedCall(id, 'customer_courier', Boolean(ride));
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   // A ride or a delivery: a signed link the family can open without the app (maps program SP3c).
@@ -234,7 +236,7 @@ export default function OrderLiveScreen() {
       toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
     }
   };
-  const openChat = (kind: 'customer_courier' | 'customer_merchant') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
+  const openChat = (kind: 'customer_courier' | 'customer_merchant' | 'customer_support') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
   const reply = async (key: QuickReplyKey) => {
     try {
       await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: key });
@@ -539,7 +541,16 @@ export default function OrderLiveScreen() {
               ) : null}
               {happy && moment ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
               {happy ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
-              <ActionRow icon="chat" label={t('order.report_problem')} onPress={() => setPanel('dispute')} testID="action-report" />
+              {supportThread && (supportThread.status === 'open' || supportThread.lastMessageAt) ? (
+                <ActionRow
+                  icon="chat"
+                  label={t('track.support')}
+                  hint={supportThread.unread > 0 ? t('chat.unread_label', { count: supportThread.unread }) : t('track.support_hint')}
+                  onPress={() => openChat('customer_support')}
+                  testID="action-chat-support"
+                />
+              ) : null}
+              <ActionRow icon="flag" label={t('order.report_problem')} onPress={() => setPanel('dispute')} testID="action-report" />
               {canCancel ? <ActionRow icon="x" tone="dangerText" label={ride ? t('trip.cancel') : t('trip.cancel')} onPress={() => setPanel('cancel')} testID="action-cancel" /> : null}
             </View>
           </ScrollView>
@@ -556,7 +567,20 @@ export default function OrderLiveScreen() {
         <UnreachablePanel view={v} clock={clock} courier={fix?.pin ?? null} onCall={call} onComingOut={comingOut} onSendLocation={sendLocation} />
       ) : null}
       {v && panel === 'cancel' ? <CancelPanel orderId={v.order.id} onClose={() => setPanel(null)} /> : null}
-      {v && panel === 'dispute' ? <DisputePanel view={v} onClose={() => setPanel(null)} /> : null}
+      {v && panel === 'dispute' ? (
+        <DisputePanel
+          view={v}
+          onClose={() => setPanel(null)}
+          onSupport={
+            supportThread && supportThread.status === 'open'
+              ? () => {
+                  setPanel(null);
+                  openChat('customer_support');
+                }
+              : undefined
+          }
+        />
+      ) : null}
       {v && panel === 'street' ? <StreetPanel onClose={() => setPanel(null)} /> : null}
       {v && panel === 'share' && shareLink ? (
         <SharePanel link={shareLink} preview={v.courier ? { driverName: v.courier.firstName, photoUrl: v.courier.photoUrl ?? null, vehicle: v.courier.vehicleLabel, plate: v.courier.plate } : null} message={(url) => t(shareLink.subject === 'delivery' ? 'track.share_message' : 'share.message', { url })} onClose={() => setPanel(null)} onChanged={setShareLink} />

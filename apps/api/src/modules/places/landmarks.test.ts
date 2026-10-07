@@ -5,7 +5,7 @@ import { cityLandmarks, nearestLandmarks } from './landmarks.js';
 const PIN: LatLng = { lat: 32.9095, lng: 45.0635 };
 /** About `m` metres north of PIN (1° of latitude ≈ 111.2 km). */
 const north = (m: number): LatLng => ({ lat: PIN.lat + m / 111_195, lng: PIN.lng });
-const lm = (id: string, pin: LatLng): LandmarkView => ({ id, name_ar: id, name_en: id, pin, zoneId: 'street_30', kind: 'landmark', aliases_ar: [], photoUrl: null });
+const lm = (id: string, pin: LatLng): LandmarkView => ({ id, name_ar: id, name_en: id, pin, zoneId: 'street_30', kind: 'landmark', category: 'other', aliases_ar: [], photoUrl: null });
 const place = (id: string, name: string, pin: LatLng): Place => ({ id, cityId: 'aziziyah', pin, name, photos: [], confidence: 0.9, sharedWith: [], landmark: true });
 
 describe('nearestLandmarks — the "قرب شنو؟" chips (maps program a2)', () => {
@@ -46,5 +46,23 @@ describe('cityLandmarks — one list for search, chips, places and couriers', ()
     expect(all.filter((l) => l.kind === 'landmark').map((l) => l.id)).toEqual(['pl_bakery']);
     // Another city has no seed: its approved places only.
     expect(cityLandmarks('kut', [place('pl_k', 'جامع', PIN)], zoneOf).map((l) => l.id)).toEqual(['pl_k']);
+  });
+});
+
+describe('cityLandmarks — map icons (maps program b3)', () => {
+  const zoneOf = () => 'centre';
+
+  it('seeds by kind and name, rows by their own category before their name', () => {
+    const learned = [
+      { ...place('pl_mosque', 'جامع الرسول', north(50)) },
+      { ...place('pl_set', 'جامع بس صار سوق', north(60)), landmarkCategory: 'market' as const },
+    ];
+    const all = cityLandmarks('aziziyah', learned, zoneOf);
+    const cat = Object.fromEntries(all.map((l) => [l.id, l.category]));
+    expect(cat['lm_garage_souq']).toBe('garage');
+    expect(cat['lm_mp_jami_kabir']).toBe('mosque');
+    expect(cat['lm_mp_hawas_bridge']).toBe('bridge');
+    expect(cat['pl_mosque']).toBe('mosque');
+    expect(cat['pl_set']).toBe('market');
   });
 });

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { t, type Locale, type MessageKey } from '@driver/i18n';
 import { CityId, Iqd, LatLng } from './common.js';
 import { HouseholdApprovalReason, MonthKey } from './household-budget.js';
+import { LandmarkCategory, type LandmarkFeed, type LandmarkFeedInput } from './landmarks.js';
 import type { Actor } from './identity-io.js';
 import { orderTicketNumber } from './order.js';
 
@@ -153,6 +154,8 @@ export const LandmarkView = PlaceLandmark.extend({
   pin: LatLng,
   zoneId: z.string(),
   kind: z.enum(['garage', 'meeting_point', 'landmark']),
+  /** Its icon on the map (maps program b3): the row's own, else `landmarkCategoryOf` its name. */
+  category: LandmarkCategory,
   aliases_ar: z.array(z.string()).default([]),
   photoUrl: z.string().nullable().default(null),
 });
@@ -191,6 +194,8 @@ export interface PlacesPort {
   /** Optional so older contexts keep compiling; the router answers [] without it. */
   landmarks?(input: z.infer<typeof RiderLandmarksInput>): Promise<LandmarkView[]>;
   landmarksNear(input: z.infer<typeof LandmarksNearInput>): Promise<LandmarkNearView[]>;
+  /** The map's landmark layer (maps program b3); optional like `landmarks`, the router answers an empty feed without it. */
+  landmarkFeed?(input: z.output<typeof LandmarkFeedInput>): Promise<LandmarkFeed>;
   photoUpload(actor: Actor, input: PhotoUploadInput): Promise<PhotoUploadTicket>;
 }
 

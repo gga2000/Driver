@@ -27,7 +27,7 @@ export const CourierCard = z.object({
   plate: z.string().nullable(),
   /** "Toyota Corolla · أبيض"; null when unknown. */
   vehicleLabel: z.string().nullable(),
-  /** Average customer rating. Placeholder until the scoring module publishes customer-facing ratings. */
+  /** His average from customers' courier ratings (newest 50), one decimal; null until he has 5 (`RATING_RULES`). */
   rating: z.number().min(1).max(5).nullable(),
   ratingCount: z.number().int().min(0),
   /** When he last verified himself today (Baghdad day); null = not verified today or unknown. */

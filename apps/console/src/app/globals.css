@@ -108,7 +108,35 @@ select {
   font-weight: 600;
   color: rgb(var(--c-text));
 }
+.ops-label[data-kind='landmark'] {
+  font-size: 11px;
+}
 .ops-label[data-hidden] {
+  visibility: hidden;
+}
+/* Landmarks (maps program b3): quiet cream badges with an ink glyph, under the drivers and orders. */
+.ops-landmark {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgb(var(--c-surface));
+  border: 1.25px solid rgb(var(--c-line-strong));
+  box-shadow: 0 1px 1.5px rgb(var(--c-shadow) / 0.25);
+  pointer-events: none;
+}
+.ops-landmark svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: rgb(var(--c-muted));
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ops-landmark[data-hidden] {
   visibility: hidden;
 }
 .ops-pin {

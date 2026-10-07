@@ -37,6 +37,7 @@ export function counterpartRole(kind: ChatThreadKind, me: ChatRole): ChatRole {
     customer_courier: ['customer', 'courier'],
     merchant_courier: ['merchant', 'courier'],
     customer_merchant: ['customer', 'merchant'],
+    customer_support: ['customer', 'support'],
   };
   const [a, b] = pair[kind];
   return me === a ? b : a;

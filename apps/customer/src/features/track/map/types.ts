@@ -20,4 +20,7 @@ export interface BaseMapProps {
   onUserCamera: (c: Camera) => void;
   /** Markers the zone names keep clear of (pins, the courier, the centre pin). Memoise it: a new array redraws the names. */
   labelAvoid?: readonly LabelObstacle[];
+  /** Bands covered by the screen's own bars (top bar, sheet), px: landmarks are not drawn half-hidden under them. */
+  coveredTop?: number;
+  coveredBottom?: number;
 }

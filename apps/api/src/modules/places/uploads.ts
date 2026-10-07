@@ -32,8 +32,11 @@ export interface BlobStore {
   receive(input: { id: string; exp: string | undefined; sig: string | undefined; contentType: string | undefined; bytes: Buffer }): Promise<BlobRecord>;
   /** The record; a pending direct upload is checked against the bucket first (and stored or refused). */
   get(id: string): Promise<BlobRecord | null>;
-  /** Signed read URL on the API, stable within the hour so clients can cache it. */
-  readUrl(id: string): string;
+  /**
+   * Signed read URL on the API, stable within the hour so clients can cache it. `validForMs`: still
+   * valid that long from now (a feed phones keep for hours, maps program b3); default about an hour.
+   */
+  readUrl(id: string, validForMs?: number): string;
   read(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<{ contentType: string; bytes: Buffer } | null>;
   /** For a valid signed read: a short-lived presigned URL of the storage itself (direct storage only), else null. */
   readLocation(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<string | null>;
@@ -205,9 +208,9 @@ export class ObjectBlobStore implements BlobStore {
     return { ...rec, state: 'stored', sizeBytes: head.sizeBytes };
   }
 
-  readUrl(id: string): string {
+  readUrl(id: string, validForMs = 0): string {
     const now = this.clock.now().getTime();
-    const exp = Math.ceil(now / HOUR_MS) * HOUR_MS + HOUR_MS;
+    const exp = Math.ceil((now + validForMs) / HOUR_MS) * HOUR_MS + HOUR_MS;
     return `${this.origin}/files/${id}?exp=${exp}&sig=${this.sign('get', id, exp)}`;
   }
 

@@ -94,6 +94,8 @@ describe('ChatService — opening, parties, closing', () => {
     expect(before.map((t) => [t.kind, t.status])).toEqual([
       ['customer_courier', 'not_open'],
       ['customer_merchant', 'not_open'],
+      // «كلّم الدعم» works from placement.
+      ['customer_support', 'open'],
     ]);
     expect(await code(chat.send(as('c1'), { orderId: placed.id, kind: 'customer_merchant', clientId: cid(), text: 'هلا' }))).toBe('chat_not_open');
 

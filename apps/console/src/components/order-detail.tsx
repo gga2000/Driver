@@ -275,7 +275,7 @@ function TicketDialog({ o, contact, onClose }: { o: Order; contact: boolean; onC
   const label = orderLabel(o.id);
   const [subject, setSubject] = useState(t(contact ? 'console.order_contact_subject_default' : 'console.order_ticket_subject_default', { order: label }).replace(/[⁦-⁩]/g, ''));
   const [kind, setKind] = useState<TicketKind>(o.state === 'disputed' ? 'dispute' : contact ? 'question' : 'complaint');
-  const [channel, setChannel] = useState<TicketChannel>(contact ? 'whatsapp' : 'phone');
+  const [channel, setChannel] = useState<Exclude<TicketChannel, 'chat'>>(contact ? 'whatsapp' : 'phone');
   const open = useMutation(
     trpc.support.open.mutationOptions({
       onSuccess: (ticket) => {
