@@ -15,6 +15,9 @@ import {
   type RateOrderInput,
   type RespondPartialInput,
   type RideSwitchQuote,
+  type ComplimentInput,
+  type ComplimentOffer,
+  type ComplimentResult,
   type TipOffer,
   type TipOrderInput,
   type TipResult,
@@ -24,6 +27,7 @@ import {
 import type { z } from 'zod';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { OrderTipsService } from './tips.js';
+import { OrderComplimentsService } from './compliments.js';
 
 /** Live role checks, optionally scoped to an org (merchant staff of *this* restaurant). */
 export interface OrgRoleChecker {
@@ -47,7 +51,19 @@ export class OrdersRpc implements OrdersPort {
     @Inject(ORDERS_TRIPS) private readonly trips: OrdersTripsPort,
     @Inject(ORDERS_ROLE_CHECKER) private readonly roles: OrgRoleChecker,
     @Optional() private readonly tips?: OrderTipsService,
+    @Optional() private readonly compliments?: OrderComplimentsService,
   ) {}
+
+  /** «شنو عجبك بـ حيدر؟»: the orderer only (checked by the compliments service). */
+  complimentOptions(actor: Actor, input: { orderId: string }): Promise<ComplimentOffer> {
+    if (!this.compliments) throw new DriverError('internal');
+    return this.compliments.options(actor.personId, input.orderId);
+  }
+
+  compliment(actor: Actor, input: ComplimentInput): Promise<ComplimentResult> {
+    if (!this.compliments) throw new DriverError('internal');
+    return this.compliments.send(actor.personId, input);
+  }
 
   /** «تحب تكرم عباس؟»: the orderer only (checked by the tips service). */
   tipOptions(actor: Actor, input: { orderId: string }): Promise<TipOffer> {

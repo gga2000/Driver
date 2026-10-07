@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { encodeRajaaPassPush, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { ComplimentKey, encodeRajaaPassPush, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups } from './notify.lookups.js';
@@ -39,6 +40,7 @@ export const NOTIFY_EVENT_TYPES = [
   'wallet.topped_up',
   'order.change_to_wallet',
   'order.tipped',
+  'order.complimented',
   'support.replied',
   'support.resolved',
   'seat.booked',
@@ -287,6 +289,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!courierId || !customerId || amount === null || amount <= 0) return [];
       const name = await L.firstName(customerId, 'notify_tip_received');
       return [{ ...base, template: 'tip_received', to: courierId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { name: name ?? 'الزبون', amount: iqd(amount), id: e.orderId ? orderTicketNumber(e.orderId) : '' } }];
+    }
+    case 'order.complimented': {
+      // «زينب قالتلك: سريع، مؤدب» (joy l4): the customer's kind words, to the courier who carried it.
+      const courierId = str(p['courierId']);
+      const customerId = str(p['customerId']);
+      const keys = Array.isArray(p['keys']) ? p['keys'].filter((k): k is ComplimentKey => ComplimentKey.safeParse(k).success) : [];
+      if (!courierId || !customerId || keys.length === 0) return [];
+      const name = await L.firstName(customerId, 'notify_compliment_received');
+      const words = keys.map((k) => t(`compliment.${k}`, {}, 'ar-IQ')).join('، ');
+      return [{ ...base, template: 'compliment_received', to: courierId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { name: name ?? 'زبون', words, id: e.orderId ? orderTicketNumber(e.orderId) : '' } }];
     }
     case 'support.replied':
     case 'support.resolved': {

@@ -75,6 +75,11 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'الزبون', amount: '1,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'drv', courierId: 'courier', tripId: 't1', amountIqd: 2000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'حيدر', amount: '2,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
+    // Joy l4: the customer's kind words after a 4–5 rating, to the courier who carried it (unknown keys dropped).
+    expect(await one(event('order.complimented', { customerId: 'drv', courierId: 'courier', tripId: 't1', keys: ['fast', 'polite', 'shouty'] }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'compliment_received', to: 'courier', params: { name: 'حيدر', words: 'سريع، مؤدب', id: '1284' } },
+    ]);
+    expect(await one(event('order.complimented', { customerId: 'cust', courierId: 'courier', tripId: 't1', keys: [] }, { orderId: 'ord_1' }))).toEqual([]);
     // S-7 follow-up: support answered a driver's pay objection — the push opens that job's receipt.
     expect(await one(event('support.replied', { ticketId: 'tk1', customerId: null, text: 'نراجع\nالحساب', driverId: 'drv', jobKey: 't_ride', jobAt: '2026-10-03T15:30:00.000Z' }))).toEqual([
       { template: 'driver_pay_reply', to: 'drv', params: { text: 'نراجع الحساب', key: 't_ride', at: '2026-10-03T15%3A30%3A00.000Z' } },

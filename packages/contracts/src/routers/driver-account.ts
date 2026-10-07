@@ -25,6 +25,7 @@ import {
   SubmitCheckInInput,
   UploadDocumentInput,
 } from '../driver-account-io.js';
+import { CourierCompliments } from '../order-compliment.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { DRIVING_ROLES } from './trips.js';
 
@@ -100,6 +101,10 @@ export const driverAccountRouter = router({
     .input(ShiftSummaryInput)
     .output(ShiftSummary)
     .query(({ ctx, input }) => ctx.driverAccount.shiftSummary(ctx.actor, input)),
+  /** «كلام الزبائن» (joy l4): the kind words customers picked for him, counted, and the latest. */
+  compliments: protectedProcedure(DRIVING_ROLES)
+    .output(CourierCompliments)
+    .query(({ ctx }) => ctx.driverAccount.compliments(ctx.actor)),
   /** "Why was I paid this" (partner S-7): one of his jobs, every line with its reason. */
   jobReceipt: protectedProcedure(DRIVING_ROLES)
     .input(JobReceiptInput)

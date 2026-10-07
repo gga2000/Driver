@@ -195,6 +195,9 @@ export const ERROR_TABLE = {
   tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
   tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Compliments after a good rating (joy l4): rated 4–5, delivered, within a day; words from the order's own set.
+  compliment_not_offered: { retryHint: 'never', status: 'CONFLICT' },
+  compliment_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «عزيمة» (joy g1): a gift goes to someone else; hidden prices only when the sender pays from his wallet.
   gift_needs_recipient: { retryHint: 'never', status: 'BAD_REQUEST' },
   gift_hidden_prices_need_wallet: { retryHint: 'never', status: 'BAD_REQUEST' },

@@ -28,6 +28,7 @@ import {
   type ScorecardView,
   type SetMainPhotoInput,
   type ShiftSummary,
+  type CourierCompliments,
   type SubmitCheckInInput,
   type UploadDocumentInput,
 } from '@driver/contracts';
@@ -39,7 +40,7 @@ import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { LedgerFacade } from '../ledger/index.js';
-import { OrdersService } from '../orders/index.js';
+import { OrderComplimentsService, OrdersService } from '../orders/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { nudgesFor, OBSERVATION_DAYS, reliabilityCard } from '../scoring/index.js';
 import { SupportService } from '../support/index.js';
@@ -160,6 +161,8 @@ export class DriverAccountService implements DriverAccountPort {
     @Optional() private readonly support?: SupportService,
     /** The city's pricing rules, for the night / wait reasons on a receipt. */
     @Optional() private readonly config?: ConfigService,
+    /** Joy l4: customers' kind words (the orders module's compliments); absent in tests that don't need them. */
+    @Optional() private readonly kindWords?: OrderComplimentsService,
   ) {
     this.codes = new HandoverCodes(secret);
   }
@@ -569,12 +572,13 @@ export class DriverAccountService implements DriverAccountPort {
     const day = localPeriod('day', to);
     // Ledger reads are [from, to): one minute past `to` keeps a job posted in the same instant.
     const until = new Date(to.getTime() + 60_000);
-    const [shiftView, dayView, card, tomorrow, guarantee] = await Promise.all([
+    const [shiftView, dayView, card, tomorrow, guarantee, compliments] = await Promise.all([
       this.ledger.driverLedger({ driverId, from, to: until }),
       this.ledger.driverLedger({ driverId, from: day.from, to: until }),
       this.scorecardFor(driverId).catch(() => null),
       this.busiestTomorrow(now),
       this.shiftGuarantees(driverId, from, until),
+      this.kindWords ? this.kindWords.countsBetween(driverId, from, until) : Promise.resolve([]),
     ]);
     const shift = composeEarnings(shiftView, 'day', { from, to }, AZIZIYAH_MONEY_RULES);
     const today = composeEarnings(dayView, 'day', { from: day.from, to }, AZIZIYAH_MONEY_RULES);
@@ -595,7 +599,14 @@ export class DriverAccountService implements DriverAccountPort {
       // Shift-end carries a single nudge, never a list (audit S-4); none in the first 30 days.
       nudge: card && card.visible && !card.observation ? (card.nudges[0] ?? null) : null,
       guarantee,
+      compliments,
     };
+  }
+
+  /** «كلام الزبائن» (joy l4): his own compliments, counted and the latest (never who said them). */
+  async compliments(actor: Actor): Promise<CourierCompliments> {
+    if (!this.kindWords) return { customers: 0, counts: [], recent: [] };
+    return this.kindWords.courierView(actor.personId);
   }
 
   /** G-91: the guarantee shifts his work shift overlapped (none when the guarantee does not cover him). */
