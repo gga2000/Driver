@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { ratingFrom } from '../orders/orders.service.js';
-import { promisedArrival, sameBaghdadDay, TrackingService, type TrackingRatingsPort } from './tracking.service.js';
+import { promisedArrival, sameBaghdadDay, startCodeShown, TrackingService, type TrackingRatingsPort } from './tracking.service.js';
 import { tripsOrdersRatings } from './ratings.js';
 import { EtaService, StraightLineRouter, type Router } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
@@ -21,8 +21,8 @@ const code = async (p: Promise<unknown>) => {
 
 const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` });
 
-function setup(router: Router = new StraightLineRouter(), ratings: TrackingRatingsPort | null = null) {
-  const h = ordersHarness();
+function setup(router: Router = new StraightLineRouter(), ratings: TrackingRatingsPort | null = null, start?: string) {
+  const h = ordersHarness(start);
   const vehicles = new InMemoryCourierVehicles();
   const vaultReads: Array<{ courierId: string; accessorId: string }> = [];
   const tracking = new TrackingService(
@@ -94,7 +94,7 @@ describe('TrackingService — the view', () => {
 
   it('shows the courier by first name, vehicle and plate, verified today; one vault read per trip', async () => {
     const { h, tracking, vehicles, vaultReads } = setup();
-    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨', label: null });
+    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨' });
     const o = await acceptedOrder(h);
     const trip = await h.tripFor(o.id);
     const v = await tracking.track(as('c1'), { orderId: o.id });
@@ -106,11 +106,33 @@ describe('TrackingService — the view', () => {
     expect(vaultReads).toEqual([{ courierId: 'd1', accessorId: 'c1' }]);
   });
 
+  it('ride step 3: the card names the model with its colour, the confirmed features and his completed trips', async () => {
+    const { h, tracking, vehicles } = setup();
+    vehicles.register('d1', { vehicleClass: 'car', plate: 'واسط 31207', model: 'Toyota Corolla', colour: 'white', features: ['family', 'ac'] });
+    // An earlier job he finished counts; this one (still on its way) does not yet.
+    const first = await acceptedOrder(h);
+    const firstTrip = await h.tripFor(first.id);
+    await h.pickup(firstTrip.id);
+    await h.dropoff(firstTrip.id, { cashCollectedIqd: 16500 });
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const card = (await tracking.track(as('c1'), { orderId: o.id })).courier!;
+    expect(card).toMatchObject({ vehicleModel: 'Toyota Corolla', vehicleColour: 'white', vehicleLabel: 'Toyota Corolla · أبيض', features: ['ac', 'family'], tripCount: 1 });
+  });
+
+  it('ride step 3: without a registered model the card has no label, no colour and no features', async () => {
+    const { h, tracking, vehicles } = setup();
+    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط 777', colour: 'red' });
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    expect((await tracking.track(as('c1'), { orderId: o.id })).courier).toMatchObject({ vehicleModel: null, vehicleColour: 'red', vehicleLabel: null, features: [], tripCount: 0 });
+  });
+
   it('joy l2: the card carries his public rating once five customers rated him (read once per card)', async () => {
     let reads = 0;
     const at = (n: number) => new Date(Date.UTC(2026, 9, n));
     const few = setup(undefined, { courierScores: async () => [4, 5, 5].map((score, i) => ({ score, at: at(i + 1) })) });
-    few.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    few.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111' });
     const o1 = await acceptedOrder(few.h);
     await few.h.tripFor(o1.id);
     expect((await few.tracking.track(as('c1'), { orderId: o1.id })).courier).toMatchObject({ rating: null, ratingCount: 0 });
@@ -120,7 +142,7 @@ describe('TrackingService — the view', () => {
         return [5, 5, 4, 5, 5, 4].map((score, i) => ({ score, at: at(i + 1) }));
       },
     });
-    many.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    many.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111' });
     const o2 = await acceptedOrder(many.h);
     await many.h.tripFor(o2.id);
     expect((await many.tracking.track(as('c1'), { orderId: o2.id })).courier).toMatchObject({ rating: 4.7, ratingCount: 6 });
@@ -202,7 +224,7 @@ describe('TrackingService — «أول مرة» (joy g8)', () => {
     const early = await acceptedOrder(h);
     h.clock.advance(60_000);
     const later = await acceptedOrder(h);
-    expect(await tracking.firsts(as('c1'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+    expect(await tracking.firsts(as('c1'))).toEqual({ foodOrderId: null, tuktukOrderId: null, nightRideOrderId: null, rideMilestone: null });
     // The later order reaches the door first: that is the first meal.
     const t2 = await h.tripFor(later.id);
     await h.pickup(t2.id);
@@ -213,7 +235,7 @@ describe('TrackingService — «أول مرة» (joy g8)', () => {
     await h.pickup(t1.id);
     await h.dropoff(t1.id, { cashCollectedIqd: 16500 });
     expect((await tracking.firsts(as('c1'))).foodOrderId).toBe(later.id);
-    expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+    expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null, nightRideOrderId: null, rideMilestone: null });
   });
 
   it('joy s3: the same delivered order a week apart, same weekday and band, is a usual with its history row', async () => {
@@ -395,5 +417,77 @@ describe('TrackingService — late before it is late (maps program o4)', () => {
     expect(risks.map((r) => r.orderId)).toEqual([late.id]);
     expect(risks[0]!.lateByMin).toBeGreaterThan(2);
     expect(risks[0]!.predictedAt.getTime()).toBeGreaterThan(risks[0]!.promisedAt.getTime());
+  });
+});
+
+describe('TrackingService — «رمز المشوار» on the rider’s screen (ride step 3, s1)', () => {
+  const HOME = { lat: 32.9185, lng: 45.0712 };
+  /** 22:30 in Baghdad. */
+  const NIGHT = '2026-10-03T19:30:00Z';
+
+  async function nightRide(start = NIGHT) {
+    const { h, tracking } = setup(new StraightLineRouter(), null, start);
+    h.people.set('07705554433', 'p_mum');
+    const o = await h.orders.place('c1', {
+      cityId: 'aziziyah',
+      type: 'ride',
+      rideVertical: 'taxi',
+      fareIqd: 3000,
+      pickup: { zoneKey: 'centre', pin: KITCHEN },
+      dropoff: { zoneKey: 'street_30', pin: HOME },
+      participants: [{ ref: 'mum', role: 'rider' as const, phone: '07705554433' }],
+    });
+    const t = await h.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'taxi',
+      orders: [{ orderId: o.id, minVehicleClass: null }],
+      stops: [
+        { orderId: o.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: o.id, type: 'dropoff', zoneKey: 'street_30', target: HOME },
+      ],
+    });
+    await h.trips.offer(t.id);
+    await h.trips.accept(t.id, 'd1', { vehicleClass: 'car' });
+    return { h, tracking, o, t };
+  }
+
+  it('the orderer and the rider see the code until the rider is in; the driver never reads the tracking', async () => {
+    const { h, tracking, o, t } = await nightRide();
+    const stored = await h.orders.startCodeOf(o.id);
+    expect(stored).toMatch(/^\d{4}$/);
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBe(stored);
+    expect((await tracking.track(as('p_mum'), { orderId: o.id })).trip!.startCode).toBe(stored);
+    expect(await code(tracking.track(as('d1'), { orderId: o.id }))).toBe('forbidden');
+    const pickup = t.stops.find((s) => s.type === 'pickup')!;
+    await h.trips.arrive(t.id, pickup.id, 'd1', { pin: KITCHEN });
+    await h.trips.completeStop(t.id, pickup.id, 'd1', { startCode: stored! });
+    await h.deliver();
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBeNull();
+  });
+
+  it('a day ride shows none', async () => {
+    const { tracking, o } = await nightRide('2026-10-03T09:00:00Z');
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBeNull();
+  });
+
+  it('the one ETA to the pickup answers the ride-near check, and only for rides', async () => {
+    const { h, tracking, o, t } = await nightRide();
+    const near = await tracking.secondsToPickup(await h.trips.get(t.id), o.id, { lat: KITCHEN.lat + 0.001, lng: KITCHEN.lng }, h.clock.now());
+    const far = await tracking.secondsToPickup(await h.trips.get(t.id), o.id, { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng }, h.clock.now());
+    expect(near).not.toBeNull();
+    expect(far!).toBeGreaterThan(near!);
+    const food = await acceptedOrder(h);
+    const foodTrip = await h.tripFor(food.id, { driverId: 'd2' });
+    expect(await tracking.secondsToPickup(foodTrip, food.id, KITCHEN, h.clock.now())).toBeNull();
+  });
+
+  it('startCodeShown: none for other orders, settled rides, or once the pickup is done', () => {
+    const pending = { stops: [{ type: 'pickup' as const, state: 'arrived' as const }] };
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, pending as never, '4821')).toBe('4821');
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, null, '4821')).toBe('4821');
+    expect(startCodeShown({ type: 'food', state: 'placed' }, pending as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'customer_cancelled' }, pending as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, { stops: [{ type: 'pickup', state: 'completed' }] } as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, pending as never, null)).toBeNull();
   });
 });

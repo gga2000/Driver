@@ -1,5 +1,5 @@
-import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, latePromiseTerms, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import type { DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -32,6 +32,8 @@ export interface SimSnapshot {
   quarantined: QuarantinedEvent[];
   outbox: { pending: number; published: number; failed: number };
   offers: ObservedOffer[];
+  /** Requested / assigned / booked-ride moments per trip (absent in hand-built snapshots). */
+  dispatchLog?: DispatchMoment[];
   replays: ReplayRecord[];
   hotWaits: HotWaitRecord[];
   handovers: HandoverRecord[];
@@ -40,7 +42,17 @@ export interface SimSnapshot {
   merchants: Array<{ merchantId: string; balanceIqd: number }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
+  /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
+  rideStarts?: RideStartRecord[];
   errors: Array<{ where: string; message: string }>;
+}
+
+/** One ride's start: the pickup's `stop.completed`, and whether the server matched the night code on it. */
+export interface RideStartRecord {
+  orderId: string;
+  tripId: string;
+  stopId: string;
+  startCodeChecked: boolean;
 }
 
 export interface InvariantResult {
@@ -456,6 +468,73 @@ export const INVARIANTS: readonly Definition[] = [
             bad.push(
               `${driverId} ${w.id}: paid ${got}, rule gives ${check.topUpIqd} (${answers.filter((a) => a.accepted).length}/${answers.length} accepted, ${cancels} cancels, ${jobs.size} jobs, earned ${earningsIqd})`,
             );
+          }
+        }
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'night_ride_starts_with_the_code',
+    description:
+      '«رمز المشوار» (ride step 3, s1): a taxi/tuktuk ride placed for the night (isNightAt of its booked or placed time) never starts without the rider’s 4 digits — every pickup the server completed on it matched the code, and a finished night ride has such a start',
+    run: (s) => {
+      if (!s.rideStarts) return { checked: 0, bad: [] };
+      const bad: string[] = [];
+      const starts = new Map<string, RideStartRecord[]>();
+      for (const r of s.rideStarts) starts.set(r.orderId, [...(starts.get(r.orderId) ?? []), r]);
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !isNightAt(o.scheduledFor ?? o.placedAt)) continue;
+        checked += 1;
+        const mine = starts.get(o.id) ?? [];
+        for (const r of mine) if (!r.startCodeChecked) bad.push(`${o.id}: pickup ${r.stopId} on ${r.tripId} completed without the trip code`);
+        if ((o.state === 'completed' || o.state === 'closed') && mine.length === 0) bad.push(`${o.id}: finished night ride with no recorded start`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'booked_ride_waits_for_its_search',
+    description: 'a ride booked «بعدين» reaches no driver before its search starts (30 min before its time, review #28)',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !o.scheduledFor) continue;
+        checked += 1;
+        const startsAt = rideSearchStartsAt(o.scheduledFor).getTime();
+        const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
+        const early = s.offers.filter((x) => trips.has(x.tripId) && x.at < startsAt);
+        if (early.length > 0) bad.push(`${o.id}: ${early.length} offer(s) from ${new Date(Math.min(...early.map((x) => x.at))).toISOString()}, search starts ${new Date(startsAt).toISOString()}`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'scheduled_ride_dispatched_once',
+    description: 'a ride booked for later is dispatched once (one request, one assignment) and never has two confirmed drivers (review #28)',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const log = s.dispatchLog ?? [];
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !o.scheduledFor) continue;
+        checked += 1;
+        const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
+        const moments = log.filter((m) => trips.has(m.tripId));
+        const requested = moments.filter((m) => m.type === 'dispatch.requested').length;
+        const assigned = moments.filter((m) => m.type === 'dispatch.assigned').length;
+        if (requested > 1) bad.push(`${o.id}: dispatched ${requested} times`);
+        if (assigned > 1) bad.push(`${o.id}: assigned ${assigned} times`);
+        // Replay the confirmations: a second driver may confirm only after the first one dropped it.
+        let holders = 0;
+        for (const m of moments) {
+          if (m.type === 'dispatch.booked_confirmed') holders += 1;
+          if (m.type === 'dispatch.booked_released' || m.type === 'dispatch.booked_cancelled') holders = Math.max(0, holders - 1);
+          if (holders > 1) {
+            bad.push(`${o.id}: two confirmed drivers at once (${m.driverId ?? '?'})`);
+            break;
           }
         }
       }

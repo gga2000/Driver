@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
-import { t } from '@driver/i18n';
+import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
-import type { NotifyLookups } from './notify.lookups.js';
+import type { NotifyLookups, OrderFacts } from './notify.lookups.js';
 import type { NotifyRepository } from './notify.repository.js';
 import { trustedContactRecipient } from './notify.service.js';
 import { iqd, localDate, localTime } from './render.js';
@@ -23,6 +23,17 @@ export function itemsAr(n: number): string {
  */
 export const NOTIFY_SUBSCRIBER = 'notify:deliveries';
 
+/** Review #28: what a booked ride's pre-assignment tells the rider and the drivers (`bookedRideRequests`). */
+export const BOOKED_RIDE_EVENTS = [
+  'dispatch.booked_offered',
+  'dispatch.booked_opened',
+  'dispatch.booked_confirmed',
+  'dispatch.booked_unconfirmed',
+  'dispatch.booked_reminder',
+  'dispatch.booked_released',
+  'dispatch.booked_cancelled',
+] as const;
+
 export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
   'order.auto_accepted',
@@ -31,6 +42,8 @@ export const NOTIFY_EVENT_TYPES = [
   'order.offered_to_merchant',
   'order.delivered',
   'stop.courier_near',
+  // d3: «السايق قريب، اطلع هسة» (trips stamps it once per ride by the one ETA).
+  'stop.driver_near',
   'order.completed',
   'order.matched',
   'stop.arrived',
@@ -51,6 +64,8 @@ export const NOTIFY_EVENT_TYPES = [
   'khat.sweep_missed',
   'dispatch.offer_sent',
   'dispatch.zone_nudged',
+  // Ride step 3 (n4): the waiting rider tapped «نبّهه» on a driver his ride was sent to.
+  'dispatch.offer_nudged',
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
   'session.signed_out',
@@ -59,6 +74,14 @@ export const NOTIFY_EVENT_TYPES = [
   'insights.month_ready',
   // Joy r5: «تأكد رحلتك؟» the evening before (or that morning) a regular trip.
   'regular_trip.due',
+  // Step 4: half an hour before a ride booked for later (c10); «نفس مشوار البارحة؟» (o4).
+  'order.ride_reminder',
+  // Taxi ideas x3 / x4: the taxi to his الرجعة car is late; the taxi waiting at the garage booked,
+  // dropped (trip cancelled) or not bookable.
+  ...Object.values(GARAGE_TAXI_EVENTS),
+  'same_ride.due',
+  // Review #28: rides booked for later, offered to drivers the evening before.
+  ...BOOKED_RIDE_EVENTS,
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -119,12 +142,6 @@ export async function passUpdatesFor(e: PublishedEvent, lookups: Pick<NotifyLook
   return out;
 }
 
-/** Night for the auto-share switch (w9): 9 المسا – 6 الصبح, Baghdad (UTC+3, no DST). */
-export function isNight(at: Date): boolean {
-  const h = (at.getUTCHours() + 3) % 24;
-  return h >= 21 || h < 6;
-}
-
 /**
  * A trip link for each trusted person when the rider turned that switch on (w9): one share link,
  * made for the rider, sent to `tc:<rider>:<i>`. Nothing when the switch is off or nobody is set.
@@ -139,6 +156,54 @@ async function sharedWithPeople(deps: NotifySubscriberDeps, e: PublishedEvent, r
   return Array.from({ length: safety.contacts }, (_, i) => ({ eventId: e.id, template: 'trip_shared_contact' as const, to: trustedContactRecipient(riderId, i), params: { name, what, link }, data: { ...subject } }));
 }
 
+/**
+ * s2 «وصل بالسلامة»: a city ride that ended at night (`isNightAt` of its completion) reaches each
+ * trusted person of the rider who has the app, when the rider turned «بلّغهم من أوصل» on — the same
+ * switch as الرجعة's. A push to their own account only: nothing goes to a number outside the app, and
+ * it names the rider and the time, never where he went.
+ */
+async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts): Promise<NotifyRequest[]> {
+  const L = deps.lookups;
+  if (!isNightAt(e.occurredAt) || !L.safety || !L.trustedAccounts) return [];
+  const riderId = order.riderId ?? order.customerId;
+  const safety = await L.safety(riderId);
+  if (!safety?.prefs.notifyOnArrival || safety.contacts === 0) return [];
+  const accounts = await L.trustedAccounts(riderId, 'notify_ride_safe_arrival');
+  if (accounts.length === 0) return [];
+  const name = (await L.firstName(riderId, 'notify_ride_safe_arrival')) ?? t('push.ride_safe_arrival.someone');
+  const params = { name, time: localTime(e.occurredAt) };
+  return accounts.map((to) => ({ eventId: e.id, template: 'ride_safe_arrival' as const, to, params }));
+}
+
+/**
+ * c9 «لمنو المشوار؟»: once a driver takes a ride booked for someone else, the rider gets who is coming —
+ * the booker's name, the driver, the car and the plate — and the live link, by SMS (and a push when the
+ * number has the app). A night ride's start code (s1) goes in too: the rider is the one who reads it out.
+ */
+async function rideForRider(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts, driver: string): Promise<NotifyRequest[]> {
+  const L = deps.lookups;
+  const riderId = order.riderId;
+  if (!riderId || !L.shareLink) return [];
+  const tripId = str(e.payload['tripId']);
+  const [link, booker, car, code] = await Promise.all([
+    L.shareLink(riderId, { orderId: order.id }),
+    L.firstName(order.customerId, 'notify_ride_for_rider'),
+    tripId && L.driverCar ? L.driverCar(tripId, e.actorId) : null,
+    L.startCode ? L.startCode(order.id) : null,
+  ]);
+  if (!link) return [];
+  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', link, orderId: order.id, ...(code ? { code } : {}) };
+  return [{ eventId: e.id, template: 'ride_for_rider', to: riderId, orderId: order.id, params, data: { orderId: order.id } }];
+}
+
+/** s3: the booker followed the ride to the end — «مشوار ماما وصل بالسلامة» (the receipt stays his alone: he paid). */
+async function riderArrived(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts): Promise<NotifyRequest[]> {
+  if (!order.riderId || !deps.lookups.riderName) return [];
+  const name = await deps.lookups.riderName(order.id);
+  if (!name) return [];
+  return [{ eventId: e.id, template: 'ride_rider_arrived', to: order.customerId, orderId: order.id, params: { name, time: localTime(e.occurredAt), orderId: order.id }, data: { orderId: order.id } }];
+}
+
 /** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
 export function dishPotEventId(localDate: string): string {
   return `dish_pot:${localDate}`;
@@ -147,7 +212,66 @@ export function dishPotEventId(localDate: string): string {
 /** Turns one event into the notifications it implies. Exported for tests. */
 export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const passUpdates = await passUpdatesFor(e, deps.lookups);
-  return [...passUpdates, ...(await messagesFor(e, deps))];
+  const booked = await bookedRideRequests(e, deps.lookups);
+  return [...passUpdates, ...booked, ...(await messagesFor(e, deps))];
+}
+
+/** "5 الصبح" today, "باچر 5 الصبح" another day: a booked time nobody can read as the other half of the day. */
+export function bookedWhen(at: Date, now: Date): string {
+  const hour = formatHourPart(at);
+  return cityDayDiff(at, now) === 0 ? hour : `${formatDay(at, now)} ${hour}`;
+}
+
+/**
+ * Review #28, rides booked for later. The rider: «سايقك محجوز: حسين» when a driver confirms, a calm
+ * «بعدنا ندوّرلك سايق» when nobody did by the deadline, and when the confirmed driver drops it — all
+ * order updates held through quiet hours (the template's rule). Drivers: the favourite's own offer, the
+ * best-placed fitting drivers once it opens to all (held through quiet hours), the reminder an hour
+ * before and a cancellation of a job he holds (sent at any hour). Pushes name zones and times only.
+ */
+export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookups, 'order' | 'firstName' | 'tripZones'>): Promise<NotifyRequest[]> {
+  if (!(BOOKED_RIDE_EVENTS as readonly string[]).includes(e.type)) return [];
+  const p = e.payload;
+  const base = { eventId: e.id };
+  const orderId = str(p['orderId']);
+  const at = str(p['scheduledFor']);
+  if (!orderId || !at || Number.isNaN(Date.parse(at))) return [];
+  const when = bookedWhen(new Date(at), e.occurredAt);
+  const driverId = str(p['driverId']);
+  const toRider = async (template: 'booked_ride_confirmed' | 'booked_ride_unconfirmed' | 'booked_ride_released'): Promise<NotifyRequest[]> => {
+    const order = await L.order(orderId);
+    if (!order) return [];
+    const driver = driverId ? ((await L.firstName(driverId, 'notify_booked_ride')) ?? 'السايق') : '';
+    return [{ ...base, template, to: order.customerId, orderId, params: { driver, when, orderId }, data: { orderId } }];
+  };
+  const zones = async () => (e.tripId ? await L.tripZones(e.tripId) : null) ?? { pickup: '', dropoff: '' };
+  switch (e.type) {
+    case 'dispatch.booked_confirmed':
+      return toRider('booked_ride_confirmed');
+    case 'dispatch.booked_unconfirmed':
+      return toRider('booked_ride_unconfirmed');
+    case 'dispatch.booked_released':
+      return toRider('booked_ride_released');
+    case 'dispatch.booked_offered':
+    case 'dispatch.booked_opened': {
+      const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
+      const by = str(p['confirmBy']);
+      if (ids.length === 0) return [];
+      const z = await zones();
+      const template = e.type === 'dispatch.booked_offered' ? ('partner_booked_favourite' as const) : ('partner_booked_offer' as const);
+      const params = { when, pickup: z.pickup, dropoff: z.dropoff, deadline: by && !Number.isNaN(Date.parse(by)) ? formatHourPart(new Date(by)) : '' };
+      return [...new Set(ids)].map((to) => ({ ...base, template, to, params, data: { tripId: e.tripId ?? '' } }));
+    }
+    case 'dispatch.booked_reminder': {
+      const show = str(p['showBy']);
+      if (!driverId || !show || Number.isNaN(Date.parse(show))) return [];
+      return [{ ...base, template: 'partner_booked_reminder', to: driverId, params: { when, showBy: formatHourPart(new Date(show)) }, data: { tripId: e.tripId ?? '' } }];
+    }
+    case 'dispatch.booked_cancelled':
+      return driverId ? [{ ...base, template: 'partner_booked_cancelled', to: driverId, params: { when }, data: { tripId: e.tripId ?? '' } }] : [];
+    default:
+      return [];
+  }
 }
 
 async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
@@ -215,7 +339,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const order = e.orderId ? await L.order(e.orderId) : null;
       if (!order || order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, 'ride_receipt')) ?? '';
-      return [{ ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } }];
+      const own: NotifyRequest = { ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } };
+      return [own, ...(await safeArrival(deps, e, order)), ...(await riderArrived(deps, e, order))];
+    }
+    case 'stop.driver_near': {
+      // d3: «السايق قريب، اطلع هسة» — the orderer, and the rider of a ride booked for him (s3).
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type !== 'ride') return [];
+      const to = [...new Set([order.customerId, ...(order.riderId ? [order.riderId] : [])])];
+      return to.map((person) => ({ ...base, template: 'ride_near' as const, to: person, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }));
     }
     case 'order.matched':
     case 'stop.arrived': {
@@ -226,9 +358,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
       const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
       const own: NotifyRequest = { ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } };
-      // w9: a night ride (21:00–06:00 Baghdad) is shared with the trusted people when the rider asked.
-      const shared = e.type === 'order.matched' && isNight(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
-      return [own, ...shared];
+      // c9: on a ride booked for someone else the rider hears it too — who is coming (SMS + link), then «وصل».
+      const rider =
+        e.type === 'order.matched'
+          ? await rideForRider(deps, e, order, driver)
+          : order.riderId
+            ? [{ ...base, template, to: order.riderId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }]
+            : [];
+      // w9: a night ride (21:00–06:00 Baghdad, `isNightAt`) is shared with the trusted people when the rider asked.
+      const shared = e.type === 'order.matched' && isNightAt(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
+      return [own, ...rider, ...shared];
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);
@@ -277,6 +416,67 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const at = str(p['at']);
       if (!personId || !regularTripId || !day || !at || Number.isNaN(Date.parse(at))) return [];
       return [{ ...base, template: 'regular_trip_reminder', to: personId, params: { regularTripId, day, route: str(p['route']) ?? '', time: localTime(new Date(at)) }, data: { regularTripId, date: day } }];
+    }
+    case 'order.ride_reminder': {
+      // Step 4 (c10): «مشوارك 7:00 الصبح» — when the search starts, and that cancelling is still free.
+      const customerId = str(p['customerId']);
+      const at = str(p['scheduledFor']);
+      const searchAt = str(p['searchAt']);
+      if (!customerId || !e.orderId || !at || !searchAt || Number.isNaN(Date.parse(at)) || Number.isNaN(Date.parse(searchAt))) return [];
+      return [{ ...base, template: 'ride_booked_reminder', to: customerId, orderId: e.orderId, params: { orderId: e.orderId, time: localTime(new Date(at)), search: localTime(new Date(searchAt)) }, data: { orderId: e.orderId } }];
+    }
+    case GARAGE_TAXI_EVENTS.late: {
+      // x3: the rider hears the minutes and that the car's driver knows; the الرجعة driver hears which
+      // seat, how late, and that it is our taxi (so he does not count the rider as a no-show yet).
+      const riderId = str(p['riderId']);
+      const driverId = str(p['driverId']);
+      const orderId = str(p['orderId']);
+      const departureId = str(p['departureId']);
+      const minutes = num(p['lateMin']);
+      const at = str(p['expectedAt']);
+      if (!riderId || !orderId || !departureId || minutes === null || !at || Number.isNaN(Date.parse(at))) return [];
+      const time = localTime(new Date(at));
+      const garage = str(p['garageAr']) ?? '';
+      const seats = Array.isArray(p['seats']) ? (p['seats'] as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+      const seat = seats.map((id) => t(`seat.${id}` as MessageKey, {}, 'ar-IQ')).join('، ');
+      const out: NotifyRequest[] = [{ ...base, template: 'garage_taxi_late', to: riderId, orderId, params: { orderId, minutes: String(minutes), time, garage }, data: { orderId } }];
+      if (driverId) out.push({ ...base, template: 'rajaa_rider_taxi_late', to: driverId, params: { departureId, minutes: String(minutes), time, seat }, data: { departureId } });
+      return out;
+    }
+    case GARAGE_TAXI_EVENTS.placed: {
+      const riderId = str(p['riderId']);
+      const orderId = str(p['orderId']);
+      if (!riderId || !orderId) return [];
+      return [{ ...base, template: 'garage_taxi_placed', to: riderId, orderId, params: { orderId, garage: str(p['garageAr']) ?? '' }, data: { orderId } }];
+    }
+    case GARAGE_TAXI_EVENTS.dropped: {
+      const riderId = str(p['riderId']);
+      const bookingId = str(p['bookingId']);
+      if (!riderId || !bookingId) return [];
+      return [{ ...base, template: 'garage_taxi_dropped', to: riderId, params: { bookingId }, data: { bookingId } }];
+    }
+    case GARAGE_TAXI_EVENTS.failed: {
+      const riderId = str(p['riderId']);
+      if (!riderId) return [];
+      return [{ ...base, template: 'garage_taxi_failed', to: riderId, params: { garage: str(p['garageAr']) ?? '' } }];
+    }
+    case 'same_ride.due': {
+      // Step 4 (o4): its own switch (the engine); the job already checked the day, the time and that no
+      // ride is on. The link fills choose with the same ends, vehicle and door pickup.
+      const personId = str(p['personId']);
+      const at = str(p['at']);
+      const from = str(p['from']);
+      const to = str(p['to']);
+      const vertical = p['vertical'] === 'tuktuk' ? 'tuktuk' : p['vertical'] === 'taxi' ? 'taxi' : null;
+      if (!personId || !at || Number.isNaN(Date.parse(at)) || !from || !to || !vertical) return [];
+      return [
+        {
+          ...base,
+          template: p['afterWeekend'] === true ? 'same_ride_after_weekend' : 'same_ride_offer',
+          to: personId,
+          params: { route: str(p['route']) ?? '', time: localTime(new Date(at)), from, to, vertical, door: p['doorPickup'] === true ? '1' : '0' },
+        },
+      ];
     }
     case 'wallet.topped_up': {
       const customerId = str(p['customerId']);
@@ -368,6 +568,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'dispatch.offer_nudged': {
+      // «راكب ينتظرك»: one soft push to the nudged driver (the server allows one per driver per ride).
+      const driverId = str(p['driverId']);
+      const offerId = str(p['offerId']);
+      if (!driverId || !offerId || !e.tripId) return [];
+      return [{ ...base, template: 'ride_nudge' as const, to: driverId, params: {}, data: { tripId: e.tripId, offerId } }];
     }
     case 'catalog.pot_posted': {
       // «قدر اليوم» (joy h2): each follower of the dish, at most once a Baghdad day — the request's

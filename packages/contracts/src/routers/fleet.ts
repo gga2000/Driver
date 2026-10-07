@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import { EarningsView } from '../driver-account-io.js';
-import { AddFleetDriverInput, AddVehicleInput, AssignDriverInput, FleetDriver, FleetDriverEarningsInput, FleetInvite, FleetOverview, FleetScopeInput, FleetVehicle, RespondFleetInviteInput } from '../fleet-io.js';
+import { AddFleetDriverInput, AddVehicleInput, AssignDriverInput, FleetDriver, FleetDriverEarningsInput, FleetInvite, FleetOverview, FleetScopeInput, FleetVehicle, RespondFleetInviteInput, SetVehicleFeaturesInput } from '../fleet-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { DRIVING_ROLES } from './trips.js';
 
@@ -41,6 +41,15 @@ export const fleetRouter = router({
   myInvites: protectedProcedure(DRIVING_ROLES)
     .output(z.array(FleetInvite))
     .query(({ ctx }) => ctx.fleet.myInvites(ctx.actor)),
+  /** Driver side: the vehicle he drives (model, colour, claimed and confirmed features); null without one. */
+  myVehicle: protectedProcedure(DRIVING_ROLES)
+    .output(FleetVehicle.nullable())
+    .query(({ ctx }) => ctx.fleet.myVehicle(ctx.actor)),
+  /** Driver side: «مميزات سيارتك» — what the car offers; new claims wait for the ops car check. */
+  setMyVehicleFeatures: protectedProcedure(DRIVING_ROLES)
+    .input(SetVehicleFeaturesInput)
+    .output(FleetVehicle)
+    .mutation(({ ctx, input }) => ctx.fleet.setMyVehicleFeatures(ctx.actor, input)),
   /** Driver side: accept an invite, or decline it / leave the fleet. Returns his links after. */
   respondInvite: protectedProcedure(DRIVING_ROLES)
     .input(RespondFleetInviteInput)

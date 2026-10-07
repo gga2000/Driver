@@ -361,12 +361,12 @@ export class PrismaNotifyRepository implements NotifyRepository {
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {
     const r = await this.db().notifyPreference.findUnique({ where: { personId } });
-    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips } : null;
+    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide } : null;
   }
 
   async setPreferences(personId: string, prefs: NotifyPreferences): Promise<NotifyPreferences> {
     const r = await this.db().notifyPreference.upsert({ where: { personId }, create: { id: newId('npf'), personId, ...prefs }, update: prefs });
-    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips };
+    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide };
   }
 
   async insertDeliveries(rows: readonly NewDelivery[], now: Date, tx?: Tx): Promise<DeliveryRecord[]> {

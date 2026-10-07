@@ -2,10 +2,12 @@ import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
+import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
@@ -16,6 +18,7 @@ import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
@@ -25,6 +28,8 @@ import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('istikan');
@@ -54,6 +59,8 @@ export default function RootLayout() {
     void profile.load();
     // Low-data mode (maps program q2): the customer's stored choice.
     void loadDataSaverPref();
+    // «الوضع البسيط» (ride idea v2): known before home draws, so it never flashes the full home first.
+    void simpleMode.load();
   }, []);
 
   useEffect(() => {
@@ -73,16 +80,20 @@ export default function RootLayout() {
           // Native direction comes from I18nManager (needs a restart to flip); the web flips live.
           direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}
         >
-          <ToastProvider bottomOffset={96}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SystemBanner />
-              {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
-              <SeasonWatcher />
-              <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
-            </ApiProvider>
-          </ToastProvider>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
+          <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+            <ToastProvider bottomOffset={96}>
+              <ApiProvider>
+                <StatusBar style="dark" />
+                <DevCrashProbe />
+                {/* Launch status banner from the Console (system.banner), above every screen. */}
+                <SystemBanner />
+                {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
+                <SeasonWatcher />
+                <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
+              </ApiProvider>
+            </ToastProvider>
+          </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -150,8 +161,14 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />
         <Stack.Screen name="ride/pin" options={{ headerShown: false }} />
         <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
+        {/* «الوضع البسيط» (ride idea v2): the simple home, in place of the tabs while it is on. */}
+        <Stack.Screen name="simple" options={{ headerShown: false, animation: 'fade' }} />
+        {/* Step 4 o4: «نفس مشوار البارحة؟» fills the booking, then opens choose. */}
+        <Stack.Screen name="ride/again" options={{ headerShown: false }} />
         {/* Joy J7d: a ride booked for later waits here until its search starts; regular trips; favourite drivers. */}
         <Stack.Screen name="ride/booked/[id]" options={{ title: t('habits.booked_title'), headerLeft: () => <HeaderBack fallback="/orders" /> }} />
+        {/* Taxi ideas x2/x3/x4: the الرجعة taxi cards in every state (dev only, EXPO_PUBLIC_DEV_TOOLS). */}
+        <Stack.Screen name="ride/garage-preview" options={{ title: t('gtaxi.preview_title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
         <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />

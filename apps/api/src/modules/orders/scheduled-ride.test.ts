@@ -42,6 +42,13 @@ describe('rides booked for later (joy J7d)', () => {
     expect(await code(ride(h, { scheduledFor: new Date(h.clock.now().getTime() + 8 * 24 * 60 * MIN) }))).toBe('ride_schedule_invalid');
   });
 
+  it('takes a time on the 5-minute grid only', async () => {
+    const h = harness();
+    const onGrid = new Date('2026-10-03T11:00:00Z');
+    expect(await code(ride(h, { scheduledFor: new Date(onGrid.getTime() + 7 * MIN) }))).toBe('ride_schedule_invalid');
+    expect(await ride(h, { scheduledFor: new Date(onGrid.getTime() + 5 * MIN) })).toMatchObject({ state: 'placed' });
+  });
+
   it('is priced by the server for its own time', async () => {
     const h = harness();
     const at = new Date(h.clock.now().getTime() + 3 * 60 * MIN);
@@ -71,5 +78,28 @@ describe('asking for a favourite driver (joy l9)', () => {
   it('never on a food order', async () => {
     const h = harness();
     expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', favouriteId: 'fav_1', lines: [{ freeText: 'خبز', qty: 1 }], pickup: PICKUP, dropoff: DROPOFF }))).toBe('favourite_needs_schedule');
+  });
+});
+
+describe('the reminder half an hour before (step 4, c10)', () => {
+  it('reminds the rider 30 minutes before, with when the search starts', async () => {
+    const h = harness();
+    const at = new Date('2026-10-03T13:00:00Z'); // booked at 09:00Z for 13:00Z
+    const o = await ride(h, { scheduledFor: at });
+    await h.advance(3 * 60 * MIN + 29 * MIN);
+    expect(h.events.ofType('order.ride_reminder')).toHaveLength(0);
+    await h.advance(MIN);
+    expect(h.events.ofType('order.ride_reminder')).toEqual([
+      expect.objectContaining({ orderId: o.id, payload: { customerId: 'c1', scheduledFor: at.toISOString(), searchAt: '2026-10-03T12:30:00.000Z' } }),
+    ]);
+  });
+
+  it('says nothing for a ride cancelled before, or booked too close for a reminder', async () => {
+    const h = harness();
+    const o = await ride(h, { scheduledFor: new Date('2026-10-03T13:00:00Z') });
+    await h.orders.cancel('c1', { orderId: o.id, reason: 'booked_ride_cancelled' });
+    await ride(h, { scheduledFor: new Date('2026-10-03T09:55:00Z') }); // 55 min ahead: the reminder would come 25 min after booking
+    await h.advance(5 * 60 * MIN);
+    expect(h.events.ofType('order.ride_reminder')).toHaveLength(0);
   });
 });

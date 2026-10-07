@@ -1,4 +1,4 @@
-import { AZIZIYAH_MONEY_RULES, type Order, type Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, rideSearchStartsAt, type Order, type Trip } from '@driver/contracts';
 import { checkInvariants, type InvariantResult, type SimSnapshot } from './invariants.js';
 
 /**
@@ -104,6 +104,8 @@ function acceptedAt(trips: readonly Trip[], orderId: string): number | null {
 }
 
 const isRide = (o: Order) => o.type === 'ride';
+/** When the wait starts: placement, or for a ride booked «بعدين» its search (the rider isn't waiting before). */
+const waitStartsAt = (o: Order) => (isRide(o) && o.scheduledFor ? rideSearchStartsAt(o.scheduledFor).getTime() : o.placedAt.getTime());
 
 export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: number): SimulationReport {
   const invariants = checkInvariants(snapshot);
@@ -116,8 +118,8 @@ export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: 
   for (const o of orders) {
     const k = isRide(o) ? 'ride' : 'food';
     const acc = acceptedAt(snapshot.trips, o.id);
-    if (acc !== null) accept[k].push((acc - o.placedAt.getTime()) / 1000);
-    if (o.deliveredAt && delivered.includes(o)) deliver[k].push((o.deliveredAt.getTime() - o.placedAt.getTime()) / 1000);
+    if (acc !== null) accept[k].push((acc - waitStartsAt(o)) / 1000);
+    if (o.deliveredAt && delivered.includes(o)) deliver[k].push((o.deliveredAt.getTime() - waitStartsAt(o)) / 1000);
   }
 
   let platform = 0;

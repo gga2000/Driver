@@ -18,9 +18,12 @@ import { ArriveSheet, NavChooser } from '@/features/work/JobSheets';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
 import { PickupSpotCard } from '@/features/work/PickupSpotCard';
+import { StartCodePanel } from '@/features/work/StartCodePanel';
+import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
 import {
   canTopUpOnJob,
+  cargoLine,
   isRide,
   jobAction,
   KIND_KEY,
@@ -37,7 +40,7 @@ import { PayLines, PrepPill } from '@/features/work/OfferParts';
 import { useActiveJob, useAnswerZoneCheck, useJobRoute, useRefreshWork, useStatus, useTripActions, useZoneCheck } from '@/features/work/queries';
 import { ZoneCheckCard } from '@/features/work/ZoneCheckCard';
 import { useJobQueue } from '@/features/work/useJobQueue';
-import { apiErrorMessage, useApiClient } from '@/lib/api';
+import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
@@ -199,7 +202,9 @@ function JobView({
   const net = useNetwork();
   const [tapping, setTapping] = useState(false);
   const refresh = useRefreshWork();
-  const [panel, setPanel] = useState<'none' | 'handover'>('none');
+  const [panel, setPanel] = useState<'none' | 'handover' | 'start_code'>('none');
+  // s1 «رمز المشوار»: how many codes the server refused on this pickup (each clears the pad).
+  const [codeWrong, setCodeWrong] = useState(0);
   const [dismissedUnreachable, setDismissedUnreachable] = useState(false);
   const ride = isRide(job.vertical);
   const stop = job.stops.find((s) => s.stopId === job.currentStopId) ?? null;
@@ -239,6 +244,12 @@ function JobView({
     if (!stop || !action || busy) return;
     if (action.kind === 'complete' && stop.type === 'dropoff' && !ride) {
       setPanel('handover');
+      return;
+    }
+    // s1: a night ride starts with the rider's 4 digits, checked by the server (so only with internet).
+    if (action.kind === 'complete' && needsStartCode(stop, ride)) {
+      if (needsInternet()) return;
+      setPanel('start_code');
       return;
     }
     setTapping(true);
@@ -305,6 +316,27 @@ function JobView({
     }
   };
 
+  /** s1: «الراكب صعد» with the code he typed; a wrong one keeps the pad open (the server counts it). */
+  const startWithCode = async (code: string) => {
+    if (!stop || needsInternet()) return;
+    setTapping(true);
+    try {
+      const trip = await actions.complete.mutateAsync({ tripId: job.tripId, stopId: stop.stopId, handover: {}, startCode: code, occurredAt: new Date() });
+      setPanel('none');
+      setCodeWrong(0);
+      theme.haptic('success');
+      await refresh();
+      if (trip.state === 'completed') onDone({ earnedIqd: job.pay.totalIqd, failed: false });
+    } catch (err) {
+      if (apiErrorCode(err) === 'start_code_wrong') {
+        theme.haptic('error');
+        setCodeWrong((n) => n + 1);
+      } else fail(err);
+    } finally {
+      setTapping(false);
+    }
+  };
+
   const startUnreachable = async () => {
     if (!stop || needsInternet()) return;
     try {
@@ -363,7 +395,7 @@ function JobView({
         }}
       />
       {/* At the door the cash helper needs the room, not the map: it shrinks to a strip under the top bar. */}
-      <View style={{ height: panel === 'handover' ? '17%' : '38%' }}>
+      <View style={{ height: panel === 'none' ? '38%' : '17%' }}>
         <DriverMap
           self={self}
           vehicleIcon={VEHICLE_ICON[vehicle]}
@@ -389,7 +421,9 @@ function JobView({
 
       <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
         <ScrollView contentContainerStyle={[column, { padding: theme.space[5], gap: theme.space[4] }]}>
-          {panel === 'handover' && stop ? (
+          {panel === 'start_code' && stop ? (
+            <StartCodePanel busy={tapping} wrongCount={codeWrong} onSubmit={(code) => void startWithCode(code)} onClose={() => setPanel('none')} />
+          ) : panel === 'handover' && stop ? (
             <HandoverPanel collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} busy={tapping} onConfirm={(uri, cash) => void handover(uri, cash)} onClose={() => setPanel('none')} />
           ) : showUnreachable && job.unreachable ? (
             <UnreachablePanel status={job.unreachable} busy={actions.fail.isPending} onFail={() => void endUnreachable()} onResponded={() => setDismissedUnreachable(true)} />
@@ -422,6 +456,19 @@ function JobView({
               </View>
 
               <GiftLine stop={stop} />
+              {ride && stop.type === 'pickup' && stop.rider ? (
+                <View testID="job-rider" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="user" size={18} color="text" />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="label" weight={700}>
+                      {t('partner.offer_for_rider_title', { name: stop.rider.name })}
+                    </Text>
+                    <Text variant="caption" color="textMuted">
+                      {t('partner.offer_for_rider_body')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
               {stop.type === 'dropoff' && stop.collectIqd > 0 ? <TenderNote collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} /> : null}
               {/* Maps program r4: the code the kitchen matches before handing over the food. */}
               {stop.type === 'pickup' && stop.pickupCode ? (
@@ -440,6 +487,16 @@ function JobView({
                 </View>
               ) : null}
 
+              {/* s1: a night ride starts with the rider's code (asked on the slide); never shown here. */}
+              {needsStartCode(stop, ride) ? (
+                <View testID="job-start-code-needed" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="lock" size={18} color="accentText" />
+                  <Text variant="label" weight={600} style={{ flex: 1 }}>
+                    {t('partner.start_code_needed')}
+                  </Text>
+                </View>
+              ) : null}
+
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
               {stop.type === 'pickup' && stop.pickupSpot ? <PickupSpotCard spot={stop.pickupSpot} /> : null}
 
@@ -448,6 +505,16 @@ function JobView({
                   <Icon name="clock" size={18} color="warningText" />
                   <Text variant="label" color="warningText" style={{ flex: 1 }}>
                     {t('partner.job_wait_ready')}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Ride idea x5: what the rider carries, until the ride ends. */}
+              {cargoLine(job.rideCargo ?? [], t) ? (
+                <View testID="job-cargo" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="bag" size={20} color="accentText" strokeWidth={2.2} />
+                  <Text variant="label" weight={700} color="accentText" style={{ flex: 1 }}>
+                    {cargoLine(job.rideCargo ?? [], t)}
                   </Text>
                 </View>
               ) : null}
@@ -465,7 +532,8 @@ function JobView({
               {stop.type === 'dropoff' && stop.door ? <DoorCard door={stop.door} arrived={stop.state === 'arrived'} onCall={() => void customerCall.call()} stopId={stop.stopId} /> : null}
 
               <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
-                <QuickAction icon="phone" label={t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
+                {/* c9: on a ride booked for someone else the call goes to the rider, and says so. */}
+                <QuickAction icon="phone" label={ride && stop.rider ? t('partner.call_rider') : t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
                 <QuickAction icon="chat" label={ride ? t('partner.message') : t('chat.role.customer')} badge={customerThread?.unread ?? 0} onPress={() => openChat('customer_courier')} disabled={!customerThread} testID="job-chat" />
                 {kitchenThread ? <QuickAction icon="bag" label={t('partner.message_merchant')} badge={kitchenThread.unread} onPress={() => openChat('merchant_courier')} testID="job-chat-merchant" /> : null}
                 <QuickAction icon="map-pin" label={t('partner.open_maps')} onPress={openMaps} testID="job-maps" />
@@ -520,7 +588,7 @@ function JobView({
 
 function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 'en'): string {
   if (s.type === 'dropoff') return ride ? zoneName(s.zoneId, locale, t) : t('partner.offer_customer');
-  return s.label ?? (ride ? t('partner.offer_rider') : zoneName(s.zoneId, locale, t));
+  return s.label ?? (ride ? (s.rider?.name ?? t('partner.offer_rider')) : zoneName(s.zoneId, locale, t));
 }
 
 /**

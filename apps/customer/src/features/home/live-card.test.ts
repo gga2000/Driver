@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '@driver/contracts';
-import { LIVE_SEGMENTS, liveProgress, liveStatusKey, liveStep, newerRead } from './live-card';
+import { LIVE_SEGMENTS, STAGE_LOOK, liveProgress, liveStage, liveStatusKey, liveStep, newerRead, stageEtaKey, stageTitleKey } from './live-card';
 
 describe('the live-order card bar (4 segments, discovery §6)', () => {
   it('a food order fills one segment per step: sent, accepted, cooking, on the way', () => {
@@ -43,5 +43,24 @@ describe('the live-order card bar (4 segments, discovery §6)', () => {
     const same: Read = { type: 'food', state: 'ready' };
     expect(newerRead(list, same)).toBe(same);
     expect(newerRead(list, null)).toBe(list);
+  });
+});
+
+describe('each stage of the live-order card has its own look (Ali, 2026-10-07)', () => {
+  it('food: sent, the kitchen said yes, cooking, ready, on the way', () => {
+    const stages = (['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up'] as const).map((state) => liveStage({ type: 'food', state }));
+    expect(stages).toEqual(['sent', 'accepted', 'cooking', 'ready', 'onTheWay']);
+    expect(new Set(stages.map((s) => STAGE_LOOK[s])).size).toBe(5);
+  });
+  it('a ride: looking for a driver, the driver coming, on the trip, in the food looks', () => {
+    const stages = (['placed', 'matched', 'picked_up'] as const).map((state) => liveStage({ type: 'ride', state }));
+    expect(stages).toEqual(['searching', 'driverComing', 'onTrip']);
+    expect(stages.map((s) => STAGE_LOOK[s])).toEqual(['sent', 'accepted', 'onTheWay']);
+  });
+  it('the time is the food arriving, the driver reaching you, or you arriving', () => {
+    expect(stageEtaKey('cooking')).toBe('home.stage.eta_food');
+    expect(stageEtaKey('driverComing')).toBe('home.stage.eta_pickup');
+    expect(stageEtaKey('onTrip')).toBe('home.stage.eta_trip');
+    expect(stageTitleKey('onTheWay')).toBe('home.stage.on_the_way');
   });
 });

@@ -18,10 +18,12 @@ export interface OfferRecord {
   sentAt: Date;
   seenAt: Date | null;
   respondedAt: Date | null;
+  /** Ride step 3 (n4): when the waiting rider nudged him («نبّهه»); null = never. */
+  nudgedAt: Date | null;
   expiresAt: Date;
 }
 
-export type NewOffer = Omit<OfferRecord, 'id' | 'state' | 'seenAt' | 'respondedAt'>;
+export type NewOffer = Omit<OfferRecord, 'id' | 'state' | 'seenAt' | 'respondedAt' | 'nudgedAt'>;
 export type OfferPatch = Partial<Pick<OfferRecord, 'state' | 'seenAt' | 'respondedAt'>>;
 
 /**
@@ -34,10 +36,14 @@ export interface DispatchRepository {
   /** Applies `patch` only while the offer is in one of `from`; returns the updated row or null. */
   updateOffer(id: string, from: readonly DispatchOfferState[], patch: OfferPatch, tx?: Tx): Promise<OfferRecord | null>;
   listByTrip(tripId: string, tx?: Tx): Promise<OfferRecord[]>;
+  /** Sets `nudgedAt` only while the offer is open and was never nudged; returns the row or null. */
+  markNudged(id: string, at: Date, tx?: Tx): Promise<OfferRecord | null>;
   /** Offers accepted at or after `since` (the Console's time-to-accept). */
   acceptedSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
   /** Offers sent at or after `since`, any state (launch wall acceptance rate). */
   sentSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
+  /** A driver's accepted offers, newest first, at most `limit` (the profile's on-time share, ride step 3). */
+  acceptedByDriver(driverId: string, limit: number, tx?: Tx): Promise<OfferRecord[]>;
 }
 
 export const DISPATCH_REPOSITORY = Symbol('DISPATCH_REPOSITORY');
@@ -69,6 +75,12 @@ export class PrismaDispatchRepository implements DispatchRepository {
     return this.getOffer(id, tx);
   }
 
+  async markNudged(id: string, at: Date, tx?: Tx): Promise<OfferRecord | null> {
+    const res = await this.db(tx).dispatchOffer.updateMany({ where: { id, nudgedAt: null, state: { in: [...OPEN_STATES] } }, data: { nudgedAt: at } });
+    if (res.count === 0) return null;
+    return this.getOffer(id, tx);
+  }
+
   async listByTrip(tripId: string, tx?: Tx): Promise<OfferRecord[]> {
     return (await this.db(tx).dispatchOffer.findMany({ where: { tripId }, orderBy: [{ sentAt: 'asc' }, { rank: 'asc' }] })) as OfferRecord[];
   }
@@ -79,6 +91,10 @@ export class PrismaDispatchRepository implements DispatchRepository {
 
   async sentSince(since: Date, tx?: Tx): Promise<OfferRecord[]> {
     return (await this.db(tx).dispatchOffer.findMany({ where: { sentAt: { gte: since } }, orderBy: { sentAt: 'asc' } })) as OfferRecord[];
+  }
+
+  async acceptedByDriver(driverId: string, limit: number, tx?: Tx): Promise<OfferRecord[]> {
+    return (await this.db(tx).dispatchOffer.findMany({ where: { driverId, state: 'accepted' }, orderBy: { respondedAt: 'desc' }, take: limit })) as OfferRecord[];
   }
 }
 
@@ -95,7 +111,7 @@ export class InMemoryDispatchRepository implements DispatchRepository {
   async createOffers(offers: NewOffer[]): Promise<OfferRecord[]> {
     return offers.map((o) => {
       this.seq += 1;
-      const row: OfferRecord = { ...o, id: `do_${this.seq}`, state: 'sent', seenAt: null, respondedAt: null };
+      const row: OfferRecord = { ...o, id: `do_${this.seq}`, state: 'sent', seenAt: null, respondedAt: null, nudgedAt: null };
       this.rows.set(row.id, row);
       const ids = this.byTrip.get(row.tripId);
       if (ids) ids.push(row.id);
@@ -116,6 +132,13 @@ export class InMemoryDispatchRepository implements DispatchRepository {
     return { ...row };
   }
 
+  async markNudged(id: string, at: Date): Promise<OfferRecord | null> {
+    const row = this.rows.get(id);
+    if (!row || row.nudgedAt !== null || !OPEN_STATES.includes(row.state)) return null;
+    row.nudgedAt = at;
+    return { ...row };
+  }
+
   async listByTrip(tripId: string): Promise<OfferRecord[]> {
     return (this.byTrip.get(tripId) ?? []).map((id) => ({ ...this.rows.get(id)! }));
   }
@@ -128,6 +151,14 @@ export class InMemoryDispatchRepository implements DispatchRepository {
 
   async sentSince(since: Date): Promise<OfferRecord[]> {
     return [...this.rows.values()].filter((r) => r.sentAt.getTime() >= since.getTime()).map((r) => ({ ...r }));
+  }
+
+  async acceptedByDriver(driverId: string, limit: number): Promise<OfferRecord[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.driverId === driverId && r.state === 'accepted')
+      .sort((a, b) => (b.respondedAt?.getTime() ?? 0) - (a.respondedAt?.getTime() ?? 0))
+      .slice(0, limit)
+      .map((r) => ({ ...r }));
   }
 
   all(): OfferRecord[] {

@@ -1,18 +1,20 @@
 import { router } from 'expo-router';
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, ZoomIn, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import type { LiveStageSwatch } from '@driver/design-tokens';
 import type { Order } from '@driver/contracts';
 import { cityParts, formatClock } from '@driver/i18n';
-import { AnimatedPressable, Icon, RollingDigits, Text, useDriftClock, useMotionPresets, useNow, usePressScale, useTheme, withAlpha } from '@driver/ui';
+import { AnimatedPressable, CornerFill, Icon, RollingDigits, Text, useDriftClock, useMotionPresets, useNow, usePressScale, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { liveEta } from '@/features/track/eta';
 import { useTracking } from '@/features/track/queries';
 import { useT } from '@/lib/i18n';
 import { useAmbient } from './ambient';
-import { LIVE_SEGMENTS, liveProgress, liveStatusKey, newerRead } from './live-card';
+import { LIVE_SEGMENTS, STAGE_LOOK, liveProgress, liveStage, liveStatusKey, newerRead, stageEtaKey, stageTitleKey, type LiveStage } from './live-card';
+import { SCENE, StageScene } from './StageScene';
 
-/** The courier marker on the bar (drawn 22 px; the card itself is the tap target). */
+/** The stage's mark riding the bar (drawn 22 px; the card itself is the tap target). */
 const MARKER = 22;
 const SEG_GAP = 4;
 const SEG_H = 5;
@@ -22,20 +24,38 @@ const SHEEN_RUN = 1.1;
 const SHEEN_EVERY = 3.2;
 /** The live dot's ring: one pulse this often (s; the timeline's own pulse). */
 const PULSE_S = 1.4;
+/** A new stage's colour spreads out from the picture this big (px across, enough to cover the card). */
+const WASH = 800;
+
+/** What rides the bar at each stage: the slip, the kitchen's yes, the dish, the bag, the courier; a ride's search, then the car. */
+const STAGE_MARK: Record<LiveStage, IconName> = {
+  sent: 'receipt',
+  accepted: 'check',
+  cooking: 'food',
+  ready: 'bag',
+  onTheWay: 'bike',
+  searching: 'search',
+  driverComing: 'car',
+  onTrip: 'car',
+};
 
 /**
- * The order or ride in progress (spec §1), as the Istikan inverse card (joy S2-11, report 5 §5 A):
- * ink, a tea live dot, «مطعم خالد · دا يتحضّر», «طلبك يوصل» and the arrival time large in Alexandria
- * on the end side, then a 4-step bar with the courier riding on it toward the door (Date & Saffron:
- * a date-brown card). The time is the live estimate the tracking screen uses (kitchen ready time +
- * the ride to the door), else the promised time; none is shown until one is known. Opens the live
- * screen.
+ * The order or ride in progress (spec §1). Each stage has its own look (Ali, 2026-10-07: "make the
+ * different stages visually different"): the card warms up as the food gets closer, from the dark of
+ * a date (sent to the restaurant) through cinnamon (the kitchen said yes) and the red of strong tea
+ * (cooking) to gold (ready) and saffron (on the way), each with its own little moving picture at the
+ * head of the card, its own title and its own mark riding the bar (`theme.liveStages`, `StageScene`).
+ * Under the restaurant's name, the stage in large type; on the end side «يوصل» over the arrival time
+ * in Alexandria, the live estimate the tracking screen uses (kitchen ready time + the ride to the
+ * door), else the promised time; none is shown until one is known, nor while a ride still looks for
+ * its driver. Opens the live screen.
  *
  * It is alive (Ali's Yes votes, home effects, 2026-10-07): the dot pulses and a light runs along the
- * bar ("liveride"); the courier glides to where the order is now and, once on the way, creeps toward
- * the house as the time nears; a changed arrival time rolls its digits ("flip"); a new step makes the
- * card glow saffron for a moment while the new line slides in ("statusglow"). The loops run only while
- * home is in front; under reduced motion everything simply shows where it is.
+ * bar ("liveride"); the mark glides to where the order is now and, once on the way, creeps toward
+ * the house as the time nears; a changed arrival time rolls its digits ("flip"); a new stage spreads
+ * its colour out from the picture while the card glows for a moment and the new title rises in
+ * ("statusglow"). The loops run only while home is in front; under reduced motion everything simply
+ * shows where it is.
  */
 export function ActiveOrderPill({ order }: { order: Order }) {
   const theme = useTheme();
@@ -53,73 +73,109 @@ export function ActiveOrderPill({ order }: { order: Order }) {
     void refetch();
   }, [order.state, refetch]);
   const isRide = o.type === 'ride';
-  const eta = v ? (liveEta(v, null, new Date(now)) ?? v.promisedAt) : null;
-  const status = t(liveStatusKey(o));
-  const line = v?.merchant ? t('home.live_line', { name: v.merchant.name, status }) : status;
+  const stage = liveStage(o);
+  // No time while a ride still looks for its driver: nobody is coming yet.
+  const eta = v && stage !== 'searching' ? (liveEta(v, null, new Date(now)) ?? v.promisedAt) : null;
+  const look = theme.liveStages[STAGE_LOOK[stage]];
+  const name = v?.merchant?.name ?? t(isRide ? 'home.active_trip' : 'home.active_order');
+  const title = t(stageTitleKey(stage));
+  const etaWord = t(stageEtaKey(stage));
   const progress = liveProgress(o, eta, now);
-  const title = isRide ? t('home.active_trip') : eta ? t('home.live_arrives') : t('home.active_order');
-  const c = theme.colors;
   const clock = useDriftClock(useAmbient());
 
-  // A new step: the card glows for a moment and the new line rises in (never on the first look).
-  const lastState = useRef(o.state);
-  const changed = lastState.current !== o.state;
+  // The stage it came from stays painted under the new one while the new colour spreads over it.
+  const [fields, setFields] = useState({ from: stage, to: stage });
+  if (fields.to !== stage) setFields({ from: fields.to, to: stage });
+  const from = theme.liveStages[STAGE_LOOK[fields.from]];
+  const moved = fields.from !== fields.to;
+  const motion = moved && !theme.reduceMotion;
+
+  // A new stage: the card glows for a moment in the new stage's colour (never on the first look).
   const glow = useSharedValue(0);
+  const lastStage = useRef(stage);
   useEffect(() => {
-    if (lastState.current === o.state) return;
-    lastState.current = o.state;
+    if (lastStage.current === stage) return;
+    lastStage.current = stage;
     if (theme.reduceMotion) return;
     glow.value = withSequence(withTiming(1, { duration: theme.motion.duration.base }), withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.quad) })));
-  }, [o.state, glow, theme.reduceMotion, theme.motion.duration.base]);
+  }, [stage, glow, theme.reduceMotion, theme.motion.duration.base]);
   const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
+  const washAt = theme.space[4] + SCENE / 2 - WASH / 2;
 
   return (
     <View>
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { borderRadius: theme.radius.xl, backgroundColor: c.inverse, boxShadow: `0px 0px 22px 4px ${withAlpha(c.accent, 0.6)}` }, glowStyle]}
+        style={[StyleSheet.absoluteFill, { borderRadius: theme.radius.xl, backgroundColor: look.fill, boxShadow: `0px 0px 22px 4px ${withAlpha(look.glow, 0.6)}` }, glowStyle]}
       />
       <AnimatedPressable
         testID="home-active-order"
         accessibilityRole="button"
-        accessibilityLabel={[title, line, eta ? formatClock(eta) : null].filter(Boolean).join('، ')}
+        accessibilityLabel={[name, t(liveStatusKey(o)), eta ? `${etaWord} ${formatClock(eta)}` : null].filter(Boolean).join('، ')}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         onPress={() => router.push({ pathname: '/order/[id]', params: { id: order.id } })}
-        style={[{ backgroundColor: c.inverse, borderRadius: theme.radius.xl, padding: theme.space[4], gap: theme.space[3] }, press.style]}
+        style={[{ backgroundColor: look.fill, borderRadius: theme.radius.xl, overflow: 'hidden' }, press.style]}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <LiveDot clock={clock} color={c.accent} />
-              <Animated.View key={o.state} entering={changed ? presets.panelIn(theme.motion.duration.fast) : undefined} style={{ flexShrink: 1 }}>
-                <Text variant="footnote" weight={600} color="onInverseAccent" numberOfLines={1} testID="home-active-line">
-                  {line}
+        <CornerFill base={from.fill} light={from.light} />
+        {moved ? (
+          <>
+            <Animated.View
+              key={`wash-${stage}`}
+              pointerEvents="none"
+              entering={motion ? ZoomIn.duration(theme.motion.duration.deliberate).easing(Easing.out(Easing.cubic)) : undefined}
+              style={{ position: 'absolute', top: washAt, start: washAt, width: WASH, height: WASH, borderRadius: WASH / 2, backgroundColor: look.fill }}
+            />
+            <Animated.View
+              key={`field-${stage}`}
+              pointerEvents="none"
+              entering={motion ? FadeIn.duration(theme.motion.duration.slow).delay(theme.motion.duration.slow) : undefined}
+              style={StyleSheet.absoluteFill}
+            >
+              <CornerFill base={look.fill} light={look.light} />
+            </Animated.View>
+          </>
+        ) : null}
+        <View style={{ padding: theme.space[4], gap: theme.space[3] }} testID={`home-active-stage-${stage}`}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            <StageScene stage={stage} clock={clock} plate={look.plate} arrived={motion} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <LiveDot clock={clock} color={look.accent} />
+                <Text variant="footnote" weight={600} color={look.sub} numberOfLines={1} style={{ flexShrink: 1 }} testID="home-active-line">
+                  {name}
+                </Text>
+              </View>
+              <Animated.View key={stage} entering={motion ? presets.panelIn(theme.motion.duration.fast) : undefined}>
+                <Text variant="title" weight={700} color={look.on} numberOfLines={1} testID="home-active-title">
+                  {title}
                 </Text>
               </Animated.View>
             </View>
-            <Text variant="title" weight={700} color="onInverse" numberOfLines={1}>
-              {title}
-            </Text>
+            {eta ? (
+              <View style={{ alignItems: 'flex-end' }} testID="home-active-eta">
+                <Text variant="caption" weight={600} color={look.sub}>
+                  {etaWord}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                  <RollingDigits value={formatClock(eta, { period: false })} variant="numeralHero" face="display" color={look.on} testID="home-active-eta-digits" />
+                  <Text variant="label" weight={600} color={look.sub}>
+                    {t(cityParts(eta).hour < 12 ? 'time.am' : 'time.pm')}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <Icon name="chevron-forward" size={20} color={look.sub} />
+            )}
           </View>
-          {eta ? (
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }} testID="home-active-eta">
-              <RollingDigits value={formatClock(eta, { period: false })} variant="numeralHero" face="display" color="onInverse" testID="home-active-eta-digits" />
-              <Text variant="label" weight={600} color="onInverseMuted">
-                {t(cityParts(eta).hour < 12 ? 'time.am' : 'time.pm')}
-              </Text>
-            </View>
-          ) : (
-            <Icon name="chevron-forward" size={20} color="onInverseMuted" />
-          )}
+          <RideBar progress={progress} clock={clock} look={look} mark={STAGE_MARK[stage]} isRide={isRide} />
         </View>
-        <RideBar progress={progress} clock={clock} isRide={isRide} />
       </AnimatedPressable>
     </View>
   );
 }
 
-/** The tea dot with a ring that keeps spreading out from it and fading. */
+/** The live dot with a ring that keeps spreading out from it and fading. */
 function LiveDot({ clock, color }: { clock: SharedValue<number>; color: string }) {
   const ring = useAnimatedStyle(() => {
     const p = (clock.value % PULSE_S) / PULSE_S;
@@ -133,10 +189,9 @@ function LiveDot({ clock, color }: { clock: SharedValue<number>; color: string }
   );
 }
 
-/** The four segments, filled as far as the order has come, the light running along them, the courier on them and the door at the end. */
-function RideBar({ progress, clock, isRide }: { progress: number; clock: SharedValue<number>; isRide: boolean }) {
+/** The four segments, filled as far as the order has come, the light running along them, the stage's mark on them and the door at the end. */
+function RideBar({ progress, clock, look, mark, isRide }: { progress: number; clock: SharedValue<number>; look: LiveStageSwatch; mark: IconName; isRide: boolean }) {
   const theme = useTheme();
-  const c = theme.colors;
   const dir = theme.isRTL ? -1 : 1;
   const width = useSharedValue(0);
   const p = useSharedValue(progress);
@@ -160,7 +215,7 @@ function RideBar({ progress, clock, isRide }: { progress: number; clock: SharedV
       >
         <View style={{ flexDirection: 'row', gap: SEG_GAP }}>
           {Array.from({ length: LIVE_SEGMENTS }, (_, i) => (
-            <Segment key={i} i={i} p={p} width={width} clock={clock} />
+            <Segment key={i} i={i} p={p} width={width} clock={clock} look={look} />
           ))}
         </View>
         <Animated.View
@@ -174,26 +229,25 @@ function RideBar({ progress, clock, isRide }: { progress: number; clock: SharedV
               borderRadius: MARKER / 2,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: c.onInverseAccent,
+              backgroundColor: look.marker,
               borderWidth: 3,
-              borderColor: c.inverse,
+              borderColor: look.fill,
             },
             marker,
           ]}
         >
-          <Icon name={isRide ? 'car' : 'bike'} size={12} color="inverse" strokeWidth={2.4} />
+          <Icon name={mark} size={12} color={look.markerOn} strokeWidth={2.4} />
         </Animated.View>
       </View>
       {/* Where it is all going: the door for food, the pin for a ride. */}
-      <Icon name={isRide ? 'map-pin' : 'home'} size={16} color="onInverseMuted" strokeWidth={2.2} />
+      <Icon name={isRide ? 'map-pin' : 'home'} size={16} color={look.sub} strokeWidth={2.2} />
     </View>
   );
 }
 
 /** One segment: its track, its fill (part-filled while the order is in it) and its share of the running light. */
-function Segment({ i, p, width, clock }: { i: number; p: SharedValue<number>; width: SharedValue<number>; clock: SharedValue<number> }) {
+function Segment({ i, p, width, clock, look }: { i: number; p: SharedValue<number>; width: SharedValue<number>; clock: SharedValue<number>; look: LiveStageSwatch }) {
   const theme = useTheme();
-  const c = theme.colors;
   const dir = theme.isRTL ? -1 : 1;
   // The web shares one id space across every SVG on the page.
   const id = `sheen${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -209,15 +263,15 @@ function Segment({ i, p, width, clock }: { i: number; p: SharedValue<number>; wi
     return { transform: [{ translateX: dir * (x - i * (seg + SEG_GAP)) }] };
   });
   return (
-    <View style={{ flex: 1, height: SEG_H, borderRadius: 3, backgroundColor: withAlpha(c.onInverseMuted, 0.3), overflow: 'hidden' }}>
-      <Animated.View style={[{ height: SEG_H, borderRadius: 3, backgroundColor: c.accent, overflow: 'hidden' }, fill]}>
+    <View style={{ flex: 1, height: SEG_H, borderRadius: 3, backgroundColor: withAlpha(look.sub, 0.3), overflow: 'hidden' }}>
+      <Animated.View style={[{ height: SEG_H, borderRadius: 3, backgroundColor: look.accent, overflow: 'hidden' }, fill]}>
         <Animated.View style={[{ position: 'absolute', top: 0, start: 0, width: SHEEN_W, height: SEG_H }, sheen]}>
           <Svg width={SHEEN_W} height={SEG_H}>
             <Defs>
               <LinearGradient id={id} x1="0" y1="0" x2="1" y2="0">
-                <Stop offset="0" stopColor={c.onInverse} stopOpacity={0} />
-                <Stop offset="0.5" stopColor={c.onInverse} stopOpacity={0.7} />
-                <Stop offset="1" stopColor={c.onInverse} stopOpacity={0} />
+                <Stop offset="0" stopColor={look.shine} stopOpacity={0} />
+                <Stop offset="0.5" stopColor={look.shine} stopOpacity={0.7} />
+                <Stop offset="1" stopColor={look.shine} stopOpacity={0} />
               </LinearGradient>
             </Defs>
             <Rect width={SHEEN_W} height={SEG_H} fill={`url(#${id})`} />

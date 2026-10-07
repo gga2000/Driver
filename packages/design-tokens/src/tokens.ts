@@ -170,7 +170,7 @@ export interface ThemeColors {
   starOutline: string;
   /** Border of `Card tone="tint"`: the accent in light, none (the wash itself) in istikan (S2-11). */
   tintBorder: string;
-  /** Moving and live (kashi in istikan): courier, route, ETA, the taxi/tuktuk/الرجعة tiles. */
+  /** Moving and live (cinnamon in istikan): courier, route, ETA, the taxi/tuktuk/الرجعة tiles. */
   live: string;
   /** Pale `live` wash behind the mobility tiles. */
   liveTint: string;
@@ -339,7 +339,7 @@ const dark: ThemeColors = {
 /**
  * استكان Istikan (joy J-D1; research report 5 §5 Direction A) — the customer app's look. Deeper paper
  * and a warm white so cards separate in the sun; tea (`accent`) only for the main action and food;
- * kashi (`live`, `info`) for what moves; ink (`selected`) for what you chose; saffron (`deal`, `star`)
+ * cinnamon (`live`, `info`, the live-order card's warm brown; it was kashi teal until Ali's no-blue rule) for what moves; ink (`selected`) for what you chose; saffron (`deal`, `star`)
  * for treats; palm for done; pomegranate for stop. The Partner and Merchant apps and the Console stay
  * on `light` until they adopt it.
  */
@@ -371,10 +371,10 @@ const istikan: ThemeColors = {
   onDanger: '#FFFFFF',
   dangerTint: '#F7DCD6',
   dangerText: '#9A2E23',
-  // Kashi absorbs info.
-  info: '#0B6577',
-  infoTint: '#D3EAF0',
-  infoText: '#0B5A6B',
+  // Cinnamon absorbs info (no teal or blue anywhere, Ali 2026-10-07).
+  info: '#8A4C22',
+  infoTint: '#F3D9C0',
+  infoText: '#6E3A1A',
   // Date brown: the anchor (live-order card, the offline line), cream and toasted-saffron on it.
   inverse: '#2A170C',
   onInverse: '#FFF3E2',
@@ -400,9 +400,9 @@ const istikan: ThemeColors = {
   star: '#F2C14E',
   starOutline: '#24170E',
   tintBorder: '#FFE6C2',
-  live: '#0B6577',
-  liveTint: '#D3EAF0',
-  liveText: '#0B5A6B',
+  live: '#8A4C22',
+  liveTint: '#F3D9C0',
+  liveText: '#6E3A1A',
   deal: '#F2C14E',
   onDeal: '#24170E',
   seatTaken: '#EFE2CE',
@@ -443,9 +443,9 @@ const istikanNight: ThemeColors = {
   onDanger: '#1A1004',
   dangerTint: '#3D1D16',
   dangerText: '#F2937F',
-  info: '#4FB3C4',
-  infoTint: '#12323A',
-  infoText: '#8ED3DF',
+  info: '#E3A36A',
+  infoTint: '#3A2212',
+  infoText: '#F0BE8E',
   inverse: '#F7EADB',
   onInverse: '#1A100A',
   onInverseMuted: '#5A4636',
@@ -470,9 +470,9 @@ const istikanNight: ThemeColors = {
   star: '#F2C14E',
   starOutline: '#F7EADB',
   tintBorder: '#3B2914',
-  live: '#4FB3C4',
-  liveTint: '#12323A',
-  liveText: '#8ED3DF',
+  live: '#E3A36A',
+  liveTint: '#3A2212',
+  liveText: '#F0BE8E',
   deal: '#F2C14E',
   onDeal: '#1A1004',
   seatTaken: '#3A2A1E',
@@ -498,7 +498,8 @@ export interface IdentityColor {
 
 /**
  * Colours for people's monograms and avatars (joy S2-03). In istikan they are non-semantic (date,
- * clay, olive, plum, kashi, pomegranate) so green never means "a person called خالد". Clay is
+ * clay, olive, deep date, ochre, pomegranate; no teal or plum since Ali's no-blue rule, 2026-10-07) so
+ * green never means "a person called خالد". Clay is
  * `#AD5E36`, a shade under the report's `#B8643A` (4.17:1), so a 14 px letter passes AA. `light`
  * and `dark` keep the four semantic tones in the old hash order, so the other apps' avatars don't move.
  */
@@ -515,8 +516,8 @@ export const identity: Record<ThemeName, readonly IdentityColor[]> = {
     { fill: dark.successTint, on: dark.successText },
     { fill: dark.warningTint, on: dark.warningText },
   ],
-  istikan: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
-  istikanNight: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
+  istikan: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5C2A12', '#8E5A12', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
+  istikanNight: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5C2A12', '#8E5A12', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
 };
 
 /** One service's tile on the home screen: its own fill, the ink on it, and the colour of its glow. */
@@ -605,6 +606,53 @@ const decorNight: HomeDecor = {
 };
 
 export const decor: Record<ThemeName, HomeDecor> = { light: decorDay, dark: decorNight, istikan: decorDay, istikanNight: decorNight };
+
+/** One stage of the home live-order card: the card's own colour field and everything drawn on it. */
+export interface LiveStageSwatch {
+  /** The card, and the warmer glow in its top corner (`CornerFill`). */
+  fill: string;
+  light: string;
+  /** The stage title and the arrival time (AA on `fill` and `light`). */
+  on: string;
+  /** The restaurant's name, «يوصل», ص/م and the door at the end of the bar (AA on both too). */
+  sub: string;
+  /** The live dot and the filled bar (3:1 on both). */
+  accent: string;
+  /** The light that runs along the filled bar. */
+  shine: string;
+  /** The stage's mark riding the bar, and its icon (3:1 on both, the icon 3:1 on it). */
+  marker: string;
+  markerOn: string;
+  /** The square the stage's little picture lives in. */
+  plate: string;
+  /** The card's glow for a moment when it reaches this stage (drawn translucent). */
+  glow: string;
+}
+
+/**
+ * The live-order card warms up as the food gets closer (Ali, 2026-10-07: "make each stage visually
+ * different"): sent, the dark of a date; the kitchen said yes, cinnamon brown with gold; cooking,
+ * the red of strong tea over the fire; ready, gold; on the way, saffron, the brightest. A ride wears
+ * the same looks: looking for a driver as `sent`, the driver coming as `accepted`, on the trip as
+ * `onTheWay`. The card is its own colour field, so day and night share it.
+ */
+export interface LiveStagePalette {
+  sent: LiveStageSwatch;
+  accepted: LiveStageSwatch;
+  cooking: LiveStageSwatch;
+  ready: LiveStageSwatch;
+  onTheWay: LiveStageSwatch;
+}
+
+const liveStagesAll: LiveStagePalette = {
+  sent: { fill: '#2A170C', light: '#40261A', on: '#FFF4E6', sub: '#D9BFA0', accent: '#E0A526', shine: '#FFF4E6', marker: '#FFE3A6', markerOn: '#2A170C', plate: '#F6EEDF', glow: '#E0A526' },
+  accepted: { fill: '#6E3A1A', light: '#8A4C22', on: '#FFF4E6', sub: '#FFDC94', accent: '#FFC155', shine: '#FFF4E6', marker: '#FFC155', markerOn: '#2A170C', plate: '#FFF4E0', glow: '#FFC155' },
+  cooking: { fill: '#8E3012', light: '#A63E18', on: '#FFF7EE', sub: '#FFE2CB', accent: '#FFC155', shine: '#FFF7EE', marker: '#FFE3A6', markerOn: '#8E3012', plate: '#FFEBDA', glow: '#F0731A' },
+  ready: { fill: '#FFC155', light: '#FFE3A6', on: '#2A170C', sub: '#5C3A10', accent: '#2A170C', shine: '#FFC155', marker: '#2A170C', markerOn: '#FFC155', plate: '#FFF8EC', glow: '#F7A33B' },
+  onTheWay: { fill: '#F28C28', light: '#FFB04A', on: '#1F1006', sub: '#3E1F06', accent: '#2A170C', shine: '#FFB04A', marker: '#2A170C', markerOn: '#FFC155', plate: '#FFF4E6', glow: '#F38A1B' },
+};
+
+export const liveStages: Record<ThemeName, LiveStagePalette> = { light: liveStagesAll, dark: liveStagesAll, istikan: liveStagesAll, istikanNight: liveStagesAll };
 
 /**
  * Date & Saffron lifts: soft, warm and a little below (CSS `boxShadow`, React Native ≥ 0.76 and
@@ -1037,6 +1085,7 @@ export const tokens = {
   identity,
   services,
   decor,
+  liveStages,
   lift,
   brandFace,
   haptic,

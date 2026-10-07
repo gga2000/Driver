@@ -52,6 +52,8 @@ export function liveFilter(api: Api, key: LiveKey) {
       return api.dispatch.board.pathFilter();
     case 'dispatch.drivers':
       return api.dispatch.drivers.pathFilter();
+    case 'dispatch.myRideOffers':
+      return api.dispatch.myRideOffers.pathFilter();
     case 'trips.board':
       return api.trips.board.pathFilter();
     case 'console.rightNow':

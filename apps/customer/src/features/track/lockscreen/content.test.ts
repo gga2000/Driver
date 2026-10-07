@@ -65,7 +65,7 @@ function trip(state: Trip['state']): Trip {
     unreachable: null,
   };
 }
-const courier = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 12345', vehicleLabel: null, rating: null, ratingCount: 0, verifiedTodayAt: T0, photoUrl: null };
+const courier = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 12345', vehicleLabel: null, vehicleModel: null, vehicleColour: null, features: [], tripCount: 0, rating: null, ratingCount: 0, verifiedTodayAt: T0, photoUrl: null };
 
 function view(o: Partial<Order> = {}, patch: Partial<OrderTracking> = {}): OrderTracking {
   return { order: order(o), items: [], merchant: { id: 'rest_1', name: 'مطعم خالد', pin: null }, dropoff: null, trip: null, courier: null, reassigning: false, promisedAt: null, pointsEarned: null, serverNow: T0, ...patch };

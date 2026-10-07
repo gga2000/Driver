@@ -68,6 +68,8 @@ export const LiveKey = z.enum([
   'merchant.storeStatus',
   'dispatch.board',
   'dispatch.drivers',
+  /** Ride step 3 (n3): the drivers sent a rider's searching ride, on that order's channel. */
+  'dispatch.myRideOffers',
   'trips.board',
   'console.rightNow',
   /** SOS incidents (`safety.list` / `safety.get`): the Console's red banner and incident desk. */

@@ -34,6 +34,8 @@ import type { SupportPort } from './support-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
+import type { PhoneBookingPort } from './phone-booking-io.js';
+import type { GarageTaxiPort } from './garage-taxi-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -43,7 +45,8 @@ import { transformer } from './transformer.js';
  * internals. The API supplies the implementation through `AppContext`.
  */
 export interface AppContext {
-  pricing: { quote(req: PriceRequest): Quote };
+  /** The quote a client may book with: kept server-side for a while (LOAD-01), hence async. */
+  pricing: { quote(req: PriceRequest): Quote | Promise<Quote> };
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
@@ -115,6 +118,10 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
+  phoneBookings: PhoneBookingPort;
+  /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */
+  garageTaxi: GarageTaxiPort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

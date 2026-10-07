@@ -6,18 +6,22 @@ import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
 import { gateKind } from '@/features/account/logic';
+import { LostItemStrips } from '@/features/chat/LostItems';
 import { FleetInviteBanner } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
 import { DriverMap } from '@/features/map/DriverMap';
 import { ActiveJobBanner, CashBar, DemandRow, ModeCard, TodayPill, VehicleChip } from '@/features/work/HomeParts';
+import { ClimateCheckCard } from '@/features/work/ClimateCheck';
 import { VEHICLE_ICON } from '@/features/work/logic';
 import { OnlineSwitch } from '@/features/work/OnlineSwitch';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
 import { PrePromptGate } from '@/features/notify/Push';
-import { useDemandMap, useStatus } from '@/features/work/queries';
+import { useBookedJobs, useDemandMap, useStatus } from '@/features/work/queries';
+import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
+import { formatWhen } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
 /**
@@ -28,6 +32,7 @@ import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 export default function Home() {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const status = useStatus();
   const s = status.data;
   const presence = usePresence(s);
@@ -45,6 +50,9 @@ export default function Home() {
   // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
   const invites = useFleetInvites(s?.canDrive ?? false);
   const invite = splitInvites(invites.data ?? []).pending[0] ?? null;
+  // Review #28: «مشاوير باچر» for taxi and tuktuk drivers.
+  const bookedJobs = useBookedJobs(s?.modes.includes('city') ?? false);
+  const booked = bookedHome(bookedJobs.data, new Date());
 
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -134,6 +142,8 @@ export default function Home() {
               ) : null}
 
               {s.activeTripId ? <ActiveJobBanner /> : null}
+              {/* s7: a rider looking for something left in the car (the chat is open again for 24 h). */}
+              {s.canDrive ? <LostItemStrips /> : null}
               {invite && !s.activeTripId ? <FleetInviteBanner invite={invite} /> : null}
               {online && !cut && s.demand ? <DemandRow demand={s.demand} /> : null}
 
@@ -143,10 +153,23 @@ export default function Home() {
               {s.modes.includes('khat') ? (
                 <ModeCard testID="mode-khat" icon="seat" href="/khat" title={t('partner.khat_card_title')} body={t('partner.khat_card_body')} cta={t('partner.khat_card_cta')} />
               ) : null}
+              {/* Review #28: rides booked for later — his next one, or how many wait for a driver. */}
+              {booked ? (
+                <ModeCard
+                  testID="mode-booked"
+                  icon="taxi"
+                  href="/booked"
+                  title={t('partner.booked_title')}
+                  body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+                  cta={t('partner.booked_home_cta')}
+                />
+              ) : null}
               {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
 
               {s.canDrive && gate ? <GateBanner kind={gate} /> : null}
               {s.canDrive ? <CashBar cash={s.cash} /> : null}
+              {/* Ride idea x1: «المكيّفة شغالة اليوم؟» once a shift on a hot (cold) day. */}
+              {online && s.climateCheck ? <ClimateCheckCard check={s.climateCheck} /> : null}
               {/* S-8: GPS · النت · صوت الطلبات · البطارية, every shift, right above the switch. */}
               {s.canDrive && !gate ? <ReadinessRow /> : null}
               {s.canDrive && gate ? <BlockedSwitch kind={gate} /> : null}

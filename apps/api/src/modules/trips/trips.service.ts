@@ -1,7 +1,10 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import {
   DriverError,
   NEAR_DROPOFF_M,
+  RIDE_NEAR_RULES,
+  START_CODE_RULES,
   encodeDomainEvent,
   isDomainEventType,
   type DeviceFix,
@@ -13,6 +16,7 @@ import {
   type TripState,
   type VehicleClass,
   type Vertical,
+  jobOrder,
 } from '@driver/contracts';
 import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
@@ -26,6 +30,7 @@ import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
 import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
+import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
 import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TrailPointRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
@@ -138,6 +143,22 @@ export class TripsService implements OnModuleInit {
     this.handoverCheck = check;
   }
 
+  /** s1: the night-ride codes live on the orders; until orders binds them no ride needs one. */
+  private startCodes: TripStartCodes = new NoStartCodes();
+
+  /** Orders binds the night-ride codes here at start-up (orders imports trips). */
+  bindStartCodes(codes: TripStartCodes): void {
+    this.startCodes = codes;
+  }
+
+  /** d3: the one ETA to a ride's pickup; until tracking binds it no «السايق قريب» is sent. */
+  private rideNear: TripRideNear | null = null;
+
+  /** Tracking binds the one ETA here at start-up (tracking imports trips). */
+  bindRideNear(near: TripRideNear): void {
+    this.rideNear = near;
+  }
+
   private async assertOpenOffer(tripId: string, driverId: string, intent: 'accept' | 'decline'): Promise<void> {
     const verdict = await this.offerCheck.check(tripId, driverId, intent);
     if (verdict !== 'ok') throw new DriverError(verdict);
@@ -245,13 +266,14 @@ export class TripsService implements OnModuleInit {
       if (trip.state !== 'offered') throw new DriverError('trip_state_conflict');
       // Review H: one driver, one job. Only dispatch may hand a busy driver a second trip, after its
       // own batching check (`fitsCurrentJobs` / dispatcher override); a direct accept never can.
-      if (!opts.assignedByDispatch) {
-        const holding = (await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx)).filter((t) => t.id !== tripId);
-        if (holding.length > 0) throw new DriverError('offer_conflicts_current_job');
-      }
+      const holding = (await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx)).filter((t) => t.id !== tripId);
+      if (!opts.assignedByDispatch && holding.length > 0) throw new DriverError('offer_conflicts_current_job');
       const links = (await this.repo.linksOf(tripId, tx)).filter((l) => l.detachedAt === null);
       if (!vehicleFits(input.vehicleClass, largestVehicleClass(links.map((l) => l.minVehicleClass)))) throw new DriverError('vehicle_too_small');
-      const now = this.clock.now();
+      // `jobOrder`: a batched job is taken after the ones he holds, even within the same millisecond, so
+      // the order he works them in is the order dispatch's batching check planned.
+      const latest = Math.max(0, ...holding.map((t) => t.acceptedAt?.getTime() ?? 0));
+      const now = new Date(Math.max(this.clock.now().getTime(), latest + 1));
       const accepted = await this.move(
         trip,
         'accepted',
@@ -427,6 +449,14 @@ export class TripsService implements OnModuleInit {
     return this.repo.purgeTrail(cutoff, keepTripIds, batch);
   }
 
+  /**
+   * s1: pickups whose wrong night-ride codes alerted ops in the last `showMin` minutes, in the city,
+   * newest first (the Console safety strip).
+   */
+  startCodeAlerts(cityId: string, showMin: number): Promise<Array<{ stop: StopRecord; trip: TripRecord }>> {
+    return this.repo.startCodeAlertsSince(cityId, new Date(this.clock.now().getTime() - showMin * 60_000));
+  }
+
   /** Observes committed position reports (the live channel's courier positions and Console pins). */
   onPositionReported(listener: (report: PositionReport) => void): () => void {
     this.positionListeners.add(listener);
@@ -466,6 +496,7 @@ export class TripsService implements OnModuleInit {
             await this.emit(tx, 'stop.geofence_entered', driverId, trip.id, { stopId: s.id, stopType: s.type, distanceM: Math.round(d) }, { orderId: s.orderId ?? undefined, occurredAt: input.at, location: input.pin });
           }
         }
+        await this.noteRideNear(trip, stops, driverId, input, now, tx);
         if (RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'in_transit' || trip.state === 'arrived_dropoff')) {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
@@ -476,6 +507,48 @@ export class TripsService implements OnModuleInit {
       }
       return { armed };
     });
+  }
+
+  /**
+   * d3 «السايق قريب، اطلع هسة»: once per ride, the first fix the one ETA (tracking's) puts within
+   * `RIDE_NEAR_RULES.etaSec` of the pickup stamps `courierNearAt` on it and emits `stop.driver_near`
+   * (the notify module pushes it to the rider; the live channel refreshes his screen). The ETA is only
+   * asked for within `checkWithinM` of the pickup, so most fixes cost nothing.
+   */
+  private async noteRideNear(trip: TripRecord, stops: readonly StopRecord[], driverId: string, input: { pin: LatLng; at: Date }, now: Date, tx: Tx): Promise<void> {
+    if (!this.rideNear || !RIDE_VERTICALS.includes(trip.vertical) || (trip.state !== 'accepted' && trip.state !== 'en_route_to_pickup')) return;
+    const pickup = stops.find((s) => s.type === 'pickup' && s.state === 'pending' && !s.courierNearAt && s.target && s.orderId);
+    if (!pickup?.target || !pickup.orderId || haversineMeters(input.pin, pickup.target) > RIDE_NEAR_RULES.checkWithinM) return;
+    // A routing hiccup only skips this fix: the next one asks again.
+    const sec = await this.rideNear.secondsToPickup(await this.view(trip.id, tx), pickup.orderId, input.pin, now).catch(() => null);
+    if (sec === null || sec > RIDE_NEAR_RULES.etaSec) return;
+    await this.repo.updateStop(pickup.id, { courierNearAt: input.at }, now, tx);
+    await this.emit(tx, 'stop.driver_near', driverId, trip.id, { stopId: pickup.id, etaSec: Math.max(0, Math.round(sec)) }, { orderId: pickup.orderId, occurredAt: input.at, location: input.pin });
+  }
+
+  /**
+   * s1 «رمز المشوار»: «الراكب صعد» on a night ride's pickup needs the rider's 4 digits. Checked before
+   * the hand-over's own transaction so a wrong code is counted (and, at `START_CODE_RULES.wrongAlertAt`,
+   * alerts ops on the Console safety strip) even though the tap is refused. True when a code was
+   * needed and matched; false when none was needed (any other stop, a day ride, a replay of a done stop).
+   */
+  private async checkStartCode(tripId: string, stopId: string, driverId: string, typed: string | undefined): Promise<boolean> {
+    const trip = await this.repo.findTrip(tripId);
+    // Not his trip, or not a ride: the hand-over's own checks answer.
+    if (!trip || trip.courierId !== driverId || !RIDE_VERTICALS.includes(trip.vertical)) return false;
+    const stop = (await this.repo.stopsOf(tripId)).find((s) => s.id === stopId);
+    if (!stop?.orderId || stop.type !== 'pickup' || stop.state !== 'arrived') return false;
+    const code = await this.startCodes.codeOf(stop.orderId);
+    if (code === null) return false;
+    if (typed === undefined) throw new DriverError('start_code_required');
+    if (typed.length === code.length && timingSafeEqual(Buffer.from(typed), Buffer.from(code))) return true;
+    const now = this.clock.now();
+    await this.uow.run(async (tx) => {
+      const { wrong, alerted } = await this.repo.noteStartCodeWrong(stop.id, START_CODE_RULES.wrongAlertAt, now, tx);
+      // Never the code itself, typed or real.
+      await this.emit(tx, 'stop.start_code_wrong', driverId, tripId, { stopId, cityId: trip.cityId, wrong, alerted }, { orderId: stop.orderId ?? undefined });
+    });
+    throw new DriverError('start_code_wrong');
   }
 
   /**
@@ -524,7 +597,10 @@ export class TripsService implements OnModuleInit {
    * vault ref, never the name. Cash collected rides on the
    * event for the orders module (merchant cash account, edge-case §3). Replays are no-ops.
    */
-  async completeStop(tripId: string, stopId: string, driverId: string, input: { handover?: HandoverProof | undefined } & DeviceStamp = {}): Promise<Trip> {
+  async completeStop(tripId: string, stopId: string, driverId: string, raw: { handover?: HandoverProof | undefined; startCode?: string | undefined } & DeviceStamp = {}): Promise<Trip> {
+    // The code is checked here and goes no further: never into the stop's proof or an event.
+    const { startCode, ...input } = raw;
+    const startCodeChecked = await this.checkStartCode(tripId, stopId, driverId, startCode);
     return this.uow.run(async (tx) => {
       const trip = await this.loadForCourier(tripId, driverId, tx);
       const stop = await this.stop(tripId, stopId, tx);
@@ -602,6 +678,7 @@ export class TripsService implements OnModuleInit {
             ? { door: { placeId: stop.placeId, courierId: driverId, lat: stop.arrivalPin.lat, lng: stop.arrivalPin.lng, accuracyM: stop.arrivalAccuracyM } }
             : {}),
           ...(finalDrop ? { finalDrop } : {}),
+          ...(startCodeChecked ? { startCodeChecked: true } : {}),
         },
         stamp,
       );
@@ -764,15 +841,21 @@ export class TripsService implements OnModuleInit {
   }
 
   /** A driver's unfinished trips. */
+  /** His unfinished trips in the order he works them (`jobOrder`: the order he took them). */
   async forDriver(driverId: string): Promise<Trip[]> {
     const trips = await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES });
-    return Promise.all(trips.map((t) => this.view(t.id)));
+    return jobOrder(await Promise.all(trips.map((t) => this.view(t.id))));
   }
 
   /** The driver's trips completed at or after `since` (khat: a finished run still waiting for its sweep). */
   async completedForDriver(driverId: string, since: Date): Promise<Trip[]> {
     const trips = await this.repo.findTrips({ courierId: driverId, states: ['completed'], completedSince: since });
     return Promise.all(trips.map((t) => this.view(t.id)));
+  }
+
+  /** How many trips the driver completed, every vertical (the "1,240 مشوار" on his card). */
+  completedCountFor(driverId: string): Promise<number> {
+    return this.repo.completedCount(driverId);
   }
 
   /**

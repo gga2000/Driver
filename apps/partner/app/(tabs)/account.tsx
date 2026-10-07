@@ -14,6 +14,8 @@ import { useMe, useStatus } from '@/features/work/queries';
 import { mainPhotoStatus } from '@/features/account/logic';
 import { absoluteUrl } from '@/features/account/photo';
 import { useMainPhoto } from '@/features/account/queries';
+import { featureKey, featuresSummary, hasFeatures } from '@/features/vehicle/logic';
+import { useMyVehicle } from '@/features/vehicle/queries';
 import { saveDataSaverPref } from '@/lib/data-saver-pref';
 import { playTestSound } from '@/lib/alert';
 import { useApiClient } from '@/lib/api';
@@ -52,6 +54,9 @@ export default function Account() {
   const photo = useMainPhoto().data;
   const photoState = mainPhotoStatus(photo, t, { short: true });
   const photoUri = photo?.approved ? absoluteUrl(photo.approved.url) : undefined;
+  // «مميزات سيارتك» (ride step 3): for the car or tuktuk he drives; a bike has none.
+  const vehicle = useMyVehicle(s?.canDrive ?? false).data;
+  const features = vehicle && hasFeatures(vehicle.vehicleClass) ? featuresSummary(vehicle) : null;
 
   const work: HubRow[] = [
     { key: 'checkin', icon: 'shield', title: t('partner.hub_checkin'), subtitle: t('partner.hub_checkin_sub'), href: '/checkin' },
@@ -114,7 +119,22 @@ export default function Account() {
           subtitle={photo?.state === 'rejected' && photo.latest?.rejectReason ? mainPhotoStatus(photo, t).label : t('partner.mainphoto_intro')}
           trailing={photo ? <StatusPill size="sm" tone={photoState.tone} label={photoState.label} /> : undefined}
           onPress={() => router.push('/photo')}
+          divider={features !== null}
         />
+        {features ? (
+          <ListRow
+            testID="hub-vehicle-features"
+            leading={vehicle?.vehicleClass === 'tuktuk' ? 'tuktuk' : 'car'}
+            title={t('partner.features_title')}
+            subtitle={
+              features.confirmed.length > 0
+                ? t('partner.features_row_seen', { names: features.confirmed.map((f) => t(featureKey(f))).join('، ') })
+                : t(features.pending.length > 0 ? 'partner.features_row_waiting' : 'partner.features_row_none')
+            }
+            trailing={features.pending.length > 0 ? <StatusPill size="sm" tone="neutral" icon="clock" label={t('partner.features_pending')} /> : undefined}
+            onPress={() => router.push('/vehicle')}
+          />
+        ) : null}
       </Card>
 
       <Section title={t('partner.hub_work')} rows={work} />

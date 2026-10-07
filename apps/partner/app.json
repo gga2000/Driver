@@ -46,7 +46,7 @@
       ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],
       "expo-font",
       "expo-secure-store",
-      ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": false }],
+      ["expo-audio", { "microphonePermission": "درايفر بارتنر يحتاج المايك حتى تدز رسالة صوتية للزبون. يشتغل بس وانت ضاغط عليه", "recordAudioAndroid": true, "enableBackgroundPlayback": false }],
       "expo-asset",
       "expo-sharing",
       "expo-status-bar"

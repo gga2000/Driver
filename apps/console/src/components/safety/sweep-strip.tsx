@@ -1,18 +1,20 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KHAT_RULES, SAFETY_DESK_ROLES, type KhatSweepAlert, type KhatSweepCloseReason, type PinAlertView } from '@driver/contracts';
+import { KHAT_RULES, SAFETY_DESK_ROLES, type KhatSweepAlert, type KhatSweepCloseReason, type PinAlertView, type StartCodeAlert } from '@driver/contracts';
 import { t } from '@driver/i18n';
+import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
 import { SAFETY_POLL_MS } from '@/lib/safety-live';
 import { useSignedIn } from '@/lib/session';
 import { pinAlertDetail, pinAlertOrder, pinAlertTitle, pinAttemptLine, pinDriverName } from '@/lib/pin-alert';
+import { startCodeDetail, startCodeOrder, startCodeTitle } from '@/lib/start-code-alert';
 import { sweepDetail, sweepDriverName, sweepOrder, sweepTitle } from '@/lib/sweep';
 import { useTRPC } from '@/lib/trpc';
 import { withBdi } from './bdi';
-import { Button, cx, Dialog, Field, IconAlert, IconCheckCircle, IconPhone, Textarea, useNow, useToast } from '../ui';
+import { Button, buttonCls, cx, Dialog, Field, IconAlert, IconCheckCircle, IconPhone, Textarea, useNow, useToast } from '../ui';
 
 const NONE: KhatSweepAlert[] = [];
 const NO_PIN: PinAlertView[] = [];
@@ -37,6 +39,18 @@ export function usePinAlerts() {
   return { rows: q.data ?? NO_PIN, allowed };
 }
 
+const NO_START_CODE: StartCodeAlert[] = [];
+
+/** s1: night rides whose trip code was typed wrong 5 times on one pickup, for the same roles. */
+export function useStartCodeAlerts() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const { roles, loaded } = useMyRoles();
+  const allowed = loaded && hasAny(roles, SAFETY_DESK_ROLES);
+  const q = useQuery(trpc.trips.startCodeAlerts.queryOptions({ cityId: CITY_ID }, { enabled: signedIn && allowed, refetchInterval: SAFETY_POLL_MS, retry: queryRetry }));
+  return { rows: q.data ?? NO_START_CODE, allowed };
+}
+
 /**
  * The ops alert strip under the SOS banner on every page (one place for the rows that need a
  * dispatcher now), in this order:
@@ -47,7 +61,10 @@ export function usePinAlerts() {
  *   record keeps who, when and why (Ali, 2026-10-06);
  * - الرجعة seat PINs (Ali 2026-10-06): a rider's PIN typed on another rider's seat, or repeated wrong
  *   PINs on one seat, with the car's PIN history to unfold and the same masked call; each leaves after
- *   `PIN_ATTEMPT_RULES.alertShowMin`.
+ *   `PIN_ATTEMPT_RULES.alertShowMin`;
+ * - night ride trip codes (ride step 3, s1): a code typed wrong `START_CODE_RULES.wrongAlertAt` times on
+ *   one pickup, with the order to open; calm once the rider got in with the right code, gone after
+ *   `START_CODE_RULES.alertShowMin`.
  * Its height is published as `--sweep-h` for full-height pages.
  */
 export function SweepAlertStrip() {
@@ -58,7 +75,9 @@ export function SweepAlertStrip() {
   const openSweeps = ordered.filter((a) => !a.confirmedAt);
   const clearedSweeps = ordered.filter((a) => a.confirmedAt);
   const pinRows = pinAlertOrder(pins.rows);
-  const count = ordered.length + pinRows.length;
+  const codes = useStartCodeAlerts();
+  const codeRows = startCodeOrder(codes.rows);
+  const count = ordered.length + pinRows.length + codeRows.length;
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -86,6 +105,9 @@ export function SweepAlertStrip() {
       ))}
       {pinRows.map((a) => (
         <PinAlertRow key={a.alertId} alert={a} now={now} />
+      ))}
+      {codeRows.map((a) => (
+        <StartCodeAlertRow key={a.alertId} alert={a} now={now} />
       ))}
       {clearedSweeps.map((a) => (
         <SweepRow key={a.alertId} alert={a} now={now} />
@@ -301,5 +323,28 @@ function PinCallButton({ alert }: { alert: PinAlertView }) {
     <Button variant={alert.kind === 'cross_use' ? 'danger' : 'secondary'} size="lg" loading={call.isPending} icon={<IconPhone size={16} />} onClick={() => call.mutate({ alertId: alert.alertId })} data-testid={`pin-call-${alert.alertId}`}>
       {label}
     </Button>
+  );
+}
+
+/** s1: one night ride's trip code typed wrong too often; the order opens in the Console's order page. */
+export function StartCodeAlertRow({ alert, now }: { alert: StartCodeAlert; now: number }) {
+  const waiting = !alert.startedAt;
+  return (
+    <div
+      role={waiting ? 'alert' : 'status'}
+      data-testid={`start-code-alert-${alert.alertId}`}
+      className={cx('flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 lg:px-6', waiting ? 'border-bad/50 bg-bad-tint text-bad' : 'border-line bg-ok-tint text-text')}
+    >
+      <span aria-hidden className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-pill', waiting ? 'bg-bad-solid text-on-bad' : 'bg-surface text-ok')}>
+        {waiting ? <IconAlert size={20} /> : <IconCheckCircle size={20} />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-base font-bold leading-6">{withBdi(startCodeTitle(alert))}</p>
+        <p className={cx('num text-dense', waiting ? 'opacity-90' : 'text-muted')}>{withBdi(startCodeDetail(alert, now))}</p>
+      </div>
+      <Link href={`/orders/${alert.orderId}`} className={cx(buttonCls('secondary', 'lg'), 'font-semibold')} data-testid={`start-code-open-${alert.alertId}`}>
+        {t('console.safety.start_code_open')}
+      </Link>
+    </div>
   );
 }

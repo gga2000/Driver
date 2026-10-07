@@ -137,6 +137,7 @@ describe('the job with waiting taps applied', () => {
     vertical: 'food',
     state: 'accepted',
     acceptedAt: new Date(),
+    rideCargo: [],
     currentStopId: 'p1',
     unreachable: null,
     merchant: null,

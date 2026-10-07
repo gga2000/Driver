@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { EtaBasis, LatLng, Order, PartnerBookedAnswer, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -30,6 +30,8 @@ export interface PartnerOfferRecord {
   expiresAt: Date;
   /** How dispatch offered it (`favourite`: the rider's own driver, alone for a minute — joy l9). */
   policy?: string;
+  /** Ride step 3 (n4): when the waiting rider nudged him; null/absent = not. */
+  nudgedAt?: Date | null;
 }
 
 export interface PartnerOfferRequest {
@@ -38,6 +40,17 @@ export interface PartnerOfferRequest {
   zoneId: string;
   dropoffZoneId: string | null;
   pickup: LatLng;
+}
+
+/** A ride booked for later as dispatch holds it (review #28). */
+export interface PartnerBookedRecord {
+  request: PartnerOfferRequest & { cashIqd?: number | undefined };
+  scheduledFor: Date;
+  confirmBy: Date;
+  startFrom: Date;
+  showBy: Date;
+  favourite: boolean;
+  held: boolean;
 }
 
 export interface PartnerCapStatus {
@@ -70,6 +83,10 @@ export interface PartnerDeps {
     openOffer(driverId: string, cityId: string): Promise<{ offer: PartnerOfferRecord; request: PartnerOfferRequest } | null>;
     /** Zones of the city's jobs that are waiting for a driver. */
     waitingZones(cityId: string): Promise<string[]>;
+    /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones open to him. Absent in older fakes = none. */
+    bookedJobs?(driverId: string, cityId: string): Promise<{ online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] }>;
+    /** His answer on one (dispatch's rules: first confirm wins, fit, clash, start window). */
+    answerBookedJob?(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void>;
   };
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;
@@ -81,7 +98,13 @@ export interface PartnerDeps {
   };
   /** The road router (maps program d2); absent in fakes = straight lines on the app. */
   roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis }> };
-  orders: { get(orderId: string): Promise<Order | null> };
+  orders: {
+    get(orderId: string): Promise<Order | null>;
+    /** s1: whether a ride needs the rider's night code to start (the code itself never reaches the partner side). */
+    startCodeRequired?(orderId: string): Promise<boolean>;
+    /** Ride ideas c9/s3: the name the booker gave a ride's rider, read for this driver (logged); null when he booked it himself. Optional for fakes. */
+    riderName?(orderId: string, driverId: string): Promise<string | null>;
+  };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
   money: {
@@ -109,6 +132,14 @@ export interface PartnerDeps {
   };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
+  /**
+   * Ride idea x1, «المكيّفة شغالة اليوم؟»: this shift's question for his car (the fleet registry's
+   * confirmed features, dispatch's `ClimateChecks`) and his answer. Absent in fakes = never asked.
+   */
+  climate?: {
+    check(driverId: string): Promise<PartnerClimateCheck | null>;
+    answer(driverId: string, working: boolean): Promise<PartnerClimateCheck>;
+  };
 }
 
 export const PARTNER_DEPS = Symbol('PARTNER_DEPS');

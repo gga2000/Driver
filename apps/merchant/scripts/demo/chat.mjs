@@ -28,7 +28,7 @@ export default async function register(ctx) {
     const id = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'courier' });
     await identity.setName({ personId: id, sessionId: 'demo' }, 'عباس فاضل');
-    vehicles.register?.(id, { vehicleClass: 'bike', plate: `واسط ${51200 + courierSeq}`, label: null });
+    vehicles.register?.(id, { vehicleClass: 'bike', plate: `واسط ${51200 + courierSeq}` });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
     return id;
   }
