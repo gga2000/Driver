@@ -20,7 +20,7 @@ const code = async (p: Promise<unknown>) => {
 function setup(router: Router = new StraightLineRouter()) {
   const h = ordersHarness();
   const vehicles = new InMemoryCourierVehicles();
-  vehicles.register('d1', { vehicleClass: 'car', plate: '12345 واسط', label: 'Toyota Corolla · أبيض' });
+  vehicles.register('d1', { vehicleClass: 'car', plate: '12345 واسط', model: 'Toyota Corolla', colour: 'white', features: ['ac'] });
   const reads: Array<{ personId: string; accessorId: string; purpose: string }> = [];
   const departures = new Map<string, Awaited<ReturnType<ShareIntercityPort['departure']>>>();
   const bookings = new Map<string, Awaited<ReturnType<ShareIntercityPort['booking']>>>();
@@ -102,14 +102,14 @@ describe('ShareLinksService — rides', () => {
     const trip = await s.h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
     await s.h.trips.reportPosition('d1', { tripId: trip.id, pin: { lat: 32.905, lng: 45.06 }, at: s.h.clock.now() });
     const coming = await s.share.shared({ token: link.token });
-    expect(coming).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', driverPhotoUrl: '/files/up_d1?exp=1&sig=x', vehicleClass: 'car', plate: '12345 واسط', vehicleLabel: 'Toyota Corolla · أبيض', route: null });
+    expect(coming).toMatchObject({ status: 'to_pickup', driverFirstName: 'حيدر', driverPhotoUrl: '/files/up_d1?exp=1&sig=x', vehicleClass: 'car', plate: '12345 واسط', vehicleLabel: 'Toyota Corolla · أبيض', vehicleModel: 'Toyota Corolla', vehicleColour: 'white', route: null });
     expect(coming.position).toMatchObject({ lat: 32.905, lng: 45.06, ageSec: 0 });
     // Heading to the rider first (maps program c9): a pin, never an address.
     const pickupPin = trip.stops.find((st) => st.type === 'pickup')!.target!;
     expect(coming.target).toEqual({ lat: pickupPin.lat, lng: pickupPin.lng, kind: 'pickup' });
     expect(coming.eta!.getTime()).toBeGreaterThan(s.h.clock.now().getTime());
     // Exactly the public shape: no phone, no full name, no address in words, no rider.
-    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['arrivedAt', 'driverFirstName', 'driverPhotoUrl', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleLabel']);
+    expect(Object.keys(SharedTrip.parse(coming)).sort()).toEqual(['arrivedAt', 'driverFirstName', 'driverPhotoUrl', 'endedReason', 'eta', 'expiresAt', 'plate', 'position', 'route', 'serverNow', 'status', 'storeName', 'subject', 'target', 'vehicleClass', 'vehicleColour', 'vehicleLabel', 'vehicleModel']);
     expect(JSON.stringify(coming)).not.toMatch(/\+964|07\d{9}|c1|zakur/);
 
     await s.h.pickup(trip.id);

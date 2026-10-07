@@ -16,6 +16,20 @@ export function firstKindForOrder(orderId: string, firsts: OrderFirsts | null | 
   return null;
 }
 
+/**
+ * Ride stickers (ride idea g2): the first ride booked at night gets «وصلت بالسلامة», and the 10th,
+ * 25th, 50th and 100th ride get «جاي بالطريق» — stickers from the pack (`/stickers`), offered on that
+ * ride's arrival screen to send on WhatsApp. A milestone wins when one ride is both.
+ */
+export type RideSticker = { kind: 'night'; stickerId: 'wasalt' } | { kind: 'milestone'; count: number; stickerId: 'jay' };
+
+export function rideStickerFor(orderId: string, firsts: OrderFirsts | null | undefined): RideSticker | null {
+  if (!firsts) return null;
+  if (firsts.rideMilestone?.orderId === orderId) return { kind: 'milestone', count: firsts.rideMilestone.count, stickerId: 'jay' };
+  if (firsts.nightRideOrderId === orderId) return { kind: 'night', stickerId: 'wasalt' };
+  return null;
+}
+
 /** A seat that was really taken (not a hold that lapsed, not cancelled). */
 const SEATED: ReadonlySet<BookingState> = new Set<BookingState>(['booked', 'checked_in', 'completed']);
 

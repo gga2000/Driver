@@ -12,6 +12,7 @@ import type {
   SessionRecord,
   VaultAccessLogRecord,
   ChildIdentityRecord,
+  ParticipantIdentityRecord,
 } from './identity.repository.js';
 
 /**
@@ -29,6 +30,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly accessLogs: VaultAccessLogRecord[] = [];
   /** Twin of the vault table of khat children (name by childRef). */
   readonly children: ChildIdentityRecord[] = [];
+  readonly participantNames = new Map<string, ParticipantIdentityRecord>();
   readonly roles: RoleRecord[] = [];
   readonly devices: DeviceRecord[] = [];
   readonly sessions: SessionRecord[] = [];
@@ -171,6 +173,22 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     if (!c) throw new Error(`child ${childRef} not found`);
     this.keep(tx, c);
     c.photoRef = photoRef;
+  }
+
+  async saveParticipantIdentity(input: ParticipantIdentityRecord, tx?: Tx) {
+    const prior = this.participantNames.get(input.participantId);
+    this.participantNames.set(input.participantId, { ...input });
+    this.journal(tx, () => {
+      if (prior) this.participantNames.set(input.participantId, prior);
+      else this.participantNames.delete(input.participantId);
+    });
+  }
+
+  async readParticipantIdentities(participantIds: readonly string[]) {
+    return participantIds.flatMap((id) => {
+      const r = this.participantNames.get(id);
+      return r ? [{ ...r }] : [];
+    });
   }
 
   /** Twin of the vault row's document / selfie storage refs, by personId. */

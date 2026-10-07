@@ -3,8 +3,8 @@ import type { MessageKey } from '@driver/i18n';
 import { placeLabelKey } from '@/features/places/PlaceForm';
 import { useLocale, useT } from '@/lib/i18n';
 import { deliveryPointOf, selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
-import { landmarkSpot, zoneSpots, zoneTitle, type Spot, type SpotSources } from './logic';
-import { useLandmarks } from './queries';
+import { landmarkSpot, shopSpot, zoneSpots, zoneTitle, type Spot, type SpotSources } from './logic';
+import { useLandmarks, useShopPlaces } from './queries';
 import { useRideStore } from './store';
 
 const LANDMARK_KIND: Record<'garage' | 'meeting_point' | 'landmark', MessageKey> = {
@@ -27,7 +27,7 @@ export function savedSpot(p: SavedPlace, title: string, locale: 'ar-IQ' | 'en'):
 }
 
 /**
- * Everything "وين رايح؟" searches (saved places, recent trips, landmarks, the 34 zones) and the
+ * Everything "وين رايح؟" searches (saved places, recent trips, landmarks, restaurants, the 34 zones) and the
  * default pickup: the selected deliver-to place.
  */
 export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean } {
@@ -36,6 +36,7 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
   const prof = useProfile();
   const ride = useRideStore();
   const landmarks = useLandmarks();
+  const shops = useShopPlaces();
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
 
   return useMemo(() => {
@@ -48,10 +49,11 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
         saved,
         recent: ride.recent,
         landmarks: (landmarks.data ?? []).map((l) => landmarkSpot(l, lang, t(LANDMARK_KIND[l.kind]))),
+        shops: (shops.data ?? []).map((m) => shopSpot(m, lang, t('ride.kind_shop'))).filter((x): x is Spot => x !== null),
         zones: zoneSpots(lang, t('ride.zone_centre')),
       },
       defaultPickup,
       landmarksLoading: landmarks.isPending,
     };
-  }, [prof, ride.recent, landmarks.data, landmarks.isPending, lang, t]);
+  }, [prof, ride.recent, landmarks.data, landmarks.isPending, shops.data, lang, t]);
 }

@@ -55,6 +55,14 @@ export interface DispatchRequest {
   startAt?: number | null;
   /** Joy l9: the rider's favourite, offered the job alone for a minute when the search starts. */
   preferDriverIds?: string[];
+  /** Ride step 3: who asked for the ride (its orderer); null/absent for jobs that are not a rider's. */
+  riderId?: string | null;
+  /** s5: drivers the rider keeps off his rides, read when the request starts; never offered this job. */
+  avoidDriverIds?: string[];
+  /** s4: the rider's favourites; one free within `autoFirstKm` of the pickup gets the ride first, alone. */
+  favouriteDriverIds?: string[];
+  /** s6 «عوائل»: the first wave goes to family-tagged, long-standing, well-rated drivers only. */
+  familyPreferred?: boolean;
 }
 
 export interface PolicyOverride {

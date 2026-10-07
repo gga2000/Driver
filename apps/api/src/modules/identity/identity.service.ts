@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DEFAULT_SAFETY_PREFS,
   DriverError,
+  RIDE_RIDER_NAME_MAX,
   TRUSTED_CONTACTS_MAX,
   type EmergencyRelation,
   type SafetyPrefs,
@@ -78,6 +79,9 @@ export interface RosterResult {
 
 /** Who can hold a role on behalf of the system when no human actor is involved. */
 const SYSTEM_ACTOR = 'system';
+
+/** Roles that carry customers or their orders: «سايق ويانا من» counts from the oldest one. */
+const DRIVING_ROLES: ReadonlySet<RoleKind> = new Set<RoleKind>(['courier', 'driver', 'intercity_driver', 'khat_driver']);
 
 /**
  * Identity façade (plan Step 2 + edge-case §7). One pseudonymous Person per peppered phone hash;
@@ -599,6 +603,20 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /**
+   * s2 «وصل بالسلامة» in the app only: the accounts behind a person's trusted people, matched by their
+   * numbers — only those who signed up (and are not deleted), never the person himself. Reading his
+   * list is a logged vault read; only person ids leave identity, never a name or a number.
+   */
+  async trustedContactAccounts(personId: string, accessorId: string, purpose: string): Promise<string[]> {
+    const out = new Set<string>();
+    for (const c of await this.trustedContactsOf(personId, accessorId, purpose)) {
+      const p = await this.repo.findPersonByPhoneHash(this.phone(c.phoneE164).hash);
+      if (p && !p.deletedAt && p.id !== personId) out.add(p.id);
+    }
+    return [...out];
+  }
+
   /** How many trusted people a person has (w9): a count, no names or numbers, so not logged. */
   async trustedContactCount(personId: string): Promise<number> {
     const identity = await this.repo.readIdentity(personId);
@@ -692,6 +710,20 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * Since when each person drives here (ride step 3: the profile's «سايق ويانا من», the «عوائل» wave's
+   * 90 days): the start of his oldest live courier / driver grant; null when he holds none. Role rows
+   * only, no vault fields.
+   */
+  async driverSinceOf(personIds: readonly string[]): Promise<Record<string, Date | null>> {
+    const out: Record<string, Date | null> = {};
+    for (const personId of new Set(personIds)) {
+      const grants = (await this.repo.rolesOf(personId)).filter((r) => DRIVING_ROLES.has(r.kind) && r.frozenAt === null);
+      out[personId] = grants.length === 0 ? null : new Date(Math.min(...grants.map((r) => r.createdAt.getTime())));
+    }
+    return out;
+  }
+
+  /**
    * When each person last used the app: the later of his last OTP sign-in and his latest session
    * start or refresh (null = never). Person and session rows only, no vault fields.
    */
@@ -709,15 +741,22 @@ export class IdentityService implements IdentityPort {
 
   /**
    * Household invite by phone (domain §12): the Person behind the number, created pseudonymously when
-   * the number has never signed in (as a guardian link does). The number stays in the vault.
+   * the number has never signed in (as a guardian link does). The number stays in the vault. With
+   * `name` (a phone booking's caller) the vault's name is set when it has none.
    */
-  async ensurePersonByPhone(rawPhone: string, actorId: string, via: string): Promise<string> {
+  async ensurePersonByPhone(rawPhone: string, actorId: string, via: string, opts: { name?: string } = {}): Promise<string> {
     const { e164, hash } = this.phone(rawPhone);
+    const name = opts.name?.trim() || null;
     return this.uow.run(async (tx) => {
       const existing = await this.repo.findPersonByPhoneHash(hash, tx);
-      if (existing) return existing.id;
+      if (existing) {
+        // A name staff heard on the phone (taxi/tuktuk step 4) fills an empty vault name only: the
+        // name a person gave themselves, or an earlier call's, is never overwritten.
+        if (name && !(await this.repo.readIdentity(existing.id, tx))?.name) await this.repo.updateIdentity(existing.id, { name }, tx);
+        return existing.id;
+      }
       const now = this.clock.now();
-      const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: e164, phoneHash: hash, name: null, now }, tx);
+      const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: false, phoneE164: e164, phoneHash: hash, name, now }, tx);
       await this.events.emit(tx, { actorId, type: 'person.registered', occurredAt: now, payload: { personId: person.id, via } }, { name: 'person', id: person.id });
       return person.id;
     });
@@ -739,6 +778,42 @@ export class IdentityService implements IdentityPort {
     const { hash } = this.phone(rawPhone);
     const p = await this.repo.findPersonByPhoneHash(hash);
     return { personId: p?.id ?? null, phoneHash: hash };
+  }
+
+  /**
+   * Ride ideas c9/s3: the person a booker books a ride for, by number — found, or created
+   * pseudonymously like a household invite so the driver's call and the rider's SMS reach them — and
+   * the peppered hash of the number. The number itself stays in the vault.
+   */
+  async riderByPhone(rawPhone: string, bookerId: string): Promise<{ personId: string; phoneHash: string }> {
+    const { hash } = this.phone(rawPhone);
+    return { personId: await this.ensurePersonByPhone(rawPhone, bookerId, 'ride_rider'), phoneHash: hash };
+  }
+
+  /** c9/s3: keeps the name the booker gave the rider of his ride («ماما»), keyed by the participant id. */
+  async rememberParticipantName(input: { participantId: string; personId: string; givenById: string; name: string }): Promise<void> {
+    const name = input.name.trim().slice(0, RIDE_RIDER_NAME_MAX);
+    if (!name) throw new DriverError('invalid_input');
+    await this.uow.run((tx) => this.repo.saveParticipantIdentity({ ...input, name }, tx));
+  }
+
+  /**
+   * c9/s3: the names bookers gave their riders, by participant id (unknown ids are left out), for the
+   * booker, the rider or the driver of the ride. Every read by someone other than the rider is a
+   * VaultAccessLog row against the rider (`participant_name`, the caller's purpose).
+   */
+  async participantNames(participantIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>> {
+    const ids = [...new Set(participantIds)];
+    if (ids.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const rows = await this.repo.readParticipantIdentities(ids, tx);
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        rows.filter((r) => r.personId !== accessorId).map((r) => ({ personId: r.personId, accessorId, purpose, fieldsRead: ['participant_name'], now })),
+        tx,
+      );
+      return Object.fromEntries(rows.map((r) => [r.participantId, r.name]));
+    });
   }
 
   async setName(actor: Actor, name: string): Promise<void> {

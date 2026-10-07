@@ -78,7 +78,8 @@ export function OrderRow({ row, now, showDay, divider, action }: { row: OrderHis
   const status = shortStatus(o);
   const running = isRunning(o);
   const title = orderTitle(t, row, locale);
-  const summary = itemsSummary(row.items);
+  // Ride idea c9/s3: a ride he booked for someone else says who for («لـ ماما»); a ride has no dishes.
+  const summary = o.type === 'ride' && o.rider?.name ? t('ride.rider_for', { name: o.rider.name }) : itemsSummary(row.items);
   const time = showDay ? `${dayLabel(t, dayKey(o.placedAt, now))} ${formatClock(o.placedAt)}` : formatClock(o.placedAt);
   const meta = [t('orders.row_meta', { time, amount: amountParam(o.totalIqd) }), `#${orderTicketNumber(o.id)}`].join(' · ');
   return (

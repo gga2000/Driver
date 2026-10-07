@@ -16,6 +16,8 @@ import {
   TripIdInput,
 } from '../trip.js';
 import { EventLog } from '../console-io.js';
+import { StartCodeAlert, StartCodeAlertsInput } from '../ride-safety-io.js';
+import { SAFETY_DESK_ROLES } from '../safety-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 
@@ -53,4 +55,9 @@ export const tripsRouter = router({
   fail: protectedProcedure([...DRIVING_ROLES, 'dispatcher']).input(FailTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.fail(ctx.actor, input)),
   /** Driver cancel (scoring hit, fees per spec §4) or dispatcher/platform cancel. */
   cancel: protectedProcedure([...DRIVING_ROLES, 'dispatcher', 'admin']).input(CancelTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.cancel(ctx.actor, input)),
+  /** s1: night-ride trip codes typed wrong again and again (Console safety strip, with the sweep and PIN rows). */
+  startCodeAlerts: protectedProcedure(SAFETY_DESK_ROLES)
+    .input(StartCodeAlertsInput)
+    .output(z.array(StartCodeAlert))
+    .query(({ ctx, input }) => ctx.trips.startCodeAlerts(ctx.actor, input)),
 });

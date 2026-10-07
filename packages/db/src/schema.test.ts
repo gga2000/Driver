@@ -139,7 +139,15 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('only vault tables live in the vault schema', () => {
     const inVault = models.filter((m) => /@@schema\("identity_vault"\)/.test(m.body)).map((m) => m.name).sort();
-    expect(inVault).toEqual(['ChildIdentity', 'PersonIdentity', 'VaultAccessLog']);
+    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'VaultAccessLog']);
+  });
+
+  it('ride c9: the name a booker gave a rider lives in vault.participant_identities, keyed by participant', () => {
+    const p = model('ParticipantIdentity');
+    expect(p).toMatch(/@@schema\("identity_vault"\)/);
+    expect(p).toMatch(/@@map\("participant_identities"\)/);
+    for (const col of ['participantId', 'name']) expect(fields(p), `vault.participant_identities.${col}`).toContain(col);
+    expect(fields(model('Participant'))).not.toContain('name');
   });
 
   it('M2 follow-up: stops hold no child name — only an opaque childRef into vault.child_identities', () => {

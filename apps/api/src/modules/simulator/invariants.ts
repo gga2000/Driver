@@ -1,4 +1,4 @@
-import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, latePromiseTerms, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
@@ -40,7 +40,17 @@ export interface SimSnapshot {
   merchants: Array<{ merchantId: string; balanceIqd: number }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
+  /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
+  rideStarts?: RideStartRecord[];
   errors: Array<{ where: string; message: string }>;
+}
+
+/** One ride's start: the pickup's `stop.completed`, and whether the server matched the night code on it. */
+export interface RideStartRecord {
+  orderId: string;
+  tripId: string;
+  stopId: string;
+  startCodeChecked: boolean;
 }
 
 export interface InvariantResult {
@@ -458,6 +468,43 @@ export const INVARIANTS: readonly Definition[] = [
             );
           }
         }
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'night_ride_starts_with_the_code',
+    description:
+      '«رمز المشوار» (ride step 3, s1): a taxi/tuktuk ride placed for the night (isNightAt of its booked or placed time) never starts without the rider’s 4 digits — every pickup the server completed on it matched the code, and a finished night ride has such a start',
+    run: (s) => {
+      if (!s.rideStarts) return { checked: 0, bad: [] };
+      const bad: string[] = [];
+      const starts = new Map<string, RideStartRecord[]>();
+      for (const r of s.rideStarts) starts.set(r.orderId, [...(starts.get(r.orderId) ?? []), r]);
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !isNightAt(o.scheduledFor ?? o.placedAt)) continue;
+        checked += 1;
+        const mine = starts.get(o.id) ?? [];
+        for (const r of mine) if (!r.startCodeChecked) bad.push(`${o.id}: pickup ${r.stopId} on ${r.tripId} completed without the trip code`);
+        if ((o.state === 'completed' || o.state === 'closed') && mine.length === 0) bad.push(`${o.id}: finished night ride with no recorded start`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'booked_ride_waits_for_its_search',
+    description: 'a ride booked «بعدين» reaches no driver before its search starts (15 min before its time)',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !o.scheduledFor) continue;
+        checked += 1;
+        const startsAt = rideSearchStartsAt(o.scheduledFor).getTime();
+        const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
+        const early = s.offers.filter((x) => trips.has(x.tripId) && x.at < startsAt);
+        if (early.length > 0) bad.push(`${o.id}: ${early.length} offer(s) from ${new Date(Math.min(...early.map((x) => x.at))).toISOString()}, search starts ${new Date(startsAt).toISOString()}`);
       }
       return { checked, bad };
     },

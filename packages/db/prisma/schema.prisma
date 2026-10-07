@@ -125,6 +125,8 @@ model Person {
   vaultAccesses    VaultAccessLog[]  @relation("VaultAccessor")
   /// Children this person enrolled as guardian (names in the vault; M2 review follow-up).
   guardedChildren  ChildIdentity[]   @relation("ChildGuardian")
+  /// Ride ideas c9/s3: the names bookers gave this person on rides they booked for them (vault).
+  riderNames       ParticipantIdentity[] @relation("ParticipantIdentitySubject")
   tripOrderChanges TripOrder[]
 
   @@index([trustTier])
@@ -413,6 +415,27 @@ model ChildIdentity {
   @@schema("identity_vault")
 }
 
+/// Ride ideas c9/s3: the name an orderer gave the person he booked a ride for («ماما», «أم علي»),
+/// keyed by the opaque participant id the public side carries. The rider's number is that person's
+/// own identity (`person_identities`); every read is a VaultAccessLog row against the rider.
+model ParticipantIdentity {
+  id            String   @id @default(cuid())
+  participantId String   @unique @map("participant_id")
+  /// The person on the order (the rider).
+  personId      String   @map("person_id")
+  /// Who gave the name (the orderer).
+  givenById     String   @map("given_by_id")
+  name          String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  person Person @relation("ParticipantIdentitySubject", fields: [personId], references: [id])
+
+  @@index([personId])
+  @@map("participant_identities")
+  @@schema("identity_vault")
+}
+
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
 model VaultAccessLog {
   id         String   @id @default(cuid())
@@ -460,22 +483,30 @@ enum ZoneTier {
 
 /// Plate-level object. Owned by an org (fleet) and driven by one active person.
 model Vehicle {
-  id             String       @id @default(cuid())
-  plate          String       @unique
-  class          VehicleClass
-  ownerOrgId     String?      @map("owner_org_id")
-  activeDriverId String?      @map("active_driver_id")
+  id                String       @id @default(cuid())
+  plate             String       @unique
+  class             VehicleClass
+  ownerOrgId        String?      @map("owner_org_id")
+  activeDriverId    String?      @map("active_driver_id")
   /// Edge-case §9: seat map per vehicle — saloon 4, SUV 6, van 7/11: [{position, row, premiumIqd?}].
-  seatMap        Json         @default("[]") @map("seat_map")
-  parcelCapacity Int          @default(0) @map("parcel_capacity")
-  active         Boolean      @default(true)
+  seatMap           Json         @default("[]") @map("seat_map")
+  parcelCapacity    Int          @default(0) @map("parcel_capacity")
+  active            Boolean      @default(true)
   /// Launch control room: a fleet owner's new vehicle waits for ops ("pending"); everything else is "verified".
-  reviewState    String       @default("verified") @map("review_state")
-  reviewedById   String?      @map("reviewed_by_id")
-  reviewedAt     DateTime?    @map("reviewed_at")
-  reviewNote     String?      @map("review_note")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  reviewState       String       @default("verified") @map("review_state")
+  reviewedById      String?      @map("reviewed_by_id")
+  reviewedAt        DateTime?    @map("reviewed_at")
+  reviewNote        String?      @map("review_note")
+  /// Ride step 3 (d1): "Toyota Corolla", typed by the fleet owner; null on older rows.
+  model             String?
+  /// One of `VehicleColour` (white, black, silver…): the colour dot beside the model on the rider's card.
+  colour            String?
+  /// What the driver says the car offers (`VehicleFeature`: ac, heating, family, no_smoking, big_boot, child_seat).
+  features          String[]     @default([])
+  /// The claims ops confirmed at the car check (a subset of `features`); the only ones customers see.
+  featuresConfirmed String[]     @default([]) @map("features_confirmed")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
 
   ownerOrg     Org?        @relation(fields: [ownerOrgId], references: [id])
   activeDriver Person?     @relation("VehicleActiveDriver", fields: [activeDriverId], references: [id])
@@ -1059,6 +1090,8 @@ model Order {
   /// The honest-delay promise's kitchen → door ride, locked at placement (Ali, 2026-10-07): the one ETA's learned
   /// minutes (router × the clamped correction); promise = promisedReadyAt + this. Null = no promise, or placed before it.
   promisedRideMin    Int?          @map("promised_ride_min")
+  /// s1 «رمز المشوار» (ride step 3): the 4 digits a ride placed for the night needs before it starts; null otherwise.
+  startCode          String?       @map("start_code")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.
   prepExtendedAt     DateTime?     @map("prep_extended_at")
   handedOverAt       DateTime?     @map("handed_over_at")
@@ -1076,6 +1109,10 @@ model Order {
   giftHidePrices     Boolean       @default(false) @map("gift_hide_prices")
   /// Joy l9: a ride booked for later asked for this favourite driver; he gets the job alone for a minute first.
   preferredDriverId  String?       @map("preferred_driver_id")
+  /// Ride step 3 (s6) «عوائل»: the rider asked for a family-tagged, long-standing, well-rated driver first.
+  familyPreferred    Boolean       @default(false) @map("family_preferred")
+  /// Ride idea x5 «عندي غراض»: what the rider carries (`RideCargo`: bags, gas, big); shown to the driver, no price effect.
+  rideCargo          String[]      @default([]) @map("ride_cargo")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -1347,6 +1384,10 @@ model Stop {
   childTapOutAt          DateTime?                              @map("child_tap_out_at")
   /// Opaque ref into vault.child_identities; the child's name never sits in the public schema.
   childRef               String?                                @map("child_ref")
+  /// s1: wrong night-ride codes typed on this pickup (the code itself is on the order, never here).
+  startCodeWrong         Int                                    @default(0) @map("start_code_wrong")
+  /// s1: when the wrong codes reached START_CODE_RULES.wrongAlertAt and ops were alerted (once).
+  startCodeAlertAt       DateTime?                              @map("start_code_alert_at")
   createdAt              DateTime                               @default(now()) @map("created_at")
   updatedAt              DateTime                               @updatedAt @map("updated_at")
 
@@ -1357,6 +1398,7 @@ model Stop {
 
   @@unique([tripId, seq])
   @@index([orderId])
+  @@index([startCodeAlertAt])
   @@map("stops")
   @@schema("public")
 }
@@ -2108,15 +2150,20 @@ model SafetyIncidentFix {
 /// Participants are derived live from the order (the courier changes on a reassign), so none are stored.
 /// No foreign keys: orders are owned by the orders module.
 model ChatThread {
-  id        String   @id @default(cuid())
-  orderId   String   @map("order_id")
-  kind      String
+  id              String    @id @default(cuid())
+  orderId         String    @map("order_id")
+  kind            String
   /// Highest message seq (the next message takes lastSeq + 1 under a row lock).
-  lastSeq   Int      @default(0) @map("last_seq")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  lastSeq         Int       @default(0) @map("last_seq")
+  /// s7 «نسيت غرض»: a completed ride's chat reopened by the customer until this time (ride end + 24 h).
+  lostItemUntil   DateTime? @map("lost_item_until")
+  /// s7: when the customer asked.
+  lostItemAskedAt DateTime? @map("lost_item_asked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@unique([orderId, kind])
+  @@index([lostItemUntil])
   @@map("chat_threads")
   @@schema("public")
 }
@@ -2132,6 +2179,10 @@ model ChatMessage {
   body          String?
   quickReplyKey String?  @map("quick_reply_key")
   photoRef      String?  @map("photo_ref")
+  /// A voice note's upload id (ride ideas n7/n8); set back to null when the file goes with the closed chat.
+  voiceRef      String?  @map("voice_ref")
+  /// A voice note's length in whole seconds (1–60).
+  durationSec   Int?     @map("duration_sec")
   lat           Float?
   lng           Float?
   masked        Boolean  @default(false)
@@ -2141,6 +2192,7 @@ model ChatMessage {
 
   @@unique([threadId, seq])
   @@unique([threadId, senderId, clientId])
+  @@index([voiceRef])
   @@map("chat_messages")
   @@schema("public")
 }
@@ -2242,27 +2294,61 @@ model FavouriteDriver {
   @@schema("public")
 }
 
+/// Ride step 3 (s5) «ما أريده مرة ثانية»: a driver the rider never wants again. Dispatch never offers
+/// that rider's rides to him; avoiding a favourite removes the favourite. Ids only.
+model AvoidedDriver {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  driverId  String   @map("driver_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([personId, driverId])
+  @@index([driverId])
+  @@map("avoided_drivers")
+  @@schema("public")
+}
+
+/// Ride idea x1 «المكيّفة شغالة اليوم؟»: a ride driver's answer for one shift (`2026-07-14:day`) about
+/// his car's AC (hot days) or heating (cold days). `working = false` takes the confirmed tag off until
+/// the shift ends: riders don't see it and dispatch doesn't count it. Owned by dispatch.
+model DriverShiftCheck {
+  id         String   @id @default(cuid())
+  driverId   String   @map("driver_id")
+  shiftId    String   @map("shift_id")
+  feature    String
+  working    Boolean
+  answeredAt DateTime @map("answered_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([driverId, shiftId, feature])
+  @@index([shiftId, working])
+  @@map("driver_shift_checks")
+  @@schema("public")
+}
+
 /// Joy r5: a ride or a الرجعة the rider takes every week. Each occurrence is asked about (the evening
 /// before or that morning) and booked only when he taps «أكدها»; prices are the server's at that moment.
 model RegularTrip {
-  id            String    @id @default(cuid())
-  personId      String    @map("person_id")
+  id            String   @id @default(cuid())
+  personId      String   @map("person_id")
   /// ride | rajaa
   kind          String
   /// Baghdad weekdays, 0 = Sunday … 6 = Saturday.
   days          Int[]
   /// Minutes since Baghdad midnight.
-  timeMin       Int       @map("time_min")
+  timeMin       Int      @map("time_min")
   /// evening (20:00 the day before) | morning (08:00 that day)
   remind        String
   /// cash | wallet
-  paymentMethod String    @default("cash") @map("payment_method")
-  favouriteId   String?   @map("favourite_id")
-  active        Boolean   @default(true)
+  paymentMethod String   @default("cash") @map("payment_method")
+  favouriteId   String?  @map("favourite_id")
+  active        Boolean  @default(true)
   /// The plan: a ride's points, vehicle and door pickup, or a الرجعة corridor, direction, garage and seat rule.
   plan          Json
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   favourite   FavouriteDriver?        @relation(fields: [favouriteId], references: [id], onDelete: SetNull)
   occurrences RegularTripOccurrence[]
@@ -2292,6 +2378,32 @@ model RegularTripOccurrence {
 
   @@unique([regularTripId, date])
   @@map("regular_trip_occurrences")
+  @@schema("public")
+}
+
+/// Step 4 (o4): every ride a rider booked, where from and to and the time he wanted it, so «نفس مشوار
+/// البارحة؟» can see the ride he takes most working days (ids and points only; names live in the vault).
+model RideFootprint {
+  id          String   @id @default(cuid())
+  /// The ride's order (one footprint each).
+  orderId     String   @unique @map("order_id")
+  personId    String   @map("person_id")
+  /// taxi | tuktuk
+  vertical    String
+  doorPickup  Boolean  @default(false) @map("door_pickup")
+  /// The pickup and drop-off as booked: zone, pin and saved-place link.
+  pickup      Json
+  dropoff     Json
+  /// The time he wanted it: the booked time of a ride for later, else when he asked.
+  at          DateTime
+  /// Minutes since Baghdad midnight of `at` (the job reads one slice of the day).
+  minuteOfDay Int      @map("minute_of_day")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([minuteOfDay, at])
+  @@index([personId, at])
+  @@map("ride_footprints")
   @@schema("public")
 }
 
@@ -2563,6 +2675,8 @@ model DispatchOffer {
   sentAt          DateTime           @default(now()) @map("sent_at")
   seenAt          DateTime?          @map("seen_at")
   respondedAt     DateTime?          @map("responded_at")
+  /// Ride step 3 (n4) «نبّهه»: the rider nudged this driver (once per driver per ride).
+  nudgedAt        DateTime?          @map("nudged_at")
   expiresAt       DateTime           @map("expires_at")
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
@@ -2971,6 +3085,8 @@ model NotifyPreference {
   dishPots         Boolean  @default(true) @map("dish_pots")
   /// Joy r5: «تأكد رحلتك؟» for his own regular trips. On by default (saving the trip is the opt-in).
   regularTrips     Boolean  @default(true) @map("regular_trips")
+  /// Step 4 (o4): «نفس مشوار البارحة؟» for a ride he takes most working days. On by default, one a day.
+  sameRide         Boolean  @default(true) @map("same_ride")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -3212,6 +3328,74 @@ model ConsoleAuditLog {
   @@index([at])
   @@index([subjectKind, at])
   @@map("console_audit_log")
+  @@schema("public")
+}
+
+/// «حجز بالتلفون» (taxi/tuktuk step 4): a ride staff booked from the Console for a caller without
+/// the app. The ride itself is an ordinary order of the caller's person; this row only says who took
+/// the call and which landmarks were picked. Ids and place names only (the number stays in the vault).
+model PhoneBooking {
+  id          String   @id @default(cuid())
+  orderId     String   @map("order_id")
+  cityId      String   @map("city_id")
+  /// The caller's person (`identity_vault` holds the number and name).
+  personId    String   @map("person_id")
+  /// The staff member who booked it.
+  bookedBy    String   @map("booked_by")
+  /// taxi | tuktuk
+  vertical    String
+  pickupId    String   @map("pickup_id")
+  pickupName  String   @map("pickup_name")
+  dropoffId   String   @map("dropoff_id")
+  dropoffName String   @map("dropoff_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId])
+  @@index([cityId, createdAt])
+  @@index([personId])
+  @@map("phone_bookings")
+  @@schema("public")
+}
+
+/// Taxi ideas x2/x3/x4 (+ n10): a taxi linked to a الرجعة seat — the ride to the car's garage
+/// (`to_garage`) or the taxi armed to wait at the Aziziyah garage on the way back (`from_garage`).
+/// Ids, pins and times only; names stay in `identity_vault`.
+model GarageTaxi {
+  id            String    @id @default(cuid())
+  /// to_garage | from_garage
+  kind          String
+  personId      String    @map("person_id")
+  bookingId     String    @map("booking_id")
+  departureId   String    @map("departure_id")
+  /// armed | placed | disarmed | dropped | failed | closed
+  state         String
+  orderId       String?   @map("order_id")
+  garageId      String?   @map("garage_id")
+  placeId       String?   @map("place_id")
+  pinLat        Float?    @map("pin_lat")
+  pinLng        Float?    @map("pin_lng")
+  zoneId        String?   @map("zone_id")
+  /// cash | wallet
+  paymentMethod String    @map("payment_method")
+  departAt      DateTime  @map("depart_at")
+  pickupAt      DateTime? @map("pickup_at")
+  rideMin       Int?      @map("ride_min")
+  expectedAt    DateTime? @map("expected_at")
+  lateMin       Int?      @map("late_min")
+  toldMin       Int?      @map("told_min")
+  toldAt        DateTime? @map("told_at")
+  failCode      String?   @map("fail_code")
+  dropReason    String?   @map("drop_reason")
+  placedAt      DateTime? @map("placed_at")
+  closedAt      DateTime? @map("closed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([bookingId, kind])
+  @@index([kind, state])
+  @@index([orderId])
+  @@map("garage_taxis")
   @@schema("public")
 }
 

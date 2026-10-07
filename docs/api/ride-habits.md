@@ -13,9 +13,10 @@ the server's at booking, cancellation fees as before, nothing extra for asking f
 
 | Rule | Value |
 |---|---|
-| How far ahead | 20 minutes – 7 days, else `ride_schedule_invalid` |
+| How far ahead | 20 minutes – 7 days, on the 5-minute grid (step 4), else `ride_schedule_invalid` |
 | Price | the server's quote for that time (`serverFees(..., at: scheduledFor)`); the fare sent must match (`price_changed`) |
 | Search | dispatch builds the trip at placement and holds the request («مجدول» on the board) until **15 minutes before**, then the smart broadcast as for any ride |
+| Reminder | a push half an hour before (step 4, c10) — see `ride-later-same-ride.md` |
 | Cancel | free while no driver accepted (state `placed`), as for any ride |
 
 `Order.scheduledFor` is set; the customer app shows such a ride on «مشوارك محجوز» (`/ride/booked/[id]`)
@@ -39,7 +40,10 @@ The order stores `preferred_driver_id` (`Order.preferredDriverId`) and `order.pl
 (offer policy `favourite`, wave 0, `dispatch.wave_sent` with `favourite: true`) — only when he is online,
 idle, fits the vehicle and has cap room, like anyone. He accepts → assigned; he declines → the normal
 waves start at once; the minute rings out → the normal waves start with their usual 60 s re-broadcast and
-180 s free-cancel clocks. He is not asked again in waves 1–3. On-demand rides never carry a favourite.
+180 s free-cancel clocks. He is not asked again in waves 1–3. On-demand rides never carry a
+`favouriteId`; since ride step 3 (s4) dispatch itself asks the nearest favourite within 2 km first on
+any taxi/tuktuk ride — see `docs/api/ride-offered-drivers.md`. Avoiding a driver («ما أريده مرة
+ثانية») removes him from the favourites, and making him a favourite again lifts the avoid.
 
 Partner: `PartnerOffer.favourite: boolean` → «الزبون طلبك إنت» on the offer. Nothing else about who
 favourited him is ever shown (no list, no count, no name).
@@ -51,6 +55,7 @@ favourited him is ever shown (no list, no count, no name).
 | `favourites` | — | `FavouriteDriverView[]` — id, driverId, first name, approved photo (signed), kinds (`taxi`/`tuktuk`/`intercity`), J5b's public rating (`rating`, `ratingCount`), trips together this year |
 | `favourite` | `{orderId \| bookingId, on}` | the list. Adding needs his own **finished** ride or الرجعة trip rated **4–5** (`favourite_needs_good_rating`), at most 20 (`favourite_limit`); someone else's trip → `not_found` |
 | `unfavourite` | `{favouriteId}` | the list (`favourite_not_found`) |
+| `avoid` / `avoided` / `unavoid` | `{orderId}` / — / `{avoidId}` | the avoid list (ride step 3, s5) — `docs/api/ride-offered-drivers.md` |
 | `recentGood` | — | the driver of his last trip rated 4–5 in the last 24 h who isn't a favourite yet, or null |
 | `regular.list` | — | `RegularTripView[]` with `next` (the next day to ask about or decided) and `booked` (days booked and still ahead) |
 | `regular.save` | `SaveRegularTripInput` (+`id` to edit) | the trip. At most 10 (`regular_trip_limit`); a morning ask needs a trip from 09:00 |
@@ -89,8 +94,8 @@ time is fixed at placement (a later ride delay doesn't move it).
 
 ## Apps
 
-- Customer: «وكتها» on the choose screen (هسة / اليوم · باچر · عقب باچر, the hour «7 الصبح», the quarter)
-  and «سايقك المفضل» chips; «مشوارك محجوز» (`/ride/booked/[id]`) and its home card; «رحلاتي الثابتة»
+- Customer: «وكتها» on the choose screen («هسة / بعدين»; «بعدين» opens the day + time picker of step 4 —
+  `ride-later-same-ride.md`) and «سايقك المفضل» chips; «مشوارك محجوز» (`/ride/booked/[id]`) and its home card; «رحلاتي الثابتة»
   (`/regular`, `/regular/edit`, `/regular/[id]?date=`); «سواقي المفضلين» (`/drivers`); «خليه سايقك
   المفضل؟» on the ride tab; the heart on a rated الرجعة pass; «سايقك» on his cars on the board; the dinner
   card on home and on the الرجعة pass, the restaurants banner and checkout's «وياك · 8:05» / «بعد وصولك ·
@@ -102,5 +107,5 @@ time is fixed at placement (a later ride delay doesn't move it).
 Customer (`apps/customer/scripts/demo-api.mjs`): `POST /demo/ride-habits?personId=…` (two taxi rides
 finished and rated 5 today — حسين kept, مصطفى offered; a الرجعة from Kut with جاسم rated 5 and kept, his next
 car to Kut in ~75 min; two regular trips asking now; the work trip's next day booked with حسين asked first)
-and `POST /demo/dinner?personId=…[&kind=rajaa]`. `SHOTS=trips` in `scripts/web-shots.mjs`.
+and `POST /demo/dinner?personId=…[&kind=rajaa]`. `SHOTS=trips` in `scripts/web-shots.mjs` (step 4: `SHOTS=later`).
 Partner: `POST /demo/offer?who=tuktuk&kind=favourite`, `SHOTS=favourite`.

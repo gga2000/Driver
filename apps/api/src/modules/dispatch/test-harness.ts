@@ -11,6 +11,8 @@ import { InMemoryGeoIndex, type DriverPresence } from './geo-index.js';
 import { OfferOrchestrator, type TimerJob } from './offer.orchestrator.js';
 import { FakeCaps, FakeDepartures, FakeTripOffers } from './ports.js';
 import { PresenceService } from './presence.service.js';
+import { ClimateChecks, InMemoryShiftCheckStore } from './climate-checks.js';
+import { InMemoryVehicleFacts } from './vehicle-facts.js';
 import { ZoneDirectory } from './zones.js';
 
 /** Km per degree of latitude on the haversine sphere (R = 6371 km), so `north(1)` is exactly 1 km away. */
@@ -35,8 +37,11 @@ export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new Con
   const departures = new FakeDepartures();
   const queue = new InMemoryQueue<TimerJob>('dispatch', () => clock.now());
   const uow = new UnitOfWork(new NoDatabaseRunner());
-  const orchestrator = new OfferOrchestrator(config, presence, zones, repo, store, events, trips, caps, departures, queue, clock, uow);
-  const service = new DispatchService(config, undefined, undefined, orchestrator, presence);
+  // x1: the drivers' «المكيّفة شغالة اليوم؟» answers take a «لا» off the confirmed tags for the shift.
+  const climate = new ClimateChecks(new InMemoryShiftCheckStore(), clock);
+  const facts = new InMemoryVehicleFacts(undefined, (ids) => climate.offNow(ids));
+  const orchestrator = new OfferOrchestrator(config, presence, zones, repo, store, events, trips, caps, departures, queue, clock, uow, undefined, undefined, facts);
+  const service = new DispatchService(config, undefined, undefined, orchestrator, presence, undefined, undefined, facts);
 
   /** Drivers whose app keeps heartbeating (every 30 s) while the clock advances. */
   const keepAlive = new Set<string>();
@@ -86,5 +91,5 @@ export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new Con
 
   const actor = (personId: string) => ({ personId, sessionId: `s-${personId}` });
 
-  return { clock, config, zones, geo, presence, repo, store, events, trips, caps, departures, queue, uow, orchestrator, service, advance, keepAlive, online, heartbeatAll, offers, openOffer, actor };
+  return { clock, config, zones, geo, presence, repo, store, events, trips, caps, departures, queue, uow, facts, climate, orchestrator, service, advance, keepAlive, online, heartbeatAll, offers, openOffer, actor };
 }

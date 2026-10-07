@@ -31,6 +31,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { rideMilestones } from './ride-milestones.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -40,7 +41,7 @@ import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
  */
 export interface TrackingOrdersPort {
   aggregate(orderId: string): Promise<{
-    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null };
+    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null; startCode?: string | null };
     lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null }>;
     participants: Array<{ personId: string | null }>;
   }>;
@@ -49,6 +50,8 @@ export interface TrackingOrdersPort {
   listForPerson(personId: string): Promise<Order[]>;
   /** The city's live orders (Console at-risk list). Optional for fakes. */
   listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
+  /** Ride ideas c9/s3: the orders with the rider's name for this reader (logged vault read). Optional for fakes. */
+  withRiders?(orders: Order[], accessorId: string): Promise<Order[]>;
 }
 export interface TrackingTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -56,6 +59,8 @@ export interface TrackingTripsPort {
   get(tripId: string): Promise<Trip>;
   orderHistory(orderId: string): Promise<Array<{ tripId: string; detachedAt: Date | null; reason: string | null }>>;
   lastPosition(tripId: string): Promise<{ at: Date; pin: LatLng; bearing: number | null; speedKmh: number | null; driverId: string } | null>;
+  /** His completed trips, every vertical (the card's trip count); absent in narrow fakes (0). */
+  completedCountFor?(driverId: string): Promise<number>;
 }
 export interface TrackingIdentityPort {
   /** `photoRef`: the storage ref of his APPROVED main photo (Ali, 2026-10-06); absent/null = his initial. */
@@ -118,6 +123,17 @@ export function sameBaghdadDay(a: Date, b: Date): boolean {
   return day(a) === day(b);
 }
 
+/**
+ * s1 «رمز المشوار» on the rider's screen: a ride's code until the rider is in the car (its pickup
+ * completed or skipped) or the ride is over. `track` is only ever read by the orderer or a participant
+ * (the rider), so the code never reaches the driver.
+ */
+export function startCodeShown(order: Pick<Order, 'type' | 'state'>, trip: Pick<Trip, 'stops'> | null, code: string | null): string | null {
+  if (!code || order.type !== 'ride' || SETTLED_ORDER_STATES.has(order.state)) return null;
+  const pickup = trip?.stops.find((s) => s.type === 'pickup');
+  return pickup && (pickup.state === 'completed' || pickup.state === 'skipped') ? null : code;
+}
+
 /** Orders whose courier is no longer coming to this customer (nothing left to track live). */
 const SETTLED_ORDER_STATES: ReadonlySet<Order['state']> = new Set([
   'delivered',
@@ -165,7 +181,7 @@ export function lateApologyDue(
  */
 @Injectable()
 export class TrackingService implements TrackingPort {
-  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null; rating: { rating: number; count: number } | null }>();
+  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null; rating: { rating: number; count: number } | null; tripCount: number }>();
 
   constructor(
     @Inject(TRACKING_ORDERS) private readonly orders: TrackingOrdersPort,
@@ -194,7 +210,9 @@ export class TrackingService implements TrackingPort {
 
   async track(actor: Actor, input: { orderId: string }): Promise<OrderTracking> {
     const agg = await this.assertOwner(actor, input.orderId);
-    const order = await this.orders.get(input.orderId);
+    const plain = await this.orders.get(input.orderId);
+    // c9/s3: the booker (and the rider) see whose ride it is — «مشوار ماما».
+    const order = this.orders.withRiders ? ((await this.orders.withRiders([plain], actor.personId))[0] ?? plain) : plain;
     const now = this.clock.now();
 
     const trip = await this.currentTrip(order.id);
@@ -213,7 +231,7 @@ export class TrackingService implements TrackingPort {
       items,
       merchant: merchant && agg.order.merchantOrgId ? { id: agg.order.merchantOrgId, name: merchant.name, pin: merchant.pin } : null,
       dropoff: agg.order.dropoff,
-      trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? this.tripView(trip, order.id) : null,
+      trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? { ...this.tripView(trip, order.id), startCode: startCodeShown(order, trip, agg.order.startCode ?? null) } : null,
       courier,
       reassigning,
       promisedAt,
@@ -305,6 +323,17 @@ export class TrackingService implements TrackingPort {
     const atKitchen = now.getTime() + (await leg(pin, kitchen)) * MIN;
     const ready = (order.readyAt ?? order.promisedReadyAt)?.getTime() ?? now.getTime();
     return done(Math.max(atKitchen, ready, now.getTime()) + ((await leg(kitchen, door)) + extra) * MIN);
+  }
+
+  /**
+   * d3: seconds until the driver at `pin` reaches the ride's pickup, by `liveEta` (the countdown on the
+   * rider's screen); null when it can't say. Trips asks it on his fixes near the pickup.
+   */
+  async secondsToPickup(trip: Trip, orderId: string, pin: LatLng, now: Date): Promise<number | null> {
+    const order = await this.orders.get(orderId);
+    if (order.type !== 'ride') return null;
+    const eta = await this.liveEta(order, trip, pin, now);
+    return eta ? Math.max(0, (eta.at.getTime() - now.getTime()) / 1000) : null;
   }
 
   /**
@@ -506,9 +535,11 @@ export class TrackingService implements TrackingPort {
    * looked up once per merchant; rides add the zone they went to.
    */
   async history(actor: Actor): Promise<OrderHistoryRow[]> {
-    const orders = [...(await this.orders.listForPerson(actor.personId))]
+    const recent = [...(await this.orders.listForPerson(actor.personId))]
       .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
       .slice(0, ORDER_HISTORY_LIMIT);
+    // c9/s3: a ride booked for someone else reads «لـ ماما» in his history.
+    const orders = this.orders.withRiders ? await this.orders.withRiders(recent, actor.personId) : recent;
     return this.historyRows(orders);
   }
 
@@ -560,21 +591,24 @@ export class TrackingService implements TrackingPort {
 
   /**
    * «أول مرة» (joy g8): the actor's first delivered food order and first finished tuktuk ride, from
-   * every order they placed, by when it reached them — so once claimed, no later order takes it.
+   * every order they placed, by when it reached them — so once claimed, no later order takes it. Ride
+   * stickers (g2): the first night ride and the latest milestone ride, the same way.
    */
   async firsts(actor: Actor): Promise<OrderFirsts> {
     // When it reached the person: the moment belongs to whichever arrived first, and stays there.
     const doneAt = (o: Order) => (o.deliveredAt ?? o.closedAt ?? o.placedAt).getTime();
     const mine = [...(await this.orders.listForPerson(actor.personId))].filter((o) => o.ordererId === actor.personId);
     const food = mine.filter((o) => o.type === 'food' && o.deliveredAt !== null).sort((a, b) => doneAt(a) - doneAt(b))[0] ?? null;
+    const rides = mine.filter((x) => x.type === 'ride' && (x.state === 'completed' || x.deliveredAt !== null)).sort((a, b) => doneAt(a) - doneAt(b));
     let tuktuk: string | null = null;
-    for (const o of mine.filter((x) => x.type === 'ride' && (x.state === 'completed' || x.deliveredAt !== null)).sort((a, b) => doneAt(a) - doneAt(b))) {
+    for (const o of rides) {
       if ((await this.currentTrip(o.id))?.vertical === 'tuktuk') {
         tuktuk = o.id;
         break;
       }
     }
-    return { foodOrderId: food?.id ?? null, tuktukOrderId: tuktuk };
+    const milestones = rideMilestones(rides.map((o) => ({ id: o.id, placedAt: o.placedAt, doneAt: new Date(doneAt(o)) })));
+    return { foodOrderId: food?.id ?? null, tuktukOrderId: tuktuk, ...milestones };
   }
 
   // ───────────────────────── internals ─────────────────────────
@@ -595,7 +629,7 @@ export class TrackingService implements TrackingPort {
     return carried ? this.trips.get(carried.tripId) : null;
   }
 
-  private tripView(trip: Trip, orderId: string): OrderTracking['trip'] {
+  private tripView(trip: Trip, orderId: string): NonNullable<OrderTracking['trip']> {
     const stops: TrackStop[] = trip.stops.map((s) => {
       const mine = s.orderId === orderId;
       return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, completedAt: s.completedAt };
@@ -603,7 +637,7 @@ export class TrackingService implements TrackingPort {
     const myDrop = stops.find((s) => s.mine && s.type === 'dropoff');
     const dropsBeforeMine = myDrop ? stops.filter((s) => !s.mine && s.type === 'dropoff' && s.seq < myDrop.seq && s.state !== 'completed' && s.state !== 'skipped').length : 0;
     const unreachable = trip.unreachable && (!trip.unreachable.stopId || trip.stops.some((s) => s.id === trip.unreachable!.stopId && s.orderId === orderId)) ? trip.unreachable : null;
-    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable, vertical: trip.vertical };
+    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable, vertical: trip.vertical, startCode: null };
   }
 
   private async courierCard(trip: Trip, readerId: string, now: Date): Promise<CourierCard> {
@@ -611,8 +645,12 @@ export class TrackingService implements TrackingPort {
     const key = `${trip.id}:${courierId}:${readerId}`;
     let who = this.cards.get(key);
     if (!who) {
-      const [card, scores] = await Promise.all([this.identity.courierCard(courierId, readerId), this.ratings ? this.ratings.courierScores(courierId) : Promise.resolve([])]);
-      who = { ...card, rating: publicCourierRating(scores) };
+      const [card, scores, tripCount] = await Promise.all([
+        this.identity.courierCard(courierId, readerId),
+        this.ratings ? this.ratings.courierScores(courierId) : Promise.resolve([]),
+        this.trips.completedCountFor ? this.trips.completedCountFor(courierId) : Promise.resolve(0),
+      ]);
+      who = { ...card, rating: publicCourierRating(scores), tripCount };
       if (this.cards.size >= CARD_CACHE_MAX) this.cards.delete(this.cards.keys().next().value!);
       this.cards.set(key, who);
     }
@@ -622,6 +660,11 @@ export class TrackingService implements TrackingPort {
       vehicleClass: vehicle?.vehicleClass ?? defaultVehicle(trip.vertical),
       plate: vehicle?.plate ?? null,
       vehicleLabel: vehicle?.label ?? null,
+      // Ride step 3 (d1, n1, n2): model, the real colour, and only what ops confirmed at the car check.
+      vehicleModel: vehicle?.model ?? null,
+      vehicleColour: vehicle?.colour ?? null,
+      features: vehicle?.features ?? [],
+      tripCount: who.tripCount,
       // Joy l2: what customers said about his deliveries (newest 50, only from 5 ratings).
       rating: who.rating?.rating ?? null,
       ratingCount: who.rating?.count ?? 0,

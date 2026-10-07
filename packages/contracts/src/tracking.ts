@@ -5,6 +5,7 @@ import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
+import { VehicleColour, VehicleFeature } from './vehicle-features.js';
 
 /** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
 export const EtaBasis = z.enum(['road', 'estimated']);
@@ -25,8 +26,16 @@ export const CourierCard = z.object({
   vehicleClass: VehicleClass.nullable(),
   /** Registered plate of the vehicle he is driving, when the fleet registry has it. */
   plate: z.string().nullable(),
-  /** "Toyota Corolla · أبيض"; null when unknown. */
+  /** "Toyota Corolla · أبيض" (model + the colour's Arabic name); null when the model is unknown. Kept for older screens. */
   vehicleLabel: z.string().nullable(),
+  /** "Toyota Corolla" as the fleet registry has it; null when unknown (ride step 3, d1). */
+  vehicleModel: z.string().nullable().default(null),
+  /** Body colour, drawn as a real paint dot beside the model (`VEHICLE_COLOUR_HEX`); null when unknown. */
+  vehicleColour: VehicleColour.nullable().default(null),
+  /** What the car offers, ops-confirmed at the car check only, loud ones first (`sortFeatures`; n1, n2). */
+  features: z.array(VehicleFeature).default([]),
+  /** His completed trips on every vertical (the card's "1,240 مشوار"). */
+  tripCount: z.number().int().min(0).default(0),
   /** His average from customers' courier ratings (newest 50), one decimal; null until he has 5 (`RATING_RULES`). */
   rating: z.number().min(1).max(5).nullable(),
   ratingCount: z.number().int().min(0),
@@ -67,7 +76,7 @@ export const TrackStop = z.object({
   mine: z.boolean(),
   /** Pin of this order's stops only; null for other customers' stops. */
   target: LatLng.nullable(),
-  /** My drop-off only: the server's first "almost there" fix (null otherwise). */
+  /** My drop-off: the server's first "almost there" fix; a ride's pickup: when the driver was a minute away (d3). Null otherwise. */
   courierNearAt: z.coerce.date().nullable().default(null),
   arrivedAt: z.coerce.date().nullable(),
   completedAt: z.coerce.date().nullable(),
@@ -85,6 +94,11 @@ export const TrackTrip = z.object({
   unreachable: UnreachableStatus.nullable(),
   /** The trip's vertical (rides: taxi or tuktuk before a driver accepts). */
   vertical: Vertical.optional(),
+  /**
+   * s1 «رمز المشوار»: a night ride's 4 digits the rider tells the driver before getting in, until the
+   * ride has started. Only on the orderer's and the rider's own screen; null otherwise.
+   */
+  startCode: z.string().nullable().optional(),
 });
 export type TrackTrip = z.infer<typeof TrackTrip>;
 
@@ -180,8 +194,15 @@ export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
 export const OrderFirsts = z.object({
   foodOrderId: z.string().nullable(),
   tuktukOrderId: z.string().nullable(),
+  /** Ride idea g2: the first taxi or tuktuk ride booked at night, which gets the «وصلت بالسلامة» sticker. */
+  nightRideOrderId: z.string().nullable(),
+  /** Ride idea g2: the latest finished ride whose count is in `RIDE_STICKER_MILESTONES` (10th, 25th…). */
+  rideMilestone: z.object({ orderId: z.string(), count: z.number().int().positive() }).nullable(),
 });
 export type OrderFirsts = z.infer<typeof OrderFirsts>;
+
+/** Which finished city rides (taxi and tuktuk together) earn a sticker on their arrival screen (ride idea g2). */
+export const RIDE_STICKER_MILESTONES = [10, 25, 50, 100] as const;
 
 /** How many orders `orders.history` returns (newest first). */
 export const ORDER_HISTORY_LIMIT = 50;

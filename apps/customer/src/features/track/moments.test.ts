@@ -69,6 +69,12 @@ describe('tracking moments', () => {
     expect(momentsBetween(null, ride('at_pickup'))).toEqual([]);
     expect(momentsBetween(ride('searching'), ride('cancelled'))).toEqual([]);
   });
+  it('ride: a soft buzz once when he is a minute from the pickup', () => {
+    expect(momentsBetween(ride('to_pickup'), { ...ride('to_pickup'), rideNear: true })).toEqual(['ride_near']);
+    expect(momentsBetween({ ...ride('to_pickup'), rideNear: true }, { ...ride('to_pickup'), rideNear: true })).toEqual([]);
+    expect(momentsBetween(ride('searching'), { ...ride('at_pickup'), rideNear: true })).toEqual(['matched', 'driver_here']);
+    expect(momentFeedback('ride_near', LOUD)).toEqual({ haptics: ['light'], cue: null });
+  });
   it('a food order never gets ride moments', () => {
     expect(momentsBetween(snap('preparing'), snap('at_pickup'))).toEqual([]);
     expect(momentsBetween(snap('preparing'), snap('to_pickup'))).toEqual([]);

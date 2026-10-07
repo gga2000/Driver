@@ -94,11 +94,13 @@ export class OrdersRpc implements OrdersPort {
       (await this.trips.activeForOrder(o.id))?.courierId === actor.personId ||
       (await this.any(actor, OPS));
     if (!allowed) throw new DriverError('forbidden');
-    return this.orders.get(o.id);
+    // c9/s3: a ride for someone else names its rider for whoever may read the order.
+    const [order] = await this.orders.withRiders([await this.orders.get(o.id)], actor.personId);
+    return order!;
   }
 
-  mine(actor: Actor): Promise<Order[]> {
-    return this.orders.listForPerson(actor.personId);
+  async mine(actor: Actor): Promise<Order[]> {
+    return this.orders.withRiders(await this.orders.listForPerson(actor.personId), actor.personId);
   }
 
   async listActive(actor: Actor, input: ListActiveOrdersInput): Promise<Order[]> {

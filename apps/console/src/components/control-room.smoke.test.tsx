@@ -151,6 +151,7 @@ describe('control room pages render', () => {
       compare: [{ url: '/files/up_2?exp=1&sig=y', label_ar: 'الهوية الوطنية (موافق عليه)' }],
       facts: [{ label_ar: 'النوع', value: 'إجازة السياقة' }],
       takesExpiry: true,
+      features: [],
       ...over,
     });
     const html = wrap(
@@ -167,6 +168,40 @@ describe('control room pages render', () => {
     );
     for (const text of ['إجازة السياقة', 'بالمراجعة', 'للمقارنة', 'الهوية الوطنية (موافق عليه)', 'وافق على المستمسك', 'ارفض', 'معلم جديد: يم الجامع', 'يخصّك', 'قبل 1 س']) expect(html).toContain(text);
     expect(html).toContain('http://localhost:3000/files/up_1');
+
+    // Ride step 3: the car check ticks the features the driver claims (all ticked to start).
+    const car = wrap(
+      <ApprovalsBoard
+        items={[
+          item({
+            id: 'vehicle_features:v1',
+            kind: 'vehicle_features',
+            kind_ar: 'مميزات سيارة',
+            refId: 'v1',
+            title_ar: 'هيونداي النترا · واسط 41746',
+            subtitle_ar: 'تدفئة، صندوق كبير',
+            photos: [],
+            compare: [],
+            facts: [{ label_ar: 'الموديل', value: 'هيونداي النترا' }, { label_ar: 'اللون', value: 'فضي' }],
+            takesExpiry: false,
+            features: [
+              { feature: 'ac', confirmed: true },
+              { feature: 'heating', confirmed: false },
+              { feature: 'big_boot', confirmed: false },
+            ],
+          }),
+        ]}
+        now={AT}
+        kind="all"
+        onKind={() => undefined}
+        selectedId={null}
+        onSelect={() => undefined}
+        audit={[]}
+        onDecided={() => undefined}
+      />,
+    );
+    for (const text of ['مميزات سيارات', 'المميزات اللي يگول عليها السايق', 'مكيّفة', 'تدفئة', 'صندوق كبير', 'متأكدين منها من قبل', 'جديدة', 'أكّد المميزات', 'فضي']) expect(car).toContain(text);
+    expect(car.match(/<input[^>]*type="checkbox"[^>]*checked=""/g)?.length).toBe(3);
   });
 
   it('support: the urgency-ranked queue with smart views and SLA fuses', () => {

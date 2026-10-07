@@ -503,6 +503,22 @@ describe('profile and vault access', () => {
     expect(logs[0]!.fieldsRead).toEqual(['name', 'phone_e164']);
   });
 
+  it('a phone booking (taxi/tuktuk step 4) creates the caller with the name heard, and never overwrites a name', async () => {
+    const h = harness();
+    const caller = await h.service.ensurePersonByPhone('0771 555 1234', 'p_staff', 'phone_booking', { name: '  أبو حسين ' });
+    expect((await h.repo.readIdentity(caller))?.name).toBe('أبو حسين');
+    expect(h.events.last('person.registered')!.payload).toEqual({ personId: caller, via: 'phone_booking' });
+    expect(await h.service.ensurePersonByPhone('+9647715551234', 'p_staff', 'phone_booking', { name: 'حسين علي' })).toBe(caller);
+    expect((await h.repo.readIdentity(caller))?.name).toBe('أبو حسين');
+    // A number that signed in without a name gets the name; one with its own keeps it.
+    const { actor } = await h.login('07700000009');
+    await h.service.ensurePersonByPhone('07700000009', 'p_staff', 'phone_booking', { name: 'أم علي' });
+    expect((await h.repo.readIdentity(actor.personId))?.name).toBe('أم علي');
+    await h.service.setName(actor, 'زهراء');
+    await h.service.ensurePersonByPhone('07700000009', 'p_staff', 'phone_booking', { name: 'أم علي' });
+    expect((await h.repo.readIdentity(actor.personId))?.name).toBe('زهراء');
+  });
+
   it('M2 follow-up: a khat child is registered into the vault; only an opaque childRef leaves it', async () => {
     const h = harness();
     const { actor: mum } = await h.login('07700000001');

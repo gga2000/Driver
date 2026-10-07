@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  CLASS_FEATURES,
   DriverError,
   type Actor,
   type AddFleetDriverInput,
@@ -17,6 +18,8 @@ import {
   type FleetScopeInput,
   type FleetVehicle,
   type RespondFleetInviteInput,
+  type SetVehicleFeaturesInput,
+  type VehicleFeature,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
@@ -27,10 +30,21 @@ import { DriverAccountService, worstStatus } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService, invitePhoneHint, normalizeIraqiPhone } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
-import { FLEET_REPOSITORY, type FleetRepository, type VehicleRecord } from './fleet.repository.js';
+import { checkFeatures, claimFeatures, FLEET_REPOSITORY, unconfirmedFeatures, type FleetRepository, type VehicleRecord } from './fleet.repository.js';
 
 function vehicleView(v: VehicleRecord): FleetVehicle {
-  return { vehicleId: v.id, plate: v.plate, vehicleClass: v.vehicleClass, activeDriverId: v.activeDriverId, active: v.active, seats: v.seats };
+  return {
+    vehicleId: v.id,
+    plate: v.plate,
+    vehicleClass: v.vehicleClass,
+    activeDriverId: v.activeDriverId,
+    active: v.active,
+    seats: v.seats,
+    model: v.model,
+    colour: v.colour,
+    features: [...v.features],
+    featuresConfirmed: [...v.featuresConfirmed],
+  };
 }
 
 const DAY_MS = 86_400_000;
@@ -88,15 +102,18 @@ export class FleetService implements FleetPort {
 
   /**
    * The ops decision on a fleet vehicle: verified, or rejected (inactive and unassigned, so nobody goes
-   * online on it). The fleet's own owner never decides on his vehicles (`approval_own_item`).
+   * online on it). The fleet's own owner never decides on his vehicles (`approval_own_item`). Approving
+   * is also the car check of the driver's claimed features: `confirmFeatures` are the ones ops saw
+   * (absent = all of them); a claim they did not see is cleared.
    */
-  async reviewVehicle(actor: Actor, input: { vehicleId: string; approve: boolean; reason?: string | undefined }): Promise<VehicleRecord> {
+  async reviewVehicle(actor: Actor, input: { vehicleId: string; approve: boolean; reason?: string | undefined; confirmFeatures?: readonly VehicleFeature[] | undefined }): Promise<VehicleRecord> {
     const v = await this.repo.vehicle(input.vehicleId);
     if (!v || !v.ownerOrgId) throw new DriverError('approval_not_found');
     if (await this.identity.hasRole(actor.personId, 'fleet_owner', v.ownerOrgId)) throw new DriverError('approval_own_item');
     const now = this.clock.now();
+    const features = input.approve ? checkFeatures(v, input.confirmFeatures ?? v.features) : undefined;
     return this.uow.run(async (tx) => {
-      const decided = await this.repo.reviewVehicle(v.id, { verified: input.approve, by: actor.personId, at: now, note: input.reason ?? null }, tx);
+      const decided = await this.repo.reviewVehicle(v.id, { verified: input.approve, by: actor.personId, at: now, note: input.reason ?? null, features }, tx);
       if (!decided) throw new DriverError('approval_state_conflict');
       await this.events.emit(
         tx,
@@ -105,6 +122,47 @@ export class FleetService implements FleetPort {
       );
       return decided;
     });
+  }
+
+  /** Verified vehicles whose driver claimed features the car check has not confirmed, longest-waiting first. */
+  vehiclesWithUnconfirmedFeatures(limit = 200): Promise<VehicleRecord[]> {
+    return this.repo.vehiclesWithUnconfirmedFeatures(limit);
+  }
+
+  /**
+   * The car check of a verified vehicle's claimed features (Console approvals, `vehicle_features`):
+   * approve confirms what ops saw (`confirmFeatures`, absent = every claim) and clears the rest; reject
+   * clears every claim still waiting (confirmed ones stay). Nobody checks his own car or his fleet's.
+   */
+  async reviewFeatures(actor: Actor, input: { vehicleId: string; approve: boolean; confirmFeatures?: readonly VehicleFeature[] | undefined; reason?: string | undefined }): Promise<VehicleRecord> {
+    const v = await this.repo.vehicle(input.vehicleId);
+    if (!v) throw new DriverError('approval_not_found');
+    if (await this.ownsVehicle(actor.personId, v)) throw new DriverError('approval_own_item');
+    const waiting = unconfirmedFeatures(v);
+    if ((v.reviewState ?? 'verified') !== 'verified' || waiting.length === 0) throw new DriverError('approval_state_conflict');
+    const seen = input.approve ? (input.confirmFeatures ?? v.features) : v.featuresConfirmed;
+    const next = checkFeatures(v, seen);
+    const now = this.clock.now();
+    return this.uow.run(async (tx) => {
+      const checked = await this.repo.setFeatures(v.id, next, now, tx);
+      await this.events.emit(
+        tx,
+        {
+          actorId: actor.personId,
+          type: 'fleet.vehicle_features_checked',
+          occurredAt: now,
+          payload: { vehicleId: v.id, plate: v.plate, confirmed: next.featuresConfirmed, cleared: v.features.filter((f) => !next.features.includes(f)), reason: input.reason ?? null },
+        },
+        { name: 'vehicle', id: v.id },
+      );
+      return checked;
+    });
+  }
+
+  /** The person drives this vehicle or owns its fleet: he cannot check its features himself. */
+  private async ownsVehicle(personId: string, v: VehicleRecord): Promise<boolean> {
+    if (v.activeDriverId === personId) return true;
+    return v.ownerOrgId ? this.identity.hasRole(personId, 'fleet_owner', v.ownerOrgId) : false;
   }
 
   /** The fleet the caller owns: the one named, or his only one. */
@@ -282,8 +340,12 @@ export class FleetService implements FleetPort {
     const plate = input.plate.replace(/\s+/g, ' ').trim();
     if (await this.repo.vehicleByPlate(plate)) throw new DriverError('vehicle_plate_taken');
     return this.uow.run(async (tx) => {
-      const v = await this.repo.createVehicle({ plate, vehicleClass: input.vehicleClass, ownerOrgId: fleetOrgId, ...(input.seats !== undefined ? { seats: input.seats } : {}) }, tx);
-      await this.events.emit(tx, { actorId: actor.personId, type: 'fleet.vehicle_added', occurredAt: this.clock.now(), payload: { fleetOrgId, vehicleId: v.id, vehicleClass: v.vehicleClass } }, { name: 'org', id: fleetOrgId });
+      const v = await this.repo.createVehicle({ plate, vehicleClass: input.vehicleClass, ownerOrgId: fleetOrgId, seats: input.seats, model: input.model?.replace(/\s+/g, ' ').trim() ?? null, colour: input.colour ?? null }, tx);
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'fleet.vehicle_added', occurredAt: this.clock.now(), payload: { fleetOrgId, vehicleId: v.id, vehicleClass: v.vehicleClass, model: v.model, colour: v.colour } },
+        { name: 'org', id: fleetOrgId },
+      );
       return vehicleView(v);
     });
   }
@@ -338,6 +400,30 @@ export class FleetService implements FleetPort {
       fleetName: fleetNames.get(l.fleetOrgId) ?? null,
       accepted: l.acceptedAt !== null,
     }));
+  }
+
+  async myVehicle(actor: Actor): Promise<FleetVehicle | null> {
+    return this.activeVehicleOf(actor.personId);
+  }
+
+  /**
+   * «مميزات سيارتك» (n1, n2): the driver says what the car he drives offers. New claims wait for the
+   * ops car check; a feature he takes off loses its confirmation at once (riders never see it again).
+   */
+  async setMyVehicleFeatures(actor: Actor, input: SetVehicleFeaturesInput): Promise<FleetVehicle> {
+    const v = (await this.repo.activeVehicleOf?.(actor.personId)) ?? null;
+    if (!v) throw new DriverError('vehicle_not_found');
+    if (input.features.some((f) => !CLASS_FEATURES[v.vehicleClass].includes(f))) throw new DriverError('vehicle_feature_not_offered');
+    const next = claimFeatures(v, input.features);
+    const now = this.clock.now();
+    return this.uow.run(async (tx) => {
+      const updated = await this.repo.setFeatures(v.id, next, now, tx);
+      const added = next.features.filter((f) => !v.features.includes(f));
+      const removed = v.features.filter((f) => !next.features.includes(f));
+      if (added.length > 0 || removed.length > 0)
+        await this.events.emit(tx, { actorId: actor.personId, type: 'fleet.vehicle_features_claimed', occurredAt: now, payload: { vehicleId: v.id, added, removed } }, { name: 'vehicle', id: v.id });
+      return vehicleView(updated);
+    });
   }
 
   /** The driver accepts a fleet's invite, or declines it / leaves the fleet (his vehicle there is freed). */

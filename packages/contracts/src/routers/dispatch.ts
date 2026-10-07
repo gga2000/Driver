@@ -1,6 +1,10 @@
 import type { RoleKind } from '../auth.js';
 import {
   BoardPolicy,
+  MyRideOffers,
+  MyRideOffersInput,
+  NudgeOfferInput,
+  NudgeOfferResult,
   DispatchBoard,
   DispatchBoardInput,
   NearbyVehicles,
@@ -68,4 +72,17 @@ export const dispatchRouter = router({
     .input(NearbyVehiclesInput)
     .output(NearbyVehicles)
     .query(({ ctx, input }) => ctx.dispatch.nearby(ctx.actor, input)),
+  /**
+   * Ride step 3 (n3): the drivers who were sent my searching ride — first name, photo, rating, car and
+   * minutes away, never a position. The order's orderer or rider only (ride habits composes it).
+   */
+  myRideOffers: protectedProcedure()
+    .input(MyRideOffersInput)
+    .output(MyRideOffers)
+    .query(({ ctx, input }) => ctx.rideHabits.myRideOffers(ctx.actor, input)),
+  /** Ride step 3 (n4) «نبّهه»: a soft «راكب ينتظرك» to one driver whose offer is open; once per driver. */
+  nudgeOffer: protectedProcedure()
+    .input(NudgeOfferInput)
+    .output(NudgeOfferResult)
+    .mutation(({ ctx, input }) => ctx.rideHabits.nudgeOffer(ctx.actor, input)),
 });

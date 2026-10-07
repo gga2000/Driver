@@ -74,7 +74,7 @@ function ports() {
     setIftarTime: vi.fn(async () => seasonView),
   };
   const controlRoom: ControlRoomPort = {
-    approvals: vi.fn(async () => ({ at: AT, items: [], counts: { driver_document: 0, merchant_deal: 0, landmark_photo: 0, merchant_onboarding: 0, fleet_vehicle: 0 } })),
+    approvals: vi.fn(async () => ({ at: AT, items: [], counts: { driver_document: 0, merchant_deal: 0, landmark_photo: 0, merchant_onboarding: 0, fleet_vehicle: 0, vehicle_features: 0 } })),
     decide: vi.fn(async (_a, input) => ({ id: `${input.kind}:${input.refId}`, kind: input.kind, refId: input.refId, decision: input.decision, decidedAt: AT })),
     finance: vi.fn(async () => ({
       cityId: 'aziziyah',

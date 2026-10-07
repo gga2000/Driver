@@ -44,6 +44,7 @@ describe.skipIf(!url)('chat × share links on Postgres (needs DATABASE_URL)', ()
     const clock = h.clock as FakeClock;
     const ev = createInMemoryEvents({ clock, uow });
     const roles: Record<string, RoleKind[]> = {};
+    const blobs = new DevBlobStore(clock, { secret: 't' });
     const chat = new ChatService(
       repo,
       h.orders,
@@ -54,13 +55,28 @@ describe.skipIf(!url)('chat × share links on Postgres (needs DATABASE_URL)', ()
         orgRoleHolders: async () => [],
       },
       { storeName: async () => 'مطعم' },
-      new DevBlobStore(clock, { secret: 't' }),
+      blobs,
       new ProxyCallBridge(undefined),
       ev.events,
       uow,
       clock,
     );
-    return { h, chat };
+    return { h, chat, blobs };
+  }
+
+  /** A fresh accepted order with a courier, and no chat rows left from an earlier run. */
+  async function freshOrder(h: ReturnType<typeof service>['h']): Promise<string> {
+    const placed = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m-staff', { orderId: placed.id, prepMinutes: 15 });
+    await h.tripFor(placed.id);
+    const stale = await prisma.prisma.chatThread.findMany({ where: { orderId: placed.id } });
+    if (stale.length) {
+      const ids = stale.map((t) => t.id);
+      await prisma.prisma.chatMessage.deleteMany({ where: { threadId: { in: ids } } });
+      await prisma.prisma.chatRead.deleteMany({ where: { threadId: { in: ids } } });
+      await prisma.prisma.chatThread.deleteMany({ where: { id: { in: ids } } });
+    }
+    return placed.id;
   }
 
   it('assigns 1..n under concurrent sends, dedupes retries, tracks reads and unread', async () => {
@@ -102,6 +118,29 @@ describe.skipIf(!url)('chat × share links on Postgres (needs DATABASE_URL)', ()
     const mine = await chat.thread(as('c1'), { orderId, kind: 'customer_courier' });
     expect(mine.messages.filter((m) => m.mine).every((m) => m.read)).toBe(true);
     expect((await chat.thread(as('d1'), { orderId, kind: 'customer_courier', afterSeq: 7 })).messages.map((m) => m.seq)).toEqual([8, 9]);
+  });
+
+  it('stores a voice note’s ref and length, lists the threads holding voice files, forgets the ref once purged', async () => {
+    const { h, chat, blobs } = service();
+    const orderId = await freshOrder(h);
+    const m4a = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypM4A ', 'latin1'), Buffer.alloc(100)]);
+    const ticket = await chat.voiceUpload(as('c1'), { orderId, kind: 'customer_courier', contentType: 'audio/mp4', sizeBytes: m4a.length });
+    const signed = new URL(ticket.uploadUrl, 'http://x');
+    await blobs.receive({ id: ticket.uploadId, exp: signed.searchParams.get('exp') ?? undefined, sig: signed.searchParams.get('sig') ?? undefined, contentType: 'audio/mp4', bytes: m4a });
+    const sent = await chat.send(as('c1'), { orderId, kind: 'customer_courier', clientId: `run-${randomUUID()}`, voiceUploadId: ticket.uploadId, durationSec: 9 });
+    expect(sent).toMatchObject({ kind: 'voice', durationSec: 9 });
+    const thread = await prisma.prisma.chatThread.findUniqueOrThrow({ where: { orderId_kind: { orderId, kind: 'customer_courier' } } });
+    threadIds.push(thread.id);
+    expect(await prisma.prisma.chatMessage.findUniqueOrThrow({ where: { id: sent.id } })).toMatchObject({ voiceRef: ticket.uploadId, durationSec: 9, photoRef: null });
+
+    // Paging from just before this thread finds it, with its one note.
+    const before = thread.id.slice(0, -1);
+    const page = await repo.threadsWithVoice({ afterThreadId: before, limit: 50 });
+    expect(page.find((t) => t.threadId === thread.id)).toEqual({ threadId: thread.id, orderId, kind: 'customer_courier', voices: [{ messageId: sent.id, voiceRef: ticket.uploadId }] });
+
+    await repo.clearVoice(sent.id);
+    expect((await repo.threadsWithVoice({ afterThreadId: before, limit: 50 })).find((t) => t.threadId === thread.id)).toBeUndefined();
+    expect((await chat.thread(as('d1'), { orderId, kind: 'customer_courier' })).messages[0]).toMatchObject({ kind: 'voice', audioUrl: null, durationSec: 9 });
   });
 
   it('stores share links: create, view count, revoke', async () => {

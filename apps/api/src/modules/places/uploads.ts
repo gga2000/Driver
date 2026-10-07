@@ -1,12 +1,12 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { DriverError, PHOTO_MAX_BYTES, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
+import { DriverError, PHOTO_MAX_BYTES, VOICE_RULES, VoiceContentType, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import { DevObjectStorage, type ObjectStoragePort } from './object-storage.js';
 
 /**
- * Photo storage behind a signed-URL interface (domain §7 gate photos, menu / shop photos, documents,
- * evidence). The app asks for a ticket, PUTs the bytes to the ticket's URL, then references the upload id
+ * Photo and voice-note storage behind a signed-URL interface (domain §7 gate photos, menu / shop photos,
+ * documents, evidence; chat voice notes, ride ideas n7/n8). The app asks for a ticket, PUTs the bytes to the ticket's URL, then references the upload id
  * when it saves the place. Reads go through short-lived signed URLs: home photos are personal data
  * (domain §13) and are never public.
  *
@@ -15,10 +15,13 @@ import { DevObjectStorage, type ObjectStoragePort } from './object-storage.js';
  * the client PUTs straight to the bucket (presigned) and the first `get` checks the object; with the dev
  * storage the API's `UploadsController` receives and serves the bytes (docs/persistence.md).
  */
+/** What an upload may hold: a photo, or a voice note (each kind has its own size cap and magic bytes). */
+export type UploadContentType = PhotoContentType | VoiceContentType;
+
 export interface BlobRecord {
   id: string;
   ownerId: string;
-  contentType: PhotoContentType;
+  contentType: UploadContentType;
   maxBytes: number;
   sizeBytes: number | null;
   state: 'pending' | 'stored';
@@ -27,11 +30,17 @@ export interface BlobRecord {
 }
 
 export interface BlobStore {
-  createUpload(input: { ownerId: string; contentType: PhotoContentType; sizeBytes: number }): Promise<PhotoUploadTicket>;
+  createUpload(input: { ownerId: string; contentType: UploadContentType; sizeBytes: number }): Promise<PhotoUploadTicket>;
   /** Transport side of the API PUT: checks the signature, size, type and magic bytes. */
   receive(input: { id: string; exp: string | undefined; sig: string | undefined; contentType: string | undefined; bytes: Buffer }): Promise<BlobRecord>;
-  /** The record; a pending direct upload is checked against the bucket first (and stored or refused). */
+  /**
+   * A photo upload's record; a pending direct upload is checked against the bucket first (and stored or
+   * refused). Voice notes are not photos: their ids read as null here, so no module can attach one as a
+   * photo.
+   */
   get(id: string): Promise<BlobRecord | null>;
+  /** A voice note's record (`chat.voiceUpload`), checked like `get`; null for photos. */
+  getVoice(id: string): Promise<BlobRecord | null>;
   /**
    * Signed read URL on the API, stable within the hour so clients can cache it. `validForMs`: still
    * valid that long from now (a feed phones keep for hours, maps program b3); default about an hour.
@@ -53,6 +62,16 @@ export async function ownsStoredUpload(blobs: Pick<BlobStore, 'get'>, uploadId: 
   const rec = await blobs.get(uploadId);
   return rec !== null && rec.ownerId === personId && rec.state === 'stored';
 }
+
+/** A voice note's type (`audio/*`), as opposed to a photo's. */
+export function isVoiceType(contentType: string): contentType is VoiceContentType {
+  return VoiceContentType.safeParse(contentType).success;
+}
+
+/** The size cap of an upload of this type. */
+export function maxBytesFor(contentType: UploadContentType): number {
+  return isVoiceType(contentType) ? VOICE_RULES.maxBytes : PHOTO_MAX_BYTES;
+}
 const UPLOAD_TTL_MS = 15 * 60_000;
 const HOUR_MS = 3_600_000;
 const DIRECT_READ_TTL_SEC = 300;
@@ -64,6 +83,23 @@ export function sniffImage(bytes: Buffer): PhotoContentType | null {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
   if (bytes.length >= 12 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
   return null;
+}
+
+/**
+ * Magic bytes of a voice note: an MP4 / M4A box (`ftyp` at byte 4, what iOS, Android and Safari
+ * record), an ADTS AAC frame (12-bit sync word, layer 0), WebM (EBML header, Chrome) or Ogg (Firefox).
+ */
+export function sniffAudio(bytes: Buffer): VoiceContentType | null {
+  if (bytes.length >= 8 && bytes.subarray(4, 8).toString('latin1') === 'ftyp') return 'audio/mp4';
+  if (bytes.length >= 4 && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return 'audio/webm';
+  if (bytes.length >= 4 && bytes.subarray(0, 4).toString('latin1') === 'OggS') return 'audio/ogg';
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xf6) === 0xf0) return 'audio/aac';
+  return null;
+}
+
+/** The type the first bytes say, photo or voice note. */
+export function sniffUpload(bytes: Buffer): UploadContentType | null {
+  return sniffImage(bytes) ?? sniffAudio(bytes);
 }
 
 // ───────────────────────── records ─────────────────────────
@@ -114,7 +150,7 @@ export class PrismaUploadRecords implements UploadRecords {
   async get(id: string): Promise<BlobRecord | null> {
     const r = await this.prisma.prisma.upload.findUnique({ where: { id } });
     return r
-      ? { id: r.id, ownerId: r.ownerId, contentType: r.contentType as PhotoContentType, maxBytes: r.maxBytes, sizeBytes: r.sizeBytes, state: r.state === 'stored' ? 'stored' : 'pending', createdAt: r.createdAt, expiresAt: r.expiresAt }
+      ? { id: r.id, ownerId: r.ownerId, contentType: r.contentType as UploadContentType, maxBytes: r.maxBytes, sizeBytes: r.sizeBytes, state: r.state === 'stored' ? 'stored' : 'pending', createdAt: r.createdAt, expiresAt: r.expiresAt }
       : null;
   }
 
@@ -163,8 +199,8 @@ export class ObjectBlobStore implements BlobStore {
     return want.length === got.length && timingSafeEqual(want, got);
   }
 
-  async createUpload(input: { ownerId: string; contentType: PhotoContentType; sizeBytes: number }): Promise<PhotoUploadTicket> {
-    if (input.sizeBytes > PHOTO_MAX_BYTES) throw new DriverError('upload_invalid');
+  async createUpload(input: { ownerId: string; contentType: UploadContentType; sizeBytes: number }): Promise<PhotoUploadTicket> {
+    if (input.sizeBytes > maxBytesFor(input.contentType)) throw new DriverError('upload_invalid');
     const now = this.clock.now();
     const id = `up_${randomUUID().replaceAll('-', '')}`;
     const expiresAt = new Date(now.getTime() + UPLOAD_TTL_MS);
@@ -180,13 +216,23 @@ export class ObjectBlobStore implements BlobStore {
     const rec = await this.records.get(input.id);
     if (!rec || rec.state !== 'pending' || !this.verify('put', input.id, input.exp, input.sig)) throw new DriverError('upload_invalid');
     const type = (input.contentType ?? '').split(';')[0]!.trim().toLowerCase();
-    if (type !== rec.contentType || input.bytes.length === 0 || input.bytes.length > rec.maxBytes || sniffImage(input.bytes) !== rec.contentType) throw new DriverError('upload_invalid');
+    if (type !== rec.contentType || input.bytes.length === 0 || input.bytes.length > rec.maxBytes || sniffUpload(input.bytes) !== rec.contentType) throw new DriverError('upload_invalid');
     await this.storage.put(rec.id, input.bytes, rec.contentType);
     if (!(await this.records.markStored(rec.id, input.bytes.length))) throw new DriverError('upload_invalid');
     return { ...rec, state: 'stored', sizeBytes: input.bytes.length };
   }
 
   async get(id: string): Promise<BlobRecord | null> {
+    const rec = await this.lookup(id);
+    return rec && !isVoiceType(rec.contentType) ? rec : null;
+  }
+
+  async getVoice(id: string): Promise<BlobRecord | null> {
+    const rec = await this.lookup(id);
+    return rec && isVoiceType(rec.contentType) ? rec : null;
+  }
+
+  private async lookup(id: string): Promise<BlobRecord | null> {
     const rec = await this.records.get(id);
     if (!rec || rec.state === 'stored' || !this.storage.direct) return rec;
     return this.checkDirectUpload(rec);
@@ -200,7 +246,7 @@ export class ObjectBlobStore implements BlobStore {
     const head = await this.storage.head(rec.id);
     if (!head) return rec;
     const start = head.sizeBytes > 0 && head.sizeBytes <= rec.maxBytes ? await this.storage.readStart(rec.id, MAGIC_BYTES) : null;
-    if (!start || sniffImage(start) !== rec.contentType) {
+    if (!start || sniffUpload(start) !== rec.contentType) {
       await this.storage.delete(rec.id);
       return rec;
     }
