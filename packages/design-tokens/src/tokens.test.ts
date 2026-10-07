@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
-import { color, fontFamily, haptic, identity, motion, scheme, space, themes, tokens, type ThemeName } from './tokens.js';
+import { color, decor, fontFamily, haptic, identity, motion, scheme, services, space, themes, tokens, type ThemeName } from './tokens.js';
 
 describe('design tokens', () => {
   it('spacing is a scale of 4', () => {
@@ -76,6 +76,7 @@ describe('the other apps look the same (light and dark keep their J1 values)', (
       expect([t.segmentSelected, t.segmentSelectedBorder, t.onSegmentSelected]).toEqual([t.surface, t.accentText, t.text]);
       expect([t.stepperPlus, t.onStepperPlus, t.stepperPlusBorder]).toEqual([t.accent, t.onAccent, t.accent]);
       expect([t.star, t.starOutline, t.tintBorder]).toEqual([t.accent, t.accent, t.accent]);
+      expect([t.tabSelected, t.onTabSelected]).toEqual([t.accentTint, t.accentText]);
     }
   });
   it('avatars in light keep the four semantic tones, in the old hash order', () => {
@@ -92,21 +93,22 @@ describe('the other apps look the same (light and dark keep their J1 values)', (
   });
 });
 
-describe('istikan theme (joy J-D1, report 5 §5 Direction A)', () => {
+describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
   const i = themes.istikan;
-  it('paper, ink and lines', () => {
+  it('ivory paper, white cards, ink and lines', () => {
     expect([i.bg, i.surface, i.surfaceSunken, i.text, i.textMuted, i.border, i.borderStrong]).toEqual([
-      '#F6EEDF', '#FFFCF6', '#EEE3CF', '#24170E', '#6A5745', '#E4D5BE', '#8A735C',
+      '#FFF8EF', '#FFFFFF', '#F6EADB', '#24170E', '#6E5A4B', '#EFDFC9', '#8A735C',
     ]);
   });
-  it('tea acts and feeds, kashi moves, ink chooses, saffron treats, palm is done, pomegranate stops', () => {
-    expect([i.accent, i.accentTint, i.accentText]).toEqual(['#E08A1E', '#FBE6C6', '#8F4A00']);
+  it('saffron acts and feeds, kashi moves, ink chooses, yellow treats, palm is done, pomegranate stops, date anchors', () => {
+    expect([i.accent, i.accentTint, i.accentText]).toEqual(['#F38A1B', '#FFE6C2', '#A24F08']);
     expect([i.live, i.liveTint, i.liveText]).toEqual(['#0B6577', '#D3EAF0', '#0B5A6B']);
     expect([i.info, i.infoTint, i.infoText]).toEqual(['#0B6577', '#D3EAF0', '#0B5A6B']);
-    expect([i.selected, i.onSelected, i.selectedSoft, i.segmentSelected]).toEqual(['#24170E', '#FFFCF6', '#24170E', '#24170E']);
+    expect([i.selected, i.onSelected, i.selectedSoft, i.segmentSelected]).toEqual(['#24170E', '#FFF8EF', '#24170E', '#24170E']);
     expect([i.deal, i.onDeal, i.star, i.starOutline]).toEqual(['#F2C14E', '#24170E', '#F2C14E', '#24170E']);
     expect([i.success, i.successTint, i.successText]).toEqual(['#2F7D4E', '#DCEEDF', '#23653E']);
     expect([i.danger, i.dangerTint, i.dangerText]).toEqual(['#B23A2E', '#F7DCD6', '#9A2E23']);
+    expect([i.inverse, i.onInverse, i.onInverseAccent]).toEqual(['#2A170C', '#FFF3E2', '#FFB547']);
   });
   it('the stepper + is neutral and a tint card has no accent border', () => {
     expect([i.stepperPlus, i.onStepperPlus, i.stepperPlusBorder]).toEqual([i.surface, i.text, i.borderStrong]);
@@ -115,14 +117,20 @@ describe('istikan theme (joy J-D1, report 5 §5 Direction A)', () => {
   it('every theme defines every role', () => {
     for (const n of Object.keys(themes) as ThemeName[]) expect(Object.keys(themes[n]).sort()).toEqual(Object.keys(themes.light).sort());
   });
-  it('is a light scheme (toasts, state layers and shadows follow light)', () => {
-    expect(scheme).toEqual({ light: 'light', dark: 'dark', istikan: 'light' });
+  it('is a light scheme; its night palette is dark and kept ready, not used (J-D4)', () => {
+    expect(scheme).toEqual({ light: 'light', dark: 'dark', istikan: 'light', istikanNight: 'dark' });
+    expect(themes.istikanNight.bg).toBe('#1A100A');
   });
   it('identity colours are non-semantic, and every letter on them passes AA', () => {
     expect(identity.istikan.map((c) => c.fill)).toEqual(['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E']);
     for (const n of Object.keys(themes) as ThemeName[]) {
       for (const c of identity[n]) expect(contrastRatio(c.on, c.fill), `${n} ${c.fill}`).toBeGreaterThanOrEqual(4.5);
     }
+  });
+  it('each service has its own colour: saffron food, yellow taxi, plum tuktuk, teal trips, date الرجعة', () => {
+    const s = services.istikan;
+    expect([s.food.fill, s.taxi.fill, s.tuktuk.fill, s.trips.fill, s.back.fill]).toEqual(['#F7A33B', '#FFD84D', '#8A3F93', '#0E7480', '#2A170C']);
+    expect(decor.istikan.stages.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -142,6 +150,6 @@ describe('motion and haptics (report 5 §6)', () => {
       .sort();
     expect(successes).toEqual(['arrival', 'orderPlaced', 'pointsEarned', 'seatBooked', 'topUpConfirmed']);
     expect(Object.entries(haptic.events).filter(([, k]) => k === 'heavy').map(([e]) => e)).toEqual(['sos']);
-    expect(haptic.secondaryButton).toEqual({ light: 'light', dark: 'light', istikan: null });
+    expect(haptic.secondaryButton).toEqual({ light: 'light', dark: 'light', istikan: null, istikanNight: null });
   });
 });

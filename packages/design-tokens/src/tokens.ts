@@ -160,6 +160,10 @@ export interface ThemeColors {
   onStepperPlus: string;
   /** The ring around `stepperPlus`. */
   stepperPlusBorder: string;
+  /** The chosen tab's pill: the accent wash in light, date brown in istikan (Date & Saffron: ink chooses). */
+  tabSelected: string;
+  /** The chosen tab's icon on `tabSelected`. */
+  onTabSelected: string;
   /** Rating star fill: saffron in istikan (stars are a treat, not the action). */
   star: string;
   /** Rating star outline: ink in istikan (ink alone is 17:1 on the card). */
@@ -246,6 +250,8 @@ const light: ThemeColors = {
   stepperPlus: '#E08A1E',
   onStepperPlus: '#1F1A14',
   stepperPlusBorder: '#E08A1E',
+  tabSelected: '#FCEBD3',
+  onTabSelected: '#9A5200',
   star: '#E08A1E',
   starOutline: '#E08A1E',
   tintBorder: '#E08A1E',
@@ -311,6 +317,8 @@ const dark: ThemeColors = {
   stepperPlus: '#EE9A32',
   onStepperPlus: '#1F1A14',
   stepperPlusBorder: '#EE9A32',
+  tabSelected: '#3B2914',
+  onTabSelected: '#F5B45E',
   star: '#EE9A32',
   starOutline: '#EE9A32',
   tintBorder: '#EE9A32',
@@ -336,17 +344,19 @@ const dark: ThemeColors = {
  * on `light` until they adopt it.
  */
 const istikan: ThemeColors = {
-  bg: '#F6EEDF',
-  surface: '#FFFCF6',
-  surfaceRaised: '#FFFCF6',
-  surfaceSunken: '#EEE3CF',
+  // Date & Saffron (Ali, 2026-10-06; v3 artifact): ivory paper and white cards with warm shadows.
+  bg: '#FFF8EF',
+  surface: '#FFFFFF',
+  surfaceRaised: '#FFFFFF',
+  surfaceSunken: '#F6EADB',
   text: '#24170E',
-  textMuted: '#6A5745',
-  accent: '#E08A1E',
+  textMuted: '#6E5A4B',
+  // Saffron: the main action and food, brighter than J1's tea (ink on it, 7.0:1).
+  accent: '#F38A1B',
   onAccent: '#24170E',
-  accentTint: '#FBE6C6',
-  accentText: '#8F4A00',
-  border: '#E4D5BE',
+  accentTint: '#FFE6C2',
+  accentText: '#A24F08',
+  border: '#EFDFC9',
   borderStrong: '#8A735C',
   accentBorder: '#C27214',
   focusRing: '#24170E',
@@ -358,54 +368,127 @@ const istikan: ThemeColors = {
   warningTint: '#FAF0C8',
   warningText: '#7A5A00',
   danger: '#B23A2E',
-  onDanger: '#FFFCF6',
+  onDanger: '#FFFFFF',
   dangerTint: '#F7DCD6',
   dangerText: '#9A2E23',
   // Kashi absorbs info.
   info: '#0B6577',
   infoTint: '#D3EAF0',
   infoText: '#0B5A6B',
-  inverse: '#24170E',
-  onInverse: '#F6EEDF',
-  onInverseMuted: '#D6C8B4',
+  // Date brown: the anchor (live-order card, the offline line), cream and toasted-saffron on it.
+  inverse: '#2A170C',
+  onInverse: '#FFF3E2',
+  onInverseMuted: '#E9C9A0',
   onInverseCaution: '#F2C14E',
   onInverseSuccess: '#7ACF9D',
-  onInverseAccent: '#E08A1E',
+  onInverseAccent: '#FFB547',
   selected: '#24170E',
-  onSelected: '#FFFCF6',
+  onSelected: '#FFF8EF',
   selectedBorder: '#24170E',
   selectedSoft: '#24170E',
-  onSelectedSoft: '#FFFCF6',
-  selectedMark: '#FFFCF6',
+  onSelectedSoft: '#FFF8EF',
+  selectedMark: '#FFF8EF',
   onSelectedMark: '#24170E',
   segmentSelected: '#24170E',
   segmentSelectedBorder: '#24170E',
-  onSegmentSelected: '#FFFCF6',
-  stepperPlus: '#FFFCF6',
+  onSegmentSelected: '#FFF8EF',
+  stepperPlus: '#FFFFFF',
   onStepperPlus: '#24170E',
   stepperPlusBorder: '#8A735C',
+  tabSelected: '#2A170C',
+  onTabSelected: '#FFF3E2',
   star: '#F2C14E',
   starOutline: '#24170E',
-  tintBorder: '#FBE6C6',
+  tintBorder: '#FFE6C2',
   live: '#0B6577',
   liveTint: '#D3EAF0',
   liveText: '#0B5A6B',
   deal: '#F2C14E',
   onDeal: '#24170E',
-  seatTaken: '#E9DDC9',
+  seatTaken: '#EFE2CE',
   scrim: 'rgba(36, 23, 14, 0.45)',
   photoBackdrop: '#0E0B08',
   photoChrome: '#2A231C',
   onPhotoBackdrop: '#F6EFE4',
-  shimmer: '#FAF4E9',
-  shadow: '#5A3A12',
+  shimmer: '#FFF8EF',
+  shadow: '#7A3E0A',
 };
 
-export const themes = { light, dark, istikan } as const;
+/**
+ * Date & Saffron at night (Ali, 2026-10-06: after launch, switched on by itself at sunset in
+ * Aziziyah). Kept ready and checked for contrast with the other themes; no app uses it yet (J-D4).
+ */
+const istikanNight: ThemeColors = {
+  bg: '#1A100A',
+  surface: '#26170E',
+  surfaceRaised: '#301E12',
+  surfaceSunken: '#140C07',
+  text: '#F7EADB',
+  textMuted: '#BFA892',
+  accent: '#FFB547',
+  onAccent: '#1A1004',
+  accentTint: '#3B2914',
+  accentText: '#FFB547',
+  border: '#3A281A',
+  borderStrong: '#8C735C',
+  accentBorder: '#FFB547',
+  focusRing: '#F7EADB',
+  success: '#4DB27A',
+  successTint: '#183224',
+  successText: '#7ACF9D',
+  warning: '#E5B53A',
+  warningTint: '#3A3010',
+  warningText: '#F2CF68',
+  danger: '#E06A54',
+  onDanger: '#1A1004',
+  dangerTint: '#3D1D16',
+  dangerText: '#F2937F',
+  info: '#4FB3C4',
+  infoTint: '#12323A',
+  infoText: '#8ED3DF',
+  inverse: '#F7EADB',
+  onInverse: '#1A100A',
+  onInverseMuted: '#5A4636',
+  onInverseCaution: '#8A5300',
+  onInverseSuccess: '#23744A',
+  onInverseAccent: '#9A4A06',
+  selected: '#F7EADB',
+  onSelected: '#1A100A',
+  selectedBorder: '#F7EADB',
+  selectedSoft: '#F7EADB',
+  onSelectedSoft: '#1A100A',
+  selectedMark: '#1A100A',
+  onSelectedMark: '#F7EADB',
+  segmentSelected: '#F7EADB',
+  segmentSelectedBorder: '#F7EADB',
+  onSegmentSelected: '#1A100A',
+  stepperPlus: '#26170E',
+  onStepperPlus: '#F7EADB',
+  stepperPlusBorder: '#8C735C',
+  tabSelected: '#F7EADB',
+  onTabSelected: '#1A100A',
+  star: '#F2C14E',
+  starOutline: '#F7EADB',
+  tintBorder: '#3B2914',
+  live: '#4FB3C4',
+  liveTint: '#12323A',
+  liveText: '#8ED3DF',
+  deal: '#F2C14E',
+  onDeal: '#1A1004',
+  seatTaken: '#3A2A1E',
+  scrim: 'rgba(0, 0, 0, 0.6)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
+  shimmer: '#301E12',
+  shadow: '#000000',
+};
+
+export const themes = { light, dark, istikan, istikanNight } as const;
 export type ThemeName = keyof typeof themes;
 
 /** Which way each theme leans: toasts, state layers and shadows read this, never the theme name. */
-export const scheme: Record<ThemeName, 'light' | 'dark'> = { light: 'light', dark: 'dark', istikan: 'light' };
+export const scheme: Record<ThemeName, 'light' | 'dark'> = { light: 'light', dark: 'dark', istikan: 'light', istikanNight: 'dark' };
 
 /** A monogram colour: `fill` behind the letter, `on` for the letter (AA, tested). */
 export interface IdentityColor {
@@ -433,7 +516,100 @@ export const identity: Record<ThemeName, readonly IdentityColor[]> = {
     { fill: dark.warningTint, on: dark.warningText },
   ],
   istikan: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
+  istikanNight: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
 };
+
+/** One service's tile on the home screen: its own fill, the ink on it, and the colour of its glow. */
+export interface ServiceSwatch {
+  fill: string;
+  /** Titles and live facts on `fill` (AA, tested on every stop of a gradient fill). */
+  on: string;
+  /** The coloured shadow under the tile (drawn translucent). */
+  glow: string;
+}
+
+/**
+ * The home services, each in its own colour (Date & Saffron, Ali 2026-10-06): food a saffron
+ * gradient, taxi yellow, tuktuk plum (not red: red is for errors), Baghdad and Kut trips the Tigris
+ * teal with a faint Iraqi star pattern, الرجعة (the way back) date brown. `off` draws a tile that
+ * can't be used right now (no internet, kitchens closed).
+ */
+export interface ServicePalette {
+  /** `mesh`: the gradient's glows over `fill` — light top corner, warm side, deep bottom. */
+  food: ServiceSwatch & { mesh: readonly [string, string, string] };
+  taxi: ServiceSwatch;
+  tuktuk: ServiceSwatch;
+  /** `pattern`: the star lines over `fill`. */
+  trips: ServiceSwatch & { pattern: string };
+  back: ServiceSwatch;
+  off: ServiceSwatch;
+}
+
+const servicesDay: ServicePalette = {
+  food: { fill: '#F7A33B', on: '#2A1404', glow: '#F38A1B', mesh: ['#FFD27A', '#FF9F43', '#F0731A'] },
+  taxi: { fill: '#FFD84D', on: '#2A1D00', glow: '#DCAA0A' },
+  tuktuk: { fill: '#8A3F93', on: '#FFFFFF', glow: '#8A3F93' },
+  trips: { fill: '#0E7480', on: '#FFFFFF', glow: '#0E7480', pattern: '#FFFFFF' },
+  back: { fill: '#2A170C', on: '#FFF3E2', glow: '#5A3A12' },
+  off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2' },
+};
+
+const servicesNight: ServicePalette = {
+  food: { fill: '#F5A13A', on: '#1A1004', glow: '#000000', mesh: ['#FFC155', '#FF9F43', '#F08A1F'] },
+  taxi: { fill: '#F2C94C', on: '#1A1004', glow: '#000000' },
+  tuktuk: { fill: '#7E3A88', on: '#FFFFFF', glow: '#000000' },
+  trips: { fill: '#0B6A75', on: '#FFFFFF', glow: '#000000', pattern: '#FFFFFF' },
+  back: { fill: '#3B2914', on: '#FFF3E2', glow: '#000000' },
+  off: { fill: '#2E241C', on: '#BFA892', glow: '#000000' },
+};
+
+export const services: Record<ThemeName, ServicePalette> = { light: servicesDay, dark: servicesNight, istikan: servicesDay, istikanNight: servicesNight };
+
+/** The hour's sky (`HomeDecor.wash`): which daypart tints the top of home. */
+export type SkyHour = 'dawn' | 'noon' | 'sunset' | 'late';
+
+/** Decoration on the home screen: no text ever sits on these alone. */
+export interface HomeDecor {
+  /** The dots of the halo behind the service tiles, and its warm glow. */
+  haloDot: string;
+  haloGlow: string;
+  /** The soft wash at the top of home by the hour (fades to the page). */
+  wash: Record<SkyHour, string>;
+  /** Plates behind dish drawings: dish cards, food-type circles, restaurant pictures. */
+  stages: readonly string[];
+  /** The paper grain over the page (drawn at a few per cent). */
+  grain: string;
+}
+
+const decorDay: HomeDecor = {
+  haloDot: '#E2B98A',
+  haloGlow: '#FFC155',
+  wash: { dawn: '#FFD9B8', noon: '#DDEFF7', sunset: '#F7C3C0', late: '#DCD6F2' },
+  stages: ['#FFE5BD', '#FFD6CF', '#D6EEF0', '#EFE3F5', '#E6F0D2', '#FBEBC8'],
+  grain: '#5A3819',
+};
+
+const decorNight: HomeDecor = {
+  haloDot: '#4A3020',
+  haloGlow: '#FFB547',
+  wash: { dawn: '#5A3A2A', noon: '#2A3A44', sunset: '#5A2A2E', late: '#463A8C' },
+  stages: ['#4A3218', '#4A2A26', '#1E3A3E', '#3A2C42', '#2E3A22', '#463A1E'],
+  grain: '#000000',
+};
+
+export const decor: Record<ThemeName, HomeDecor> = { light: decorDay, dark: decorNight, istikan: decorDay, istikanNight: decorNight };
+
+/**
+ * Date & Saffron lifts: soft, warm and a little below (CSS `boxShadow`, React Native ≥ 0.76 and
+ * the web). Cards and the floating search; the service tiles glow in their own colour instead.
+ */
+export const lift = {
+  card: '0px 6px 18px -10px rgba(122, 62, 10, 0.30)',
+  float: '0px 8px 22px -8px rgba(122, 62, 10, 0.28)',
+  /** A tile's coloured glow: `glow(swatch.glow)`. */
+  glowOffset: { x: 0, y: 14, blur: 22, spread: -12 },
+  glowAlpha: 0.7,
+} as const;
 
 /**
  * Every text-on-background pair `@driver/ui` draws. `large` pairs only ever render at ≥ 24 px
@@ -515,14 +691,15 @@ export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey;
   { fg: 'onSelectedMark', bg: 'selectedMark', use: 'check on a chosen person chip' },
   { fg: 'accent', bg: 'inverse', use: 'live dot and progress on the live-order card', only: ['light', 'istikan'] },
   { fg: 'onPhotoBackdrop', bg: 'photoChrome', use: 'close ✕ on the photo viewer' },
+  { fg: 'onTabSelected', bg: 'tabSelected', use: 'the chosen tab’s icon on its pill' },
   { fg: 'onPhotoBackdrop', bg: 'photoBackdrop', use: 'close button ring on the photo viewer' },
   // Istikan-only cues: in light the same roles are today's accent fills (unchanged for the other apps).
-  { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan'] },
-  { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan'] },
-  { fg: 'live', bg: 'bg', use: 'live dot, route on the screen', only: ['istikan'] },
-  { fg: 'live', bg: 'surface', use: 'live dot, route on a card', only: ['istikan'] },
-  { fg: 'segmentSelected', bg: 'surfaceSunken', use: 'segmented thumb on its track', only: ['istikan'] },
-  { fg: 'selected', bg: 'surface', use: 'selected chip fill on a card', only: ['istikan'] },
+  { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan', 'istikanNight'] },
+  { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan', 'istikanNight'] },
+  { fg: 'live', bg: 'bg', use: 'live dot, route on the screen', only: ['istikan', 'istikanNight'] },
+  { fg: 'live', bg: 'surface', use: 'live dot, route on a card', only: ['istikan', 'istikanNight'] },
+  { fg: 'segmentSelected', bg: 'surfaceSunken', use: 'segmented thumb on its track', only: ['istikan', 'istikanNight'] },
+  { fg: 'selected', bg: 'surface', use: 'selected chip fill on a card', only: ['istikan', 'istikanNight'] },
 ];
 
 /** Spacing scale of 4. Keys are multipliers; values are px. */
@@ -554,6 +731,8 @@ export const radius = {
   md: 10,
   lg: 14,
   xl: 20,
+  /** Home service tiles (Date & Saffron). */
+  tile: 24,
   '2xl': 28,
   seat: 12,
   pill: 9999,
@@ -618,6 +797,8 @@ export const type = {
   voiceSm: { size: 20, lineHeight: 34, weight: 700 },
   /** The live-order arrival time in Alexandria (tabular). */
   numeralHero: { size: 30, lineHeight: 48, weight: 700 },
+  /** Section titles on home in Alexandria («مفتوح هسة», «شنو بخاطرك؟»; Date & Saffron). */
+  section: { size: 20, lineHeight: 32, weight: 700 },
 } as const;
 export type TypeVariant = keyof typeof type;
 
@@ -771,7 +952,7 @@ export const haptic = {
     backOnline: 'light',
     sos: 'heavy',
   } satisfies Record<string, HapticEventKind>,
-  secondaryButton: { light: 'light', dark: 'light', istikan: null } satisfies Record<ThemeName, HapticEventKind | null>,
+  secondaryButton: { light: 'light', dark: 'light', istikan: null, istikanNight: null } satisfies Record<ThemeName, HapticEventKind | null>,
 } as const;
 
 /**
@@ -844,6 +1025,9 @@ export const tokens = {
   art,
   scheme,
   identity,
+  services,
+  decor,
+  lift,
   brandFace,
   haptic,
 } as const;

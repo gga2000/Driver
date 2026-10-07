@@ -3,6 +3,7 @@ import { I18nManager, Platform, View, type TextStyle } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
   brandFace,
+  decor,
   elevation,
   fontFace,
   fontFamily,
@@ -13,13 +14,16 @@ import {
   motion,
   radius,
   scheme,
+  services,
   space,
   state,
   themes,
   type,
   type BrandFace,
   type FontWeight,
+  type HomeDecor,
   type IdentityColor,
+  type ServicePalette,
   type ThemeColors,
   type ThemeName,
 } from '@driver/design-tokens';
@@ -44,6 +48,10 @@ export interface Theme {
   colors: ThemeColors;
   /** Monogram colours (`Avatar` without a tone): non-semantic in istikan. */
   identity: readonly IdentityColor[];
+  /** Each home service's own colour (Date & Saffron): food, taxi, tuktuk, trips, الرجعة. */
+  services: ServicePalette;
+  /** Home decoration: the dot halo, the hour's sky wash, dish plates, the paper grain. */
+  decor: HomeDecor;
   /** What a secondary or ghost `Button` buzzes: nothing in istikan (joy S2-18). */
   secondaryButtonHaptic: HapticKind | null;
   space: typeof space;
@@ -101,6 +109,8 @@ export function createTheme(
     scheme: scheme[name],
     colors: themes[name],
     identity: identity[name],
+    services: services[name],
+    decor: decor[name],
     secondaryButtonHaptic: hapticTokens.secondaryButton[name],
     space,
     radius,

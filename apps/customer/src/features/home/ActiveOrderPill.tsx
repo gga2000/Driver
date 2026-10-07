@@ -8,10 +8,14 @@ import { useTracking } from '@/features/track/queries';
 import { useT } from '@/lib/i18n';
 import { LIVE_SEGMENTS, liveStatusKey, liveStep } from './live-card';
 
+/** The courier marker on the bar (drawn 22 px; the card itself is the tap target). */
+const MARKER = 22;
+
 /**
  * The order or ride in progress (spec §1), as the Istikan inverse card (joy S2-11, report 5 §5 A):
  * ink, a tea live dot, «مطعم خالد · دا يتحضّر», «طلبك يوصل» and the arrival time large in Alexandria
- * on the end side, then a 4-step bar. The time is the live estimate the tracking screen uses (kitchen
+ * on the end side, then a 4-step bar with the courier riding on it (Date & Saffron: a date-brown card).
+ * The time is the live estimate the tracking screen uses (kitchen
  * ready time + the ride to the door), else the promised time; none is shown until one is known.
  * Opens the live screen.
  */
@@ -67,12 +71,35 @@ export function ActiveOrderPill({ order }: { order: Order }) {
       <View
         accessibilityRole="progressbar"
         accessibilityValue={{ min: 0, max: LIVE_SEGMENTS, now: step }}
-        style={{ flexDirection: 'row', gap: 4 }}
+        style={{ justifyContent: 'center', minHeight: MARKER + 2 }}
         testID="home-active-bar"
       >
-        {Array.from({ length: LIVE_SEGMENTS }, (_, i) => (
-          <View key={i} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < step ? c.accent : withAlpha(c.onInverseMuted, 0.3) }} />
-        ))}
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          {Array.from({ length: LIVE_SEGMENTS }, (_, i) => (
+            <View key={i} style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: i < step ? c.accent : withAlpha(c.onInverseMuted, 0.3) }} />
+          ))}
+        </View>
+        {/* Date & Saffron: the courier (or the car) rides on the bar where the order is now. */}
+        {step > 0 ? (
+          <View
+            testID="home-active-marker"
+            style={{
+              position: 'absolute',
+              start: `${(Math.min(step, LIVE_SEGMENTS) / LIVE_SEGMENTS) * 100}%`,
+              marginStart: -MARKER / 2 - (step >= LIVE_SEGMENTS ? MARKER / 2 : 0),
+              width: MARKER,
+              height: MARKER,
+              borderRadius: MARKER / 2,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: c.onInverseAccent,
+              borderWidth: 3,
+              borderColor: c.inverse,
+            }}
+          >
+            <Icon name={isRide ? 'car' : 'bike'} size={12} color="inverse" strokeWidth={2.4} />
+          </View>
+        ) : null}
       </View>
     </AnimatedPressable>
   );

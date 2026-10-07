@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
-import { contrastPairs, minFontSize, nonTextPairs, themes, type, type ThemeName } from './tokens.js';
+import { contrastPairs, minFontSize, nonTextPairs, services, themes, type, type ThemeName } from './tokens.js';
 
 describe('contrastRatio', () => {
   it('matches the WCAG reference values', () => {
@@ -33,6 +33,26 @@ describe.each(Object.keys(themes) as ThemeName[])('%s theme: 3:1 for every bound
       throw new Error(`${name}: ${pair.fg} ${theme[pair.fg]} against ${pair.bg} ${theme[pair.bg]} is ${ratio.toFixed(2)}:1 (< 3:1) — used for ${pair.use}`);
     }
     expect(ratio).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service tiles read (Date & Saffron)', (name) => {
+  const p = services[name];
+  const fills = (k: keyof typeof p): string[] => {
+    const s = p[k];
+    return 'mesh' in s ? [s.fill, ...s.mesh] : [s.fill];
+  };
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s: its title and live fact pass AA on every stop of the fill', (k) => {
+    for (const fill of fills(k)) {
+      const ratio = contrastRatio(p[k].on, fill);
+      if (ratio < 4.5) throw new Error(`${name}: ${k} ${p[k].on} on ${fill} is ${ratio.toFixed(2)}:1 (< 4.5:1)`);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+  it('the tuktuk is not the error red, and no two services share a fill', () => {
+    expect(p.tuktuk.fill).not.toBe(themes[name].danger);
+    const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill];
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 

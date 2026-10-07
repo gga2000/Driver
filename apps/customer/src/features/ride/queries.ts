@@ -46,6 +46,28 @@ export function useNearbyVehicles(pin: LatLng | null, vertical: RideVertical) {
   });
 }
 
+/** How often home re-reads the nearest free vehicle. */
+const HOME_NEARBY_MS = 60_000;
+
+/**
+ * The nearest free taxi or tuktuk's minutes to a place, for home's tiles (Date & Saffron): the same
+ * `dispatch.nearby` read as the choose screen, but once a minute (low-data mode: less often), and
+ * only the number is used. Null when none is free, for guests, or before there is a place.
+ */
+export function useNearestMinutes(pin: LatLng | null, vertical: RideVertical) {
+  const api = useApi();
+  const lite = useLiteMode();
+  const signedIn = useSignedIn();
+  const key = { cityId: CITY_ID, pin: pin ? { lat: Math.round(pin.lat * 1e4) / 1e4, lng: Math.round(pin.lng * 1e4) / 1e4 } : { lat: 0, lng: 0 }, vertical };
+  const q = useQuery({
+    ...api.dispatch.nearby.queryOptions(key),
+    enabled: signedIn && pin !== null,
+    staleTime: HOME_NEARBY_MS,
+    refetchInterval: liteInterval(HOME_NEARBY_MS, lite),
+  });
+  return { minutes: q.data?.nearestMinutes ?? null, loading: signedIn && pin !== null && q.isPending };
+}
+
 export type QuoteGrid = Record<RideVertical, { door: Quote | undefined; street: Quote | undefined }>;
 
 /**
