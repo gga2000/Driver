@@ -63,8 +63,8 @@ earlier: edge-case decisions line 36 ("evening-before scheduled rides"), review 
    driver's first name, approved main photo (signed, logged read with purpose `favourite_driver`),
    vehicle kind and how many trips together — never a phone. Where: «سواقي المفضلين» page (account),
    the ride tab's «خليه سايقك المفضل؟» card after a good rating (24 h), the الرجعة pass after rating,
-   the choose screen's driver chips (scheduled only), the الرجعة board's «سايقك» badge (his departures
-   first in their hour). The rating panel itself (track screen, J5b's area) is not touched.
+   the choose screen's driver chips (scheduled only), the الرجعة board's «سايقك» badge on his cars (first among a
+   regular trip's cars of the day; the board keeps its time order). The rating panel itself (track screen, J5b's area) is not touched.
 4. **Regular trips (r5).** `regular_trips`: kind `ride` (pickup/drop-off points with labels, taxi or
    tuktuk, door pickup, cash or wallet, optional favourite) or `rajaa` (corridor, direction, garage,
    travelling as, cash or wallet, optional favourite); days of the week (Baghdad), a time, and when to
@@ -199,3 +199,16 @@ earlier: edge-case decisions line 36 ("evening-before scheduled rides"), review 
   Thursday Kut الرجعة; a booked ride for tomorrow), `POST /demo/dinner?personId=…` (a ride home in
   progress), README. Partner demo: `POST /demo/favourite-offer?who=tuktuk|courier…` (a favourite ride
   offer ringing). `docs/api/ride-habits.md`. Shots `SHOTS=ride-habits` at 390 and 360. Commit.
+
+---
+
+## As built (2026-10-07)
+
+- All ten tasks done; `docs/api/ride-habits.md` describes the result.
+- Added after J5b landed on main: favourites carry J5b's public driver rating (`publicCourierRating` of
+  the same delivery scores the live driver card uses).
+- Added from the screenshots: `RegularTripView.booked` (days booked and still ahead), so a ride booked from a
+  regular trip shows its route on any phone; checkout says «بعد وصولك · 4:55» instead of «وياك» when the
+  kitchen can't make his arrival; the الرجعة tiles resolve the driver's photo URL (they showed initials).
+- Deviations: no evening-before pre-assignment of booked rides (decision 1); the الرجعة board keeps its time
+  order (the favourite's car is badged, and first only in a regular trip's day).

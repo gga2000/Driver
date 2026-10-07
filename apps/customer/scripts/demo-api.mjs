@@ -25,6 +25,8 @@
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
+//   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
+//                                                                     a booked ride, «عشاك يوصل وياك»
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';

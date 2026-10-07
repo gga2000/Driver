@@ -3,6 +3,7 @@
 //   POST /demo/offer?who=courier&kind=food     a cash order from مطعم خالد, offered to him (dispatcher override)
 //   POST /demo/offer?who=courier&kind=batch    he is on a job; a second order on his way is offered
 //   POST /demo/offer?who=tuktuk&kind=ride      a tuktuk ride broadcast in waves (he is the nearest)
+//   POST /demo/offer?who=tuktuk&kind=favourite a ride booked for later asking for him (joy l9): his minute alone
 //   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup ·
 //                                              to_dropoff · at_dropoff · unreachable
 //        …&door=1                              to the customer's saved home with a door photo and note,

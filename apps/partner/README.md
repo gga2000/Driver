@@ -285,6 +285,14 @@ When a customer sends a meal to someone else as a gift, the job card says so (`G
 prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
 الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
 
+## «الزبون طلبك إنت» — a favourite's offer (joy l9)
+
+A rider who kept a driver as a favourite may ask for him on a ride booked for later. When its search starts
+(15 minutes before) the offer rings for him alone for a minute and says «الزبون طلبك إنت» (`offer-favourite`
+in `app/offer.tsx`, from `PartnerOffer.favourite`); then the normal waves. Nothing else about who favourited
+him is shown. Demo: `POST /demo/offer?who=tuktuk&kind=favourite`; `SHOTS=favourite` (`scripts/shots/97-favourite.mjs`).
+`docs/api/ride-habits.md`.
+
 ## «كلام الزبائن» — compliments (joy l4)
 
 After a 4–5 star rating a customer can pick a few kind words for the courier («سريع»، «مؤدب»، «الأكل وصل
