@@ -40,6 +40,9 @@ import {
   type ParticipantShare,
   type RateOrderInput,
   type RideSwitchQuote,
+  RATING_RULES,
+  COURIER_RATING_WINDOW,
+  courierReasonsFor,
   type Trip,
   type TripState,
   type VehicleClass,
@@ -1071,8 +1074,12 @@ export class OrdersService implements OnModuleInit {
     return this.uow.run(async (tx) => {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
-      const rating = ratingFrom(order, input, this.clock.now());
+      const now = this.clock.now();
+      const rating = ratingFrom(order, input, now);
       if (order.rating) return this.view(order.id, tx);
+      if (rating && ratingWindowClosed(order, now)) throw new DriverError('rating_window_closed');
+      // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
+      if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1084,6 +1091,30 @@ export class OrdersService implements OnModuleInit {
       await this.close(updated, actorId, 'rated', tx);
       return this.view(order.id, tx);
     });
+  }
+
+  /**
+   * The courier/driver who carried the order gets the delivery score as his own rating row (unique per
+   * order: a concurrent second rating fails the insert and its transaction). No driver ever took it
+   * (a pickup that never left) → nothing to record.
+   */
+  private async recordCourierRating(order: OrderRecord, rating: OrderRating, tx: Tx): Promise<void> {
+    if (!rating.delivery) return;
+    const carrier = await this.trips.courierOf(order.id);
+    if (!carrier) return;
+    if (await this.repo.courierRatingOf(order.id, tx)) return;
+    await this.repo.addCourierRating(
+      { orderId: order.id, tripId: carrier.tripId, driverId: carrier.courierId, customerId: order.ordererId, score: rating.delivery, reasons: [...(rating.courierReasons ?? [])], ratedAt: rating.ratedAt },
+      tx,
+    );
+  }
+
+  /**
+   * A driver's newest courier ratings (`courier_ratings`, newest first, at most `limit` — the scorecard
+   * and the card's public rating read the last `COURIER_RATING_WINDOW`).
+   */
+  async courierRatings(driverId: string, limit: number = COURIER_RATING_WINDOW): Promise<Array<{ orderId: string; score: number; reasons: string[]; at: Date }>> {
+    return (await this.repo.courierRatingsOf(driverId, limit)).map((r) => ({ orderId: r.orderId, score: r.score, reasons: [...r.reasons], at: r.ratedAt }));
   }
 
   /**
@@ -2053,13 +2084,25 @@ export function ratingFrom(order: Pick<OrderRecord, 'type'>, input: RateOrderInp
   const delivery = input.delivery ?? null;
   const food = input.food ?? null;
   const tags = [...new Set(input.tags ?? [])];
+  const courierReasons = [...new Set(input.courierReasons ?? [])];
   const note = input.note?.trim() ? input.note.trim() : null;
   if (food !== null && !MERCHANT_ORDER_TYPES.includes(order.type)) throw new DriverError('invalid_input');
+  // Courier reasons hang on the courier score and must be the set offered under it (low / good, ride / delivery).
+  if (courierReasons.length > 0) {
+    if (delivery === null) throw new DriverError('invalid_input');
+    const offered = courierReasonsFor(delivery, order.type === 'ride');
+    if (courierReasons.some((r) => !offered.includes(r))) throw new DriverError('invalid_input');
+  }
   if (delivery === null && food === null) {
     if (tags.length > 0 || note !== null) throw new DriverError('invalid_input');
     return null;
   }
-  return { delivery, food, tags, note, ratedAt: at };
+  return { delivery, food, tags, ...(courierReasons.length > 0 ? { courierReasons } : {}), note, ratedAt: at };
+}
+
+/** A scored rating is taken until `RATING_RULES.windowHours` after the order reached the customer. */
+export function ratingWindowClosed(order: Pick<OrderRecord, 'deliveredAt'>, now: Date): boolean {
+  return order.deliveredAt !== null && now.getTime() > order.deliveredAt.getTime() + RATING_RULES.windowHours * 3_600_000;
 }
 
 export function lineValue(l: Pick<OrderLineRecord, 'qty' | 'unitPriceIqd' | 'modifiers'>): number {

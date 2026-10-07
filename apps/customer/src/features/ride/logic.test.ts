@@ -33,8 +33,8 @@ import { createRideStore, EMPTY_DRAFT } from './store';
 import { createMemoryStorage } from '@/lib/storage';
 
 const home: Spot = { id: 'saved:p1', kind: 'saved', title: 'البيت', subtitle: 'شارع 30', zoneId: 'street_30', pin: { lat: 32.9095, lng: 45.0635 }, savedLabel: 'home' };
-const park: LandmarkView = { id: 'lm_mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', name_en: 'Al-Shasha park', pin: { lat: 32.9122, lng: 45.0552 }, zoneId: 'mahdood_1', kind: 'meeting_point', aliases_ar: ['الحديقة'], photoUrl: null };
-const garage: LandmarkView = { id: 'lm_garage_bab2', name_ar: 'كراج البوابة ٢', name_en: 'Gate 2 garage', pin: { lat: 32.9088, lng: 45.0648 }, zoneId: 'street_30', kind: 'garage', aliases_ar: ['كراج الكوت'], photoUrl: null };
+const park: LandmarkView = { id: 'lm_mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', name_en: 'Al-Shasha park', pin: { lat: 32.9122, lng: 45.0552 }, zoneId: 'mahdood_1', kind: 'meeting_point', category: 'other', aliases_ar: ['الحديقة'], photoUrl: null };
+const garage: LandmarkView = { id: 'lm_garage_bab2', name_ar: 'كراج البوابة ٢', name_en: 'Gate 2 garage', pin: { lat: 32.9088, lng: 45.0648 }, zoneId: 'street_30', kind: 'garage', category: 'garage', aliases_ar: ['كراج الكوت'], photoUrl: null };
 
 const c = (key: QuoteComponent['key'], amount: number): QuoteComponent => ({ key, amount, label_ar: key, label_en: key, driverShareRule: 'driver_full', visibility: 'shown' });
 const quote = (total: number, components: QuoteComponent[] = [c('base', total)]): Quote => ({

@@ -3,7 +3,7 @@ import { t, type MessageKey } from '@driver/i18n';
 import type { ComponentType } from 'react';
 import { slaClock } from '@/lib/control-room';
 import { slaFraction } from '@/lib/support-views';
-import { cx, IconApp, IconChat, IconCog, IconPhone, type IconProps } from '../ui';
+import { cx, IconApp, IconChat, IconCog, IconPhone, IconSupport, type IconProps } from '../ui';
 
 /**
  * The SLA fuse — the desk's signature mark. A ring that burns down across the same-day window
@@ -79,6 +79,7 @@ const CHANNEL_ICON: Record<TicketChannel, ComponentType<IconProps>> = {
   whatsapp: IconChat,
   phone: IconPhone,
   system: IconCog,
+  chat: IconSupport,
 };
 
 export function ChannelIcon({

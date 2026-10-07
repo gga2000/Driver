@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import { CityId, Iqd } from './common.js';
 import { EventLogEntry } from './console-io.js';
-import { ChatThreadKind } from './chat-io.js';
+import { ChatThreadKind, ChatThreadView } from './chat-io.js';
 
 /**
  * Support desk (notifications & support spec §2–3; edge-case review O.144–148, 101, 83; decisions
@@ -16,7 +16,8 @@ export type TicketKind = z.infer<typeof TicketKind>;
 export const TicketStatus = z.enum(['open', 'waiting', 'escalated', 'resolved']);
 export type TicketStatus = z.infer<typeof TicketStatus>;
 
-export const TicketChannel = z.enum(['in_app', 'whatsapp', 'phone', 'system']);
+/** `chat`: the customer wrote in the order's support chat («كلّم الدعم»); the desk's replies go back into that chat. */
+export const TicketChannel = z.enum(['in_app', 'whatsapp', 'phone', 'system', 'chat']);
 export type TicketChannel = z.infer<typeof TicketChannel>;
 
 /** Who the case blames: refunds are funded by the party at fault (courier / merchant) or the platform. */
@@ -138,6 +139,11 @@ export const TicketCase = z.object({
   ledger: z.array(LedgerLineView),
   /** Chat threads the console may read (read-only) through `chat.thread`. */
   chatKinds: z.array(ChatThreadKind),
+  /**
+   * The order's support chat as the desk sees it (`customer_support`; the desk is "mine"), when the
+   * customer has written in it; null otherwise. On a `chat` case `support.reply` answers into it.
+   */
+  supportChat: ChatThreadView.nullable().optional(),
   limits: RefundLimits,
   canned: z.array(CannedResponse),
   /** Pre-selected resolution (support spec §3) from the dispute kind and the evidence. */
@@ -191,7 +197,8 @@ export const TicketIdInput = z.object({ ticketId: z.string().min(1) });
 export const OpenTicketInput = z.object({
   cityId: CityId.default('aziziyah'),
   kind: TicketKind,
-  channel: TicketChannel.default('phone'),
+  /** A desk-opened ticket is never a `chat` case: those open by themselves from the customer's first message. */
+  channel: TicketChannel.exclude(['chat']).default('phone'),
   subject: z.string().trim().min(3).max(200),
   note: z.string().trim().max(2000).optional(),
   orderId: z.string().optional(),
@@ -206,6 +213,9 @@ export const TicketReplyInput = z.object({
   /** An internal note is not sent to the customer. */
   internal: z.boolean().default(false),
 });
+
+export const TicketChatReadInput = z.object({ ticketId: z.string().min(1), seq: z.number().int().min(0) });
+export type TicketChatReadInput = z.infer<typeof TicketChatReadInput>;
 
 export const TicketRefundInput = z.object({
   ticketId: z.string().min(1),
@@ -236,4 +246,6 @@ export interface SupportPort {
   /** The customer behind a ticket (null when the ticket has none). Additive read for the context panel. */
   customer(actor: Actor, input: { ticketId: string }): Promise<SupportCustomer | null>;
   canned(): CannedResponse[];
+  /** The desk has read the case's support chat up to `seq` (the customer sees «شافها»). */
+  chatRead(actor: Actor, input: TicketChatReadInput): Promise<{ ok: true }>;
 }

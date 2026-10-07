@@ -14,8 +14,11 @@ const MIN_RING_PX = 20;
 /** The centre pin: a round head on a stem, its tip on the spot. */
 const PIN_HEAD = 34;
 const PIN_STEM = 20;
-/** Zone names keep clear of the centre pin, tip to head («شارع 30» was drawn under its stem). */
-const CENTRE_PIN_AVOID: readonly LabelObstacle[] = [{ centre: true, up: PIN_HEAD + PIN_STEM }];
+/**
+ * Zone names and landmarks keep clear of the centre pin, tip to head («شارع 30» was drawn under its
+ * stem); a landmark may sit just beside its narrow head, where it helps place the pin.
+ */
+const CENTRE_PIN_AVOID: readonly LabelObstacle[] = [{ centre: true, up: PIN_HEAD + PIN_STEM, halfW: PIN_HEAD / 2 + 6 }];
 
 /** The map camera as shared values (the overlays and the base map read it on the UI thread). */
 export function useMapCamera(initial: Camera) {

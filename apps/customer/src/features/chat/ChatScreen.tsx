@@ -60,10 +60,15 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       }}
       liveStatus={liveStatus}
       orderReplies={(keys) => orderQuickReplies(keys, live)}
-      currentLocation={async () => {
-        const fix = await currentFix();
-        return fix === 'denied' || fix === null ? fix : fix.pin;
-      }}
+      // The support team needs words and photos, not his location.
+      currentLocation={
+        kind === 'customer_support'
+          ? undefined
+          : async () => {
+              const fix = await currentFix();
+              return fix === 'denied' || fix === null ? fix : fix.pin;
+            }
+      }
     />
   );
 }

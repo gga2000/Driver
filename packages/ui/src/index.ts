@@ -6,6 +6,7 @@ export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 // Icons
 export { Icon, type IconProps } from './icons/Icon';
 export { ICONS, ICON_NAMES, MIRRORED, type IconName } from './icons/paths';
+export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } from './icons/GlyphShapes';
 
 // Illustration: the Aziziyah sketchbook (joy J4)
 export { SKETCH } from './art/kit';

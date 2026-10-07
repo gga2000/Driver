@@ -7,6 +7,7 @@ import {
   SupportList,
   SupportListInput,
   TicketCase,
+  TicketChatReadInput,
   TicketEscalateInput,
   TicketFaultInput,
   TicketIdInput,
@@ -42,10 +43,16 @@ export const supportRouter = router({
     .input(OpenTicketInput)
     .output(TicketSummary)
     .mutation(({ ctx, input }) => ctx.support.open(ctx.actor, input)),
+  /** On a `chat` case (the order's «كلّم الدعم» chat) a reply goes into that chat; otherwise as before. */
   reply: protectedProcedure(SUPPORT_DESK_ROLES)
     .input(TicketReplyInput)
     .output(TicketCase)
     .mutation(({ ctx, input }) => ctx.support.reply(ctx.actor, input)),
+  /** The desk read the case's support chat up to `seq` (the customer's read tick). */
+  chatRead: protectedProcedure(SUPPORT_DESK_ROLES)
+    .input(TicketChatReadInput)
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(({ ctx, input }) => ctx.support.chatRead(ctx.actor, input)),
   /** Wallet credit or points through the ledger, funded by the party at fault; capped per agent, customer and case. */
   refund: protectedProcedure(SUPPORT_DESK_ROLES)
     .input(TicketRefundInput)

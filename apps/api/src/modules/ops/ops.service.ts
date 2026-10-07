@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
@@ -25,7 +25,7 @@ import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService, settlementReference } from '../ledger/index.js';
 import { OrgsService } from '../orgs/index.js';
-import { BLOB_STORE, PlacesService, ZoneResolver, type BlobStore } from '../places/index.js';
+import { BLOB_STORE, LandmarkFeedService, PlacesService, ZoneResolver, type BlobStore } from '../places/index.js';
 import { OPS_REPOSITORY, type CashReceiptRecord, type LandmarkPhotoRecord, type OnboardingRecord, type OpsRepository, type TaskRecord } from './ops.repository.js';
 
 /** Computed cash task: a courier owing at least this share of his cap (or over it) is worth a visit. */
@@ -54,7 +54,7 @@ function taskView(t: TaskRecord): OpsTask {
  * persisted `orgs` row) as a draft with the owner as a vault person; photos are signed-PUT uploads.
  */
 @Injectable()
-export class OpsService implements OpsPort {
+export class OpsService implements OpsPort, OnModuleInit {
   constructor(
     @Inject(OPS_REPOSITORY) private readonly repo: OpsRepository,
     private readonly accounts: DriverAccountService,
@@ -69,8 +69,14 @@ export class OpsService implements OpsPort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() private readonly places?: PlacesService,
     @Optional() @Inject(WINDOW_COUNTER) codeFailures?: WindowCounter,
+    @Optional() private readonly landmarkFeed?: LandmarkFeedService,
   ) {
     this.codeFailures = codeFailures ?? new InMemoryWindowCounter(clock);
+  }
+
+  /** The map's landmark feed shows the newest approved photo of each landmark (maps program b3). */
+  onModuleInit(): void {
+    this.landmarkFeed?.usePhotos({ latestApproved: (ids) => this.repo.latestApprovedUploads(ids) });
   }
 
   private readonly zones = new ZoneResolver();
@@ -321,7 +327,7 @@ export class OpsService implements OpsPort {
     if (!photo) throw new DriverError('approval_not_found');
     if (photo.addedById === actor.personId) throw new DriverError('approval_own_item');
     const now = this.clock.now();
-    return this.uow.run(async (tx) => {
+    const decided = await this.uow.run(async (tx) => {
       const decided = await this.repo.decidePhoto(photo.id, { state: input.approve ? 'approved' : 'rejected', reviewedById: actor.personId, reviewedAt: now, rejectReason: input.approve ? null : (input.reason ?? null) }, tx);
       if (!decided) throw new DriverError('approval_state_conflict');
       await this.events.emit(
@@ -336,6 +342,9 @@ export class OpsService implements OpsPort {
       );
       return decided;
     });
+    // The map shows a newly approved photo on the next ask, not after the feed's cache runs out.
+    if (input.approve) this.landmarkFeed?.invalidate();
+    return decided;
   }
 
   /** Merchant onboarding drafts waiting to be activated, oldest first. */

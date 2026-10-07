@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@driver/db';
-import { DoorSample, LatLng, type Place, type SavedPlaceLabel } from '@driver/contracts';
+import { DoorSample, LandmarkCategory, LatLng, type Place, type SavedPlaceLabel } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { SavedPlaceRecord, SavedPlacesRepository } from './saved-places.service.js';
@@ -14,6 +14,7 @@ export interface PlacesRepository {
   save(input: Omit<Place, 'id'>): Promise<Place>;
   get(id: string): Promise<Place | null>;
   setConfidence(id: string, confidence: number): Promise<Place | null>;
+  /** The city's approved landmark places (a row proposed or rejected is not one yet). */
   landmarks(cityId: string): Promise<Place[]>;
   /** Within `radiusKm` of `pin`, nearest first. */
   nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>>;
@@ -45,7 +46,7 @@ export class InMemoryPlacesRepository implements PlacesRepository {
   }
 
   async landmarks(cityId: string): Promise<Place[]> {
-    return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark).map((p) => structuredClone(p));
+    return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark && (p.landmarkState ?? 'approved') === 'approved').map((p) => structuredClone(p));
   }
 
   async nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>> {
@@ -71,11 +72,18 @@ interface PlaceRow {
   lng: number;
   confidence: number;
   landmark: boolean;
+  landmark_state: string | null;
+  landmark_category: string | null;
   shares: string[];
   distance_m?: number;
 }
 
-const PLACE_COLUMNS = Prisma.sql`"id", "city_id", "owner_id", "name", "note", ST_Y("pin"::geometry) AS lat, ST_X("pin"::geometry) AS lng, "confidence", "landmark", "shares"`;
+/** A stored landmark state the contract knows; anything else reads as absent. */
+function landmarkStateOf(raw: string | null): Place['landmarkState'] {
+  return raw === 'proposed' || raw === 'approved' || raw === 'rejected' ? raw : undefined;
+}
+
+const PLACE_COLUMNS = Prisma.sql`"id", "city_id", "owner_id", "name", "note", ST_Y("pin"::geometry) AS lat, ST_X("pin"::geometry) AS lng, "confidence", "landmark", "landmark_state", "landmark_category", "shares"`;
 
 export class PrismaPlacesRepository implements PlacesRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -88,27 +96,33 @@ export class PrismaPlacesRepository implements PlacesRepository {
     const photos = rows.length
       ? await this.db.placePhoto.findMany({ where: { placeId: { in: rows.map((r) => r.id) } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })
       : [];
-    return rows.map((r) => ({
-      id: r.id,
-      cityId: r.city_id,
-      pin: { lat: Number(r.lat), lng: Number(r.lng) },
-      name: r.name,
-      ...(r.note !== null ? { note: r.note } : {}),
-      photos: photos.filter((p) => p.placeId === r.id).map((p) => ({ id: p.id, url: p.url, ...(p.caption !== null ? { caption: p.caption } : {}) })),
-      confidence: Number(r.confidence),
-      ...(r.owner_id !== null ? { ownerId: r.owner_id } : {}),
-      sharedWith: r.shares,
-      landmark: r.landmark,
-    }));
+    return rows.map((r) => {
+      const category = LandmarkCategory.safeParse(r.landmark_category).data;
+      const state = landmarkStateOf(r.landmark_state);
+      return {
+        id: r.id,
+        cityId: r.city_id,
+        pin: { lat: Number(r.lat), lng: Number(r.lng) },
+        name: r.name,
+        ...(r.note !== null ? { note: r.note } : {}),
+        photos: photos.filter((p) => p.placeId === r.id).map((p) => ({ id: p.id, url: p.url, ...(p.caption !== null ? { caption: p.caption } : {}) })),
+        confidence: Number(r.confidence),
+        ...(r.owner_id !== null ? { ownerId: r.owner_id } : {}),
+        sharedWith: r.shares,
+        landmark: r.landmark,
+        ...(category ? { landmarkCategory: category } : {}),
+        ...(state ? { landmarkState: state } : {}),
+      };
+    });
   }
 
   async save(input: Omit<Place, 'id'>): Promise<Place> {
     const id = `pl_${randomUUID().replaceAll('-', '')}`;
     await this.prisma.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
-        INSERT INTO "public"."places" ("id", "city_id", "owner_id", "name", "note", "pin", "confidence", "landmark", "landmark_state", "shares", "updated_at")
+        INSERT INTO "public"."places" ("id", "city_id", "owner_id", "name", "note", "pin", "confidence", "landmark", "landmark_state", "landmark_category", "shares", "updated_at")
         VALUES (${id}, ${input.cityId}, ${input.ownerId ?? null}, ${input.name}, ${input.note ?? null}, ${point(input.pin)}, ${input.confidence},
-                ${input.landmark}, ${input.landmark ? 'approved' : null}, ${input.sharedWith}::text[], now())`;
+                ${input.landmark}, ${input.landmark ? (input.landmarkState ?? 'approved') : null}, ${input.landmark ? (input.landmarkCategory ?? null) : null}, ${input.sharedWith}::text[], now())`;
       if (input.photos.length) await tx.placePhoto.createMany({ data: input.photos.map((p) => ({ placeId: id, url: p.url, caption: p.caption ?? null })) });
     });
     return (await this.get(id))!;
@@ -126,7 +140,8 @@ export class PrismaPlacesRepository implements PlacesRepository {
 
   async landmarks(cityId: string): Promise<Place[]> {
     const rows = await this.db.$queryRaw<PlaceRow[]>`
-      SELECT ${PLACE_COLUMNS} FROM "public"."places" WHERE "city_id" = ${cityId} AND "landmark" AND "label" IS NULL ORDER BY "name", "id"`;
+      SELECT ${PLACE_COLUMNS} FROM "public"."places"
+      WHERE "city_id" = ${cityId} AND "landmark" AND "landmark_state" = 'approved' AND "label" IS NULL ORDER BY "name", "id"`;
     return this.withPhotos(rows);
   }
 

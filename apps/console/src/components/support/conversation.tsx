@@ -30,6 +30,7 @@ import {
   IconAlert,
   IconArrowUp,
   IconBulb,
+  IconChat,
   IconCheckCircle,
   IconFlag,
   IconLock,
@@ -45,6 +46,8 @@ import {
   useToast,
   type IconProps,
 } from '../ui';
+import { ChatCaseThread, useChatCaseLive } from './chat-case';
+import { CHAT_CASE_TEXT_MAX } from '@/lib/support-chat';
 import { ChannelIcon, kindTone, SlaPill, statusTone } from './sla';
 
 export interface ComposerHandle {
@@ -74,13 +77,23 @@ export function Conversation({
 }) {
   const tk = data.ticket;
   const closed = tk.status === 'resolved';
+  // «كلّم الدعم»: a case opened from the order's support chat reads and answers that chat.
+  const chatCase = tk.channel === 'chat' && data.supportChat ? data.supportChat : null;
+  // Any other case on an order whose customer also wrote to us there shows that chat as a tab.
+  const otherSupportChat = !chatCase && data.supportChat ? data.supportChat : null;
+  useChatCaseLive(tk.id, tk.channel === 'chat' ? tk.orderId : null, chatCase);
   const [tab, setTab] = useState<'ticket' | ChatThreadKind>('ticket');
   useEffect(() => setTab('ticket'), [tk.id]);
   const threadRef = useRef<HTMLDivElement>(null);
+  const chatCount = data.supportChat?.messages.length ?? 0;
   useEffect(() => {
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [tk.id, data.entries.length, tab]);
+  }, [tk.id, data.entries.length, chatCount, tab]);
+  const chatTabs: ChatThreadKind[] = [
+    ...data.chatKinds,
+    ...(otherSupportChat ? (['customer_support'] as const) : []),
+  ];
   const resolution = closed
     ? [...data.entries].reverse().find((e) => e.kind === 'resolve')?.text
     : undefined;
@@ -132,7 +145,7 @@ export function Conversation({
             <SlaPill row={tk} now={now} />
           </div>
         </div>
-        {data.order && data.chatKinds.length > 0 ? (
+        {data.order && chatTabs.length > 0 ? (
           <Tabs
             className="mt-3 border-b-0"
             label={t('console.sup_chats')}
@@ -140,7 +153,7 @@ export function Conversation({
             onChange={setTab}
             options={[
               { value: 'ticket' as const, label: t('console.sup_tab_ticket') },
-              ...data.chatKinds.map((k) => ({
+              ...chatTabs.map((k) => ({
                 value: k,
                 label: t(`console.sup_chat_${k}` as MessageKey),
               })),
@@ -165,11 +178,23 @@ export function Conversation({
                 {t('console.sup_manual_review', { n: data.customerDisputes30d })}
               </p>
             ) : null}
-            <Thread
-              entries={data.entries}
-              customerName={tk.customerName}
-              customerId={tk.customerId}
-            />
+            {chatCase ? (
+              <ChatCaseThread
+                entries={data.entries}
+                chat={chatCase}
+                customerName={tk.customerName}
+                customerId={tk.customerId}
+                renderEntry={(e) => (
+                  <EntryItem e={e} customerName={tk.customerName} customerId={tk.customerId} />
+                )}
+              />
+            ) : (
+              <Thread
+                entries={data.entries}
+                customerName={tk.customerName}
+                customerId={tk.customerId}
+              />
+            )}
           </div>
           {closed ? (
             <div className="flex items-center gap-2 border-t border-line bg-ok-tint px-6 py-3 text-sm text-text">
@@ -185,9 +210,24 @@ export function Conversation({
               canned={data.canned}
               suggestion={data.suggestion}
               onCanned={onCanned}
+              chat={chatCase ? { closed: chatCase.status === 'closed' } : null}
             />
           )}
         </>
+      ) : tab === 'customer_support' && otherSupportChat ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <p className="mx-auto mb-4 flex max-w-3xl items-center gap-2 text-xs text-muted">
+            <IconLock size={13} />
+            {t('console.sup_chats_hint')}
+          </p>
+          <ChatCaseThread
+            entries={[]}
+            chat={otherSupportChat}
+            customerName={tk.customerName}
+            customerId={tk.customerId}
+            renderEntry={() => null}
+          />
+        </div>
       ) : data.order ? (
         <ChatThread orderId={data.order.id} kind={tab} />
       ) : null}
@@ -217,103 +257,111 @@ export function Thread({
 }) {
   return (
     <ol className="mx-auto flex max-w-3xl flex-col gap-4">
-      {entries.map((e) => {
-        if (e.kind === 'opened') {
-          const byStaff = customerId !== null && e.actorId !== customerId && e.actorName;
-          return (
-            <li key={e.id} className="flex items-end gap-2.5">
-              <Avatar name={customerName} id={customerId ?? e.actorId} />
-              <div className="max-w-[78%]">
-                <p className="mb-1 text-xs text-muted">
-                  <span className="font-semibold text-text">
-                    {customerName ?? t('console.sup_customer')}
-                  </span>
-                  <span className="num"> · {formatClock(e.at)}</span>
-                  {byStaff ? <span> · {e.actorName}</span> : null}
-                </p>
-                <div className="whitespace-pre-wrap rounded-xl rounded-es-[4px] border border-line bg-surface px-4 py-2.5 text-[15px] leading-7 text-text shadow-card">
-                  {e.text}
-                </div>
-              </div>
-            </li>
-          );
-        }
-        if (e.kind === 'reply') {
-          return (
-            <li key={e.id} className="flex flex-row-reverse items-end gap-2.5">
-              <Avatar name={e.actorName} id={e.actorId} />
-              <div className="max-w-[78%]">
-                <p className="mb-1 text-end text-xs text-muted">
-                  <span className="font-semibold text-text">
-                    {e.actorName ?? t('console.someone')}
-                  </span>
-                  <span className="num"> · {formatClock(e.at)}</span>
-                </p>
-                <div className="whitespace-pre-wrap rounded-xl rounded-ee-[4px] bg-accent-tint px-4 py-2.5 text-[15px] leading-7 text-text">
-                  {e.text}
-                </div>
-              </div>
-            </li>
-          );
-        }
-        if (e.kind === 'note') {
-          return (
-            <li key={e.id} className="flex flex-row-reverse items-end gap-2.5">
-              <Avatar name={e.actorName} id={e.actorId} />
-              <div className="max-w-[78%] rounded-xl border border-dashed border-note-line bg-note px-4 py-2.5">
-                <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-warn">
-                  <IconLock size={13} />
-                  {t('console.sup_internal_label')}
-                </p>
-                <p className="whitespace-pre-wrap text-sm leading-6 text-text">{e.text}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {e.actorName ?? t('console.someone')}{' '}
-                  <span className="num">· {formatClock(e.at)}</span>
-                </p>
-              </div>
-            </li>
-          );
-        }
-        const Icon = EVENT_ICON[e.kind] ?? IconNote;
-        const tone =
-          e.kind === 'refund' || e.kind === 'resolve'
-            ? 'text-ok'
-            : e.kind === 'escalate' || e.kind === 'reopen'
-              ? 'text-warn'
-              : 'text-muted';
-        return (
-          <li key={e.id} className="flex items-center gap-3 py-0.5 text-dense text-muted">
-            <span aria-hidden className="h-px flex-1 bg-line" />
-            <span className="inline-flex max-w-[80%] items-center gap-2">
-              <span
-                className={cx(
-                  'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface shadow-card',
-                  tone,
-                )}
-              >
-                <Icon size={14} />
-              </span>
-              <span className="min-w-0">
-                <span className="font-semibold text-text">
-                  {e.actorName ?? t('console.someone')}
-                </span>{' '}
-                · {t(`console.sup_entry_${e.kind}` as MessageKey)}
-                {e.amountIqd ? (
-                  <span className="num font-semibold text-text"> {formatMoney(e.amountIqd)}</span>
-                ) : null}
-                {e.text ? (
-                  <span className="block truncate text-xs" title={e.text}>
-                    {e.text}
-                  </span>
-                ) : null}
-              </span>
-              <span className="num shrink-0 text-xs text-faint">{formatClock(e.at)}</span>
-            </span>
-            <span aria-hidden className="h-px flex-1 bg-line" />
-          </li>
-        );
-      })}
+      {entries.map((e) => (
+        <EntryItem key={e.id} e={e} customerName={customerName} customerId={customerId} />
+      ))}
     </ol>
+  );
+}
+
+/** One line of a case's history: the customer's opening, our reply, an internal note, or an action. */
+export function EntryItem({
+  e,
+  customerName,
+  customerId,
+}: {
+  e: TicketEntry;
+  customerName: string | null;
+  customerId: string | null;
+}) {
+  if (e.kind === 'opened') {
+    const byStaff = customerId !== null && e.actorId !== customerId && e.actorName;
+    return (
+      <li key={e.id} className="flex items-end gap-2.5">
+        <Avatar name={customerName} id={customerId ?? e.actorId} />
+        <div className="max-w-[78%]">
+          <p className="mb-1 text-xs text-muted">
+            <span className="font-semibold text-text">
+              {customerName ?? t('console.sup_customer')}
+            </span>
+            <span className="num"> · {formatClock(e.at)}</span>
+            {byStaff ? <span> · {e.actorName}</span> : null}
+          </p>
+          <div className="whitespace-pre-wrap rounded-xl rounded-es-[4px] border border-line bg-surface px-4 py-2.5 text-[15px] leading-7 text-text shadow-card">
+            {e.text}
+          </div>
+        </div>
+      </li>
+    );
+  }
+  if (e.kind === 'reply') {
+    return (
+      <li key={e.id} className="flex flex-row-reverse items-end gap-2.5">
+        <Avatar name={e.actorName} id={e.actorId} />
+        <div className="max-w-[78%]">
+          <p className="mb-1 text-end text-xs text-muted">
+            <span className="font-semibold text-text">{e.actorName ?? t('console.someone')}</span>
+            <span className="num"> · {formatClock(e.at)}</span>
+          </p>
+          <div className="whitespace-pre-wrap rounded-xl rounded-ee-[4px] bg-accent-tint px-4 py-2.5 text-[15px] leading-7 text-text">
+            {e.text}
+          </div>
+        </div>
+      </li>
+    );
+  }
+  if (e.kind === 'note') {
+    return (
+      <li key={e.id} className="flex flex-row-reverse items-end gap-2.5">
+        <Avatar name={e.actorName} id={e.actorId} />
+        <div className="max-w-[78%] rounded-xl border border-dashed border-note-line bg-note px-4 py-2.5">
+          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-warn">
+            <IconLock size={13} />
+            {t('console.sup_internal_label')}
+          </p>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-text">{e.text}</p>
+          <p className="mt-1 text-xs text-muted">
+            {e.actorName ?? t('console.someone')} <span className="num">· {formatClock(e.at)}</span>
+          </p>
+        </div>
+      </li>
+    );
+  }
+  const Icon = EVENT_ICON[e.kind] ?? IconNote;
+  const tone =
+    e.kind === 'refund' || e.kind === 'resolve'
+      ? 'text-ok'
+      : e.kind === 'escalate' || e.kind === 'reopen'
+        ? 'text-warn'
+        : 'text-muted';
+  return (
+    <li key={e.id} className="flex items-center gap-3 py-0.5 text-dense text-muted">
+      <span aria-hidden className="h-px flex-1 bg-line" />
+      <span className="inline-flex max-w-[80%] items-center gap-2">
+        <span
+          className={cx(
+            'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface shadow-card',
+            tone,
+          )}
+        >
+          <Icon size={14} />
+        </span>
+        <span className="min-w-0">
+          <span className="font-semibold text-text">{e.actorName ?? t('console.someone')}</span> ·{' '}
+          {t(`console.sup_entry_${e.kind}` as MessageKey)}
+          {e.amountIqd ? (
+            <span className="num font-semibold text-text"> {formatMoney(e.amountIqd)}</span>
+          ) : null}
+          {e.text ? (
+            <span className="block truncate text-xs" title={e.text}>
+              {e.text}
+            </span>
+          ) : null}
+        </span>
+        <span className="num shrink-0 text-xs text-faint">{formatClock(e.at)}</span>
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-line" />
+    </li>
   );
 }
 
@@ -389,8 +437,10 @@ const Composer = forwardRef<
     canned: CannedResponse[];
     suggestion: TicketCase['suggestion'];
     onCanned: (c: CannedIntent) => void;
+    /** A chat case: replies go into the order's support chat (its length limit, a hint above). */
+    chat?: { closed: boolean } | null;
   }
->(function Composer({ ticketId, canned, suggestion, onCanned }, ref) {
+>(function Composer({ ticketId, canned, suggestion, onCanned, chat = null }, ref) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const toast = useToast();
@@ -493,6 +543,15 @@ const Composer = forwardRef<
           ) : null}
         </div>
 
+        {chat && !note ? (
+          <p
+            className="mb-2 flex items-center gap-1.5 text-xs text-muted"
+            data-testid="chat-case-hint"
+          >
+            <IconChat size={13} className="shrink-0" />
+            {t(chat.closed ? 'console.sup_chat_closed_note' : 'console.sup_chat_reply_hint')}
+          </p>
+        ) : null}
         <div
           className={cx(
             'relative rounded-lg border shadow-card transition-colors focus-within:border-accent-text',
@@ -515,7 +574,7 @@ const Composer = forwardRef<
             ref={areaRef}
             data-composer
             rows={3}
-            maxLength={2000}
+            maxLength={chat && mode === 'reply' ? CHAT_CASE_TEXT_MAX : 2000}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
