@@ -7,13 +7,13 @@ import { Screen } from '@/components/Screen';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
 import { SectionHeader } from '@/components/SectionHeader';
-import { CorridorPicker, DemandBanner, TravellerAsk, TravellerChip, TripPill } from '@/features/rajaa/BoardParts';
+import { CorridorPicker, DemandBanner, TripPill } from '@/features/rajaa/BoardParts';
 import { foldBoard, seatFit } from '@/features/rajaa/fit';
 import { baghdadMidnight, boardDays, dayCounts, filterBoard, partsAhead, wishWindow, type BoardDayId, type DayPartId } from '@/features/rajaa/board-filters';
 import { CorridorCards, DayChart, DayStrip, dayName, PartChips, partName, WishCard } from '@/features/rajaa/BoardNarrow';
 import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
-import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, haversineM, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
+import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, haversineM, PRIMARY_CORRIDOR, RIDER_TRAVELLING_AS, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { boardTitle, cityName, seatsCount } from '@/features/rajaa/labels';
 import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useNetwork, usePostDemand } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
@@ -23,7 +23,7 @@ import { dayKey } from '@/features/orders/history';
 import { dayLabel } from '@/features/orders/OrderRow';
 import { useLocale, useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
-import { deliveryPointOf, profile, selectedPlace, useProfile } from '@/lib/profile';
+import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 
 /**
  * الرجعة board (customer spec §2). The point of this screen is calm: the rider sees every car that
@@ -48,10 +48,9 @@ export default function RajaaBoard() {
   const toast = useToast();
 
   const network = useNetwork();
-  // «تسافر:» (r1): remembered on the device; the board marks the seats this rider can't take.
+  // Ali dropped «تسافر:» (2026-10-07): every rider books as a group; see RIDER_TRAVELLING_AS.
+  const travellingAs = RIDER_TRAVELLING_AS;
   const prof = useProfile();
-  const travellingAs = prof.rajaaTravellingAs;
-  const [askTraveller, setAskTraveller] = useState(false);
   // s2/s5: the day and part of the day (a preset return trip opens on its own part).
   // Keyed by the Baghdad day, so the board's read changes only at midnight, not with every tick.
   const day0 = baghdadMidnight(now);
@@ -61,7 +60,7 @@ export default function RajaaBoard() {
   const [dayId, setDayId] = useState<BoardDayId>(params.day === 'tomorrow' || params.day === 'after' ? params.day : 'today');
   const [part, setPart] = useState<DayPartId | null>(null);
   const day = days.find((d) => d.id === dayId) ?? days[0]!;
-  const board = useBoard({ corridorId, direction, window: window ?? span, ...(travellingAs ? { travellingAs } : {}) });
+  const board = useBoard({ corridorId, direction, window: window ?? span, travellingAs });
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
@@ -136,7 +135,7 @@ export default function RajaaBoard() {
   const postWish = usePostDemand();
   const wish = wishWindow(day, shownPart, now);
   const sendWish =
-    wish && travellingAs
+    wish
       ? () =>
           postWish.mutate(
             { corridorId, direction, windowStart: wish.start, windowEnd: wish.end, seats: 1, travellingAs, pickup: { kind: 'garage' } },
@@ -169,7 +168,6 @@ export default function RajaaBoard() {
             corridorId={corridorId}
             direction={direction}
             suggested={suggested}
-            leading={travellingAs && !askTraveller ? <TravellerChip value={travellingAs} onPress={() => setAskTraveller(true)} /> : null}
             onCorridor={(id) => {
               touched.current = true;
               setSuggested(false);
@@ -190,15 +188,6 @@ export default function RajaaBoard() {
               touched.current = true;
               setSuggested(false);
               setCorridorId(id);
-            }}
-          />
-        ) : null}
-        {!travellingAs || askTraveller ? (
-          <TravellerAsk
-            value={travellingAs}
-            onChange={(v) => {
-              setAskTraveller(false);
-              void profile.setRajaaTravellingAs(v);
             }}
           />
         ) : null}

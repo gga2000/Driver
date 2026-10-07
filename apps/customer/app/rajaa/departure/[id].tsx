@@ -1,14 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { IntercityDirection, IntercityRow, IntercitySeatId, PickupChoice, TravellingAs } from '@driver/contracts';
+import type { IntercityDirection, IntercityRow, IntercitySeatId, PickupChoice } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import {
   Button,
   Card,
   CarSeatArt,
   Chip,
-  ChipGroup,
   EmptyState,
   Icon,
   PriceLine,
@@ -25,7 +24,7 @@ import {
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carArtFor } from '@/features/rajaa/car-art';
-import { seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
+import { seatsList } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import {
   bestSeat,
@@ -36,6 +35,7 @@ import {
   maxSeatsFor,
   pickupPointsInOrder,
   PRIMARY_CORRIDOR,
+  RIDER_TRAVELLING_AS,
   pruneSelection,
   quoteSelection,
   rowOptions,
@@ -47,7 +47,7 @@ import { garageName, useBoard, useDriverCards, useHoldSeat, useNetwork } from '@
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { deliveryPointOf, profile, selectedPlace, useProfile } from '@/lib/profile';
+import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 
 type Mode = 'seats' | 'row' | 'car';
 type Pickup = { kind: 'garage' } | { kind: 'meeting_point'; meetingPointId: string } | { kind: 'door' };
@@ -68,8 +68,8 @@ export default function BookSeat() {
   const corridorId = params.corridor || PRIMARY_CORRIDOR;
   const direction: IntercityDirection = params.direction === 'from_aziziyah' ? 'from_aziziyah' : 'to_aziziyah';
 
-  // r1: the board's remembered «تسافر:» is pre-selected; a change here is remembered too.
-  const [travellingAs, setTravellingAs] = useState<TravellingAs | null>(prof.rajaaTravellingAs);
+  // Ali dropped «مسافر» (2026-10-07): every rider books as a group; see RIDER_TRAVELLING_AS.
+  const travellingAs = RIDER_TRAVELLING_AS;
   const [mode, setMode] = useState<Mode>('seats');
   const [selection, setSelection] = useState<IntercitySeatId[]>([]);
   const [row, setRow] = useState<IntercityRow | null>(null);
@@ -79,7 +79,7 @@ export default function BookSeat() {
   const [blocked, setBlocked] = useState<'adjacency' | 'family_only' | null>(null);
 
   const network = useNetwork();
-  const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
+  const board = useBoard({ corridorId, direction, travellingAs });
   const hold = useHoldSeat();
   const dep = board.data?.departures.find((d) => d.id === id) ?? null;
   const driverCard = useDriverCards(dep ? [dep.id] : []).data?.get(dep?.id ?? '');
@@ -277,21 +277,6 @@ export default function BookSeat() {
           ) : null}
         </View>
       </Card>
-
-      <Section title={t('intercity.travelling_as')} hint={t('rajaa.travelling_as_hint')} testID="rajaa-travelling-as">
-        <ChipGroup
-          accessibilityLabel={t('intercity.travelling_as')}
-          required
-          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
-          value={travellingAs ? [travellingAs] : []}
-          onChange={(next) => {
-            const v = (next[0] as TravellingAs | undefined) ?? null;
-            setTravellingAs(v);
-            if (v) void profile.setRajaaTravellingAs(v);
-            setBlocked(null);
-          }}
-        />
-      </Section>
 
       <Section title={mode === 'seats' && max > 1 ? t('rajaa.choose_seats') : t('intercity.choose_seat')}>
         <SegmentedControl<Mode>

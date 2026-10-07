@@ -509,3 +509,12 @@ export function requestHourAvailable(day: RequestDay, hour: number, now: Date, u
 export function publicPlaceName(nameAr: string): string {
   return nameAr.replace(/\s*\(\s*مسودة\s*\)\s*/g, ' ').trim();
 }
+
+/**
+ * Who travels, as the server's seat rules read it. Ali (2026-10-07) dropped the «رجال / نساء / عائلة»
+ * question («don't ask what doesn't matter»), so every rider books as a family group: the
+ * no-stranger-of-the-other-sex middle-seat rule no longer closes seats for app riders, family-only
+ * cars take everyone, and «العوائل ترتاحله» counts every rating. Reverting this one commit brings the
+ * question back.
+ */
+export const RIDER_TRAVELLING_AS: TravellingAs = 'aila';

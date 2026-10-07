@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
-import { IntercityVehicleKind, REQUEST_WAIT_HOURS_MAX, requestDetailsProblem, type RequestDetails, type RequestPostView, type RequestTripKind, type TravellingAs } from '@driver/contracts';
+import { IntercityVehicleKind, REQUEST_WAIT_HOURS_MAX, requestDetailsProblem, type RequestDetails, type RequestPostView, type RequestTripKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { requestStateLabel, seatsCount, slotLabel, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
+import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
-import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, type RequestDay } from '@/features/rajaa/logic';
+import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, RIDER_TRAVELLING_AS, type RequestDay } from '@/features/rajaa/logic';
 import { RuleList, Section } from '@/features/rajaa/Option';
 import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest } from '@/features/rajaa/queries';
 import { REQUEST_PLACES, OFFER_SORTS, offerWinners, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
@@ -179,7 +179,6 @@ export default function RequestBoard() {
   const [hour, setHour] = useState<number>(REQUEST_HOURS.find((h) => requestHourAvailable('today', h, now)) ?? REQUEST_HOURS[0]);
   const [seats, setSeats] = useState(1);
   const [privateCar, setPrivateCar] = useState(true);
-  const [travellingAs, setTravellingAs] = useState<TravellingAs>('aila');
   const [note, setNote] = useState('');
   // y1: the trip kind and what the car needs.
   const [trip, setTrip] = useState<RequestTripKind>('one_way');
@@ -216,7 +215,8 @@ export default function RequestBoard() {
         when,
         seats,
         privateCar,
-        travellingAs,
+        // Ali dropped «منو مسافر؟» (2026-10-07); see RIDER_TRAVELLING_AS.
+        travellingAs: RIDER_TRAVELLING_AS,
         ...(note.trim() ? { note: note.trim() } : {}),
         details,
       },
@@ -373,14 +373,6 @@ export default function RequestBoard() {
             <SwitchRow testID="req-ac" icon="car" label={t('rajaa.req_ac')} value={ac} onChange={setAc} />
           </Section>
 
-          <Section title={t('intercity.travelling_as')}>
-            <ChipGroup
-              required
-              items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
-              value={[travellingAs]}
-              onChange={(next) => setTravellingAs((next[0] as TravellingAs | undefined) ?? 'aila')}
-            />
-          </Section>
 
           <TextField label={t('rajaa.req_note')} placeholder={t('rajaa.req_note_placeholder')} value={note} onChangeText={setNote} maxLength={300} multiline />
         </View>

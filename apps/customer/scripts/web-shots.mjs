@@ -794,20 +794,11 @@ async function rajaaShots(personId) {
   await byTestId('board-part-all').click();
   await firstCar.waitFor({ timeout: 15_000 });
 
-  // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
+  // Seat booking (Ali dropped «مسافر», 2026-10-07): the seat screen opens with the best seat picked.
   await firstCar.click();
   await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
   await shot('rajaa-seat-top');
-  await byTestId('chip-nisa').click();
-  await page.waitForTimeout(1200); // board refetch with travellingAs
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
-  await byTestId('rajaa-blocked-note').waitFor({ timeout: 10_000 });
-  await byTestId('rajaa-blocked-note').scrollIntoViewIfNeeded();
-  await shot('rajaa-seat-blocked');
   await fullShot('rajaa-seat-sheet');
-
-  // As رجال the same seat is open: hold it.
-  await byTestId('chip-rijal').click();
   await page.waitForTimeout(1200);
   // c4: the only seat open to him is picked for him already («اخترنالك ورا نص»); tap it only if not.
   if (await byTestId('rajaa-auto-picked').isVisible()) {
@@ -884,7 +875,6 @@ async function rajaaShots(personId) {
   // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
   await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
   await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
-  await byTestId('chip-rijal').click();
   await shot('rajaa-demand');
   await byTestId('rajaa-demand-submit').click();
   await byTestId('rajaa-demand-posted').waitFor({ timeout: 15_000 });
