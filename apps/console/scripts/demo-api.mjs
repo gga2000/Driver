@@ -19,15 +19,15 @@
 //   0770 000 0003  زينب    support agent (10,000 a day refund limit)
 // GET /demo/seed lists them. POST /demo/cash-change → the latest order where the courier had no change
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
+// «حجز بالتلفون» (/phone): today's phone bookings — one still searching, one a taxi driver took (name,
+// car, plate; the caller got the SMS), one finished, one cancelled. POST /demo/phone-accept → a demo
+// taxi driver takes the oldest phone booking still searching (the row turns «السايق جاي» within 10 s and
+// the caller's SMS shows in the order's message log); DEMO_PHONE=0 seeds none (the empty page).
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
 // → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
 // strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat.
-// «حجز بالتلفون» (/phone): today's phone bookings — one still searching, one a taxi driver took (name,
-// car, plate; the caller got the SMS), one finished, one cancelled. POST /demo/phone-accept → a demo
-// taxi driver takes the oldest phone booking still searching (the row turns «السايق جاي» within 10 s and
-// the caller's SMS shows in the order's message log); DEMO_PHONE=0 seeds none (the empty page).
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -593,6 +593,66 @@ const keepOnline = async () => {
 await keepOnline();
 setInterval(() => void keepOnline(), 20_000).unref?.();
 
+// ───────────────────────── حجز بالتلفون ─────────────────────────
+// Callers without the app, booked by زينب and علي: rides of the callers' own (new) accounts.
+{
+  const { PhoneBookingService } = await load('modules/phone-booking/index.js');
+  const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
+  const phones = get(PhoneBookingService);
+  const vehicles = get(COURIER_VEHICLES);
+  const landmarks = await get((await load('modules/places/index.js')).SavedPlacesService).landmarks('aziziyah');
+  const { foldArabic } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts')).href);
+  const at = (name) => {
+    const found = landmarks.find((l) => foldArabic(l.name_ar) === foldArabic(name));
+    if (!found) throw new Error(`demo landmark missing: ${name}`);
+    return found;
+  };
+  let key = 0;
+  const bookFor = async (by, phone, name, from, to, vertical, note) => {
+    const q = await phones.quote(actor(by), { cityId: 'aziziyah', pickupId: at(from).id, dropoffId: at(to).id });
+    const option = q.options.find((o) => o.vertical === vertical);
+    key += 1;
+    return phones.book(actor(by), { cityId: 'aziziyah', phone, name, pickupId: at(from).id, dropoffId: at(to).id, vertical, fareIqd: option.fareIqd, ...(note ? { note } : {}), clientRequestId: `demo-phone-${key}-${Date.now().toString(36)}` });
+  };
+  /** A demo driver in his car near the pickup: علي offers him the ride from the dispatch board and he takes it in the Partner app. */
+  const takeBy = async (driverId, orderId, vehicle) => {
+    const trip = await trips.activeForOrder(orderId);
+    const pickup = trip.stops.find((s) => s.type === 'pickup');
+    await dispatch.presence.online(driverId, { cityId: 'aziziyah', at: { lat: pickup.target.lat + 0.004, lng: pickup.target.lng }, vehicle: vehicle.vehicleClass, tier: 'silver', verticals: ['taxi', 'tuktuk'] });
+    vehicles.register(driverId, vehicle);
+    const { offerId } = await dispatch.override(actor(ali), { tripId: trip.id, driverId });
+    await dispatch.respond(actor(driverId), { offerId, accept: true });
+    return trips.get(trip.id);
+  };
+  const abbas = await person('07816660001', 'عباس كريم', ['driver']);
+  const hassan = await person('07816660002', 'حسن جبار', ['driver']);
+  const mustafa = await person('07816660003', 'مصطفى ناظم', ['driver']);
+  acceptDemoPhoneBooking = async () => {
+    const waiting = (await phones.today(actor(ali), { cityId: 'aziziyah' })).filter((r) => r.status === 'searching').at(-1);
+    if (!waiting) throw new Error('no phone booking is searching (book one at /phone first; a simulator driver may already have taken it)');
+    const trip = await takeBy(mustafa, waiting.orderId, { vehicleClass: waiting.vertical === 'tuktuk' ? 'tuktuk' : 'car', plate: '45120 واسط', label: waiting.vertical === 'tuktuk' ? 'تكتك باجاج · أحمر' : 'هيونداي النترا · أبيض' });
+    return { orderId: waiting.orderId, tripId: trip.id, driverId: mustafa };
+  };
+  if (process.env.DEMO_PHONE !== '0') {
+    // Finished: حسن took أبو حيدر from كراج السوق to كلية التربية and dropped him off.
+    const done = await bookFor(ali, '07802224411', 'أبو حيدر', 'كراج السوق', 'باب كلية التربية الأساسية', 'taxi');
+    const doneTrip = await takeBy(hassan, done.orderId, { vehicleClass: 'car', plate: '31877 واسط', label: 'تويوتا كورولا · فضي' });
+    const [p, d] = doneTrip.stops;
+    await trips.arrive(doneTrip.id, p.id, hassan, { pin: p.target });
+    await trips.completeStop(doneTrip.id, p.id, hassan);
+    await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
+    await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
+    // Cancelled: the caller found a lift.
+    const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
+    await phones.cancel(actor(zainab), { orderId: off.orderId });
+    // On his way: عباس in a white Kia took أم علي's taxi at the mosque gate.
+    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة ٢', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
+    await takeBy(abbas, coming.orderId, { vehicleClass: 'car', plate: '23456 واسط', label: 'كيا سيراتو · أبيض' });
+    // Searching: just booked, nobody took it yet.
+    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة ١', 'tuktuk');
+  }
+}
+
 // ───────────────────────── SOS ─────────────────────────
 // POST /demo/sos[?who=driver|customer] — someone on a live trip holds طوارئ: the red banner rings on
 // every page and /safety opens the incident. The person gets an emergency contact first, and their
@@ -709,66 +769,6 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
       const rec = routesRepo.bookings?.get(b.id);
       if (rec) routesRepo.bookings.set(b.id, { ...rec, bookedAt: new Date(now - DAY_MS - 20 * 60_000) });
     }
-  }
-}
-
-// ───────────────────────── حجز بالتلفون ─────────────────────────
-// Callers without the app, booked by زينب and علي: rides of the callers' own (new) accounts.
-{
-  const { PhoneBookingService } = await load('modules/phone-booking/index.js');
-  const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
-  const phones = get(PhoneBookingService);
-  const vehicles = get(COURIER_VEHICLES);
-  const landmarks = await get((await load('modules/places/index.js')).SavedPlacesService).landmarks('aziziyah');
-  const { foldArabic } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts')).href);
-  const at = (name) => {
-    const found = landmarks.find((l) => foldArabic(l.name_ar) === foldArabic(name));
-    if (!found) throw new Error(`demo landmark missing: ${name}`);
-    return found;
-  };
-  let key = 0;
-  const bookFor = async (by, phone, name, from, to, vertical, note) => {
-    const q = await phones.quote(actor(by), { cityId: 'aziziyah', pickupId: at(from).id, dropoffId: at(to).id });
-    const option = q.options.find((o) => o.vertical === vertical);
-    key += 1;
-    return phones.book(actor(by), { cityId: 'aziziyah', phone, name, pickupId: at(from).id, dropoffId: at(to).id, vertical, fareIqd: option.fareIqd, ...(note ? { note } : {}), clientRequestId: `demo-phone-${key}-${Date.now().toString(36)}` });
-  };
-  /** A demo driver in his car near the pickup: علي offers him the ride from the dispatch board and he takes it in the Partner app. */
-  const takeBy = async (driverId, orderId, vehicle) => {
-    const trip = await trips.activeForOrder(orderId);
-    const pickup = trip.stops.find((s) => s.type === 'pickup');
-    await dispatch.presence.online(driverId, { cityId: 'aziziyah', at: { lat: pickup.target.lat + 0.004, lng: pickup.target.lng }, vehicle: vehicle.vehicleClass, tier: 'silver', verticals: ['taxi', 'tuktuk'] });
-    vehicles.register(driverId, vehicle);
-    const { offerId } = await dispatch.override(actor(ali), { tripId: trip.id, driverId });
-    await dispatch.respond(actor(driverId), { offerId, accept: true });
-    return trips.get(trip.id);
-  };
-  const abbas = await person('07816660001', 'عباس كريم', ['driver']);
-  const hassan = await person('07816660002', 'حسن جبار', ['driver']);
-  const mustafa = await person('07816660003', 'مصطفى ناظم', ['driver']);
-  acceptDemoPhoneBooking = async () => {
-    const waiting = (await phones.today(actor(ali), { cityId: 'aziziyah' })).filter((r) => r.status === 'searching').at(-1);
-    if (!waiting) throw new Error('no phone booking is searching (book one at /phone first; a simulator driver may already have taken it)');
-    const trip = await takeBy(mustafa, waiting.orderId, { vehicleClass: waiting.vertical === 'tuktuk' ? 'tuktuk' : 'car', plate: '45120 واسط', label: waiting.vertical === 'tuktuk' ? 'تكتك باجاج · أحمر' : 'هيونداي النترا · أبيض' });
-    return { orderId: waiting.orderId, tripId: trip.id, driverId: mustafa };
-  };
-  if (process.env.DEMO_PHONE !== '0') {
-    // Finished: حسن took أبو حيدر from كراج السوق to كلية التربية and dropped him off.
-    const done = await bookFor(ali, '07802224411', 'أبو حيدر', 'كراج السوق', 'باب كلية التربية الأساسية', 'taxi');
-    const doneTrip = await takeBy(hassan, done.orderId, { vehicleClass: 'car', plate: '31877 واسط', label: 'تويوتا كورولا · فضي' });
-    const [p, d] = doneTrip.stops;
-    await trips.arrive(doneTrip.id, p.id, hassan, { pin: p.target });
-    await trips.completeStop(doneTrip.id, p.id, hassan);
-    await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
-    await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
-    // Cancelled: the caller found a lift.
-    const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
-    await phones.cancel(actor(zainab), { orderId: off.orderId });
-    // On his way: عباس in a white Kia took أم علي's taxi at the mosque gate.
-    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة ٢', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
-    await takeBy(abbas, coming.orderId, { vehicleClass: 'car', plate: '23456 واسط', label: 'كيا سيراتو · أبيض' });
-    // Searching: just booked, nobody took it yet.
-    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة ١', 'tuktuk');
   }
 }
 

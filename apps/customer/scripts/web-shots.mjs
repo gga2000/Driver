@@ -120,13 +120,16 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'later', 'simple'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
-const groups = new Set(selected.includes('all') ? GROUPS : selected);
-for (const g of groups) if (!GROUPS.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${GROUPS.join(', ')} or all)`);
+// Taxi/tuktuk step 4: booked rides (c10) and the simple mode (v2); they run right after the ride flow.
+const RIDE_GROUPS = ['later', 'simple'];
+const known = [...GROUPS, ...RIDE_GROUPS];
+const groups = new Set(selected.includes('all') ? known : selected);
+for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
 /** Whether a flow runs / a file is written: by its group, the name's first segment. */
 const wants = (group) => groups.has(group);
 const wanted = (name) => wants(name.split('-')[0]);
@@ -254,21 +257,46 @@ try {
   if (wants('chat')) await chatShots(personId);
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
   if (wants('ride')) await rideShots().finally(() => rideForShots());
+  if (wants('later')) await laterShots();
+  // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
+  if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
-  if (wants('later')) await laterShots();
-  // Last: it signs in as its own fresh account and grants the page the phone's position.
-  if (wants('simple')) await simpleShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+/**
+ * Runs a flow that signs in as another account on the shared page, then restores the demo account's
+ * session (cookies + local storage) and drops the granted permissions, so the flows after it carry on
+ * as before.
+ */
+async function asOtherAccount(flow) {
+  const ctx = page.context();
+  const saved = await ctx.storageState();
+  try {
+    await flow();
+  } finally {
+    await ctx.clearPermissions();
+    await ctx.clearCookies();
+    if (saved.cookies.length) await ctx.addCookies(saved.cookies);
+    await page.goto(`${origin}/`, LOADED);
+    const items = saved.origins.find((o) => o.origin === origin)?.localStorage ?? [];
+    await page.evaluate((entries) => {
+      localStorage.clear();
+      for (const { name, value } of entries) localStorage.setItem(name, value);
+    }, items);
+    await page.goto(`${origin}/`, LOADED);
+    await byTestId('home').waitFor({ timeout: 20_000 });
+  }
 }
 
 /**

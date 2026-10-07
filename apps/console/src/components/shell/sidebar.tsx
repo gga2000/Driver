@@ -53,8 +53,8 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   wall: IconWall,
   zones: IconZones,
   stores: IconStore,
-  phone: IconPhone,
   safety: IconSiren,
+  phone: IconPhone,
   system: IconSystem,
 };
 

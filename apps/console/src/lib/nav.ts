@@ -1,5 +1,6 @@
-import { PHONE_BOOKING_ROLES, PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
+import { PHONE_BOOKING_ROLES } from '@driver/contracts';
 
 /**
  * Console sections, grouped as the sidebar shows them (العمليات · الخدمة · الفلوس · النظام). `roles`
@@ -26,8 +27,8 @@ export type IconName =
   | 'wall'
   | 'zones'
   | 'stores'
-  | 'phone'
   | 'safety'
+  | 'phone'
   | 'system';
 
 export interface NavItem {
@@ -66,8 +67,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
-      // Taxi/tuktuk step 4: a caller without the app gets a ride booked on his number.
-      { href: '/phone', key: 'console.nav_phone', icon: 'phone', roles: PHONE_BOOKING_ROLES, jump: 'b' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',
@@ -77,6 +76,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       // Stores' pickup spots (Ali 2026-10-07): field ops and admins set them; not support.
       { href: '/stores', key: 'console.nav_stores', icon: 'stores', roles: PICKUP_SPOT_CONSOLE_ROLES, jump: 'k' },
+      // Taxi/tuktuk step 4: a caller without the app gets a ride booked on his number.
+      { href: '/phone', key: 'console.nav_phone', icon: 'phone', roles: PHONE_BOOKING_ROLES, jump: 'b' },
     ],
   },
   {
