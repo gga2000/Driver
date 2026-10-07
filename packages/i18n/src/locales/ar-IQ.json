@@ -6254,5 +6254,11 @@
   "track.kitchen_picked_up_any": "استلمه الدليفري",
   "track.kitchen_a11y_at": "{stage} {time}",
   "track.kitchen_a11y_since": "{stage} من {time}",
-  "track.kitchen_a11y_next": "{stage}: بعده"
+  "track.kitchen_a11y_next": "{stage}: بعده",
+  "track.reveal_ride": "لگينالك سايق",
+  "track.reveal_food": "هذا دليفري طلبك",
+  "track.reveal_rating_one": "{rating} · تقييم واحد",
+  "track.reveal_rating_two": "{rating} · تقييمين",
+  "track.reveal_rating_few": "{rating} · {n} تقييمات",
+  "track.reveal_rating_many": "{rating} · {n} تقييم"
 }

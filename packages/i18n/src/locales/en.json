@@ -6254,5 +6254,11 @@
   "track.kitchen_picked_up_any": "Courier has it",
   "track.kitchen_a11y_at": "{stage} {time}",
   "track.kitchen_a11y_since": "{stage} since {time}",
-  "track.kitchen_a11y_next": "{stage}: not yet"
+  "track.kitchen_a11y_next": "{stage}: not yet",
+  "track.reveal_ride": "We found you a driver",
+  "track.reveal_food": "Your courier",
+  "track.reveal_rating_one": "{rating} · 1 rating",
+  "track.reveal_rating_two": "{rating} · 2 ratings",
+  "track.reveal_rating_few": "{rating} · {n} ratings",
+  "track.reveal_rating_many": "{rating} · {n} ratings"
 }

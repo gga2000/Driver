@@ -32,11 +32,13 @@ import {
   TRACKING_ORDERS,
   TRACKING_PHOTOS,
   TRACKING_POINTS,
+  TRACKING_RATINGS,
   TRACKING_TRIPS,
   TrackingService,
   type TrackingMerchantsPort,
   type TrackingPointsPort,
 } from './tracking.service.js';
+import { tripsOrdersRatings } from './ratings.js';
 import { COURIER_VEHICLES, InMemoryCourierVehicles, PrismaCourierVehicles, type CourierVehicleDirectory } from './vehicles.js';
 
 const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
@@ -88,6 +90,8 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
     // Its first step (Ali, 2026-10-06): one apology with the new time, sent by the sweep or a track read.
     { provide: TRACKING_LATE_APOLOGY, useFactory: (events: EventsService) => eventsLateApology(events), inject: [EventsService] },
     // Driver photos (Ali, 2026-10-06): the approved main photo, signed short-lived from the blob store.
+    // Joy l2: the public rating on the courier card, from the delivery scores customers gave him.
+    { provide: TRACKING_RATINGS, useFactory: (trips: TripsService, orders: OrdersService) => tripsOrdersRatings(trips, orders), inject: [TripsService, OrdersService] },
     { provide: TRACKING_PHOTOS, useFactory: (blobs: BlobStore) => ({ readUrl: (ref: string) => blobs.readUrl(ref) }), inject: [BLOB_STORE] },
     { provide: SHARE_PHOTOS, useExisting: TRACKING_PHOTOS },
     TrackingService,

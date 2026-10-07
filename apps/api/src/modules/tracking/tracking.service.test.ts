@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { ratingFrom } from '../orders/orders.service.js';
-import { promisedArrival, sameBaghdadDay, TrackingService } from './tracking.service.js';
+import { promisedArrival, sameBaghdadDay, TrackingService, type TrackingRatingsPort } from './tracking.service.js';
+import { tripsOrdersRatings } from './ratings.js';
 import { EtaService, StraightLineRouter, type Router } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
@@ -20,7 +21,7 @@ const code = async (p: Promise<unknown>) => {
 
 const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` });
 
-function setup(router: Router = new StraightLineRouter()) {
+function setup(router: Router = new StraightLineRouter(), ratings: TrackingRatingsPort | null = null) {
   const h = ordersHarness();
   const vehicles = new InMemoryCourierVehicles();
   const vaultReads: Array<{ courierId: string; accessorId: string }> = [];
@@ -45,6 +46,7 @@ function setup(router: Router = new StraightLineRouter()) {
     null,
     null,
     { readUrl: (ref) => `/files/${ref}?exp=1&sig=x` },
+    ratings,
   );
   return { h, tracking, vehicles, vaultReads };
 }
@@ -102,6 +104,49 @@ describe('TrackingService — the view', () => {
     expect(v.trip!.stops.every((s) => s.mine && s.target)).toBe(true);
     await tracking.track(as('c1'), { orderId: o.id });
     expect(vaultReads).toEqual([{ courierId: 'd1', accessorId: 'c1' }]);
+  });
+
+  it('joy l2: the card carries his public rating once five customers rated him (read once per card)', async () => {
+    let reads = 0;
+    const at = (n: number) => new Date(Date.UTC(2026, 9, n));
+    const few = setup(undefined, { courierScores: async () => [4, 5, 5].map((score, i) => ({ score, at: at(i + 1) })) });
+    few.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    const o1 = await acceptedOrder(few.h);
+    await few.h.tripFor(o1.id);
+    expect((await few.tracking.track(as('c1'), { orderId: o1.id })).courier).toMatchObject({ rating: null, ratingCount: 0 });
+    const many = setup(undefined, {
+      courierScores: async () => {
+        reads += 1;
+        return [5, 5, 4, 5, 5, 4].map((score, i) => ({ score, at: at(i + 1) }));
+      },
+    });
+    many.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    const o2 = await acceptedOrder(many.h);
+    await many.h.tripFor(o2.id);
+    expect((await many.tracking.track(as('c1'), { orderId: o2.id })).courier).toMatchObject({ rating: 4.7, ratingCount: 6 });
+    await many.tracking.track(as('c1'), { orderId: o2.id });
+    expect(reads).toBe(1);
+  });
+
+  it('joy l2: the scores come from the delivery ratings on his completed trips, newest first', async () => {
+    const order = (id: string, delivery: number | null, day: number) => ({ id, rating: delivery === null ? null : { delivery, food: null, tags: [], note: null, ratedAt: new Date(Date.UTC(2026, 9, day)) } });
+    const orders = new Map([
+      ['o1', order('o1', 5, 1)],
+      ['o2', order('o2', 3, 2)],
+      ['o3', order('o3', null, 3)],
+    ]);
+    const trip = (id: string, state: string, orderIds: string[], day: number) => ({ id, state, completedAt: new Date(Date.UTC(2026, 9, day)), orders: orderIds.map((orderId) => ({ orderId })) });
+    const port = tripsOrdersRatings(
+      { forDriver: async () => [trip('t1', 'completed', ['o1'], 1), trip('t2', 'completed', ['o2', 'o3', 'gone'], 2), trip('t3', 'cancelled', ['o1'], 3)] as never },
+      {
+        get: async (id: string) => {
+          const o = orders.get(id);
+          if (!o) throw new DriverError('order_not_found');
+          return o as never;
+        },
+      },
+    );
+    expect((await port.courierScores('d1')).map((s) => s.score)).toEqual([3, 5]);
   });
 
   it('flags a lost courier as reassigning until the next one accepts', async () => {

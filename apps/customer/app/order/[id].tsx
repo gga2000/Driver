@@ -32,6 +32,7 @@ import { currentSosFix } from '@/features/safety/fix';
 import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
 import { ActionRow, COURIER_FLOAT_H, COURIER_FLOAT_PLATE_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { DriverHereCard } from '@/features/track/DriverHere';
+import { DriverRevealCard, useDriverReveal } from '@/features/track/DriverReveal';
 import { floatMode, rideCanCancel } from '@/features/track/ride-actions';
 import { buildTimeline, courierAtDoor, phaseOf, statusLine } from '@/features/track/timeline';
 import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
@@ -105,6 +106,8 @@ export default function OrderLiveScreen() {
   // Moments (maps program SP5b): a buzz and a soft sound at each step; the "almost there" card.
   const moments = useTrackingMoments(v, phase, fix?.pin ?? null, eta, now);
   const atDoor = v ? courierAtDoor(v) : false;
+  // Joy l2: who is coming, revealed once when he takes the job.
+  const reveal = useDriverReveal(v, phase, clock);
   // Audit d-5: the honest-delay credit, said once when the server posts it.
   useLatePromiseToast(v);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
@@ -408,6 +411,7 @@ export default function OrderLiveScreen() {
           />
         </View>
       ) : null}
+      {v?.courier && reveal.show && !moments.card && !showHere ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} /> : null}
       {v && moments.card ? (
         <AlmostThereCard
           order={v.order}

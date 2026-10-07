@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicSeason } from '@driver/contracts';
-import { ALMOST_THERE_ETA_MS, almostThere, isNear, momentFeedback, momentsBetween, rideMatchedFresh, type MomentSnapshot } from './moments';
+import { ALMOST_THERE_ETA_MS, almostThere, isNear, momentFeedback, momentsBetween, REVEAL_FRESH_MS, revealPlays, revealSeenKey, rideMatchedFresh, type MomentSnapshot } from './moments';
 
 const snap = (phase: MomentSnapshot['phase'], near = false, orderId = 'o1', door = false): MomentSnapshot => ({ orderId, phase, near, door });
 const ride = (phase: MomentSnapshot['phase'], orderId = 'r1'): MomentSnapshot => ({ orderId, phase, near: false, door: false, ride: true });
@@ -87,5 +87,35 @@ describe('tracking moments', () => {
     expect(rideMatchedFresh(new Date(10_000), 13_999)).toBe(true);
     expect(rideMatchedFresh(new Date(10_000), 14_000)).toBe(false);
     expect(rideMatchedFresh(null, 0)).toBe(false);
+  });
+});
+
+describe('the driver reveal (joy l2)', () => {
+  const food = (phase: MomentSnapshot['phase'], courier: boolean): MomentSnapshot => ({ orderId: 'o1', phase, near: false, door: false, courier });
+  it('a courier taking my food order is a moment; rides keep their own "matched"', () => {
+    expect(momentsBetween(food('preparing', false), food('to_pickup', true))).toEqual(['courier_assigned']);
+    expect(momentsBetween(food('preparing', false), food('preparing', true))).toEqual(['courier_assigned']);
+    expect(momentsBetween(food('preparing', true), food('to_pickup', true))).toEqual([]);
+    expect(momentsBetween(ride('searching'), ride('to_pickup'))).toEqual(['matched']);
+  });
+  it('not on the first read, not when the snapshot says nothing about the courier, not once he has the food', () => {
+    expect(momentsBetween(null, food('to_pickup', true))).toEqual([]);
+    expect(momentsBetween({ orderId: 'o1', phase: 'preparing', near: false, door: false }, food('to_pickup', true))).toEqual([]);
+    expect(momentsBetween(food('preparing', false), food('on_the_way', true))).toEqual(['picked_up']);
+  });
+  it('food reveal is a light buzz with no sound (the kitchen already chimed); the same on a quiet day', () => {
+    expect(momentFeedback('courier_assigned', LOUD)).toEqual({ haptics: ['light'], cue: null });
+    expect(momentFeedback('courier_assigned', QUIET)).toEqual({ haptics: ['light'], cue: null });
+    expect(momentFeedback('matched', QUIET)).toEqual({ haptics: ['medium'], cue: null });
+  });
+  it('plays once per order: live, or opened within a minute of the accept', () => {
+    const now = Date.parse('2026-10-07T15:00:00Z');
+    const ago = (ms: number) => new Date(now - ms);
+    expect(revealPlays({ seen: false, liveTransition: true, acceptedAt: ago(5 * 60_000), now })).toBe(true);
+    expect(revealPlays({ seen: false, liveTransition: false, acceptedAt: ago(20_000), now })).toBe(true);
+    expect(revealPlays({ seen: false, liveTransition: false, acceptedAt: ago(REVEAL_FRESH_MS + 1), now })).toBe(false);
+    expect(revealPlays({ seen: false, liveTransition: false, acceptedAt: null, now })).toBe(false);
+    expect(revealPlays({ seen: true, liveTransition: true, acceptedAt: ago(1000), now })).toBe(false);
+    expect(revealSeenKey('ord/1')).toBe('driver.customer.reveal-seen.ord_1');
   });
 });
