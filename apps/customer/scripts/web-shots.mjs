@@ -342,7 +342,7 @@ async function rajaaTaxiShots(personId) {
   await fullShot('rajaa-taxi-preview-full');
   const states = {
     x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
-    x3: ['not-told', 'told'],
+    x3: ['not-told', 'told', 'held'],
     x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
     n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
   };
