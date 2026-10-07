@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
-import { DeliveryPoint, DriverError, decodeDomainEvent, type LatLng, type OrderType, type VehicleClass, type Vertical } from '@driver/contracts';
+import { DeliveryPoint, DriverError, decodeDomainEvent, rideSearchStartsAt, type LatLng, type OrderType, type VehicleClass, type Vertical } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { OfferOrchestrator } from './offer.orchestrator.js';
 import type { TripOffersPort } from './ports.js';
@@ -19,7 +19,16 @@ const RidePlaced = z.object({
   cityId: z.string().min(1),
   paymentMethod: z.string(),
   totalIqd: z.number(),
-  ride: z.object({ vertical: z.enum(['taxi', 'tuktuk']), pickup: DeliveryPoint.nullable(), dropoff: DeliveryPoint.nullable(), quoteId: z.string().nullable() }),
+  ride: z.object({
+    vertical: z.enum(['taxi', 'tuktuk']),
+    pickup: DeliveryPoint.nullable(),
+    dropoff: DeliveryPoint.nullable(),
+    quoteId: z.string().nullable(),
+    /** Joy l9: the favourite a booked ride asked for. */
+    preferDriverId: z.string().nullable().optional(),
+  }),
+  /** Joy J7d: a ride booked for later (ISO); its search starts `searchLeadMin` before. */
+  scheduledFor: z.string().nullable().optional(),
 });
 
 export const AUTO_ASSIGN_EVENTS = ['order.accepted', 'order.auto_accepted'] as const;
@@ -41,7 +50,9 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   before pickup (taken off an unreachable courier, dropped, released): a new courier trip and a
  *   new request, timed to the promised ready time as on acceptance.
  * - `dispatch:ride-request` on `order.placed` for rides: builds the ride's trip and starts the
- *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher.
+ *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher. A
+ *   ride booked for later (joy J7d) waits until 15 min before; one that asked for the rider's
+ *   favourite (l9) offers him the job alone for a minute first.
  * - `dispatch:order-ready` on `order.ready`: a kitchen that finishes early starts the courier search
  *   now instead of at the timed start (the request moves its ready time to now).
  * - `dispatch:trip-events`: `trip.accepted` / `trip.declined` from the Partner app (or the echo of
@@ -96,7 +107,10 @@ export class DispatchSubscribers {
     const pickup = this.point(p.cityId, p.ride.pickup, orderId, 'pickup');
     const dropoff = this.point(p.cityId, p.ride.dropoff ?? p.ride.pickup, orderId, 'dropoff');
     const tripId = await this.trips.createRideTrip({ orderId, cityId: p.cityId, vertical: p.ride.vertical, pickup, dropoff, quoteId: p.ride.quoteId });
+    const scheduledFor = p.scheduledFor ? new Date(p.scheduledFor) : null;
     await this.orchestrator.request({
+      ...(scheduledFor ? { startAt: rideSearchStartsAt(scheduledFor) } : {}),
+      ...(p.ride.preferDriverId ? { preferDriverIds: [p.ride.preferDriverId] } : {}),
       tripId,
       cityId: p.cityId,
       vertical: p.ride.vertical,
