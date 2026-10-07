@@ -226,6 +226,8 @@ export const ERROR_TABLE = {
   ride_not_searching: { retryHint: 'never', status: 'CONFLICT' },
   nudge_offer_closed: { retryHint: 'never', status: 'CONFLICT' },
   nudge_already: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
+  // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
+  climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
   avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side

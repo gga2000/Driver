@@ -5,7 +5,9 @@ colour, and what it offers — «مكيّفة» and «تدفئة» loud (coloure
 «صندوق كبير», «مقعد طفل» quiet. The driver says what his car offers in the partner app; ops confirm it
 at the car check in the Console; **customers only ever see confirmed features**. On very hot or cold
 days (`climateAt`) dispatch offers rides to cars with confirmed AC / heating first (no price change) —
-that ranking is the dispatch worker's part of step 3.
+that ranking is the dispatch worker's part of step 3. Step 4 (x1, docs/api/climate-check.md): ride drivers confirm
+their AC (heating) works once a shift; a «لا» hides that tag from riders and dispatch until the shift
+ends, and a hot day's taxi ride goes first only to cars with working AC.
 
 Shared contracts: `packages/contracts/src/vehicle-features.ts` (`VehicleColour`, `VEHICLE_COLOUR_HEX`,
 `vehicleColourKey`, `VehicleFeature`, `LOUD_FEATURES`, `sortFeatures`, `climateAt`, `isNightAt`) and

@@ -1088,6 +1088,8 @@ model Order {
   preferredDriverId  String?       @map("preferred_driver_id")
   /// Ride step 3 (s6) «عوائل»: the rider asked for a family-tagged, long-standing, well-rated driver first.
   familyPreferred    Boolean       @default(false) @map("family_preferred")
+  /// Ride idea x5 «عندي غراض»: what the rider carries (`RideCargo`: bags, gas, big); shown to the driver, no price effect.
+  rideCargo          String[]      @default([]) @map("ride_cargo")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -2281,6 +2283,25 @@ model AvoidedDriver {
   @@unique([personId, driverId])
   @@index([driverId])
   @@map("avoided_drivers")
+  @@schema("public")
+}
+
+/// Ride idea x1 «المكيّفة شغالة اليوم؟»: a ride driver's answer for one shift (`2026-07-14:day`) about
+/// his car's AC (hot days) or heating (cold days). `working = false` takes the confirmed tag off until
+/// the shift ends: riders don't see it and dispatch doesn't count it. Owned by dispatch.
+model DriverShiftCheck {
+  id         String   @id @default(cuid())
+  driverId   String   @map("driver_id")
+  shiftId    String   @map("shift_id")
+  feature    String
+  working    Boolean
+  answeredAt DateTime @map("answered_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([driverId, shiftId, feature])
+  @@index([shiftId, working])
+  @@map("driver_shift_checks")
   @@schema("public")
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import type { RideCargo } from '@driver/contracts';
 import { session } from '@/lib/session';
 import { storage as platformStorage, type KeyValueStorage } from '@/lib/storage';
 import { pushRecent, type RideVertical, type Spot } from './logic';
@@ -22,6 +23,8 @@ export interface RideDraft {
   allowEdgeTuktuk: boolean;
   /** Ride idea s6 «سايق للعوائل»: the first wave goes to long-verified, top-rated drivers with family cars. */
   familyPreferred: boolean;
+  /** Ride idea x5 «عندي غراض»: what he carries this trip (bags, a gas cylinder, something big). */
+  rideCargo: RideCargo[];
 }
 
 export interface RideMemo {
@@ -49,7 +52,7 @@ export interface RideStoreState extends PersistedRide {
 
 const KEY = 'driver.customer.ride';
 const MAX_MEMOS = 20;
-export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false };
+export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false, rideCargo: [] };
 
 export function createRideStore(store: KeyValueStorage) {
   let state: RideStoreState = { loaded: false, draft: EMPTY_DRAFT, recent: [], memos: {} };

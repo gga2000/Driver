@@ -114,6 +114,8 @@ function harness(
     places?: PartnerDeps['places'];
     pickupSpots?: PartnerDeps['pickupSpots'];
     startCodeFor?: string[];
+    rideCargo?: Order['rideCargo'];
+    climate?: PartnerDeps['climate'];
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -156,7 +158,7 @@ function harness(
           },
         }
       : {}),
-    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()), ...(opts.startCodeFor ? { startCodeRequired: async (id: string) => opts.startCodeFor!.includes(id) } : {}) },
+    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()), ...(opts.startCodeFor ? { startCodeRequired: async (id: string) => opts.startCodeFor!.includes(id) } : {}) },
     merchants: { name: (id) => (id === 'm1' ? 'مطعم خالد' : null) },
     quotes: { quote: () => null },
     money: {
@@ -173,6 +175,7 @@ function harness(
     gate: { onlineGate: async () => opts.gate ?? OPEN },
     ...(opts.places ? { places: opts.places } : {}),
     ...(opts.pickupSpots ? { pickupSpots: opts.pickupSpots } : {}),
+    ...(opts.climate ? { climate: opts.climate } : {}),
   };
   return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
 }
@@ -443,5 +446,57 @@ describe('goOnline uses the registered vehicle and the roles (backend review 202
     const svc = harness({ roles: ['driver'], registered: null });
     await expect(svc.goOnline(actor, { cityId: 'aziziyah', at })).rejects.toMatchObject({ code: 'vehicle_not_registered' });
     expect((await svc.status(actor)).online).toBe(false);
+  });
+});
+
+describe('ride step 4: the AC question (x1) and the rider’s bags (x5)', () => {
+  const at = { lat: 32.9095, lng: 45.0635 };
+  const HOT = { feature: 'ac' as const, climate: 'hot' as const, shiftId: '2026-07-14:day', endsAt: new Date('2026-07-14T12:00:00Z') };
+
+  /** The dispatch side as the module binds it: one stored answer per shift. */
+  function climate() {
+    let working: boolean | null = null;
+    const port: NonNullable<PartnerDeps['climate']> = {
+      check: async () => ({ ...HOT, working }),
+      answer: async (_id, w) => {
+        working = w;
+        return { ...HOT, working };
+      },
+    };
+    return port;
+  }
+
+  it('an online car driver gets «المكيّفة شغالة اليوم؟» on his status, and his answer comes back on it', async () => {
+    const svc = harness({ roles: ['driver'], registered: 'car', climate: climate() });
+    expect((await svc.status(actor)).climateCheck).toBeNull(); // offline: nothing asked yet
+    const on = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+    expect(on.climateCheck).toEqual({ ...HOT, working: null });
+    expect((await svc.answerClimateCheck(actor, { working: false })).climateCheck).toEqual({ ...HOT, working: false });
+    expect((await svc.answerClimateCheck(actor, { working: true })).climateCheck?.working).toBe(true);
+  });
+
+  it('couriers and tuktuks are never asked, and cannot answer', async () => {
+    for (const [roles, registered] of [
+      [['courier'], 'car'],
+      [['driver'], 'tuktuk'],
+    ] as const) {
+      const svc = harness({ roles: [...roles], registered, climate: climate() });
+      const on = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+      expect(on.climateCheck).toBeNull();
+      await expect(svc.answerClimateCheck(actor, { working: false })).rejects.toMatchObject({ code: 'climate_check_none' });
+    }
+  });
+
+  it('offline he cannot answer either', async () => {
+    await expect(harness({ roles: ['driver'], registered: 'car', climate: climate() }).answerClimateCheck(actor, { working: true })).rejects.toMatchObject({ code: 'climate_check_none' });
+  });
+
+  it('the ride offer and the trip say «عنده غراض» in chip order; a food order never carries any', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', vertical: 'taxi', courierId: null });
+    const offer = await harness({ online: true, offerTrip: t, rideOrder: true, rideCargo: ['bags', 'gas'] }).currentOffer(actor);
+    expect(offer!.rideCargo).toEqual(['bags', 'gas']);
+    const job = await harness({ trips: [trip('t1', t.stops, { vertical: 'taxi' })], rideOrder: true, rideCargo: ['big'] }).activeJob(actor);
+    expect(job!.rideCargo).toEqual(['big']);
+    expect((await harness({ online: true, offerTrip: t }).currentOffer(actor))!.rideCargo).toEqual([]);
   });
 });

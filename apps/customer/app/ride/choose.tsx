@@ -11,8 +11,8 @@ import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, hourOptions, minuteOptions, scheduleAt, SCHEDULE_DAYS, settleChoice, type ScheduleChoice, type ScheduleDay } from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { useWalletBalance } from '@/features/account/queries';
-import { FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
-import { buildRidePlaceInput, destinationPinKind, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
+import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
+import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
 import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
@@ -88,6 +88,8 @@ export default function RideChoose() {
   const askFav = when === 'later' && favouriteId && vertFavs.some((f) => f.id === favouriteId) ? favouriteId : null;
   const balance = wallet.data?.moneyIqd ?? null;
   const walletOk = walletCovers(balance, quote?.total);
+  // x1: «اليوم حار، نبعثلك سيارة مكيّفة» on the server's clock (the nearby read carries it), rides for now.
+  const climate = when === 'now' ? rideClimate(nearby.taxi.data?.at ?? null, vertical) : null;
 
   useEffect(() => {
     // The wallet stopped covering the fare (door pickup, night): back to cash.
@@ -117,7 +119,7 @@ export default function RideChoose() {
     inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred }),
+        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred, rideCargo: d.rideCargo }),
       );
       attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
@@ -217,6 +219,7 @@ export default function RideChoose() {
                   nearMinutes={near}
                   arriveAt={trip ? new Date(now + ((near ?? 0) + trip) * 60_000) : null}
                   cheaperBy={v === 'tuktuk' ? cheaper : null}
+                  fitHint={cargoFits(d.rideCargo, v) ? t('ride.cargo_tuktuk_fit') : null}
                   onPress={() => rideStore.update({ vertical: v })}
                   onDetails={() => setDetails(v)}
                   onTryAnyway={v === 'tuktuk' ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' }) : undefined}
@@ -228,6 +231,7 @@ export default function RideChoose() {
                 {t('ride.tuktuk_edge_tried')}
               </Text>
             ) : null}
+            {climate ? <ClimateLine climate={climate} /> : null}
           </View>
 
           {simple ? (
@@ -240,7 +244,7 @@ export default function RideChoose() {
           ) : (
             <OptionsRow
               when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
-              payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null].filter(Boolean).join(' · ')}
+              payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null, d.rideCargo.length > 0 ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) }) : null].filter(Boolean).join(' · ')}
               pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
               note={d.note}
               onPress={() => setOptionsOpen(true)}
@@ -350,6 +354,9 @@ export default function RideChoose() {
               onValueChange={(familyPreferred) => rideStore.update({ familyPreferred })}
             />
           </View>
+
+          {/* Ride idea x5 «عندي غراض»: the driver knows before he accepts; the tuktuk row says it fits best. */}
+          <CargoChips value={d.rideCargo} onChange={(rideCargo) => rideStore.update({ rideCargo })} />
 
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="textMuted">

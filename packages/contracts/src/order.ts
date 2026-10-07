@@ -6,6 +6,7 @@ import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
 import { Participant, ParticipantInput } from './participant.js';
+import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { VehicleClass } from './trip.js';
 
 /** Mirrors the Prisma `OrderType` enum. Seat and subscription orders belong to routes (Steps 5–7). */
@@ -139,6 +140,11 @@ export const PlaceOrderInput = z.object({
    * Rides only; the price does not change.
    */
   familyPreferred: z.boolean().optional(),
+  /**
+   * Ride idea x5 «عندي غراض»: shopping bags, a gas cylinder, something big. Stored on the ride and shown
+   * to the driver on the offer and the trip («عنده غراض: …»). Rides only; no effect on price or dispatch.
+   */
+  rideCargo: RideCargoInput.optional(),
   /** For the kitchen ("بدون بصل", an allergy): the merchant's card and receipt show it. */
   note: z.string().max(500).optional(),
   /**
@@ -342,6 +348,8 @@ export const Order = z.object({
   preferredDriverId: z.string().nullable().optional(),
   /** Ride step 3 (s6): placed with «عوائل» (family-tagged drivers first); absent = no preference. */
   familyPreferred: z.boolean().optional(),
+  /** Ride idea x5: what the rider carries («عندي غراض»), in `RIDE_CARGO_ORDER`; absent = nothing said. */
+  rideCargo: z.array(RideCargo).optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */

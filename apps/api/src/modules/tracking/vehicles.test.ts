@@ -23,4 +23,13 @@ describe('the courier card vehicle (ride step 3: d1, n1, n2)', () => {
     v.features.push('ac');
     expect((await reg.forCourier('d1'))!.features).toEqual(['heating', 'no_smoking']);
   });
+
+  it('a «لا» to «المكيّفة شغالة اليوم؟» takes the tag off the card for the shift (ride idea x1)', async () => {
+    const off = new Map<string, readonly ('ac' | 'heating')[]>([['d1', ['ac']]]);
+    const reg = new InMemoryCourierVehicles(async (ids) => new Map(ids.flatMap((id) => (off.has(id) ? [[id, off.get(id)!] as const] : []))));
+    reg.register('d1', { vehicleClass: 'car', plate: 'واسط 1', features: ['ac', 'family'] });
+    reg.register('d2', { vehicleClass: 'car', plate: 'واسط 2', features: ['ac'] });
+    expect((await reg.forCourier('d1'))!.features).toEqual(['family']);
+    expect((await reg.forCourier('d2'))!.features).toEqual(['ac']);
+  });
 });

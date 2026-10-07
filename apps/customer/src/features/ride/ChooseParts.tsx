@@ -2,9 +2,9 @@ import { useEffect, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { Easing, FadeInDown, runOnJS, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { SvgXml } from 'react-native-svg';
-import type { CityPricingConfig, Quote, QuoteComponent } from '@driver/contracts';
+import { RIDE_CARGO_ORDER, rideCargoKey, type CityPricingConfig, type Quote, type QuoteComponent, type RideCargo } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Chip, formatClock, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
+import { Button, Chip, ChipGroup, formatClock, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
 import { BottomPanel } from '@/features/track/Panels';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -121,6 +121,7 @@ export function VehicleCard({
   nearMinutes,
   arriveAt,
   cheaperBy,
+  fitHint = null,
   index = 0,
   simple = false,
   onPress,
@@ -139,6 +140,8 @@ export function VehicleCard({
   /** When the rider gets there if he books now (ride idea c3). */
   arriveAt: Date | null;
   cheaperBy: number | null;
+  /** Ride idea x5: «الأنسب للغراض» on the tuktuk once the rider says he carries things. */
+  fitHint?: string | null;
   /** Position in the list, for the entrance stagger. */
   index?: number;
   /** Simple mode (ride idea v2): larger type, nothing secondary. */
@@ -167,7 +170,7 @@ export function VehicleCard({
         accessibilityRole="radio"
         aria-checked={selected}
         aria-disabled={off}
-        accessibilityLabel={[t(v.name), amount, arriveAt ? t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) }) : null].filter(Boolean).join('، ')}
+        accessibilityLabel={[t(v.name), amount, arriveAt ? t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) }) : null, off ? null : fitHint].filter(Boolean).join('، ')}
         accessibilityHint={t(v.hint)}
         disabled={off}
         onPress={() => {
@@ -202,6 +205,14 @@ export function VehicleCard({
                 </View>
               ) : null}
             </View>
+            {fitHint && !off ? (
+              <View testID={`ride-fit-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Icon name="bag" size={13} color="accentText" strokeWidth={2.2} />
+                <Text variant="caption" weight={700} color="accentText">
+                  {fitHint}
+                </Text>
+              </View>
+            ) : null}
             {off ? null : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                 {arriveAt ? (
@@ -263,6 +274,60 @@ export function VehicleCard({
       </Pressable>
     </Animated.View>
   );
+}
+
+// ───────────────────────── the weather and the bags (ride step 4) ─────────────────────────
+
+/**
+ * Ride idea x1: a small warm line under the vehicles on a hot (cold) day — «اليوم حار، نبعثلك سيارة
+ * مكيّفة». Information only: the fare does not change; dispatch sends the first waves to those cars.
+ */
+export function ClimateLine({ climate }: { climate: 'hot' | 'cold' }) {
+  const theme = useTheme();
+  const t = useT();
+  const hot = climate === 'hot';
+  return (
+    <View
+      testID={`ride-climate-${climate}`}
+      accessibilityRole="text"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], minHeight: 36, borderRadius: theme.radius.lg, backgroundColor: hot ? theme.colors.infoTint : theme.colors.accentTint }}
+    >
+      <Icon name={hot ? 'snow' : 'flame'} size={16} color={hot ? 'infoText' : 'accentText'} strokeWidth={2.2} />
+      <Text variant="footnote" weight={600} color={hot ? 'infoText' : 'accentText'} style={{ flex: 1 }}>
+        {t(hot ? 'ride.climate_hot' : 'ride.climate_cold')}
+      </Text>
+    </View>
+  );
+}
+
+const CARGO_ICON: Record<RideCargo, IconName> = { bags: 'bag', gas: 'flame', big: 'parcel' };
+
+/** Ride idea x5 «عندي غراض»: three calm chips (any, all or none) in the trip options. */
+export function CargoChips({ value, onChange }: { value: readonly RideCargo[]; onChange: (next: RideCargo[]) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View style={{ gap: theme.space[2] }} testID="ride-cargo">
+      <Text variant="label" weight={600} color="textMuted">
+        {t('ride.cargo_title')}
+      </Text>
+      <ChipGroup
+        accessibilityLabel={t('ride.cargo_title')}
+        mode="multi"
+        value={[...value]}
+        onChange={(next) => onChange(RIDE_CARGO_ORDER.filter((c) => next.includes(c)))}
+        items={RIDE_CARGO_ORDER.map((c) => ({ id: c, label: t(rideCargoKey(c)), icon: CARGO_ICON[c] }))}
+      />
+      <Text variant="footnote" color="textMuted">
+        {t('ride.cargo_hint')}
+      </Text>
+    </View>
+  );
+}
+
+/** «أكياس سوق، قنينة غاز» — the rider's picks as one phrase. */
+export function cargoList(cargo: readonly RideCargo[], t: TFn): string {
+  return cargo.map((c) => t(rideCargoKey(c))).join('، ');
 }
 
 // ───────────────────────── trip options ─────────────────────────

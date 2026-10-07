@@ -16,6 +16,7 @@ import {
   searchStageIndex,
   switchOfferDue,
   buildRidePlaceInput,
+  cargoFits,
   doorExtra,
   fareLines,
   hour12,
@@ -25,6 +26,7 @@ import {
   normalizeArabic,
   pushRecent,
   rideEstimate,
+  rideClimate,
   rideProblem,
   rideQuoteRequest,
   ruleHours,
@@ -201,6 +203,23 @@ describe('placing', () => {
       note: 'يم الصيدلية',
     });
     expect(buildRidePlaceInput({ vertical: 'taxi', pickup: home, dropoff: home, doorPickup: true, fareIqd: 3000, paymentMethod: 'wallet', note: '  ' })).not.toHaveProperty('note');
+  });
+
+  it('«عندي غراض» rides with the request in chip order; none said, none sent (x5)', () => {
+    expect(buildRidePlaceInput({ vertical: 'tuktuk', pickup: home, dropoff: home, doorPickup: false, fareIqd: 2000, paymentMethod: 'cash', rideCargo: ['gas', 'bags'] }).rideCargo).toEqual(['bags', 'gas']);
+    expect(buildRidePlaceInput({ vertical: 'tuktuk', pickup: home, dropoff: home, doorPickup: false, fareIqd: 2000, paymentMethod: 'cash', rideCargo: [] })).not.toHaveProperty('rideCargo');
+    expect(cargoFits(['bags'], 'tuktuk')).toBe(true);
+    expect(cargoFits(['bags'], 'taxi')).toBe(false);
+    expect(cargoFits([], 'tuktuk')).toBe(false);
+  });
+
+  it('the hot / cold line: a car ride on the server’s clock only (x1)', () => {
+    const july = new Date('2026-07-14T11:00:00Z'); // 14:00 Baghdad
+    expect(rideClimate(july, 'taxi')).toBe('hot');
+    expect(rideClimate(july, 'tuktuk')).toBeNull();
+    expect(rideClimate(new Date('2026-01-14T07:00:00Z'), 'taxi')).toBe('cold');
+    expect(rideClimate(new Date('2026-10-07T11:00:00Z'), 'taxi')).toBeNull();
+    expect(rideClimate(null, 'taxi')).toBeNull();
   });
 
   it('maps refusals to what the screen says', () => {

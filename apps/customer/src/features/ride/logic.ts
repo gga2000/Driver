@@ -1,6 +1,8 @@
 import {
   AZIZIYAH_ZONES,
+  climateAt,
   haversineM,
+  sortCargo,
   travelMinutes,
   type CityPricingConfig,
   type DeliveryPoint,
@@ -12,6 +14,7 @@ import {
   type PriceRequestInput,
   type Quote,
   type QuoteComponent,
+  type RideCargo,
   type ZoneTier,
 } from '@driver/contracts';
 
@@ -328,6 +331,8 @@ export interface RidePlaceArgs {
   favouriteId?: string | null;
   /** Ride idea s6: family drivers first. */
   familyPreferred?: boolean;
+  /** Ride idea x5 «عندي غراض»: told to the driver before he accepts; no price effect. */
+  rideCargo?: readonly RideCargo[];
 }
 
 /** The exact `orders.place` payload for a ride (what scripts/e2e/three-apps.mjs sends, plus options). */
@@ -348,7 +353,22 @@ export function buildRidePlaceInput(a: RidePlaceArgs): PlaceOrderInput {
     ...(a.scheduledFor ? { scheduledFor: a.scheduledFor } : {}),
     ...(a.scheduledFor && a.favouriteId ? { favouriteId: a.favouriteId } : {}),
     ...(a.familyPreferred ? { familyPreferred: true } : {}),
+    ...(a.rideCargo && a.rideCargo.length > 0 ? { rideCargo: sortCargo(a.rideCargo) } : {}),
   };
+}
+
+/**
+ * Ride idea x1: the warm line on the choose screen. A car ride on a hot (cold) day goes first to cars
+ * whose AC (heating) works, so «اليوم حار، نبعثلك سيارة مكيّفة»; on the server's clock (a phone set to
+ * another hour must not promise what dispatch won't do). Tuktuks have neither: no line.
+ */
+export function rideClimate(serverNow: Date | null, vertical: RideVertical): 'hot' | 'cold' | null {
+  return serverNow && vertical === 'taxi' ? climateAt(serverNow) : null;
+}
+
+/** Ride idea x5: with bags or a gas cylinder the tuktuk is the best fit — a hint on its row, never a switch. */
+export function cargoFits(cargo: readonly RideCargo[], vertical: RideVertical): boolean {
+  return cargo.length > 0 && vertical === 'tuktuk';
 }
 
 export type RideProblem = 'price_changed' | 'cash_cap' | 'location' | 'wallet' | 'schedule' | 'other';

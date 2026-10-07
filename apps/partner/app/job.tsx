@@ -23,6 +23,7 @@ import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
 import {
   canTopUpOnJob,
+  cargoLine,
   isRide,
   jobAction,
   KIND_KEY,
@@ -491,6 +492,16 @@ function JobView({
                   <Icon name="clock" size={18} color="warningText" />
                   <Text variant="label" color="warningText" style={{ flex: 1 }}>
                     {t('partner.job_wait_ready')}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Ride idea x5: what the rider carries, until the ride ends. */}
+              {cargoLine(job.rideCargo ?? [], t) ? (
+                <View testID="job-cargo" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="bag" size={20} color="accentText" strokeWidth={2.2} />
+                  <Text variant="label" weight={700} color="accentText" style={{ flex: 1 }}>
+                    {cargoLine(job.rideCargo ?? [], t)}
                   </Text>
                 </View>
               ) : null}

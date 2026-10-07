@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, type PartnerJob, type PartnerJobStop, type PartnerPayKey, type VehicleClass, type Vertical } from '@driver/contracts';
+import { AZIZIYAH_ZONES, rideCargoKey, type PartnerJob, type PartnerJobStop, type PartnerPayKey, type RideCargo, type VehicleClass, type Vertical } from '@driver/contracts';
 import { pluralCategory, type MessageKey } from '@driver/i18n';
 import { toWesternDigits } from '@/lib/phone';
 
@@ -8,6 +8,14 @@ import { toWesternDigits } from '@/lib/phone';
 
 export type Locale = 'ar-IQ' | 'en';
 type T = (key: MessageKey, params?: Record<string, string | number>) => string;
+
+/**
+ * Ride idea x5: «عنده غراض: أكياس سوق، قنينة غاز» on the offer card and the trip, so he knows before he
+ * accepts whether there is room; null when the rider said nothing.
+ */
+export function cargoLine(cargo: readonly RideCargo[], t: T): string | null {
+  return cargo.length > 0 ? t('partner.offer_cargo', { list: cargo.map((c) => t(rideCargoKey(c))).join('، ') }) : null;
+}
 
 /** Zone display name with Western digits ("شارع 30"); the centre reads as "المركز". */
 export function zoneName(zoneId: string, locale: Locale = 'ar-IQ', t?: T): string {

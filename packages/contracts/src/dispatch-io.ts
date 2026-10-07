@@ -284,6 +284,14 @@ export type DriverProfileInput = z.infer<typeof DriverProfileInput>;
  */
 export const FAMILY_PREFERENCE_RULES = { minDriverDays: 90, minRating: 4.7 } as const;
 
+/**
+ * x1 cold car in summer: on a hot (cold) day a taxi ride's first `onlyWaves` waves go only to cars whose
+ * AC (heating) ops confirmed and whose driver did not say «لا» this shift (`PartnerClimateCheck`); an
+ * empty wave opens the next at once. From the next wave everyone may get it (those cars still first,
+ * n6), so nobody is left without a ride. Tuktuks have neither and are unaffected; the price never moves.
+ */
+export const CLIMATE_DISPATCH_RULES = { onlyWaves: 2 } as const;
+
 export interface DispatchPort {
   board(cityId: string): Promise<DispatchBoard>;
   override(actor: Actor, input: OverrideInput): Promise<OverrideOutput>;

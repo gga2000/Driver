@@ -3,6 +3,7 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { ClimateChecks, DispatchModule } from '../dispatch/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { Accounts, LedgerModule, LedgerService } from '../ledger/index.js';
@@ -47,10 +48,10 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
 /**
  * The customer's live order/ride screen (`orders.track`, `orders.courierPosition`): a read side that
  * composes orders, trips, identity (first name, logged), orgs/catalog (names) and the ledger (points
- * earned). Owns no tables; the vehicle registry read is narrow and read-only.
+ * earned). Owns no tables; the vehicle registry read is narrow and read-only (less what the driver said is not working this shift, from dispatch).
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule, EventsModule, PlacesModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, RoutingModule, EventsModule, PlacesModule, DispatchModule],
   providers: [
     { provide: TRACKING_ORDERS, useExisting: OrdersService },
     { provide: TRACKING_TRIPS, useExisting: TripsService },
@@ -83,8 +84,10 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
     },
     {
       provide: COURIER_VEHICLES,
-      useFactory: (prisma: PrismaService): CourierVehicleDirectory => (prisma.configured ? new PrismaCourierVehicles(prisma) : new InMemoryCourierVehicles()),
-      inject: [PrismaService],
+      // Ride idea x1: a «لا» to «المكيّفة شغالة اليوم؟» takes the tag off the card for the shift.
+      useFactory: (prisma: PrismaService, checks: ClimateChecks): CourierVehicleDirectory =>
+        prisma.configured ? new PrismaCourierVehicles(prisma, (ids) => checks.offNow(ids)) : new InMemoryCourierVehicles((ids) => checks.offNow(ids)),
+      inject: [PrismaService, ClimateChecks],
     },
     // Audit d-5: the honest-delay credit (delivery fee back as wallet credit past the promise).
     { provide: TRACKING_LATE_CREDIT, useFactory: (ledger: LedgerService) => ledgerLateCredit(ledger), inject: [LedgerService] },
