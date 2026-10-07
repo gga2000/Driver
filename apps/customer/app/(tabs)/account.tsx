@@ -14,6 +14,7 @@ import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
 import { useSimpleMode } from '@/features/simple/pref';
 import { useApiClient } from '@/lib/api';
+import { useInviteRule } from '@/features/invite/queries';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
 import { GuestGate } from '@/components/GuestGate';
@@ -40,6 +41,8 @@ function Account() {
   const client = useApiClient();
   const prof = useProfile();
   const me = useMe();
+  // THIN-18: «عزّم صديقك» promises points, so it shows only while the server pays them.
+  const inviteRule = useInviteRule();
   const places = useMyPlaces();
   const people = useSavedPeople();
   const household = useHousehold();
@@ -211,7 +214,9 @@ function Account() {
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.share_section')} />
         <Card elevation={0} padding={0}>
-          <ListRow testID="account-invite" leading="gift" title={t('account.invite_row')} subtitle={t('account.invite_row_hint')} onPress={() => router.push('/invite')} divider />
+          {inviteRule.isSuccess && inviteRule.data.rewardsOn ? (
+            <ListRow testID="account-invite" leading="gift" title={t('account.invite_row')} subtitle={t('account.invite_row_hint')} onPress={() => router.push('/invite')} divider />
+          ) : null}
           <ListRow testID="account-stickers" leading="heart" title={t('account.stickers_row')} subtitle={t('account.stickers_row_hint')} onPress={() => router.push('/stickers')} />
         </Card>
       </View>

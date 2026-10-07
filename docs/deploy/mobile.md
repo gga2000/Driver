@@ -85,6 +85,8 @@ Node 22 + pnpm and the repository on a computer.
    **production** (and **preview**):
    - `EXPO_PUBLIC_API_URL` = `https://driver-api.fly.dev/trpc` (later your domain)
    - `EXPO_PUBLIC_SHARE_BASE_URL` = the customer web address (customer app only)
+   - `EXPO_PUBLIC_SENTRY_DSN` = that app's Sentry DSN (optional; crash reports stay off without it —
+     [hosting.md](hosting.md) "Logs and errors")
 4. First build: `eas build --platform android --profile production`. EAS asks to generate the Android
    signing key — say **yes** (EAS stores it; download a copy from expo.dev → Credentials and keep it in
    your password manager). Wait ~15 minutes; download the `.aab`.

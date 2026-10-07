@@ -4,6 +4,8 @@ import { activeFilterCount, applyList, cuisineOptions, hasFreeDelivery, hasRatin
 
 const r = (p: Partial<RestaurantSummary> & { id: string }): RestaurantSummary => ({
   name: p.id,
+  cityId: 'aziziyah',
+  pickup: null,
   cuisine: '',
   zoneId: null,
   rating: null,

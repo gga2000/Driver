@@ -51,19 +51,23 @@ export type GreetingKey =
   | `home.daypart.${DaypartKey | 'friday_lunch'}`
   | `home.daypart.${DaypartKey | 'friday_lunch'}_anon`
   | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}`
-  | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}_anon`;
+  | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}_anon`
+  | 'home.daypart.late_closed'
+  | 'home.daypart.late_closed_anon';
 
 /**
  * The greeting line's locale key. On a quiet day (mourning, set in the Console) there is no playful
  * line («سهرانين؟», «شي خفيف للعصر؟», «غدا الجمعة للعائلة»): only a plain good morning or evening.
- * `named` = the person told us their name (the `{name}` variant).
+ * `named` = the person told us their name (the `{name}` variant). `closed` = every kitchen is closed
+ * right now: late at night the line can't say «هذني فاتحين», so it says they're back in the morning.
  */
-export function greetingKey(d: Pick<Daypart, 'key' | 'friday'>, opts: { quiet: boolean; named: boolean }): GreetingKey {
+export function greetingKey(d: Pick<Daypart, 'key' | 'friday'>, opts: { quiet: boolean; named: boolean; closed?: boolean }): GreetingKey {
   const suffix = opts.named ? '' : '_anon';
   if (opts.quiet) {
     const plain = d.key === 'dawn' ? 'dawn' : d.key === 'lunch' ? 'lunch' : d.key === 'late' ? 'late' : 'evening';
     return `home.daypart.quiet_${plain}${suffix}`;
   }
+  if (opts.closed && d.key === 'late') return `home.daypart.late_closed${suffix}`;
   const key = isFridayLunch(d) ? 'friday_lunch' : d.key;
   return `home.daypart.${key}${suffix}`;
 }

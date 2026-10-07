@@ -29,7 +29,7 @@ const RidePlaced = z.object({
     /** Ride step 3 (s6): «عوائل» — family-tagged, long-standing, well-rated drivers first. */
     familyPreferred: z.boolean().optional(),
   }),
-  /** Joy J7d: a ride booked for later (ISO); its search starts `searchLeadMin` before. */
+  /** Joy J7d: a ride booked for later (ISO); offered the evening before (review #28) or searched `searchLeadMin` before. */
   scheduledFor: z.string().nullable().optional(),
 });
 
@@ -53,7 +53,7 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   new request, timed to the promised ready time as on acceptance.
  * - `dispatch:ride-request` on `order.placed` for rides: builds the ride's trip and starts the
  *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher. A
- *   ride booked for later (joy J7d) waits until 15 min before; one that asked for the rider's
+ *   ride booked for later (joy J7d) is offered to drivers the evening before (review #28) and otherwise waits until 30 min before; one that asked for the rider's
  *   favourite (l9) offers him the job alone for a minute first.
  * - `dispatch:order-ready` on `order.ready`: a kitchen that finishes early starts the courier search
  *   now instead of at the timed start (the request moves its ready time to now).
@@ -111,11 +111,13 @@ export class DispatchSubscribers {
     const tripId = await this.trips.createRideTrip({ orderId, cityId: p.cityId, vertical: p.ride.vertical, pickup, dropoff, quoteId: p.ride.quoteId });
     const scheduledFor = p.scheduledFor ? new Date(p.scheduledFor) : null;
     await this.orchestrator.request({
-      ...(scheduledFor ? { startAt: rideSearchStartsAt(scheduledFor) } : {}),
+      // Review #28: offered the evening before when the city's rules allow, else searched at T−30.
+      ...(scheduledFor ? { startAt: rideSearchStartsAt(scheduledFor), scheduledFor } : {}),
       ...(p.ride.preferDriverId ? { preferDriverIds: [p.ride.preferDriverId] } : {}),
       // Ride step 3: the orderer's avoid list (s5) and favourites (s4) apply; «عوائل» shapes wave 1 (s6).
       ...(e.actorId ? { riderId: e.actorId } : {}),
       ...(p.ride.familyPreferred ? { familyPreferred: true } : {}),
+      orderId,
       tripId,
       cityId: p.cityId,
       vertical: p.ride.vertical,

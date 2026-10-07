@@ -39,6 +39,7 @@ import { PhoneBookingModule, PhoneBookingService } from '../modules/phone-bookin
 import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
+import { requestIdMiddleware } from '../shared/request-context.js';
 
 export const API_VERSION = '0.1.0';
 export const TRPC_PATH = '/trpc';
@@ -120,7 +121,7 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.quote(req) },
+      pricing: { quote: (req) => this.pricing.keepQuote(req) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
@@ -174,6 +175,8 @@ export class TrpcService {
   mount(app: INestApplication): void {
     app.use(
       TRPC_PATH,
+      // `x-request-id` in (or a fresh one), echoed back, and on every log line of the call (incl. onError below).
+      requestIdMiddleware,
       createExpressMiddleware({
         router: appRouter,
         // A query whose input is too long for a URL (a big basket with notes) may come as POST (FOOD-18).
