@@ -145,6 +145,8 @@ export const ICONS = {
     { d: 'M21.5 19v-1a5 5 0 0 0-7.6-4.3' },
     { d: 'M8.75 20.5a3.25 3.25 0 0 1 6.5 0' },
   ],
+  // Ride idea c6: «السعر مثبّت» under the request button.
+  lock: [{ rect: [5, 10.5, 14, 10, 2.5] }, { d: 'M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5' }, { d: 'M12 14.5v2' }],
   shield: [{ d: 'M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z' }, { d: 'M9 12l2.2 2.2L15.5 10' }],
   sos: [
     { d: 'M6.5 18v-4.5a5.5 5.5 0 0 1 11 0V18' },
@@ -182,8 +184,6 @@ export const ICONS = {
   refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
   // Phase 3 (Partner readiness row): the phone's battery.
   battery: [{ rect: [2.5, 7, 16.5, 10, 2] }, { d: 'M21.5 10.5v3' }],
-  // Ride idea c6: «السعر مثبّت» under the request button.
-  lock: [{ rect: [5, 10.5, 14, 10, 2.5] }, { d: 'M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5' }, { d: 'M12 14.5v2' }],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;
