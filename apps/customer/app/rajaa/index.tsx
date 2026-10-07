@@ -34,7 +34,7 @@ export default function RajaaBoard() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const params = useLocalSearchParams<{ corridor?: string; direction?: string; at?: string }>();
+  const params = useLocalSearchParams<{ corridor?: string; direction?: string; at?: string; day?: string }>();
   // «احجز رجعتك» (r2): the board opens on the same weekday and time, until the rider clears it.
   const [presetAt, setPresetAt] = useState<Date | null>(() => (params.at ? new Date(params.at) : null));
   const window = useMemo(() => presetWindow(presetAt), [presetAt]);
@@ -57,7 +57,8 @@ export default function RajaaBoard() {
   const day0 = baghdadMidnight(now);
   const days = useMemo(() => boardDays(new Date(day0)), [day0]);
   const span = useMemo(() => ({ from: days[0]!.start, to: days[days.length - 1]!.end }), [days]);
-  const [dayId, setDayId] = useState<BoardDayId>('today');
+  // `day`: opened on a given day (the arrival's «سفرتك الجاية» card, a2).
+  const [dayId, setDayId] = useState<BoardDayId>(params.day === 'tomorrow' || params.day === 'after' ? params.day : 'today');
   const [part, setPart] = useState<DayPartId | null>(null);
   const day = days.find((d) => d.id === dayId) ?? days[0]!;
   const board = useBoard({ corridorId, direction, window: window ?? span, ...(travellingAs ? { travellingAs } : {}) });

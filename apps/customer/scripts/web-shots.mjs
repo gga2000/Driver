@@ -962,6 +962,9 @@ async function driverShots(personId) {
   const trip = await demoPost(`/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`);
   await page.goto(`${origin}/rajaa/pass/${trip.bookingId}`, LOADED);
   await byTestId('rajaa-safe-arrival').waitFor({ timeout: 15_000 });
+  // a2, a4: home by tuktuk and the next trip (with its cars) come first, before the rating.
+  await settle(1500);
+  await fullShot('driver-arrival-full');
   await byTestId('rate-star-5').click();
   await page.locator('[data-testid="rajaa-review-input"]').fill('رقمه 07701234567 اذا تحتاجونه');
   await byTestId('rajaa-review-input').scrollIntoViewIfNeeded();
