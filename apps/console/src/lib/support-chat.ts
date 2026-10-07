@@ -11,22 +11,40 @@ export type ChatCaseItem =
   | { type: 'message'; key: string; at: Date; message: ChatMessage }
   | { type: 'entry'; key: string; at: Date; entry: TicketEntry };
 
-export function chatCaseItems(entries: readonly TicketEntry[], messages: readonly ChatMessage[]): ChatCaseItem[] {
+export function chatCaseItems(
+  entries: readonly TicketEntry[],
+  messages: readonly ChatMessage[],
+): ChatCaseItem[] {
   const items: ChatCaseItem[] = [
-    ...messages.map((m) => ({ type: 'message' as const, key: `m-${m.id}`, at: new Date(m.createdAt), message: m })),
+    ...messages.map((m) => ({
+      type: 'message' as const,
+      key: `m-${m.id}`,
+      at: new Date(m.createdAt),
+      message: m,
+    })),
     ...entries
-      .filter((e) => e.kind !== 'opened' && !(e.kind === 'reply' && typeof e.meta['chatMessageId'] === 'string'))
+      .filter(
+        (e) =>
+          e.kind !== 'opened' &&
+          !(e.kind === 'reply' && typeof e.meta['chatMessageId'] === 'string'),
+      )
       .map((e) => ({ type: 'entry' as const, key: `e-${e.id}`, at: new Date(e.at), entry: e })),
   ];
   // Stable: at the same instant a message comes before the desk's line about it.
   return items
     .map((it, i) => ({ it, i }))
-    .sort((a, b) => a.it.at.getTime() - b.it.at.getTime() || (a.it.type === b.it.type ? a.i - b.i : a.it.type === 'message' ? -1 : 1))
+    .sort(
+      (a, b) =>
+        a.it.at.getTime() - b.it.at.getTime() ||
+        (a.it.type === b.it.type ? a.i - b.i : a.it.type === 'message' ? -1 : 1),
+    )
     .map(({ it }) => it);
 }
 
 /** The seq to mark read when the desk opens the case, or null when nothing new came from the customer. */
-export function chatSeqToMark(chat: Pick<ChatThreadView, 'lastSeq' | 'myReadSeq'> | null | undefined): number | null {
+export function chatSeqToMark(
+  chat: Pick<ChatThreadView, 'lastSeq' | 'myReadSeq'> | null | undefined,
+): number | null {
   if (!chat) return null;
   return chat.lastSeq > chat.myReadSeq ? chat.lastSeq : null;
 }
