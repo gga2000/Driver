@@ -93,10 +93,10 @@ export * from './logic/sheet';
 export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
+export * from './logic/voice-note';
 export * from './logic/sos';
 export * from './logic/photo-fallback';
 export * from './logic/voice';
-export * from './logic/voice-note';
 export * from './format';
 
 // Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.

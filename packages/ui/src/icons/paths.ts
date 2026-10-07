@@ -186,16 +186,16 @@ export const ICONS = {
   ],
   'location-arrow': [{ d: 'M20 4 4 11l7 2 2 7z' }],
   mic: [{ rect: [9, 3, 6, 11, 3] }, { d: 'M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21' }],
-  wifi: [{ d: 'M2.5 9a14 14 0 0 1 19 0' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 13 0' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
-  'wifi-off': [{ d: 'M3 3l18 18' }, { d: 'M2.5 9a14 14 0 0 1 4.6-3' }, { d: 'M11 5.5a14 14 0 0 1 10.5 3.5' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 4-2.3' }, { d: 'M15.5 10.8a9.5 9.5 0 0 1 3 1.7' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
-  refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
-  // Phase 3 (Partner readiness row): the phone's battery.
-  battery: [{ rect: [2.5, 7, 16.5, 10, 2] }, { d: 'M21.5 10.5v3' }],
   // Voice notes in the chat (ride ideas n7/n8). Play points right in every language (media controls never mirror).
   play: [{ d: 'M8 5.5v13a.8.8 0 0 0 1.2.7l10.3-6.5a.8.8 0 0 0 0-1.4L9.2 4.8a.8.8 0 0 0-1.2.7z' }],
   pause: [{ rect: [6.5, 5, 3.5, 14, 1] }, { rect: [14, 5, 3.5, 14, 1] }],
   trash: [{ d: 'M4.5 6.5h15' }, { d: 'M9.5 6.5V4.5h5v2' }, { d: 'M6.5 6.5l.9 13a1 1 0 0 0 1 .9h7.2a1 1 0 0 0 1-.9l.9-13' }, { d: 'M10.25 10.5v6M13.75 10.5v6' }],
   'mic-off': [{ d: 'M3 3l18 18' }, { d: 'M9 9v2a3 3 0 0 0 5.1 2.1M15 10V6a3 3 0 0 0-5.7-1.3' }, { d: 'M5.5 11a6.5 6.5 0 0 0 10.6 5M18.3 13.2a6.5 6.5 0 0 0 .2-2.2M12 17.5V21' }],
+  wifi: [{ d: 'M2.5 9a14 14 0 0 1 19 0' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 13 0' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
+  'wifi-off': [{ d: 'M3 3l18 18' }, { d: 'M2.5 9a14 14 0 0 1 4.6-3' }, { d: 'M11 5.5a14 14 0 0 1 10.5 3.5' }, { d: 'M5.5 12.5a9.5 9.5 0 0 1 4-2.3' }, { d: 'M15.5 10.8a9.5 9.5 0 0 1 3 1.7' }, { d: 'M8.6 16a5 5 0 0 1 6.8 0' }, { circle: [12, 19.25, 1] }],
+  refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
+  // Phase 3 (Partner readiness row): the phone's battery.
+  battery: [{ rect: [2.5, 7, 16.5, 10, 2] }, { d: 'M21.5 10.5v3' }],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;
