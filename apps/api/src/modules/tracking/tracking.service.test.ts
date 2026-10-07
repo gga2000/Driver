@@ -216,6 +216,23 @@ describe('TrackingService — order history (طلباتي, C-15)', () => {
     for (const it of rows[0]!.items) expect(['كباب', 'تكة']).toContain(it.name);
     expect(await tracking.history(as('nobody'))).toEqual([]);
   });
+
+  it('a ride row carries its vehicle from the trip, so it wears the taxi or tuktuk colour (o8)', async () => {
+    const { h, tracking } = setup();
+    const ride = async (vertical: 'taxi' | 'tuktuk', withTrip: boolean) => {
+      const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: vertical, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30' } });
+      if (withTrip)
+        await h.trips.createForOrders({ cityId: 'aziziyah', vertical, orders: [{ orderId: o.id, minVehicleClass: null }], stops: [{ orderId: o.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN }, { orderId: o.id, type: 'dropoff', zoneKey: 'street_30' }] });
+      h.clock.advance(60_000);
+      return o.id;
+    };
+    const taxi = await ride('taxi', true);
+    const tuktuk = await ride('tuktuk', true);
+    const noTrip = await ride('taxi', false);
+    const food = await h.orders.place('c1', h.foodInput());
+    const by = new Map((await tracking.history(as('c1'))).map((r) => [r.order.id, r.rideVertical]));
+    expect([by.get(taxi), by.get(tuktuk), by.get(noTrip), by.get(food.id)]).toEqual(['taxi', 'tuktuk', null, null]);
+  });
 });
 
 describe('TrackingService — «أول مرة» (joy g8)', () => {
