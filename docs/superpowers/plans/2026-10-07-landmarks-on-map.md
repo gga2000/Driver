@@ -21,7 +21,7 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.2 b3 (Ali approved on the 
 ## Decisions
 
 1. **Category**: `LandmarkCategory = mosque | school | market | clinic | fuel | bridge | garage | other`
-   (contracts). New nullable column `places.landmark_category` (migration `20261007210000_landmark_category`,
+   (contracts). New nullable column `places.landmark_category` (migration `20261007225000_landmark_category`,
    with a CHECK on the values; no new table). A row without one, and every seed, gets
    `landmarkCategoryOf(name, kind)` — a pure rule on the Arabic name (جامع/مسجد/حسينية → mosque,
    مدرسة/كلية/جامعة/روضة → school, سوق/مول → market, مستشفى/مستوصف/عيادة/صيدلية → clinic, محطة وقود/بانزينخانة →

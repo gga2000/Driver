@@ -21,7 +21,7 @@ places (`label` set) are never landmarks.
 
 `LandmarkCategory`: `mosque`, `school`, `market`, `clinic`, `fuel`, `bridge`, `garage`, `other` (a park, a
 roundabout, a junction). Rows keep it in `places.landmark_category` (migration
-`20261007210000_landmark_category`, CHECK on the values). A row without one, and every seed, gets
+`20261007225000_landmark_category`, CHECK on the values). A row without one, and every seed, gets
 `landmarkCategoryOf(name, kind)`: a seed of kind `garage` is a garage; otherwise the first category a
 whole word of the Arabic name belongs to (folded: «الجامع» = «جامع», «مدرسة» = «مدرسه») — fuel (وقود،
 بانزينخانة…), garage (كراج…), bridge (جسر…), clinic (مستشفى، مستوصف، عيادة، صيدلية، صحي…), school (مدرسة،
