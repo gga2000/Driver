@@ -19,8 +19,7 @@ import { CollapsedBar } from '@/features/home/CollapsedBar';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
 import { nightHome } from '@/features/home/night';
-import { NightTwinkle } from '@/features/home/NightTwinkle';
-import { QUIET_PICTURE, QuietCard } from '@/features/home/QuietCard';
+import { NightMoon } from '@/features/home/NightMoon';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
 import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
@@ -230,19 +229,6 @@ export default function Home() {
           <ServicesRow onPress={onService} foodFact={food} foodOff={foodOff} scrollY={scrollY} />
         </Animated.View>
 
-        {/* No place picked yet: where we deliver decides the fee and the time, so it comes first. */}
-        {!selectedPlace(prof) ? (
-          <Animated.View entering={rise(3)}>
-            <QuietCard
-              testID="home-place-needed"
-              art="location"
-              title={t('home.places_title')}
-              body={t('home.place_body')}
-              action={{ label: t('home.place_pick'), onPress: () => router.push('/places'), testID: 'home-place-needed-pick' }}
-            />
-          </Animated.View>
-        ) : null}
-
         {cards.includes('active') && active.data ? (
           <Animated.View entering={rise(3)}>
             <ActiveOrderPill order={active.data} />
@@ -286,15 +272,6 @@ export default function Home() {
                 <RestaurantRowSkeleton />
                 <RestaurantRowSkeleton />
               </View>
-            ) : failed && !list && !net.online ? (
-              // No internet and nothing cached: the phone picture, and home loads itself when the net is back.
-              <QuietCard
-                testID="home-offline-empty"
-                art="offline"
-                title={t('home.offline_title')}
-                body={t('home.offline_body')}
-                action={{ label: t('action.retry'), variant: 'secondary', onPress: retry, testID: 'home-offline-empty-retry' }}
-              />
             ) : failed && !list ? (
               <Card lift padding={4}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
@@ -306,21 +283,31 @@ export default function Home() {
                 </View>
               </Card>
             ) : open.length === 0 && night.first ? (
-              <QuietCard
-                testID="home-night"
-                art="closed-night"
-                overlay={<NightTwinkle size={QUIET_PICTURE} />}
-                title={t('home.night_title')}
-                body={t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
-                action={{ label: t('home.night_menu'), onPress: () => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } }), testID: 'home-night-menu' }}
-              />
+              <Card lift padding={4} testID="home-night">
+                <View style={{ gap: theme.space[4] }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+                    <NightMoon />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text variant="title" face="display">
+                        {t('home.night_title')}
+                      </Text>
+                      <Text variant="footnote" color="textMuted">
+                        {t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
+                      </Text>
+                    </View>
+                  </View>
+                  <Button label={t('home.night_menu')} onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })} testID="home-night-menu" />
+                </View>
+              </Card>
             ) : open.length === 0 ? (
-              <QuietCard
-                testID="home-rail-empty"
-                art="no-results"
-                title={t('home.rail_empty')}
-                action={{ label: t('action.see_all'), variant: 'secondary', onPress: () => router.push('/restaurants') }}
-              />
+              <Card lift padding={4}>
+                <View style={{ gap: theme.space[3], alignItems: 'center' }}>
+                  <Text variant="label" color="textMuted" align="center">
+                    {t('home.rail_empty')}
+                  </Text>
+                  <Button size="sm" variant="secondary" label={t('action.see_all')} onPress={() => router.push('/restaurants')} />
+                </View>
+              </Card>
             ) : (
               <View style={{ gap: theme.space[3] }} testID="rail-open">
                 {open.slice(0, HOME_LIST).map((r) => (
