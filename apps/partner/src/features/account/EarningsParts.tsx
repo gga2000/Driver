@@ -6,7 +6,7 @@ import { orderTicketNumber, type ComplimentKey, type EarningsJobLine, type Earni
 import { Button, Card, Icon, Rule, StatusPill, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { jobsKey, VEHICLE_ICON } from '@/features/work/logic';
 import { useStatus } from '@/features/work/queries';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { CashMeter } from './CashMeter';
 import { useCompliments } from './queries';
@@ -300,6 +300,7 @@ function Bar({ share, grow, active, dim, onPress, label }: { share: number; grow
 export function BestTimeCard({ best }: { best: MyBestView }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const w = best.bestWindow;
   if (!w) {
     return (
@@ -324,7 +325,7 @@ export function BestTimeCard({ best }: { best: MyBestView }) {
             {t('partner.e5_best_time')}
           </Text>
           <Text testID="best-time-label" variant="title" weight={700} tabular>
-            {bestWindowLabel(w, t)}
+            {bestWindowLabel(w, t, locale)}
           </Text>
           <Text variant="footnote" color="textMuted" tabular>
             {t('partner.e5_best_time_sub', { weeks: Math.round(best.sinceDays / 7), amount: amountParam(w.perHourIqd) })}

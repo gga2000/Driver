@@ -11,7 +11,7 @@ import type {
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
-import { formatRange, type MessageKey } from '@driver/i18n';
+import { formatRange, type Locale, type MessageKey } from '@driver/i18n';
 import { pluralForm } from '@/features/work/logic';
 
 /**
@@ -541,15 +541,16 @@ export function dayPart(hour: number): DayPart {
  * the part of the day said once when both ends share it. The end hour names the part the window
  * reaches into (11 بالليل is the hour that ends at 11).
  */
-export function bestWindowLabel(w: { weekday: number; fromHour: number; toHour: number }, t: T): string {
+export function bestWindowLabel(w: { weekday: number; fromHour: number; toHour: number }, t: T, locale: Locale = 'ar-IQ'): string {
   const day = t(`partner.weekday_${w.weekday}` as MessageKey);
   const fromPart = dayPart(w.fromHour);
   const toPart = dayPart(w.toHour - 1);
   const part = (p: DayPart) => t(`partner.best_part_${p}` as MessageKey);
+  // formatRange keeps the start on the right in Arabic, whatever surrounds it.
   const range =
     fromPart === toPart
-      ? t('partner.best_range_one', { from: hour12(w.fromHour), to: hour12(w.toHour), part: part(fromPart) })
-      : t('partner.best_range_two', { from: hour12(w.fromHour), fromPart: part(fromPart), to: hour12(w.toHour), toPart: part(toPart) });
+      ? t('partner.best_range_one', { range: formatRange(hour12(w.fromHour), hour12(w.toHour), locale), part: part(fromPart) })
+      : t('partner.best_range_two', { range: formatRange(`${hour12(w.fromHour)} ${part(fromPart)}`, `${hour12(w.toHour)} ${part(toPart)}`, locale, { spaced: true }) });
   return `${day} ${range}`;
 }
 

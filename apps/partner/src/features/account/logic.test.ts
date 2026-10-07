@@ -270,10 +270,12 @@ describe('his best (partner redesign e3 / e5)', () => {
     expect([5, 11, 12, 14, 15, 17, 18, 23, 0, 3].map(dayPart)).toEqual(['morning', 'morning', 'noon', 'noon', 'afternoon', 'afternoon', 'night', 'night', 'night', 'night']);
   });
   it('«الخميس 7–11 بالليل»: the part said once when both ends share it, twice when not', () => {
-    expect(bestWindowLabel({ weekday: 4, fromHour: 19, toHour: 23 }, t)).toBe('الخميس 7–11 بالليل');
-    expect(bestWindowLabel({ weekday: 5, fromHour: 16, toHour: 20 }, t)).toBe('الجمعة 4 العصر – 8 بالليل');
-    expect(bestWindowLabel({ weekday: 0, fromHour: 22, toHour: 24 }, t)).toBe('الأحد 10–12 بالليل');
-    expect(bestWindowLabel({ weekday: 2, fromHour: 12, toHour: 15 }, t)).toBe('الثلاثاء 12–3 الظهر');
+    // The range sits in a right-to-left isolate (formatRange); compare the words.
+    const plain = (x: string) => x.replace(/[\u2066-\u2069]/g, '');
+    expect(plain(bestWindowLabel({ weekday: 4, fromHour: 19, toHour: 23 }, t))).toBe('الخميس 7–11 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 5, fromHour: 16, toHour: 20 }, t))).toBe('الجمعة 4 العصر – 8 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 0, fromHour: 22, toHour: 24 }, t))).toBe('الأحد 10–12 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 2, fromHour: 12, toHour: 15 }, t))).toBe('الثلاثاء 12–3 الظهر');
   });
   it('a job line\'s tip is the sum of its tip lines', () => {
     const c = (type: string, amountIqd: number) => ({ type, amountIqd, label_ar: '', label_en: '', memo: null }) as never;
