@@ -1,24 +1,61 @@
-import { Module, type OnModuleInit } from '@nestjs/common';
-import { publicCourierRating, type IntercityDirection, type LatLng, type Order, type Trip } from '@driver/contracts';
+import { Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { DRIVER_PROFILE_RULES, publicCourierRating, ROAD_FACTOR, TOWN_SPEED_KMH, type IntercityDirection, type LatLng, type Order, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { DispatchModule, DispatchService } from '../dispatch/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { OrdersModule, OrdersService, serverFees } from '../orders/index.js';
+import { OrderComplimentsService, OrdersModule, OrdersService, serverFees } from '../orders/index.js';
 import { BLOB_STORE, PlacesModule, SavedPlacesService } from '../places/index.js';
 import type { BlobStore } from '../places/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { CORRIDORS, DeparturesService, GARAGES, RoutesModule, RoutesRpc } from '../routes/index.js';
 import { EtaService, RoutingModule } from '../routing/index.js';
-import { TrackingModule, TrackingService, tripsOrdersRatings } from '../tracking/index.js';
+import { onTimePercent } from '../scoring/index.js';
+import { COURIER_VEHICLES, TrackingModule, TrackingService, tripsOrdersRatings, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
-import { FAVOURITE_READ_PURPOSE, HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
+import {
+  FAVOURITE_READ_PURPOSE,
+  HABITS_EVENTS,
+  HABITS_PEOPLE,
+  HABITS_RAJAA,
+  HABITS_RIDES,
+  HABITS_SEARCH,
+  type FinishedRide,
+  type HabitsEventsPort,
+  type HabitsPeoplePort,
+  type HabitsRajaaPort,
+  type HabitsRidesPort,
+  type HabitsSearchPort,
+} from './ports.js';
+import { registerFootprints } from './footprints.subscriber.js';
 import { RegularTripJob } from './regular-trip.job.js';
 import { InMemoryRideHabitsRepository, PrismaRideHabitsRepository, RIDE_HABITS_REPOSITORY, type RideHabitsRepository } from './ride-habits.repository.js';
 import { RideHabitsService } from './ride-habits.service.js';
+import { RiderDriversService } from './rider-drivers.service.js';
+import { SameRideJob } from './same-ride.job.js';
 
 const FINISHED = new Set<Order['state']>(['completed', 'closed']);
 const MIN = 60_000;
+/** The profile's on-time share reads his newest completed trips of the last year, at most this many. */
+const ON_TIME_TRIPS = 200;
+const YEAR_MS = 365 * 24 * 60 * MIN;
+/** A ride booked for within this many minutes of a habit's time is that day's ride already (o4). */
+const RIDE_ON_BOOKED_MIN = 60;
+
+const isRide = (v: Vertical): v is 'taxi' | 'tuktuk' => v === 'taxi' || v === 'tuktuk';
+
+/** The vehicle a trip of this vertical is timed for when its car is not known (town speeds). */
+function speedClass(v: Vertical): VehicleClass {
+  if (v === 'taxi') return 'car';
+  if (v === 'tuktuk') return 'tuktuk';
+  return 'bike';
+}
+
+/** Minutes the offer promised to the pickup: his distance then, by road, at town speed (at least one). */
+function offeredMinutes(distanceKm: number, vehicle: VehicleClass): number {
+  return Math.max(1, Math.round(((distanceKm * ROAD_FACTOR) / TOWN_SPEED_KMH[vehicle]) * 60));
+}
 
 /** The ride's finished driver and stars, read from its trip (`courierOf`). */
 async function finished(trips: TripsService, o: Order): Promise<FinishedRide | null> {
@@ -44,7 +81,7 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
  * orders module's favourite check (orders never imports this module).
  */
 @Module({
-  imports: [OrdersModule, TripsModule, TrackingModule, RoutesModule, IdentityModule, PlacesModule, PricingModule, RoutingModule, EventsModule],
+  imports: [OrdersModule, TripsModule, TrackingModule, RoutesModule, IdentityModule, PlacesModule, PricingModule, RoutingModule, EventsModule, DispatchModule],
   providers: [
     {
       provide: RIDE_HABITS_REPOSITORY,
@@ -97,6 +134,17 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
         kitchen: (merchantOrgId) => orders.kitchenTiming(merchantOrgId),
         minutes: async (from, to, vehicle) => (await eta.minutes(from, to, vehicle)).minutes,
         driverRating: async (driverId) => publicCourierRating(await scores.courierScores(driverId)),
+        finishedOrderIds: async (ids) => {
+          const found = await Promise.all(ids.map((id) => orders.get(id).catch(() => null)));
+          return new Set(found.filter((o): o is Order => o !== null && o.type === 'ride' && FINISHED.has(o.state)).map((o) => o.id));
+        },
+        rideOn: async (personId, around) =>
+          (await orders.listForPerson(personId)).some(
+            (o) =>
+              o.ordererId === personId &&
+              o.type === 'ride' &&
+              (o.state === 'matched' || (o.state === 'placed' && (!o.scheduledFor || Math.abs(o.scheduledFor.getTime() - around.getTime()) <= RIDE_ON_BOOKED_MIN * MIN))),
+          ),
         };
       },
       inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK],
@@ -130,20 +178,118 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
       }),
       inject: [IdentityService, BLOB_STORE, SavedPlacesService],
     },
+    {
+      // Ride step 3: the offered drivers, «نبّهه» and the driver profile. Positions stay in dispatch;
+      // only minutes (the one ETA) come out. Names and photos: logged vault reads (`courier_card`).
+      provide: HABITS_SEARCH,
+      useFactory: (
+        orders: OrdersService,
+        trips: TripsService,
+        dispatch: DispatchService,
+        eta: EtaService,
+        identity: IdentityService,
+        blobs: BlobStore,
+        vehicles: CourierVehicleDirectory,
+        compliments: OrderComplimentsService,
+        clock: Clock,
+      ): HabitsSearchPort => ({
+        ride: async (orderId) => {
+          const agg = await orders.aggregate(orderId).catch(() => null);
+          if (!agg || agg.order.type !== 'ride') return null;
+          const riderIds = agg.participants.filter((p) => p.role === 'rider' && p.personId !== null).map((p) => p.personId!);
+          return { orderId, ordererId: agg.order.ordererId, riderIds };
+        },
+        search: async (orderId) => {
+          const trip = await trips.activeForOrder(orderId);
+          if (!trip || !isRide(trip.vertical)) return null;
+          const found = await dispatch.searchOf(trip.id);
+          if (!found) return null;
+          const offers = found.offers.map((o) => ({ offerId: o.id, driverId: o.driverId, state: o.state, sentAt: o.sentAt, expiresAt: o.expiresAt, nudgedAt: o.nudgedAt ?? null }));
+          return { tripId: trip.id, vertical: trip.vertical, pickup: found.request.pickup, offers };
+        },
+        nudge: (tripId, offerId, riderId) => dispatch.nudgeOffer(tripId, offerId, riderId),
+        minutesAway: async (driverId, to) => {
+          const p = await dispatch.presence.get(driverId);
+          return p ? Math.max(1, (await eta.minutes({ lat: p.lat, lng: p.lng }, to, p.vehicle)).minutes) : null;
+        },
+        facts: async (ids) => {
+          const facts = await dispatch.vehicleFacts(ids);
+          return new Map([...facts].map(([id, f]) => [id, { vehicleClass: f.vehicleClass, model: f.model, colour: f.colour, features: f.confirmedFeatures, tripCount: f.tripCount }]));
+        },
+        assigned: async (orderId) => {
+          const carried = await trips.courierOf(orderId);
+          if (!carried || !isRide(carried.vertical)) return null;
+          const trip = await trips.get(carried.tripId);
+          const car = await vehicles.forCourier(carried.courierId, trip.vehicleId ?? null);
+          return { driverId: carried.courierId, vertical: carried.vertical, plate: car?.plate ?? null, vehicleClass: car?.vehicleClass ?? null };
+        },
+        cards: async (ids, readerId, purpose) => {
+          const [names, photos] = await Promise.all([identity.firstNamesFor(ids, readerId, purpose), identity.mainPhotoRefs(ids, readerId, purpose)]);
+          return Object.fromEntries(ids.map((id) => [id, { firstName: names[id] ?? null, photoRef: photos[id] ?? null }]));
+        },
+        photoUrl: (ref) => blobs.readUrl(ref),
+        record: async (driverId) => {
+          const [since, done, accepted, words] = await Promise.all([
+            identity.driverSinceOf([driverId]),
+            trips.completedForDriver(driverId, new Date(clock.now().getTime() - YEAR_MS)),
+            dispatch.acceptedOffersOf(driverId, ON_TIME_TRIPS),
+            compliments.courierView(driverId),
+          ]);
+          const offered = new Map(accepted.map((o) => [o.tripId, o.distanceKm]));
+          const recent = done
+            .filter((t) => t.state === 'completed')
+            .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0))
+            .slice(0, ON_TIME_TRIPS)
+            .map((t) => {
+              const km = offered.get(t.id);
+              return { state: t.state, acceptedAt: t.acceptedAt, promisedPickupMin: km == null ? null : offeredMinutes(km, speedClass(t.vertical)), stops: t.stops };
+            });
+          return { driverSince: since[driverId] ?? null, onTimePct: onTimePercent(recent, DRIVER_PROFILE_RULES.onTimeMinTrips), compliments: words.counts };
+        },
+        driverSince: (ids) => identity.driverSinceOf(ids),
+      }),
+      inject: [OrdersService, TripsService, DispatchService, EtaService, IdentityService, BLOB_STORE, COURIER_VEHICLES, OrderComplimentsService, CLOCK],
+    },
     { provide: HABITS_EVENTS, useFactory: (events: EventsService): HabitsEventsPort => ({ emit: (event, aggregate) => events.emit(undefined, event, aggregate) }), inject: [EventsService] },
     RideHabitsService,
+    RiderDriversService,
     RegularTripJob,
+    SameRideJob,
   ],
-  exports: [RideHabitsService, RegularTripJob],
+  exports: [RideHabitsService, RegularTripJob, SameRideJob],
 })
-export class RideHabitsModule implements OnModuleInit {
+export class RideHabitsModule implements OnModuleInit, OnModuleDestroy {
+  private unsubscribe: (() => void) | undefined;
+
   constructor(
     private readonly orders: OrdersService,
     private readonly habits: RideHabitsService,
+    private readonly riderDrivers: RiderDriversService,
+    private readonly dispatch: DispatchService,
+    @Inject(HABITS_RIDES) private readonly rides: HabitsRidesPort,
+    @Inject(HABITS_SEARCH) private readonly search: HabitsSearchPort,
+    private readonly events: EventsService,
   ) {}
 
-  /** Orders asks this module who a booked ride's favourite is (joy l9). */
+  /**
+   * Orders asks this module who a booked ride's favourite is (joy l9); dispatch asks for a rider's
+   * avoid list (s5), his favourites (s4) and the «عوائل» standing of drivers (s6) — ride step 3; every
+   * placed ride leaves its footprint for «نفس مشوار البارحة؟» (step 4, o4).
+   */
   onModuleInit(): void {
     this.orders.bindFavourites({ driverFor: (personId, favouriteId) => this.habits.driverFor(personId, favouriteId) });
+    this.dispatch.bindRiders({
+      avoided: (personId) => this.riderDrivers.avoidedDriverIds(personId),
+      favourites: (personId) => this.habits.favouriteDriverIds(personId),
+      standing: async (ids) => {
+        const [since, ratings] = await Promise.all([this.search.driverSince(ids), Promise.all(ids.map((id) => this.rides.driverRating(id)))]);
+        return new Map(ids.map((id, i) => [id, { rating: ratings[i]?.rating ?? null, driverSince: since[id] ?? null }]));
+      },
+    });
+    this.unsubscribe = registerFootprints(this.events, this.habits);
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribe?.();
   }
 }

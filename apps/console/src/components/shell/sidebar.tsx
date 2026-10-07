@@ -26,6 +26,7 @@ import {
   IconKeyboard,
   IconMap,
   IconOrders,
+  IconPhone,
   IconPricing,
   IconSidebar,
   IconSupport,
@@ -55,6 +56,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   stores: IconStore,
   reviews: IconChat,
   safety: IconSiren,
+  phone: IconPhone,
   system: IconSystem,
 };
 

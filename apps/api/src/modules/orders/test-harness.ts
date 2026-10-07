@@ -18,10 +18,54 @@ import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { InMemoryPromotionsRepository, dealBadge, type DealRecord } from '../promotions/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { orgsHouseholds } from './households.port.js';
+import { identityRiders, type RiderIdentity } from './riders.js';
 
 /** Stand-in for identity's peppered HMAC: deterministic, and the number cannot be read back from it. */
 export function fakePhoneHash(phone: string): string {
   return createHash('sha256').update(`test-pepper:${phone}`).digest('hex');
+}
+
+/**
+ * Identity stood in for a ride booked for someone else (c9/s3): numbers are people (`people`, phone →
+ * personId; an unknown number becomes `p_<digits>`), each booker's trusted list, household members'
+ * cards, and the names the bookers gave, with every name read recorded.
+ */
+export class FakeRiderIdentity implements RiderIdentity {
+  readonly trusted = new Map<string, Array<{ name: string; phoneE164: string }>>();
+  readonly cards = new Map<string, { name: string | null; phoneMasked: string }>();
+  readonly given = new Map<string, { personId: string; givenById: string; name: string }>();
+  readonly reads: Array<{ ids: readonly string[]; accessorId: string; purpose: string }> = [];
+
+  constructor(private readonly people: Map<string, string>) {}
+
+  async riderByPhone(rawPhone: string): Promise<{ personId: string; phoneHash: string }> {
+    const phone = rawPhone.replace(/\D/g, '').replace(/^964/, '0');
+    const personId = this.people.get(phone) ?? `p_${phone}`;
+    this.people.set(phone, personId);
+    return { personId, phoneHash: fakePhoneHash(phone) };
+  }
+
+  async trustedContactsOf(personId: string): Promise<Array<{ name: string; phoneE164: string }>> {
+    return this.trusted.get(personId) ?? [];
+  }
+
+  async memberCards(personIds: readonly string[]): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
+    return Object.fromEntries(personIds.flatMap((id) => (this.cards.has(id) ? [[id, this.cards.get(id)!]] : [])));
+  }
+
+  async phoneHashOf(personId: string): Promise<string | null> {
+    const phone = [...this.people].find(([, id]) => id === personId)?.[0];
+    return phone ? fakePhoneHash(phone) : null;
+  }
+
+  async rememberParticipantName(input: { participantId: string; personId: string; givenById: string; name: string }): Promise<void> {
+    this.given.set(input.participantId, { personId: input.personId, givenById: input.givenById, name: input.name });
+  }
+
+  async participantNames(participantIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>> {
+    this.reads.push({ ids: [...participantIds], accessorId, purpose });
+    return Object.fromEntries(participantIds.flatMap((id) => (this.given.has(id) ? [[id, this.given.get(id)!.name]] : [])));
+  }
 }
 
 /** rest_1's menu in the orders harness: fixed ids so tests can name them. */
@@ -173,7 +217,11 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     deliveryPlace: async (personId, placeId) => (placeOwners.get(placeId) === personId ? { door: placeDoors.get(placeId) ?? null } : null),
   }, orgsHouseholds(orgs), eta);
   orders.onModuleInit();
+  // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
+  const riderIdentity = new FakeRiderIdentity(people);
+  orders.bindRiders(identityRiders(riderIdentity, orgsHouseholds(orgs)));
   // "الخردة علينا": as OrdersModule binds it at start-up.
+  trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
@@ -248,5 +296,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     await deliver();
   }
 
-  return { clock, eta, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, eta, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

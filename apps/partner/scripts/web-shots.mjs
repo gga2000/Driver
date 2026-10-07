@@ -17,6 +17,7 @@
 //
 // SHOTS=core,earnings (comma list of module names, default all) runs only those modules.
 // VIEWPORT=360x740 shoots a small Android phone instead of 390×844.
+// p.expectRefusal() / p.expectRefusal(false) brackets a step that is refused on purpose (a 400).
 // p.slide(id) drags a SlideToConfirm thumb to the end (right → left); p.slideHalf(id) stops half way
 // and holds (call p.release() after the shot).
 // DIST_DIR and DEMO_API override the export folder and the demo API origin.
@@ -71,8 +72,10 @@ async function openPage(group, { prePrompt = false } = {}) {
   const context = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   if (!prePrompt) await context.addInitScript(() => localStorage.setItem('driver.partner.push-preprompt', String(Date.now())));
   const page = await context.newPage();
+  // A refusal the flow provokes on purpose (p.expectRefusal()): the browser's "400" line is not an error.
+  let refusalExpected = false;
   page.on('console', (m) => {
-    if (m.type() === 'error' && !IGNORED.test(m.text())) errors.push(`[${group}] ${m.text()}`);
+    if (m.type() === 'error' && !IGNORED.test(m.text()) && !(refusalExpected && /status of 400/.test(m.text()))) errors.push(`[${group}] ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(`[${group}] ${e.stack ?? e.message}`));
   page.on('response', (r) => {
@@ -86,6 +89,10 @@ async function openPage(group, { prePrompt = false } = {}) {
     async settle(ms = 700) {
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(ms);
+    },
+    /** Until the next call with `false`, a 400 (a domain refusal the shot provokes) is expected. */
+    expectRefusal(on = true) {
+      refusalExpected = on;
     },
     async wait(id, timeout = 15_000) {
       await p.byTestId(id).waitFor({ timeout });

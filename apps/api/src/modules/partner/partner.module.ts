@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EtaService, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
-import { DispatchModule, DispatchService } from '../dispatch/index.js';
+import { ClimateChecks, DispatchModule, DispatchService } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
 import { FleetModule, FleetService } from '../fleet/index.js';
 import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
@@ -51,6 +51,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         eta: EtaService,
         places: SavedPlacesService,
         merchant: MerchantService,
+        climate: ClimateChecks,
       ): PartnerDeps => ({
         roads: { path: (points) => eta.path(points) },
         presence: {
@@ -70,7 +71,12 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
         trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId), pickupsByZone: (cityId, from, to) => trips.pickupsByZone(cityId, from, to) },
-        orders: { get: (orderId) => orders.get(orderId).catch(() => null) },
+        orders: {
+          get: (orderId) => orders.get(orderId).catch(() => null),
+          startCodeRequired: async (orderId) => (await orders.startCodeOf(orderId)) !== null,
+          // c9/s3: who he picks up when the ride was booked for someone else (a logged vault read).
+          riderName: async (orderId, driverId) => (await orders.riderOf(orderId, driverId, 'partner_rider'))?.name ?? null,
+        },
         merchants: {
           name: async (orgId) => (await orgs.find(orgId))?.name ?? null,
         },
@@ -92,6 +98,11 @@ function takeFor(vertical: Vertical): TakeRule | null {
         places: { courierDoor: (placeId, input) => places.courierDoor(placeId, input), dropoffsAt: (placeId, tripId) => trips.dropoffsAt(placeId, tripId) },
         // Maps program r7: the kitchen's pickup spot (note, photos) on pickups still to do.
         pickupSpots: { forCourier: (merchantOrgId, input) => merchant.courierPickupSpot(merchantOrgId, input) },
+        // Ride idea x1: the shift's AC / heating question, on what the car check confirmed for his car.
+        climate: {
+          check: async (id) => climate.checkFor(id, (await fleet.activeVehicleOf(id))?.featuresConfirmed ?? []),
+          answer: async (id, working) => climate.answer(id, (await fleet.activeVehicleOf(id))?.featuresConfirmed ?? [], working),
+        },
         gate: {
           onlineGate: async (id) => {
             const g = await account.onlineGateFor(id);
@@ -99,7 +110,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks],
     },
     PartnerService,
   ],

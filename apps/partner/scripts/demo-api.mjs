@@ -39,6 +39,7 @@ const { OrgsService } = await load('modules/orgs/index.js');
 const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
 const { Accounts, LedgerService } = await load('modules/ledger/index.js');
 const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
+const { FLEET_REPOSITORY } = await load('modules/fleet/index.js');
 
 const services = {
   identity: app.get(IdentityService),
@@ -49,6 +50,7 @@ const services = {
   catalog: app.get(CatalogService),
   ledger: app.get(LedgerService),
   vehicles: app.get(COURIER_VEHICLES),
+  fleetRepo: app.get(FLEET_REPOSITORY),
 };
 const SYSTEM = { personId: 'system:demo', sessionId: 'demo' };
 const CITY = 'aziziyah';
@@ -83,12 +85,26 @@ const demo = {
     });
   },
 
-  /** A person by phone with a name, roles and (for drivers) a registered vehicle. Idempotent. */
-  async person({ key, phone, name, roles = [], vehicle = null, plate = null }) {
+  /**
+   * A person by phone with a name, roles and (for drivers) a registered vehicle. Idempotent. `car`
+   * (ride step 3): model, colour, the features he claims and the ones ops confirmed at the car check.
+   */
+  async person({ key, phone, name, roles = [], vehicle = null, plate = null, car = {} }) {
     const personId = await services.identity.ensurePersonByPhone(phone, SYSTEM.personId, 'demo');
     if (name) await services.identity.setName({ personId, sessionId: 'demo' }, name);
     for (const kind of roles) await services.identity.grantRole(SYSTEM, { personId, kind }).catch(() => undefined);
-    if (vehicle) services.vehicles.register?.(personId, { vehicleClass: vehicle, plate: plate ?? 'واسط 00000', label: null });
+    if (vehicle) {
+      const registered = plate ?? 'واسط 00000';
+      // The courier card's registry (customers see confirmed features only).
+      services.vehicles.register?.(personId, { vehicleClass: vehicle, plate: registered, model: car.model ?? null, colour: car.colour ?? null, features: car.confirmed ?? [] });
+      // The registry itself (fleet.myVehicle, «مميزات سيارتك»): his own car, unless a fleet's vehicle has the plate.
+      if (plate && !(await services.fleetRepo.vehicleByPlate(plate))) {
+        const v = await services.fleetRepo.createVehicle({ plate, vehicleClass: vehicle, ownerOrgId: null, model: car.model ?? null, colour: car.colour ?? null });
+        await services.fleetRepo.reviewVehicle(v.id, { verified: true, by: SYSTEM.personId, at: new Date(), note: null });
+        await services.fleetRepo.setActiveDriver(v.id, personId);
+        if (car.claimed) await services.fleetRepo.setFeatures(v.id, { features: car.claimed, featuresConfirmed: car.confirmed ?? [] }, new Date());
+      }
+    }
     if (key) demo.people.set(key, { personId, phone, name, vehicle });
     return personId;
   },

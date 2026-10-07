@@ -271,6 +271,8 @@ export const StopCompletedPayload = z.object({
    * holds this point. The courier's own position, never the customer's pin.
    */
   finalDrop: z.object({ cityId: z.string().min(1), lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).optional(),
+  /** s1 «رمز المشوار»: a night ride's pickup that the rider's code started (absent on every other stop). */
+  startCodeChecked: z.literal(true).optional(),
 });
 export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 

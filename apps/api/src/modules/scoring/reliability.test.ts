@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cashPunctuality, nudgesFor, reliabilityCard } from './reliability.js';
+import { cashPunctuality, nudgesFor, onTimePercent, reliabilityCard, type OnTimeTrip } from './reliability.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
 const HOUR = 3_600_000;
@@ -70,5 +70,41 @@ describe('cashPunctuality', () => {
       { amountIqd: -5000, at: ago(2 * HOUR) }, // still within its 24 h, not judged
     ];
     expect(cashPunctuality(lines, NOW, start)).toEqual({ value: 0.6, samples: 1 });
+  });
+});
+
+describe('onTimePercent (ride step 3, the driver profile)', () => {
+  const MIN = 60_000;
+  const trip = (pickupLateMin: number, over: Partial<OnTimeTrip> = {}): OnTimeTrip => ({
+    state: 'completed',
+    acceptedAt: ago(DAY),
+    promisedPickupMin: 5,
+    stops: [
+      { type: 'pickup', windowEnd: null, arrivedAt: new Date(ago(DAY).getTime() + (5 + pickupLateMin) * MIN) },
+      { type: 'dropoff', windowEnd: null, arrivedAt: ago(DAY - 20 * MIN) },
+    ],
+    ...over,
+  });
+
+  it('is null under the minimum completed trips', () => {
+    expect(onTimePercent([trip(0)], 2)).toBeNull();
+    expect(onTimePercent([trip(0), trip(0, { state: 'driver_cancelled' })], 2)).toBeNull();
+  });
+
+  it('counts a pickup reached within the offered minutes plus 3 minutes of grace', () => {
+    expect(onTimePercent([trip(0), trip(3), trip(3.5), trip(10)], 4)).toBe(50);
+  });
+
+  it('a stop with a window (خطوط) counts by its window; trips with no promise are left out', () => {
+    const khat: OnTimeTrip = { state: 'completed', acceptedAt: ago(DAY), promisedPickupMin: null, stops: [{ type: 'pickup', windowEnd: ago(DAY), arrivedAt: ago(DAY - 10 * MIN) }] };
+    const unknown = trip(0, { promisedPickupMin: null });
+    expect(onTimePercent([trip(0), khat, unknown], 3)).toBe(50);
+    expect(onTimePercent([unknown, unknown], 2)).toBeNull();
+  });
+
+  it('only a batch’s first pickup carries the offer’s promise', () => {
+    const batch = trip(0);
+    const late = { type: 'pickup', windowEnd: null, arrivedAt: ago(DAY - 40 * MIN) };
+    expect(onTimePercent([{ ...batch, stops: [...batch.stops, late] }], 1)).toBe(100);
   });
 });

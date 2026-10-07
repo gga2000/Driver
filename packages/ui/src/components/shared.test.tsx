@@ -3,7 +3,8 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatThreadView } from '@driver/contracts';
 import { renderUI } from '../test/render';
-import { ChatThread, type ChatThreadProps } from './ChatThread';
+import { VOICE_CANCEL_SLIDE_PX, type MicPermission } from '../logic/voice-note';
+import { ChatThread, type ChatThreadProps, type ChatVoice } from './ChatThread';
 import { CountdownButton } from './CountdownButton';
 import { ModalSheet } from './ModalSheet';
 import { OtpInput, otpValue } from './OtpInput';
@@ -242,8 +243,8 @@ describe('ChatThread', () => {
       { role: 'courier', name: 'حيدر', you: false },
     ],
     messages: [
-      { id: 'm1', seq: 1, senderRole: 'courier', mine: false, kind: 'text', text: 'وصلت', quickReplyKey: null, photoUrl: null, location: null, masked: false, createdAt: new Date(), read: false },
-      { id: 'm2', seq: 2, senderRole: 'customer', mine: true, kind: 'text', text: 'نازل', quickReplyKey: null, photoUrl: null, location: null, masked: false, createdAt: new Date(), read: true },
+      { id: 'm1', seq: 1, senderRole: 'courier', mine: false, kind: 'text', text: 'وصلت', quickReplyKey: null, photoUrl: null, audioUrl: null, durationSec: null, location: null, masked: false, createdAt: new Date(), read: false },
+      { id: 'm2', seq: 2, senderRole: 'customer', mine: true, kind: 'text', text: 'نازل', quickReplyKey: null, photoUrl: null, audioUrl: null, durationSec: null, location: null, masked: false, createdAt: new Date(), read: true },
     ],
     lastSeq: 2,
     myReadSeq: 1,
@@ -339,5 +340,120 @@ describe('ChatThread', () => {
     expect(screen.getByTestId('chat-support-empty').textContent).toContain('chat.support_empty_title');
     expect(screen.getByTestId('qr-customer_support_late')).toBeTruthy();
     expect(screen.queryByTestId('chat-call')).toBeNull();
+  });
+
+  describe('voice notes (ride ideas n7/n8)', () => {
+    /** An app's microphone and player as fakes; `elapsedMs` is what the recorder reports. */
+    function fakeVoice(over: { permission?: MicPermission; durationMs?: number } = {}) {
+      const recorder = {
+        permission: vi.fn(async (): Promise<MicPermission> => over.permission ?? 'granted'),
+        requestPermission: vi.fn(async (): Promise<MicPermission> => 'granted'),
+        openSettings: vi.fn(),
+        start: vi.fn(async () => true),
+        stop: vi.fn(async () => ({ uri: 'blob:voice-1', durationMs: over.durationMs ?? 4200, contentType: 'audio/webm' as const })),
+        cancel: vi.fn(async () => undefined),
+        elapsedMs: 0,
+      };
+      const player = { activeId: null as string | null, state: 'idle' as const, positionSec: 0, toggle: vi.fn(), stop: vi.fn() };
+      const voice: ChatVoice = { recorder, player, upload: vi.fn(async () => 'up_voice'), audioUri: (u) => `https://api.test${u}` };
+      return voice;
+    }
+    const mic = () => screen.getByTestId('chat-mic');
+    /** Press, (slide by `dx`,) release: the responder system reads mouse events in the browser. */
+    async function hold(dx = 0, release = true) {
+      await act(async () => {
+        fireEvent.mouseDown(mic(), { pageX: 200, clientX: 200, button: 0 });
+      });
+      if (dx) {
+        await act(async () => {
+          fireEvent.mouseMove(document, { pageX: 200 + dx, clientX: 200 + dx, buttons: 1 });
+        });
+      }
+      if (release) {
+        await act(async () => {
+          fireEvent.mouseUp(document, { pageX: 200 + dx, clientX: 200 + dx });
+        });
+      }
+    }
+
+    it('the mic stands in for send while the field is empty', () => {
+      const voice = fakeVoice();
+      setup({ voice });
+      expect(mic()).toBeTruthy();
+      expect(screen.queryByTestId('chat-send')).toBeNull();
+      fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'هلا' } });
+      expect(screen.queryByTestId('chat-mic')).toBeNull();
+      expect(screen.getByTestId('chat-send')).toBeTruthy();
+    });
+
+    it('is left out of the kitchen’s threads', () => {
+      setup({ voice: fakeVoice(), kind: 'customer_merchant' }, view({ kind: 'customer_merchant' }));
+      expect(screen.queryByTestId('chat-mic')).toBeNull();
+    });
+
+    it('hold records with a live counter, release uploads and sends the note with its length', async () => {
+      const voice = fakeVoice();
+      const p = setup({ voice });
+      await hold(0, false);
+      expect(voice.recorder.start).toHaveBeenCalled();
+      expect(voice.player.stop).toHaveBeenCalled();
+      expect(screen.getByTestId('chat-voice-recording')).toBeTruthy();
+      expect(screen.getByTestId('chat-voice-elapsed').textContent).toBe('0:00');
+      await act(async () => {
+        fireEvent.mouseUp(document, { pageX: 200, clientX: 200 });
+      });
+      expect(voice.recorder.stop).toHaveBeenCalled();
+      expect(voice.upload).toHaveBeenCalledWith(expect.objectContaining({ uri: 'blob:voice-1', contentType: 'audio/webm' }));
+      expect(p.send).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'ord_abc123', kind: 'customer_courier', voiceUploadId: 'up_voice', durationSec: 5 }));
+      expect(screen.queryByTestId('chat-voice-recording')).toBeNull();
+    });
+
+    it('sliding towards the start side cancels; nothing is sent', async () => {
+      const voice = fakeVoice();
+      const p = setup({ voice });
+      // Arabic: the start side is the right.
+      await hold(VOICE_CANCEL_SLIDE_PX + 10);
+      expect(voice.recorder.cancel).toHaveBeenCalled();
+      expect(voice.recorder.stop).not.toHaveBeenCalled();
+      expect(p.send).not.toHaveBeenCalled();
+    });
+
+    it('a tap is not a note: too short sends nothing and says to hold', async () => {
+      const voice = fakeVoice({ durationMs: 200 });
+      const p = setup({ voice });
+      await hold();
+      expect(voice.upload).not.toHaveBeenCalled();
+      expect(p.send).not.toHaveBeenCalled();
+      expect(screen.getByText('chat.voice.hold_hint')).toBeTruthy();
+    });
+
+    it('the first hold explains before the OS asks; a refusal offers the settings', async () => {
+      const voice = fakeVoice({ permission: 'undetermined' });
+      (voice.recorder.requestPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('denied');
+      setup({ voice });
+      await hold();
+      expect(voice.recorder.start).not.toHaveBeenCalled();
+      expect(screen.getByTestId('chat-mic-prompt').textContent).toContain('chat.voice.mic_title');
+      await act(async () => {
+        fireEvent.click(screen.getByText('chat.voice.mic_allow'));
+      });
+      expect(voice.recorder.requestPermission).toHaveBeenCalled();
+      expect(screen.getByTestId('chat-mic-prompt').textContent).toContain('chat.voice.mic_denied_title');
+      await act(async () => {
+        fireEvent.click(screen.getByText('chat.voice.open_settings'));
+      });
+      expect(voice.recorder.openSettings).toHaveBeenCalled();
+    });
+
+    it('draws voice bubbles with their seconds, plays through the one player, and says when a note went with the chat', () => {
+      const voice = fakeVoice();
+      const at = new Date();
+      const note = (id: string, seq: number, audioUrl: string | null) => ({ id, seq, senderRole: 'courier' as const, mine: false, kind: 'voice' as const, text: null, quickReplyKey: null, photoUrl: null, audioUrl, durationSec: 12, location: null, masked: false, createdAt: at, read: false });
+      setup({ voice }, view({ messages: [note('v1', 1, '/files/up_1?exp=1&sig=s'), note('v2', 2, null)], lastSeq: 2 }));
+      expect(screen.getByTestId('chat-voice-v1-clock').textContent).toBe('0:12');
+      fireEvent.click(screen.getByTestId('chat-voice-v1-toggle'));
+      expect(voice.player.toggle).toHaveBeenCalledWith('v1', 'https://api.test/files/up_1?exp=1&sig=s');
+      expect(screen.getByTestId('chat-voice-v2').textContent).toContain('chat.voice.expired');
+    });
   });
 });

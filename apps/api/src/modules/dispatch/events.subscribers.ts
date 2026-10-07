@@ -26,6 +26,8 @@ const RidePlaced = z.object({
     quoteId: z.string().nullable(),
     /** Joy l9: the favourite a booked ride asked for. */
     preferDriverId: z.string().nullable().optional(),
+    /** Ride step 3 (s6): «عوائل» — family-tagged, long-standing, well-rated drivers first. */
+    familyPreferred: z.boolean().optional(),
   }),
   /** Joy J7d: a ride booked for later (ISO); its search starts `searchLeadMin` before. */
   scheduledFor: z.string().nullable().optional(),
@@ -99,7 +101,7 @@ export class DispatchSubscribers {
    * vertical's policy (smart broadcast in waves). Food and other orders are ignored here. Idempotent:
    * a redelivery finds the live trip and the live request.
    */
-  async onRidePlaced(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
+  async onRidePlaced(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'> & { actorId?: string | null }): Promise<void> {
     const parsed = RidePlaced.safeParse(e.payload);
     if (!parsed.success || !this.trips.createRideTrip) return;
     const p = parsed.data;
@@ -111,6 +113,9 @@ export class DispatchSubscribers {
     await this.orchestrator.request({
       ...(scheduledFor ? { startAt: rideSearchStartsAt(scheduledFor) } : {}),
       ...(p.ride.preferDriverId ? { preferDriverIds: [p.ride.preferDriverId] } : {}),
+      // Ride step 3: the orderer's avoid list (s5) and favourites (s4) apply; «عوائل» shapes wave 1 (s6).
+      ...(e.actorId ? { riderId: e.actorId } : {}),
+      ...(p.ride.familyPreferred ? { familyPreferred: true } : {}),
       tripId,
       cityId: p.cityId,
       vertical: p.ride.vertical,

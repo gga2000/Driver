@@ -1,11 +1,16 @@
-import { View } from 'react-native';
+import { router } from 'expo-router';
+import { useEffect } from 'react';
+import { Pressable, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Icon, ltr, Text, useTheme } from '@driver/ui';
 import { useCityConfig } from './queries';
-import { mmss, searchStage, searchStageIndex, zoneTitle, type SearchStage } from './logic';
+import { freeCancelLeftSec, mmss, searchProgress, searchStage, tooClose, zoneTitle, type SearchStage } from './logic';
 import { useRideMemo } from './store';
+import { ChangeCreditStrip } from '@/features/track/ChangeCredited';
 import { useLocale, useT } from '@/lib/i18n';
+import { deliveryPointOf, useProfile } from '@/lib/profile';
 import { amountParam } from '@/lib/money';
 
 const STAGE: Record<SearchStage, MessageKey> = {
@@ -34,37 +39,107 @@ export function useSearchNote(v: OrderTracking | undefined, now: number): string
   return stage ? t(STAGE[stage]) : null;
 }
 
+/** Where the search is (ride idea m2): which of the three parts, how full, how many drivers asked. */
+export function useSearchProgress(v: OrderTracking | undefined, now: number) {
+  const city = useCityConfig();
+  if (!v) return null;
+  const vertical = v.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi';
+  const cfg = city.data?.dispatch?.[vertical];
+  return searchProgress(searchElapsedSec(v, now), cfg, cfg?.customerFreeCancelAfterSec ?? 180);
+}
+
+/** Collapsed-sheet height the search bar adds (the bar row, the honest line, the gap above them). */
+export const SEARCH_PROGRESS_H = 58;
+
 /**
- * The collapsed header's right side while searching (L-03): three stage dots with "1 من 3" — a
- * finish line, not a stopwatch — and the elapsed time small underneath.
+ * Ride idea m2: a three-part bar for the search (nearest few, wider, everyone), the current part
+ * filling, the time since the request at its end, and the honest line under it — in place of the
+ * small «1 من 3» box.
  */
-export function SearchStages({ stage, seconds }: { stage: SearchStage; seconds: number }) {
+export function SearchProgress({ part, fill, note, seconds }: { part: 1 | 2 | 3; fill: number; note: string | null; seconds: number }) {
   const theme = useTheme();
   const t = useT();
-  const n = searchStageIndex(stage);
   return (
     <View
-      testID="ride-search-stages"
+      testID="ride-search-progress"
       accessible
-      accessibilityLabel={`${t('ride.search_stage', { n })} · ${mmss(seconds)}`}
-      style={{ alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, minWidth: 84 }}
+      accessibilityRole="progressbar"
+      accessibilityLabel={[note, t('ride.search_stage', { n: part }), mmss(seconds)].filter(Boolean).join('، ')}
+      style={{ gap: 6 }}
     >
-      <View style={{ flexDirection: 'row', gap: 6 }}>
-        {[1, 2, 3].map((i) => (
-          <View
-            key={i}
-            testID={`ride-search-stage-${i}${i <= n ? '-on' : ''}`}
-            style={{ width: i === n ? 18 : 8, height: 8, borderRadius: 4, backgroundColor: i <= n ? theme.colors.accent : theme.colors.border }}
-          />
-        ))}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+        <View style={{ flex: 1, flexDirection: 'row', gap: 4 }}>
+          {([1, 2, 3] as const).map((i) => (
+            <BarPart key={i} fill={i < part ? 1 : i === part ? fill : 0} live={i === part} testID={`ride-search-part-${i}${i < part ? '-done' : i === part ? '-now' : ''}`} />
+          ))}
+        </View>
+        <Text variant="caption" weight={600} color="textMuted" tabular testID="ride-search-counter">
+          {mmss(seconds)}
+        </Text>
       </View>
-      <Text variant="label" weight={700} color="accentText" tabular>
-        {t('ride.search_stage', { n })}
-      </Text>
-      <Text variant="caption" color="textMuted" tabular testID="ride-search-counter">
-        {mmss(seconds)}
-      </Text>
+      {note ? (
+        <Text variant="caption" color="textMuted" numberOfLines={1} testID="status-note">
+          {note}
+        </Text>
+      ) : null}
     </View>
+  );
+}
+
+function BarPart({ fill, live, testID }: { fill: number; live: boolean; testID: string }) {
+  const theme = useTheme();
+  const w = useSharedValue(fill);
+  useEffect(() => {
+    // The clock ticks each second: glide to the new fill over that second, so the bar moves smoothly.
+    w.value = theme.reduceMotion ? fill : withTiming(fill, { duration: 950, easing: Easing.linear });
+  }, [fill, w, theme.reduceMotion]);
+  const style = useAnimatedStyle(() => ({ width: `${Math.round(w.value * 1000) / 10}%` }));
+  return (
+    <View testID={testID} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: live ? theme.colors.accentTint : theme.colors.border, overflow: 'hidden' }}>
+      <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: theme.colors.accent }, style]} />
+    </View>
+  );
+}
+
+/** Collapsed-sheet height the free-cancel chip adds (44 tap target and the gap above it). */
+export const FREE_CANCEL_H = 56;
+
+/**
+ * Ride idea m4: for the first minute after a driver accepts, cancelling is still free (pricing
+ * `rideFreeAfterAcceptSec`); a chip says so and counts the seconds down, and opens the cancel panel.
+ */
+export function FreeCancelChip({ acceptedAt, now, onPress }: { acceptedAt: Date | null; now: number; onPress: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const left = freeCancelLeftSec(acceptedAt, now);
+  if (left === null) return null;
+  return (
+    <Pressable
+      testID="ride-free-cancel"
+      accessibilityRole="button"
+      accessibilityLabel={t('ride.free_cancel_a11y', { seconds: left })}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        alignSelf: 'flex-start',
+        minHeight: 44,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[2],
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.pill,
+        borderWidth: 1,
+        borderColor: theme.colors.successText,
+        backgroundColor: pressed ? theme.colors.successTint : theme.colors.surface,
+      })}
+    >
+      <Icon name="x" size={16} color="successText" strokeWidth={2.4} />
+      <Text variant="label" weight={600} color="successText">
+        {t('ride.free_cancel_chip')}
+      </Text>
+      <Text variant="label" weight={700} color="successText" tabular testID="ride-free-cancel-seconds">
+        {mmss(left)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -155,46 +230,105 @@ export function WaitNote({ vertical }: { vertical: 'taxi' | 'tuktuk' }) {
 }
 
 /**
- * The arrival moment for a ride: where from and to, the fare (locked at booking) and how it is paid,
- * and who drove — the receipt in one glance, where a food order shows the gate photo.
+ * The arrival receipt for a ride (ride idea a1): the fare large (locked at booking) and how it is
+ * paid, the change that went to the wallet when the driver had none («الخردة علينا»), the car and its
+ * plate (who drove and the minutes are in the line above it), then where from and to — the receipt in one glance, where a food order
+ * shows the gate photo.
  */
 export function RideArrivalSummary({ view }: { view: OrderTracking }) {
   const theme = useTheme();
   const t = useT();
   const o = view.order;
   const fare = Math.max(0, o.totalIqd - o.tipIqd);
-  const name = view.courier?.firstName ?? t('track.driver_fallback');
+  const cash = o.paymentMethod === 'cash';
+  const credited = cash ? (o.changeToWalletIqd ?? 0) : 0;
   const tuktuk = view.courier?.vehicleClass === 'tuktuk' || view.trip?.vertical === 'tuktuk';
   const vehicle = t(tuktuk ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi');
   return (
     <View
       testID="ride-arrival-summary"
-      style={{ width: '100%', gap: theme.space[4], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
+      style={{ width: '100%', gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
     >
-      <RideRoute view={view} />
-      <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="caption" color="textMuted">
-            {t('ride.fare')}
-          </Text>
-          <Text variant="footnote" weight={600} color={o.paymentMethod === 'cash' ? 'accentText' : 'successText'}>
-            {o.paymentMethod === 'cash' ? t('ride.pay_driver_cash', { amount: amountParam(fare) }) : t('ride.paid_wallet')}
-          </Text>
-        </View>
-        <Text variant="amount" tabular testID="ride-arrival-fare">
+      <View style={{ alignItems: 'center', gap: theme.space[1] }}>
+        <Text variant="caption" color="textMuted">
+          {t('ride.fare')}
+        </Text>
+        <Text variant="display" tabular testID="ride-arrival-fare" style={{ fontSize: 40, lineHeight: 52 }}>
           {amountParam(fare)}
-          <Text variant="footnote" color="textMuted">
+          <Text variant="title" color="textMuted">
             {` ${t('quote.currency')}`}
           </Text>
         </Text>
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[3], minHeight: 30, borderRadius: 15, backgroundColor: cash ? theme.colors.accentTint : theme.colors.successTint }}
+        >
+          <Icon name={cash ? 'cash' : 'wallet'} size={15} color={cash ? 'accentText' : 'successText'} strokeWidth={2.2} />
+          <Text variant="footnote" weight={600} color={cash ? 'accentText' : 'successText'} testID="ride-arrival-paid">
+            {cash ? t('ride.pay_driver_cash', { amount: amountParam(fare) }) : t('ride.paid_wallet')}
+          </Text>
+        </View>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <Icon name={tuktuk ? 'tuktuk' : 'car'} size={18} color="textMuted" strokeWidth={2} />
-        <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
-          {t('ride.arrived_with', { name, vehicle: [vehicle, view.courier?.plate ? ltr(view.courier.plate) : null].filter(Boolean).join(' · ') })}
+      {credited > 0 ? <ChangeCreditStrip amountIqd={credited} /> : null}
+      {/* Who and how long are in the line under «وصلت بالسلامة»; here the car, for a lost item. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
+        <Icon name={tuktuk ? 'tuktuk' : 'car'} size={16} color="textMuted" strokeWidth={2} />
+        <Text variant="footnote" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }} testID="ride-arrival-vehicle">
+          {[vehicle, view.courier?.plate ? ltr(view.courier.plate) : null].filter(Boolean).join(' · ')}
         </Text>
       </View>
+      <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+      <RideRoute view={view} />
     </View>
+  );
+}
+
+/**
+ * Ride idea a3: after a ride to a spot that isn't one of the rider's places, «تحب تسمّي هالمكان؟» in
+ * the calm receipt opens the place editor on that pin; once saved it shows with البيت and الشغل and
+ * among the smart picks. Only for rides booked on this device (the memo knows what was chosen).
+ */
+export function NameThisPlace({ view }: { view: OrderTracking }) {
+  const theme = useTheme();
+  const t = useT();
+  const memo = useRideMemo(view.order.id);
+  const places = useProfile().places;
+  const dest = memo?.dest;
+  if (!dest || dest.kind === 'saved' || memo?.toHome) return null;
+  const known = places.some((p) => {
+    const pin = deliveryPointOf(p).pin;
+    return pin ? tooClose({ pin }, dest) : false;
+  });
+  if (known) return null;
+  return (
+    <Pressable
+      testID="ride-name-place"
+      accessibilityRole="button"
+      accessibilityLabel={`${t('ride.name_place_title')} ${t('ride.name_place_action')}`}
+      onPress={() =>
+        router.push({
+          pathname: '/places/new',
+          params: { from: 'ride', label: 'custom', lat: String(dest.pin.lat), lng: String(dest.pin.lng), zoneId: dest.zoneId },
+        })
+      }
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        minHeight: 52,
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken,
+      })}
+    >
+      <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentTint }}>
+        <Icon name="star" size={16} color="accentText" strokeWidth={2.2} />
+      </View>
+      <Text variant="label" weight={600} style={{ flex: 1 }} numberOfLines={1}>
+        {t('ride.name_place_title')}
+      </Text>
+      <Text variant="label" weight={700} color="accentText">
+        {t('ride.name_place_action')}
+      </Text>
+    </Pressable>
   );
 }

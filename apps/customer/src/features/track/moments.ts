@@ -7,7 +7,7 @@ import type { Phase } from './timeline';
  * a soft sound) once. Rides add the two peaks a stranger brings: `matched` (a driver took it) and
  * `driver_here` (he is at the pickup, the free wait is running).
  */
-export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered' | 'matched' | 'driver_here' | 'courier_assigned';
+export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered' | 'matched' | 'driver_here' | 'courier_assigned' | 'ride_near';
 
 /** What one read of the order says, for comparing with the previous read. */
 export interface MomentSnapshot {
@@ -21,6 +21,8 @@ export interface MomentSnapshot {
   ride?: boolean;
   /** A courier has accepted the job (food: the driver reveal's moment, joy l2). Absent = unknown. */
   courier?: boolean;
+  /** Rides: the driver is a minute from the pickup (ride idea d3, latched). */
+  rideNear?: boolean;
 }
 
 const BEFORE_ACCEPT: ReadonlySet<Phase> = new Set(['waiting_merchant']);
@@ -38,6 +40,7 @@ export function momentsBetween(prev: MomentSnapshot | null, next: MomentSnapshot
   if (!prev || prev.orderId !== next.orderId || ENDED.has(next.phase)) return [];
   const out: Moment[] = [];
   if (next.ride && SEARCHING.has(prev.phase) && DRIVER_COMING.has(next.phase)) out.push('matched');
+  if (next.ride && !prev.rideNear && next.rideNear && next.phase === 'to_pickup') out.push('ride_near');
   if (next.ride && prev.phase !== 'at_pickup' && next.phase === 'at_pickup') out.push('driver_here');
   if (BEFORE_ACCEPT.has(prev.phase) && !BEFORE_ACCEPT.has(next.phase) && !AT_DOOR.has(next.phase)) out.push('accepted');
   // Joy l2: a courier took my food order (before he has it; a later read with the food on its way is not "news").
@@ -102,6 +105,8 @@ const FEEDBACK: Record<Moment, { haptics: MomentHaptic[]; cue: MomentCue | null 
   driver_here: { haptics: ['heavy', 'heavy'], cue: 'near' },
   // Food's reveal is a light touch: the kitchen's yes already chimed.
   courier_assigned: { haptics: ['light'], cue: null },
+  // Ride idea d3: a soft buzz, no sound — "get your shoes on", not an alarm (that is driver_here).
+  ride_near: { haptics: ['light'], cue: null },
 };
 
 /**

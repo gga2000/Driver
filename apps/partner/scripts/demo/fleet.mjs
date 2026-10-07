@@ -58,10 +58,10 @@ export default async function register(demo) {
   const owner = { personId: ownerId, sessionId: 'demo' };
 
   const specs = [
-    { key: 'f_hussein', phone: '07701110051', name: 'حسين علي', vehicle: 'tuktuk', plate: 'واسط 40211', seats: 3, perDay: [7, 12], fare: [1500, 3000], state: 'on_job', at: { lat: 32.9128, lng: 45.0668 } },
-    { key: 'f_mustafa', phone: '07701110052', name: 'مصطفى كريم', vehicle: 'car', plate: 'واسط 52870', seats: 4, perDay: [5, 9], fare: [3000, 6000], state: 'online', cash: 58_000, at: { lat: 32.9095, lng: 45.0635 } },
+    { key: 'f_hussein', phone: '07701110051', name: 'حسين علي', vehicle: 'tuktuk', plate: 'واسط 40211', seats: 3, model: 'باجاج', colour: 'red', perDay: [7, 12], fare: [1500, 3000], state: 'on_job', at: { lat: 32.9128, lng: 45.0668 } },
+    { key: 'f_mustafa', phone: '07701110052', name: 'مصطفى كريم', vehicle: 'car', plate: 'واسط 52870', seats: 4, model: 'تويوتا كورولا', colour: 'white', claimed: ['ac', 'family'], confirmed: ['ac'], perDay: [5, 9], fare: [3000, 6000], state: 'online', cash: 58_000, at: { lat: 32.9095, lng: 45.0635 } },
     { key: 'f_ahmed', phone: '07701110053', name: 'أحمد جبار', vehicle: 'tuktuk', plate: 'واسط 40398', seats: 3, perDay: [6, 10], fare: [1500, 2500], state: 'online', cash: 84_000, at: { lat: 32.9005, lng: 45.0465 } },
-    { key: 'f_zaid', phone: '07701110054', name: 'زيد ناصر', vehicle: 'van', plate: 'واسط 61104', seats: 7, perDay: [2, 4], fare: [6000, 12000], state: 'offline', restToday: true },
+    { key: 'f_zaid', phone: '07701110054', name: 'زيد ناصر', vehicle: 'van', plate: 'واسط 61104', seats: 7, model: 'كيا بونغو', colour: 'grey', perDay: [2, 4], fare: [6000, 12000], state: 'offline', restToday: true },
     { key: 'f_ali', phone: '07701110055', name: 'علي رزاق', vehicle: null, perDay: [0, 3], fare: [2000, 4000], state: 'offline', restToday: true },
   ];
 
@@ -69,12 +69,12 @@ export default async function register(demo) {
   const vehicles = {};
   for (const s of specs) {
     if (!s.vehicle) continue;
-    vehicles[s.key] = await fleet.addVehicle(owner, { plate: s.plate, vehicleClass: s.vehicle, seats: s.seats });
+    vehicles[s.key] = await fleet.addVehicle(owner, { plate: s.plate, vehicleClass: s.vehicle, seats: s.seats, ...(s.model ? { model: s.model, colour: s.colour } : {}) });
   }
 
   const drivers = {};
   for (const s of specs) {
-    const id = await demo.person({ key: s.key, phone: s.phone, name: s.name, roles: ['driver'], vehicle: s.vehicle, plate: s.plate ?? null });
+    const id = await demo.person({ key: s.key, phone: s.phone, name: s.name, roles: ['driver'], vehicle: s.vehicle, plate: s.plate ?? null, car: { model: s.model, colour: s.colour, confirmed: s.confirmed } });
     await fleet.addDriver(owner, { phone: s.phone });
     // He said yes in his Partner app: only then does the owner see him (and may give him a vehicle).
     await fleet.respondInvite(
@@ -83,6 +83,8 @@ export default async function register(demo) {
     );
     drivers[s.key] = id;
     if (vehicles[s.key]) await fleet.assignDriver(owner, { vehicleId: vehicles[s.key].vehicleId, driverId: id });
+    // Ride step 3: what he says his car offers, and what the car check confirmed.
+    if (vehicles[s.key] && s.claimed) await demo.services.fleetRepo.setFeatures(vehicles[s.key].vehicleId, { features: s.claimed, featuresConfirmed: s.confirmed ?? [] }, new Date());
   }
 
   // They joined weeks ago (the owner sees earnings only from the day a driver accepted): the in-memory

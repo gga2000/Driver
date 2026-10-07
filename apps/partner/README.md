@@ -177,6 +177,13 @@ portrait; courier's new one «تنتظر الموافقة», tuktuk's «مرفو
 waiting at مشويات الحاج كريم keep the demand hint at "الطلب عالي بالمركز"; demo offers go out
 through the dispatcher override, the tuktuk ride through the real wave-1 broadcast.
 
+Ride step 4 (ideas x1, x5; `scripts/demo/98-souq.mjs`): taxi `0770 111 0017` (سيف علي, a white تويوتا
+كورولا with AC and «عوائل» confirmed, checked in, offline). `POST /demo/weather?at=hot|cold|real` sets
+the clock the shift question reads (a July / January day; dispatch keeps the real clock): online on a
+hot shift he is asked «المكيّفة شغالة اليوم؟» on home (docs/api/climate-check.md).
+`POST /demo/souq-offer?who=tuktuk|taxi` offers him a ride whose rider carries bags and a gas cylinder
+(«عنده غراض: …» on the card), `POST /demo/souq-job?who=…` the same ride accepted. Shots: `SHOTS=souq`.
+
 ## Known gaps (wave 1)
 
 - Background location is built (`src/lib/background-location.native.ts`, maps program SP1 f2): while
@@ -287,6 +294,17 @@ When a customer sends a meal to someone else as a gift, the job card says so (`G
 `src/features/work/gift.ts`): «هدية» on the drop-off; when the sender paid from his wallet and hid the
 prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
 الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
+
+## Night trip code and «نسيت غرض» (taxi/tuktuk step 3)
+
+A ride placed at night (21:00–05:59 Baghdad) starts only with the 4 digits in the rider's app: the job says
+«بالليل: يحتاج رمز من الراكب» (`PartnerJobStop.startCodeRequired`; the code itself never reaches this app)
+and «الراكب صعد» opens a big-key pad (`src/features/work/StartCodePanel.tsx`) whose code the server checks
+(`start_code_wrong` clears it; five wrong ones alert the Console). Needs internet, like the unreachable
+protocol. A rider who left something in the car reopens the chat for 24 h after the ride: home shows one
+strip per reopened chat (`src/features/chat/LostItems.tsx`, `chat.lostItems`). API: `docs/api/ride-safety.md`.
+Demo: `POST /demo/ride-safety?who=tuktuk&step=at_pickup` (answers with the `startCode` to type) and
+`…&step=lost_item`.
 
 ## «الزبون طلبك إنت» — a favourite's offer (joy l9)
 

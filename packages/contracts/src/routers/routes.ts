@@ -45,7 +45,7 @@ import {
   RequestPostView,
   RajaaDriverCard,
   RajaaDriverProfile,
-  DriverProfileInput,
+  RajaaDriverProfileInput,
   ReviewsOpsInput,
   REVIEW_MODERATION_ROLES,
   ReviewOpsView,
@@ -79,7 +79,7 @@ export const routesRouter = router({
     .query(({ ctx, input }) => ctx.routes.driverCards(ctx.actor, input)),
   /** «ملفه» (x12–x17): the driver's record, quality bars, badges and reviews; same visibility as driverCards. */
   driverProfile: protectedProcedure()
-    .input(DriverProfileInput)
+    .input(RajaaDriverProfileInput)
     .output(RajaaDriverProfile)
     .query(({ ctx, input }) => ctx.routes.driverProfile(ctx.actor, input)),
   /** Live departure board per garage (or corridor + direction), with fill and front-seat status. */

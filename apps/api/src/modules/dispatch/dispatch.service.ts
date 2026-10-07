@@ -27,8 +27,10 @@ import { ZoneDemandService } from './zone-demand.service.js';
 import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
+import type { RiderPrefsPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
+import { VEHICLE_FACTS, type VehicleFacts, type VehicleFactsPort } from './vehicle-facts.js';
 
 export const DISPATCH_POLICIES = Symbol('DISPATCH_POLICIES');
 
@@ -66,6 +68,7 @@ export class DispatchService implements DispatchPort {
     @Optional() private readonly presenceService?: PresenceService,
     @Optional() private readonly nearbyService?: NearbyService,
     @Optional() private readonly zoneDemandService?: ZoneDemandService,
+    @Optional() @Inject(VEHICLE_FACTS) private readonly facts?: VehicleFactsPort,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.policies = new Map((policies ?? defaultPolicies()).map((p) => [p.kind, p]));
@@ -162,6 +165,34 @@ export class DispatchService implements DispatchPort {
   nudgeZone(actor: Actor, input: NudgeZoneInput): Promise<NudgeZoneResult> {
     if (!this.zoneDemandService) throw new DispatchError('not_wired', 'zone demand is not wired');
     return this.zoneDemandService.nudge(actor.personId, input);
+  }
+
+  // ───────────────────────── the rider's side (ride step 3) ─────────────────────────
+
+  /** Ride habits binds the rider's avoid list (s5), favourites (s4) and drivers' standing (s6). */
+  bindRiders(port: RiderPrefsPort): void {
+    this.o.bindRiders(port);
+  }
+
+  /** n3: a searching ride's request and its offers; null once it has its driver (or never searched). */
+  searchOf(tripId: string): Promise<{ request: DispatchRequest; offers: OfferRecord[] } | null> {
+    return this.o.searchOf(tripId);
+  }
+
+  /** n5: a driver's accepted offers, newest first, at most `limit` (the profile's on-time share). */
+  acceptedOffersOf(driverId: string, limit: number): Promise<OfferRecord[]> {
+    return this.o.acceptedBy(driverId, limit);
+  }
+
+  /** n4 «نبّهه»: once per driver per ride; the caller checked the rider may see this ride. */
+  nudgeOffer(tripId: string, offerId: string, riderId: string): Promise<Date> {
+    return this.o.nudge(tripId, offerId, riderId);
+  }
+
+  /** The cars riders are told about (model, colour, confirmed features) and each driver's trip count. */
+  async vehicleFacts(driverIds: readonly string[]): Promise<Map<string, VehicleFacts>> {
+    if (!this.facts) throw new DispatchError('not_wired', 'vehicle facts are not wired');
+    return this.facts.factsOf(driverIds);
   }
 
   // ───────────────────────── Console reads ─────────────────────────

@@ -69,4 +69,20 @@ describe('identity: trusted contacts and safety switches', () => {
     expect((await h.service.updateProfile(actor, { safety: { autoShareRajaa: true } })).safety).toEqual({ autoShareRajaa: true, autoShareNight: false, notifyOnArrival: true });
     expect(await h.service.safetyPrefsOf(actor.personId)).toEqual({ autoShareRajaa: true, autoShareNight: false, notifyOnArrival: true });
   });
+
+  it('«وصل بالسلامة» (ride s2): only the trusted people who have an account, as person ids, read logged', async () => {
+    const h = harness();
+    const { actor } = await h.login('07712345678');
+    const sister = await h.login('07902223344');
+    await h.service.updateProfile(actor, {
+      trustedContacts: [
+        { name: 'أمي', phone: '0780 111 2233' },
+        { name: 'أختي', phone: '0790 222 3344' },
+      ],
+    });
+    expect(await h.service.trustedContactAccounts(actor.personId, 'system:notify', 'notify_ride_safe_arrival')).toEqual([sister.actor.personId]);
+    expect((await h.repo.vaultAccessLogs(actor.personId)).at(-1)).toMatchObject({ accessorId: 'system:notify', purpose: 'notify_ride_safe_arrival' });
+    // Nobody trusted: nobody.
+    expect(await h.service.trustedContactAccounts(sister.actor.personId, 'system:notify', 'notify_ride_safe_arrival')).toEqual([]);
+  });
 });

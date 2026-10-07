@@ -55,7 +55,18 @@ export { OtpInput, otpValue, type OtpInputProps } from './components/OtpInput';
 export { Screen, MAX_CONTENT_WIDTH, type ScreenProps } from './components/Screen';
 export { TabBar, type TabBarProps, type TabSpec, type TabBarNavigationProps } from './components/TabBar';
 export { PermissionPrompt, type PermissionPromptProps, type PermissionPromptPoint } from './components/PermissionPrompt';
-export { ChatThread, useMaskedCall, type ChatThreadProps, type ChatThreadQuery, type ChatT, type ChatPhotoResult } from './components/ChatThread';
+export {
+  ChatThread,
+  useMaskedCall,
+  type ChatThreadProps,
+  type ChatThreadQuery,
+  type ChatT,
+  type ChatPhotoResult,
+  type ChatVoice,
+  type ChatVoicePlayer,
+  type ChatVoiceRecorder,
+} from './components/ChatThread';
+export { MicHoldButton, VoiceNotePlayer, VoiceRecorderBar, type MicHoldButtonProps, type VoiceNotePlayerProps, type VoicePlayState, type VoiceRecorderBarProps } from './components/VoiceNote';
 export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosSheetPhase } from './components/SosButton';
 
@@ -84,6 +95,7 @@ export * from './logic/sheet';
 export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
+export * from './logic/voice-note';
 export * from './logic/sos';
 export * from './logic/photo-fallback';
 export * from './logic/voice';

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { RoleKind } from './auth.js';
+import { AnswerClimateCheckInput, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
+import { RideCargo } from './ride-cargo.js';
 import type { OrderRoute } from './tracking.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass } from './trip.js';
 
@@ -127,6 +129,8 @@ export const PartnerStatus = z.object({
   offerId: z.string().nullable(),
   /** Daily check-in / lock-out / expired documents; null for people without a driving role. */
   gate: PartnerOnlineGate.nullable(),
+  /** «المكيّفة شغالة اليوم؟» (ride idea x1): the shift's question on a hot / cold day; null when none applies. */
+  climateCheck: PartnerClimateCheck.nullable().default(null),
 });
 export type PartnerStatus = z.infer<typeof PartnerStatus>;
 
@@ -215,8 +219,17 @@ export const PartnerOffer = z.object({
    * alone for a minute; nothing else about who favourited him is ever shown.
    */
   favourite: z.boolean().default(false),
+  /** «راكب ينتظرك» (ride step 3, n4): the waiting rider nudged him on this offer; null = not. */
+  nudgedAt: z.coerce.date().nullable().default(null),
+  /** «عنده غراض: قنينة غاز» (ride idea x5): what the rider carries, so he knows before accepting; [] = nothing said. */
+  rideCargo: z.array(RideCargo).default([]),
+  /**
+   * Ride ideas c9/s3: the ride was booked for someone else — the rider's name as the booker gave it for
+   * the driver («المشوار لـ أم علي»). Null for a rider who booked it himself.
+   */
+  rider: z.object({ name: z.string() }).nullable().default(null),
 });
-export type PartnerOffer = z.infer<typeof PartnerOffer>;
+export type PartnerOffer =z.infer<typeof PartnerOffer>;
 
 /**
  * The customer's door for the courier on the job (maps program f6, a5). Photos are signed links,
@@ -280,6 +293,16 @@ export const PartnerJobStop = z.object({
    * mentioned at the door («هدية — لا تذكر السعر») and no receipt goes in the bag. Null/absent = not a gift.
    */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
+  /**
+   * s1 «رمز المشوار»: a night ride's pickup not yet done — the rider must tell him the 4 digits before
+   * «الراكب صعد» (`trips.completeStop` with `startCode`). He never sees the code itself. Absent = none.
+   */
+  startCodeRequired: z.boolean().optional(),
+  /**
+   * Ride ideas c9/s3: a ride booked for someone else — the rider's name (as the booker gave it) on its
+   * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
+   */
+  rider: z.object({ name: z.string() }).nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 
@@ -294,6 +317,8 @@ export const PartnerJob = z.object({
   unreachable: UnreachableStatus.nullable(),
   pay: PartnerPay,
   merchant: PartnerMerchantPrep.nullable(),
+  /** Ride idea x5: what the rider carries (bags, a gas cylinder, something big); [] = nothing said. */
+  rideCargo: z.array(RideCargo).default([]),
 });
 export type PartnerJob = z.infer<typeof PartnerJob>;
 
@@ -318,6 +343,8 @@ export interface PartnerPort {
   jobRoute(actor: Actor): Promise<OrderRoute>;
   /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
   demandMap(actor: Actor): Promise<PartnerDemandMap>;
+  /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
+  answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
 }
 
 /** Where the orders are (maps program d5). */

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ApprovalItem, ApprovalKind, ApprovalPhoto, AuditEntry } from '@driver/contracts';
+import type { ApprovalItem, ApprovalKind, ApprovalPhoto, AuditEntry, VehicleFeature } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ageLabel, approvalCounts, arabicDay, fileUrl, nextAfter } from '@/lib/control-room';
@@ -16,6 +16,7 @@ import {
   Avatar,
   Button,
   Card,
+  Checkbox,
   Chip,
   cx,
   EmptyState,
@@ -38,7 +39,7 @@ import {
   useToast,
 } from './ui';
 
-const KINDS: readonly ApprovalKind[] = ['driver_document', 'merchant_deal', 'landmark_photo', 'merchant_onboarding', 'fleet_vehicle'];
+const KINDS: readonly ApprovalKind[] = ['driver_document', 'merchant_deal', 'landmark_photo', 'merchant_onboarding', 'fleet_vehicle', 'vehicle_features'];
 const POLL_MS = 15_000;
 
 /** One-tap reasons the reviewer can start from (keys 1–4; edited before sending). */
@@ -49,6 +50,7 @@ const REJECT_PRESETS: Record<ApprovalKind, readonly MessageKey[]> = {
   landmark_photo: ['console.apr_reason_blurry', 'console.apr_reason_wrong_place'],
   merchant_onboarding: ['console.apr_reason_menu_missing', 'console.apr_reason_owner_id'],
   fleet_vehicle: ['console.apr_reason_plate', 'console.apr_reason_registration'],
+  vehicle_features: ['console.apr_reason_feature_missing', 'console.apr_reason_feature_broken'],
 };
 
 /** Quick expiry choices for documents (years from today), instead of a US-format date box (K-15). */
@@ -240,6 +242,8 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
   const [customDate, setCustomDate] = useState(false);
   const [zoom, setZoom] = useState<ApprovalPhoto | null>(null);
   const [needReason, setNeedReason] = useState(false);
+  // The car check (ride step 3): every claimed feature starts ticked; the reviewer unticks what he did not see.
+  const [seen, setSeen] = useState<VehicleFeature[]>(() => item.features.map((f) => f.feature));
   const lastG = useRef(0);
   const decide = useMutation(
     trpc.approvals.decide.mutationOptions({
@@ -267,6 +271,7 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
       decision,
       ...(reason.trim() ? { reason: reason.trim() } : {}),
       ...(decision === 'approve' && item.takesExpiry && expiry ? { expiresAt: new Date(`${expiry}T00:00:00+03:00`) } : {}),
+      ...(decision === 'approve' && item.features.length > 0 ? { confirmFeatures: seen } : {}),
     });
   };
   // "g a" jumps to this page from anywhere: an "a" right after "g" is navigation, never an approval.
@@ -343,6 +348,8 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
             </div>
           </div>
         )}
+
+        {item.features.length > 0 && <FeatureCheck features={item.features} seen={seen} onChange={setSeen} disabled={locked} />}
       </div>
 
       <footer className="sticky bottom-0 z-[2] space-y-4 rounded-b-lg border-t border-line bg-surface-2 px-6 py-4 shadow-[0_-6px_16px_-12px_rgb(var(--c-shadow)/0.5)]">
@@ -426,6 +433,32 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
 
       {zoom && <PhotoZoom photo={zoom} onClose={() => setZoom(null)} />}
     </article>
+  );
+}
+
+/**
+ * The car check of the driver's claimed features (ride ideas n1, n2): one box per claim, ticked by
+ * default; approving confirms the ticked ones and clears the rest from his claims.
+ */
+function FeatureCheck({ features, seen, onChange, disabled }: { features: ApprovalItem['features']; seen: VehicleFeature[]; onChange: (v: VehicleFeature[]) => void; disabled: boolean }) {
+  return (
+    <fieldset disabled={disabled} className="rounded-md border border-line bg-surface-2 px-4 py-3 disabled:opacity-60">
+      <legend className="px-1 text-dense font-semibold">{t('console.apr_features_title')}</legend>
+      <p className="mb-2 text-xs text-muted">{t('console.apr_features_hint')}</p>
+      <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        {features.map(({ feature, confirmed }) => (
+          <li key={feature}>
+            <Checkbox
+              label={t(`vehicle.feature.${feature}`)}
+              hint={confirmed ? t('console.apr_feature_was_confirmed') : t('console.apr_feature_new')}
+              checked={seen.includes(feature)}
+              onChange={(on) => onChange(on ? [...seen, feature] : seen.filter((f) => f !== feature))}
+            />
+          </li>
+        ))}
+      </ul>
+      {seen.length === 0 && <p role="status" className="mt-2 text-xs text-warn">{t('console.apr_features_none_ticked')}</p>}
+    </fieldset>
   );
 }
 

@@ -1041,8 +1041,8 @@ export const RajaaDriverProfile = z.object({
 });
 export type RajaaDriverProfile = z.infer<typeof RajaaDriverProfile>;
 
-export const DriverProfileInput = z.object({ departureId: z.string().min(1) });
-export type DriverProfileInput = z.infer<typeof DriverProfileInput>;
+export const RajaaDriverProfileInput = z.object({ departureId: z.string().min(1) });
+export type RajaaDriverProfileInput = z.infer<typeof RajaaDriverProfileInput>;
 
 /** Who reads and hides riders' written reviews (Console «كلام الركاب»). */
 export const REVIEW_MODERATION_ROLES = ['support', 'admin'] as const;
@@ -1171,7 +1171,7 @@ export interface RoutesPort {
   /** Riders: the driver of each departure that is on the board or that they hold a seat on (others are left out). */
   driverCards(actor: Actor, input: DriverCardsInput): Promise<RajaaDriverCard[]>;
   /** Riders: the full profile of a departure's driver (same visibility as `driverCards`). */
-  driverProfile(actor: Actor, input: DriverProfileInput): Promise<RajaaDriverProfile>;
+  driverProfile(actor: Actor, input: RajaaDriverProfileInput): Promise<RajaaDriverProfile>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
   requestSeen(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;

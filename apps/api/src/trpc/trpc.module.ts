@@ -35,6 +35,8 @@ import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { InsightsModule, InsightsService } from '../modules/insights/index.js';
 import { ReferralsModule, ReferralsService } from '../modules/referrals/index.js';
 import { RideHabitsModule, RideHabitsService } from '../modules/ride-habits/index.js';
+import { PhoneBookingModule, PhoneBookingService } from '../modules/phone-booking/index.js';
+import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 
@@ -86,6 +88,8 @@ export class TrpcService {
     private readonly insights: InsightsService,
     private readonly referrals: ReferralsService,
     private readonly rideHabits: RideHabitsService,
+    private readonly phoneBookings: PhoneBookingService,
+    private readonly garageTaxi: GarageTaxiService,
   ) {}
 
   /**
@@ -156,6 +160,8 @@ export class TrpcService {
       safety: this.safety,
       referrals: this.referrals,
       rideHabits: this.rideHabits,
+      phoneBookings: this.phoneBookings,
+      garageTaxi: this.garageTaxi,
       auth,
       authError,
       client: { ip: ip ?? null },
@@ -180,5 +186,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

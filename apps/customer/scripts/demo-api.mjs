@@ -24,9 +24,16 @@
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
+//   - POST /demo/ride-for?personId=…                                 «لمنو المشوار؟»: trusted people and «ماما» booked for before
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
 //                                                                     a booked ride, «عشاك يوصل وياك»
+//   - POST /demo/same-ride?personId=…                                 step 4 o4: the «نفس مشوار البارحة؟» link
+//   - POST /demo/rajaa-taxi?personId=…                               taxi ideas x2/x3/x4: a seat out of Aziziyah, a late
+//                                                                     taxi to a car, three trips back (offer, armed, booked),
+//                                                                     and n9: two cars back from Baghdad today
+//   - POST /demo/rajaa-taxi?personId=…&baghdadSeat=1                  n9: only his seat on a car back from Baghdad
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -284,7 +291,7 @@ async function newCourier(at, { photo = null } = {}) {
   await identity.setName({ personId: courierId, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
   // Every other courier has his approved photo; the rest show the initial (the fallback).
   if (photo ?? courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
-  vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length], label: null });
+  vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length] });
   await dispatch.presence.online(courierId, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
   return courierId;
 }
@@ -1530,11 +1537,25 @@ const rajaa = await (async () => {
 // and زينب (support) answered (one unread); `support_empty`: an order on the way, support chat unused.
 // `/demo/chat/clock?minutes=31` lets a screenshot show a closed thread
 // (minutes=0 resets); it only moves the chat module's clock.
+//
+// Voice notes (ride ideas n7/n8): in `ride` the driver has also left a 3-second voice note, and a
+// voice note the customer sends to his courier / driver is answered by one from him 2.5 s later
+// (scripts/dev/demo-voice-note.m4a, a soft hum made with ffmpeg; uploaded through the real store).
 {
   const { ChatService } = await load('modules/chat/index.js');
   const { ShareLinksService } = await load('modules/tracking/index.js');
+  const { BLOB_STORE: VOICE_STORE } = await load('modules/places/index.js');
   const chat = app.get(ChatService);
   const shareLinks = app.get(ShareLinksService);
+  const voiceStore = app.get(VOICE_STORE);
+  const DEMO_VOICE = readFileSync(fileURLToPath(new URL('../../../scripts/dev/demo-voice-note.m4a', import.meta.url)));
+  /** The demo clip, uploaded as `ownerId`'s own voice note → upload id. */
+  async function demoVoiceNote(ownerId) {
+    const ticket = await voiceStore.createUpload({ ownerId, contentType: 'audio/mp4', sizeBytes: DEMO_VOICE.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await voiceStore.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'audio/mp4', bytes: DEMO_VOICE });
+    return ticket.uploadId;
+  }
   let skewMs = 0;
   chat.clock = { now: () => new Date(Date.now() + skewMs) };
   const as = (personId) => ({ personId, sessionId: 'demo' });
@@ -1574,7 +1595,7 @@ const rajaa = await (async () => {
     await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'driver' });
     await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
     await giveMainPhoto(driverId, 'ride:mustafa');
-    vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض' });
+    vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', model: 'تويوتا كورولا', colour: 'white', features: ['ac'] });
     await dispatch.presence.online(driverId, { cityId: 'aziziyah', at, vehicle: 'car', tier: 'gold' });
     return driverId;
   }
@@ -1597,6 +1618,7 @@ const rajaa = await (async () => {
       await trips.completeStop(trip.id, pickup.id, driverId);
       await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
+      await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: await demoVoiceNote(driverId), durationSec: 4 });
       const link = await shareLinks.createShareLink(as(personId), { orderId: ride.id });
       return { orderId: ride.id, tripId: trip.id, driverId, token: link.token, path: link.path };
     }
@@ -1628,6 +1650,18 @@ const rajaa = await (async () => {
     return { orderId, tripId, courierId };
   }
 
+  // His voice note to the courier / driver gets one back (the demo plays the other side).
+  events.subscribe('demo:voice-reply', ['chat.message_sent'], async (event) => {
+    const p = event.payload;
+    if (p.messageKind !== 'voice' || p.senderRole !== 'customer' || p.kind !== 'customer_courier' || p.recipientIds.length === 0) return;
+    const courierId = p.recipientIds[0];
+    setTimeout(() => {
+      void demoVoiceNote(courierId)
+        .then((voiceUploadId) => chat.send(as(courierId), { orderId: p.orderId, kind: 'customer_courier', clientId: cid(), voiceUploadId, durationSec: 4 }))
+        .catch((err) => console.warn(`[demo] voice reply: ${err?.message ?? err}`));
+    }, 2500);
+  });
+
   app.use('/demo/chat', async (req, res) => {
     try {
       const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://x');
@@ -1656,16 +1690,29 @@ const rajaa = await (async () => {
 //   POST /demo/ride/accept?orderId=…  accept that ride's open offer now
 //   POST /demo/ride/advance?orderId=… one step: to pickup → at pickup → on the trip → arrived (cash paid)
 //   POST /demo/ride/search-age?orderId=…&sec=200  the ride reads as searching for `sec` (the 3-minute offer)
+//   POST /demo/ride?acceptMs=0[&nudgeAcceptMs=4000]  hold every offer: the rider watches the drivers it was
+//                                     sent to (dispatch.myRideOffers: sent → شافه after 1.5 s), and a driver he
+//                                     nudges («نبّهه») accepts nudgeAcceptMs after the nudge (0 = never)
+//   (/demo/ride/accept re-sends the ride to the nearest free driver when every held offer ran out)
+//   POST /demo/ride/nudges?orderId=…  the drivers sent that ride and which were nudged (what each one's
+//                                     partner app shows as «راكب ينتظرك»)
+//   POST /demo/ride/night?orderId=…   the ride gets a night ride's 4-digit trip code (s1) by day: the live
+//                                     screen shows «رمز المشوار»; advance passes it like the rider would
 {
   const RIDE_DRIVERS = [
-    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', at: { lat: 32.9068, lng: 45.0591 } },
-    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', at: { lat: 32.9031, lng: 45.0667 } },
-    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', at: { lat: 32.9112, lng: 45.0618 } },
-    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', at: { lat: 32.9019, lng: 45.0579 } },
-    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', label: 'هيونداي النترا · أسود', at: { lat: 32.9102, lng: 45.0702 } },
-    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', label: 'تويوتا كامري · أبيض', at: { lat: 32.8996, lng: 45.0631 } },
-    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', label: 'باجاج · أخضر', at: { lat: 32.9077, lng: 45.0712 } },
+    // Ride step 3 (d1, n1, n2): model, the real colour and the features ops confirmed at the car check.
+    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', model: 'كيا سيراتو', colour: 'silver', features: ['ac', 'no_smoking'], at: { lat: 32.9068, lng: 45.0591 } },
+    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', model: 'تويوتا كورولا', colour: 'white', features: ['ac', 'heating', 'family'], at: { lat: 32.9031, lng: 45.0667 } },
+    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', model: 'باجاج', colour: 'red', features: [], at: { lat: 32.9112, lng: 45.0618 } },
+    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', model: 'باجاج', colour: 'blue', features: ['family'], at: { lat: 32.9019, lng: 45.0579 } },
+    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', model: 'هيونداي النترا', colour: 'black', features: ['big_boot'], at: { lat: 32.9102, lng: 45.0702 } },
+    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', model: 'تويوتا كامري', colour: 'white', features: ['ac', 'heating', 'child_seat'], at: { lat: 32.8996, lng: 45.0631 } },
+    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', model: 'باجاج', colour: 'green', features: [], at: { lat: 32.9077, lng: 45.0712 } },
   ];
+  // Ride step 3: the car facts riders see on the offered-drivers list and the profile (model, colour,
+  // confirmed tags; trip count from his completed trips) — the in-memory port in the demo.
+  const { VEHICLE_FACTS } = await load('modules/dispatch/index.js');
+  const facts = app.get(VEHICLE_FACTS);
   /** Metres per 500 ms tick while free: ≈ 36 km/h for a car, 25 for a tuktuk. */
   const CRUISE_M = { car: 5, tuktuk: 3.5 };
   /** A free driver drives a small block (≈ 270 × 260 m) around where he became free. */
@@ -1692,6 +1739,10 @@ const rajaa = await (async () => {
   const drivers = []; // { id, def, pos, tripId }
   const rides = new Map(); // orderId → { tripId, driverId, step }
   let acceptMs = Number(process.env.DEMO_RIDE_ACCEPT_MS ?? 3000);
+  /** A nudged driver («راكب ينتظرك») answers this long after the nudge, even when offers are held (0 = never). */
+  let nudgeAcceptMs = Number(process.env.DEMO_RIDE_NUDGE_ACCEPT_MS ?? 4000);
+  /** He opens the offer (state «شافه») this long after it rings. */
+  const SEEN_AFTER_MS = 1500;
   const seen = new Map(); // offerId → first seen (ms)
 
   async function rideDriver(def, i) {
@@ -1702,7 +1753,8 @@ const rajaa = await (async () => {
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'driver' });
     await identity.setName({ personId: id, sessionId: 'demo' }, def.name);
     await giveMainPhoto(id, `ride:${def.name}`);
-    vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
+    vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, model: def.model, colour: def.colour, features: def.features });
+    facts.register?.(id, { vehicleClass: def.vehicle, model: def.model, colour: def.colour, confirmedFeatures: def.features });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
     // Joy l2: riders see his rating on the reveal (six rated past jobs; demo only).
     if (process.env.DEMO_RIDE_RATED !== "0") await ratedHistory(id, { force: true });
@@ -1742,7 +1794,11 @@ const rajaa = await (async () => {
         if (!open) continue;
         const first = seen.get(open.offer.id) ?? Date.now();
         seen.set(open.offer.id, first);
+        if (open.offer.state === 'sent' && Date.now() - first >= SEEN_AFTER_MS)
+          await dispatch.offerSeen({ personId: d.id, sessionId: 'demo' }, { offerId: open.offer.id, foregroundMs: 60_000 }).catch(() => undefined);
+        const nudgedAt = open.offer.nudgedAt?.getTime() ?? null;
         if (acceptMs > 0 && Date.now() - first >= acceptMs) await acceptOffer(d, open.offer.id);
+        else if (nudgedAt !== null && nudgeAcceptMs > 0 && Date.now() - nudgedAt >= nudgeAcceptMs) await acceptOffer(d, open.offer.id);
       } catch (err) {
         console.error('ride demo', err?.message ?? err);
       }
@@ -1761,7 +1817,9 @@ const rajaa = await (async () => {
       await trips.arrive(r.tripId, pickup.id, r.driverId, { pin: pickup.target });
       r.step = 'at_pickup';
     } else if (r.step === 'at_pickup') {
-      await trips.completeStop(r.tripId, pickup.id, r.driverId);
+      // A night ride starts with the rider's code (ride step 3, s1): the demo driver "asks" for it.
+      const startCode = (await orders.startCodeOf(orderId)) ?? undefined;
+      await trips.completeStop(r.tripId, pickup.id, r.driverId, startCode ? { startCode } : {});
       const mid = { lat: (pickup.target.lat + drop.target.lat) / 2 + 0.0008, lng: (pickup.target.lng + drop.target.lng) / 2 + 0.0006 };
       await startMover(r.tripId, r.driverId, [pickup.target, mid, drop.target], 30);
       r.step = 'on_trip';
@@ -1784,6 +1842,16 @@ const rajaa = await (async () => {
       if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
       const orderId = url.searchParams.get('orderId');
       if (url.pathname.endsWith('/advance')) return json(res, 200, { orderId, step: await advanceRide(orderId) });
+      if (url.pathname.endsWith('/night')) {
+        // Ride step 3 (s1) by day: the ride gets the 4-digit trip code a night ride is placed with
+        // (in-memory record only), so «رمز المشوار» shows and the partner app asks for it.
+        const { ORDERS_REPOSITORY, newStartCode } = await load('modules/orders/index.js');
+        const order = await orders.get(orderId);
+        if (order.type !== 'ride') return json(res, 409, { error: 'not a ride' });
+        const startCode = (await orders.startCodeOf(orderId)) ?? newStartCode();
+        await app.get(ORDERS_REPOSITORY).update(orderId, { startCode });
+        return json(res, 200, { orderId, startCode });
+      }
       if (url.pathname.endsWith('/search-age')) {
         // The 3-minute offer (J-D7) without waiting 3 minutes: the ride reads as placed `sec` ago
         // (in-memory record only; the dispatch search itself keeps its own clock).
@@ -1792,6 +1860,18 @@ const rajaa = await (async () => {
         await app.get(ORDERS_REPOSITORY).update(orderId, { placedAt: new Date(Date.now() - sec * 1000) });
         return json(res, 200, { orderId, placedAt: (await orders.get(orderId)).placedAt });
       }
+      if (url.pathname.endsWith('/nudges')) {
+        const trip = await trips.activeForOrder(orderId);
+        if (!trip) return json(res, 404, { error: 'no trip' });
+        const search = await dispatch.searchOf(trip.id);
+        const names = new Map((await ensureDrivers()).map((d) => [d.id, d.def.name]));
+        return json(res, 200, {
+          orderId,
+          tripId: trip.id,
+          searching: Boolean(search),
+          offers: (search?.offers ?? []).map((o) => ({ offerId: o.id, driverId: o.driverId, name: names.get(o.driverId) ?? null, state: o.state, nudgedAt: o.nudgedAt })),
+        });
+      }
       if (url.pathname.endsWith('/accept')) {
         const trip = await trips.activeForOrder(orderId);
         if (!trip) return json(res, 404, { error: 'no trip' });
@@ -1799,11 +1879,57 @@ const rajaa = await (async () => {
           const open = await dispatch.openOffer(d.id, 'aziziyah');
           if (open && open.request.tripId === trip.id) return json(res, 200, { orderId: await acceptOffer(d, open.offer.id) });
         }
+        // Every driver it was sent to let it run out (offers held for the shots): the dispatcher sends it
+        // again to the nearest free driver of that vehicle, the way the Console's manual assign does, and he takes it.
+        const search = await dispatch.searchOf(trip.id);
+        if (search) {
+          const want = search.request.vertical === 'tuktuk' ? 'tuktuk' : 'car';
+          const free = drivers.filter((d) => !d.tripId && d.def.vehicle === want).sort((a, b) => metres(a.pos, trip.stops[0].target) - metres(b.pos, trip.stops[0].target))[0];
+          if (free) {
+            const { offerId } = await dispatch.override({ personId: 'system:demo', sessionId: 'demo' }, { tripId: trip.id, driverId: free.id, reason: 'demo: held offers ran out', force: true });
+            return json(res, 200, { orderId: await acceptOffer(free, offerId) });
+          }
+        }
         return json(res, 409, { error: 'no open offer for that ride yet' });
       }
       if (url.searchParams.has('acceptMs')) acceptMs = Number(url.searchParams.get('acceptMs'));
+      if (url.searchParams.has('nudgeAcceptMs')) nudgeAcceptMs = Number(url.searchParams.get('nudgeAcceptMs'));
       const list = await ensureDrivers();
-      json(res, 200, { acceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
+      json(res, 200, { acceptMs, nudgeAcceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // ───────────────────────── ride ideas c9/s3: a ride for someone else ─────────────────────────
+  //   POST /demo/ride-for?personId=…   → {earlierOrderId}
+  // «لمنو المشوار؟» has people to offer: two trusted people (أختي زينب, أبوي; kept when he has some) and
+  // «ماما», whom he booked a taxi for earlier (cancelled before a driver took it, so nothing is running).
+  // Book a ride for someone in the app; /demo/ride/accept and /advance drive it like any ride.
+  app.use('/demo/ride-for', async (req, res) => {
+    try {
+      const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/ride-for?personId=…' });
+      const as = { personId, sessionId: 'demo' };
+      if (((await identity.me(as)).trustedContacts ?? []).length === 0) {
+        await identity.updateProfile(as, {
+          trustedContacts: [
+            { name: 'أختي زينب', phone: '0780 111 2233', relation: 'sibling' },
+            { name: 'أبوي', phone: '0790 222 3344', relation: 'father' },
+          ],
+        });
+      }
+      const earlier = await orders.place(personId, {
+        cityId: 'aziziyah',
+        type: 'ride',
+        rideVertical: 'taxi',
+        pickup: { zoneKey: 'centre', pin: { lat: 32.9012, lng: 45.0702 } },
+        dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
+        rider: { from: 'typed', name: 'ماما', phone: '0770 555 4433' },
+      });
+      await orders.cancel(personId, { orderId: earlier.id, reason: 'demo' });
+      json(res, 200, { earlierOrderId: earlier.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
@@ -1936,6 +2062,21 @@ const rajaa = await (async () => {
       }
     });
 
+    // Step 4 o4: POST /demo/same-ride?personId=… → {deepLink}: the link «نفس مشوار البارحة؟» carries for
+    // البيت ← الدائرة by taxi (what the push opens: the choose screen with both ends and the vehicle).
+    app.use('/demo/same-ride', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/same-ride?personId=…' });
+        const { encodeRideEnd } = await import('@driver/contracts');
+        const { home, work } = await homeAndWork(personId);
+        const deepLink = `driver://ride/again?from=${encodeRideEnd(point(home))}&to=${encodeRideEnd(point(work))}&v=taxi&door=0`;
+        json(res, 200, { deepLink });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+
     app.use('/demo/dinner', async (req, res) => {
       try {
         const url = new URL(req.url ?? '/', 'http://x');
@@ -1960,6 +2101,154 @@ const rajaa = await (async () => {
         await advanceRide(ride.id); // at the pickup
         await advanceRide(ride.id); // on the trip, driving home
         json(res, 200, { orderId: ride.id });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+  }
+
+  // ───────────────────────── taxi ideas x2 / x3 / x4 (+ n10): taxis linked to a الرجعة seat ─────────────────────────
+  //   POST /demo/rajaa-taxi?personId=…   → {outboundBookingId, lateOrderId, lateBookingId, returnBookingId, armedBookingId, placedBookingId,
+  //                                          lateMin, driverTold, armed: {status, carEtaMin}, placed: {status, orderId, carEtaMin}, baghdadDepartureIds}
+  // Home and الدائرة saved (when missing), then for that person:
+  //   - x2: a booked seat on a car leaving the Gate 1 garage for Baghdad in about 95 minutes (the card offers
+  //     a taxi timed to it);
+  //   - x3: a seat on a car leaving the Gate 2 garage in 25 minutes and the taxi to it ordered now, taken by a
+  //     driver who is still 12 km out — the late notice (the server's look) tells him and the الرجعة driver;
+  //   - x4: three trips back from Kut, on the road: one far out (the card offers a waiting taxi), one far
+  //     out and armed, and one 3 km from Aziziyah, armed and so already booked by the server.
+  //   - n9 «Baghdad mode»: two fresh cars from the النهضة garage back to Aziziyah (in ~35 and ~95 minutes),
+  //     so the card has a next car and one after whenever the shots run → `baghdadDepartureIds`.
+  // With `&baghdadSeat=1` it does only this instead → `{baghdadBookingId}`: his booked seat on a new car back
+  // from Baghdad in ~50 minutes (the card then shows the seat with the n10 switch).
+  {
+    const { GarageTaxiService } = await load('modules/garage-taxi/index.js');
+    const { DeparturesService: GtDepartures } = await load('modules/routes/index.js');
+    const { SavedPlacesService: GtPlaces } = await load('modules/places/index.js');
+    const garageTaxi = app.get(GarageTaxiService);
+    const gtDeps = app.get(GtDepartures);
+    const gtPlaces = app.get(GtPlaces);
+    const MIN = 60_000;
+    const actor = (personId) => ({ personId, sessionId: 'demo' });
+    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+    /** On the Kut road: ~35 km out, and ~3 km from the Aziziyah garages. */
+    const FAR_ON_ROAD = { lat: 32.75, lng: 45.35 };
+    const NEAR_ON_ROAD = { lat: 32.896, lng: 45.088 };
+    /** Where the late taxi's driver still is (12 km north of town). */
+    const FAR_DRIVER = { lat: 33.012, lng: 45.07 };
+    let gtSeq = 0;
+    const driverId = () => `drv_GTX${(++gtSeq).toString(36).toUpperCase()}`;
+
+    /** His seat on that car: the first one free (the demo's other riders may have taken some). */
+    async function holdFree(personId, departureId) {
+      let last;
+      for (const seatId of ['back_right', 'back_left', 'front', 'back_middle']) {
+        try {
+          return await gtDeps.hold(personId, { departureId, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+        } catch (err) {
+          last = `${last ?? ''} | ${seatId}: ${err?.code ?? ''} ${err}`;
+        }
+      }
+      throw new Error(`no free seat on ${departureId}:${last}`);
+    }
+
+    async function seatOut(personId, garageId, departAt) {
+      const dep = await gtDeps.announce(driverId(), { garageId, corridorId: 'aziziyah_baghdad', departAt, latestDepartureAt: new Date(departAt.getTime() + 45 * MIN), vehicle: saloon('51234 واسط', 'كامري', 'بيضاء'), familyOnly: false });
+      const held = await holdFree(personId, dep.id);
+      return gtDeps.book(personId, held.id, 'cash');
+    }
+
+    /** A Kut → Aziziyah trip he is on (no demand posts there to claim the seats first), departed, the car's last fix at `at`. */
+    async function tripBack(personId, at) {
+      const drv = driverId();
+      const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
+      const dep = await gtDeps.announce(drv, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('77821 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+      const held = await holdFree(personId, dep.id);
+      const booked = await gtDeps.book(personId, held.id, 'cash');
+      await gtDeps.selfie(drv, dep.id, 'demo/selfie.jpg');
+      // Full before its time (walk-ups in the other seats), and everyone on it checked in, so it can leave.
+      for (const seatId of ['front', 'back_left', 'back_middle', 'back_right'].filter((x) => !held.seatIds.includes(x))) await gtDeps.markWalkUp(drv, dep.id, { seatId, travellingAs: 'rijal' });
+      for (const b of await gtDeps.bookings(dep.id)) if (b.state === 'booked' && b.pin) await gtDeps.checkIn(drv, dep.id, b.pin, b.id);
+      await gtDeps.depart(drv, dep.id);
+      await gtDeps.driverPosition(drv, dep.id, at);
+      return booked.id;
+    }
+
+    /** n9: a car from the النهضة garage back to Aziziyah in `inMin` minutes (a van: demand posts may claim some seats). */
+    async function carFromBaghdad(inMin, plate) {
+      const departAt = new Date(Math.ceil((Date.now() + inMin * MIN) / (5 * MIN)) * 5 * MIN);
+      return gtDeps.announce(driverId(), { garageId: 'mp_garage_nahdha', corridorId: 'aziziyah_baghdad', departAt, latestDepartureAt: new Date(departAt.getTime() + 45 * MIN), vehicle: { kind: 'van', layout: 7, plate, model: 'ستاركس', color: 'بيضاء' }, familyOnly: false });
+    }
+
+    app.use('/demo/rajaa-taxi', async (req, res) => {
+      try {
+        const params = new URL(req.url ?? '/', 'http://x').searchParams;
+        const personId = params.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa-taxi?personId=…' });
+        if (params.get('baghdadSeat')) {
+          const dep = await carFromBaghdad(50, '40712 بغداد');
+          let held;
+          for (const seatId of ['middle_right', 'middle_left', 'rear_right', 'rear_left', 'rear_middle', 'middle_middle', 'front']) {
+            held = await gtDeps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false }).catch(() => null);
+            if (held) break;
+          }
+          if (!held) throw new Error(`no free seat on ${dep.id}`);
+          const seat = await gtDeps.book(personId, held.id, 'cash');
+          return json(res, 200, { baghdadBookingId: seat.id });
+        }
+        const mine = await gtPlaces.mine(personId);
+        const home = mine.find((p) => p.label === 'home') ?? (await gtPlaces.save(personId, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: HOME, photoIds: [], shareWithHousehold: false, clientRef: 'demo-gtaxi-home' }));
+        if (!mine.some((p) => p.label === 'work')) await gtPlaces.save(personId, { cityId: 'aziziyah', label: 'work', name: 'الدائرة', pin: { lat: 32.9139, lng: 45.0603 }, photoIds: [], shareWithHousehold: false, clientRef: 'demo-gtaxi-work' });
+
+        // x2: a seat out in ~95 minutes (on the 5-minute grid, like a garage sign).
+        const outbound = await seatOut(personId, 'mp_garage_bab1', new Date(Math.ceil((Date.now() + 95 * MIN) / (5 * MIN)) * 5 * MIN));
+
+        // x3: a car in 25 minutes, the taxi to it ordered now, taken by a driver still far away.
+        const lateSeat = await seatOut(personId, 'mp_garage_bab2', new Date(Math.ceil((Date.now() + 25 * MIN) / MIN) * MIN));
+        const plan = await garageTaxi.toGarage(actor(personId), { bookingId: lateSeat.id, from: { placeId: home.id } });
+        if (plan.status !== 'offer' || plan.fareIqd === null) throw new Error(`no taxi offer for the late demo (${plan.unavailable})`);
+        const booked = await garageTaxi.bookToGarage(actor(personId), { bookingId: lateSeat.id, from: { placeId: home.id }, fareIqd: plan.fareIqd, clientRequestId: `demo-gtaxi-${lateSeat.id}` });
+        if (!booked.order) throw new Error(`taxi to the car not booked: ${JSON.stringify(booked)}`);
+        const lateOrderId = booked.order.orderId;
+        let trip = await trips.activeForOrder(lateOrderId);
+        for (let i = 0; !trip && i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          trip = await trips.activeForOrder(lateOrderId);
+        }
+        if (!trip) throw new Error(`no trip for the taxi to the car: ${JSON.stringify(booked)}`);
+        const d = (await ensureDrivers()).find((x) => !x.tripId && x.def.vehicle === 'car');
+        if (!d) throw new Error('no free demo taxi');
+        // The trip and its dispatch request come from the order.placed subscriber: give it a moment.
+        let offerId = null;
+        for (let i = 0; !offerId; i++) {
+          try {
+            ({ offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true }));
+          } catch (err) {
+            if (i >= 30) throw err;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
+        await acceptOffer(d, offerId);
+        stopMover(trip.id);
+        d.pos = { ...FAR_DRIVER };
+        await trips.reportPosition(d.id, { tripId: trip.id, pin: FAR_DRIVER, at: new Date(), bearing: 180, speedKmh: 35 });
+        await garageTaxi.tick();
+
+        // x4: three trips back from Kut — offered, armed far out, armed close (booked at once).
+        const returnBookingId = await tripBack(personId, FAR_ON_ROAD);
+        const armedBookingId = await tripBack(personId, FAR_ON_ROAD);
+        await garageTaxi.arm(actor(personId), { bookingId: armedBookingId, to: { placeId: home.id } });
+        const placedBookingId = await tripBack(personId, NEAR_ON_ROAD);
+        await garageTaxi.arm(actor(personId), { bookingId: placedBookingId, to: { placeId: home.id } });
+
+        // n9: cars back from Baghdad today, whenever the shots run.
+        const baghdadDepartureIds = [(await carFromBaghdad(35, '28145 بغداد')).id, (await carFromBaghdad(95, '61930 بغداد')).id];
+
+        // What the server made of it (the late minutes it told, the armed taxi it booked), for a quick look.
+        const late = await garageTaxi.forOrder(actor(personId), { orderId: lateOrderId });
+        const placed = await garageTaxi.arrival(actor(personId), { bookingId: placedBookingId });
+        const armed = await garageTaxi.arrival(actor(personId), { bookingId: armedBookingId });
+        json(res, 200, { outboundBookingId: outbound.id, lateOrderId, lateBookingId: lateSeat.id, returnBookingId, armedBookingId, placedBookingId, lateMin: late?.lateMin ?? null, driverTold: late?.driverTold ?? false, armed: { status: armed.status, carEtaMin: armed.carEtaMin }, placed: { status: placed.status, orderId: placed.orderId, carEtaMin: placed.carEtaMin }, baghdadDepartureIds });
       } catch (err) {
         json(res, 500, { error: String(err?.stack ?? err) });
       }

@@ -1,8 +1,8 @@
 export { TripsModule } from './trips.module.js';
 export { TripsService, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
 export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob, PositionReport } from './trips.service.js';
-export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES } from './trips.rpc.js';
-export type { RoleChecker, ChildNamesPort } from './trips.rpc.js';
+export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS } from './trips.rpc.js';
+export type { RoleChecker, ChildNamesPort, DriverCardsPort } from './trips.rpc.js';
 export { TRIP_TRANSITIONS, canTransition, deriveTripState, TripTransitionError } from './trip.machine.js';
 export { GEOFENCE_RADIUS_M, haversineMeters, withinGeofence, offsetNorth } from './geofence.js';
 export { UNREACHABLE_ESCALATE_AFTER_MS, UNREACHABLE_FAIL_AFTER_MS } from './unreachable.js';
@@ -16,3 +16,5 @@ export { DenyAllOfferCheck, ScriptedOfferCheck } from './offer-check.port.js';
 export type { TripOfferCheck, OfferCheckVerdict } from './offer-check.port.js';
 export { NoChangeToWallet } from './handover-check.port.js';
 export type { TripHandoverCheck, HandoverProblem } from './handover-check.port.js';
+export { NoStartCodes } from './ride-safety.port.js';
+export type { TripStartCodes, TripRideNear } from './ride-safety.port.js';
