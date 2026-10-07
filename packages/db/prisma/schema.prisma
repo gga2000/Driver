@@ -944,6 +944,7 @@ model Quote {
   order      Order?
 
   @@index([cityId, vertical, createdAt])
+  @@index([expiresAt])
   @@map("quotes")
   @@schema("public")
 }

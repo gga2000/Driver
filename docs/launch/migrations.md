@@ -7,4 +7,5 @@ renames its migration. Owner: W0 (lane A); everyone appends.
 | Timestamp | Migration | Thread (lane) | PR |
 | --- | --- | --- | --- |
 | 20261009090000 | scheduled_timers | Launch build: platform lane (B, W4) | #13 |
+| 20261009091000 | quotes_expires_at_index | Launch build: platform lane (B, W4) | #13 |
 | 20261009092000 | participants_person_id_index | Launch build: platform lane (B, W4) | #13 |
