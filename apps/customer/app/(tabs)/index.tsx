@@ -75,7 +75,6 @@ export default function Home() {
   const [soon, setSoon] = useState<LaunchService | null>(null);
   const scrollRef = useRef<Animated.ScrollView>(null);
   const scrollY = useSharedValue(0);
-  const foodY = useRef(0);
   // Where the search's bottom edge sits in the page: past it, the slim bar takes over.
   const [barAt, setBarAt] = useState(0);
   const [headH, setHeadH] = useState(0);
@@ -183,8 +182,8 @@ export default function Home() {
   }));
 
   const onService = (id: ServiceId) => {
-    // The food section lands just under the slim bar that takes over the top once the search scrolls away.
-    if (id === 'food') scrollRef.current?.scrollTo({ y: Math.max(0, foodY.current - BAR_ROOM), animated: true });
+    // Food opens the calm food home: one line for this hour and the four doors (Ali's Yes on d1/g2).
+    if (id === 'food') router.push('/food');
     else if (id === 'trips' || id === 'rajaa') router.push({ pathname: '/rajaa', params: { corridor: PRIMARY_CORRIDOR, direction: id === 'trips' ? 'from_aziziyah' : 'to_aziziyah' } });
     else if (id === 'taxi' || id === 'tuktuk') startRide(id);
     else setSoon(id);
@@ -248,7 +247,7 @@ export default function Home() {
         {/* «وقت العزيزية»: real dishes for the hour from kitchens open now (hidden below two). */}
         {open.length > 0 ? <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={picks.data} basket={basket} /> : null}
 
-        <View testID="home-food" onLayout={(e) => (foodY.current = e.nativeEvent.layout.y)} style={{ gap: theme.space[6] }}>
+        <View testID="home-food" style={{ gap: theme.space[6] }}>
           {/* «شنو بخاطرك؟»: food types as round dish pictures, each opens search for the word. */}
           {cuisines.length > 1 ? (
             <View style={{ gap: theme.space[3] }}>
@@ -339,9 +338,6 @@ export default function Home() {
     </Screen>
   );
 }
-
-/** The slim bar's height and a breath under it (`CollapsedBar`). */
-const BAR_ROOM = 104;
 
 /** The shortest a pull-to-refresh shows its steaming glass. */
 const TEA_MIN_MS = 1100;
