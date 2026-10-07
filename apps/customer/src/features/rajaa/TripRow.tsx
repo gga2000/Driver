@@ -32,6 +32,9 @@ export function TripRow({ booking, network, now, divider, onPress, testID }: { b
     .filter(Boolean)
     .join(' · ');
   const route = tripRoute(t, b, network);
+  // o8 (after-order plan, Ali 2026-10-07 «ok to all»): the trips' own colours, as on home — date brown
+  // going out, الرجعة gold coming back, the quiet «off» swatch once the trip is over.
+  const swatch = !upcoming ? theme.services.off : b.departure.direction === 'to_aziziyah' ? theme.services.back : theme.services.trips;
   return (
     <Pressable
       testID={testID ?? `trip-${b.id}`}
@@ -40,8 +43,8 @@ export function TripRow({ booking, network, now, divider, onPress, testID }: { b
       onPress={onPress ?? (() => router.push(bookingHref(b) as never))}
       style={({ pressed }) => ({ flexDirection: 'row', gap: theme.space[3], padding: theme.space[4], minHeight: 64, backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent', borderBottomWidth: divider ? 1 : 0, borderColor: theme.colors.border })}
     >
-      <View style={{ width: 48, height: 48, borderRadius: theme.radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: upcoming ? theme.colors.surface : theme.colors.surfaceSunken }}>
-        <Icon name="rajaa" size={26} color="text" />
+      <View style={{ width: 48, height: 48, borderRadius: theme.radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: swatch.fill }}>
+        <Icon name="rajaa" size={26} color={swatch.on} />
       </View>
       <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
