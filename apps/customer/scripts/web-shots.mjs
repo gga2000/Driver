@@ -858,6 +858,17 @@ async function rajaaShots(personId) {
       await settle(300);
       await shot('rajaa-pass-out-leave');
     }
+    // On the road (r1–r3, r6): just left, his mother and Zainab following.
+    const onRoad = await demoPost(`/demo/rajaa/onboard?personId=${encodeURIComponent(personId)}&road=1`);
+    if (onRoad?.bookingId) {
+      await page.goto(`${origin}/rajaa/pass/${onRoad.bookingId}`, LOADED);
+      await byTestId('rajaa-road').waitFor({ timeout: 15_000 }).catch(() => errors.push('road card not shown on the road'));
+      await settle(1500);
+      await byTestId('rajaa-road').evaluate((el) => el.scrollIntoView({ block: 'start' })).catch(() => {});
+      await settle(300);
+      await shot('rajaa-road');
+      await fullShot('rajaa-road-full');
+    }
   }
 
   // Going out (f1, f3, n1, n2): the board reads «العزيزية ← بغداد» and «نبّهني», never «الرجعة».

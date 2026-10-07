@@ -130,6 +130,16 @@ export const MeetingPointView = z.object({
 });
 export type MeetingPointView = z.infer<typeof MeetingPointView>;
 
+/** A police checkpoint on the road (idea r1: on the trip's road line); its geofence stays on the server. */
+export const CheckpointView = z.object({
+  id: z.string(),
+  nameAr: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  draft: z.boolean(),
+});
+export type CheckpointView = z.infer<typeof CheckpointView>;
+
 export const CorridorView = z.object({
   id: z.string(),
   nameAr: z.string(),
@@ -143,6 +153,8 @@ export const CorridorView = z.object({
   /** True while the fare is a placeholder awaiting Ali's real fares. */
   placeholderPrice: z.boolean(),
   meetingPoints: z.array(MeetingPointView),
+  /** Checkpoints on the road, in no particular order (the app orders them by the direction). */
+  checkpoints: z.array(CheckpointView).default([]),
 });
 export type CorridorView = z.infer<typeof CorridorView>;
 
@@ -325,6 +337,8 @@ export const DepartureSummary = z.object({
   departAt: z.coerce.date(),
   latestDepartureAt: z.coerce.date(),
   state: IntercityDepartureState,
+  /** When the car actually left (the pass on the road says «طلعت 7:24»); null before. */
+  departedAt: z.coerce.date().nullable().default(null),
   vehicle: IntercityVehicle,
   driverId: z.string(),
 });

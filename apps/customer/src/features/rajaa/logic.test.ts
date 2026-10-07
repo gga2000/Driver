@@ -127,6 +127,7 @@ function booking(over: Partial<BookingView> & { id: string }): BookingView {
       departAt: at(60),
       latestDepartureAt: at(105),
       state: 'scheduled',
+      departedAt: null,
       vehicle: { kind: 'saloon', layout: 4, plate: 'x', modelKey: null, model: null, color: null, noSmoking: false, bigBags: false, ac: false },
       driverId: 'drv_1',
     },

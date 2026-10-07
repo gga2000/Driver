@@ -6,6 +6,9 @@ import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { lateStages, passPhase } from '@/features/rajaa/pass';
 import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
+import { endGarageFor, roadLine, type RoadPoint } from '@/features/rajaa/road';
+import { RoadCard, type Watching } from '@/features/rajaa/RoadParts';
+import { useMe } from '@/features/account/queries';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
 import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
@@ -79,6 +82,7 @@ export default function BoardingPassScreen() {
   const favs = useFavourites();
   const dinner = useDinnerChance(live && b?.departure.direction === 'to_aziziyah');
   const prof = useProfile();
+  const me = useMe();
 
   if (booking.isPending) {
     return (
@@ -113,6 +117,35 @@ export default function BoardingPassScreen() {
   const homePlace = selectedPlace(prof);
   const homePin = b.departure.direction === 'from_aziziyah' && b.pickup.kind === 'garage' && homePlace ? (deliveryPointOf(homePlace).pin ?? null) : null;
   const garagePin = network.data?.garages.find((g) => g.id === b.departure.garageId) ?? null;
+
+  // r1/r2: the road as a line from this garage to the far city, with the checkpoints and the rider's
+  // own stop; the car's fix counts only once it has left (before that it is driving to the garage).
+  const phase = passPhase(b, now);
+  const departed = b.departure.state === 'departed';
+  const toCity = corridor ? endpoints(corridor.cityId, b.departure.direction).to : null;
+  const endGarage = toCity ? endGarageFor(network.data?.garages ?? [], toCity) : null;
+  const road =
+    corridor && garagePin && endGarage && toCity && phase !== 'kept' && phase !== 'closed'
+      ? roadLine({
+          start: { id: 'start', kind: 'start', name: garage, lat: garagePin.lat, lng: garagePin.lng },
+          end: { id: 'end', kind: 'end', name: cityName(t, toCity), lat: endGarage.lat, lng: endGarage.lng },
+          between: [
+            ...corridor.checkpoints.map((c): RoadPoint => ({ id: c.id, kind: 'checkpoint', name: publicPlaceName(c.nameAr), lat: c.lat, lng: c.lng })),
+            ...(b.pickup.kind !== 'garage' ? [{ id: 'my_stop', kind: 'my_stop' as const, name: stopName, lat: b.pickup.lat, lng: b.pickup.lng }] : []),
+          ],
+          departAt: b.departure.departAt,
+          departedAt: b.departure.departedAt,
+          travelMin: corridor.travelMin,
+          car: departed && p?.car ? p.car : null,
+          now,
+        })
+      : null;
+  // r3: who follows the trip, by name (the trusted people get its link when the rider gets in).
+  const trusted = (me.data?.trustedContacts ?? []).map((c) => c.name);
+  const watching: Watching =
+    me.data?.safety.autoShareRajaa && trusted.length > 0 ? { kind: b.state === 'checked_in' ? 'now' : 'soon', names: trusted } : { kind: 'none' };
+  // r4: the same SOS as a taxi ride: the car read out to the police, and a live link when no contact is set.
+  const sosCar = [driverCard?.firstName ?? t('track.driver_fallback'), b.departure.vehicle.model, plate(b.departure.vehicle.plate)].filter(Boolean).join(' · ');
 
   const onImHere = async () => {
     const at = await currentLocation();
@@ -163,7 +196,7 @@ export default function BoardingPassScreen() {
     );
 
   // After the trip (r3): the stub is kept; nothing live (car, meter, check-in, cancel) is left on it.
-  if (passPhase(b, now) === 'kept') {
+  if (phase === 'kept') {
     return (
       <Screen testID="rajaa-pass" edges={['bottom']}>
         <Stack.Screen options={{ title: t('rajaa.kept_title') }} />
@@ -192,7 +225,7 @@ export default function BoardingPassScreen() {
         options={{
           headerRight:
             b.state === 'checked_in' || (live && (b.departure.state === 'boarding' || b.departure.state === 'departed'))
-              ? () => <SosControl subject={{ kind: 'booking', id: b.id }} style={{ marginEnd: theme.space[3] }} />
+              ? () => <SosControl subject={{ kind: 'booking', id: b.id }} car={sosCar} onShareLocation={() => void onShare()} style={{ marginEnd: theme.space[3] }} />
               : undefined,
         }}
       />
@@ -214,10 +247,21 @@ export default function BoardingPassScreen() {
             <StatusPill size="sm" tone={b.state === 'checked_in' ? 'success' : 'accent'} icon="check" label={bookingStateLabel(t, b.state)} />
           </View>
           {/* The garage-board time (audit d-2): split-flap digits and the countdown to the car. */}
-          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} passStyle locale={locale} />
-          <Text variant="footnote" color="textMuted">
-            {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
-          </Text>
+          <DepartureTime
+            testID="rajaa-pass-time"
+            at={departed && b.departure.departedAt ? b.departure.departedAt : b.departure.departAt}
+            now={now.getTime()}
+            size="card"
+            label={departed ? t('departure_time.left') : t('departure_time.leaves')}
+            countdown={!departed && b.state !== 'completed'}
+            passStyle
+            locale={locale}
+          />
+          {departed ? null : (
+            <Text variant="footnote" color="textMuted">
+              {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
+            </Text>
+          )}
         </View>
         <Perforation />
         <View style={{ padding: theme.space[5], alignItems: 'center', gap: theme.space[1], backgroundColor: theme.colors.accentTint }}>
@@ -244,7 +288,9 @@ export default function BoardingPassScreen() {
             <StatusPill tone="warning" icon="clock" label={t('intercity.pickup_pending')} />
           </View>
         ) : null}
-        {/* The car's state, on the ticket (t1): from T−30 where it is (the car only, never other riders' stops). */}
+        {/* The car's state, on the ticket (t1): from T−30 where it is (the car only, never other riders' stops).
+            On the road the road card carries the car instead. */}
+        {departed ? null : (
         <View testID="rajaa-live-car" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], marginHorizontal: theme.space[5], marginBottom: theme.space[5], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }}>
           <Icon name="car" size={20} color={p?.car ? 'successText' : 'textMuted'} />
           <View style={{ flex: 1, gap: 2 }}>
@@ -269,6 +315,7 @@ export default function BoardingPassScreen() {
           </View>
           {p?.boardingOpen ? <StatusPill size="sm" tone="success" live label={t('rajaa.live')} /> : null}
         </View>
+        )}
       </Card>
 
       {/* t2: the first-trip sticker comes after the pass, never pushing it down. */}
@@ -276,10 +323,14 @@ export default function BoardingPassScreen() {
 
       {homePin && garagePin && b.state === 'booked' ? <LeaveHomeCard home={homePin} garage={garagePin} departAt={b.departure.departAt} now={now} /> : null}
 
+      {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching} onShare={() => void onShare()} /> : null}
+
       {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
       {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
 
       {/* Grace and the late meter as a bar with its times (t6), stated before anyone is late. */}
+      {/* Once he is in the car nobody can be late any more: the bar goes. */}
+      {phase === 'before' || phase === 'boarding' ? (
       <Card padding={4} elevation={0} testID="rajaa-grace">
         <View style={{ gap: theme.space[3] }}>
           <LateBar
@@ -302,6 +353,7 @@ export default function BoardingPassScreen() {
           </Text>
         </View>
       </Card>
+      ) : null}
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], justifyContent: 'center' }}>
         <Icon name="shield" size={16} color="textMuted" />

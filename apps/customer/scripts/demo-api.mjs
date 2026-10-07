@@ -1019,7 +1019,25 @@ const rajaa = await (async () => {
       });
       const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
       const booked = await deps.book(personId, held.id, 'cash');
+      // `&road=1` (r1–r3): his mother and Zainab follow every trip; the car has just left, 12 % of
+      // the way to Baghdad, so the pass shows the road line, the arrival and who is watching.
+      const road = new URL(req.url ?? '/', 'http://x').searchParams.get('road') === '1';
+      if (road) {
+        await app.get(IdentityService).updateProfile(
+          { personId, sessionId: 'demo' },
+          { trustedContacts: [{ name: 'أمي', phone: '07801112233', relation: 'mother' }, { name: 'زينب', phone: '07801114455', relation: 'sibling' }], safety: { autoShareRajaa: true } },
+        );
+      }
       await deps.checkIn(driverId, dep.id, booked.pin);
+      if (road) {
+        // Before its time only a full car leaves: the other seats are walk-ups.
+        await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+        for (const seatId of ['front', 'back_left', 'back_middle']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
+        await deps.depart(driverId, dep.id);
+        const bab1 = { lat: 32.9032, lng: 45.0578 };
+        const nahdha = { lat: 33.3344, lng: 44.4165 };
+        await deps.driverPosition(driverId, dep.id, { lat: bab1.lat + (nahdha.lat - bab1.lat) * 0.12, lng: bab1.lng + (nahdha.lng - bab1.lng) * 0.12 });
+      }
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });

@@ -66,6 +66,7 @@ export function corridorView(c: CorridorConfig): CorridorView {
       photoUrl: m.photoUrl,
       draft: m.draft,
     })),
+    checkpoints: c.checkpoints.map((k) => ({ id: k.id, nameAr: k.nameAr, lat: k.lat, lng: k.lng, draft: k.draft })),
   };
 }
 
@@ -108,6 +109,7 @@ export function departureSummary(dep: DepartureRecord): DepartureSummary {
     departAt: dep.departAt,
     latestDepartureAt: dep.latestDepartureAt,
     state: dep.state,
+    departedAt: dep.departedAt,
     vehicle: { ...dep.vehicle, layout: dep.layout },
     driverId: dep.driverId,
   };
