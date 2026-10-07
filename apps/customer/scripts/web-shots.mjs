@@ -50,6 +50,11 @@
 //            kitchen card waiting, slow (after 45 s; start the demo API with DEMO_KITCHEN_MS=0) and accepted
 //   checkout-* the V2 checkout (`checkout_v2`): step 1 (place, door/street, when, pay, the note chips),
 //            the «الوصل» slip with a fee's «ليش؟», back to step 1 kept, and the calm price-change sheet
+//   track2-* the V2 live food order (`track_v2`): the kitchen card (accepted, cooking, a courier docked),
+//            «تحتاج شي؟» and «التفاصيل», the map on the way, near with the cash, late, the door's cash
+//            card, unreachable, and the thank-you card (rated, the tip; the change landed)  POST /demo/track
+//            With the V2 switches on (dev builds) the old `track` and `live` groups need a build with
+//            EXPO_PUBLIC_UI_SWITCHES=none.
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -111,7 +116,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket', 'checkout'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket', 'checkout', 'track2'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -252,6 +257,7 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('basket')) await basketShots(khalid);
   if (wants('checkout')) await checkoutShots(khalid);
+  if (wants('track2')) await track2Shots(personId);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -1602,4 +1608,87 @@ async function checkoutShots(khalid) {
   await page.screenshot({ path: join(outDir, 'checkout-price-change.png') });
   // The server's 409 (price_changed) is this flow's point, not a console error.
   for (let i = errors.length - 1; i >= before; i--) if (/status of 409/.test(errors[i])) errors.splice(i, 1);
+}
+
+/** The V2 live food order (switch `track_v2`, on in DEV_TOOLS builds), from the kitchen to the thank-you card. */
+async function track2Shots(personId) {
+  const pid = encodeURIComponent(personId ?? '');
+  const open = async (orderId, testId) => {
+    await page.goto(`${origin}/order/${orderId}`, LOADED);
+    await byTestId(testId).waitFor({ timeout: 20_000 });
+  };
+  const k = await demoPost(`/demo/track?personId=${pid}&scenario=kitchen&tender=20000`);
+  if (!k) return;
+  await open(k.orderId, 'track-kitchen');
+  await settle(1200);
+  await shot('track2-kitchen-accepted');
+  await demoPost(`/demo/track/kitchen?orderId=${k.orderId}&step=preparing`);
+  await page.getByText('دا يطبخ طلبك').first().waitFor({ timeout: 20_000 }).catch(() => errors.push('kitchen card did not say cooking'));
+  await demoPost(`/demo/track/assign?orderId=${k.orderId}&rated=1`);
+  await byTestId('track-courier').waitFor({ timeout: 25_000 }).catch(() => errors.push('courier not docked'));
+  await settle(1500);
+  await shot('track2-cooking');
+  await byTestId('track-help').click();
+  await byTestId('help-sheet').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('track2-help');
+  await page.keyboard.press('Escape');
+  await byTestId('help-sheet').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  await byTestId('track-details').click();
+  await byTestId('details-sheet').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('track2-details');
+  await page.keyboard.press('Escape');
+
+  const way = await demoPost(`/demo/track?personId=${pid}&scenario=on_the_way&rated=1&tender=20000`);
+  if (way) {
+    await open(way.orderId, 'track-card');
+    await settle(3000);
+    await shot('track2-on-the-way');
+  }
+  const near = await demoPost(`/demo/track?personId=${pid}&scenario=near&rated=1&tender=20000`);
+  if (near) {
+    await open(near.orderId, 'track-card');
+    await byTestId('track-near').waitFor({ timeout: 15_000 }).catch(() => errors.push('near card not shown'));
+    await settle(1500);
+    await shot('track2-near');
+  }
+  const late = await demoPost(`/demo/track?personId=${pid}&scenario=late&pastPromiseMin=12&rated=1`);
+  if (late) {
+    await page.goto(`${origin}/order/${late.orderId}`, LOADED);
+    await byTestId('running-late').waitFor({ timeout: 20_000 }).catch(() => errors.push('late banner not shown'));
+    await settle(1500);
+    await shot('track2-late');
+  }
+  const door = await demoPost(`/demo/track?personId=${pid}&scenario=at_door&rated=1&tender=20000`);
+  if (door) {
+    await open(door.orderId, 'track-door');
+    await settle(900);
+    await shot('track2-door');
+  }
+  const gone = await demoPost(`/demo/track?personId=${pid}&scenario=unreachable&rated=1`);
+  if (gone) {
+    await open(gone.orderId, 'unreachable-panel');
+    await settle(1500);
+    await shot('track2-unreachable');
+  }
+  const done = await demoPost(`/demo/track?personId=${pid}&scenario=arrived&rated=1&tender=20000`);
+  if (done) {
+    await open(done.orderId, 'track-thanks');
+    await settle(1200);
+    await shot('track2-thanks');
+    await byTestId('stars-delivery-5').click();
+    await byTestId('stars-food-5').click();
+    await byTestId('points-earned').waitFor({ timeout: 15_000 }).catch(() => errors.push('rating did not send itself'));
+    await byTestId('tip-offer').waitFor({ timeout: 10_000 }).catch(() => {});
+    await settle(1500);
+    await fullShot('track2-thanks-rated');
+  }
+  const credit = await demoPost(`/demo/track?personId=${pid}&scenario=arrived&rated=1&tender=25000&nochange=1`);
+  if (credit) {
+    await open(credit.orderId, 'track-thanks');
+    await byTestId('change-credited').waitFor({ timeout: 10_000 }).catch(() => errors.push('change-to-wallet strip not shown'));
+    await settle(2000);
+    await shot('track2-thanks-credit');
+  }
 }

@@ -44,6 +44,9 @@ import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { TrackFlow } from '@/features/track/TrackFlow';
+import { followsInTrackV2 } from '@/features/track/track-v2';
+import { useUiSwitch } from '@/lib/ui-switches';
 
 /** Collapsed sheet: handle + status line + the ETA box's three lines (plus the bottom safe area). */
 const COLLAPSED = 132;
@@ -67,12 +70,26 @@ function useNow(ms = 1000): number {
 type Panel = 'cancel' | 'dispute' | 'street' | 'share' | null;
 
 /**
+ * After-order design Step 3 (switch `track_v2`): a food order follows on the redesigned screen; rides,
+ * and every order while the switch is off, keep this one. The read is shared (same query), so the
+ * choice costs nothing; while it loads the new screen's own skeleton shows.
+ */
+export default function OrderRoute() {
+  const { id = '' } = useLocalSearchParams<{ id: string }>();
+  const v2 = useUiSwitch('track_v2');
+  const track = useTracking(id);
+  const type = track.data?.order.type;
+  // Decided by the order's type only, so a failed refresh never swaps screens under the customer.
+  return v2 && (type === undefined || followsInTrackV2(type)) ? <TrackFlow id={id} /> : <OrderLiveScreen />;
+}
+
+/**
  * Live order / ride screen (customer app spec §4): map ≈ 60 % with the gliding courier, a
  * draggable sheet (collapsed: status + ETA; expanded: timeline, courier card, order, price,
  * actions), the unreachable protocol, the arrival moment and the two-tap rating.
  * `?sheet=1|2` opens the sheet at a detent (deep links from notifications, screenshots).
  */
-export default function OrderLiveScreen() {
+function OrderLiveScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
