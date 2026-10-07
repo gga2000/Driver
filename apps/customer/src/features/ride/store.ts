@@ -3,6 +3,7 @@ import type { RideCargo } from '@driver/contracts';
 import { session } from '@/lib/session';
 import { storage as platformStorage, type KeyValueStorage } from '@/lib/storage';
 import { pushRecent, type RideVertical, type Spot } from './logic';
+import { RIDER_ME, type RiderPick } from './rider';
 
 /**
  * The ride being booked (in memory, across /ride → /ride/pin → /ride/choose) and two small
@@ -25,6 +26,8 @@ export interface RideDraft {
   familyPreferred: boolean;
   /** Ride idea x5 «عندي غراض»: what he carries this trip (bags, a gas cylinder, something big). */
   rideCargo: RideCargo[];
+  /** Ride ideas c9/s3 «لمنو المشوار؟»: «إلي» unless he picked someone; back to «إلي» after each ride. */
+  rider: RiderPick;
 }
 
 export interface RideMemo {
@@ -52,7 +55,7 @@ export interface RideStoreState extends PersistedRide {
 
 const KEY = 'driver.customer.ride';
 const MAX_MEMOS = 20;
-export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false, rideCargo: [] };
+export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false, rideCargo: [], rider: RIDER_ME };
 
 export function createRideStore(store: KeyValueStorage) {
   let state: RideStoreState = { loaded: false, draft: EMPTY_DRAFT, recent: [], memos: {} };
@@ -108,7 +111,7 @@ export function createRideStore(store: KeyValueStorage) {
       const memos = Object.entries({ ...state.memos, [orderId]: { ...memo, dest: destination, at } })
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, MAX_MEMOS);
-      persist({ ...state, recent: pushRecent(state.recent, destination), memos: Object.fromEntries(memos), draft: { ...state.draft, note: '' } });
+      persist({ ...state, recent: pushRecent(state.recent, destination), memos: Object.fromEntries(memos), draft: { ...state.draft, note: '', rider: RIDER_ME } });
     },
     /** A ride that replaced another (J-D7 switch): the same names and choices under the new order. */
     remember(orderId: string, memo: Omit<RideMemo, 'at'>, at = Date.now()) {

@@ -14,7 +14,9 @@ import { useWalletBalance } from '@/features/account/queries';
 import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
 import { WhenPicker } from '@/features/ride/LaterPicker';
 import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
+import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions } from '@/features/ride/queries';
+import { riderInput } from '@/features/ride/rider';
+import { RiderRow, RiderSheet } from '@/features/ride/RiderParts';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
@@ -68,6 +70,10 @@ export default function RideChoose() {
   const [problem, setProblem] = useState<string | null>(null);
   const [details, setDetails] = useState<RideVertical | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  // c9/s3 «لمنو المشوار؟»: «إلي», or someone he picks in its sheet.
+  const [riderOpen, setRiderOpen] = useState(false);
+  const riderOpts = useRiderOptions();
+  const rider = riderInput(d.rider);
   // l4: the request button grows into the search rings, then the live screen opens on its radar.
   const [bloomFor, setBloomFor] = useState<string | null>(null);
   // The arrival clocks on the rows («توصل 11:55») move with the minute.
@@ -99,7 +105,7 @@ export default function RideChoose() {
     if (d.payment === 'wallet' && quote && balance !== null && !walletOk) rideStore.update({ payment: 'cash' });
   }, [d.payment, quote, balance, walletOk]);
 
-  useEffect(() => setProblem(null), [vertical, mode, d.payment]);
+  useEffect(() => setProblem(null), [vertical, mode, d.payment, d.rider]);
 
   if (!pickup || !dropoff) return <Redirect href="/ride" />;
 
@@ -117,12 +123,12 @@ export default function RideChoose() {
     setProblem(null);
     // No duplicate rides: one key per request attempt, kept when the answer is lost so a second tap
     // gets the ride already requested (the server answers a repeated key with it).
-    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}`, () => newRequestKey('ride'));
+    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}|${JSON.stringify(rider ?? null)}`, () => newRequestKey('ride'));
     attemptRef.current = attempt;
     inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred, rideCargo: d.rideCargo }),
+        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred, rideCargo: d.rideCargo, rider }),
       );
       attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
@@ -253,13 +259,16 @@ export default function RideChoose() {
               </Text>
             </View>
           ) : (
-            <OptionsRow
-              when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
-              payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null, d.rideCargo.length > 0 ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) }) : null].filter(Boolean).join(' · ')}
-              pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
-              note={d.note}
-              onPress={() => setOptionsOpen(true)}
-            />
+            <>
+              <RiderRow pick={d.rider} onPress={() => setRiderOpen(true)} />
+              <OptionsRow
+                when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
+                payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null, d.rideCargo.length > 0 ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) }) : null].filter(Boolean).join(' · ')}
+                pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
+                note={d.note}
+                onPress={() => setOptionsOpen(true)}
+              />
+            </>
           )}
         </ScrollView>
 
@@ -392,6 +401,17 @@ export default function RideChoose() {
             <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
           </View>
         </RideOptionsPanel>
+      ) : null}
+      {riderOpen ? (
+        <RiderSheet
+          pick={d.rider}
+          options={riderOpts}
+          onPick={(next) => {
+            rideStore.update({ rider: next });
+            setRiderOpen(false);
+          }}
+          onClose={() => setRiderOpen(false)}
+        />
       ) : null}
       {bloomFor ? <RequestBloom fromBottom={Math.max(insets.bottom, theme.space[3]) + 52} onDone={() => openLive(bloomFor)} /> : null}
       {details && quotes.grid[details][mode] ? <FarePanel vertical={details} quote={quotes.grid[details][mode]!} city={city.data ?? undefined} locale={lang} onClose={() => setDetails(null)} /> : null}

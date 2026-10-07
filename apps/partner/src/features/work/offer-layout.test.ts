@@ -25,6 +25,7 @@ const food = (over: Partial<PartnerOffer> = {}): PartnerOffer => ({
   favourite: false,
   nudgedAt: null,
   rideCargo: [],
+  rider: null,
   ...over,
 });
 

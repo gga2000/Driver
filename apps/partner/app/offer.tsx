@@ -318,6 +318,23 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
             </View>
           ) : null}
 
+          {/* Ride ideas c9/s3: booked for someone else — the name the booker gave, and who his calls reach. */}
+          {offer.rider ? (
+            <View testID="offer-rider" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="user" size={18} color="text" strokeWidth={2.2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} numberOfLines={1}>
+                  {t('partner.offer_for_rider_title', { name: offer.rider.name })}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_for_rider_body')}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
           {/* 3 · pickup → drop-off */}
           <RouteNodes
             gap={layout.compact ? theme.space[3] : theme.space[4]}
@@ -325,7 +342,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
               <View testID="offer-pickup">
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                   <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {offer.pickup.label ?? (ride ? t('partner.offer_rider') : pickupZone)}
+                    {offer.pickup.label ?? (ride ? (offer.rider?.name ?? t('partner.offer_rider')) : pickupZone)}
                   </Text>
                   {offer.merchant ? <PrepPill prep={offer.merchant} /> : null}
                 </View>

@@ -214,6 +214,8 @@ export class PartnerService implements PartnerPort {
       nudgedAt: offer.nudgedAt ?? null,
       // Ride idea x5: «عنده غراض: قنينة غاز», before he accepts.
       rideCargo: cargoOf(orders),
+      // c9/s3: booked for someone else — «المشوار لـ أم علي».
+      rider: await this.riderOf(orders[0], id),
     };
   }
 
@@ -291,6 +293,7 @@ export class PartnerService implements PartnerPort {
     const spots = await this.pickupSpotsOf(trip, byId, actor.personId, now);
     const codes = await this.startCodesOf(trip);
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
+    const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -322,6 +325,8 @@ export class PartnerService implements PartnerPort {
           gift: order?.gift ?? null,
           // s1 «رمز المشوار»: only that one is needed before «الراكب صعد», never the code itself.
           ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
+          // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
+          rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -399,6 +404,13 @@ export class PartnerService implements PartnerPort {
   private async demand(cityId: string, presence: PartnerPresence | null) {
     const [waiting, drivers] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId)]);
     return demandHint(waiting, drivers, presence?.zoneId ?? null);
+  }
+
+  /** c9/s3: the rider of a ride booked for someone else, by the name the booker gave; null otherwise. */
+  private async riderOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
+    if (order?.type !== 'ride' || !order.participants.some((p) => p.role === 'rider') || !this.deps.orders.riderName) return null;
+    const name = await this.deps.orders.riderName(order.id, driverId);
+    return name ? { name } : null;
   }
 
   /** Orders currently on the trip (detached ones are someone else's now). */

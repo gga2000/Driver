@@ -69,6 +69,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   const ride = view.order.type === 'ride';
   // L-09: «ويا عباس · 12 دقيقة» under «وصلت بالسلامة», and «قيّم عباس» (rides rate in one step).
   const rideCopy = ride ? rideArrivalCopy(t, view) : null;
+  const forName = ride ? (view.order.rider?.name ?? null) : null;
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
   // The saved gate photo is a signed link; if it no longer loads the card goes, like having none.
   const gate = usePhotoFallback(photo ? photoUri(photo) : null);
@@ -104,8 +105,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           {ride ? <SketchScene name="safe_arrival" vehicle={sceneVehicle(view.courier?.vehicleClass ?? null)} /> : <SketchScene name="door" />}
         </Animated.View>
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
-          <Text variant="display" style={{ fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center">
-            {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
+          {/* s3: the booker who followed someone else's ride reads «مشوار ماما وصل بالسلامة» (a longer line, a size down). */}
+          <Text variant="display" style={forName ? { fontSize: 30, lineHeight: 44 } : { fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center" testID="arrival-title">
+            {forName ? t('track.arrived_title_ride_for', { name: forName }) : ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}

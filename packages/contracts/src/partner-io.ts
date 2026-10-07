@@ -223,6 +223,11 @@ export const PartnerOffer = z.object({
   nudgedAt: z.coerce.date().nullable().default(null),
   /** «عنده غراض: قنينة غاز» (ride idea x5): what the rider carries, so he knows before accepting; [] = nothing said. */
   rideCargo: z.array(RideCargo).default([]),
+  /**
+   * Ride ideas c9/s3: the ride was booked for someone else — the rider's name as the booker gave it for
+   * the driver («المشوار لـ أم علي»). Null for a rider who booked it himself.
+   */
+  rider: z.object({ name: z.string() }).nullable().default(null),
 });
 export type PartnerOffer =z.infer<typeof PartnerOffer>;
 
@@ -293,6 +298,11 @@ export const PartnerJobStop = z.object({
    * «الراكب صعد» (`trips.completeStop` with `startCode`). He never sees the code itself. Absent = none.
    */
   startCodeRequired: z.boolean().optional(),
+  /**
+   * Ride ideas c9/s3: a ride booked for someone else — the rider's name (as the booker gave it) on its
+   * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
+   */
+  rider: z.object({ name: z.string() }).nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

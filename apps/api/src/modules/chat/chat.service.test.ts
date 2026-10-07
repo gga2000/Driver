@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor, type RoleKind } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { NotifyService, RecordingTransport } from '../notify/index.js';
-import { ordersHarness } from '../orders/test-harness.js';
+import { HOME, KITCHEN, ordersHarness } from '../orders/test-harness.js';
 import { DevBlobStore } from '../places/index.js';
 import { DevCallBridge, ProxyCallBridge, type CallBridgePort } from './call-bridge.js';
 import { registerChatNotifications } from './chat.notify.js';
@@ -31,7 +31,7 @@ const ROLES: Record<string, Array<{ kind: RoleKind; orgId?: string }>> = {
   ops: [{ kind: 'support' }],
 };
 const NAMES: Record<string, string> = { c1: 'علي', d1: 'حيدر', d2: 'كرار' };
-const PHONES: Record<string, string> = { c1: '+9647701110009', d1: '+9647701110001', 'm-owner': '+9647701234567' };
+const PHONES: Record<string, string> = { c1: '+9647701110009', d1: '+9647701110001', 'm-owner': '+9647701234567', mum: '+9647705554433' };
 
 function setup(opts: { bridge?: CallBridgePort; counter?: WindowCounter } = {}) {
   const h = ordersHarness();
@@ -348,6 +348,23 @@ describe('ChatService — masked calls', () => {
     await proxy.h.tripFor(o2.id);
     expect(await proxy.chat.requestCall(as('c1'), { orderId: o2.id, kind: 'customer_courier' })).toMatchObject({ mode: 'proxy', dial: '+9647800000000' });
     expect(proxy.vaultReads.filter((r) => r.purpose === 'masked_call_dev')).toEqual([]);
+  });
+
+  it('a ride booked for someone else (c9): «اتصل بالراكب» rings the rider, whose messages reach the rider and the booker', async () => {
+    const { h, chat, vaultReads, ev } = setup();
+    h.people.set('07705554433', 'mum');
+    const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', fareIqd: 3000, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30', pin: HOME }, rider: { from: 'typed', name: 'ماما', phone: '07705554433' } });
+    await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    const s = await chat.requestCall(as('d1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(s).toMatchObject({ mode: 'dev_direct', dial: PHONES['mum'], counterpart: 'customer' });
+    expect(vaultReads).toContainEqual({ personId: 'mum', accessorId: 'd1', purpose: 'masked_call_dev' });
+    // The rider is a party: she calls the driver herself; the driver sees the name the booker gave.
+    expect((await chat.requestCall(as('mum'), { orderId: o.id, kind: 'customer_courier' })).dial).toBe(PHONES['d1']);
+    const thread = await chat.thread(as('d1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(thread.participants.find((p) => p.role === 'customer')?.name).toBe('ماما');
+    await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'وصلت' });
+    const sent = (await ev.repo.find({})).filter((e) => e.type === 'chat.message_sent').at(-1)!;
+    expect(sent.payload['recipientIds']).toEqual(['c1', 'mum']);
   });
 
   it('the dev bridge refuses outside development even if it were bound', async () => {

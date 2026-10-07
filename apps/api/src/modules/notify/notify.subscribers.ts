@@ -159,6 +159,35 @@ async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order:
   return accounts.map((to) => ({ eventId: e.id, template: 'ride_safe_arrival' as const, to, params }));
 }
 
+/**
+ * c9 «لمنو المشوار؟»: once a driver takes a ride booked for someone else, the rider gets who is coming —
+ * the booker's name, the driver, the car and the plate — and the live link, by SMS (and a push when the
+ * number has the app). A night ride's start code (s1) goes in too: the rider is the one who reads it out.
+ */
+async function rideForRider(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts, driver: string): Promise<NotifyRequest[]> {
+  const L = deps.lookups;
+  const riderId = order.riderId;
+  if (!riderId || !L.shareLink) return [];
+  const tripId = str(e.payload['tripId']);
+  const [link, booker, car, code] = await Promise.all([
+    L.shareLink(riderId, { orderId: order.id }),
+    L.firstName(order.customerId, 'notify_ride_for_rider'),
+    tripId && L.driverCar ? L.driverCar(tripId, e.actorId) : null,
+    L.startCode ? L.startCode(order.id) : null,
+  ]);
+  if (!link) return [];
+  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', link, orderId: order.id, ...(code ? { code } : {}) };
+  return [{ eventId: e.id, template: 'ride_for_rider', to: riderId, orderId: order.id, params, data: { orderId: order.id } }];
+}
+
+/** s3: the booker followed the ride to the end — «مشوار ماما وصل بالسلامة» (the receipt stays his alone: he paid). */
+async function riderArrived(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts): Promise<NotifyRequest[]> {
+  if (!order.riderId || !deps.lookups.riderName) return [];
+  const name = await deps.lookups.riderName(order.id);
+  if (!name) return [];
+  return [{ eventId: e.id, template: 'ride_rider_arrived', to: order.customerId, orderId: order.id, params: { name, time: localTime(e.occurredAt), orderId: order.id }, data: { orderId: order.id } }];
+}
+
 /** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
 export function dishPotEventId(localDate: string): string {
   return `dish_pot:${localDate}`;
@@ -236,7 +265,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!order || order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, 'ride_receipt')) ?? '';
       const own: NotifyRequest = { ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } };
-      return [own, ...(await safeArrival(deps, e, order))];
+      return [own, ...(await safeArrival(deps, e, order)), ...(await riderArrived(deps, e, order))];
     }
     case 'stop.driver_near': {
       // d3: «السايق قريب، اطلع هسة» — the orderer, and the rider of a ride booked for him (s3).
@@ -254,9 +283,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
       const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
       const own: NotifyRequest = { ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } };
+      // c9: on a ride booked for someone else the rider hears it too — who is coming (SMS + link), then «وصل».
+      const rider =
+        e.type === 'order.matched'
+          ? await rideForRider(deps, e, order, driver)
+          : order.riderId
+            ? [{ ...base, template, to: order.riderId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }]
+            : [];
       // w9: a night ride (21:00–06:00 Baghdad, `isNightAt`) is shared with the trusted people when the rider asked.
       const shared = e.type === 'order.matched' && isNightAt(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
-      return [own, ...shared];
+      return [own, ...rider, ...shared];
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

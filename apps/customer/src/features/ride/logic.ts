@@ -12,6 +12,7 @@ import {
   type PaymentMethod,
   type PlaceOrderInput,
   type PriceRequestInput,
+  type RideRiderInput,
   type Quote,
   type QuoteComponent,
   type RideCargo,
@@ -346,6 +347,8 @@ export interface RidePlaceArgs {
   familyPreferred?: boolean;
   /** Ride idea x5 «عندي غراض»: told to the driver before he accepts; no price effect. */
   rideCargo?: readonly RideCargo[];
+  /** Ride ideas c9/s3: the ride is for someone else (`rider.ts` → `riderInput`). */
+  rider?: RideRiderInput | undefined;
 }
 
 /** The exact `orders.place` payload for a ride (what scripts/e2e/three-apps.mjs sends, plus options). */
@@ -367,6 +370,7 @@ export function buildRidePlaceInput(a: RidePlaceArgs): PlaceOrderInput {
     ...(a.scheduledFor && a.favouriteId ? { favouriteId: a.favouriteId } : {}),
     ...(a.familyPreferred ? { familyPreferred: true } : {}),
     ...(a.rideCargo && a.rideCargo.length > 0 ? { rideCargo: sortCargo(a.rideCargo) } : {}),
+    ...(a.rider ? { rider: a.rider } : {}),
   };
 }
 

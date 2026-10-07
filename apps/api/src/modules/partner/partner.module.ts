@@ -74,6 +74,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
         orders: {
           get: (orderId) => orders.get(orderId).catch(() => null),
           startCodeRequired: async (orderId) => (await orders.startCodeOf(orderId)) !== null,
+          // c9/s3: who he picks up when the ride was booked for someone else (a logged vault read).
+          riderName: async (orderId, driverId) => (await orders.riderOf(orderId, driverId, 'partner_rider'))?.name ?? null,
         },
         merchants: {
           name: async (orgId) => (await orgs.find(orgId))?.name ?? null,

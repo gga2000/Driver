@@ -3,6 +3,8 @@
 //   POST /demo/offer?who=courier&kind=food     a cash order from مطعم خالد, offered to him (dispatcher override)
 //   POST /demo/offer?who=courier&kind=batch    he is on a job; a second order on his way is offered
 //   POST /demo/offer?who=tuktuk&kind=ride      a tuktuk ride broadcast in waves (he is the nearest)
+//        …&for=1                               booked by the buyer for «أم علي» (ride ideas c9/s3): the offer
+//                                              and the job name her, «اتصل بالراكب» calls her number
 //   POST /demo/offer?who=tuktuk&kind=favourite a ride booked for later asking for him (joy l9): his minute alone
 //   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup ·
 //                                              to_dropoff · at_dropoff · unreachable
@@ -202,6 +204,7 @@ export default async function register(demo) {
         rideVertical: 'tuktuk',
         pickup: { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } },
         dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
+        ...(query.for === '1' ? { rider: { from: 'typed', name: 'أم علي', phone: '+9647801112233' } } : {}),
       });
       // Placing the ride built its trip and broadcast it (dispatch:ride-request).
       const trip = (await trips.activeForOrder(ride.id)) ?? await trips.createForOrders({

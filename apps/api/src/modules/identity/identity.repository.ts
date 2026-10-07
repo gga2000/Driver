@@ -125,6 +125,15 @@ export interface ChildIdentityRecord {
   photoRef?: string | null;
 }
 
+/** vault.participant_identities — the name an orderer gave the person he booked a ride for (c9/s3). */
+export interface ParticipantIdentityRecord {
+  participantId: string;
+  /** The rider. */
+  personId: string;
+  givenById: string;
+  name: string;
+}
+
 export interface IdentityRepository {
   // people
   findPersonById(id: string, tx?: Tx): Promise<PersonRecord | null>;
@@ -151,6 +160,9 @@ export interface IdentityRepository {
   childIdentitiesOf(guardianId: string, tx?: Tx): Promise<ChildIdentityRecord[]>;
   /** Sets (or clears, with null) a child's photo ref. */
   setChildPhoto(childRef: string, photoRef: string | null, tx?: Tx): Promise<void>;
+  /** Ride ideas c9/s3: stores (or replaces) the name given to an order's participant. */
+  saveParticipantIdentity(input: ParticipantIdentityRecord, tx?: Tx): Promise<void>;
+  readParticipantIdentities(participantIds: readonly string[], tx?: Tx): Promise<ParticipantIdentityRecord[]>;
   /** Wave 2: appends a storage ref (driver document photo, check-in selfie) to the vault row. */
   appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx): Promise<void>;
   /** Wave 2: the vault refs of one kind, for a reviewer's logged read. */
@@ -312,6 +324,17 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async setChildPhoto(childRef: string, photoRef: string | null, tx?: Tx) {
     await this.db(tx).childIdentity.update({ where: { id: childRef }, data: { photoRef } });
+  }
+
+  async saveParticipantIdentity(input: ParticipantIdentityRecord, tx?: Tx) {
+    const data = { personId: input.personId, givenById: input.givenById, name: input.name };
+    await this.db(tx).participantIdentity.upsert({ where: { participantId: input.participantId }, create: { participantId: input.participantId, ...data }, update: data });
+  }
+
+  async readParticipantIdentities(participantIds: readonly string[], tx?: Tx) {
+    if (participantIds.length === 0) return [];
+    const rows = await this.db(tx).participantIdentity.findMany({ where: { participantId: { in: [...participantIds] } } });
+    return rows.map((r) => ({ participantId: r.participantId, personId: r.personId, givenById: r.givenById, name: r.name }));
   }
 
   async vaultAccessLogs(personId: string, tx?: Tx) {

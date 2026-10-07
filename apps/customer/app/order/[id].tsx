@@ -14,6 +14,7 @@ import { OfferedDrivers } from '@/features/ride/OfferedDrivers';
 import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
 import { isBookedRide } from '@/features/ride-habits/logic';
 import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
+import { RiderFollowCard } from '@/features/ride/RiderParts';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
@@ -137,6 +138,8 @@ export default function OrderLiveScreen() {
   const ride = v?.order.type === 'ride';
   const simpleMode = useSimpleMode().on;
   const simple = simpleMode && Boolean(ride);
+  // Ride idea s3: a ride he booked for someone else («مشوار ماما»); he follows it to the end.
+  const riderFor = ride ? (v?.order.rider?.name ?? null) : null;
   // Joy f1 / ride idea m3: rides ask for notifications inside the collapsed sheet from the search on (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
   const courierName = v?.courier?.firstName ?? null;
@@ -356,7 +359,8 @@ export default function OrderLiveScreen() {
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
-  const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  // «وصل، اطلع» is for whoever goes out to the car: not the booker of someone else's ride.
+  const showHere = Boolean(ride && !riderFor && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
   // s1: the trip code sits in the collapsed sheet, except while the arrived card (which carries it) is up.
   const sheetCode = showHere ? null : tripCode;
   const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (showTrip ? TRIP_PROGRESS_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0) + (sheetCode ? TRIP_CODE_H : 0) + (simple ? SIMPLE_HEADER_EXTRA_H : 0);
@@ -485,7 +489,8 @@ export default function OrderLiveScreen() {
         </View>
       ) : null}
       {v?.courier && reveal.show && !moments.card && !showHere ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} /> : null}
-      {v?.courier && moments.card === 'ride_near' ? (
+      {/* «قريب، اطلع هسة» is for whoever waits at the curb: on a ride for someone else that is the rider (her push). */}
+      {v?.courier && moments.card === 'ride_near' && !riderFor ? (
         <RideNearCard
           courier={v.courier}
           vehicle={v.courier.vehicleLabel ?? rideVehicleLabel(v, t, memo?.vertical)}
@@ -521,6 +526,8 @@ export default function OrderLiveScreen() {
               simple={simple}
               pill={[
                 ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey),
+                // s3: «تكسي · لـ ماما».
+                riderFor ? t('ride.rider_for', { name: riderFor }) : null,
                 v.merchant?.name,
                 // g1: «عزيمة لـ أمي» (the recipient's label on the order; never a number).
                 v.order.gift ? t('gift.for', { name: v.order.participants.find((p) => p.role === 'recipient')?.label ?? t('checkout.recipient_other') }) : null,
@@ -567,6 +574,7 @@ export default function OrderLiveScreen() {
                 <Button label={v.order.type === 'ride' ? rideArrivalCopy(t, v).rate : t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
               </View>
             ) : null}
+            {riderFor && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <RiderFollowCard name={riderFor} /> : null}
             {ride && night && v.courier && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? (
               <NightShareCard shared={Boolean(shareLink && !shareLink.revokedAt)} onShare={() => void share()} />
             ) : null}

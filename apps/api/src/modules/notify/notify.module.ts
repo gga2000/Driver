@@ -1,5 +1,6 @@
 import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
@@ -11,7 +12,7 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
 import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
-import { ShareLinksService, TrackingModule } from '../tracking/index.js';
+import { COURIER_VEHICLES, ShareLinksService, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
@@ -70,7 +71,16 @@ function envInt(name: string, fallback: number): number {
     },
     {
       provide: NOTIFY_LOOKUPS,
-      useFactory: (orders: OrdersService, orgs: OrgsService, identity: IdentityService, departures: DeparturesService, trips: TripsService, places: PlacesService, shares: ShareLinksService): NotifyLookups => ({
+      useFactory: (
+        orders: OrdersService,
+        orgs: OrgsService,
+        identity: IdentityService,
+        departures: DeparturesService,
+        trips: TripsService,
+        places: PlacesService,
+        shares: ShareLinksService,
+        vehicles: CourierVehicleDirectory,
+      ): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
             const o = await orders.get(orderId);
@@ -138,6 +148,16 @@ function envInt(name: string, fallback: number): number {
             const link = await shares.createShareLink({ personId, sessionId: 'system:notify' }, subject);
             return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
           }),
+        // c9/s3: the name the booker gave the rider («ماما»), read from identity's vault for this message.
+        riderName: (orderId) => orNull(async () => (await orders.riderOf(orderId, 'system:notify', 'notify_ride_for_rider'))?.name ?? null),
+        // c9 + night start code: the code the rider tells the driver (null when the ride has none).
+        startCode: (orderId) => orNull(() => orders.startCodeOf(orderId)),
+        // c9: what the rider looks for at the door — the car (model · colour, else its kind) and the plate.
+        driverCar: (tripId, driverId) =>
+          orNull(async () => {
+            const v = await vehicles.forCourier(driverId, (await trips.get(tripId)).vehicleId);
+            return v ? { car: v.label ?? t(v.vehicleClass === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi'), plate: v.plate } : null;
+          }),
         child: (childRef) => orNull(() => identity.childNotice(childRef)),
         stopPlace: (tripId, stopId) =>
           orNull(async () => {
@@ -156,7 +176,7 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES],
     },
     {
       provide: NOTIFY_ENGINE,

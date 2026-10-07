@@ -50,6 +50,8 @@ export interface TrackingOrdersPort {
   listForPerson(personId: string): Promise<Order[]>;
   /** The city's live orders (Console at-risk list). Optional for fakes. */
   listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
+  /** Ride ideas c9/s3: the orders with the rider's name for this reader (logged vault read). Optional for fakes. */
+  withRiders?(orders: Order[], accessorId: string): Promise<Order[]>;
 }
 export interface TrackingTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -208,7 +210,9 @@ export class TrackingService implements TrackingPort {
 
   async track(actor: Actor, input: { orderId: string }): Promise<OrderTracking> {
     const agg = await this.assertOwner(actor, input.orderId);
-    const order = await this.orders.get(input.orderId);
+    const plain = await this.orders.get(input.orderId);
+    // c9/s3: the booker (and the rider) see whose ride it is — «مشوار ماما».
+    const order = this.orders.withRiders ? ((await this.orders.withRiders([plain], actor.personId))[0] ?? plain) : plain;
     const now = this.clock.now();
 
     const trip = await this.currentTrip(order.id);
@@ -531,9 +535,11 @@ export class TrackingService implements TrackingPort {
    * looked up once per merchant; rides add the zone they went to.
    */
   async history(actor: Actor): Promise<OrderHistoryRow[]> {
-    const orders = [...(await this.orders.listForPerson(actor.personId))]
+    const recent = [...(await this.orders.listForPerson(actor.personId))]
       .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
       .slice(0, ORDER_HISTORY_LIMIT);
+    // c9/s3: a ride booked for someone else reads «لـ ماما» in his history.
+    const orders = this.orders.withRiders ? await this.orders.withRiders(recent, actor.personId) : recent;
     return this.historyRows(orders);
   }
 
