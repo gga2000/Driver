@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "budget": "node scripts/bundle-budget.mjs"
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",

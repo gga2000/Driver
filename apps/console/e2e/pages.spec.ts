@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -21,6 +22,8 @@ const KNOWN: Record<string, { rule: string; owner: string }[]> = {
   // Zone list rename/delete icons are 20 px; the zones page belongs to the map session (CLAUDE.md).
   '/zones': [{ rule: 'target-size', owner: 'map session (relayed 2026-10-07)' }],
 };
+/** Every string key: one showing raw on screen means a missing string (or one the build's subset dropped). */
+const KEYS = new Set(Object.keys(JSON.parse(readFileSync(join(__dirname, '../../../packages/i18n/src/locales/ar-IQ.json'), 'utf8'))));
 const SETTLE_MS = Number(process.env.E2E_SETTLE_MS ?? 2500);
 
 /** Outside hosts the sandbox or CI can't reach (map tiles); everything else is a real error. */
@@ -63,6 +66,9 @@ for (const theme of THEMES) {
           await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
           expect(csp, 'CSP violations').toEqual([]);
           expect(problems, 'page errors').toEqual([]);
+          const text = await page.locator('body').innerText();
+          const raw = [...new Set(text.match(/[a-z_]+[.:][\w.:-]+/g) ?? [])].filter((w) => KEYS.has(w));
+          expect(raw, 'string keys showing raw').toEqual([]);
 
           const dir = `e2e/.shots/${theme}-${size.w}`;
           mkdirSync(dir, { recursive: true });

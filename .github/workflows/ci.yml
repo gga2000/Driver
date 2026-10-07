@@ -350,6 +350,10 @@ jobs:
       - name: Browser checks (builds the Console, starts it and the demo API)
         run: pnpm --filter @driver/console e2e
 
+      - name: Speed budget (JS per page, MapLibre only where a map is shown)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @driver/console budget
+
       - name: Upload screenshots and report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { t } from '@driver/i18n';
 import { useState, type ReactNode } from 'react';
@@ -7,13 +8,15 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
-import { CommandPalette } from './shell/command-palette';
 import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
 import { useConsoleNetwork } from '@/lib/network';
 import { cx, NetworkBanner, ToastProvider } from './ui';
+
+// Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
+const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -103,11 +106,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </main>
         </div>
       </div>
-      <CommandPalette
-        open={palette}
-        onClose={() => setPalette(false)}
-        onShortcuts={() => setKeys(true)}
-      />
+      {palette ? <CommandPalette open onClose={() => setPalette(false)} onShortcuts={() => setKeys(true)} /> : null}
       <ShortcutsSheet open={keys} onClose={() => setKeys(false)} />
     </ToastProvider>
   );
