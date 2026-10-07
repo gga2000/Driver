@@ -14,6 +14,7 @@ import { AvoidDriverSheet, DriverProfileSheet } from '@/features/ride/DriverProf
 import { OfferedDrivers } from '@/features/ride/OfferedDrivers';
 import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
 import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
+import { RiderFollowCard } from '@/features/ride/RiderParts';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
@@ -122,6 +123,8 @@ export default function OrderLiveScreen() {
   const mapMinutes =
     fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
   const ride = v?.order.type === 'ride';
+  // Ride idea s3: a ride he booked for someone else («مشوار ماما»); he follows it to the end.
+  const riderFor = ride ? (v?.order.rider?.name ?? null) : null;
   // Joy f1 / ride idea m3: rides ask for notifications inside the collapsed sheet from the search on (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
   const courierName = v?.courier?.firstName ?? null;
@@ -326,7 +329,8 @@ export default function OrderLiveScreen() {
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
   const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (showTrip ? TRIP_PROGRESS_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
-  const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  // «وصل، اطلع» is for whoever goes out to the car: not the booker of someone else's ride.
+  const showHere = Boolean(ride && !riderFor && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
   // The arrived card already shows him, the car and the plate: the float steps aside until it is closed.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat && !showHere ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const waitPerIqd = city.data?.verticals.find((x) => x.vertical === rideVertical)?.components.find((c) => c.key === 'wait')?.perUnit ?? 250;
@@ -463,7 +467,8 @@ export default function OrderLiveScreen() {
         </View>
       ) : null}
       {v?.courier && reveal.show && !moments.card && !showHere ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} /> : null}
-      {v?.courier && moments.card === 'ride_near' ? (
+      {/* «قريب، اطلع هسة» is for whoever waits at the curb: on a ride for someone else that is the rider (her push). */}
+      {v?.courier && moments.card === 'ride_near' && !riderFor ? (
         <RideNearCard
           courier={v.courier}
           vehicle={v.courier.vehicleLabel ?? rideVehicleLabel(v, t, memo?.vertical)}
@@ -498,6 +503,8 @@ export default function OrderLiveScreen() {
               status={statusLine(v, t, { now })}
               pill={[
                 ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey),
+                // s3: «تكسي · لـ ماما».
+                riderFor ? t('ride.rider_for', { name: riderFor }) : null,
                 v.merchant?.name,
                 // g1: «عزيمة لـ أمي» (the recipient's label on the order; never a number).
                 v.order.gift ? t('gift.for', { name: v.order.participants.find((p) => p.role === 'recipient')?.label ?? t('checkout.recipient_other') }) : null,
@@ -544,6 +551,7 @@ export default function OrderLiveScreen() {
               </View>
             ) : null}
             {ride && v.trip?.startCode && (phase === 'to_pickup' || phase === 'at_pickup') ? <StartCode code={v.trip.startCode} /> : null}
+            {riderFor && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <RiderFollowCard name={riderFor} /> : null}
             {ride && night && v.courier && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? (
               <NightShareCard shared={Boolean(shareLink && !shareLink.revokedAt)} onShare={() => void share()} />
             ) : null}

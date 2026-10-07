@@ -82,6 +82,7 @@ const order = (extra: Partial<Order> = {}): Order =>
     pickedUpAt: null,
     placedAt: NOW,
     note: 'باب أخضر يم الجامع',
+    participants: [],
     ...extra,
   }) as Order;
 
@@ -111,6 +112,8 @@ function harness(
     roads?: Array<readonly { lat: number; lng: number }[]>;
     lastFix?: { lat: number; lng: number } | null;
     rideOrder?: boolean;
+    /** c9: the ride was booked for someone else, by this name. */
+    rideFor?: string;
     places?: PartnerDeps['places'];
     pickupSpots?: PartnerDeps['pickupSpots'];
   } = {},
@@ -155,7 +158,17 @@ function harness(
           },
         }
       : {}),
-    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()) },
+    orders: {
+      get: async (id) =>
+        opts.rideFor
+          ? order({ type: 'ride', merchantOrgId: null, participants: [{ id: 'pt1', role: 'rider', personId: 'mum', label: null, note: null }] as Order['participants'] })
+          : opts.rideOrder
+            ? order({ type: 'ride', merchantOrgId: null })
+            : id === 'o2'
+              ? order({ id: 'o2', paymentMethod: 'wallet' })
+              : order(),
+      ...(opts.rideFor ? { riderName: async (_orderId: string, driverId: string) => (driverId === actor.personId ? opts.rideFor! : null) } : {}),
+    },
     merchants: { name: (id) => (id === 'm1' ? 'مطعم خالد' : null) },
     quotes: { quote: () => null },
     money: {
@@ -311,6 +324,16 @@ describe('PartnerService', () => {
     expect(JSON.stringify(offer)).not.toContain(String(HOME.lat));
     expect(offer.pickup.pin).toEqual(KITCHEN); // a merchant's kitchen is public
     expect(offer.tripKm).toBeGreaterThan(2); // the distance is still computed server-side
+  });
+
+  it('c9: a ride booked for someone else names the rider on the offer and on the job (pickup and drop-off)', async () => {
+    const offered = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
+    expect((await harness({ online: true, offerTrip: offered, rideFor: 'أم علي' }).currentOffer(actor))!.rider).toEqual({ name: 'أم علي' });
+    expect((await harness({ online: true, offerTrip: offered, rideOrder: true }).currentOffer(actor))!.rider).toBeNull();
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    const job = await harness({ trips: [t], rideFor: 'أم علي' }).activeJob(actor);
+    expect(job!.stops.map((s) => s.rider)).toEqual([{ name: 'أم علي' }, { name: 'أم علي' }]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops.map((s) => s.rider)).toEqual([null, null]);
   });
 
   it('currentOffer while on a job is a batch: 70 % as the batch bonus', async () => {

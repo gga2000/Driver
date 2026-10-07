@@ -125,6 +125,8 @@ model Person {
   vaultAccesses    VaultAccessLog[]  @relation("VaultAccessor")
   /// Children this person enrolled as guardian (names in the vault; M2 review follow-up).
   guardedChildren  ChildIdentity[]   @relation("ChildGuardian")
+  /// Ride ideas c9/s3: the names bookers gave this person on rides they booked for them (vault).
+  riderNames       ParticipantIdentity[] @relation("ParticipantIdentitySubject")
   tripOrderChanges TripOrder[]
 
   @@index([trustTier])
@@ -410,6 +412,27 @@ model ChildIdentity {
 
   @@index([guardianId])
   @@map("child_identities")
+  @@schema("identity_vault")
+}
+
+/// Ride ideas c9/s3: the name an orderer gave the person he booked a ride for («ماما», «أم علي»),
+/// keyed by the opaque participant id the public side carries. The rider's number is that person's
+/// own identity (`person_identities`); every read is a VaultAccessLog row against the rider.
+model ParticipantIdentity {
+  id            String   @id @default(cuid())
+  participantId String   @unique @map("participant_id")
+  /// The person on the order (the rider).
+  personId      String   @map("person_id")
+  /// Who gave the name (the orderer).
+  givenById     String   @map("given_by_id")
+  name          String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  person Person @relation("ParticipantIdentitySubject", fields: [personId], references: [id])
+
+  @@index([personId])
+  @@map("participant_identities")
   @@schema("identity_vault")
 }
 

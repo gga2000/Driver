@@ -49,6 +49,8 @@ import { SharedSlidingWindowLimiter } from './rate-limit.js';
 /** The slices of orders / trips / identity / orgs the chat reads (it owns only its own tables). */
 export interface ChatOrdersPort {
   get(orderId: string): Promise<Order>;
+  /** Ride ideas c9/s3: the rider of a ride booked for someone else and the name the booker gave them (logged read). */
+  riderOf?(orderId: string, accessorId: string, purpose: string): Promise<{ personId: string; name: string } | null>;
 }
 export interface ChatTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -88,6 +90,8 @@ interface OrderContext {
   order: Order;
   ride: boolean;
   customerIds: ReadonlySet<string>;
+  /** c9/s3: on a ride booked for someone else, the rider (the person the driver picks up). */
+  riderId: string | null;
   courierId: string | null;
   courierAcceptedAt: Date | null;
   doneAt: Date | null;
@@ -421,10 +425,12 @@ export class ChatService implements ChatPort {
     } else if (trip?.state === 'completed' && trip.completedAt) {
       doneAt = trip.completedAt;
     }
+    const riderId = order.type === 'ride' ? (order.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null) : null;
     return {
       order,
       ride: order.type === 'ride',
       customerIds,
+      riderId,
       courierId: courierOn ? trip!.courierId : null,
       courierAcceptedAt: courierOn ? trip!.acceptedAt : null,
       doneAt,
@@ -532,12 +538,17 @@ export class ChatService implements ChatPort {
     const out: ChatParticipant[] = [];
     for (const r of CHAT_THREAD_PARTIES[kind]) {
       let name: string | null = null;
-      if (r === 'customer') name = names[ctx.order.ordererId] ?? null;
+      if (r === 'customer') name = ctx.riderId ? await this.riderName(ctx, readerId) : (names[ctx.order.ordererId] ?? null);
       else if (r === 'courier') name = ctx.courierId ? (names[ctx.courierId] ?? null) : null;
       else if (r === 'merchant' && ctx.order.merchantOrgId) name = await this.stores.storeName(ctx.order.merchantOrgId);
       out.push({ role: r, name, you: r === myRole });
     }
     return out;
+  }
+
+  /** c9/s3: on a ride for someone else the customer side is the rider, by the name the booker gave them. */
+  private async riderName(ctx: OrderContext, readerId: string): Promise<string | null> {
+    return (await this.orders.riderOf?.(ctx.order.id, readerId, 'chat_thread'))?.name ?? null;
   }
 
   private async firstNames(orderId: string, readerId: string, personIds: string[]): Promise<Record<string, string | null>> {
@@ -555,8 +566,11 @@ export class ChatService implements ChatPort {
     const roles = senderRole === 'support' ? [...CHAT_THREAD_PARTIES[kind]] : [counterpartOf(kind, senderRole)];
     const out = new Set<string>();
     for (const r of roles) {
-      if (r === 'customer') out.add(ctx.order.ordererId);
-      else if (r === 'courier' && ctx.courierId) out.add(ctx.courierId);
+      if (r === 'customer') {
+        out.add(ctx.order.ordererId);
+        // c9/s3: the rider is at the pickup, so the driver's messages reach them too (the booker follows).
+        if (ctx.riderId && kind === 'customer_courier') out.add(ctx.riderId);
+      } else if (r === 'courier' && ctx.courierId) out.add(ctx.courierId);
       else if (r === 'merchant' && ctx.order.merchantOrgId) {
         for (const h of await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)) if (!h.frozen) out.add(h.personId);
       }
@@ -565,10 +579,13 @@ export class ChatService implements ChatPort {
     return [...out];
   }
 
-  /** The person a masked call rings: the courier, the orderer, or the kitchen's owner. */
+  /**
+   * The person a masked call rings: the courier, the orderer (the rider on a ride booked for someone
+   * else, c9 — «اتصل بالراكب»), or the kitchen's owner.
+   */
   private async calleeOf(ctx: OrderContext, role: ChatRole): Promise<string | null> {
     if (role === 'courier') return ctx.courierId;
-    if (role === 'customer') return ctx.order.ordererId;
+    if (role === 'customer') return ctx.riderId ?? ctx.order.ordererId;
     if (role === 'merchant' && ctx.order.merchantOrgId) {
       const holders = (await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)).filter((h) => !h.frozen);
       return (holders.find((h) => h.kind === 'merchant_owner') ?? holders[0])?.personId ?? null;

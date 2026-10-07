@@ -24,6 +24,7 @@
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
+//   - POST /demo/ride-for?personId=…                                 «لمنو المشوار؟»: trusted people and «ماما» booked for before
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
 //                                                                     a booked ride, «عشاك يوصل وياك»
@@ -1656,6 +1657,40 @@ const rajaa = await (async () => {
       if (url.searchParams.has('nudgeAcceptMs')) nudgeAcceptMs = Number(url.searchParams.get('nudgeAcceptMs'));
       const list = await ensureDrivers();
       json(res, 200, { acceptMs, nudgeAcceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // ───────────────────────── ride ideas c9/s3: a ride for someone else ─────────────────────────
+  //   POST /demo/ride-for?personId=…   → {earlierOrderId}
+  // «لمنو المشوار؟» has people to offer: two trusted people (أختي زينب, أبوي; kept when he has some) and
+  // «ماما», whom he booked a taxi for earlier (cancelled before a driver took it, so nothing is running).
+  // Book a ride for someone in the app; /demo/ride/accept and /advance drive it like any ride.
+  app.use('/demo/ride-for', async (req, res) => {
+    try {
+      const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/ride-for?personId=…' });
+      const as = { personId, sessionId: 'demo' };
+      if (((await identity.me(as)).trustedContacts ?? []).length === 0) {
+        await identity.updateProfile(as, {
+          trustedContacts: [
+            { name: 'أختي زينب', phone: '0780 111 2233', relation: 'sibling' },
+            { name: 'أبوي', phone: '0790 222 3344', relation: 'father' },
+          ],
+        });
+      }
+      const earlier = await orders.place(personId, {
+        cityId: 'aziziyah',
+        type: 'ride',
+        rideVertical: 'taxi',
+        pickup: { zoneKey: 'centre', pin: { lat: 32.9012, lng: 45.0702 } },
+        dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
+        rider: { from: 'typed', name: 'ماما', phone: '0770 555 4433' },
+      });
+      await orders.cancel(personId, { orderId: earlier.id, reason: 'demo' });
+      json(res, 200, { earlierOrderId: earlier.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

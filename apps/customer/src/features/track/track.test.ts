@@ -319,4 +319,13 @@ describe('ride status line (J1c f4)', () => {
   it('without a name keeps the plain line', () => {
     expect(statusLine({ ...coming, courier: { ...abbas, firstName: null } }, t, { now: at(3).getTime() + 1_000 })).toBe(t('trip.status.en_route_to_pickup'));
   });
+  it('s3: the booker of a ride for someone else follows it about them, to the end', () => {
+    const forMum = (state: NonNullable<OrderTracking['trip']>['state'], orderState: Order['state'] = 'matched') =>
+      view({ type: 'ride', state: orderState, merchantOrgId: null, rider: { name: 'ماما' } }, { merchant: null, trip: trip(state), courier: abbas });
+    expect(statusLine(view({ type: 'ride', state: 'placed', merchantOrgId: null, rider: { name: 'ماما' } }, { merchant: null }), t)).toBe('ندوّر سايق لـ ماما');
+    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 1_000 })).toBe('لگينا سايق لـ ماما: عباس');
+    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 5_000 })).toBe('عباس رايح ياخذ ماما');
+    expect(statusLine(forMum('arrived_pickup'), t)).toBe('السايق وصل عند ماما');
+    expect(statusLine(forMum('in_transit', 'picked_up'), t)).toBe('مشوار ماما ماشي');
+  });
 });

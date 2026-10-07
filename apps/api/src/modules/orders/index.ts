@@ -12,6 +12,8 @@ export type { OrderSearchFilter } from './orders.repository.js';
 export { isLate, LATE_DELIVERY_MIN, LATE_PICKUP_GRACE_MIN, ACTIVE_ORDER_STATES } from './history.js';
 export { PARTICIPANT_RESOLVER, allocatePoints, orderPoints } from './participants.js';
 export type { ParticipantResolver } from './participants.js';
+export { ORDERS_RIDERS, identityRiders } from './riders.js';
+export type { OrdersRidersPort, ResolvedRider, RiderIdentity } from './riders.js';
 export { ORDER_EVENTS, RecordingOrderEvents } from './events.adapter.js';
 export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './events.adapter.js';
 export type { PauseWindow } from './pause.js';

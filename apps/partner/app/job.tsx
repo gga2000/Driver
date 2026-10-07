@@ -422,6 +422,19 @@ function JobView({
               </View>
 
               <GiftLine stop={stop} />
+              {ride && stop.type === 'pickup' && stop.rider ? (
+                <View testID="job-rider" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="user" size={18} color="text" />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="label" weight={700}>
+                      {t('partner.offer_for_rider_title', { name: stop.rider.name })}
+                    </Text>
+                    <Text variant="caption" color="textMuted">
+                      {t('partner.offer_for_rider_body')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
               {stop.type === 'dropoff' && stop.collectIqd > 0 ? <TenderNote collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} /> : null}
               {/* Maps program r4: the code the kitchen matches before handing over the food. */}
               {stop.type === 'pickup' && stop.pickupCode ? (
@@ -465,7 +478,8 @@ function JobView({
               {stop.type === 'dropoff' && stop.door ? <DoorCard door={stop.door} arrived={stop.state === 'arrived'} onCall={() => void customerCall.call()} stopId={stop.stopId} /> : null}
 
               <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
-                <QuickAction icon="phone" label={t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
+                {/* c9: on a ride booked for someone else the call goes to the rider, and says so. */}
+                <QuickAction icon="phone" label={ride && stop.rider ? t('partner.call_rider') : t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
                 <QuickAction icon="chat" label={ride ? t('partner.message') : t('chat.role.customer')} badge={customerThread?.unread ?? 0} onPress={() => openChat('customer_courier')} disabled={!customerThread} testID="job-chat" />
                 {kitchenThread ? <QuickAction icon="bag" label={t('partner.message_merchant')} badge={kitchenThread.unread} onPress={() => openChat('merchant_courier')} testID="job-chat-merchant" /> : null}
                 <QuickAction icon="map-pin" label={t('partner.open_maps')} onPress={openMaps} testID="job-maps" />
@@ -520,7 +534,7 @@ function JobView({
 
 function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 'en'): string {
   if (s.type === 'dropoff') return ride ? zoneName(s.zoneId, locale, t) : t('partner.offer_customer');
-  return s.label ?? (ride ? t('partner.offer_rider') : zoneName(s.zoneId, locale, t));
+  return s.label ?? (ride ? (s.rider?.name ?? t('partner.offer_rider')) : zoneName(s.zoneId, locale, t));
 }
 
 /**

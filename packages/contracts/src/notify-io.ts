@@ -146,6 +146,8 @@ export const NotifyTemplateId = z.enum([
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
+  'ride_for_rider',
+  'ride_rider_arrived',
   'chat_message',
   'marketing_offer',
   'dish_pot_today',
@@ -187,6 +189,12 @@ export interface NotifyTemplateDef {
     silent?: boolean;
   };
   whatsapp?: WhatsAppTemplateDef;
+  /**
+   * The SMS's own words (`sms.*` with `{name}` params) when SMS is a primary channel and says more than
+   * the push (a link, a code). `withCode` is used instead when the `code` param is set. Absent: the SMS
+   * is the WhatsApp text, else "title — body".
+   */
+  sms?: { key: MessageKey; withCode?: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -500,6 +508,27 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://driver.iq/share/shr_abc']),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // Ride ideas c9/s3: a ride booked for someone else — once a driver takes it, the rider (a number, often
+  // not an account) gets who is coming and the live link by SMS, and a push too when the number has the
+  // app. The night ride's start code goes in it: the rider is the one getting in.
+  ride_for_rider: {
+    id: 'ride_for_rider',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code' },
+    primary: ['push', 'sms'],
+    quietHours: 'send',
+  },
+  // Ride idea s3: the booker followed it to the end — «مشوار ماما وصل بالسلامة» (the مشوار arrives: gender-free).
+  ride_rider_arrived: {
+    id: 'ride_rider_arrived',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_rider_arrived.title', body: 'push.ride_rider_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   chat_message: {

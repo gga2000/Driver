@@ -24,6 +24,7 @@ import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
 import { ORDERS_CASH_RISK, ORDERS_PLACES, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
 import { BLOB_STORE, PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
+import { identityRiders } from './riders.js';
 import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
 import { OrdersStorefrontMerchants } from './storefront.port.js';
@@ -129,6 +130,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly trips: TripsService,
     private readonly households: HouseholdsRpc,
     private readonly referrals: ReferralsService,
+    private readonly identity: IdentityService,
+    private readonly orgs: OrgsService,
   ) {}
 
   onModuleInit(): void {
@@ -137,6 +140,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.
     this.orders.bindReferrals({ referrerOf: (personId) => this.referrals.referrerOf(personId) });
     this.referrals.bindOrders({ placedCount: (personId) => this.orders.placedCount(personId) });
+    // Ride ideas c9/s3: a ride for someone else — the rider is a person, their name stays in identity's vault.
+    this.orders.bindRiders(identityRiders(this.identity, orgsHouseholds(this.orgs)));
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
     this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
     // Joy w4: a payer's yes or no moves the held household order (its timer settles it otherwise).

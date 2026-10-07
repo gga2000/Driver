@@ -244,7 +244,8 @@ try {
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
-  if (wants('ride')) await rideShots();
+  // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
+  if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
@@ -1470,6 +1471,75 @@ async function rideShots() {
   await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));
   await settle(900);
   await shot('ride-where-picks');
+}
+
+/**
+ * Ride ideas c9/s3 «لمنو المشوار؟»: the row on the choose screen («إلي»), its sheet (ماما booked for
+ * before, two trusted people, «شخص ثاني»), a typed name with a wrong then a right number, the row «لـ
+ * خالتي»; then the booker's live screen for her ride, its end («مشوار خالتي وصل بالسلامة») and the
+ * history row «لـ خالتي». The ride is driven to the end, so nothing is left running.
+ */
+async function rideForShots() {
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId || !(await demoPost(`/demo/ride-for?personId=${encodeURIComponent(personId)}`))) return;
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('service-taxi').click({ timeout: 15_000 });
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await byTestId('ride-dropoff').click();
+  await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
+  await page.locator('[data-testid="ride-results"]').waitFor();
+  await page.locator('[data-testid="ride-results"] [data-testid^="ride-spot-"]').first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await byTestId('ride-rider').waitFor({ timeout: 10_000 });
+  await settle(900);
+  await shot('ride-for-choose');
+
+  await byTestId('ride-rider').click();
+  await byTestId('ride-rider-sheet').waitFor();
+  await byTestId('chip-trusted:0').waitFor({ timeout: 10_000 }).catch(() => errors.push('trusted people not offered for a ride'));
+  await settle(600);
+  await shot('ride-for-sheet');
+  await byTestId('chip-other').click();
+  await page.locator('[data-testid="ride-rider-name"]').fill('خالتي');
+  await page.locator('[data-testid="ride-rider-phone"]').fill('0771 234');
+  await byTestId('ride-rider-done').click();
+  await settle(500);
+  await shot('ride-for-typed-error');
+  await page.locator('[data-testid="ride-rider-phone"]').fill('0771 234 5678');
+  await settle(400);
+  await shot('ride-for-typed');
+  await byTestId('ride-rider-done').click();
+  await byTestId('ride-rider-sheet').waitFor({ state: 'detached' });
+  await settle(600);
+  await shot('ride-for-row');
+
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  await page.waitForTimeout(2500);
+  await shot('ride-for-searching');
+  if (!(await demoPost(`/demo/ride/accept?orderId=${orderId}`))) return;
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(4500);
+  await shot('ride-for-live');
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
+  await byTestId('ride-follow').waitFor({ timeout: 15_000 }).catch(() => errors.push('follow card not shown on a ride for someone else'));
+  await page.waitForTimeout(2000);
+  await shot('ride-for-live-expanded');
+
+  // To the end, away from the order screen; the arrival plays when he opens it.
+  await page.goto(`${origin}/`, LOADED);
+  for (let i = 0; i < 3; i++) await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('arrival').waitFor({ timeout: 15_000 }).catch(() => errors.push('arrival not shown for a ride for someone else'));
+  await page.waitForTimeout(1500);
+  await shot('ride-for-arrived');
+  await page.goto(`${origin}/orders`, LOADED);
+  await byTestId(`order-${orderId}`).waitFor({ timeout: 15_000 }).catch(() => errors.push('ride for someone else not in history'));
+  await settle(700);
+  await shot('ride-for-history');
 }
 
 /**

@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DEFAULT_SAFETY_PREFS,
   DriverError,
+  RIDE_RIDER_NAME_MAX,
   TRUSTED_CONTACTS_MAX,
   type EmergencyRelation,
   type SafetyPrefs,
@@ -756,6 +757,42 @@ export class IdentityService implements IdentityPort {
     const { hash } = this.phone(rawPhone);
     const p = await this.repo.findPersonByPhoneHash(hash);
     return { personId: p?.id ?? null, phoneHash: hash };
+  }
+
+  /**
+   * Ride ideas c9/s3: the person a booker books a ride for, by number — found, or created
+   * pseudonymously like a household invite so the driver's call and the rider's SMS reach them — and
+   * the peppered hash of the number. The number itself stays in the vault.
+   */
+  async riderByPhone(rawPhone: string, bookerId: string): Promise<{ personId: string; phoneHash: string }> {
+    const { hash } = this.phone(rawPhone);
+    return { personId: await this.ensurePersonByPhone(rawPhone, bookerId, 'ride_rider'), phoneHash: hash };
+  }
+
+  /** c9/s3: keeps the name the booker gave the rider of his ride («ماما»), keyed by the participant id. */
+  async rememberParticipantName(input: { participantId: string; personId: string; givenById: string; name: string }): Promise<void> {
+    const name = input.name.trim().slice(0, RIDE_RIDER_NAME_MAX);
+    if (!name) throw new DriverError('invalid_input');
+    await this.uow.run((tx) => this.repo.saveParticipantIdentity({ ...input, name }, tx));
+  }
+
+  /**
+   * c9/s3: the names bookers gave their riders, by participant id (unknown ids are left out), for the
+   * booker, the rider or the driver of the ride. Every read by someone other than the rider is a
+   * VaultAccessLog row against the rider (`participant_name`, the caller's purpose).
+   */
+  async participantNames(participantIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>> {
+    const ids = [...new Set(participantIds)];
+    if (ids.length === 0) return {};
+    return this.uow.run(async (tx) => {
+      const rows = await this.repo.readParticipantIdentities(ids, tx);
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        rows.filter((r) => r.personId !== accessorId).map((r) => ({ personId: r.personId, accessorId, purpose, fieldsRead: ['participant_name'], now })),
+        tx,
+      );
+      return Object.fromEntries(rows.map((r) => [r.participantId, r.name]));
+    });
   }
 
   async setName(actor: Actor, name: string): Promise<void> {
