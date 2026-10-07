@@ -17,9 +17,9 @@ export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthor
  * The customer app's API layer: one tRPC client (httpBatchLink + superjson; `live.*` subscriptions
  * over SSE with httpSubscriptionLink) whose requests carry
  * `Authorization: Bearer <access token>` from the session, refresh once on a 401 and retry, and a
- * React Query client shared by every screen. Every request has a deadline (`NET_RULES.requestTimeoutMs`,
- * the refresh a shorter one), so a stalled connection never freezes the app (audit CORE-01); live
- * streams reconnect on their own after `LIVE_RULES.inactivityMs` of silence.
+ * React Query client shared by every screen. Every request has a deadline (`NET_RULES.requestTimeoutMs`;
+ * the refresh a longer one, and requests stop waiting for it after 10 s), so a stalled connection never
+ * freezes the app (audit CORE-01); live streams reconnect on their own after `LIVE_RULES.inactivityMs` of silence.
  *
  * Screens use `useApi()` (the typed tRPC proxy) with React Query:
  *
@@ -50,8 +50,9 @@ const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?
 const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
-  // A bare client for the refresh call: no auth header, no retry link (no recursion), and a shorter
-  // deadline, since every other request waits behind a refresh.
+  // A bare client for the refresh call: no auth header, no retry link (no recursion), and a longer
+  // deadline: the server rotates the token when it answers, so a slow answer must still land (the
+  // session lets waiting requests go on after 10 s).
   const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: createNetworkFetch(NET_RULES.refreshTimeoutMs) })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 

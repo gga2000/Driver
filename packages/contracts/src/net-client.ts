@@ -39,8 +39,12 @@ export const NET_RULES = {
    * waits forever on a stalled link). The clock starts again once for the body after the headers arrive.
    */
   requestTimeoutMs: 15_000,
-  /** The token refresh gives up sooner: every request waits behind it. A timed-out refresh keeps the session. */
-  refreshTimeoutMs: 10_000,
+  /**
+   * The token refresh request waits longer than others: the server rotates the token when it answers,
+   * so giving up early on a slow answer would leave the phone with a retired token. Requests don't
+   * wait this long for it (the session releases them after 10 s, `REFRESH_WAIT_MS`).
+   */
+  refreshTimeoutMs: 60_000,
 } as const;
 
 export type NetRules = { -readonly [K in keyof typeof NET_RULES]: number };
