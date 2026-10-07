@@ -10,6 +10,7 @@ import { useSignedIn } from '@/lib/session';
 import { chatCaseItems, chatSeqToMark } from '@/lib/support-chat';
 import { liveTokensOf, useTRPC, useTRPCClient } from '@/lib/trpc';
 import { Avatar, cx, IconCheck, IconChat } from '../ui';
+import { ChatVoiceNote } from './voice-note';
 
 /**
  * A chat case («كلّم الدعم» inside an order): the customer's support chat and the case's own lines
@@ -60,7 +61,12 @@ function ChatBubble({
 }) {
   const customer = m.senderRole === 'customer';
   const body =
-    m.text ?? (m.photoUrl ? t('console.sup_photo') : m.location ? t('console.sup_location') : '—');
+    m.kind === 'voice' ? (
+      <ChatVoiceNote m={m} />
+    ) : (
+      (m.text ??
+      (m.photoUrl ? t('console.sup_photo') : m.location ? t('console.sup_location') : '—'))
+    );
   return (
     <li
       className={cx('flex items-end gap-2.5', customer ? '' : 'flex-row-reverse')}

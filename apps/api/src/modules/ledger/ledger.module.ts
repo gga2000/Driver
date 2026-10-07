@@ -80,7 +80,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     CustomerWalletService,
     SupportCreditService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
+  exports: [LedgerService, CapsService, CAPS_PORT, MONEY_RULES, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);

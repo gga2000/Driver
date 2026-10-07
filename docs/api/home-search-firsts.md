@@ -13,6 +13,10 @@ counts when every word of the pick starts a word of its name (`searchScore ≥ 2
 the word («باچة» before «تشريب باچة»), then price. Variety: one dish per kitchen first, then a dish of a
 word not yet shown, then the rest. Guests are rate-limited like the rest of the catalog.
 
+Each dish (here and in `catalog.search`) carries `quickAdd`: true when none of its option groups asks
+for a choice, so the home band's + adds it in one tap and opens a − 1 + counter; otherwise the + opens
+the dish to choose (the menu's own `canQuickAdd` rule, without availability).
+
 Used by the home's daypart band (`features/home/daypart.ts` → `bandWords`) and by search's meal words
 («فطور», «غدا», «عشا», «حلو», «عصير» in `features/search/intents.ts`).
 
@@ -29,7 +33,15 @@ time. Shown on the Console controls page («شنو يدورون وما لگوه�
 
 ## `orders.firsts` (protected query)
 
-`→ { foodOrderId, tuktukOrderId }` — the caller's first delivered food order and first finished tuktuk
+`→ { foodOrderId, tuktukOrderId, nightRideOrderId, rideMilestone }` — the caller's first delivered food order and first finished tuktuk
 ride, chosen from all their orders by when each reached them, so once claimed no later order can take
 it. The app shows the «أول مرة» stamp on that order's arrival screen once per phone, never on a quiet
 day. The first الرجعة seat is the earliest booking that became a real seat (`routes.myBookings`).
+
+Ride stickers (taxi/tuktuk idea g2) ride on the same read: `nightRideOrderId` is the first finished
+taxi or tuktuk ride **booked** at night (Baghdad 21:00–05:59, `isNightAt`), and `rideMilestone`
+`{ orderId, count }` is the latest finished ride whose count is in `RIDE_STICKER_MILESTONES` (10, 25,
+50, 100), both by when the rides reached the person (`ride-milestones.ts`). That ride's arrival screen
+offers a sticker from the pack — «وصلت بالسلامة» for the night ride, «جاي بالطريق» for a milestone
+(a milestone wins when one ride is both; a «أول مرة» on the same ride wins over both, one moment per
+arrival) — with «أرسله» to send it on WhatsApp. Never on a quiet day.

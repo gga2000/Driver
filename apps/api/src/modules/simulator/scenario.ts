@@ -6,7 +6,7 @@ import { pinIn, zoneSeed, type World } from './world.js';
 /**
  * The demand plan (plan Step 7): when each order is placed, by whom, for what, and how its
  * customer behaves. Default mix 70 % food (auto-assign), 25 % city rides (broadcast), 5 % orders
- * the customer cancels at a random stage. City peaks shape the day: lunch 13:00–15:00 and dinner
+ * the customer cancels at a random stage; about one ride in ten is booked «بعدين» (step 4, c10). City peaks shape the day: lunch 13:00–15:00 and dinner
  * 19:30–22:30 (Asia/Baghdad). Built up front from the seed, so it never depends on how the run
  * unfolds.
  */
@@ -45,6 +45,8 @@ export interface PlannedOrder {
   unreachableSec: number;
   /** Ride: seconds the rider takes to board once the driver has arrived. */
   boardingSec: number;
+  /** Ride booked «بعدين» (step 4, c10): this many minutes ahead (on the 5-minute grid); null = now. */
+  bookAheadMin: number | null;
   /** What the kitchen will do with it (food): exactly 3 % rejected, 2 % partially accepted. */
   kitchen: 'accept' | 'reject' | 'partial';
 }
@@ -54,7 +56,12 @@ export interface ScenarioOptions {
   /** Shares of the mix; default 0.70 food / 0.25 rides / 0.05 cancellations. */
   foodShare?: number;
   rideShare?: number;
+  /** Share of the rides not cancelled that are booked ahead; default 0.1. */
+  bookedShare?: number;
 }
+
+/** Rides booked ahead are booked 30–90 minutes ahead (some get the half-hour reminder, some do not). */
+export const BOOK_AHEAD_MIN = { from: 30, to: 90 } as const;
 
 /** Relative demand per minute of the local day: lunch and dinner peaks. */
 export function demandWeight(localMin: number, kind: 'food' | 'ride'): number {
@@ -163,9 +170,20 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
       // "Sometimes unreachable": 4 % do not pick up at first and answer within 4 minutes.
       unreachableSec: rand.chance(0.04) ? rand.int(40, 220) : 0,
       boardingSec: rand.int(0, 60),
+      bookAheadMin: null,
       kitchen: 'accept' as const,
     };
   });
+
+  // «بعدين» (step 4, c10): from its own stream, so the rest of the plan is the same as before. The ride
+  // and its search fit before the day closes.
+  const later = createRand(world.seed).fork('scenario:booked');
+  const bookedShare = opts.bookedShare ?? 0.1;
+  for (const p of planned) {
+    if (p.kind !== 'ride' || p.cancel || !later.chance(bookedShare)) continue;
+    const ahead = later.int(BOOK_AHEAD_MIN.from / 5, BOOK_AHEAD_MIN.to / 5) * 5;
+    if (p.atMin + ahead + 5 <= DAY_MINUTES - 20) p.bookAheadMin = ahead;
+  }
 
   // Kitchen behaviour (plan Step 7): exactly 3 % of food orders rejected, 2 % partially accepted
   // (those need two lines or more).

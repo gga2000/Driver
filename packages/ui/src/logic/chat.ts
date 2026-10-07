@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatRole, ChatThreadKind, ChatThreadSummary, LatLng, QuickReplyKey } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
+import type { VoiceClip } from './voice-note';
 
 /**
  * Pure chat-screen logic (no React Native imports, unit-tested): labels, the optimistic list,
@@ -7,15 +8,18 @@ import type { MessageKey } from '@driver/i18n';
  * push / subscription channel ships.
  */
 
-export type SendBody = { text: string } | { quickReplyKey: QuickReplyKey } | { photoUploadId: string } | { location: LatLng };
+export type SendBody = { text: string } | { quickReplyKey: QuickReplyKey } | { photoUploadId: string } | { location: LatLng } | { voiceUploadId: string; durationSec: number };
 
 /** A message on its way: shown at the bottom until the server has it (then the poll replaces it). */
 export interface PendingMessage {
   clientId: string;
-  body: SendBody;
+  /** Null while a voice note is still uploading (a retry uploads it again). */
+  body: SendBody | null;
   /** What to draw while it travels (the quick reply's words, the local photo, the pin). */
   text: string | null;
   localPhotoUri: string | null;
+  /** A voice note on its way: the recording (playable from the phone) and its length. */
+  voice: { clip: VoiceClip; durationSec: number } | null;
   status: 'sending' | 'failed';
   createdAt: Date;
 }
@@ -72,6 +76,13 @@ export function chatRows(messages: readonly ChatMessage[], pending: readonly Pen
     rows.push({ type: 'pending', key: p.clientId, pending: p });
   }
   return rows;
+}
+
+/** The bubble kind of a message still on its way. */
+export function pendingKind(p: PendingMessage): ChatMessage['kind'] {
+  if (p.voice) return 'voice';
+  if (!p.body) return 'text';
+  return 'photoUploadId' in p.body ? 'photo' : 'location' in p.body ? 'location' : 'text';
 }
 
 /** Highest seq on screen (what `chat.markRead` is told). */

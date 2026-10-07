@@ -12,7 +12,11 @@ import type {
   SessionRecord,
   VaultAccessLogRecord,
   ChildIdentityRecord,
+  ParticipantIdentityRecord,
+  VaultLogOptions,
 } from './identity.repository.js';
+import { vaultLogFailsClosed } from './identity.repository.js';
+import { VaultLogWriteError, accessorOf, recordSwallowedVaultLogFailure } from './vault-log.js';
 
 /**
  * In-memory twin of the Prisma repository for unit tests and for running the API without a
@@ -27,8 +31,11 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly people = new Map<string, PersonRecord>();
   readonly identities = new Map<string, IdentityRecord>(); // by personId
   readonly accessLogs: VaultAccessLogRecord[] = [];
+  /** Test hook: how many of the next access log writes fail (like a failed insert on Postgres). */
+  failLogWrites = 0;
   /** Twin of the vault table of khat children (name by childRef). */
   readonly children: ChildIdentityRecord[] = [];
+  readonly participantNames = new Map<string, ParticipantIdentityRecord>();
   readonly roles: RoleRecord[] = [];
   readonly devices: DeviceRecord[] = [];
   readonly sessions: SessionRecord[] = [];
@@ -127,11 +134,23 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return idn;
   }
 
-  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
+  /**
+   * Same shape as Postgres: a synthetic accessor (`system:*`, `share:<id>`…) is kept with its kind.
+   * `failLogWrites` (tests) makes the next writes fail, to exercise the fail-open / fail-closed rule.
+   */
+  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx, opts?: VaultLogOptions) {
+    if (this.failLogWrites > 0) {
+      this.failLogWrites -= 1;
+      const err = new Error('vault log write failed (in-memory test hook)');
+      if (vaultLogFailsClosed(entry.purpose, opts)) throw new VaultLogWriteError(err);
+      recordSwallowedVaultLogFailure(err, entry);
+      return null;
+    }
     const row: VaultAccessLogRecord = {
       id: this.id('val'),
       personId: entry.personId,
       accessorId: entry.accessorId,
+      accessorKind: accessorOf(entry.accessorId).kind,
       purpose: entry.purpose,
       fieldsRead: [...entry.fieldsRead],
       childRef: entry.childRef ?? null,
@@ -142,9 +161,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return row;
   }
 
-  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx) {
-    for (const e of entries) await this.logVaultAccess(e, tx);
-    return entries.length;
+  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx, opts?: VaultLogOptions) {
+    let n = 0;
+    for (const e of entries) if (await this.logVaultAccess(e, tx, opts)) n += 1;
+    return n;
   }
 
   async vaultAccessLogs(personId: string) {
@@ -171,6 +191,22 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     if (!c) throw new Error(`child ${childRef} not found`);
     this.keep(tx, c);
     c.photoRef = photoRef;
+  }
+
+  async saveParticipantIdentity(input: ParticipantIdentityRecord, tx?: Tx) {
+    const prior = this.participantNames.get(input.participantId);
+    this.participantNames.set(input.participantId, { ...input });
+    this.journal(tx, () => {
+      if (prior) this.participantNames.set(input.participantId, prior);
+      else this.participantNames.delete(input.participantId);
+    });
+  }
+
+  async readParticipantIdentities(participantIds: readonly string[]) {
+    return participantIds.flatMap((id) => {
+      const r = this.participantNames.get(id);
+      return r ? [{ ...r }] : [];
+    });
   }
 
   /** Twin of the vault row's document / selfie storage refs, by personId. */

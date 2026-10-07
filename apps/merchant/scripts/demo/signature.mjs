@@ -36,7 +36,7 @@ export default async function register(ctx) {
     haider = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: haider, kind: 'courier' });
     await identity.setName({ personId: haider, sessionId: 'demo' }, 'حيدر كاظم');
-    vehicles.register?.(haider, { vehicleClass: 'bike', plate: 'واسط 45671', label: null });
+    vehicles.register?.(haider, { vehicleClass: 'bike', plate: 'واسط 45671' });
     await dispatch.presence.online(haider, { cityId: 'aziziyah', at: kitchen, vehicle: 'bike', tier: 'silver' });
     return haider;
   }

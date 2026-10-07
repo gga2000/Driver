@@ -45,6 +45,14 @@ export interface DispatchJob {
   startAt?: Date;
   /** smart_broadcast (joy l9): the rider's favourite, offered the job alone for a minute first. */
   preferDriverIds?: readonly string[];
+  /** smart_broadcast (ride step 3): the rider (orderer): his avoid list (s5) and favourites (s4) apply. */
+  riderId?: string;
+  /** smart_broadcast (ride step 3, s6): «عوائل» — family-tagged, long-standing, well-rated drivers first. */
+  familyPreferred?: boolean;
+  /** smart_broadcast (review #28): the ride's booked time; with the city's `bookedRides` it may be pre-assigned. */
+  scheduledFor?: Date;
+  /** The order the job carries (named on the booked-ride events the rider and drivers hear about). */
+  orderId?: string;
 }
 
 export interface Wave {

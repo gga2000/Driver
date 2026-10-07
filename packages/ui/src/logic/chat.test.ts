@@ -11,6 +11,8 @@ const msg = (seq: number, at: string, mine = false): ChatMessage => ({
   text: `رسالة ${seq}`,
   quickReplyKey: null,
   photoUrl: null,
+  audioUrl: null,
+  durationSec: null,
   location: null,
   masked: false,
   createdAt: new Date(at),
@@ -32,7 +34,7 @@ describe('chat logic', () => {
 
   it('puts a day divider before each day and the pending ones last', () => {
     const now = new Date('2026-10-04T12:00:00');
-    const pending: PendingMessage = { clientId: 'c1', body: { text: 'هلا' }, text: 'هلا', localPhotoUri: null, status: 'sending', createdAt: now };
+    const pending: PendingMessage = { clientId: 'c1', body: { text: 'هلا' }, text: 'هلا', localPhotoUri: null, voice: null, status: 'sending', createdAt: now };
     const rows = chatRows([msg(1, '2026-10-03T22:00:00'), msg(2, '2026-10-04T09:00:00'), msg(3, '2026-10-04T09:01:00', true)], [pending], now);
     expect(rows.map((r) => r.type)).toEqual(['day', 'message', 'day', 'message', 'message', 'pending']);
     expect(rows[2]).toMatchObject({ type: 'day', label: 'today' });

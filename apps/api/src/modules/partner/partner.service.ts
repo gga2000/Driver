@@ -2,12 +2,17 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   DEMAND_MAP_RULES,
   DriverError,
+  sortCargo,
   PARTNER_DRIVING_ROLES,
   partnerCurrentStop,
   partnerModesOf,
   type Actor,
+  type AnswerClimateCheckInput,
+  type AnswerBookedJobInput,
   type Order,
   type OrderRoute,
+  type PartnerBookedJob,
+  type PartnerBookedJobs,
   type PartnerDemandMap,
   type PartnerGoOnlineInput,
   type PartnerJob,
@@ -15,18 +20,27 @@ import {
   type PartnerPickupSpot,
   type PartnerJobStop,
   type PartnerMerchantPrep,
+  type PartnerClimateCheck,
   type PartnerOffer,
   type PartnerOfferRouteInput,
   type PartnerPort,
   type PartnerStatus,
   type QuoteComponent,
+  type RideCargo,
+  type RoleKind,
+  type VehicleClass,
   type Trip,
 } from '@driver/contracts';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
-import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
+import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
+
+/** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
+function cargoOf(orders: readonly Order[]): RideCargo[] {
+  return sortCargo(orders.flatMap((o) => (o.type === 'ride' ? (o.rideCargo ?? []) : [])));
+}
 
 /** The demand forecast is re-read at most this often per city. */
 const FORECAST_CACHE_MS = 5 * 60_000;
@@ -60,10 +74,11 @@ export class PartnerService implements PartnerPort {
     const modes = partnerModesOf(roles);
     const canDrive = roles.some((r) => PARTNER_DRIVING_ROLES.includes(r));
     const cityId = presence?.cityId ?? DEFAULT_CITY;
-    const [offer, demand, gate] = await Promise.all([
+    const [offer, demand, gate, climateCheck] = await Promise.all([
       canDrive && presence ? this.deps.dispatch.openOffer(id, cityId) : Promise.resolve(null),
       canDrive ? this.demand(cityId, presence) : Promise.resolve(null),
       canDrive ? this.deps.gate.onlineGate(id) : Promise.resolve(null),
+      presence ? this.climateCheckOf(id, roles, presence.vehicle) : Promise.resolve(null),
     ]);
     const heldIqd = Math.max(0, -cap.cashIqd);
     return {
@@ -91,7 +106,28 @@ export class PartnerService implements PartnerPort {
       activeTripId: trips[0]?.id ?? null,
       offerId: offer?.offer.id ?? null,
       gate,
+      climateCheck,
     };
+  }
+
+  /**
+   * Ride idea x1, «المكيّفة شغالة اليوم؟»: asked of an online ride driver on a car on a hot (cold)
+   * shift when ops confirmed its AC (heating); null otherwise. Couriers and tuktuks are never asked.
+   */
+  private async climateCheckOf(driverId: string, roles: readonly RoleKind[], vehicle: VehicleClass): Promise<PartnerClimateCheck | null> {
+    const climate = this.deps.climate;
+    if (!climate || !servedVerticals(roles, vehicle).includes('taxi')) return null;
+    return climate.check(driverId);
+  }
+
+  /** نعم / لا for this shift; only while the question stands (`climate_check_none` otherwise). */
+  async answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus> {
+    const id = actor.personId;
+    const [roles, presence] = await Promise.all([this.deps.roles.activeRoles(id), this.deps.presence.get(id)]);
+    const check = presence ? await this.climateCheckOf(id, roles, presence.vehicle) : null;
+    if (!check || !this.deps.climate) throw new DriverError('climate_check_none');
+    await this.deps.climate.answer(id, input.working);
+    return this.status(actor);
   }
 
   /**
@@ -177,6 +213,64 @@ export class PartnerService implements PartnerPort {
       collectIqd: collect > 0 ? collect : null,
       // Joy l9: the rider asked for him on this booked ride — the offer says so, and nothing more.
       favourite: offer.policy === FAVOURITE_OFFER_POLICY,
+      // Ride step 3 (n4): the waiting rider nudged him — «راكب ينتظرك» and a soft chime on the card.
+      nudgedAt: offer.nudgedAt ?? null,
+      // Ride idea x5: «عنده غراض: قنينة غاز», before he accepts.
+      rideCargo: cargoOf(orders),
+      // c9/s3: booked for someone else — «المشوار لـ أم علي».
+      rider: await this.riderOf(orders[0], id),
+    };
+  }
+
+  /**
+   * «مشاوير باچر» (edge-case review #28): rides booked for later he confirmed, and — while he is online —
+   * the ones that fit him to confirm. Each says what an offer says: the time, the pickup and drop-off
+   * zones, the trip km and his pay. Never a door or a name.
+   */
+  async bookedJobs(actor: Actor): Promise<PartnerBookedJobs> {
+    const id = actor.personId;
+    if (!this.deps.dispatch.bookedJobs) return { online: false, mine: [], open: [] };
+    const presence = await this.deps.presence.get(id);
+    const found = await this.deps.dispatch.bookedJobs(id, presence?.cityId ?? DEFAULT_CITY);
+    const [mine, open] = await Promise.all([Promise.all(found.mine.map((r) => this.bookedView(r))), Promise.all(found.open.map((r) => this.bookedView(r)))]);
+    return { online: found.online, mine, open };
+  }
+
+  async answerBookedJob(actor: Actor, input: AnswerBookedJobInput): Promise<PartnerBookedJobs> {
+    if (!this.deps.dispatch.answerBookedJob) throw new DriverError('booked_job_not_found');
+    await this.deps.dispatch.answerBookedJob(actor.personId, input.tripId, input.answer);
+    return this.bookedJobs(actor);
+  }
+
+  private async bookedView(r: PartnerBookedRecord): Promise<PartnerBookedJob> {
+    const trip = await this.deps.trips.get(r.request.tripId);
+    const orders = await this.ordersOf(trip);
+    const pay = buildPay({
+      vertical: r.request.vertical,
+      orders,
+      feeComponents: [],
+      batchedSecond: false,
+      batchShare: this.deps.money.batchShare,
+      compensationIqd: 0,
+      take: this.deps.money.take(r.request.vertical),
+    });
+    const dropStop = trip.stops.find((s) => s.type === 'dropoff');
+    const dropPin = dropStop?.target ?? null;
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    return {
+      tripId: trip.id,
+      vertical: r.request.vertical,
+      scheduledFor: r.scheduledFor,
+      state: r.held ? 'confirmed' : 'open',
+      pickup: { zoneId: r.request.zoneId },
+      dropoff: { zoneId: r.request.dropoffZoneId ?? dropStop?.zoneKey ?? r.request.zoneId },
+      tripKm: dropPin ? kmBetween(r.request.pickup, dropPin) : null,
+      pay,
+      collectIqd: collect > 0 ? collect : null,
+      favourite: r.favourite,
+      confirmBy: r.confirmBy,
+      startFrom: r.startFrom,
+      showBy: r.showBy,
     };
   }
 
@@ -252,6 +346,9 @@ export class PartnerService implements PartnerPort {
     const byId = new Map(orders.map((o) => [o.id, o]));
     const doors = await this.doorsOf(trip, actor.personId, now);
     const spots = await this.pickupSpotsOf(trip, byId, actor.personId, now);
+    const codes = await this.startCodesOf(trip);
+    const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
+    const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -274,12 +371,17 @@ export class PartnerService implements PartnerPort {
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
-          // Maps program r4: the code he shows at the counter, while the pickup is still to do.
-          pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          // Maps program r4: the code he shows at the counter, while the pickup is still to do. Rides have
+          // no counter (and a second 4-digit number next to the night trip code would only confuse).
+          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
           // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
           gift: order?.gift ?? null,
+          // s1 «رمز المشوار»: only that one is needed before «الراكب صعد», never the code itself.
+          ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
+          // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
+          rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -302,10 +404,22 @@ export class PartnerService implements PartnerPort {
       unreachable: trip.unreachable,
       pay,
       merchant: this.prepOf(orders[0], now, names),
+      rideCargo: cargoOf(orders),
     };
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  /** s1: the ride pickups still to do that need the rider's night code, by stop id. */
+  private async startCodesOf(trip: Trip): Promise<ReadonlySet<string>> {
+    const ask = this.deps.orders.startCodeRequired;
+    const out = new Set<string>();
+    if (!ask || (trip.vertical !== 'taxi' && trip.vertical !== 'tuktuk')) return out;
+    for (const s of trip.stops) {
+      if (s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' && (await ask(s.orderId))) out.add(s.id);
+    }
+    return out;
+  }
 
   /** Doors of the job's drop-offs at customers' saved places (maps program f6, a5), by stop id. */
   private async doorsOf(trip: Trip, courierId: string, now: Date): Promise<Map<string, PartnerDoor>> {
@@ -345,6 +459,13 @@ export class PartnerService implements PartnerPort {
   private async demand(cityId: string, presence: PartnerPresence | null) {
     const [waiting, drivers] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId)]);
     return demandHint(waiting, drivers, presence?.zoneId ?? null);
+  }
+
+  /** c9/s3: the rider of a ride booked for someone else, by the name the booker gave; null otherwise. */
+  private async riderOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
+    if (order?.type !== 'ride' || !order.participants.some((p) => p.role === 'rider') || !this.deps.orders.riderName) return null;
+    const name = await this.deps.orders.riderName(order.id, driverId);
+    return name ? { name } : null;
   }
 
   /** Orders currently on the trip (detached ones are someone else's now). */

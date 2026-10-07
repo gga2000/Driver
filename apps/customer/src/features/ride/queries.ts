@@ -4,13 +4,46 @@ import { NEARBY_RULES, type LatLng, type NearbyVehicles, type Quote } from '@dri
 import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
+import { useHousehold, useMe } from '@/features/account/queries';
 import { CITY_ID, quoteMinute, rideQuoteRequest, RIDE_VERTICALS, spotPoint, type RideVertical, type Spot } from './logic';
+import { riderOptions, type RiderOption } from './rider';
 
 /** Landmarks for "وين رايح؟" (`places.landmarks`): seeded garages and meeting points + verified places. */
 export function useLandmarks() {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({ ...api.places.landmarks.queryOptions({ cityId: CITY_ID }), enabled: signedIn, staleTime: 10 * 60_000 });
+}
+
+/**
+ * «لمنو المشوار؟» (ride ideas c9/s3): the people the sheet offers — those he booked rides for before
+ * (his own orders), his trusted people and his household. Whatever has not loaded yet is simply not
+ * offered yet; «شخص ثاني» always works.
+ */
+export function useRiderOptions(): RiderOption[] {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const mine = useQuery({ ...api.orders.mine.queryOptions(), enabled: signedIn });
+  const me = useMe();
+  const household = useHousehold();
+  return useMemo(() => riderOptions({ orders: mine.data ?? [], trusted: me.data?.trustedContacts, household: household.data }), [mine.data, me.data, household.data]);
+}
+
+/** Restaurants as ride destinations (ride idea w7): the same public list food shows, names and pickup points only. */
+export function useShopPlaces() {
+  const api = useApi();
+  return useQuery({ ...api.catalog.restaurants.queryOptions({ cityId: CITY_ID, filters: {} }), staleTime: 10 * 60_000 });
+}
+
+/**
+ * One taxi quote (street pickup, now) for a smart pick on «وين رايح؟» (ride idea w2): the same engine
+ * as the choose screen, so the price shown there is the price the rider then sees.
+ */
+export function usePickQuote(pickup: Spot | null, dropoff: Spot | null) {
+  const api = useApi();
+  const minute = quoteMinute().getTime();
+  const input = pickup && dropoff ? rideQuoteRequest({ vertical: 'taxi', pickup: spotPoint(pickup), dropoff: spotPoint(dropoff), doorPickup: false, at: new Date(minute) }) : null;
+  return useQuery({ ...api.pricing.quote.queryOptions(input ?? rideQuoteRequest({ vertical: 'taxi', pickup: { zoneKey: 'x' }, dropoff: { zoneKey: 'x' }, doorPickup: false, at: new Date(minute) })), enabled: input !== null, staleTime: 60_000, placeholderData: keepPreviousData });
 }
 
 /** The city config (night/peak hours for the reason lines, dispatch waves for the search copy). */
@@ -44,6 +77,28 @@ export function useNearbyVehicles(pin: LatLng | null, vertical: RideVertical) {
     refetchInterval: liteInterval(NEARBY_RULES.refreshMs, lite),
     placeholderData: (prev: NearbyVehicles | undefined) => prev,
   });
+}
+
+/** How often home re-reads the nearest free vehicle. */
+const HOME_NEARBY_MS = 60_000;
+
+/**
+ * The nearest free taxi or tuktuk's minutes to a place, for home's tiles (Date & Saffron): the same
+ * `dispatch.nearby` read as the choose screen, but once a minute (low-data mode: less often), and
+ * only the number is used. Null when none is free, for guests, or before there is a place.
+ */
+export function useNearestMinutes(pin: LatLng | null, vertical: RideVertical) {
+  const api = useApi();
+  const lite = useLiteMode();
+  const signedIn = useSignedIn();
+  const key = { cityId: CITY_ID, pin: pin ? { lat: Math.round(pin.lat * 1e4) / 1e4, lng: Math.round(pin.lng * 1e4) / 1e4 } : { lat: 0, lng: 0 }, vertical };
+  const q = useQuery({
+    ...api.dispatch.nearby.queryOptions(key),
+    enabled: signedIn && pin !== null,
+    staleTime: HOME_NEARBY_MS,
+    refetchInterval: liteInterval(HOME_NEARBY_MS, lite),
+  });
+  return { minutes: q.data?.nearestMinutes ?? null, loading: signedIn && pin !== null && q.isPending };
 }
 
 export type QuoteGrid = Record<RideVertical, { door: Quote | undefined; street: Quote | undefined }>;

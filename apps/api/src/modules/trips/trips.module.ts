@@ -9,7 +9,7 @@ import { EventsServiceAdapter, TRIP_EVENTS } from './events.adapter.js';
 import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { TRIP_ORDER_LOOKUP } from './trip-order.lookup.js';
 import { InMemoryTripsRepository, PrismaTripsRepository, TRIPS_REPOSITORY, type TripsRepository } from './trips.repository.js';
-import { TRIPS_CHILD_NAMES, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
+import { TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
 import { TRIPS_QUEUE, TripsService, type TripTimerJob } from './trips.service.js';
 
 /** BullMQ when REDIS_URL is set; otherwise an in-process queue the module polls once a second. */
@@ -48,6 +48,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: TRIPS_ROLE_CHECKER, useExisting: IdentityService },
     // M2 review follow-up: children's names come only from the identity vault, read (and logged) there.
     { provide: TRIPS_CHILD_NAMES, useExisting: IdentityService },
+    // s1: the Console's night-ride code alerts name the driver (masked number), read and logged in identity.
+    { provide: TRIPS_DRIVER_CARDS, useExisting: IdentityService },
     TripsService,
     TripsRpc,
   ],

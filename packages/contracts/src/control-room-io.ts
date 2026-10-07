@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
 import { HhMm, LocalDate } from './store-hours.js';
+import { VehicleFeature } from './vehicle-features.js';
 
 /**
  * Launch-week control room (launch playbook §3 controls, §4 rota, §6 metrics): kill switches,
@@ -343,7 +344,11 @@ export type SetIftarTimeInput = z.infer<typeof SetIftarTimeInput>;
 
 // ───────────────────────── approvals queue ─────────────────────────
 
-export const ApprovalKind = z.enum(['driver_document', 'merchant_deal', 'landmark_photo', 'merchant_onboarding', 'fleet_vehicle']);
+/**
+ * `vehicle_features`: a verified vehicle's driver claimed features (n1, n2) the car check has not
+ * confirmed yet. A fleet's new vehicle (`fleet_vehicle`) carries its claims in the same check.
+ */
+export const ApprovalKind = z.enum(['driver_document', 'merchant_deal', 'landmark_photo', 'merchant_onboarding', 'fleet_vehicle', 'vehicle_features']);
 export type ApprovalKind = z.infer<typeof ApprovalKind>;
 
 export const ApprovalPhoto = z.object({ url: z.string(), label_ar: z.string() });
@@ -371,6 +376,11 @@ export const ApprovalItem = z.object({
   facts: z.array(ApprovalFact),
   /** Approving a document can set its expiry. */
   takesExpiry: z.boolean(),
+  /**
+   * Vehicle items only: what the driver says the car offers, each with whether ops already confirmed
+   * it; the reviewer ticks the ones he saw at the car check (`DecideApprovalInput.confirmFeatures`).
+   */
+  features: z.array(z.object({ feature: VehicleFeature, confirmed: z.boolean() })).default([]),
 });
 export type ApprovalItem = z.infer<typeof ApprovalItem>;
 
@@ -390,6 +400,11 @@ export const DecideApprovalInput = z
     decision: z.enum(['approve', 'reject']),
     reason: z.string().trim().max(300).optional(),
     expiresAt: z.coerce.date().optional(),
+    /**
+     * Vehicle items, on approve: the claimed features ops saw in the car (the rest are cleared from the
+     * claims). Absent = every claim is confirmed. A rejected `vehicle_features` item clears them all.
+     */
+    confirmFeatures: z.array(VehicleFeature).optional(),
   })
   .refine((v) => v.decision === 'approve' || (v.reason?.length ?? 0) >= 3, { message: 'reason required to reject', path: ['reason'] });
 export type DecideApprovalInput = z.infer<typeof DecideApprovalInput>;

@@ -14,6 +14,35 @@ export const BroadcastWave = z.object({
 });
 export type BroadcastWave = z.infer<typeof BroadcastWave>;
 
+/**
+ * Evening-before booked rides (edge-case review #28, adopted): a ride booked for later is offered to
+ * fitting drivers ahead of time as a pre-assigned job, and one of them confirms it. Taxi / tuktuk only.
+ * See `bookedRideWindow` (`booked-rides.ts`) for how the times combine.
+ */
+export const BookedRidesConfig = z.object({
+  /** The evening-before offer opens at this hour (city clock) the day before the ride. */
+  offerFromHour: z.number().int().min(0).max(23).default(18),
+  /** Drivers confirm by this hour (city clock): the evening before, or the same day for same-day rides. */
+  confirmByHour: z.number().int().min(1).max(23).default(22),
+  /** A same-day ride is pre-assigned only when booked at least this many minutes ahead. */
+  sameDayMinLeadMin: z.number().int().positive().default(180),
+  /** …and must be confirmed this many minutes before its time (and never after `confirmByHour`). */
+  sameDayConfirmLeadMin: z.number().int().positive().default(90),
+  /** A same-day offer opens no earlier than this hour (city clock): drivers are asked by day only. */
+  sameDayFromHour: z.number().int().min(0).max(23).default(8),
+  /** No pre-assignment unless drivers get at least this long to answer. */
+  minOfferWindowMin: z.number().int().positive().default(30),
+  /** A ride with a favourite is his alone this long (at most half the window), then everyone's. */
+  favouriteFirstMin: z.number().int().min(0).default(60),
+  /** The confirmed driver is reminded this long before, and may start toward the pickup from then. */
+  reminderLeadMin: z.number().int().positive().default(60),
+  /** Two booked jobs one driver holds are at least this far apart. */
+  minGapMin: z.number().int().min(0).default(60),
+  /** When a job opens to everyone, at most this many fitting online drivers get a push. */
+  notifyDrivers: z.number().int().min(0).default(10),
+});
+export type BookedRidesConfig = z.infer<typeof BookedRidesConfig>;
+
 /** Dispatch & pricing detail spec §3 timing, all per city/vertical and all config. */
 export const DispatchConfig = z.object({
   policy: DispatchPolicyKind,
@@ -55,6 +84,8 @@ export const DispatchConfig = z.object({
     .default({}),
   /** Offers count as "seen" only after this long in the foreground (edge-case §6). */
   offerSeenAfterSec: z.number().int().min(0).default(3),
+  /** Rides booked for later (taxi / tuktuk): the evening-before pre-assignment. Absent = none. */
+  bookedRides: BookedRidesConfig.optional(),
 });
 export type DispatchConfig = z.infer<typeof DispatchConfig>;
 

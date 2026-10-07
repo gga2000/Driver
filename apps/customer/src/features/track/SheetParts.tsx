@@ -28,6 +28,7 @@ import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 import { apiPhoto } from '@/lib/photo';
+import { DriverHero } from '@/features/ride/DriverParts';
 
 // ───────────────────────── collapsed header ─────────────────────────
 
@@ -47,7 +48,7 @@ const PHASE_TONE: Record<Phase, StatusTone> = {
   disputed: 'warning',
 };
 
-/** Collapsed sheet: status line + ETA (spec §4). */
+/** Collapsed sheet: status line + ETA (spec §4). Simple mode (ride idea v2): the status line in the larger type. */
 export function SheetHeader({
   phase,
   status,
@@ -58,6 +59,7 @@ export function SheetHeader({
   note,
   aside,
   below,
+  simple = false,
 }: {
   phase: Phase;
   status: string;
@@ -71,6 +73,7 @@ export function SheetHeader({
   aside?: ReactNode;
   /** Full width under the header row, still in the collapsed sheet (rides: the notification ask, joy f1). */
   below?: ReactNode;
+  simple?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -79,9 +82,9 @@ export function SheetHeader({
   const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
       <View style={{ flex: 1, gap: theme.space[1] }}>
-        <StatusPill size="sm" tone={lateMin > 0 ? 'warning' : PHASE_TONE[phase]} live={live} label={lateMin > 0 ? t('track.running_late', { minutes: lateMin }) : pill} />
+        <StatusPill size={simple ? 'md' : 'sm'} tone={lateMin > 0 ? 'warning' : PHASE_TONE[phase]} live={live} label={lateMin > 0 ? t('track.running_late', { minutes: lateMin }) : pill} />
         {/* L-23: screen readers read each new status by itself, politely (the ETA box stays quiet). */}
-        <Text variant="title" numberOfLines={2} testID="status-line" accessibilityLiveRegion="polite">
+        <Text variant={simple ? 'heading' : 'title'} numberOfLines={simple ? 3 : 2} testID="status-line" accessibilityLiveRegion="polite">
           {status}
         </Text>
         {note ? (
@@ -213,6 +216,7 @@ export function CourierCard({
   onChat,
   onCall,
   onShare,
+  onProfile,
 }: {
   courier: CourierCardData;
   ride: boolean;
@@ -223,6 +227,8 @@ export function CourierCard({
   onChat: () => void;
   onCall: () => void;
   onShare: () => void;
+  /** Rides: tapping the driver opens his profile (ride idea n5). */
+  onProfile?: () => void;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -230,10 +236,30 @@ export function CourierCard({
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   // The model and colour say more than the class ("تويوتا كورولا · أبيض"); the class only when that is all we know.
   const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : '');
+  const buttons = (
+    <>
+      {canChat ? (
+        <IconButton
+          icon="chat"
+          variant="tonal"
+          badge={unread > 0 ? unread : undefined}
+          accessibilityLabel={unread > 0 ? `${t(ride ? 'track.message_driver' : 'track.message_courier')} · ${t('chat.unread_label', { count: unread })}` : t(ride ? 'track.message_driver' : 'track.message_courier')}
+          onPress={onChat}
+          testID="chat-courier"
+        />
+      ) : null}
+      {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
+      <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
+    </>
+  );
   return (
     <View testID="courier-card" style={{ gap: theme.space[3] }}>
-      {/* C-19 / C-20: photo (his initial until portraits exist), first name, "متحقق اليوم", the car,
-          and the plate in its own chip on its own line — never cut off by the buttons. */}
+      {/* Rides (d1): the driver hero — big photo, ★ and trips, the car with its colour, the plate, the tags. */}
+      {ride ? (
+        <DriverHero courier={courier} {...(onProfile ? { onOpen: onProfile } : {})} trailing={buttons} />
+      ) : (
+      /* C-19 / C-20: photo (his initial until portraits exist), first name, "متحقق اليوم", the car,
+          and the plate in its own chip on its own line — never cut off by the buttons. */
       <DriverChip
         testID="courier-chip"
         name={name}
@@ -244,23 +270,9 @@ export function CourierCard({
         plateLabel={t('driver.plate')}
         verifiedLabel={courier.verifiedTodayAt ? t('trip.verified_today') : null}
         size="lg"
-        trailing={
-          <>
-            {canChat ? (
-              <IconButton
-                icon="chat"
-                variant="tonal"
-                badge={unread > 0 ? unread : undefined}
-                accessibilityLabel={unread > 0 ? `${t(ride ? 'track.message_driver' : 'track.message_courier')} · ${t('chat.unread_label', { count: unread })}` : t(ride ? 'track.message_driver' : 'track.message_courier')}
-                onPress={onChat}
-                testID="chat-courier"
-              />
-            ) : null}
-            {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
-            <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
-          </>
-        }
+        trailing={buttons}
       />
+      )}
       {canChat && quickReplies.length > 0 ? (
         <View style={{ gap: theme.space[2] }}>
           <Text variant="caption" color="textMuted">

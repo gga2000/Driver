@@ -14,7 +14,8 @@ import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
-import { firstKindForOrder } from '@/features/firsts/firsts';
+import { firstKindForOrder, rideStickerFor } from '@/features/firsts/firsts';
+import { RideStickerCard } from '@/features/firsts/RideStickerCard';
 import { FirstMoment, useOrderFirsts } from '@/features/firsts/FirstMoment';
 import { arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { rideArrivalCopy } from './arrival-copy';
@@ -23,6 +24,7 @@ import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { courierReasons, disputeKindFor, keepFitting, lowReasons, LOW_SCORE, ratingBranch } from './rating-logic';
 import { ComplimentCard } from './Compliments';
+import { DishBurst } from './DishBurst';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
@@ -68,6 +70,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   const ride = view.order.type === 'ride';
   // L-09: «ويا عباس · 12 دقيقة» under «وصلت بالسلامة», and «قيّم عباس» (rides rate in one step).
   const rideCopy = ride ? rideArrivalCopy(t, view) : null;
+  const forName = ride ? (view.order.rider?.name ?? null) : null;
   const photo = ride ? null : gatePhotoFor(view.dropoff, places.data ?? []);
   // The saved gate photo is a signed link; if it no longer loads the card goes, like having none.
   const gate = usePhotoFallback(photo ? photoUri(photo) : null);
@@ -76,6 +79,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   // «أول مرة» (joy g8): the first meal delivered or the first tuktuk ride, once in a lifetime.
   const firsts = useOrderFirsts();
   const first = firstKindForOrder(view.order.id, firsts.data);
+  // Ride idea g2: the first night ride and the 10th, 25th… ride earn a sticker from the pack. One moment
+  // per arrival: on a ride that is also a «أول مرة», the first wins (the sticker stays in the pack).
+  const sticker = ride && !first ? rideStickerFor(view.order.id, firsts.data) : null;
   // On a quiet day (mourning, set in the Console) the moment is calm: no burst, no bounce, no success buzz.
   const celebrate = today.celebrations && !theme.reduceMotion;
   useEffect(() => {
@@ -95,21 +101,25 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         <Animated.View
           testID="arrival-scene"
           entering={celebrate ? ZoomIn.springify().damping(16) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
-          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : !ride && view.courier ? ARRIVAL_SCENE_WITH_COURIER : ARRIVAL_SCENE_MAX }}
+          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : ride ? ARRIVAL_SCENE_RIDE : view.courier ? ARRIVAL_SCENE_WITH_COURIER : ARRIVAL_SCENE_MAX }}
         >
           {ride ? <SketchScene name="safe_arrival" vehicle={sceneVehicle(view.courier?.vehicleClass ?? null)} /> : <SketchScene name="door" />}
         </Animated.View>
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
-          <Text variant="display" style={{ fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center">
-            {ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
+          {/* s3: the booker who followed someone else's ride reads «مشوار ماما وصل بالسلامة» (a longer line, a size down). */}
+          <Text variant="display" style={forName ? { fontSize: 30, lineHeight: 44 } : { fontSize: 36, lineHeight: 52 }} accessibilityRole="header" align="center" testID="arrival-title">
+            {forName ? t('track.arrived_title_ride_for', { name: forName }) : ride ? t('track.arrived_title_ride') : t('track.arrived_title_food')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
+          {/* «بالعافية»: tiny dishes burst out over the title, once per order (food only). */}
+          {celebrate && !ride ? <DishBurst /> : null}
         </View>
         {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
         {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}
         <FirstMoment kind={first} />
+        <RideStickerCard sticker={sticker} />
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
         {ride ? (
           <RideArrivalSummary view={view} />
@@ -161,6 +171,8 @@ const ARRIVAL_SCENE_MAX = 300;
 const ARRIVAL_SCENE_WITH_PHOTO = 168;
 /** With the courier's row under the title (joy l4): a little smaller, so the cash card still fits a 360×740 phone. */
 const ARRIVAL_SCENE_WITH_COURIER = 236;
+/** A ride's receipt (ride idea a1) needs the room under the drawing. */
+const ARRIVAL_SCENE_RIDE = 220;
 
 /** Which vehicle brings a rider home in the arrival drawing. */
 function sceneVehicle(vehicle: VehicleClass | null): SceneVehicle {

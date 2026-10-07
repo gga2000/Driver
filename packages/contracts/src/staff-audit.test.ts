@@ -39,6 +39,8 @@ const AUDITED = [
   'khat.closeSweepAlert',
   'system.clearQuietDays',
   'system.clearSeason',
+  'phoneBookings.book',
+  'phoneBookings.cancel',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */

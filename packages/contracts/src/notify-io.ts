@@ -83,10 +83,15 @@ export const NotifyPreferences = z.object({
    * opt-in; this switch silences the pushes (the app still asks). Never 23:00–08:00, never on a quiet day.
    */
   regularTrips: z.boolean(),
+  /**
+   * Step 4 (o4): «نفس مشوار البارحة؟» — a ride he took on most of the last working days, offered ten
+   * minutes before his usual time. On by default, at most one a day; this switch silences it.
+   */
+  sameRide: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -103,7 +108,7 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
@@ -124,9 +129,14 @@ export const NotifyTemplateId = z.enum([
   'ride_receipt',
   'ride_matched',
   'driver_arrived',
+  'ride_near',
+  'ride_safe_arrival',
+  'phone_ride_matched',
+  'phone_driver_arrived',
   'merchant_new_order',
   'partner_new_job',
   'partner_zone_nudge',
+  'ride_nudge',
   'merchant_cash_handover',
   'menu_photos_ready',
   'courier_cash_receipt',
@@ -145,12 +155,29 @@ export const NotifyTemplateId = z.enum([
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
+  'ride_for_rider',
+  'ride_rider_arrived',
   'chat_message',
   'marketing_offer',
   'dish_pot_today',
   'household_approval',
   'month_ready',
   'regular_trip_reminder',
+  'ride_booked_reminder',
+  'garage_taxi_late',
+  'rajaa_rider_taxi_late',
+  'garage_taxi_placed',
+  'garage_taxi_dropped',
+  'garage_taxi_failed',
+  'same_ride_offer',
+  'same_ride_after_weekend',
+  'booked_ride_confirmed',
+  'booked_ride_unconfirmed',
+  'booked_ride_released',
+  'partner_booked_offer',
+  'partner_booked_favourite',
+  'partner_booked_reminder',
+  'partner_booked_cancelled',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -186,6 +213,13 @@ export interface NotifyTemplateDef {
     silent?: boolean;
   };
   whatsapp?: WhatsAppTemplateDef;
+  /**
+   * The SMS's own words (`sms.*` with `{name}` params) when SMS is a primary channel and says more than
+   * the push (a link, a code), or when the person has no app at all (a ride booked by phone, step 4).
+   * `withCode` is used instead when the `code` param is set. Absent: the SMS is the WhatsApp text,
+   * else "title — body".
+   */
+  sms?: { key: MessageKey; withCode?: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -285,6 +319,43 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // d3: «السايق قريب، اطلع هسة» — once per ride, when the one ETA puts him a minute from the pickup.
+  ride_near: {
+    id: 'ride_near',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_near.title', body: 'push.ride_near.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // s2 «وصل بالسلامة»: a night city ride ended — each trusted person of the rider who has the app.
+  // In the app only (a push to their own account); nothing goes to a number outside it.
+  ride_safe_arrival: {
+    id: 'ride_safe_arrival',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.ride_safe_arrival.title', body: 'push.ride_safe_arrival.body', androidChannel: 'orders', deepLink: 'driver://' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Taxi/tuktuk step 4 (v4): a ride booked by phone from the Console. The caller has no app, so the
+  // driver's name, car, plate, minutes away and the trip link go by SMS; then «وصل» at the pickup.
+  phone_ride_matched: {
+    id: 'phone_ride_matched',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'sms.phone_ride_matched' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  phone_driver_arrived: {
+    id: 'phone_driver_arrived',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'sms.phone_driver_arrived' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
   merchant_new_order: {
     id: 'merchant_new_order',
     category: 'work',
@@ -309,6 +380,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'partner',
     push: { title: 'push.partner_zone_nudge.title', body: 'push.partner_zone_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // «نبّهه» (ride step 3, n4): the rider waiting on a ride he was sent nudged him — soft, on the
+  // quiet `orders` channel (the offer itself already rang on `offers`); opens the offer.
+  ride_nudge: {
+    id: 'ride_nudge',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.ride_nudge.title', body: 'push.ride_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://offer' },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -491,6 +572,27 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
+  // Ride ideas c9/s3: a ride booked for someone else — once a driver takes it, the rider (a number, often
+  // not an account) gets who is coming and the live link by SMS, and a push too when the number has the
+  // app. The night ride's start code goes in it: the rider is the one getting in.
+  ride_for_rider: {
+    id: 'ride_for_rider',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code' },
+    primary: ['push', 'sms'],
+    quietHours: 'send',
+  },
+  // Ride idea s3: the booker followed it to the end — «مشوار ماما وصل بالسلامة» (the مشوار arrives: gender-free).
+  ride_rider_arrived: {
+    id: 'ride_rider_arrived',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_rider_arrived.title', body: 'push.ride_rider_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
   chat_message: {
     id: 'chat_message',
     category: 'chat',
@@ -543,6 +645,143 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'defer',
   },
+  // Step 4 (c10): half an hour before a ride booked for later, a quarter before the search starts. His
+  // own booking at the hour he chose, so it goes in quiet hours too (a 6:30 reminder for a 7:00 ride).
+  ride_booked_reminder: {
+    id: 'ride_booked_reminder',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_booked.title', body: 'push.ride_booked.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Taxi idea x3: the taxi we sent to his الرجعة car is running late — he hears the minutes and that
+  // the car's driver was told. His own trip, now: sent in quiet hours too.
+  garage_taxi_late: {
+    id: 'garage_taxi_late',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_late.title', body: 'push.garage_taxi_late.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x3, the الرجعة driver's side: his rider on seat X is coming in our taxi, N minutes late; opens the departure.
+  rajaa_rider_taxi_late: {
+    id: 'rajaa_rider_taxi_late',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.rajaa_rider_taxi_late.title', body: 'push.rajaa_rider_taxi_late.body', androidChannel: 'orders', deepLink: 'driver-partner://intercity/departure/{departureId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4 / n10: the car is ~10 minutes from the Aziziyah garage and the server booked his waiting taxi.
+  garage_taxi_placed: {
+    id: 'garage_taxi_placed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_placed.title', body: 'push.garage_taxi_placed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4: the trip was cancelled, so the armed taxi was dropped (nothing was booked, nothing to pay).
+  garage_taxi_dropped: {
+    id: 'garage_taxi_dropped',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_dropped.title', body: 'push.garage_taxi_dropped.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4: the server could not book it (a cash limit, the city paused…): he books it himself, one tap.
+  garage_taxi_failed: {
+    id: 'garage_taxi_failed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_failed.title', body: 'push.garage_taxi_failed.body', androidChannel: 'orders', deepLink: 'driver://ride' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Step 4 (o4): «نفس مشوار البارحة؟» ten minutes before his usual time — the hour he rides at, so not
+  // held for quiet hours; its own switch, one a day by its event key. The link opens choose filled in.
+  same_ride_offer: {
+    id: 'same_ride_offer',
+    category: 'same_ride',
+    app: 'customer',
+    push: { title: 'push.same_ride.title', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // The same on Sunday: his last working day was Thursday («نفس مشوار الخميس؟»).
+  same_ride_after_weekend: {
+    id: 'same_ride_after_weekend',
+    category: 'same_ride',
+    app: 'customer',
+    push: { title: 'push.same_ride.title_weekend', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Review #28, the rider of a ride booked for later: «سايقك محجوز: حسين» when a driver confirms; at the
+  // deadline with nobody, a calm «نلگيلك سايق قبل وكتك»; when the confirmed one drops it. Good news or no
+  // news yet: held through quiet hours, never waking him.
+  booked_ride_confirmed: {
+    id: 'booked_ride_confirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_confirmed.title', body: 'push.booked_confirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  booked_ride_unconfirmed: {
+    id: 'booked_ride_unconfirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_unconfirmed.title', body: 'push.booked_unconfirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  booked_ride_released: {
+    id: 'booked_ride_released',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_released.title', body: 'push.booked_released.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Review #28, drivers: a booked ride open to confirm in «مشاوير باچر» (the favourite's own, or the best
+  // placed fitting drivers once it opens to all) — held through quiet hours like any nice news; the
+  // reminder an hour before and a cancellation of a job he holds go out at any hour (he committed to it).
+  partner_booked_offer: {
+    id: 'partner_booked_offer',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_offer.title', body: 'push.partner_booked_offer.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_favourite: {
+    id: 'partner_booked_favourite',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_favourite.title', body: 'push.partner_booked_favourite.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_reminder: {
+    id: 'partner_booked_reminder',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_reminder.title', body: 'push.partner_booked_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  partner_booked_cancelled: {
+    id: 'partner_booked_cancelled',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
 };
 
 /** Categories a preference can switch off, and which switch. */
@@ -550,6 +789,7 @@ export function preferenceFor(category: NotifyCategory, channel: NotifyChannel):
   if (category === 'marketing') return 'marketing';
   if (category === 'dish_pot') return 'dishPots';
   if (category === 'regular_trip') return 'regularTrips';
+  if (category === 'same_ride') return 'sameRide';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

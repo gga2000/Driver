@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FavouriteDriverView } from '@driver/contracts';
-import { askingNow, corridorCity, daysLabel, defaultRemind, dinnerLine, favouritesFor, firstSlot, hourOptions, isBookedRide, minuteOptions, morningAllowed, occurrenceAction, scheduleAt, scheduleOk, settleChoice, toggleDay } from './logic';
+import { askingNow, bookedLine, corridorCity, daysLabel, defaultRemind, dinnerLine, favouritesFor, DAY_HOURS, firstSlot, hourOptions, hoursByPart, isBookedRide, minuteOptions, morningAllowed, occurrenceAction, pickerDay, scheduleAt, scheduleOk, settleChoice, toggleDay } from './logic';
 
 // Wednesday 7 Oct 2026, 22:50 Baghdad.
 const NOW = new Date('2026-10-07T19:50:00Z');
@@ -8,26 +8,68 @@ const NOW = new Date('2026-10-07T19:50:00Z');
 describe('booking a ride for later', () => {
   it('starts 20 minutes ahead on the quarter', () => {
     expect(firstSlot(NOW)).toEqual({ day: 0, hour: 23, minute: 15 });
-    expect(firstSlot(new Date('2026-10-07T20:50:00Z'))).toEqual({ day: 1, hour: 0, minute: 15 });
+    // 0:15 after midnight is still tonight: the day it is in, not «باچر».
+    expect(firstSlot(new Date('2026-10-07T20:50:00Z'))).toEqual({ day: 0, hour: 0, minute: 15 });
+    expect(firstSlot(new Date('2026-10-08T01:50:00Z'))).toEqual({ day: 1, hour: 5, minute: 15 });
   });
-  it('lists only the hours and quarters the server takes', () => {
-    expect(hourOptions(NOW, 0)).toEqual([23]);
+  it('lists only the hours and quarters the server takes, a day running 5:00 to 4:59', () => {
+    expect(hourOptions(NOW, 0)).toEqual([23, 0, 1, 2, 3, 4]);
     expect(minuteOptions(NOW, 0, 23)).toEqual([15, 30, 45]);
-    expect(hourOptions(NOW, 1)).toHaveLength(24);
+    expect(hourOptions(NOW, 1)).toEqual(DAY_HOURS);
+    expect(DAY_HOURS.slice(0, 2)).toEqual([5, 6]);
+    expect(DAY_HOURS.at(-1)).toBe(4);
     expect(scheduleAt(NOW, { day: 1, hour: 7, minute: 30 }).toISOString()).toBe('2026-10-08T04:30:00.000Z');
+    // «باچر» at 1:00 is the night after tomorrow's evening (Friday 9 Oct, 1:00 Baghdad).
+    expect(scheduleAt(NOW, { day: 1, hour: 1, minute: 0 }).toISOString()).toBe('2026-10-08T22:00:00.000Z');
+    expect(scheduleAt(NOW, { day: 0, hour: 1, minute: 0 }).toISOString()).toBe('2026-10-07T22:00:00.000Z');
     expect(scheduleOk(NOW, { day: 0, hour: 23, minute: 0 })).toBe(false);
+  });
+  it("at 2:00 the rider is still in last night's day", () => {
+    const late = new Date('2026-10-07T23:00:00Z'); // Thursday 8 Oct, 2:00 Baghdad
+    expect(pickerDay(late)).toBe('2026-10-07');
+    expect(hourOptions(late, 0)).toEqual([2, 3, 4]);
+    expect(scheduleAt(late, { day: 1, hour: 7, minute: 0 }).toISOString()).toBe('2026-10-08T04:00:00.000Z');
+  });
+  it('offers today and the six days after; groups the hours calmly', () => {
+    expect(firstSlot(new Date('2026-10-07T20:20:00Z'))).toEqual({ day: 0, hour: 23, minute: 45 });
+    expect(hourOptions(NOW, 6)).toEqual(DAY_HOURS);
+    expect(scheduleAt(NOW, { day: 6, hour: 7, minute: 0 }).toISOString()).toBe('2026-10-13T04:00:00.000Z');
+    expect(hoursByPart([0, 1, 6, 7, 12, 16, 17, 23]).map((g) => [g.part, g.hours])).toEqual([
+      ['morning', [6, 7]],
+      ['noon', [12, 16]],
+      ['evening', [17, 23]],
+      ['late', [0, 1]],
+    ]);
+    expect(hoursByPart([23]).map((g) => g.part)).toEqual(['evening']);
   });
   it('moves an invalid choice onto a valid quarter', () => {
     expect(settleChoice(NOW, { day: 0, hour: 23, minute: 0 })).toEqual({ day: 0, hour: 23, minute: 15 });
     expect(settleChoice(NOW, { day: 0, hour: 7, minute: 30 })).toEqual({ day: 0, hour: 23, minute: 15 });
     expect(settleChoice(NOW, { day: 1, hour: 7, minute: 30 })).toEqual({ day: 1, hour: 7, minute: 30 });
   });
-  it('a booked ride waits on its own screen until 15 minutes before', () => {
+  it('a booked ride waits on its own screen until 30 minutes before', () => {
     const at = new Date('2026-10-08T04:30:00Z');
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, NOW)).toBe(true);
-    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T04:16:00Z'))).toBe(false);
+    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T03:59:00Z'))).toBe(true);
+    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T04:01:00Z'))).toBe(false);
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: null }, NOW)).toBe(false);
     expect(isBookedRide({ type: 'food', state: 'placed', scheduledFor: at }, NOW)).toBe(false);
+  });
+});
+
+describe('a booked ride’s driver (review #28)', () => {
+  const at = new Date('2026-10-08T02:00:00Z');
+  const base = { orderId: 'o1', searchAt: new Date('2026-10-08T01:30:00Z') };
+  it('confirmed: his name and face', () => {
+    expect(bookedLine({ ...base, state: 'confirmed', confirmBy: null, driver: { firstName: 'حسين', photoUrl: '/p.jpg' } }, { scheduledFor: at })).toEqual({ kind: 'confirmed', name: 'حسين', photoUrl: '/p.jpg' });
+  });
+  it('looking: until the deadline', () => {
+    expect(bookedLine({ ...base, state: 'looking', confirmBy: new Date('2026-10-07T19:00:00Z'), driver: null }, { scheduledFor: at })).toEqual({ kind: 'looking', until: new Date('2026-10-07T19:00:00Z') });
+  });
+  it('later, or before the server answers: the search time, 30 minutes before', () => {
+    expect(bookedLine({ ...base, state: 'later', confirmBy: null, driver: null }, { scheduledFor: at })).toEqual({ kind: 'later', searchAt: base.searchAt });
+    expect(bookedLine(undefined, { scheduledFor: at })).toEqual({ kind: 'later', searchAt: base.searchAt });
+    expect(bookedLine(undefined, { scheduledFor: null })).toBeNull();
   });
 });
 

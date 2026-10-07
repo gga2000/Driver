@@ -1,18 +1,19 @@
 import { router } from 'expo-router';
 import { View } from 'react-native';
-import type { FavouriteDriverView } from '@driver/contracts';
+import type { AvoidedDriverView, FavouriteDriverView } from '@driver/contracts';
 import { pluralKey } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { DriverFace } from '@/features/ride-habits/Cards';
 import { useFavourites, useUnfavourite } from '@/features/ride-habits/queries';
+import { useAvoidedDrivers, useUnavoidDriver } from '@/features/ride/driver-queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
 
 /**
- * «سواقي المفضلين» (joy l9): the drivers this person hearted after a ride or الرجعة rated 4–5 — face,
+ * «سواقي المفضلين» (joy l9), and under them the drivers this person never wants again (ride idea s5): the drivers this person hearted after a ride or الرجعة rated 4–5 — face,
  * first name, what they drive for him and how many trips together. A booked ride or a regular trip
  * may ask for one; on-demand rides never do. The driver never sees this list.
  */
@@ -52,6 +53,8 @@ function Drivers() {
           ))}
         </View>
       )}
+
+      <AvoidedDrivers />
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingVertical: theme.space[2] }}>
         <Icon name="shield" size={16} color="textMuted" />
@@ -111,5 +114,58 @@ function FavouriteRow({ f }: { f: FavouriteDriverView }) {
         <Button testID={`driver-remove-${f.id}`} variant="ghost" label={t('habits.fav_remove')} loading={remove.isPending} onPress={drop} />
       </View>
     </Card>
+  );
+}
+
+/** Ride idea s5: the drivers kept off this person's rides, each with «رجّعه». Nothing shows when there are none. */
+function AvoidedDrivers() {
+  const theme = useTheme();
+  const t = useT();
+  const avoided = useAvoidedDrivers();
+  const list = avoided.data;
+  if (!list || list.length === 0) return null;
+  return (
+    <View style={{ gap: theme.space[2], paddingTop: theme.space[3] }} testID="drivers-avoided">
+      <Text variant="title">{t('habits.avoided_title')}</Text>
+      <Text variant="footnote" color="textMuted">
+        {t('habits.avoided_hint')}
+      </Text>
+      <Card padding={0} elevation={0}>
+        {list.map((a, i) => (
+          <AvoidedRow key={a.id} a={a} last={i === list.length - 1} />
+        ))}
+      </Card>
+    </View>
+  );
+}
+
+function AvoidedRow({ a, last }: { a: AvoidedDriverView; last: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const toast = useToast();
+  const undo = useUnavoidDriver();
+  const name = a.firstName ?? t('habits.fav_unnamed');
+  const restore = () =>
+    undo.mutate(
+      { avoidId: a.id },
+      {
+        onSuccess: () => toast.show({ message: t('habits.avoided_undone', { name }), tone: 'neutral', icon: 'check' }),
+        onError: (e) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' }),
+      },
+    );
+  return (
+    <View testID={`avoided-${a.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderBottomWidth: last ? 0 : 1, borderBottomColor: theme.colors.border }}>
+      <DriverFace name={a.firstName} photoUrl={a.photoUrl} size={40} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={600} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text variant="caption" color="textMuted" tabular>
+          {t('habits.avoided_since', { date: a.since.toLocaleDateString('en-GB') })}
+        </Text>
+      </View>
+      <Button testID={`avoided-undo-${a.id}`} variant="secondary" label={t('habits.avoided_undo')} loading={undo.isPending} onPress={restore} />
+    </View>
   );
 }

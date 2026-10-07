@@ -32,7 +32,8 @@ const SMS_MAX = 300;
 /**
  * Renders one template for one person: push title / body (`push.*` keys with `{name}` params, or the
  * caller's own text for chat), the WhatsApp call (`wa.*` with `{{n}}` params in the template's
- * declared order) and the SMS twin (the WhatsApp text when there is one, else "title — body").
+ * declared order) and the SMS (the template's own `sms.*` words when it has them, else the WhatsApp
+ * text when there is one, else "title — body").
  */
 export function render(templateId: NotifyTemplateId, params: Params, locale: Locale, content?: { title: string; body: string } | null): Rendered {
   const def: NotifyTemplateDef = NOTIFY_TEMPLATES[templateId];
@@ -45,7 +46,10 @@ export function render(templateId: NotifyTemplateId, params: Params, locale: Loc
     whatsapp = { template: def.whatsapp.name, language: locale === 'en' ? 'en' : 'ar', params: ordered, text: fillNumbered(waText(def.whatsapp.key, locale), ordered) };
   }
   const brand = locale === 'en' ? 'Driver' : 'درايفر';
-  const smsCore = whatsapp?.text ?? [title, body].filter(Boolean).join(' — ');
+  // The template's own SMS words (an SMS-first message, or one that says more than the push); the
+  // caller's own content (a fallback wording) wins.
+  const smsKey = def.sms && !content ? (params['code'] && def.sms.withCode ? def.sms.withCode : def.sms.key) : null;
+  const smsCore = smsKey ? t(smsKey, params, locale) : (whatsapp?.text ?? [title, body].filter(Boolean).join(' — '));
   const sms = `${brand}: ${smsCore}`.slice(0, SMS_MAX);
   return { title, body, deepLink, whatsapp, sms };
 }

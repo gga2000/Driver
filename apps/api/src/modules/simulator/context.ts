@@ -105,6 +105,8 @@ export interface DriverAction {
   cashIqd?: number | undefined;
   /** "الخردة علينا": no change on him — this much of `cashIqd` goes to the customer's wallet. */
   changeToWalletIqd?: number | undefined;
+  /** s1 «رمز المشوار»: the 4 digits the rider read out at a night ride's pickup. */
+  startCode?: string | undefined;
 }
 
 export interface DriverTrip {
@@ -145,6 +147,14 @@ export interface DriverRun {
 }
 
 /** Offers the observer saw being sent, with the driver's cap position at that moment. */
+/** A dispatch moment of a trip (review #28 invariant): requested, assigned, a booked ride confirmed / dropped / cancelled. */
+export interface DispatchMoment {
+  tripId: string;
+  type: string;
+  driverId: string | null;
+  at: number;
+}
+
 export interface ObservedOffer {
   tripId: string;
   driverId: string;

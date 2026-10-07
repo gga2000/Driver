@@ -1,5 +1,6 @@
 import { ConsoleLogger, type LoggerService, type LogLevel } from '@nestjs/common';
 import { noopReporter, type ErrorReporter } from './error-reporter.js';
+import { currentRequestId } from './request-context.js';
 
 export type LogFormat = 'json' | 'pretty';
 
@@ -20,7 +21,9 @@ const STACK = /\n\s+at\s/;
 /**
  * The API's Nest logger. `json`: one JSON object per line on stdout
  * (`{"time","level","context","msg","stack"?,"service"}`), which Fly / Railway / Render index as is.
- * `pretty`: Nest's console logger. Either way every `error` also goes to the ErrorReporter
+ * `pretty`: Nest's console logger. Inside an HTTP request each line also carries its `requestId`
+ * (`shared/request-context.ts`; json: a field, pretty: a `[req …]` prefix), so a failure can be traced
+ * to the call that caused it. Either way every `error` also goes to the ErrorReporter
  * (Sentry when SENTRY_DSN is set, nothing otherwise).
  */
 export class AppLogger implements LoggerService {
@@ -65,8 +68,10 @@ export class AppLogger implements LoggerService {
 
   private emit(level: LogLevel, message: unknown, params: unknown[]): void {
     if (!this.levels.includes(level)) return;
+    const requestId = currentRequestId();
     if (this.pretty) {
-      (this.pretty[level] as (m: unknown, ...p: unknown[]) => void).call(this.pretty, message, ...params);
+      const m = requestId && typeof message === 'string' ? `[req ${requestId}] ${message}` : message;
+      (this.pretty[level] as (m: unknown, ...p: unknown[]) => void).call(this.pretty, m, ...params);
       return;
     }
     const { context, stack } = split(params);
@@ -76,6 +81,7 @@ export class AppLogger implements LoggerService {
       ...(context ? { context } : {}),
       msg: message instanceof Error ? message.message : typeof message === 'string' ? message : JSON.stringify(message),
       ...(stack ? { stack } : message instanceof Error && message.stack ? { stack: message.stack } : {}),
+      ...(requestId ? { requestId } : {}),
       service: 'driver-api',
     };
     this.write(JSON.stringify(entry));

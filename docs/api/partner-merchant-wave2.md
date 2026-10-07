@@ -169,14 +169,16 @@ Role: `fleet_owner` scoped to the fleet org. `fleetOrgId` may be omitted when th
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
 | `overview` | query | `{fleetOrgId?}` | `{fleetOrgId, totals {vehicles, drivers, online, onJob, todayEarningsIqd, weekEarningsIqd, owedIqd}, vehicles[], drivers[], expiringDocuments[] {driverId, kind, status, expiresAt, daysToExpiry}, days[7] {date (local YYYY-MM-DD, Sunday first), earningsIqd, jobs}}` |
-| `vehicles` | query | `{fleetOrgId?}` | `[{vehicleId, plate, vehicleClass, activeDriverId, active, seats}]` |
+| `vehicles` | query | `{fleetOrgId?}` | `[{vehicleId, plate, vehicleClass, activeDriverId, active, seats, model, colour, features, featuresConfirmed}]` (the last four: ride step 3, `docs/api/vehicle-features.md`) |
 | `drivers` | query | `{fleetOrgId?}` | `[{driverId, name, phoneMasked, state: offline\|online\|on_job\|over_cap, vehicleId, tier, todayEarningsIqd, weekEarningsIqd, owedIqd, cashHeldIqd, capIqd, documents (worst status)}]` |
 | `driverEarnings` | query | `{fleetOrgId?, driverId, period = 'week', anchor?}` | `EarningsView` (as `driverAccount.earnings`) |
 | `assignDriver` | mutation | `{fleetOrgId?, vehicleId, driverId \| null}` | `FleetVehicle` (a driver leaves his other vehicle) |
-| `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass, seats? (0–14; default by class: bike 0, tuktuk 3, car 4, suv 6, van 7)}` | `FleetVehicle` (seats stored as the vehicle's seat map) |
+| `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass, seats? (0–14; default by class: bike 0, tuktuk 3, car 4, suv 6, van 7), model? (2–40), colour? (VehicleColour)}` | `FleetVehicle` (seats stored as the vehicle's seat map) |
 | `addDriver` | mutation | `{fleetOrgId?, phone}` | `FleetDriver` with `pending: true` (person found or created by phone; the driving role still comes from ops review) |
 | `myInvites` | query | — (driving roles) | `[{fleetOrgId, invitedAt, invitedByName (owner's first name), fleetName (additive), accepted}]` — the driver's own fleet links |
 | `respondInvite` | mutation | `{fleetOrgId, accept}` (driving roles) | his links after: `accept` joins, `false` declines or leaves (his vehicle there is unassigned) |
+| `myVehicle` | query | — (driving roles) | `FleetVehicle \| null` — the vehicle he is the active driver of (any fleet, or his own) |
+| `setMyVehicleFeatures` | mutation | `{features: VehicleFeature[]}` (driving roles) | `FleetVehicle` — «مميزات سيارتك», see `docs/api/vehicle-features.md` |
 
 **Consent (review 2026-10-04):** a link is pending until the driver accepts it. A pending row is the bare
 `driverId` with `pending: true` — no name, phone, money, documents or live state, no vault read — and it

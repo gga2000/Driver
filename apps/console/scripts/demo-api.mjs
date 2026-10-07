@@ -19,6 +19,10 @@
 //   0770 000 0003  زينب    support agent (10,000 a day refund limit)
 // GET /demo/seed lists them. POST /demo/cash-change → the latest order where the courier had no change
 // and the rest went to the customer's wallet ("الخردة علينا"), with its courier (order page, his ledger).
+// «حجز بالتلفون» (/phone): today's phone bookings — one still searching, one a taxi driver took (name,
+// car, plate; the caller got the SMS), one finished, one cancelled. POST /demo/phone-accept → a demo
+// taxi driver takes the oldest phone booking still searching (the row turns «السايق جاي» within 10 s and
+// the caller's SMS shows in the order's message log); DEMO_PHONE=0 seeds none (the empty page).
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
@@ -136,6 +140,18 @@ app.use('/demo/handover-code', async (req, res) => {
     if (!handoverCodeOf) throw new Error('still seeding');
     const driverId = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('driverId') ?? '';
     res.end(JSON.stringify(await handoverCodeOf(driverId)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/phone-accept (registered before listen; filled in below by `acceptDemoPhoneBooking`).
+let acceptDemoPhoneBooking = null;
+app.use('/demo/phone-accept', async (_req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!acceptDemoPhoneBooking) throw new Error('still seeding');
+    res.end(JSON.stringify(await acceptDemoPhoneBooking()));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -459,7 +475,7 @@ try {
 const fleetOwner = await person('07750000001', 'أبو حسنين');
 const fleetOrg = await orgs.create({ type: 'fleet', name: 'تكاتك الربيعي', cityId: 'aziziyah', ownerId: fleetOwner });
 await identity.grantRole(SYSTEM, { personId: fleetOwner, kind: 'fleet_owner', orgId: fleetOrg.id });
-await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk' });
+await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk', model: 'باجاج', colour: 'red' });
 
 // ───────────────────────── support desk ─────────────────────────
 
@@ -545,14 +561,28 @@ await get(LedgerFacade).runNightly({ requestedBy: ali });
 
 // Registry vehicles for the simulator's tuktuk and car drivers (checked by field ops), so the
 // Console names them "حيدر ك. · تكتك · واسط 41373" (K-01). Bikes carry no registry plate.
+// Ride step 3: each has a model and colour, and the first cars carry features their drivers claimed
+// after the car check (the «مميزات سيارات» approvals tab: AC to confirm, heating and a big boot).
 const fleetRepo = get(FLEET_REPOSITORY);
+const DEMO_CARS = {
+  tuktuk: [{ model: 'باجاج', colour: 'blue' }, { model: 'باجاج', colour: 'green' }, { model: 'باجاج', colour: 'red' }],
+  car: [
+    { model: 'تويوتا كورولا', colour: 'white', features: ['ac'], confirmed: [] },
+    { model: 'هيونداي النترا', colour: 'silver', features: ['ac', 'heating', 'big_boot'], confirmed: ['ac'] },
+    { model: 'كيا سيراتو', colour: 'black', features: ['ac'], confirmed: ['ac'] },
+  ],
+};
 let plateN = 0;
+const carN = {};
 for (const d of await dispatch.liveDrivers('aziziyah', new Date())) {
   if (d.presence.vehicle === 'bike') continue;
   plateN += 1;
-  const v = await fleetRepo.createVehicle({ plate: `واسط ${41000 + plateN * 373}`, vehicleClass: d.presence.vehicle, ownerOrgId: fleetOrg.id });
+  const looks = DEMO_CARS[d.presence.vehicle] ?? [];
+  const car = looks[(carN[d.presence.vehicle] = (carN[d.presence.vehicle] ?? -1) + 1) % Math.max(looks.length, 1)] ?? {};
+  const v = await fleetRepo.createVehicle({ plate: `واسط ${41000 + plateN * 373}`, vehicleClass: d.presence.vehicle, ownerOrgId: fleetOrg.id, model: car.model ?? null, colour: car.colour ?? null });
   await fleetRepo.reviewVehicle(v.id, { verified: true, by: haider, at: new Date(), note: null });
   await fleetRepo.setActiveDriver(v.id, d.presence.driverId);
+  if (car.features && carN[d.presence.vehicle] < looks.length) await fleetRepo.setFeatures(v.id, { features: car.features, featuresConfirmed: car.confirmed }, new Date());
 }
 const keepOnline = async () => {
   for (const c of deskCouriers.filter((x) => x.zone !== 'khamas')) {
@@ -562,6 +592,66 @@ const keepOnline = async () => {
 };
 await keepOnline();
 setInterval(() => void keepOnline(), 20_000).unref?.();
+
+// ───────────────────────── حجز بالتلفون ─────────────────────────
+// Callers without the app, booked by زينب and علي: rides of the callers' own (new) accounts.
+{
+  const { PhoneBookingService } = await load('modules/phone-booking/index.js');
+  const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
+  const phones = get(PhoneBookingService);
+  const vehicles = get(COURIER_VEHICLES);
+  const landmarks = await get((await load('modules/places/index.js')).SavedPlacesService).landmarks('aziziyah');
+  const { foldArabic } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts')).href);
+  const at = (name) => {
+    const found = landmarks.find((l) => foldArabic(l.name_ar) === foldArabic(name));
+    if (!found) throw new Error(`demo landmark missing: ${name}`);
+    return found;
+  };
+  let key = 0;
+  const bookFor = async (by, phone, name, from, to, vertical, note) => {
+    const q = await phones.quote(actor(by), { cityId: 'aziziyah', pickupId: at(from).id, dropoffId: at(to).id });
+    const option = q.options.find((o) => o.vertical === vertical);
+    key += 1;
+    return phones.book(actor(by), { cityId: 'aziziyah', phone, name, pickupId: at(from).id, dropoffId: at(to).id, vertical, fareIqd: option.fareIqd, ...(note ? { note } : {}), clientRequestId: `demo-phone-${key}-${Date.now().toString(36)}` });
+  };
+  /** A demo driver in his car near the pickup: علي offers him the ride from the dispatch board and he takes it in the Partner app. */
+  const takeBy = async (driverId, orderId, vehicle) => {
+    const trip = await trips.activeForOrder(orderId);
+    const pickup = trip.stops.find((s) => s.type === 'pickup');
+    await dispatch.presence.online(driverId, { cityId: 'aziziyah', at: { lat: pickup.target.lat + 0.004, lng: pickup.target.lng }, vehicle: vehicle.vehicleClass, tier: 'silver', verticals: ['taxi', 'tuktuk'] });
+    vehicles.register(driverId, vehicle);
+    const { offerId } = await dispatch.override(actor(ali), { tripId: trip.id, driverId });
+    await dispatch.respond(actor(driverId), { offerId, accept: true });
+    return trips.get(trip.id);
+  };
+  const abbas = await person('07816660001', 'عباس كريم', ['driver']);
+  const hassan = await person('07816660002', 'حسن جبار', ['driver']);
+  const mustafa = await person('07816660003', 'مصطفى ناظم', ['driver']);
+  acceptDemoPhoneBooking = async () => {
+    const waiting = (await phones.today(actor(ali), { cityId: 'aziziyah' })).filter((r) => r.status === 'searching').at(-1);
+    if (!waiting) throw new Error('no phone booking is searching (book one at /phone first; a simulator driver may already have taken it)');
+    const trip = await takeBy(mustafa, waiting.orderId, { vehicleClass: waiting.vertical === 'tuktuk' ? 'tuktuk' : 'car', plate: '45120 واسط', label: waiting.vertical === 'tuktuk' ? 'تكتك باجاج · أحمر' : 'هيونداي النترا · أبيض' });
+    return { orderId: waiting.orderId, tripId: trip.id, driverId: mustafa };
+  };
+  if (process.env.DEMO_PHONE !== '0') {
+    // Finished: حسن took أبو حيدر from كراج السوق to كلية التربية and dropped him off.
+    const done = await bookFor(ali, '07802224411', 'أبو حيدر', 'كراج السوق', 'باب كلية التربية الأساسية', 'taxi');
+    const doneTrip = await takeBy(hassan, done.orderId, { vehicleClass: 'car', plate: '31877 واسط', label: 'تويوتا كورولا · فضي' });
+    const [p, d] = doneTrip.stops;
+    await trips.arrive(doneTrip.id, p.id, hassan, { pin: p.target });
+    await trips.completeStop(doneTrip.id, p.id, hassan);
+    await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
+    await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
+    // Cancelled: the caller found a lift.
+    const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
+    await phones.cancel(actor(zainab), { orderId: off.orderId });
+    // On his way: عباس in a white Kia took أم علي's taxi at the mosque gate.
+    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة ٢', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
+    await takeBy(abbas, coming.orderId, { vehicleClass: 'car', plate: '23456 واسط', label: 'كيا سيراتو · أبيض' });
+    // Searching: just booked, nobody took it yet.
+    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة ١', 'tuktuk');
+  }
+}
 
 // ───────────────────────── SOS ─────────────────────────
 // POST /demo/sos[?who=driver|customer] — someone on a live trip holds طوارئ: the red banner rings on

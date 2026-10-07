@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { StartCodeAlert, StartCodeAlertsInput } from './ride-safety-io.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 
@@ -168,6 +169,17 @@ export const Trip = z.object({
 });
 export type Trip = z.infer<typeof Trip>;
 
+/**
+ * The order a courier works the jobs he holds: the order he took them (`acceptedAt`, which trips keeps
+ * strictly increasing per courier), then the trip id. Batching plans his pickups in this order (dispatch
+ * reads it when checking the hot-wait and detour rules), and the Partner app and the simulator drive them
+ * in it — one route, the one that was checked.
+ */
+export function jobOrder<T extends Pick<Trip, 'id' | 'acceptedAt'>>(trips: readonly T[]): T[] {
+  const at = (t: T) => t.acceptedAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  return [...trips].sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 // ───────────────────────── procedure I/O ─────────────────────────
 
 export const TripIdInput = z.object({ tripId: z.string().min(1) });
@@ -262,7 +274,14 @@ export const ArriveStopInput = z.object({
 });
 export type ArriveStopInput = z.infer<typeof ArriveStopInput>;
 
-export const CompleteStopInput = z.object({ tripId: z.string().min(1), stopId: z.string().min(1), handover: HandoverProof.default({}), ...DeviceStamp });
+export const CompleteStopInput = z.object({
+  tripId: z.string().min(1),
+  stopId: z.string().min(1),
+  handover: HandoverProof.default({}),
+  /** s1: a night ride's pickup (the rider got in) needs the 4 digits the rider read out (`START_CODE_RULES`). */
+  startCode: z.string().regex(/^\d{4}$/).optional(),
+  ...DeviceStamp,
+});
 export type CompleteStopInput = z.infer<typeof CompleteStopInput>;
 
 export const SkipStopInput = z.object({ tripId: z.string().min(1), stopId: z.string().min(1), reason: z.string().min(1).max(200), ...DeviceStamp });
@@ -313,4 +332,6 @@ export interface TripsPort {
   startUnreachable(actor: Actor, input: StartUnreachableInput): Promise<Trip>;
   fail(actor: Actor, input: FailTripInput): Promise<Trip>;
   cancel(actor: Actor, input: CancelTripInput): Promise<Trip>;
+  /** s1: the city's night-ride code alerts of the last `START_CODE_RULES.alertShowMin` (Console safety strip). */
+  startCodeAlerts(actor: Actor, input: StartCodeAlertsInput): Promise<StartCodeAlert[]>;
 }

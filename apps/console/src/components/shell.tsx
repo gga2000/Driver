@@ -13,7 +13,7 @@ import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
 import { useConsoleNetwork } from '@/lib/network';
-import { cx, NetworkBanner, SectionBoundary, ToastProvider } from './ui';
+import { cx, NetworkBanner, ToastProvider } from './ui';
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -98,9 +98,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 fullBleed && 'h-full',
               )}
             >
-              <SectionBoundary key={pathname} name={pathname}>
-                {children}
-              </SectionBoundary>
+              {children}
             </div>
           </main>
         </div>

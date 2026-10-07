@@ -1,13 +1,8 @@
 'use client';
 
-import { t } from '@driver/i18n';
-import { useEffect } from 'react';
-import { SectionError } from '@/components/ui';
+import { CrashPanel } from '@/components/crash-panel';
 
-/** A page that throws while drawing: the shell and sidebar stay, the page says so and can retry. */
+/** A page that throws while rendering: the shell stays, the page body says so with a retry. */
 export default function PageError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  useEffect(() => {
-    console.error('[console] page failed', error);
-  }, [error]);
-  return <SectionError title={t('console.page_crashed')} onRetry={reset} />;
+  return <CrashPanel error={error} reset={reset} />;
 }

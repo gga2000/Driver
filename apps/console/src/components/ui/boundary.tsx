@@ -2,12 +2,15 @@
 
 import { t } from '@driver/i18n';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { crashReporter } from '@/lib/crash';
 import { buttonCls } from './button';
 import { IconAlert } from './icons';
 
 /**
  * The per-section error: when one card or pane throws while drawing, only that part shows this
- * strip and the rest of the page keeps working. "جرّب مرة ثانية" draws it again.
+ * strip and the rest of the page keeps working. "جرّب مرة ثانية" draws it again. A whole page that
+ * throws is `app/error.tsx` (the crash panel); wrap a section in `SectionBoundary` when the page is
+ * worth keeping without it (a dashboard tile, a side pane).
  */
 export function SectionError({ title, onRetry }: { title?: ReactNode; onRetry?: () => void }) {
   return (
@@ -39,8 +42,8 @@ export class SectionBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
-    // Goes to the browser console now and to Sentry once the Console reports there (E0 operability).
-    console.error(`[console] section ${this.props.name ?? '?'} failed`, error, info.componentStack);
+    // Scrubbed and sent with the page crash reports (a no-op until NEXT_PUBLIC_SENTRY_DSN is set).
+    crashReporter.capture(error, { logger: 'section', handled: true, extra: { section: this.props.name ?? '?', stack: info.componentStack ?? '' } });
   }
 
   retry = () => this.setState({ failed: false });

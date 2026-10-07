@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { AppliedDiscount } from './deals.js';
-import type { Actor } from './identity-io.js';
+import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
 import { Participant, ParticipantInput } from './participant.js';
+import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { VehicleClass } from './trip.js';
 
 /** Mirrors the Prisma `OrderType` enum. Seat and subscription orders belong to routes (Steps 5–7). */
@@ -76,6 +77,24 @@ export const OrderLineInput = z
   .refine((l) => Boolean(l.catalogItemId ?? l.freeText), { message: 'a line needs a catalog item or free text' });
 export type OrderLineInput = z.input<typeof OrderLineInput>;
 
+/** The longest name a booker gives the person he books a ride for (a first name or «أم علي»). */
+export const RIDE_RIDER_NAME_MAX = 40;
+
+/**
+ * Ride ideas c9/s3 «لمنو المشوار؟»: who rides when the booker books for someone else — typed on the
+ * choose screen (a name and an Iraqi mobile number), one of his trusted people (w9, by list position:
+ * the number never leaves the vault), someone in his household (w4), or the rider of one of his own
+ * earlier rides (`recent`: «آخر من حجزتلهم», so no number is kept on the phone). The server resolves
+ * each to a person; the name and number live in the identity vault only (docs/api/ride-for-someone.md).
+ */
+export const RideRiderInput = z.discriminatedUnion('from', [
+  z.object({ from: z.literal('typed'), name: z.string().trim().min(1).max(RIDE_RIDER_NAME_MAX), phone: z.string().min(7).max(20) }),
+  z.object({ from: z.literal('trusted'), index: z.number().int().min(0).max(TRUSTED_CONTACTS_MAX - 1) }),
+  z.object({ from: z.literal('household'), householdId: z.string().min(1), personId: z.string().min(1) }),
+  z.object({ from: z.literal('recent'), orderId: z.string().min(1) }),
+]);
+export type RideRiderInput = z.infer<typeof RideRiderInput>;
+
 export const PlaceOrderInput = z.object({
   cityId: CityId,
   type: PlaceableOrderType,
@@ -133,6 +152,25 @@ export const PlaceOrderInput = z.object({
    * dispatch carries on as always. Refused on a ride for now (`favourite_needs_schedule`).
    */
   favouriteId: z.string().min(1).optional(),
+  /**
+   * Ride step 3 (s6) «عوائل»: the first wave goes only to drivers whose car has the confirmed family tag,
+   * who have driven here a while and are rated well (`FAMILY_PREFERENCE_RULES`); everyone after that.
+   * Rides only; the price does not change.
+   */
+  familyPreferred: z.boolean().optional(),
+  /**
+   * Ride idea x5 «عندي غراض»: shopping bags, a gas cylinder, something big. Stored on the ride and shown
+   * to the driver on the offer and the trip («عنده غراض: …»). Rides only; no effect on price or dispatch.
+   */
+  rideCargo: RideCargoInput.optional(),
+  /**
+   * Ride ideas c9/s3: the ride is for someone else («لـ أمي»). The booker pays as always (cash or
+   * wallet); the driver sees the name the booker gave and calls the rider; the rider gets the live link
+   * by SMS once a driver takes it; the booker follows it to the end. Rides only (`invalid_input`); the
+   * booker's own number is `ride_rider_is_you`, a trusted person or household member who isn't there
+   * `ride_rider_unknown` (and a `recent` order that isn't his ride for someone else).
+   */
+  rider: RideRiderInput.optional(),
   /** For the kitchen ("بدون بصل", an allergy): the merchant's card and receipt show it. */
   note: z.string().max(500).optional(),
   /**
@@ -334,6 +372,10 @@ export const Order = z.object({
   familyTable: z.boolean().optional(),
   /** Joy l9: the favourite driver this ride booked for later asked for; null/absent = anyone. */
   preferredDriverId: z.string().nullable().optional(),
+  /** Ride step 3 (s6): placed with «عوائل» (family-tagged drivers first); absent = no preference. */
+  familyPreferred: z.boolean().optional(),
+  /** Ride idea x5: what the rider carries («عندي غراض»), in `RIDE_CARGO_ORDER`; absent = nothing said. */
+  rideCargo: z.array(RideCargo).optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */
@@ -345,6 +387,12 @@ export const Order = z.object({
   changeToWalletIqd: Iqd.nullable().optional(),
   /** «عزيمة» (joy g1): a gift for the recipient participant; null/absent = an ordinary order. */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
+  /**
+   * Ride ideas c9/s3: the booker's ride for someone else — the name he gave («ماما», «أم علي»), read
+   * from the vault (logged). Filled on the booker's own reads only (the live screen, his orders, the
+   * receipt); the rider reads the ride as his own; null/absent otherwise.
+   */
+  rider: z.object({ name: z.string() }).nullable().optional(),
 });
 export type Order = z.infer<typeof Order>;
 

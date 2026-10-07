@@ -5,6 +5,7 @@ import {
   rideSearchStartsAt,
   RIDE_HABIT_RULES,
   shiftDate,
+  type BookedRideStatus,
   type FavouriteDriverView,
   type FavouriteKind,
   type Order,
@@ -20,9 +21,18 @@ import {
 const STEP = RIDE_HABIT_RULES.schedule.stepMin;
 const QUARTERS = [0, 15, 30, 45] as const;
 
-/** The days a ride can be booked on from the choose screen: today, tomorrow, the day after. */
-export const SCHEDULE_DAYS = [0, 1, 2] as const;
+/** The days a ride can be booked on from the choose screen: today, tomorrow and the five after (the server takes 7 days). */
+export const SCHEDULE_DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 export type ScheduleDay = (typeof SCHEDULE_DAYS)[number];
+
+/**
+ * A picker day runs from 5:00 to 4:59 the next morning, the way people say it: «باچر بالليل 1:00» is
+ * the night after tomorrow's evening, not the night before it. Day 0 is the day the rider is in (at
+ * 2:00 that is still last night's day).
+ */
+export const DAY_START_HOUR = 5;
+/** The hours in a picker day's order: 5:00 … 23:00, then 0:00 … 4:00. */
+export const DAY_HOURS: readonly number[] = Array.from({ length: 24 }, (_, i) => (i + DAY_START_HOUR) % 24);
 
 export interface ScheduleChoice {
   day: ScheduleDay;
@@ -30,9 +40,14 @@ export interface ScheduleChoice {
   minute: number;
 }
 
-/** The instant of a schedule choice (Baghdad wall time). */
+/** The calendar date (Baghdad) of the picker day `now` is in. */
+export function pickerDay(now: Date): string {
+  return baghdadDate(new Date(now.getTime() - DAY_START_HOUR * 3_600_000));
+}
+
+/** The instant of a schedule choice (Baghdad wall time; the hours before 5:00 are the next date's). */
 export function scheduleAt(now: Date, c: ScheduleChoice): Date {
-  return atLocal(shiftDate(baghdadDate(now), c.day), c.hour * 60 + c.minute);
+  return atLocal(shiftDate(pickerDay(now), c.day + (c.hour < DAY_START_HOUR ? 1 : 0)), c.hour * 60 + c.minute);
 }
 
 /** Whether the server will take this time (20 min to 7 days ahead). */
@@ -40,11 +55,9 @@ export function scheduleOk(now: Date, c: ScheduleChoice): boolean {
   return rideScheduleProblem(scheduleAt(now, c), now) === null;
 }
 
-/** The hours of a day with at least one quarter the server takes. */
+/** The hours of a picker day with at least one quarter the server takes, in the day's order. */
 export function hourOptions(now: Date, day: ScheduleDay): number[] {
-  const out: number[] = [];
-  for (let h = 0; h < 24; h += 1) if (QUARTERS.some((m) => scheduleOk(now, { day, hour: h, minute: m }))) out.push(h);
-  return out;
+  return DAY_HOURS.filter((h) => QUARTERS.some((m) => scheduleOk(now, { day, hour: h, minute: m })));
 }
 
 /** The quarters of that hour the server takes. */
@@ -57,20 +70,38 @@ export function firstSlot(now: Date): ScheduleChoice {
   const earliest = now.getTime() + RIDE_HABIT_RULES.schedule.minLeadMin * 60_000;
   const at = new Date(Math.ceil(earliest / (STEP * 60_000)) * STEP * 60_000);
   const date = baghdadDate(at);
-  const today = baghdadDate(now);
-  const day = date === today ? 0 : date === shiftDate(today, 1) ? 1 : 2;
+  const today = pickerDay(now);
+  const day = SCHEDULE_DAYS.find((d) => shiftDate(today, d) === pickerDay(at)) ?? 1;
   const minuteOfDay = Math.round((at.getTime() - atLocal(date, 0).getTime()) / 60_000);
-  return { day: day as ScheduleDay, hour: Math.floor(minuteOfDay / 60), minute: minuteOfDay % 60 };
+  return { day, hour: Math.floor(minuteOfDay / 60), minute: minuteOfDay % 60 };
 }
 
-/** A choice moved to a valid quarter of its day (the hour's first valid one, else the day's first). */
+/** The picker's calm grouping of a day's hours: the morning first, after midnight last. */
+export type HourPart = 'morning' | 'noon' | 'evening' | 'late';
+export const HOUR_PARTS: readonly HourPart[] = ['morning', 'noon', 'evening', 'late'];
+
+export function hourPart(hour: number): HourPart {
+  if (hour >= DAY_START_HOUR && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'noon';
+  if (hour >= 17) return 'evening';
+  return 'late';
+}
+
+/** A day's bookable hours by part of the day, in the order the picker shows them (empty parts left out). */
+export function hoursByPart(hours: readonly number[]): Array<{ part: HourPart; hours: number[] }> {
+  const order = (h: number) => DAY_HOURS.indexOf(h);
+  return HOUR_PARTS.map((part) => ({ part, hours: hours.filter((h) => hourPart(h) === part).sort((a, b) => order(a) - order(b)) })).filter((g) => g.hours.length > 0);
+}
+
+/** A choice moved to a valid quarter of its day (the hour's first valid one, else the next hour of the day, else its first). */
 export function settleChoice(now: Date, c: ScheduleChoice): ScheduleChoice {
   if (scheduleOk(now, c)) return c;
   const mins = minuteOptions(now, c.day, c.hour);
   if (mins.length > 0) return { ...c, minute: mins[0]! };
   const hours = hourOptions(now, c.day);
   if (hours.length === 0) return firstSlot(now);
-  const hour = hours.find((h) => h > c.hour) ?? hours[0]!;
+  const at = DAY_HOURS.indexOf(c.hour);
+  const hour = hours.find((h) => DAY_HOURS.indexOf(h) > at) ?? hours[0]!;
   return { day: c.day, hour, minute: minuteOptions(now, c.day, hour)[0] ?? 0 };
 }
 
@@ -80,6 +111,23 @@ export function settleChoice(now: Date, c: ScheduleChoice): ScheduleChoice {
  */
 export function isBookedRide(o: Pick<Order, 'type' | 'state' | 'scheduledFor'>, now: Date): boolean {
   return o.type === 'ride' && o.state === 'placed' && o.scheduledFor !== null && rideSearchStartsAt(o.scheduledFor).getTime() > now.getTime();
+}
+
+/**
+ * Review #28: what the booked ride says about its driver. `confirmed`: «سايقك محجوز: حسين» with his face;
+ * `looking`: «ندوّرلك سايق، نأكدلك قبل الساعة 10 بالليل»; `later`: no driver confirmed, the search starts
+ * at `searchAt`. Before the server answers, the order's own time gives the `later` line.
+ */
+export type BookedLine =
+  | { kind: 'confirmed'; name: string | null; photoUrl: string | null }
+  | { kind: 'looking'; until: Date }
+  | { kind: 'later'; searchAt: Date };
+
+export function bookedLine(status: BookedRideStatus | null | undefined, order: Pick<Order, 'scheduledFor'>): BookedLine | null {
+  if (status?.state === 'confirmed' && status.driver) return { kind: 'confirmed', name: status.driver.firstName, photoUrl: status.driver.photoUrl };
+  if (status?.state === 'looking' && status.confirmBy) return { kind: 'looking', until: status.confirmBy };
+  const searchAt = status?.searchAt ?? (order.scheduledFor ? rideSearchStartsAt(order.scheduledFor) : null);
+  return searchAt ? { kind: 'later', searchAt } : null;
 }
 
 /** When dispatch starts looking for a driver for that booking. */

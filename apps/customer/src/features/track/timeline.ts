@@ -85,11 +85,41 @@ export interface TimelineInput {
 }
 
 /**
+ * Ride idea s3: the booker following a ride he booked for someone else reads it about them — «ندوّر
+ * سايق لـ ماما», «حيدر رايح ياخذ ماما», «السايق وصل عند ماما», «مشوار ماما ماشي», «مشوار ماما وصل
+ * بالسلامة». Null for the phases that read the same either way.
+ */
+function statusLineFor(v: OrderTracking, t: TFn, name: string, now: number): string | null {
+  switch (phaseOf(v)) {
+    case 'searching':
+      return t('trip.status.for_searching', { name });
+    case 'to_pickup': {
+      const driver = v.courier?.firstName;
+      if (!driver) return t('trip.status.for_coming_unnamed', { name });
+      return rideMatchedFresh(v.trip?.acceptedAt, now) ? t('trip.status.for_matched', { name, driver }) : t('trip.status.for_coming', { name, driver });
+    }
+    case 'at_pickup':
+      return t('trip.status.for_at_pickup', { name });
+    case 'on_the_way':
+      return t('trip.status.for_in_transit', { name });
+    case 'arrived':
+      return t('trip.status.for_completed', { name });
+    default:
+      return null;
+  }
+}
+
+/**
  * The status line of the collapsed sheet. Rides name the driver (L-02): "لگينالك سايق: عباس" for the
  * first seconds after he accepted (server time, `now`), then "عباس بالطريق إلك".
  */
 export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}): string {
   const ride = v.order.type === 'ride';
+  const forName = ride ? (v.order.rider?.name ?? null) : null;
+  if (forName) {
+    const line = statusLineFor(v, t, forName, opts.now ?? v.serverNow.getTime());
+    if (line) return line;
+  }
   switch (phaseOf(v)) {
     case 'waiting_merchant':
       // Joy w4: on the household wallet over a limit, it waits for the payer before the kitchen.
