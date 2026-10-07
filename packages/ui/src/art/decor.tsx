@@ -135,7 +135,7 @@ export const DownFill = memo(function DownFill({ top, bottom }: { top: string; b
  * One tile of the khatam, the eight-pointed star of Iraqi tiles and doors: two squares, one turned
  * 45°, a ring in the middle and a tick at each corner where four stars meet (the trips artifact).
  */
-const STAR_TILE = 34;
+export const STAR_TILE = 34;
 const STAR_D = 'M9 9H25V25H9Z M17 5.69L28.31 17L17 28.31L5.69 17Z M0 0L4 4M34 0L30 4M0 34L4 30M34 34L30 30';
 
 /** Faint khatam star lines over a fill (the Baghdad and Kut trips tile, in gold). */
