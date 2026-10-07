@@ -142,6 +142,8 @@ export interface TripsRepository extends TripOrderLookup {
   updateTrip(id: string, patch: TripPatch, now: Date, tx?: Tx): Promise<TripRecord>;
   updateTripIf(id: string, expectState: TripState, patch: TripPatch, now: Date, tx?: Tx): Promise<TripRecord | null>;
   findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date; cancelledSince?: Date }, tx?: Tx): Promise<TripRecord[]>;
+  /** How many trips the courier completed, every vertical (a count, not the rows). */
+  completedCount(courierId: string, tx?: Tx): Promise<number>;
 
   stopsOf(tripId: string, tx?: Tx): Promise<StopRecord[]>;
   /** Appends stops after the trip's last `seq`. */
@@ -304,6 +306,10 @@ export class PrismaTripsRepository implements TripsRepository {
       orderBy: { createdAt: 'asc' },
     });
     return rows.map(tripFromRow);
+  }
+
+  async completedCount(courierId: string, tx?: Tx): Promise<number> {
+    return this.db(tx).trip.count({ where: { courierId, state: 'completed' } });
   }
 
   async stopsOf(tripId: string, tx?: Tx) {
@@ -540,6 +546,15 @@ export class InMemoryTripsRepository implements TripsRepository {
           (!filter.cancelledSince || (t.cancelledAt !== null && t.cancelledAt.getTime() >= filter.cancelledSince.getTime())),
       )
       .map((t) => ({ ...t }));
+  }
+
+  async completedCount(courierId: string): Promise<number> {
+    let n = 0;
+    for (const id of this.tripsByCourier.get(courierId) ?? []) {
+      const t = this.trips.get(id);
+      if (t?.courierId === courierId && t.state === 'completed') n += 1;
+    }
+    return n;
   }
 
   async stopsOf(tripId: string) {

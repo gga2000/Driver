@@ -459,7 +459,7 @@ try {
 const fleetOwner = await person('07750000001', 'أبو حسنين');
 const fleetOrg = await orgs.create({ type: 'fleet', name: 'تكاتك الربيعي', cityId: 'aziziyah', ownerId: fleetOwner });
 await identity.grantRole(SYSTEM, { personId: fleetOwner, kind: 'fleet_owner', orgId: fleetOrg.id });
-await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk' });
+await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk', model: 'باجاج', colour: 'red' });
 
 // ───────────────────────── support desk ─────────────────────────
 
@@ -545,14 +545,28 @@ await get(LedgerFacade).runNightly({ requestedBy: ali });
 
 // Registry vehicles for the simulator's tuktuk and car drivers (checked by field ops), so the
 // Console names them "حيدر ك. · تكتك · واسط 41373" (K-01). Bikes carry no registry plate.
+// Ride step 3: each has a model and colour, and the first cars carry features their drivers claimed
+// after the car check (the «مميزات سيارات» approvals tab: AC to confirm, heating and a big boot).
 const fleetRepo = get(FLEET_REPOSITORY);
+const DEMO_CARS = {
+  tuktuk: [{ model: 'باجاج', colour: 'blue' }, { model: 'باجاج', colour: 'green' }, { model: 'باجاج', colour: 'red' }],
+  car: [
+    { model: 'تويوتا كورولا', colour: 'white', features: ['ac'], confirmed: [] },
+    { model: 'هيونداي النترا', colour: 'silver', features: ['ac', 'heating', 'big_boot'], confirmed: ['ac'] },
+    { model: 'كيا سيراتو', colour: 'black', features: ['ac'], confirmed: ['ac'] },
+  ],
+};
 let plateN = 0;
+const carN = {};
 for (const d of await dispatch.liveDrivers('aziziyah', new Date())) {
   if (d.presence.vehicle === 'bike') continue;
   plateN += 1;
-  const v = await fleetRepo.createVehicle({ plate: `واسط ${41000 + plateN * 373}`, vehicleClass: d.presence.vehicle, ownerOrgId: fleetOrg.id });
+  const looks = DEMO_CARS[d.presence.vehicle] ?? [];
+  const car = looks[(carN[d.presence.vehicle] = (carN[d.presence.vehicle] ?? -1) + 1) % Math.max(looks.length, 1)] ?? {};
+  const v = await fleetRepo.createVehicle({ plate: `واسط ${41000 + plateN * 373}`, vehicleClass: d.presence.vehicle, ownerOrgId: fleetOrg.id, model: car.model ?? null, colour: car.colour ?? null });
   await fleetRepo.reviewVehicle(v.id, { verified: true, by: haider, at: new Date(), note: null });
   await fleetRepo.setActiveDriver(v.id, d.presence.driverId);
+  if (car.features && carN[d.presence.vehicle] < looks.length) await fleetRepo.setFeatures(v.id, { features: car.features, featuresConfirmed: car.confirmed }, new Date());
 }
 const keepOnline = async () => {
   for (const c of deskCouriers.filter((x) => x.zone !== 'khamas')) {

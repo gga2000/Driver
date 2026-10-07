@@ -5,6 +5,8 @@ import { Screen } from '@/components/Screen';
 import { DriverAvatar, PlateBadge, SectionHeader, VehicleGlyph } from '@/features/fleet/FleetParts';
 import { CLASS_KEY, seatsKey } from '@/features/fleet/logic';
 import { useFleetOverview } from '@/features/fleet/queries';
+import { colourKey } from '@/features/vehicle/logic';
+import { ColourDot } from '@/features/vehicle/VehicleParts';
 import { useT } from '@/lib/i18n';
 
 /**
@@ -59,6 +61,14 @@ export default function FleetVehicles() {
                             </Text>
                           ) : null}
                         </View>
+                        {v.model || v.colour ? (
+                          <View testID={`fleet-vehicle-look-${v.vehicleId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
+                            {v.colour ? <ColourDot colour={v.colour} size={12} /> : null}
+                            <Text variant="caption" color="textMuted" numberOfLines={1}>
+                              {[v.model, v.colour ? t(colourKey(v.colour)) : null].filter(Boolean).join(' · ')}
+                            </Text>
+                          </View>
+                        ) : null}
                         <PlateBadge plate={v.plate} size="md" />
                       </View>
                     </View>

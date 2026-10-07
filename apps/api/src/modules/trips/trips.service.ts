@@ -775,6 +775,11 @@ export class TripsService implements OnModuleInit {
     return Promise.all(trips.map((t) => this.view(t.id)));
   }
 
+  /** How many trips the driver completed, every vertical (the "1,240 مشوار" on his card). */
+  completedCountFor(driverId: string): Promise<number> {
+    return this.repo.completedCount(driverId);
+  }
+
   /**
    * The trips that speak for a driver's reliability since `since` (scoring §1, his Partner
    * scorecard): the ones he completed and the ones he cancelled after accepting.

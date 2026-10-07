@@ -56,6 +56,8 @@ export interface TrackingTripsPort {
   get(tripId: string): Promise<Trip>;
   orderHistory(orderId: string): Promise<Array<{ tripId: string; detachedAt: Date | null; reason: string | null }>>;
   lastPosition(tripId: string): Promise<{ at: Date; pin: LatLng; bearing: number | null; speedKmh: number | null; driverId: string } | null>;
+  /** His completed trips, every vertical (the card's trip count); absent in narrow fakes (0). */
+  completedCountFor?(driverId: string): Promise<number>;
 }
 export interface TrackingIdentityPort {
   /** `photoRef`: the storage ref of his APPROVED main photo (Ali, 2026-10-06); absent/null = his initial. */
@@ -165,7 +167,7 @@ export function lateApologyDue(
  */
 @Injectable()
 export class TrackingService implements TrackingPort {
-  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null; rating: { rating: number; count: number } | null }>();
+  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null; rating: { rating: number; count: number } | null; tripCount: number }>();
 
   constructor(
     @Inject(TRACKING_ORDERS) private readonly orders: TrackingOrdersPort,
@@ -611,8 +613,12 @@ export class TrackingService implements TrackingPort {
     const key = `${trip.id}:${courierId}:${readerId}`;
     let who = this.cards.get(key);
     if (!who) {
-      const [card, scores] = await Promise.all([this.identity.courierCard(courierId, readerId), this.ratings ? this.ratings.courierScores(courierId) : Promise.resolve([])]);
-      who = { ...card, rating: publicCourierRating(scores) };
+      const [card, scores, tripCount] = await Promise.all([
+        this.identity.courierCard(courierId, readerId),
+        this.ratings ? this.ratings.courierScores(courierId) : Promise.resolve([]),
+        this.trips.completedCountFor ? this.trips.completedCountFor(courierId) : Promise.resolve(0),
+      ]);
+      who = { ...card, rating: publicCourierRating(scores), tripCount };
       if (this.cards.size >= CARD_CACHE_MAX) this.cards.delete(this.cards.keys().next().value!);
       this.cards.set(key, who);
     }
@@ -622,6 +628,11 @@ export class TrackingService implements TrackingPort {
       vehicleClass: vehicle?.vehicleClass ?? defaultVehicle(trip.vertical),
       plate: vehicle?.plate ?? null,
       vehicleLabel: vehicle?.label ?? null,
+      // Ride step 3 (d1, n1, n2): model, the real colour, and only what ops confirmed at the car check.
+      vehicleModel: vehicle?.model ?? null,
+      vehicleColour: vehicle?.colour ?? null,
+      features: vehicle?.features ?? [],
+      tripCount: who.tripCount,
       // Joy l2: what customers said about his deliveries (newest 50, only from 5 ratings).
       rating: who.rating?.rating ?? null,
       ratingCount: who.rating?.count ?? 0,

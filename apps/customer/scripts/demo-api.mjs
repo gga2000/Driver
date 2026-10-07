@@ -280,7 +280,7 @@ async function newCourier(at, { photo = null } = {}) {
   await identity.setName({ personId: courierId, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
   // Every other courier has his approved photo; the rest show the initial (the fallback).
   if (photo ?? courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
-  vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length], label: null });
+  vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length] });
   await dispatch.presence.online(courierId, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
   return courierId;
 }
@@ -1366,7 +1366,7 @@ const rajaa = await (async () => {
     await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'driver' });
     await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
     await giveMainPhoto(driverId, 'ride:mustafa');
-    vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض' });
+    vehicles.register?.(driverId, { vehicleClass: 'car', plate: 'واسط 31207', model: 'تويوتا كورولا', colour: 'white', features: ['ac'] });
     await dispatch.presence.online(driverId, { cityId: 'aziziyah', at, vehicle: 'car', tier: 'gold' });
     return driverId;
   }
@@ -1450,13 +1450,14 @@ const rajaa = await (async () => {
 //   POST /demo/ride/search-age?orderId=…&sec=200  the ride reads as searching for `sec` (the 3-minute offer)
 {
   const RIDE_DRIVERS = [
-    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', at: { lat: 32.9068, lng: 45.0591 } },
-    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', at: { lat: 32.9031, lng: 45.0667 } },
-    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', at: { lat: 32.9112, lng: 45.0618 } },
-    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', at: { lat: 32.9019, lng: 45.0579 } },
-    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', label: 'هيونداي النترا · أسود', at: { lat: 32.9102, lng: 45.0702 } },
-    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', label: 'تويوتا كامري · أبيض', at: { lat: 32.8996, lng: 45.0631 } },
-    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', label: 'باجاج · أخضر', at: { lat: 32.9077, lng: 45.0712 } },
+    // Ride step 3 (d1, n1, n2): model, the real colour and the features ops confirmed at the car check.
+    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', model: 'هيونداي النترا', colour: 'silver', features: ['ac', 'family'], at: { lat: 32.9068, lng: 45.0591 } },
+    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', model: 'تويوتا كورولا', colour: 'white', features: ['ac'], at: { lat: 32.9031, lng: 45.0667 } },
+    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', model: 'باجاج', colour: 'red', features: [], at: { lat: 32.9112, lng: 45.0618 } },
+    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', model: 'باجاج', colour: 'blue', features: [], at: { lat: 32.9019, lng: 45.0579 } },
+    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', model: 'هيونداي سوناتا', colour: 'black', features: ['heating', 'no_smoking'], at: { lat: 32.9102, lng: 45.0702 } },
+    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', model: 'تويوتا كامري', colour: 'white', features: ['ac', 'big_boot'], at: { lat: 32.8996, lng: 45.0631 } },
+    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', model: 'باجاج', colour: 'green', features: [], at: { lat: 32.9077, lng: 45.0712 } },
   ];
   /** Metres per 500 ms tick while free: ≈ 36 km/h for a car, 25 for a tuktuk. */
   const CRUISE_M = { car: 5, tuktuk: 3.5 };
@@ -1494,7 +1495,7 @@ const rajaa = await (async () => {
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'driver' });
     await identity.setName({ personId: id, sessionId: 'demo' }, def.name);
     await giveMainPhoto(id, `ride:${def.name}`);
-    vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
+    vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, model: def.model, colour: def.colour, features: def.features });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
     // Joy l2: riders see his rating on the reveal (six rated past jobs; demo only).
     if (process.env.DEMO_RIDE_RATED !== "0") await ratedHistory(id, { force: true });
