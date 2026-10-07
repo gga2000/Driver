@@ -55,7 +55,7 @@ describe.skipIf(!url)('migration 20261002000000_m2_domain (needs DATABASE_URL)',
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY 1`,
       [`vault_${suffix}`],
     );
-    expect(r.rows.map((x) => x.table_name)).toEqual(['child_identities', 'person_identities', 'vault_access_logs']);
+    expect(r.rows.map((x) => x.table_name)).toEqual(['child_identities', 'participant_identities', 'person_identities', 'vault_access_logs']);
   });
 
   it('creates GIST indexes on geography columns', async () => {
