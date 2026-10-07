@@ -7,6 +7,14 @@ import { useToast } from '@driver/ui';
 type ToastApi = ReturnType<typeof useToast>;
 
 /**
+ * a7 · nothing opens over a ringing order. While an order rings, the counter's quiet toasts (done,
+ * saved) wait; only the newest is kept, and it shows when the ringing stops if it is still fresh.
+ * Problems (danger, warning) show at once, at the bottom, away from the ribbon at the top.
+ */
+let held = false;
+let waiting: { show: () => void; at: number } | null = null;
+
+/**
  * Toasts on the counter drop from the top, just under the dark status bar (redesign ideas o8/b2): at
  * the bottom they sat on «صار جاهز», «سلّمته» and the phone's sticky accept button, and over the bar
  * they hid its switch and chips. A caller can still pass `placement: 'bottom'` for a screen whose top
@@ -14,7 +22,34 @@ type ToastApi = ReturnType<typeof useToast>;
  */
 export function useCounterToast(): ToastApi {
   const toast = useToast();
-  return useMemo<ToastApi>(() => ({ hide: toast.hide, show: (data, durationMs) => toast.show({ placement: 'top', ...data }, durationMs) }), [toast]);
+  return useMemo<ToastApi>(
+    () => ({
+      hide: toast.hide,
+      show: (data, durationMs) => {
+        const urgent = data.tone === 'danger' || data.tone === 'warning';
+        if (!held) {
+          toast.show({ placement: 'top', ...data }, durationMs);
+        } else if (urgent) {
+          // A failed tap or "no net" can't wait: it shows at once, at the bottom, off the ribbon.
+          toast.show({ ...data, placement: 'bottom' }, durationMs);
+        } else {
+          waiting = { show: () => toast.show({ placement: 'top', ...data }, durationMs), at: Date.now() };
+        }
+      },
+    }),
+    [toast],
+  );
+}
+
+/** A waited toast older than this is stale by the time the ringing stops: it is dropped. */
+export const TOAST_WAIT_MAX_MS = 15_000;
+
+export function holdToasts(on: boolean, now = Date.now()): void {
+  held = on;
+  if (on || !waiting) return;
+  const w = waiting;
+  waiting = null;
+  if (now - w.at <= TOAST_WAIT_MAX_MS) w.show();
 }
 
 /** Where the status bar ends, px below the safe area (null on screens without it). */

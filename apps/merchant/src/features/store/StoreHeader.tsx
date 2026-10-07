@@ -1,13 +1,14 @@
 import { router } from 'expo-router';
 import { createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
 import { Button, ModalSheet, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { balanceState, moneyPill } from '@/features/money/logic';
-import { clock12, minutesLeft } from '@/lib/time';
+import { clock12 } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 import { color as palette } from '@driver/design-tokens';
 import { COUNTER } from '@/lib/counter';
@@ -28,6 +29,10 @@ export interface StoreHeaderProps {
   onCash: () => void;
   /** Chips that must be seen first ("الصوت طافي", "فاتك اليوم: 2"): before busy and printer. */
   alerts?: ReactNode[];
+  /** r4: many orders wait and busy mode is off — the busy chip pulses once with «زحمة؟». */
+  suggestBusy?: boolean;
+  /** a7: bump to close the phone's "…" sheet (a new order started ringing). */
+  closeMenu?: number;
 }
 
 const TONE_BG: Record<StatusTone, 'surfaceSunken' | 'accentTint' | 'successTint' | 'warningTint' | 'dangerTint' | 'infoTint'> = {
@@ -65,10 +70,18 @@ function barChip(tone: StatusTone): { bg: string; fg: string; edge: string } | n
  * narrow phone a long label ("خلّي الشاشة شاعلة من إعدادات التابلت") wraps to a second line instead
  * of running off the edge.
  */
-export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
+export function HeaderChip({ icon, label, tone, onPress, testID, dot, nudge = false }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean; /** r4: a gold outline and one pulse when it turns on. */ nudge?: boolean }) {
   const theme = useTheme();
   const bar = useContext(OnBar) ? barChip(tone) : null;
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (!nudge || theme.reduceMotion) return;
+    // Once, when the suggestion appears: a nudge, never a nag.
+    scale.value = withSequence(withTiming(1.14, { duration: 220 }), withTiming(1, { duration: 260 }), withTiming(1.1, { duration: 200 }), withTiming(1, { duration: 260 }));
+  }, [nudge, theme.reduceMotion, scale]);
+  const pulse = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
+    <Animated.View style={[{ maxWidth: '100%' }, pulse]}>
     <Pressable hitSlop={2}
       testID={testID}
       accessibilityRole="button"
@@ -84,8 +97,8 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
         paddingHorizontal: theme.space[3],
         borderRadius: theme.radius.pill,
         backgroundColor: bar ? bar.bg : theme.colors[TONE_BG[tone]],
-        borderWidth: tone === 'neutral' ? 1 : 0,
-        borderColor: bar ? bar.edge : theme.colors.border,
+        borderWidth: nudge ? 2 : tone === 'neutral' ? 1 : 0,
+        borderColor: nudge ? COUNTER.busy : bar ? bar.edge : theme.colors.border,
         opacity: pressed ? 0.8 : 1,
       })}
     >
@@ -95,6 +108,7 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
         {label}
       </Text>
     </Pressable>
+    </Animated.View>
   );
 }
 
@@ -282,11 +296,12 @@ function WideBar({ name, openSwitch, chips, money }: { name: ReactNode; openSwit
   );
 }
 
-export function StoreHeader({storeName, status, balance, headline, canSeeMoney, now, wide, onToggleOpen, onBusy, onCash, alerts }: StoreHeaderProps) {
+export function StoreHeader({ storeName, status, balance, headline, canSeeMoney, wide, onToggleOpen, onBusy, onCash, alerts, suggestBusy = false, closeMenu = 0 }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const [menu, setMenu] = useState(false);
+  useEffect(() => setMenu(false), [closeMenu]);
   // On a phone these live in the "…" menu: close it before the busy sheet or "اطلب فلوسك" opens.
   const busyPress = () => {
     setMenu(false);
@@ -304,14 +319,25 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
   useEffect(() => release, [release]);
 
   const chips: ReactNode[] = [...(alerts ?? [])];
+  // r1: busy mode on is a gold chip with the time it switches itself off; r3: on a phone it sits in
+  // the bar's own row (one tap), not in the "…" sheet.
+  const busyUntil = status?.busy.on && status.busy.until ? status.busy.until : null;
+  const busyChip = status ? (
+    busyUntil ? (
+      <HeaderChip
+        key="busy"
+        testID="busy-chip"
+        icon="flame"
+        tone="warning"
+        label={wide ? t('merchant.busy.chip_until', { time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
+        onPress={busyPress}
+      />
+    ) : (
+      <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" nudge={suggestBusy} label={t('merchant.busy.chip_off')} onPress={busyPress} />
+    )
+  ) : null;
   if (status) {
-    chips.push(
-      status.busy.on && status.busy.until ? (
-        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="warning" label={t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })} onPress={busyPress} />
-      ) : (
-        <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" label={t('merchant.busy.chip_off')} onPress={busyPress} />
-      ),
-    );
+    if (wide) chips.push(busyChip);
     chips.push(
       <HeaderChip
         key="printer"
@@ -411,34 +437,27 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
       </View>
     );
   }
-  // Phone (M-06): one 56-pt row — the store, open/closed, and "…" for busy mode, the printer and the
-  // cash (which also lives on the Money tab). Alert chips ("الصوت طافي", "فاتك اليوم") get a second row
-  // only while there is something to fix. Busy mode on reads under the store name.
-  const busyOn = Boolean(status?.busy.on && status.busy.until);
-  const needsLook = busyOn || chip === 'disconnected';
+  // Phone (M-06): one 56-pt row — the store, busy mode (r3: one tap, gold while on), open/closed, and
+  // "…" for the printer and the cash (which also lives on the Money tab). Alert chips ("الصوت طافي",
+  // "فاتك اليوم") get a second row only while there is something to fix.
+  const needsLook = chip === 'disconnected';
   return (
     <View ref={bar.ref} onLayout={bar.onLayout} style={{ backgroundColor: COUNTER.date }}>
       <OnBar.Provider value={true}>
       <View testID="store-header-row" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 56, paddingHorizontal: theme.space[4] }}>
-        <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
-            <MIcon name="store" size={20} color={COUNTER.busy} />
-          </View>
+        <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44 }}>
           <View style={{ flexShrink: 1 }}>
             <Text variant="bodyStrong" numberOfLines={1} style={[theme.face('display'), { lineHeight: 24, color: COUNTER.onDate }]}>
               {storeName}
             </Text>
-            {busyOn && status?.busy.until ? (
-              <Text variant="caption" weight={600} numberOfLines={1} tabular style={{ lineHeight: 16, color: COUNTER.busy }}>
-                {t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })}
-              </Text>
-            ) : status?.closed ? (
+            {status?.closed ? (
               <Text variant="caption" numberOfLines={1} style={{ lineHeight: 16, color: COUNTER.onDateLate }}>
                 {t(`merchant.close_reason.${status.closed.reason}` as const)}
               </Text>
             ) : null}
           </View>
         </Pressable>
+        {busyChip}
         {status ? <OpenSwitch status={status} onPress={onToggleOpen} compact /> : <Skeleton width={84} height={44} radius={22} />}
         <Pressable
           testID="header-more"

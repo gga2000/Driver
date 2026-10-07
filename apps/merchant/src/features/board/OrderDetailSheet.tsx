@@ -57,7 +57,7 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
       // M-11: reading a long ticket is exactly when the 90 s run out — the same ring as the card.
       aside={
         order.column === 'new' && order.acceptBy && !order.partial ? (
-          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
+          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
         ) : null
       }
       subtitle={[t('merchant.detail.placed_at', { time: clock12(order.placedAt) }), order.promisedReadyAt ? t('merchant.detail.ready_by', { time: clock12(order.promisedReadyAt) }) : null].filter(Boolean).join(' · ')}

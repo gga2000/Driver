@@ -1285,5 +1285,14 @@
   "merchant.board.prep_bar_late": "تأخر عن الوقت",
   "merchant.board.row_a11y": "طلب #{number}، {count} صنف. اضغط حتى يطلع فوق",
   "merchant.board.totals_title": "على النار هسة",
-  "merchant.board.totals_a11y": "على النار هسة: {list}"
+  "merchant.board.totals_a11y": "على النار هسة: {list}",
+  "merchant.board.final_more": "باقي {seconds} ثانية على #{number}",
+  "merchant.rush.accept_all": "اقبل الكل ({count}) · {minutes} دقيقة",
+  "merchant.rush.accepted_all": "قبلت {count} طلبات · كل واحد {minutes} دقيقة",
+  "merchant.rush.accepted_all_two": "قبلت طلبين · كل واحد {minutes} دقيقة",
+  "merchant.rush.accept_all_left": "{count} بيها ملاحظة، افتحها وحدة وحدة",
+  "merchant.rush.accept_all_left_one": "واحد بي ملاحظة، افتحه",
+  "merchant.rush.row_open": "شوفه واقبل",
+  "merchant.busy.chip_until": "زحمة ⁦+10⁩ · لحد {time}",
+  "merchant.busy.chip_until_short": "لحد {time}"
 }

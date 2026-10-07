@@ -13,7 +13,7 @@ import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
 import { PickupCode } from './PickupCode';
-import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, prepLeft, tickKey } from './logic';
+import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, needsReading, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
@@ -52,6 +52,11 @@ export interface OrderCardProps {
    * tap brings it to the top (`onExpand`).
    */
   row?: boolean;
+  /**
+   * Tablet rush rows (r2): the row carries its own button — one-tap «اقبل · 15 د», or «شوفه واقبل»
+   * (the accept sheet, notes on top) when it has an allergy or a note.
+   */
+  rowAction?: boolean;
   /** Cooking tickets (o10): the lines the kitchen ticked off on this tablet, and the tap that ticks one. */
   ticks?: { ticked: ReadonlySet<string>; toggle: (orderId: string, lineId: string) => void };
 }
@@ -285,7 +290,7 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, ticks } = props;
+  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
@@ -297,7 +302,7 @@ export function OrderCard(props: OrderCardProps) {
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   const isNew = order.column === 'new';
   const allergy = hasAllergy(order);
-  const hot = isNew && (stage === 'urgent' || stage === 'final');
+  const hot = isNew && stage === 'final';
   const pulse = usePulseBorder(ringing && !theme.reduceMotion, hot);
   const breath = useBreath(ringing && hot && !theme.reduceMotion);
   const timing = cardTiming(order, now);
@@ -383,7 +388,7 @@ export function OrderCard(props: OrderCardProps) {
           })}
         >
           {order.acceptBy && !order.partial ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
           ) : (
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
               <MIcon name="hourglass" size={18} color="warningText" />
@@ -400,7 +405,15 @@ export function OrderCard(props: OrderCardProps) {
               {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
             </Text>
           </View>
-          <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
+          {rowAction && !order.partial ? (
+            needsReading(order) ? (
+              <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} />
+            ) : onAcceptNow && oneTapMinutes !== undefined ? (
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
+            ) : null
+          ) : (
+            <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
+          )}
         </Pressable>
       </Animated.View>
     );
@@ -428,7 +441,7 @@ export function OrderCard(props: OrderCardProps) {
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             {order.acceptBy && !order.partial ? (
-              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
               <Text tabular style={[theme.face('display'), { fontSize: 24, lineHeight: 32, color: COUNTER.date }]}>
@@ -503,7 +516,7 @@ export function OrderCard(props: OrderCardProps) {
             </Text>
           </View>
           {isNew && order.acceptBy && !order.partial ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
           )}

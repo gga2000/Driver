@@ -1285,5 +1285,14 @@
   "merchant.board.prep_bar_late": "Past the promised time",
   "merchant.board.row_a11y": "Order #{number}, {count} items. Tap to bring it up",
   "merchant.board.totals_title": "Cooking now",
-  "merchant.board.totals_a11y": "Cooking now: {list}"
+  "merchant.board.totals_a11y": "Cooking now: {list}",
+  "merchant.board.final_more": "{seconds} seconds left on #{number}",
+  "merchant.rush.accept_all": "Accept all ({count}) · {minutes} min",
+  "merchant.rush.accepted_all": "Accepted {count} orders · {minutes} min each",
+  "merchant.rush.accepted_all_two": "Accepted 2 orders · {minutes} min each",
+  "merchant.rush.accept_all_left": "{count} have a note, open them one by one",
+  "merchant.rush.accept_all_left_one": "1 has a note, open it",
+  "merchant.rush.row_open": "Read and accept",
+  "merchant.busy.chip_until": "Busy +10 · until {time}",
+  "merchant.busy.chip_until_short": "until {time}"
 }

@@ -175,10 +175,39 @@ export function isRush(waiting: number): boolean {
   return waiting >= RUSH_FROM;
 }
 
-/** S-M2 suggestion: at four or more waiting, offer busy mode (unless it is on already). */
-export const BUSY_SUGGEST_FROM = 4;
+/**
+ * Busy mode suggested (r4): from six orders waiting the busy chip in the status bar pulses once with
+ * «زحمة؟» (no strip over the board), unless busy mode is on already.
+ */
+export const BUSY_SUGGEST_FROM = 6;
 export function suggestBusy(waiting: number, busyOn: boolean): boolean {
   return !busyOn && waiting >= BUSY_SUGGEST_FROM;
+}
+
+/**
+ * Rush rows (r2): above six orders waiting, every new ticket but the open one shrinks to one line with
+ * its own button, so ten orders fit on one tablet screen.
+ */
+export const ROWS_FROM = 7;
+export function rushRows(waiting: number): boolean {
+  return waiting >= ROWS_FROM;
+}
+
+/** An order the kitchen must read before accepting: an allergy or any note. It is never accepted in bulk (t4). */
+export function needsReading(o: Pick<BoardOrder, 'note' | 'groups'>): boolean {
+  return kitchenNotes(o).length > 0;
+}
+
+/**
+ * «اقبل الكل» (t4), in busy mode only: every order waiting for the kitchen (ringing or snoozed, not a
+ * partial waiting for the customer) that has no allergy and no note. `skipped` counts the waiting ones
+ * left to open one by one. Offered from two orders up.
+ */
+export function acceptAllTargets<T extends Pick<BoardOrder, 'id' | 'column' | 'partial' | 'note' | 'groups'>>(orders: readonly T[], waitingIds: readonly string[], busyOn: boolean): { targets: T[]; skipped: number } {
+  if (!busyOn) return { targets: [], skipped: 0 };
+  const waiting = orders.filter((o) => o.column === 'new' && o.partial === null && waitingIds.includes(o.id));
+  const targets = waiting.filter((o) => !needsReading(o));
+  return targets.length >= 2 ? { targets, skipped: waiting.length - targets.length } : { targets: [], skipped: 0 };
 }
 
 /**

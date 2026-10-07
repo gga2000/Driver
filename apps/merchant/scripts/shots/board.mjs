@@ -79,9 +79,7 @@ export default {
     await shot('reject');
     await byTestId('reject-sheet-close').click();
 
-    // Busy mode on: the sheet, then the board with the countdown chip (on a phone it lives in "…").
-    if (phone) await byTestId('header-more').click();
-    await shot('DEBUG');
+    // Busy mode on: the sheet, then the board with the gold chip (r3: in the bar on a phone too).
     await byTestId('busy-chip').click();
     await byTestId('busy-sheet').waitFor();
     await shot('busy-sheet');

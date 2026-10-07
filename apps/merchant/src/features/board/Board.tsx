@@ -33,7 +33,8 @@ import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
 import { stageFor } from './ladder';
-import { byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, splitColumns, suggestBusy, type CookingTotal } from './logic';
+import { acceptAllTargets, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
+import { DragToReady } from './DragToReady';
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
@@ -133,6 +134,12 @@ function CookingTotals({ totals }: { totals: readonly CookingTotal[] }) {
  * one-tap accept (a1), every waiting order a readable ticket (o1), «على النار» due-first (o6) with a
  * draining time bar (o5), dishes ticked off one by one (o10) and added up (o11). Phone «هسة» (o2): one
  * order in full, the rest as rows.
+ *
+ * Step 3 (rush and busy): above six waiting, the tablet's new tickets are one line each with their own
+ * button (r2); busy mode puts a gold frame round the board and a gold chip with its end time in the
+ * bar, one tap away on a phone too (r1, r3); the busy chip pulses «زحمة؟» instead of a strip (r4);
+ * «اقبل الكل» in busy mode (t4); a cooking ticket can be dragged to the ready lane (o9); a new order
+ * ringing closes the sheets that only show things (a7).
  */
 export function Board() {
   const theme = useTheme();
@@ -195,8 +202,11 @@ export function Board() {
   const totals = useMemo(() => cookingTotals(cols.preparing, ticks.ticked), [cols.preparing, ticks.ticked]);
   // Rush (tablet): which new ticket is open; the most urgent unless the kitchen picked another.
   const rush = wide && isRush(cols.new.length);
+  // r2: above six waiting, the tablet's new tickets are one line each with a button (the ribbon carries
+  // the next one in full); a row tapped opens in full in the lane.
+  const rows = wide && rushRows(cols.new.length);
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const expandedId = pickedId && cols.new.some((o) => o.id === pickedId) ? pickedId : (cols.new[0]?.id ?? null);
+  const expandedId = pickedId && cols.new.some((o) => o.id === pickedId) ? pickedId : rows ? null : (cols.new[0]?.id ?? null);
   // Phone «هسة» (o2): the picked (or most urgent) order in full, the rest as rows.
   const now1 = phoneNow(cols.new, pickedId);
   const newScroll = useRef<ScrollView>(null);
@@ -238,6 +248,21 @@ export function Board() {
     setSheet(null);
   };
   const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
+  // a7: a new order starts ringing → the sheets that only show things step aside (missed orders, the
+  // cash, the phone's "…", the details of an order that isn't new), so nothing hides the ribbon. The
+  // accept / reject sheets, and busy / close (decisions about the rush itself), stay.
+  const [newRings, setNewRings] = useState(0);
+  const rang = useRef<readonly string[]>([]);
+  const ringKey = plan.ringing.join(',');
+  useEffect(() => {
+    const fresh = plan.ringing.some((id) => !rang.current.includes(id));
+    rang.current = plan.ringing;
+    if (!fresh) return;
+    setNewRings((n) => n + 1);
+    setSheet((x) => (x === 'missed' || x === 'cash' ? null : x));
+    setDetailId((d) => (d && !plan.ringing.includes(d) && !plan.snoozed.includes(d) ? null : d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the set of ringing orders changes
+  }, [ringKey]);
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
 
@@ -278,18 +303,49 @@ export function Board() {
     if (rejectId) alarm.release(rejectId);
     setRejectId(null);
   };
-  const onReady = async (o: BoardOrder) => {
-    if (offlineGuard()) return;
+  /** «صار جاهز» (a tap, or o9: a cooking ticket dragged toward the ready lane). True when it went through. */
+  const onReady = async (o: BoardOrder): Promise<boolean> => {
+    if (offlineGuard()) return false;
     setReadyId(o.id);
     try {
       await ready.mutateAsync({ orderId: o.id });
       toast.show({ message: t('merchant.card.mark_ready'), tone: 'success', icon: 'check' });
       setDetailId(null);
+      return true;
     } catch (err) {
       fail(err);
+      return false;
     } finally {
       setReadyId(null);
     }
+  };
+  /**
+   * «اقبل الكل» (t4, busy mode): every waiting order with no allergy and no note, at the usual time,
+   * one after the other. The ones with something to read stay ringing, to be opened one by one.
+   */
+  const [acceptingAll, setAcceptingAll] = useState(false);
+  const onAcceptAll = async (targets: readonly BoardOrder[], skipped: number) => {
+    if (offlineGuard() || acceptingAll) return;
+    setAcceptingAll(true);
+    for (const o of targets) alarm.handle(o.id);
+    let done = 0;
+    let failed: unknown = null;
+    for (const o of targets) {
+      try {
+        await accept.mutateAsync({ orderId: o.id, prepMinutes: oneTap.prepMinutes });
+        done += 1;
+        if (prefs.autoPrint) void print(o, { auto: true });
+      } catch (err) {
+        failed = err;
+      }
+    }
+    for (const o of targets) alarm.release(o.id);
+    setAcceptingAll(false);
+    if (failed) fail(failed);
+    if (done === 0) return;
+    const head = done === 2 ? t('merchant.rush.accepted_all_two', { minutes: oneTap.shown }) : t('merchant.rush.accepted_all', { count: done, minutes: oneTap.shown });
+    // With orders left to read, say so now (a warning shows even while they ring, at the bottom).
+    toast.show(skipped > 0 ? { message: `${head} · ${skipped === 1 ? t('merchant.rush.accept_all_left_one') : t('merchant.rush.accept_all_left', { count: skipped })}`, tone: 'warning', icon: 'check' } : { message: head, tone: 'success', icon: 'check' });
   };
   const onExtend = async (o: BoardOrder) => {
     setExtendingId(o.id);
@@ -352,17 +408,19 @@ export function Board() {
       );
     }
     const ringing = plan.ringing.includes(o.id);
-    const compact = rush && o.column === 'new' && o.id !== expandedId;
-    const row = !wide && o.column === 'new' && o.id !== now1.first?.id;
+    const compact = rush && !rows && o.column === 'new' && o.id !== expandedId;
+    const row = wide ? rows && o.column === 'new' && o.id !== expandedId : o.column === 'new' && o.id !== now1.first?.id;
     return (
       <View
         key={o.id}
         onLayout={o.column === 'new' ? (e) => cardY.current.set(o.id, e.nativeEvent.layout.y) : undefined}
       >
+      <DragToReady testID={`drag-${o.number}`} enabled={wide && o.column === 'preparing'} onReady={() => onReady(o)}>
       <OrderCard
         order={o}
         compact={compact}
         row={row}
+        rowAction={wide}
         ticks={ticks}
         onExpand={() => (wide ? pick(o) : setPickedId(o.id))}
         now={now}
@@ -380,6 +438,7 @@ export function Board() {
         busyAccept={acceptingId === o.id}
         busyExtend={extendingId === o.id}
       />
+      </DragToReady>
       </View>
     );
   };
@@ -424,6 +483,7 @@ export function Board() {
   const urgent = plan.mostUrgent;
   const summary = newOrderSummary(orders, plan.snoozed);
   const sticky = !wide && segment === 'new' ? now1.sticky : null;
+  const all = acceptAllTargets(cols.new, [...plan.ringing, ...plan.snoozed], busyOn);
   // a1: the ribbon carries the next order to answer (tablet), never one waiting on the customer.
   const next = wide ? (cols.new.find((o) => o.partial === null && plan.ringing.includes(o.id)) ?? null) : null;
   return (
@@ -440,7 +500,11 @@ export function Board() {
         onBusy={() => setSheet('busy')}
         onCash={() => setSheet('cash')}
         alerts={alerts}
+        suggestBusy={suggestBusy(cols.new.length, busyOn) && Boolean(s?.open)}
+        closeMenu={newRings}
       />
+      {/* r1: busy mode you can't forget — a gold frame round the whole board while it is on. */}
+      <View testID={busyOn ? 'busy-frame' : undefined} style={{ flex: 1, borderWidth: busyOn ? 5 : 0, borderTopWidth: 0, borderColor: COUNTER.busy }}>
       {waiting > 0 ? (
         <NewOrderBanner
           count={plan.ringing.length}
@@ -456,6 +520,7 @@ export function Board() {
           summary={summary}
           storeClosed={plan.closed.length > 0}
           featured={next ? { order: next, oneTapMinutes: oneTap.shown, busy: acceptingId === next.id, onAccept: () => void onAcceptNow(next), onOpen: () => setDetailId(next.id) } : null}
+          acceptAll={all.targets.length > 0 ? { count: all.targets.length, minutes: oneTap.shown, busy: acceptingAll, onPress: () => void onAcceptAll(all.targets, all.skipped) } : null}
         />
       ) : null}
       {!online ? (
@@ -477,16 +542,6 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
-      {/* One busy nudge at a time: the missed-orders strip already offers it when it shows its own. */}
-      {suggestBusy(cols.new.length, busyOn) && s?.open ? (
-        <InfoStrip
-          tone="warning"
-          icon="flame"
-          testID="rush-busy-strip"
-          text={t('merchant.rush.suggest_busy', { count: cols.new.length })}
-          action={{ label: t('merchant.rush.busy_on'), onPress: () => setSheet('busy'), testID: 'rush-busy-on' }}
-        />
-      ) : null}
       {push.visible ? (
         <InfoStrip
           tone="neutral"
@@ -563,6 +618,7 @@ export function Board() {
           ) : null}
         </View>
       )}
+      </View>
 
       <AcceptSheet
         order={byId(acceptId)}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardOrder } from '@driver/contracts';
-import { byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged } from './logic';
+import { byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged, rushRows, acceptAllTargets, needsReading } from './logic';
 
 const T0 = Date.parse('2026-10-03T17:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000);
@@ -129,11 +129,30 @@ describe('rush: one count, answer order, compact tickets, sticky accept (M-05, M
     expect(sorted.map((o) => o.id)).toEqual(['urgent', 'mid', 'late-arrival', 'scheduled', 'partial']);
   });
 
-  it('rush from three waiting; busy suggested from four unless busy is on', () => {
+  it('rush from three waiting; one-line rows from seven (r2); busy suggested from six unless busy is on (r4)', () => {
     expect([0, 2, 3, 8].map(isRush)).toEqual([false, false, true, true]);
-    expect(suggestBusy(3, false)).toBe(false);
-    expect(suggestBusy(4, false)).toBe(true);
+    expect([3, 6, 7, 12].map(rushRows)).toEqual([false, false, true, true]);
+    expect(suggestBusy(5, false)).toBe(false);
+    expect(suggestBusy(6, false)).toBe(true);
     expect(suggestBusy(9, true)).toBe(false);
+  });
+
+  it('accept all (t4): busy mode only, from two plain orders; allergies, notes and partials are opened one by one', () => {
+    const plain = (id: string) => card(id, { note: null, groups: [group('o', 'orderer')] });
+    const noted = card('noted', { note: 'بدون بصل', groups: [group('o', 'orderer')] });
+    const allergic = card('allergic', { note: null, groups: [group('o', 'orderer', 'حساسية فول سوداني')] });
+    const partial = card('partial', { note: null, groups: [group('o', 'orderer')], partial: { unavailableLineIds: ['x'], deadline: at(1) } });
+    const cooking = card('cooking', { column: 'preparing', note: null, groups: [group('o', 'orderer')] });
+    const orders = [plain('a'), plain('b'), noted, allergic, partial, cooking, plain('closed')];
+    const waiting = ['a', 'b', 'noted', 'allergic', 'partial', 'cooking'];
+    expect(needsReading(noted)).toBe(true);
+    expect(needsReading(allergic)).toBe(true);
+    expect(needsReading(plain('x'))).toBe(false);
+    const r = acceptAllTargets(orders, waiting, true);
+    expect(r.targets.map((o) => o.id)).toEqual(['a', 'b']);
+    expect(r.skipped).toBe(2);
+    expect(acceptAllTargets(orders, waiting, false)).toEqual({ targets: [], skipped: 0 });
+    expect(acceptAllTargets([plain('a'), noted], ['a', 'noted'], true)).toEqual({ targets: [], skipped: 0 });
   });
 
   it('phone «هسة»: the picked or most urgent order on top, the rest as rows; sticky only for a long one', () => {

@@ -58,6 +58,11 @@ export interface NewOrderBannerProps {
    * ticket. Absent on a phone, while snoozed and while the store is closed.
    */
   featured?: { order: BoardOrder; oneTapMinutes: number; busy: boolean; onAccept: () => void; onOpen: () => void } | null;
+  /**
+   * t4, busy mode: «اقبل الكل (4) · 25 د» accepts every waiting order with no allergy and no note at
+   * the shop's usual time; the others stay to be opened one by one.
+   */
+  acceptAll?: { count: number; minutes: number; busy: boolean; onPress: () => void } | null;
 }
 
 /** The ribbon's own accept: dark on saffron (and on red in the last 30 s), 52 px tall. */
@@ -92,16 +97,17 @@ export function summaryTitle(t: ReturnType<typeof useT>, s: NewOrderSummary): st
 
 /**
  * "طلب جديد!" — the strip over the board while new orders wait (signature S-M1). It escalates with the
- * ladder: accent while there is time, danger in the last 30 s, and in the last 10 s it names the order
- * and counts down ("باقي 7 ثواني على #3912"). "سكّت 30 ثانية" snoozes; while snoozed it says when it
- * rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
+ * ladder (a2): accent for the first 60 s (the screen edge flashes in the middle 30), danger in the last
+ * 30 s, where it names the order and counts down ("باقي 24 ثانية على #3912"). "سكّت 30 ثانية"
+ * snoozes; while snoozed it says when it rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
  */
-export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false, featured = null }: NewOrderBannerProps) {
+export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false, featured = null, acceptAll = null }: NewOrderBannerProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const p = useSharedValue(0);
-  const hot = stage === 'urgent' || stage === 'final';
+  // a2: saffron while there is time (the middle step flashes the screen edge), red in the last 30 s.
+  const hot = stage === 'final';
   const ringing = count > 0;
   useEffect(() => {
     if (theme.reduceMotion || !ringing) {
@@ -123,7 +129,9 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         ? t('merchant.board.final_one', { number: mostUrgent.number })
         : seconds === 2
           ? t('merchant.board.final_two', { number: mostUrgent.number })
-          : t('merchant.board.final_many', { seconds, number: mostUrgent.number })
+          : seconds <= 10
+            ? t('merchant.board.final_many', { seconds, number: mostUrgent.number })
+            : t('merchant.board.final_more', { seconds, number: mostUrgent.number })
       : summary
         ? summaryTitle(t, summary)
         : total > 1
@@ -170,6 +178,7 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         ) : null}
       </View>
       {action}
+      {acceptAll && !storeClosed ? <RibbonAccept testID="accept-all" label={t('merchant.rush.accept_all', { count: acceptAll.count, minutes: acceptAll.minutes })} busy={acceptAll.busy} onPress={acceptAll.onPress} /> : null}
       {show ? <FeaturedOrder f={show} t={t} locale={locale} /> : null}
     </View>
   );

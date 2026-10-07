@@ -31,7 +31,7 @@ export function StickyAcceptBar({ order, clock, oneTapMinutes, busy, onAccept, o
       }}
     >
       <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={t('merchant.detail.title', { number: order.number })} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48 }}>
-        {order.acceptBy ? <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={40} strokeWidth={4} testID="sticky-ring" /> : null}
+        {order.acceptBy ? <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID="sticky-ring" /> : null}
         <Text weight={700} tabular style={{ fontSize: 18, lineHeight: 26 }}>
           {`#${order.number}`}
         </Text>

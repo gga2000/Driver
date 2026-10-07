@@ -27,15 +27,15 @@ function simulate(candidates: RingCandidate[], from: number, to: number, opts: {
 }
 
 describe('alarm ladder (M-02)', () => {
-  it('stages by time left: calm > 30 s, urgent 30–11 s, final ≤ 10 s', () => {
+  it('stages by time left in three 30-s steps (a2): calm > 60 s, urgent 60–31 s, final ≤ 30 s', () => {
     expect(stageFor(90_000)).toBe('calm');
-    expect(stageFor(30_001)).toBe('calm');
-    expect(stageFor(30_000)).toBe('urgent');
-    expect(stageFor(10_001)).toBe('urgent');
-    expect(stageFor(10_000)).toBe('final');
+    expect(stageFor(60_001)).toBe('calm');
+    expect(stageFor(60_000)).toBe('urgent');
+    expect(stageFor(30_001)).toBe('urgent');
+    expect(stageFor(30_000)).toBe('final');
     expect(stageFor(0)).toBe('final');
     expect(stageFor(null)).toBe('calm');
-    expect(LADDER).toEqual({ urgentAtMs: 30_000, finalAtMs: 10_000 });
+    expect(LADDER).toEqual({ urgentAtMs: 60_000, finalAtMs: 30_000 });
   });
 
   it('gets louder and faster as the 90 s run out', () => {
@@ -46,14 +46,14 @@ describe('alarm ladder (M-02)', () => {
     expect(STAGE_VOLUME.final).toBe(1);
   });
 
-  it('a 90-s order: a chime every 4 s for 60 s, every 2 s for 20 s, then the continuous tone', () => {
+  it('a 90-s order: a chime every 4 s for 30 s, every 2 s for 30 s, then the steady bell for the last 30 s', () => {
     const { chimes, loopStartedAt } = simulate([order('o1', 90_000)], T0, T0 + 90_000);
     const calm = chimes.filter((c) => c.stage === 'calm');
     const urgent = chimes.filter((c) => c.stage === 'urgent');
-    expect(calm.map((c) => c.at)).toEqual([0, 4_000, 8_000, 12_000, 16_000, 20_000, 24_000, 28_000, 32_000, 36_000, 40_000, 44_000, 48_000, 52_000, 56_000]);
-    // The first urgent chime comes the moment 30 s are left (60 s in), then every 2 s until 10 s left.
-    expect(urgent.map((c) => c.at)).toEqual([60_000, 62_000, 64_000, 66_000, 68_000, 70_000, 72_000, 74_000, 76_000, 78_000]);
-    expect(loopStartedAt).toBe(80_000);
+    expect(calm.map((c) => c.at)).toEqual([0, 4_000, 8_000, 12_000, 16_000, 20_000, 24_000, 28_000]);
+    // The first urgent chime comes the moment 60 s are left (30 s in), then every 2 s until 30 s left.
+    expect(urgent.map((c) => c.at)).toEqual([30_000, 32_000, 34_000, 36_000, 38_000, 40_000, 42_000, 44_000, 46_000, 48_000, 50_000, 52_000, 54_000, 56_000, 58_000]);
+    expect(loopStartedAt).toBe(60_000);
   });
 
   it('stays silent when sound cannot play (browser locked or switched off)', () => {
@@ -64,10 +64,10 @@ describe('alarm ladder (M-02)', () => {
   });
 
   it('the most urgent order sets the stage for the whole board', () => {
-    const plan = alarmPlan([order('o1', 80_000), order('o2', 25_000), order('o3', 60_000)], new Map(), new Set(), T0);
+    const plan = alarmPlan([order('o1', 80_000), order('o2', 45_000), order('o3', 70_000)], new Map(), new Set(), T0);
     expect(plan.ringing).toEqual(['o1', 'o2', 'o3']);
     expect(plan.stage).toBe('urgent');
-    expect(plan.mostUrgent).toEqual({ id: 'o2', number: '12', msLeft: 25_000 });
+    expect(plan.mostUrgent).toEqual({ id: 'o2', number: '12', msLeft: 45_000 });
   });
 
   it('an open accept/reject sheet keeps that order quiet', () => {
@@ -79,23 +79,24 @@ describe('alarm ladder (M-02)', () => {
 
 describe('"سكّت 30 ثانية" is a snooze, never a silence', () => {
   it('quiet for 30 s, then rings again', () => {
-    // Snoozed 4 s in (86 s left), just before the second chime: quiet until 34 s in, then calm chimes again.
+    // Snoozed 4 s in (86 s left), just before the second chime: quiet until 34 s in, then it rings again
+    // at the step it has reached by then (urgent, every 2 s).
     const { chimes } = simulate([order('o1', 90_000)], T0, T0 + 50_000, { snoozeAt: T0 + 4_000 });
     expect(SNOOZE_MS).toBe(30_000);
-    expect(chimes.map((c) => c.at)).toEqual([0, 34_000, 38_000, 42_000, 46_000, 50_000]);
+    expect(chimes.map((c) => c.at)).toEqual([0, 34_000, 36_000, 38_000, 40_000, 42_000, 44_000, 46_000, 48_000, 50_000]);
   });
 
-  it('rings again at 20 s left whatever happens', () => {
-    expect(SNOOZE_FLOOR_MS).toBe(20_000);
-    // Snoozed with 35 s left: the floor (20 s left) comes before the 30 s are up.
-    const c = [order('o1', 35_000)];
+  it('rings again when the last 30 s start, whatever happens: the steady bell is never snoozed', () => {
+    expect(SNOOZE_FLOOR_MS).toBe(30_000);
+    // Snoozed with 50 s left: the floor (30 s left) comes before the 30 s are up.
+    const c = [order('o1', 50_000)];
     const s = snooze(new Map(), ['o1'], T0, ['o1']);
-    expect(alarmPlan(c, s, new Set(), T0 + 14_000).ringing).toEqual([]);
-    const at15 = alarmPlan(c, s, new Set(), T0 + 15_000);
-    expect(at15.ringing).toEqual(['o1']);
-    expect(at15.stage).toBe('urgent');
-    // While snoozed, it says when it rings again: the floor, 15 s from now.
-    expect(alarmPlan(c, s, new Set(), T0).snoozeEndsAt).toBe(T0 + 15_000);
+    expect(alarmPlan(c, s, new Set(), T0 + 19_000).ringing).toEqual([]);
+    const at20 = alarmPlan(c, s, new Set(), T0 + 20_000);
+    expect(at20.ringing).toEqual(['o1']);
+    expect(at20.stage).toBe('final');
+    // While snoozed, it says when it rings again: the floor, 20 s from now.
+    expect(alarmPlan(c, s, new Set(), T0).snoozeEndsAt).toBe(T0 + 20_000);
   });
 
   it('a newer order rings straight away during a snooze', () => {

@@ -36,6 +36,8 @@ export const COUNTER = {
   /** Busy mode: gold, with its text on the date bar. */
   busy: '#FFC155',
   onBusy: '#2A170C',
+  /** The screen edge flashing in the middle 30 s of a new order's ring (a8); never text. */
+  saffron: '#F38A1B',
   /** Quantities on a ticket: date brown, never saffron (saffron means "new"). */
   qty: '#7A3F06',
 } as const;
