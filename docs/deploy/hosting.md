@@ -2,7 +2,7 @@
 
 **Decision: the API and its Redis run on Fly.io in `fra` (Frankfurt); the database is Supabase in
 Frankfurt (`eu-central-1`); the web apps are static files on Cloudflare Pages ([web.md](web.md)).**
-About **$124/month** at launch sizes (table below). Files: `apps/api/Dockerfile`, `deploy/fly/api.toml`,
+About **$126/month** at launch sizes (table below). Files: `apps/api/Dockerfile`, `deploy/fly/api.toml`,
 `deploy/fly/redis.toml`, `deploy/fly/redis/Dockerfile`, `.github/workflows/deploy.yml`.
 
 ## Why Fly (and not Railway or Render)
@@ -80,8 +80,9 @@ Fly list prices for Frankfurt (`fra` is about 15 % over the US base), October 20
 | API `worker` | 1 × shared-cpu-2x 1 GB | 8.5 |
 | Redis | shared-cpu-1x 256 MB + 1 GB volume | 2.7 |
 | Road routing (OSRM) | shared-cpu-1x 1 GB | 6.6 |
+| Console | shared-cpu-1x 256 MB, one machine always on | 2.2 |
 | Supabase | Pro plan $25 + Small compute $15, less the $10 compute credit | 30 |
-| **Production total** | | **≈ 124** |
+| **Production total** | | **≈ 126** |
 | Fallback: each extra `app` machine | performance-1x 2 GB | +38 |
 | Staging (only while testing) | same sizes, billed by the hour; stopped between tests | ≈ 5–25 |
 
@@ -207,6 +208,11 @@ working.) `PHONE_HASH_PEPPER` is never rotated.
   `fly logs --config deploy/fly/api.toml`, or the app's **Monitoring** page on fly.io. Search for
   `"level":"error"`. Fly keeps a short history only: for longer retention ship them (Fly log shipper
   → Better Stack / Axiom free tiers).
+- **Uptime checks**: Fly's own checks restart a sick machine but tell nobody. Before launch, add a free
+  external monitor (Better Stack Uptime or UptimeRobot) that checks every minute and alerts the on-call
+  phone: the API at `https://driver-api.fly.dev/trpc/health.ping` (status 200 and the text
+  `"db":"ok"`), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
+  custom domains once they exist.
 - **Metrics**: the Fly dashboard shows CPU, memory, HTTP status codes and response times per machine;
   Supabase → Reports shows database load and slow queries.
 - **Errors to Sentry (optional)**: create a free Sentry project (platform Node.js, data region EU),
@@ -286,7 +292,7 @@ adds up to millions of commands a month: choose a **fixed-price** Upstash plan i
 
 | Load | Change | Cost |
 | --- | --- | --- |
-| Launch night (≈ 225 active orders, 112 streams; plan 7.1) | the launch sizes above | ≈ $124 in all |
+| Launch night (≈ 225 active orders, 112 streams; plan 7.1) | the launch sizes above | ≈ $126 in all |
 | 2× load test fails, or a second town | `fly scale count app=3` or 4 | +$38 per machine |
 | Database CPU > 60 % at 2× | Supabase compute Small → Medium | +~$45 |
 | Thousands of SSE streams | more machines; Redis pub/sub fan-out | per machine |
