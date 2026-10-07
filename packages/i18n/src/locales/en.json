@@ -7015,5 +7015,11 @@
   "habits.avoided_since": "Since {date}",
   "partner.offer_favourite_title": "The rider asked for you",
   "partner.offer_favourite_body": "A booked ride: yours for a minute before other drivers",
-  "dinner.slot_after": "After you arrive · {time}"
+  "dinner.slot_after": "After you arrive · {time}",
+  "call.soon": "Soon",
+  "call.soon_button": "Call",
+  "call.soon_label": "Calling is coming soon",
+  "call.soon_toast": "Calling is coming soon. For now, send a message or a voice note",
+  "call.soon_toast_in_chat": "Calling is coming soon. For now, type or send a voice note here",
+  "call.soon_action": "Message"
 }

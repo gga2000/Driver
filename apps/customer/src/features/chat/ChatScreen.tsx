@@ -24,7 +24,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const client = useApiClient();
   const thread = useChatThread(orderId, kind);
   const actions = useChatActions(orderId, kind);
-  const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
+  const { call, busy, live: callsLive } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
   const voice = useChatVoice(orderId, kind);
   // l7: with the courier (or driver), the header says where he is and the replies follow the moment.
   const withCourier = kind === 'customer_courier';
@@ -51,6 +51,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       refresh={actions.refresh}
       call={() => void call()}
       calling={busy}
+      callSoon={!callsLive}
       onBack={() => (router.canGoBack() ? router.back() : router.replace(`/order/${orderId}`))}
       errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)}
       errorCode={apiErrorCode}

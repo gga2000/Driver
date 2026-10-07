@@ -4,13 +4,14 @@ import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DisputeKind, LatLng, OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, CallSoonButton, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useCancellationPreview, useCancelOrder, useOpenDispute } from './queries';
 import { metresFromDoor, standingLine, unreachableLeftMs } from './unreachable-logic';
 import { color } from '@driver/design-tokens';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 /** A modal card from the bottom over a dimmed screen (cancel, report, street hand-over, unreachable). */
 export function BottomPanel({ children, onClose, testID, dim = true }: { children: ReactNode; onClose?: () => void; testID?: string; dim?: boolean }) {
@@ -227,6 +228,7 @@ export function UnreachablePanel({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const u = view.trip!.unreachable!;
   const started = u.startedAt.getTime();
   const total = u.failAllowedAt.getTime() - started;
@@ -259,7 +261,7 @@ export function UnreachablePanel({
           void onComingOut().then((ok) => setComing(ok ? 'done' : 'idle'));
         }}
       />
-      <Button label={t('unreachable.call_hidden')} icon="phone" variant="secondary" fullWidth onPress={onCall} testID="unreachable-call" />
+      {CALLS_LIVE ? <Button label={t('unreachable.call_hidden')} icon="phone" variant="secondary" fullWidth onPress={onCall} testID="unreachable-call" /> : <CallSoonButton fullWidth locale={locale} onPress={onCall} testID="unreachable-call" />}
       <Button
         label={location === 'done' ? t('unreachable.location_sent') : t('unreachable.send_location')}
         icon={location === 'done' ? 'check' : 'map-pin'}

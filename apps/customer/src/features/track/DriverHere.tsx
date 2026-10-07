@@ -2,14 +2,15 @@ import { Pressable, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import type { CourierCard } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
-import { Avatar, Button, CountdownRing, Icon, PlateChip, Text, useTheme } from '@driver/ui';
+import { Avatar, Button, CallSoonButton, CountdownRing, Icon, PlateChip, Text, useTheme } from '@driver/ui';
 import { LightButton, StartCode } from '@/features/ride/ArrivalParts';
 import { FREE_WAIT_SEC, WaitCounter } from '@/features/ride/LiveParts';
 import type { RideVertical } from '@/features/ride/logic';
 import { rideSwatch } from '@/features/ride/swatch';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 /**
  * "عباس وصل" over the map when the driver is at the pickup (L-02, ride idea d5): the top in the
@@ -70,6 +71,7 @@ export function DriverHereCard({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const name = courier.firstName ?? t('track.driver_fallback');
   const swatch = rideSwatch(vertical, theme.scheme);
   const free = arrivedAt ? now - arrivedAt.getTime() < FREE_WAIT_SEC * 1000 : false;
@@ -160,7 +162,11 @@ export function DriverHereCard({
           ) : canReply ? (
             <Button label={t('ride.coming_out')} icon="user" loading={sending} onPress={onComingOut} style={{ flex: 1 }} testID="driver-here-coming-out" />
           ) : null}
-          <Button label={t('ride.call')} icon="phone" variant="secondary" onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          {CALLS_LIVE ? (
+            <Button label={t('ride.call')} icon="phone" variant="secondary" onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          ) : (
+            <CallSoonButton locale={locale} onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          )}
         </View>
         {night ? <LightButton onPress={onLight} /> : null}
       </View>
