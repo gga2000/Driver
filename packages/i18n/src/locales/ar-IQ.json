@@ -7085,5 +7085,7 @@
   "console.ev_dispatch_booked_unconfirmed": "محد حجز المشوار بوكته",
   "console.ev_dispatch_booked_reminder": "تذكّر السايق قبل المشوار",
   "console.ev_dispatch_booked_released": "السايق ترك المشوار المحجوز",
-  "console.ev_dispatch_booked_cancelled": "انلغى مشوار محجوز"
+  "console.ev_dispatch_booked_cancelled": "انلغى مشوار محجوز",
+  "partner.booked_pay": "ربحك {amount} دينار",
+  "habits.booked_cancel_free_held": "الإلغاء ببلاش لحد ما يطلعلك السايق"
 }

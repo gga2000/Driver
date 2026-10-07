@@ -7085,5 +7085,7 @@
   "console.ev_dispatch_booked_unconfirmed": "Nobody took the booked ride in time",
   "console.ev_dispatch_booked_reminder": "Driver reminded before the ride",
   "console.ev_dispatch_booked_released": "The driver dropped the booked ride",
-  "console.ev_dispatch_booked_cancelled": "A booked ride was cancelled"
+  "console.ev_dispatch_booked_cancelled": "A booked ride was cancelled",
+  "partner.booked_pay": "You earn {amount} دينار",
+  "habits.booked_cancel_free_held": "Free to cancel until the driver sets off"
 }

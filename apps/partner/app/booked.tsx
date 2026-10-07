@@ -193,7 +193,7 @@ function JobCard({ job, now, testID, children }: { job: PartnerBookedJob; now: D
               {formatWhen(job.scheduledFor, now, { locale })}
             </Text>
             <Text variant="label" color="textMuted" tabular>
-              {`${amountParam(job.pay.totalIqd)} ${t('quote.currency')}`}
+              {t('partner.booked_pay', { amount: amountParam(job.pay.totalIqd) })}
             </Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: theme.space[1] }}>

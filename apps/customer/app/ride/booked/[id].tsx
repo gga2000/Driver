@@ -185,7 +185,7 @@ function BookedRide() {
               <Button testID="booked-cancel" variant="ghost" label={t('habits.booked_cancel')} onPress={() => void doCancel()} />
               {cancel.data?.free ? (
                 <Text variant="caption" color="textMuted" align="center">
-                  {t('habits.booked_cancel_free')}
+                  {t(line?.kind === 'confirmed' ? 'habits.booked_cancel_free_held' : 'habits.booked_cancel_free')}
                 </Text>
               ) : null}
             </>

@@ -91,3 +91,14 @@ No migration: dispatch state is Redis JSON; nothing new is stored in Postgres.
    tests.
 4. Customer screen + home card; partner «مشاوير باچر» screen + home card. Loading, empty, error, offline.
 5. Demo hooks, shots at 390 and 360, docs.
+
+## As built (2026-10-07)
+
+- All five tasks done; `docs/api/ride-habits.md` («Evening-before booked rides») describes the result.
+- Added from the screenshots: «ربحك 2,700 دينار» on the partner card; «الإلغاء ببلاش لحد ما يطلعلك السايق» once
+  a driver confirmed (the cancel rule itself is unchanged); the customer demo picks the next demo taxi driver when
+  حسين already holds a ride at that time (the one-hour gap rule).
+- The sim does not generate rides booked for later, so no new sim invariant (the state machine and orchestrator
+  tests cover "never two confirmed drivers" and "never dispatched twice").
+- Deviations: offers reach drivers only while they are online (their vehicle is known from presence); the
+  pickup compensation is modelled and tested but off (amount is Ali's decision).

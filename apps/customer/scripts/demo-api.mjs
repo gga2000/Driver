@@ -1937,10 +1937,21 @@ const rajaa = await (async () => {
         const trip = await trips.activeForOrder(ride.id);
         if (state === 'confirmed') {
           await openBookedNow(trip.id);
-          const d = (await ensureDrivers()).find((x) => x.def.name === 'حسين علي');
-          if (!d) throw new Error('no demo driver حسين علي');
-          await dispatch.presence.heartbeat(d.id, d.pos).catch(() => undefined);
-          await dispatch.answerBookedJob(d.id, trip.id, 'confirm');
+          // حسين first; when an earlier call already gave him a ride at that time (an hour apart at
+          // least), the next demo taxi driver takes it.
+          const cars = (await ensureDrivers()).filter((x) => x.def.vehicle === 'car').sort((a, b) => Number(b.def.name === 'حسين علي') - Number(a.def.name === 'حسين علي'));
+          let taken = false;
+          for (const d of cars) {
+            await dispatch.presence.heartbeat(d.id, d.pos).catch(() => undefined);
+            try {
+              await dispatch.answerBookedJob(d.id, trip.id, 'confirm');
+              taken = true;
+              break;
+            } catch (err) {
+              if (err?.code !== 'booked_job_clash') throw err;
+            }
+          }
+          if (!taken) throw new Error('every demo taxi driver already has a booked ride at that time');
         }
         json(res, 200, { orderId: ride.id, tripId: trip.id, scheduledFor: scheduledFor.toISOString() });
       } catch (err) {
