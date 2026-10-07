@@ -85,4 +85,22 @@ describe('HTTP surface (webhook, uploads, food photos)', () => {
     // HSTS only in production.
     expect(res.headers.get('strict-transport-security')).toBeNull();
   });
+
+  it('uploads: a streamed body is cut off at the limit, without waiting for the rest (SEC-24)', async () => {
+    // No content-length: the server can only tell by counting. The stream sends one byte over the
+    // limit and then never ends, so only an answer that does not drain the body arrives.
+    const chunk = new Uint8Array(256 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > PHOTO_MAX_BYTES) return new Promise<void>(() => undefined);
+        sent += chunk.length;
+        controller.enqueue(chunk);
+        return undefined;
+      },
+    });
+    const res = await fetch(`${base}/uploads/u1?exp=1&sig=bad`, { method: 'PUT', headers: { 'content-type': 'image/jpeg' }, body, duplex: 'half' } as RequestInit);
+    expect(res.status).toBe(413);
+    expect(res.headers.get('connection')).toBe('close');
+  });
 });

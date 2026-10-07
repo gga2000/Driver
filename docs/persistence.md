@@ -59,6 +59,12 @@ Still in memory with a database (known gaps, not part of this change):
   serves `PUT /uploads/:id` and `GET /files/:id`. With a database but neither S3 nor `UPLOADS_DIR`, the API
   logs a warning at boot: records survive a restart, the bytes do not.
 
+Limits (`UPLOAD_RULES`, photos and voice notes together): at most 10 tickets per person waiting for their
+bytes at once and 120 tickets per person in any 24 hours (shared across API instances through Redis), else
+`rate_limited` with `retryAfterSec`. The API's `PUT /uploads/:id` stops reading at the 5 MB cap (or refuses a
+larger `content-length` at once), answers 413 and closes the connection. A ticket whose bytes never arrived
+is deleted, with anything left in the bucket, a day after it was issued (`UploadRetention`, every 15 minutes).
+
 ## Seed
 
 `pnpm db:seed` writes the day-1 launch restaurants (`AZIZIYAH_RESTAURANTS`: مطعم خالد، مشويات الحاج كريم،

@@ -8,6 +8,6 @@ import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 export const referralRouter = router({
   mine: protectedProcedure().output(InviteView).query(({ ctx }) => ctx.referrals.mine(ctx.actor)),
   rule: publicProcedure.output(InviteRule).query(({ ctx }) => ctx.referrals.rule()),
-  preview: publicProcedure.input(InvitePreviewInput).output(InvitePreview).query(({ ctx, input }) => ctx.referrals.preview(input)),
+  preview: publicProcedure.input(InvitePreviewInput).output(InvitePreview).query(({ ctx, input }) => ctx.referrals.preview(input, { personId: ctx.auth?.sub ?? null, ip: ctx.client?.ip ?? null })),
   claim: protectedProcedure().input(ClaimInviteInput).output(ClaimInviteOutput).mutation(({ ctx, input }) => ctx.referrals.claim(ctx.actor, input)),
 });

@@ -705,6 +705,8 @@ model Upload {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([ownerId])
+  /// The sweep of tickets never uploaded (SEC-24): pending, oldest first.
+  @@index([state, createdAt])
   @@map("uploads")
   @@schema("public")
 }

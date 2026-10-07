@@ -22,6 +22,13 @@ export type SavedPlaceLabel = z.infer<typeof SavedPlaceLabel>;
 export const PLACE_CONFIRMED_CONFIDENCE = 0.8;
 export const PLACE_MAX_PHOTOS = 4;
 export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+/**
+ * SEC-24: upload tickets per person (photos and voice notes together). `perPersonPerDay` in any 24 hours
+ * (a busy chat day of voice notes plus a few door photos stays far below it); at most `pendingPerPerson`
+ * tickets not yet uploaded at once; a ticket never uploaded is deleted `keepUnfinishedHours` after it
+ * was issued. Over a limit: `rate_limited` with `retryAfterSec`.
+ */
+export const UPLOAD_RULES = { perPersonPerDay: 120, pendingPerPerson: 10, keepUnfinishedHours: 24 } as const;
 export const PhotoContentType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
 export type PhotoContentType = z.infer<typeof PhotoContentType>;
 

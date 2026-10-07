@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PHOTO_MAX_BYTES, VOICE_RULES } from '@driver/contracts';
+import { PHOTO_MAX_BYTES, UPLOAD_RULES, VOICE_RULES } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { byteRange } from './uploads.controller.js';
 import { DevBlobStore, ownsStoredUpload, sniffAudio, sniffUpload } from './uploads.js';
@@ -20,7 +20,7 @@ function store() {
     await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: sent, bytes });
     return ticket.uploadId;
   }
-  return { blobs, put };
+  return { blobs, put, clock };
 }
 
 describe('voice-note uploads', () => {
@@ -84,5 +84,47 @@ describe('byteRange (audio players ask for ranges)', () => {
     expect(byteRange('bytes=100-', 100)).toBe('unsatisfiable');
     expect(byteRange('bytes=5-2', 100)).toBe('unsatisfiable');
     expect(byteRange('bytes=-0', 100)).toBe('unsatisfiable');
+  });
+});
+
+describe('upload quota and unfinished tickets (SEC-24)', () => {
+  const ticket = (blobs: DevBlobStore, ownerId: string) => blobs.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: JPEG.length });
+
+  it('a few tickets may wait for their bytes at once; finishing or expiring one frees a place', async () => {
+    const { blobs, put, clock } = store();
+    for (let i = 0; i < UPLOAD_RULES.pendingPerPerson; i += 1) await ticket(blobs, 'c1');
+    await expect(ticket(blobs, 'c1')).rejects.toMatchObject({ code: 'rate_limited' });
+    // Someone else is not affected.
+    await expect(ticket(blobs, 'c2')).resolves.toMatchObject({ maxBytes: JPEG.length });
+    // The open tickets expire after 15 minutes; uploads that arrive never count as open.
+    clock.advance(15 * 60_000 + 1);
+    await put('c1', 'image/jpeg', JPEG);
+    await expect(ticket(blobs, 'c1')).resolves.toBeTruthy();
+  });
+
+  it('at most the daily number of tickets per person in any 24 hours', async () => {
+    const { blobs, put, clock } = store();
+    for (let i = 0; i < UPLOAD_RULES.perPersonPerDay; i += 1) {
+      await put('c1', 'image/jpeg', JPEG);
+      clock.advance(60_000);
+    }
+    const refused = await ticket(blobs, 'c1').catch((err: unknown) => err);
+    expect(refused).toMatchObject({ code: 'rate_limited' });
+    expect((refused as { envelope: { retryAfterSec?: number } }).envelope.retryAfterSec).toBeGreaterThan(0);
+    clock.advance(24 * 3_600_000 - UPLOAD_RULES.perPersonPerDay * 60_000 + 60_000);
+    await expect(ticket(blobs, 'c1')).resolves.toBeTruthy();
+  });
+
+  it('a ticket never uploaded is deleted a day later; uploaded files stay', async () => {
+    const { blobs, put, clock } = store();
+    const kept = await put('c1', 'image/jpeg', JPEG);
+    const lost = (await ticket(blobs, 'c1')).uploadId;
+    clock.advance(UPLOAD_RULES.keepUnfinishedHours * 3_600_000 - 1);
+    expect(await blobs.purgeUnfinished(100)).toBe(0);
+    clock.advance(2);
+    expect(await blobs.purgeUnfinished(100)).toBe(1);
+    expect(await blobs.get(lost)).toBeNull();
+    expect(await blobs.get(kept)).toMatchObject({ state: 'stored' });
+    expect(await blobs.purgeUnfinished(100)).toBe(0);
   });
 });

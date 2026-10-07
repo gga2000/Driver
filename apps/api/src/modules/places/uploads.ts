@@ -1,7 +1,8 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { DriverError, PHOTO_MAX_BYTES, VOICE_RULES, VoiceContentType, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
+import { DriverError, PHOTO_MAX_BYTES, UPLOAD_RULES, VOICE_RULES, VoiceContentType, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
+import { InMemoryWindowCounter, type WindowCounter } from '../../shared/window-counter.js';
 import { DevObjectStorage, type ObjectStoragePort } from './object-storage.js';
 
 /**
@@ -50,6 +51,11 @@ export interface BlobStore {
   /** For a valid signed read: a short-lived presigned URL of the storage itself (direct storage only), else null. */
   readLocation(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<string | null>;
   remove(id: string): Promise<void>;
+  /**
+   * SEC-24: deletes up to `limit` tickets never uploaded (still pending `UPLOAD_RULES.keepUnfinishedHours`
+   * after they were issued), with any bytes a direct upload left in the bucket; returns how many went.
+   */
+  purgeUnfinished(limit: number): Promise<number>;
 }
 
 export const BLOB_STORE = Symbol('BLOB_STORE');
@@ -73,6 +79,7 @@ export function maxBytesFor(contentType: UploadContentType): number {
   return isVoiceType(contentType) ? VOICE_RULES.maxBytes : PHOTO_MAX_BYTES;
 }
 const UPLOAD_TTL_MS = 15 * 60_000;
+const DAY_MS = 24 * 3_600_000;
 const HOUR_MS = 3_600_000;
 const DIRECT_READ_TTL_SEC = 300;
 const MAGIC_BYTES = 12;
@@ -111,6 +118,10 @@ export interface UploadRecords {
   /** pending → stored; false when it was not pending any more. */
   markStored(id: string, sizeBytes: number): Promise<boolean>;
   delete(id: string): Promise<void>;
+  /** The person's tickets still waiting for their bytes (pending and not expired at `now`). */
+  openTickets(ownerId: string, now: Date): Promise<number>;
+  /** Ids of pending tickets issued before `before`, oldest first. */
+  unfinishedBefore(before: Date, limit: number): Promise<string[]>;
 }
 
 export class InMemoryUploadRecords implements UploadRecords {
@@ -135,6 +146,20 @@ export class InMemoryUploadRecords implements UploadRecords {
 
   async delete(id: string): Promise<void> {
     this.rows.delete(id);
+  }
+
+  async openTickets(ownerId: string, now: Date): Promise<number> {
+    let n = 0;
+    for (const r of this.rows.values()) if (r.ownerId === ownerId && r.state === 'pending' && r.expiresAt > now) n += 1;
+    return n;
+  }
+
+  async unfinishedBefore(before: Date, limit: number): Promise<string[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.state === 'pending' && r.createdAt < before)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, limit)
+      .map((r) => r.id);
   }
 }
 
@@ -162,6 +187,15 @@ export class PrismaUploadRecords implements UploadRecords {
   async delete(id: string): Promise<void> {
     await this.prisma.prisma.upload.deleteMany({ where: { id } });
   }
+
+  openTickets(ownerId: string, now: Date): Promise<number> {
+    return this.prisma.prisma.upload.count({ where: { ownerId, state: 'pending', expiresAt: { gt: now } } });
+  }
+
+  async unfinishedBefore(before: Date, limit: number): Promise<string[]> {
+    const rows = await this.prisma.prisma.upload.findMany({ where: { state: 'pending', createdAt: { lt: before } }, orderBy: { createdAt: 'asc' }, take: limit, select: { id: true } });
+    return rows.map((r) => r.id);
+  }
 }
 
 // ───────────────────────── store ─────────────────────────
@@ -171,6 +205,8 @@ export interface BlobStoreOptions {
   secret?: string | undefined;
   /** Makes ticket and read URLs absolute (UPLOADS_PUBLIC_ORIGIN). */
   publicOrigin?: string | undefined;
+  /** Counts each person's tickets per day across API instances (Redis); in process otherwise. */
+  counter?: WindowCounter | undefined;
 }
 
 export class ObjectBlobStore implements BlobStore {
@@ -185,7 +221,11 @@ export class ObjectBlobStore implements BlobStore {
   ) {
     this.secret = opts.secret ?? randomBytes(32).toString('hex');
     this.origin = (opts.publicOrigin ?? '').replace(/\/$/, '');
+    this.tickets = opts.counter ?? new InMemoryWindowCounter(clock);
   }
+
+  /** SEC-24: tickets issued per person in the last 24 hours. */
+  private readonly tickets: WindowCounter;
 
   private sign(op: 'put' | 'get', id: string, exp: number): string {
     return createHmac('sha256', this.secret).update(`${op}:${id}:${exp}`).digest('base64url');
@@ -202,6 +242,12 @@ export class ObjectBlobStore implements BlobStore {
   async createUpload(input: { ownerId: string; contentType: UploadContentType; sizeBytes: number }): Promise<PhotoUploadTicket> {
     if (input.sizeBytes > maxBytesFor(input.contentType)) throw new DriverError('upload_invalid');
     const now = this.clock.now();
+    // SEC-24: a few tickets open at once (a retry loop that never uploads stops here), and a daily cap.
+    if ((await this.records.openTickets(input.ownerId, now)) >= UPLOAD_RULES.pendingPerPerson) {
+      throw new DriverError('rate_limited', { retryAfterSec: UPLOAD_TTL_MS / 1000 });
+    }
+    const day = await this.tickets.hit(`upload:ticket:${input.ownerId}`, DAY_MS, UPLOAD_RULES.perPersonPerDay);
+    if (!day.allowed) throw new DriverError('rate_limited', { retryAfterSec: day.retryAfterSec });
     const id = `up_${randomUUID().replaceAll('-', '')}`;
     const expiresAt = new Date(now.getTime() + UPLOAD_TTL_MS);
     await this.records.insert({ id, ownerId: input.ownerId, contentType: input.contentType, maxBytes: input.sizeBytes, sizeBytes: null, state: 'pending', createdAt: now, expiresAt });
@@ -282,6 +328,14 @@ export class ObjectBlobStore implements BlobStore {
   async remove(id: string): Promise<void> {
     await this.storage.delete(id);
     await this.records.delete(id);
+  }
+
+  async purgeUnfinished(limit: number): Promise<number> {
+    const before = new Date(this.clock.now().getTime() - UPLOAD_RULES.keepUnfinishedHours * 3_600_000);
+    const ids = await this.records.unfinishedBefore(before, limit);
+    // The bytes first: a record without bytes is harmless, bytes without a record are never found again.
+    for (const id of ids) await this.remove(id);
+    return ids.length;
   }
 }
 
