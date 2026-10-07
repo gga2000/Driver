@@ -5,7 +5,7 @@ import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
+import { Button, ChipGroup, Icon, IconButton, RetryState, retryKindFor, SegmentedControl, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
@@ -90,6 +90,8 @@ export default function RideChoose() {
   const vertical: RideVertical = d.vertical === 'tuktuk' && !tuktuk.ok ? 'taxi' : d.vertical;
   const mode = d.doorPickup ? 'door' : 'street';
   const quote = quotes.grid[vertical][mode];
+  const net = useNetwork();
+  const quoteKind = retryKindFor({ net, error: quotes.error });
   const extra = doorExtra(quotes.grid[vertical].door, quotes.grid[vertical].street);
   const surcharges = surchargesOf(quote);
   const estimate = useMemo(() => (pickup && dropoff ? Object.fromEntries(RIDE_VERTICALS.map((v) => [v, rideEstimate(pickup.pin, dropoff.pin, v, new Date())])) : null), [pickup, dropoff]) as Record<RideVertical, { minutes: number }> | null;
@@ -273,6 +275,18 @@ export default function RideChoose() {
         </ScrollView>
 
         <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+          {/* FLOW-27: no price yet because the quote failed: say why (no network, our server) with a retry. */}
+          {quotes.error && !quote && !quotes.loading ? (
+            <RetryState
+              size="inline"
+              kind={quoteKind}
+              title={quoteKind === 'offline' ? undefined : t('ride.quote_failed')}
+              locale={lang}
+              onRetry={() => void quotes.refetch()}
+              testID="ride-quote-state"
+              style={{ width: '100%', maxWidth: 520, alignSelf: 'center' }}
+            />
+          ) : null}
           {problem ? (
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
               <Icon name="receipt" size={18} color="dangerText" />

@@ -7329,5 +7329,7 @@
   "orders.trips_failed": "ما گدرنا نجيب حجوزات السفر",
   "kitchen.booked_title": "طلبك محجوز {when}",
   "kitchen.booked_body": "نبعثه لـ {name} قبل وقته حتى يوصلك حار، ونخبرك من يوافق عليه",
-  "kitchen.booked_body_plain": "نبعثه للمطبخ قبل وقته حتى يوصلك حار، ونخبرك من يوافق عليه"
+  "kitchen.booked_body_plain": "نبعثه للمطبخ قبل وقته حتى يوصلك حار، ونخبرك من يوافق عليه",
+  "notify.settings.load_failed": "ما گدرنا نجيب اختياراتك",
+  "ride.pin_zone_failed": "ما گدرنا نتأكد من المنطقة"
 }

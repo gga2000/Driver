@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LatLng } from '@driver/contracts';
-import { Button, Icon, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Icon, IconButton, Skeleton, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { currentFix, locationDeniedToast } from '@/features/account/device';
 import { nearestZone } from '@/features/account/geo';
 import { tooClose, zoneTitle, type Spot } from '@/features/ride/logic';
@@ -41,6 +41,9 @@ export default function RidePin() {
   const zoneId = z?.zoneId ?? null;
   const outside = z ? !z.inService : false;
   const fresh = !zone.isPlaceholderData && !zone.isFetching;
+  // FLOW-28: the server couldn't say which area the pin is in: say so, and the button asks again.
+  const failed = zone.isError && !zoneId && !zone.isFetching;
+  const net = useNetwork();
 
   const locate = async () => {
     setLocating(true);
@@ -147,19 +150,27 @@ export default function RidePin() {
                 <Skeleton width={160} height={22} />
               )}
             </View>
-            <Text variant="caption" color="textMuted" numberOfLines={1} style={{ height: 20 }}>
-              {t('ride.pin_hint')}
-            </Text>
+            {failed && !moving ? (
+              <Text variant="caption" color="dangerText" numberOfLines={1} style={{ height: 20 }} testID="ride-pin-zone-failed">
+                {net.state === 'offline' ? t('net.offline_title') : t('ride.pin_zone_failed')}
+              </Text>
+            ) : (
+              <Text variant="caption" color="textMuted" numberOfLines={1} style={{ height: 20 }}>
+                {t('ride.pin_hint')}
+              </Text>
+            )}
           </View>
         </View>
         <Button
           testID="ride-pin-confirm"
           size="lg"
           fullWidth
-          label={t(field === 'pickup' ? 'ride.pin_confirm_pickup' : 'ride.pin_confirm_dropoff')}
-          disabled={moving || !zoneId || outside || !fresh}
-          haptic="success"
-          onPress={confirm}
+          label={failed ? t('action.retry') : t(field === 'pickup' ? 'ride.pin_confirm_pickup' : 'ride.pin_confirm_dropoff')}
+          icon={failed ? 'refresh' : undefined}
+          variant={failed ? 'secondary' : 'primary'}
+          disabled={failed ? moving : moving || !zoneId || outside || !fresh}
+          haptic={failed ? false : 'success'}
+          onPress={failed ? () => void zone.refetch() : confirm}
         />
       </View>
     </View>
