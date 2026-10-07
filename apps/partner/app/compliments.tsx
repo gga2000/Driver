@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
-import { pluralKey } from '@driver/i18n';
+import { formatDay, pluralKey } from '@driver/i18n';
 import { Card, EmptyState, formatClock, RetryState, retryKindFor, Skeleton, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { ComplimentPills, complimentWords } from '@/features/account/ComplimentParts';
@@ -19,6 +19,8 @@ export default function ComplimentsScreen() {
   const net = useNetwork();
   const q = useCompliments();
   const data = q.data;
+  // «اليوم 2:49 ص», «أمس 9:49 م», «الأحد 1:19 ص»: the day each word came, by Baghdad's calendar.
+  const now = new Date();
   const [slow, restartSlow] = useLoadTimeout(!data && !q.isError);
   return (
     <Screen testID="compliments" edges={['bottom']}>
@@ -72,7 +74,7 @@ export default function ComplimentsScreen() {
                     {complimentWords(r.keys, t)}
                   </Text>
                   <Text variant="caption" color="textMuted" tabular>
-                    {`${t('order.number', { id: r.ticket })} · ${formatClock(r.at, { locale })}`}
+                    {`${t('order.number', { id: r.ticket })} · ${formatDay(r.at, now, { locale })} ${formatClock(r.at, { locale })}`}
                   </Text>
                 </View>
               ))}

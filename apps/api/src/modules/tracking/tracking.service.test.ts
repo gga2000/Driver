@@ -137,7 +137,7 @@ describe('TrackingService — the view', () => {
     ]);
     const trip = (id: string, state: string, orderIds: string[], day: number) => ({ id, state, completedAt: new Date(Date.UTC(2026, 9, day)), orders: orderIds.map((orderId) => ({ orderId })) });
     const port = tripsOrdersRatings(
-      { forDriver: async () => [trip('t1', 'completed', ['o1'], 1), trip('t2', 'completed', ['o2', 'o3', 'gone'], 2), trip('t3', 'cancelled', ['o1'], 3)] as never },
+      { completedForDriver: async () => [trip('t1', 'completed', ['o1'], 1), trip('t2', 'completed', ['o2', 'o3', 'gone'], 2), trip('t3', 'cancelled', ['o1'], 3)] as never },
       {
         get: async (id: string) => {
           const o = orders.get(id);
@@ -145,6 +145,7 @@ describe('TrackingService — the view', () => {
           return o as never;
         },
       },
+      () => new Date(Date.UTC(2026, 9, 7)),
     );
     expect((await port.courierScores('d1')).map((s) => s.score)).toEqual([3, 5]);
   });

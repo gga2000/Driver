@@ -34,10 +34,16 @@ export function Sheet({ snapPoints, initialSnap = 0, onSnap, header, children, s
   const [index, setIndex] = useState(initialSnap);
 
   // Re-seat on first layout (fractional detents resolve only once the container is measured).
+  const seat = snaps[index] ?? snaps[0] ?? 0;
   useEffect(() => {
-    visible.value = snaps[index] ?? snaps[0] ?? 0;
+    visible.value = seat;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerH]);
+  // The detent it rests on grew or shrank (content joined the collapsed header): follow it.
+  useEffect(() => {
+    visible.value = theme.reduceMotion ? seat : withSpring(seat, theme.motion.spring.sheet);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seat]);
 
   const settle = useCallback(
     (i: number) => {

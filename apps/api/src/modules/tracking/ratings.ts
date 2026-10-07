@@ -1,15 +1,24 @@
 import { COURIER_RATING_WINDOW, type Order, type Trip } from '@driver/contracts';
 import type { TrackingRatingsPort } from './tracking.service.js';
 
+/** Scores older than this don't speak for him any more (and keep the read small). */
+export const COURIER_RATING_LOOKBACK_DAYS = 90;
+
 /**
  * The delivery scores customers gave a courier/driver, for the public rating on his card (joy l2):
- * his completed trips newest first, each order's `rating.delivery`, stopping at the rating window
- * (`COURIER_RATING_WINDOW`, the scorecard's 50). Read once per card (the tracking card cache).
+ * his trips completed in the last `COURIER_RATING_LOOKBACK_DAYS`, newest first, each order's
+ * `rating.delivery`, stopping at the rating window (`COURIER_RATING_WINDOW`, the scorecard's 50).
+ * Read once per card (the tracking card cache).
  */
-export function tripsOrdersRatings(trips: { forDriver(driverId: string): Promise<Trip[]> }, orders: { get(orderId: string): Promise<Order> }): TrackingRatingsPort {
+export function tripsOrdersRatings(
+  trips: { completedForDriver(driverId: string, since: Date): Promise<Trip[]> },
+  orders: { get(orderId: string): Promise<Order> },
+  now: () => Date,
+): TrackingRatingsPort {
   return {
     async courierScores(courierId) {
-      const done = (await trips.forDriver(courierId)).filter((t) => t.state === 'completed').sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+      const since = new Date(now().getTime() - COURIER_RATING_LOOKBACK_DAYS * 86_400_000);
+      const done = (await trips.completedForDriver(courierId, since)).filter((t) => t.state === 'completed').sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
       const out: Array<{ score: number; at: Date }> = [];
       for (const trip of done) {
         if (out.length >= COURIER_RATING_WINDOW) break;

@@ -199,6 +199,8 @@ describe('status → timeline', () => {
     expect(tl.steps.find((s) => s.key === 'preparing')).toMatchObject({ time: '09:02', note: 'حيدر رايح للمطعم يستلم طلبك' });
     expect(tl.steps.find((s) => s.key === 'delivered')?.time).toBe('~09:30');
     expect(statusLine(v, t)).toBe(t('order.status.preparing'));
+    // Joy l3: before the kitchen presses «بدأنا» it only said yes — no "cooking" yet.
+    expect(statusLine(view({ state: 'merchant_accepted', acceptedAt: at(1) }), t)).toBe(t('order.status.merchant_accepted'));
   });
 
   it('on the way: honest delay text on the current step when the live ETA runs past the promise', () => {

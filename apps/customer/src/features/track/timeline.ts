@@ -95,7 +95,8 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
       // Joy w4: on the household wallet over a limit, it waits for the payer before the kitchen.
       return v.order.heldForPayer ? t('order.status.awaiting_payer') : t('order.status.placed');
     case 'preparing':
-      return v.order.readyAt ? t('order.status.ready') : t('order.status.preparing');
+      // Joy l3: say "cooking" only once the kitchen pressed it; before that, it said yes.
+      return v.order.readyAt ? t('order.status.ready') : v.order.preparingAt || v.order.state === 'preparing' ? t('order.status.preparing') : t('order.status.merchant_accepted');
     case 'searching':
       return t('trip.status.offered');
     case 'reassigning':

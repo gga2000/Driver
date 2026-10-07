@@ -45,8 +45,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
-/** Collapsed sheet: handle + status line + ETA (plus the bottom safe area). */
-const COLLAPSED = 108;
+/** Collapsed sheet: handle + status line + the ETA box's three lines (plus the bottom safe area). */
+const COLLAPSED = 132;
 /** Each degraded-state banner over the map pushes the camera's top edge down by about this much until the stack is measured. */
 const BANNER_H = 84;
 const TOP_BAR = 64;

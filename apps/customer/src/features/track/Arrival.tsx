@@ -95,7 +95,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         <Animated.View
           testID="arrival-scene"
           entering={celebrate ? ZoomIn.springify().damping(16) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
-          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : ARRIVAL_SCENE_MAX }}
+          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : !ride && view.courier ? ARRIVAL_SCENE_WITH_COURIER : ARRIVAL_SCENE_MAX }}
         >
           {ride ? <SketchScene name="safe_arrival" vehicle={sceneVehicle(view.courier?.vehicleClass ?? null)} /> : <SketchScene name="door" />}
         </Animated.View>
@@ -159,6 +159,8 @@ function ArrivedWith({ courier }: { courier: NonNullable<OrderTracking['courier'
 /** How wide the arrival drawing grows; smaller when the customer's own gate photo also shows. */
 const ARRIVAL_SCENE_MAX = 300;
 const ARRIVAL_SCENE_WITH_PHOTO = 168;
+/** With the courier's row under the title (joy l4): a little smaller, so the cash card still fits a 360×740 phone. */
+const ARRIVAL_SCENE_WITH_COURIER = 236;
 
 /** Which vehicle brings a rider home in the arrival drawing. */
 function sceneVehicle(vehicle: VehicleClass | null): SceneVehicle {
