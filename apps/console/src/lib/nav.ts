@@ -1,4 +1,4 @@
-import { PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { PHONE_BOOKING_ROLES, PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -26,6 +26,7 @@ export type IconName =
   | 'wall'
   | 'zones'
   | 'stores'
+  | 'phone'
   | 'safety'
   | 'system';
 
@@ -65,6 +66,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      // Taxi/tuktuk step 4: a caller without the app gets a ride booked on his number.
+      { href: '/phone', key: 'console.nav_phone', icon: 'phone', roles: PHONE_BOOKING_ROLES, jump: 'b' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',

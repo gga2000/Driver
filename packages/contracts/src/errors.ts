@@ -120,6 +120,9 @@ export const ERROR_TABLE = {
   refund_customer_cap: { retryHint: 'support', status: 'CONFLICT' },
   refund_exceeds_order: { retryHint: 'never', status: 'BAD_REQUEST' },
   refund_no_customer: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
+  phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },

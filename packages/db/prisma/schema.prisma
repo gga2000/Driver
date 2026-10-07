@@ -3280,6 +3280,33 @@ model ConsoleAuditLog {
   @@schema("public")
 }
 
+/// «حجز بالتلفون» (taxi/tuktuk step 4): a ride staff booked from the Console for a caller without
+/// the app. The ride itself is an ordinary order of the caller's person; this row only says who took
+/// the call and which landmarks were picked. Ids and place names only (the number stays in the vault).
+model PhoneBooking {
+  id          String   @id @default(cuid())
+  orderId     String   @map("order_id")
+  cityId      String   @map("city_id")
+  /// The caller's person (`identity_vault` holds the number and name).
+  personId    String   @map("person_id")
+  /// The staff member who booked it.
+  bookedBy    String   @map("booked_by")
+  /// taxi | tuktuk
+  vertical    String
+  pickupId    String   @map("pickup_id")
+  pickupName  String   @map("pickup_name")
+  dropoffId   String   @map("dropoff_id")
+  dropoffName String   @map("dropoff_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId])
+  @@index([cityId, createdAt])
+  @@index([personId])
+  @@map("phone_bookings")
+  @@schema("public")
+}
+
 /// Support ticket (notifications & support §2): disputes open one by themselves (`source_key`).
 model SupportTicket {
   id              String    @id @default(cuid())
