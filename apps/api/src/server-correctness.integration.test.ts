@@ -2,22 +2,37 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { SAFETY_RULES, type Actor } from '@driver/contracts';
+import { PriceRequest, SAFETY_RULES, type Actor } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
+import { CatalogService } from './modules/catalog/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersService } from './modules/orders/index.js';
+import { SavedPlacesService } from './modules/places/index.js';
+import { PricingService } from './modules/pricing/index.js';
 import { SafetyService } from './modules/safety/index.js';
+import { TripsService } from './modules/trips/index.js';
 import { CLOCK, FakeClock } from './shared/clock.js';
 import { PrismaService } from './shared/db/prisma.service.js';
 
 /**
  * Server correctness on a real Postgres, through the app's own wiring (AppModule): an SOS is never
- * refused (FLOW-08). Skipped without DATABASE_URL.
+ * refused (FLOW-08); double taps are idempotent (RDB-04). Skipped without DATABASE_URL.
  */
 const url = process.env['DATABASE_URL'];
+const KITCHEN = { lat: 32.9105, lng: 45.0665 };
 const STREET_30 = { lat: 32.9098, lng: 45.0628 };
 const DAY = '2026-10-03T10:00:00Z'; // Saturday 13:00 in Baghdad: kitchens open, no prayer pause
+
+async function waitFor<T>(what: string, fn: () => Promise<T | null | undefined | false>, ms = 20_000): Promise<T> {
+  const until = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
 describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () => {
   const clock = new FakeClock(DAY);
@@ -26,7 +41,7 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
   const phone = (n: number) => `0773${String((base + n * 7919) % 10_000_000).padStart(7, '0')}`;
   let app: INestApplication;
   let db: PrismaService['prisma'];
-  const people = { customer: '' };
+  const people = { customer: '', driver: '' };
   const as = (personId: string): Actor => ({ personId, sessionId: `s_${run}` });
   const khalid = AZIZIYAH_RESTAURANTS.find((r) => r.key === 'khalid')!;
   const placeFood = (personId: string, clientRequestId?: string) =>
@@ -46,6 +61,7 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
     db = app.get(PrismaService).prisma;
     const identity = app.get(IdentityService);
     people.customer = await identity.ensurePersonByPhone(phone(1), 'system:test', 'server_correctness_it', { name: 'زينب علي' });
+    people.driver = await identity.ensurePersonByPhone(phone(2), 'system:test', 'server_correctness_it', { name: 'حيدر كاظم' });
   }, 60_000);
 
   afterAll(async () => {
@@ -73,5 +89,42 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
     // Cancelled presses don't count: the real alert is not flagged as a repeat.
     const raised = await db.safetyIncidentEntry.findFirstOrThrow({ where: { incidentId: real.incidentId, kind: 'raised' } });
     expect((raised.data as Record<string, string>)['repeated']).toBeUndefined();
+  }, 60_000);
+
+  it('RDB-04: two identical places.save calls in parallel both succeed and leave one place', async () => {
+    const places = app.get(SavedPlacesService);
+    const input = { cityId: 'aziziyah', label: 'home' as const, name: 'البيت', pin: STREET_30, photoIds: [], shareWithHousehold: false, clientRef: `ref-${run}` };
+    const [a, b] = await Promise.all([places.save(people.customer, input), places.save(people.customer, input)]);
+    expect(a.id).toBe(b.id);
+    expect(await db.place.count({ where: { ownerId: people.customer, clientRef: `ref-${run}` } })).toBe(1);
+    // The one place kept its label (the twin's demote of «البيت» never sticks).
+    expect((await places.mine(people.customer)).filter((p) => p.label === 'home').map((p) => p.id)).toEqual([a.id]);
+  }, 30_000);
+
+  it('RDB-04: two identical catalog.followDish calls in parallel both succeed and leave one row', async () => {
+    const catalog = app.get(CatalogService);
+    const itemId = `${khalid.orgId}_pepsi`;
+    const [a, b] = await Promise.all([catalog.followDish(people.customer, khalid.orgId, itemId, true), catalog.followDish(people.customer, khalid.orgId, itemId, true)]);
+    expect(a.map((f) => f.itemId)).toContain(itemId);
+    expect(b.map((f) => f.itemId)).toContain(itemId);
+    expect(await db.dishFollow.count({ where: { personId: people.customer, itemId } })).toBe(1);
+  }, 30_000);
+
+  it('RDB-04: two identical orders.rate calls in parallel both succeed and leave one courier rating', async () => {
+    clock.set(DAY);
+    const orders = app.get(OrdersService);
+    const quote = await app
+      .get(PricingService)
+      .keepQuote(PriceRequest.parse({ cityId: 'aziziyah', vertical: 'taxi', stops: [{ zoneId: 'centre', type: 'pickup', pin: KITCHEN }, { zoneId: 'street_30', type: 'dropoff', pin: STREET_30 }], options: { doorPickup: false, streetHandover: false }, at: clock.now() }));
+    const ride = await orders.place(people.customer, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', fareIqd: quote.total, quoteId: quote.id, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30', pin: STREET_30 }, clientRequestId: `rate-${run}` });
+    const trip = await waitFor('the ride trip', () => app.get(TripsService).activeForOrder(ride.id));
+    // The driver carried it and the ride is over (stood in by the rows the trip would write).
+    await db.trip.update({ where: { id: trip.id }, data: { courierId: people.driver, acceptedAt: clock.now() } });
+    await db.order.update({ where: { id: ride.id }, data: { state: 'completed', deliveredAt: clock.now() } });
+    const [a, b] = await Promise.all([orders.rate(people.customer, { orderId: ride.id, delivery: 5 }), orders.rate(people.customer, { orderId: ride.id, delivery: 5 })]);
+    expect(a.id).toBe(ride.id);
+    expect(b.id).toBe(ride.id);
+    expect(await db.courierRating.count({ where: { orderId: ride.id } })).toBe(1);
+    expect((await db.order.findUniqueOrThrow({ where: { id: ride.id } })).state).toBe('closed');
   }, 60_000);
 });

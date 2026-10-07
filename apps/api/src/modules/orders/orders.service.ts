@@ -56,6 +56,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
@@ -1124,6 +1125,15 @@ export class OrdersService implements OnModuleInit {
    * still take its rating.
    */
   async rate(actorId: string, input: RateOrderInput): Promise<Order> {
+    // A double tap racing the first rating (RDB-04): the loser reads the order the winner rated.
+    return this.rateOnce(actorId, input).catch(async (err: unknown) => {
+      const again = isUniqueViolation(err) || (err instanceof DriverError && err.code === 'order_state_conflict') ? await this.repo.find(input.orderId) : null;
+      if (!again?.order.ratedAt || again.order.ordererId !== actorId) throw err;
+      return this.view(again.order.id);
+    });
+  }
+
+  private async rateOnce(actorId: string, input: RateOrderInput): Promise<Order> {
     return this.uow.run(async (tx) => {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
