@@ -23,6 +23,7 @@ import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
 import { ComplimentCard } from './Compliments';
+import { DishBurst } from './DishBurst';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
@@ -106,6 +107,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           <Text variant="body" color="textMuted" align="center">
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
+          {/* «بالعافية»: tiny dishes burst out over the title, once per order (food only). */}
+          {celebrate && !ride ? <DishBurst /> : null}
         </View>
         {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
         {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}

@@ -1,5 +1,6 @@
-import { memo, useId } from 'react';
+import { memo, useEffect, useId } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { useAnimatedStyle, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Defs, G, LinearGradient, Mask, Path, Pattern, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { skyHour } from '../logic/sky';
 import { useTheme } from '../theme/ThemeProvider';
@@ -8,7 +9,7 @@ import { useTheme } from '../theme/ThemeProvider';
  * Date & Saffron decoration (Ali, 2026-10-06; v3 artifact): the warm dot halo behind the service
  * tiles, the food tile's saffron gradient, the trips tiles' date brown and gold with the Iraqi star
  * lines, the hour's sky at the top of home and the paper grain. All of it is drawn with
- * react-native-svg (no image files), still (the movement comes in step 3), never takes a touch, and
+ * react-native-svg (no image files), still but for the food tile's slow drift, never takes a touch, and
  * no text relies on it: every title passes AA on every stop of the fill under it (tested in tokens).
  */
 
@@ -57,37 +58,79 @@ export const DotHalo = memo(function DotHalo({ style }: { style?: StyleProp<View
 });
 
 /**
- * A fill with three soft glows over it (a still "mesh" gradient): light in the top corner, warm on
- * the side, deep at the bottom. The food tile's saffron; it starts to drift in step 3.
+ * Seconds of ambient drift (Ali's Yes, home effects "mesh", 2026-10-07): a clock on the UI thread
+ * that only advances while `running`, so whatever it moves stops where it is (off screen, another
+ * screen on top, the app in the background) and carries on from there. Under reduced motion it never
+ * runs and its drawings stay still.
  */
-export const MeshFill = memo(function MeshFill({ base, mesh }: { base: string; mesh: readonly [string, string, string] }) {
-  const id = useSvgId('mesh');
-  const [hi, warm, deep] = mesh;
+export function useDriftClock(running: boolean): SharedValue<number> {
+  const theme = useTheme();
+  const t = useSharedValue(0);
+  const frame = useFrameCallback((f) => {
+    // A long gap (a dropped frame, a resume) is one ordinary step, never a jump.
+    t.value += Math.min(0.05, (f.timeSincePreviousFrame ?? 0) / 1000);
+  }, false);
+  const on = running && !theme.reduceMotion;
+  useEffect(() => {
+    frame.setActive(on);
+    return () => frame.setActive(false);
+  }, [on, frame]);
+  return t;
+}
+
+/** How far a glow's layer reaches past the tile on each side, as a share of it (covers the drift). */
+const GLOW_PAD = 0.3;
+/** The food tile's three glows: where each sits (share of the tile), how big, and its slow path. */
+const GLOWS = [
+  // light in the top corner
+  { cx: 0.2, cy: 0.12, r: 0.7, stop: 0.6, dx: 22, dy: 16, px: 20, py: 15 },
+  // warm on the side
+  { cx: 0.88, cy: 0.32, r: 0.7, stop: 0.6, dx: 16, dy: 22, px: 15, py: 12 },
+  // deep at the bottom
+  { cx: 0.45, cy: 1, r: 0.8, stop: 0.7, dx: 24, dy: 12, px: 12, py: 20 },
+] as const;
+
+/**
+ * A fill with three soft glows over it (a "mesh" gradient): light in the top corner, warm on the
+ * side, deep at the bottom. The food tile's saffron. With a `clock` (`useDriftClock`) each glow
+ * wanders on its own slow loop (12–20 s, never in step with the others), so the saffron seems to
+ * breathe; the colours stay the tested ones, only where they sit moves. Without one it is still.
+ */
+export const MeshFill = memo(function MeshFill({ base, mesh, clock }: { base: string; mesh: readonly [string, string, string]; clock?: SharedValue<number> }) {
   return (
-    <View pointerEvents="none" style={fill}>
-      <Svg width="100%" height="100%">
-        <Defs>
-          <RadialGradient id={`${id}a`} cx="20%" cy="12%" r="70%">
-            <Stop offset="0" stopColor={hi} stopOpacity={1} />
-            <Stop offset="0.6" stopColor={hi} stopOpacity={0} />
-          </RadialGradient>
-          <RadialGradient id={`${id}b`} cx="88%" cy="32%" r="70%">
-            <Stop offset="0" stopColor={warm} stopOpacity={1} />
-            <Stop offset="0.6" stopColor={warm} stopOpacity={0} />
-          </RadialGradient>
-          <RadialGradient id={`${id}c`} cx="45%" cy="100%" r="80%">
-            <Stop offset="0" stopColor={deep} stopOpacity={1} />
-            <Stop offset="0.7" stopColor={deep} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill={base} />
-        <Rect width="100%" height="100%" fill={`url(#${id}a)`} />
-        <Rect width="100%" height="100%" fill={`url(#${id}b)`} />
-        <Rect width="100%" height="100%" fill={`url(#${id}c)`} />
-      </Svg>
+    <View pointerEvents="none" style={[fill, { backgroundColor: base }]}>
+      {GLOWS.map((g, i) => (
+        <Glow key={i} color={mesh[i]!} g={g} clock={clock} />
+      ))}
     </View>
   );
 });
+
+function Glow({ color, g, clock }: { color: string; g: (typeof GLOWS)[number]; clock: SharedValue<number> | undefined }) {
+  const id = useSvgId('glow');
+  const span = 1 + 2 * GLOW_PAD;
+  const at = (v: number) => `${((v + GLOW_PAD) / span) * 100}%`;
+  const move = useAnimatedStyle(() => {
+    const s = clock ? clock.value : 0;
+    const tau = 2 * Math.PI;
+    return { transform: [{ translateX: g.dx * Math.sin((tau * s) / g.px) }, { translateY: g.dy * Math.sin((tau * s) / g.py) }] };
+  });
+  const pad = `${-GLOW_PAD * 100}%` as const;
+  const size = `${span * 100}%` as const;
+  return (
+    <Animated.View style={[{ position: 'absolute', left: pad, top: pad, width: size, height: size }, move]}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <RadialGradient id={id} cx={at(g.cx)} cy={at(g.cy)} r={`${(g.r / span) * 100}%`}>
+            <Stop offset="0" stopColor={color} stopOpacity={1} />
+            <Stop offset={g.stop} stopColor={color} stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill={`url(#${id})`} />
+      </Svg>
+    </Animated.View>
+  );
+}
 
 /**
  * A fill lit from its top start corner (the outer corner of a tile on the start side): `light` at the
