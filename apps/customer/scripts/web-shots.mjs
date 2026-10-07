@@ -975,11 +975,16 @@ async function rideShots() {
   await byTestId('ride-fare-close').click();
   await byTestId('ride-fare-panel').waitFor({ state: 'detached' });
 
-  await page.getByText('تعال للباب', { exact: false }).first().click();
+  // The options row opens its sheet: door pickup with its price difference.
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await page.getByText('تعال للباب', { exact: false }).last().click();
   await page.waitForTimeout(600);
   await byTestId('ride-pickup-hint').scrollIntoViewIfNeeded();
   await shot('ride-door');
-  await page.getByText('أطلع للشارع', { exact: true }).first().click();
+  await page.getByText('أطلع للشارع', { exact: true }).last().click();
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
 
   // An edge zone: the tuktuk is off, with the reason and "try anyway".
   await byTestId('ride-edit-route').click();
@@ -1018,7 +1023,12 @@ async function rideShots() {
 
   // Request a tuktuk with a note for the driver.
   await byTestId('ride-vehicle-tuktuk').click();
+  await byTestId('ride-options').click();
   await page.locator('[data-testid="ride-note"]').fill('يم الصيدلية، الباب الأخضر');
+  await settle(400);
+  await shot('ride-options');
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
   await settle(600);
   await shot('ride-choose-tuktuk');
   await byTestId('ride-request').click();

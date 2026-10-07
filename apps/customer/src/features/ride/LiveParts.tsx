@@ -5,6 +5,7 @@ import { Icon, ltr, Text, useTheme } from '@driver/ui';
 import { useCityConfig } from './queries';
 import { mmss, searchStage, searchStageIndex, zoneTitle, type SearchStage } from './logic';
 import { useRideMemo } from './store';
+import { ChangeCreditStrip } from '@/features/track/ChangeCredited';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
@@ -155,46 +156,54 @@ export function WaitNote({ vertical }: { vertical: 'taxi' | 'tuktuk' }) {
 }
 
 /**
- * The arrival moment for a ride: where from and to, the fare (locked at booking) and how it is paid,
- * and who drove — the receipt in one glance, where a food order shows the gate photo.
+ * The arrival receipt for a ride (ride idea a1): the fare large (locked at booking) and how it is
+ * paid, the change that went to the wallet when the driver had none («الخردة علينا»), the car and its
+ * plate (who drove and the minutes are in the line above it), then where from and to — the receipt in one glance, where a food order
+ * shows the gate photo.
  */
 export function RideArrivalSummary({ view }: { view: OrderTracking }) {
   const theme = useTheme();
   const t = useT();
   const o = view.order;
   const fare = Math.max(0, o.totalIqd - o.tipIqd);
-  const name = view.courier?.firstName ?? t('track.driver_fallback');
+  const cash = o.paymentMethod === 'cash';
+  const credited = cash ? (o.changeToWalletIqd ?? 0) : 0;
   const tuktuk = view.courier?.vehicleClass === 'tuktuk' || view.trip?.vertical === 'tuktuk';
   const vehicle = t(tuktuk ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi');
   return (
     <View
       testID="ride-arrival-summary"
-      style={{ width: '100%', gap: theme.space[4], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
+      style={{ width: '100%', gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
     >
-      <RideRoute view={view} />
-      <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="caption" color="textMuted">
-            {t('ride.fare')}
-          </Text>
-          <Text variant="footnote" weight={600} color={o.paymentMethod === 'cash' ? 'accentText' : 'successText'}>
-            {o.paymentMethod === 'cash' ? t('ride.pay_driver_cash', { amount: amountParam(fare) }) : t('ride.paid_wallet')}
-          </Text>
-        </View>
-        <Text variant="amount" tabular testID="ride-arrival-fare">
+      <View style={{ alignItems: 'center', gap: theme.space[1] }}>
+        <Text variant="caption" color="textMuted">
+          {t('ride.fare')}
+        </Text>
+        <Text variant="display" tabular testID="ride-arrival-fare" style={{ fontSize: 40, lineHeight: 52 }}>
           {amountParam(fare)}
-          <Text variant="footnote" color="textMuted">
+          <Text variant="title" color="textMuted">
             {` ${t('quote.currency')}`}
           </Text>
         </Text>
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[3], minHeight: 30, borderRadius: 15, backgroundColor: cash ? theme.colors.accentTint : theme.colors.successTint }}
+        >
+          <Icon name={cash ? 'cash' : 'wallet'} size={15} color={cash ? 'accentText' : 'successText'} strokeWidth={2.2} />
+          <Text variant="footnote" weight={600} color={cash ? 'accentText' : 'successText'} testID="ride-arrival-paid">
+            {cash ? t('ride.pay_driver_cash', { amount: amountParam(fare) }) : t('ride.paid_wallet')}
+          </Text>
+        </View>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <Icon name={tuktuk ? 'tuktuk' : 'car'} size={18} color="textMuted" strokeWidth={2} />
-        <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
-          {t('ride.arrived_with', { name, vehicle: [vehicle, view.courier?.plate ? ltr(view.courier.plate) : null].filter(Boolean).join(' · ') })}
+      {credited > 0 ? <ChangeCreditStrip amountIqd={credited} /> : null}
+      {/* Who and how long are in the line under «وصلت بالسلامة»; here the car, for a lost item. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
+        <Icon name={tuktuk ? 'tuktuk' : 'car'} size={16} color="textMuted" strokeWidth={2} />
+        <Text variant="footnote" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }} testID="ride-arrival-vehicle">
+          {[vehicle, view.courier?.plate ? ltr(view.courier.plate) : null].filter(Boolean).join(' · ')}
         </Text>
       </View>
+      <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+      <RideRoute view={view} />
     </View>
   );
 }

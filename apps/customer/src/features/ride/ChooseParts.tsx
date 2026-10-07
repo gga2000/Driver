@@ -1,11 +1,15 @@
-import { Pressable, View } from 'react-native';
+import { useEffect, type ReactNode } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
+import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import { SvgXml } from 'react-native-svg';
 import type { CityPricingConfig, Quote, QuoteComponent } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
+import { Button, formatClock, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
 import { BottomPanel } from '@/features/track/Panels';
-import { useT, type TFn } from '@/lib/i18n';
+import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { fareLines, hour12, ruleHours, type RideVertical, type Spot, type Surcharge } from './logic';
+import { TAXI_ART, TUKTUK_ART } from './vehicle-art';
 
 export const VEHICLE: Record<RideVertical, { name: MessageKey; hint: MessageKey; icon: IconName }> = {
   taxi: { name: 'ride.vehicle_taxi', hint: 'ride.vehicle_taxi_hint', icon: 'car' },
@@ -80,8 +84,18 @@ export function SurchargeBanner({ s, city, vertical }: { s: Surcharge; city: Cit
   );
 }
 
-// ───────────────────────── vehicle card ─────────────────────────
+// ───────────────────────── vehicle row ─────────────────────────
 
+/** Width × height of the vehicle drawing's stage at the start of a row. */
+const ART_W = 68;
+const ART_H = 52;
+
+/**
+ * One slim row per vehicle (ride ideas c2–c4): the drawing, the name, the clock you get there
+ * («توصل 11:55»: the nearest one's minutes to you plus the ride) and the price on one line. The
+ * chosen row springs a little and shows «التفاصيل» under its price. A tuktuk that can't reach an edge
+ * area says why on its own full-width line, with «جرّب تكتك على كل حال».
+ */
 export function VehicleCard({
   vertical,
   quote,
@@ -90,7 +104,9 @@ export function VehicleCard({
   disabledReason,
   minutes,
   nearMinutes,
+  arriveAt,
   cheaperBy,
+  index = 0,
   onPress,
   onDetails,
   onTryAnyway,
@@ -104,116 +120,194 @@ export function VehicleCard({
   minutes: number | null;
   /** The nearest free one's minutes to the pickup (maps program c10); null when none is around. */
   nearMinutes: number | null;
+  /** When the rider gets there if he books now (ride idea c3). */
+  arriveAt: Date | null;
   cheaperBy: number | null;
+  /** Position in the list, for the entrance stagger. */
+  index?: number;
   onPress: () => void;
   onDetails: () => void;
   onTryAnyway?: () => void;
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const v = VEHICLE[vertical];
   const off = Boolean(disabledReason);
+  const motion = !theme.reduceMotion;
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    // l3: the chosen row gives a small spring, never on first paint.
+    if (selected && motion) scale.value = withSequence(withTiming(0.97, { duration: 70 }), withSpring(1, { damping: 11, stiffness: 260 }));
+  }, [selected, motion, scale]);
+  const springStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const amount = quote ? `${amountParam(quote.total)} ${t('quote.currency')}` : '';
+  return (
+    <Animated.View entering={motion ? FadeInDown.delay(60 * index).springify().damping(18) : undefined} style={springStyle}>
+      <Pressable
+        testID={`ride-vehicle-${vertical}`}
+        accessibilityRole="radio"
+        aria-checked={selected}
+        aria-disabled={off}
+        accessibilityLabel={[t(v.name), amount, arriveAt ? t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) }) : null].filter(Boolean).join('، ')}
+        accessibilityHint={t(v.hint)}
+        disabled={off}
+        onPress={() => {
+          theme.haptic('selection');
+          onPress();
+        }}
+        style={({ pressed }) => ({
+          borderRadius: theme.radius.xl,
+          borderWidth: selected ? 2 : 1,
+          borderColor: selected ? theme.colors.accent : theme.colors.border,
+          backgroundColor: selected ? withAlpha(theme.colors.accentTint, 0.6) : pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+          paddingVertical: selected ? theme.space[2] - 1 : theme.space[2],
+          paddingStart: selected ? theme.space[2] - 1 : theme.space[2],
+          paddingEnd: selected ? theme.space[3] - 1 : theme.space[3],
+          gap: theme.space[2],
+        })}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], opacity: off ? 0.5 : 1 }}>
+          <View style={{ width: ART_W, height: ART_H, borderRadius: theme.radius.lg, backgroundColor: selected ? theme.colors.surface : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            <SvgXml xml={vertical === 'taxi' ? TAXI_ART : TUKTUK_ART} width={ART_W + 6} height={ART_W + 6} style={{ marginTop: 4 }} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text variant="title" weight={700} style={{ fontSize: 18, lineHeight: 26 }}>
+                {t(v.name)}
+              </Text>
+              {cheaperBy && cheaperBy > 0 && !off ? (
+                <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
+                  <Text variant="caption" weight={600} color="successText" style={{ lineHeight: 18 }}>
+                    {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {off ? null : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                {arriveAt ? (
+                  <Text variant="caption" weight={700} tabular testID={`ride-minutes-${vertical}`} accessibilityLabel={minutes ? t('ride.trip_minutes', { minutes }) : undefined}>
+                    {t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) })}
+                  </Text>
+                ) : null}
+                {nearMinutes ? (
+                  <Text variant="caption" weight={600} color="successText" tabular testID={`ride-near-${vertical}`}>
+                    {`${arriveAt ? '· ' : ''}${t('ride.near_short', { minutes: nearMinutes })}`}
+                  </Text>
+                ) : null}
+              </View>
+            )}
+          </View>
+          <View style={{ alignItems: 'flex-end', gap: 2 }}>
+            {quote ? (
+              <Text variant="title" tabular numberOfLines={1} testID={`ride-price-${vertical}`} style={{ fontSize: 19, lineHeight: 26 }}>
+                {amountParam(quote.total)}
+                <Text variant="caption" weight={500} color="textMuted">
+                  {` ${t('quote.currency')}`}
+                </Text>
+              </Text>
+            ) : loading ? (
+              <Skeleton width={72} height={22} />
+            ) : (
+              <Text variant="caption" color="dangerText">
+                {t('ride.quote_failed')}
+              </Text>
+            )}
+            {selected && quote && !off ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={t('ride.price_details')} onPress={onDetails} hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }} testID={`ride-details-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Icon name="receipt" size={13} color="accentText" strokeWidth={2.2} />
+                <Text variant="caption" weight={600} color="accentText">
+                  {t('ride.details_short')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+        {off ? (
+          <View style={{ gap: theme.space[1], paddingBottom: theme.space[1] }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+              <Icon name="map-pin" size={15} color="warningText" strokeWidth={2.2} />
+              <Text variant="footnote" color="warningText" style={{ flex: 1 }} testID="ride-tuktuk-edge">
+                {disabledReason}
+              </Text>
+            </View>
+            {onTryAnyway ? (
+              <Pressable accessibilityRole="button" onPress={onTryAnyway} hitSlop={10} testID="ride-tuktuk-try" style={{ alignSelf: 'flex-start', paddingStart: 23, minHeight: 28, justifyContent: 'center' }}>
+                <Text variant="label" weight={600} color="accentText">
+                  {t('ride.tuktuk_edge_try')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// ───────────────────────── trip options ─────────────────────────
+
+/**
+ * Ride idea c7: how you pay, where he picks you up and the note in one row («كاش · أطلع للشارع ·
+ * ملاحظة»); tapping it opens `RideOptionsPanel` with the full controls.
+ */
+export function OptionsRow({ payment, pickup, note, onPress }: { payment: string; pickup: string; note: string; onPress: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const parts = [payment, pickup, note.trim() ? `«${note.trim()}»` : t('ride.note_add')];
   return (
     <Pressable
-      testID={`ride-vehicle-${vertical}`}
-      accessibilityRole="radio"
-      aria-checked={selected}
-      aria-disabled={off}
-      accessibilityLabel={`${t(v.name)} ${quote ? `${amountParam(quote.total)} ${t('quote.currency')}` : ''}`}
-      disabled={off}
+      testID="ride-options"
+      accessibilityRole="button"
+      accessibilityLabel={`${t('ride.options_title')}: ${parts.join('، ')}`}
       onPress={() => {
         theme.haptic('selection');
         onPress();
       }}
       style={({ pressed }) => ({
-        borderRadius: theme.radius.xl,
-        borderWidth: selected ? 2 : 1,
-        borderColor: selected ? theme.colors.accent : theme.colors.border,
-        backgroundColor: selected ? withAlpha(theme.colors.accentTint, 0.55) : theme.colors.surface,
-        padding: selected ? theme.space[3] - 1 : theme.space[3],
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
         gap: theme.space[2],
-        transform: [{ scale: pressed ? 0.99 : 1 }],
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken,
       })}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], opacity: off ? 0.5 : 1 }}>
-        <View style={{ width: 56, height: 56, borderRadius: theme.radius.lg, backgroundColor: selected ? theme.colors.accent : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name={v.icon} size={30} color={selected ? 'onAccent' : 'text'} strokeWidth={1.8} />
-        </View>
-        <View style={{ flex: 1, gap: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-            <Text variant="title">{t(v.name)}</Text>
-            {cheaperBy && cheaperBy > 0 && !off ? (
-              <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
-                <Text variant="caption" weight={600} color="successText" style={{ lineHeight: 18 }}>
-                  {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          <Text variant="caption" color="textMuted" numberOfLines={1}>
-            {t(v.hint)}
-          </Text>
-          {minutes ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="clock" size={13} color="textMuted" strokeWidth={2.2} />
-              <Text variant="caption" weight={600} color="textMuted" tabular testID={`ride-minutes-${vertical}`}>
-                {t('ride.trip_minutes', { minutes })}
-              </Text>
-            </View>
-          ) : null}
-          {nearMinutes && !off ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="location-arrow" size={13} color="successText" strokeWidth={2.2} />
-              <Text variant="caption" weight={600} color="successText" tabular testID={`ride-near-${vertical}`}>
-                {t('ride.near_minutes', { minutes: nearMinutes })}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          {quote ? (
-            <>
-              <Text variant="title" tabular testID={`ride-price-${vertical}`} style={{ fontSize: 20 }}>
-                {amountParam(quote.total)}
-              </Text>
-              <Text variant="caption" color="textMuted" style={{ lineHeight: 16 }}>
-                {t('quote.currency')}
-              </Text>
-            </>
-          ) : loading ? (
-            <Skeleton width={64} height={24} />
-          ) : (
-            <Text variant="caption" color="dangerText">
-              {t('ride.quote_failed')}
-            </Text>
-          )}
-        </View>
-      </View>
-      {off ? (
-        <View style={{ gap: theme.space[1] }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-            <Icon name="map-pin" size={15} color="warningText" strokeWidth={2.2} />
-            <Text variant="footnote" color="warningText" style={{ flex: 1 }} testID="ride-tuktuk-edge">
-              {disabledReason}
-            </Text>
-          </View>
-          {onTryAnyway ? (
-            <Pressable accessibilityRole="button" onPress={onTryAnyway} hitSlop={6} testID="ride-tuktuk-try" style={{ alignSelf: 'flex-start', paddingStart: 23 }}>
-              <Text variant="label" weight={600} color="accentText">
-                {t('ride.tuktuk_edge_try')}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : selected && quote ? (
-        <Pressable accessibilityRole="button" onPress={onDetails} hitSlop={6} testID={`ride-details-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingStart: 68 }}>
-          <Icon name="receipt" size={14} color="accentText" strokeWidth={2.2} />
-          <Text variant="label" weight={600} color="accentText">
-            {t('ride.price_details')}
-          </Text>
-        </Pressable>
-      ) : null}
+      <Icon name="wallet" size={18} color="text" strokeWidth={2} />
+      <Text variant="label" weight={600} numberOfLines={1} style={{ flex: 1 }}>
+        {parts[0]}
+        <Text variant="label" color="textMuted">
+          {` · ${parts[1]} · `}
+        </Text>
+        <Text variant="label" color={note.trim() ? 'text' : 'accentText'} weight={note.trim() ? 500 : 600}>
+          {parts[2]}
+        </Text>
+      </Text>
+      <Icon name="chevron-down" size={18} color="textMuted" strokeWidth={2.2} />
     </Pressable>
+  );
+}
+
+/** The trip options sheet: the controls the summary row stands for, and the cancel rule. */
+export function RideOptionsPanel({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <BottomPanel onClose={onClose} testID="ride-options-panel">
+      <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 520 }} contentContainerStyle={{ gap: theme.space[4] }}>
+        <Text variant="heading">{t('ride.options_title')}</Text>
+        {children}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <Icon name="shield" size={15} color="successText" strokeWidth={2.2} />
+          <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
+            {t('ride.cancel_policy')}
+          </Text>
+        </View>
+      </ScrollView>
+      <Button label={t('action.done')} fullWidth onPress={onClose} testID="ride-options-done" />
+    </BottomPanel>
   );
 }
 

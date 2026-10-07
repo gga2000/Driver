@@ -14,7 +14,7 @@ describe('notification pre-prompt timing', () => {
   it('never over the live map: food asks on the kitchen screen; a ride asks inside the sheet once a driver is coming (f1, L-01)', () => {
     expect(rideAskOnLiveScreen(false, 'on_the_way')).toBe(false);
     expect(rideAskOnLiveScreen(false, 'preparing')).toBe(false);
-    expect(rideAskOnLiveScreen(true, 'searching')).toBe(false);
+    expect(rideAskOnLiveScreen(true, 'searching')).toBe(true);
     expect(rideAskOnLiveScreen(true, 'to_pickup')).toBe(true);
     expect(rideAskOnLiveScreen(true, 'at_pickup')).toBe(true);
     expect(rideAskOnLiveScreen(true, 'on_the_way')).toBe(false);

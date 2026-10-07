@@ -21,6 +21,7 @@ export function DriverHereCard({
   onComingOut,
   onCall,
   onClose,
+  onHeight,
 }: {
   courier: CourierCard;
   /** "باجاج · أحمر" (model and colour), or the vehicle class. */
@@ -34,6 +35,8 @@ export function DriverHereCard({
   onComingOut: () => void;
   onCall: () => void;
   onClose: () => void;
+  /** The card's height, so the map frames the pickup and «وجهتك» below it (f1). */
+  onHeight?: (h: number) => void;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -41,6 +44,7 @@ export function DriverHereCard({
   return (
     <Animated.View
       testID="driver-here"
+      onLayout={onHeight ? (e) => onHeight(e.nativeEvent.layout.height) : undefined}
       accessibilityRole="alert"
       accessibilityLiveRegion="assertive"
       entering={theme.reduceMotion ? undefined : FadeInDown.springify().damping(18)}

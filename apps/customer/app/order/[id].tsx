@@ -116,7 +116,7 @@ export default function OrderLiveScreen() {
   const mapMinutes =
     fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
   const ride = v?.order.type === 'ride';
-  // Joy f1: rides ask for notifications inside the collapsed sheet once a driver is coming (food asked on the kitchen screen).
+  // Joy f1 / ride idea m3: rides ask for notifications inside the collapsed sheet from the search on (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
@@ -192,6 +192,7 @@ export default function OrderLiveScreen() {
         : null;
   // "عباس وصل" (L-02): shown at the pickup until closed; "طالع هسة" goes once per order.
   const [hereClosedFor, setHereClosedFor] = useState<string | null>(null);
+  const [hereH, setHereH] = useState(0);
   // Rides only: «طالع هسة» goes as the chat's coming-out message (food's «أني نازل» is orders.comingOut).
   const [rideComingOut, setRideComingOut] = useState<{ orderId: string; state: 'sending' | 'sent' } | null>(null);
   const [arrivalSeen, setArrivalSeen] = useState(false);
@@ -320,7 +321,7 @@ export default function OrderLiveScreen() {
     <CourierCard
       courier={v.courier}
       ride={ride}
-      quickReplies={courierThread?.status === 'open' ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
+      quickReplies={courierThread?.status === 'open' && !happy ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
       unread={courierThread?.unread ?? 0}
       canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
       onReply={(k) => void reply(k)}
@@ -338,7 +339,8 @@ export default function OrderLiveScreen() {
           view={v}
           fix={fix}
           stale={lostMin !== null}
-          topInset={insets.top + TOP_BAR + bannersH}
+          // f1: the «السايق وصل» card sits over the top of the map: frame the pins below it.
+          topInset={insets.top + TOP_BAR + bannersH + (showHere && hereH > 0 ? hereH + 8 : 0)}
           bottomInset={mapBottom}
           searching={searching}
           minutes={mapMinutes}
@@ -396,6 +398,7 @@ export default function OrderLiveScreen() {
           onComingOut={() => void sayComingOut()}
           onCall={call}
           onClose={() => setHereClosedFor(id)}
+          onHeight={setHereH}
         />
       ) : null}
       {v && offerDue ? (
@@ -450,7 +453,7 @@ export default function OrderLiveScreen() {
               aside={searching && searchStage ? <SearchStages stage={searchStage} seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
               below={
                 pushAsk.visible ? (
-                  <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
+                  <PushAskCard kind={searching ? 'ride_search' : 'ride'} busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
                 ) : kitchen ? (
                   <KitchenProgress stages={kitchen} courierName={courierName} />
                 ) : undefined

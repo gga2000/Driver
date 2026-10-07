@@ -182,6 +182,8 @@ export const ICONS = {
   refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.5 4.5v4h-4' }],
   // Phase 3 (Partner readiness row): the phone's battery.
   battery: [{ rect: [2.5, 7, 16.5, 10, 2] }, { d: 'M21.5 10.5v3' }],
+  // Ride idea c6: «السعر مثبّت» under the request button.
+  lock: [{ rect: [5, 10.5, 14, 10, 2.5] }, { d: 'M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5' }, { d: 'M12 14.5v2' }],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;
