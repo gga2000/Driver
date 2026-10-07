@@ -4,7 +4,7 @@
 # makes everything the Deploy workflow then needs, so nobody has to run flyctl or handle a secret:
 #   1. the Fly apps (API + Redis) and Redis's volume, when missing;
 #   2. the API's secrets on Fly, generated here when missing (JWT_SECRET, PHONE_HASH_PEPPER,
-#      UPLOADS_SECRET, the Redis password) — they go straight from this runner to Fly and are never
+#      UPLOADS_SECRET, SHARE_LINK_SECRET, SAFETY_LINK_SECRET, the Redis password) — they go straight from this runner to Fly and are never
 #      printed, stored in GitHub or shown to anyone; DATABASE_URL is DIRECT_URL on the transaction
 #      pooler's port (6543); SMS_PROVIDER=fake;
 #   3. Redis deployed;
@@ -112,6 +112,9 @@ jobs:
 
           has "$api" JWT_SECRET || { rand; set_api+=("JWT_SECRET=$R" "JWT_KID=k1"); }
           has "$api" UPLOADS_SECRET || { rand; set_api+=("UPLOADS_SECRET=$R"); }
+          # Trip-share and SOS links each have their own key (production refuses to boot without them).
+          has "$api" SHARE_LINK_SECRET || { rand; set_api+=("SHARE_LINK_SECRET=$R"); }
+          has "$api" SAFETY_LINK_SECRET || { rand; set_api+=("SAFETY_LINK_SECRET=$R"); }
           # Verified TLS to Supabase: the secret when set, else Supabase's public root CA from the repo.
           has "$api" DATABASE_CA_CERT || set_api+=("DATABASE_CA_CERT=$DATABASE_CA_CERT")
           has "$api" SMS_PROVIDER || set_api+=("SMS_PROVIDER=fake")

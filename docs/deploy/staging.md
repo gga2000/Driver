@@ -36,7 +36,7 @@ sizes, process groups, limits or checks: a change to `api.toml` reaches both.
 3. **Actions → Staging setup → Run workflow** (`.github/workflows/staging-setup.yml`). Nobody runs
    `flyctl` or handles a secret: it creates the two Fly apps and Redis's volume, generates the API's
    secrets on the runner and hands them straight to Fly (`JWT_SECRET`, `PHONE_HASH_PEPPER`,
-   `UPLOADS_SECRET`, the Redis password; never printed or stored in GitHub), sets `DATABASE_URL` (the
+   `UPLOADS_SECRET`, `SHARE_LINK_SECRET`, `SAFETY_LINK_SECRET`, the Redis password; never printed or stored in GitHub), sets `DATABASE_URL` (the
    same pooler on port 6543), `SMS_PROVIDER=fake` and `DATABASE_CA_CERT` (Supabase's public root CA,
    `deploy/supabase/prod-ca-2021.crt`, unless a `DATABASE_CA_CERT` secret is set), deploys Redis, then
    migrates, hardens, seeds (production profile + the staging admin) and verifies the database. It is

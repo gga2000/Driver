@@ -130,6 +130,8 @@ fly secrets set --config deploy/fly/api.toml --stage \
   JWT_KID=k1 \
   PHONE_HASH_PEPPER='<the value you used in supabase-setup — NEVER change it>' \
   UPLOADS_SECRET="$(openssl rand -hex 32)" \
+  SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
+  SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
 
@@ -171,6 +173,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
 | `PHONE_HASH_PEPPER` | **yes** | 64 hex chars. **Never changes**: changing it orphans every account. |
 | `UPLOADS_SECRET` | **yes** | signs `/files` and `/uploads` links; defaults to `JWT_SECRET` — set it so a JWT rotation does not break photo links |
+| `SHARE_LINK_SECRET` | **yes** | 64 hex chars; signs trip-share links. Production refuses to boot without it (at least 32 characters, different from `JWT_SECRET` and `SAFETY_LINK_SECRET`) |
+| `SAFETY_LINK_SECRET` | **yes** | 64 hex chars; signs SOS links. Same rule: required in production, its own value |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | no | Supabase Storage, [supabase.md](supabase.md) step 5 |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
