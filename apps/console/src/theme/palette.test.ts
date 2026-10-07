@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CONSOLE_PAIRS,
   CONSOLE_ROLES,
+  DATE_PAIRS,
+  datePalette,
   mix,
   palettes,
   themeCss,
@@ -67,6 +69,20 @@ describe('console palette', () => {
     });
   });
 
+  describe('the date-brown sidebar meets WCAG AA', () => {
+    const vars = varsOf(css, '[data-ink=date]');
+    it('generates every role, from the date palette', () => {
+      for (const role of CONSOLE_ROLES) expect(vars[role]).toBe(datePalette[role].toUpperCase());
+    });
+    it.each(DATE_PAIRS.map((p) => [`${p.fg} on ${p.bg}`, p] as const))('%s', (_label, pair) => {
+      const ratio = contrastRatio(vars[pair.fg]!, vars[pair.bg]!);
+      if (ratio < pair.min) {
+        throw new Error(`date: ${pair.fg} ${vars[pair.fg]} on ${pair.bg} ${vars[pair.bg]} = ${ratio.toFixed(2)}:1 (< ${pair.min}:1) — ${pair.use}`);
+      }
+      expect(ratio).toBeGreaterThanOrEqual(pair.min);
+    });
+  });
+
   it('the generated CSS matches the palette objects', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const role of CONSOLE_ROLES)
@@ -86,9 +102,9 @@ describe('console palette', () => {
       const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
       return { h: (h * 60 + 360) % 360, sat };
     };
-    for (const theme of ['light', 'dark'] as const) {
+    for (const [theme, palette] of [...Object.entries(palettes), ['date', datePalette]] as const) {
       for (const role of CONSOLE_ROLES) {
-        const value = palettes[theme][role];
+        const value = palette[role];
         if (!/^#[0-9A-Fa-f]{6}$/.test(value)) continue;
         const { h, sat } = hue(value);
         const blueish = sat > 0.15 && h >= 165 && h <= 265;

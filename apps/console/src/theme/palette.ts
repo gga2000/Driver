@@ -160,6 +160,32 @@ export const darkPalette: ConsolePalette = {
   shadow: D.shadow,
 };
 
+/**
+ * The date-brown island (CON-11 shell): the sidebar is the dark of a dried date in both themes, with
+ * cream ink and the saffron lamp, so the working canvas stays the lightest thing on screen. It is a
+ * whole palette, not a few extra roles, so every shared control inside it (icon buttons, count badges,
+ * key hints, the support views) reads right without a sidebar-only variant. Set by `data-ink="date"`.
+ */
+const date = mix(color.primary[900], n[1000], 0.42);
+export const datePalette: ConsolePalette = {
+  ...darkPalette,
+  canvas: date,
+  sidebar: date,
+  surface: date,
+  'surface-2': mix(date, color.primary[700], 0.22),
+  'surface-3': mix(date, color.primary[700], 0.34),
+  raised: mix(date, color.primary[700], 0.34),
+  line: mix(date, n[50], 0.12),
+  'line-strong': mix(date, n[300], 0.55),
+  text: n[50],
+  muted: mix(color.primary[100], n[300], 0.35),
+  faint: mix(color.primary[300], n[500], 0.45),
+  'accent-tint': mix(date, color.primary[700], 0.5),
+  'accent-wash': mix(date, color.primary[700], 0.3),
+  'accent-text': color.primary[300],
+  focus: color.primary[300],
+};
+
 export const palettes = { light: lightPalette, dark: darkPalette } as const;
 export type ConsoleTheme = keyof typeof palettes;
 
@@ -222,6 +248,24 @@ export const CONSOLE_PAIRS: ReadonlyArray<{
   { fg: 'on-inverse', bg: 'inverse', min: 4.5, use: 'tooltip, toast' },
 ];
 
+/** What the date-brown sidebar draws; checked against `datePalette` in `palette.test.ts`. */
+export const DATE_PAIRS: ReadonlyArray<{ fg: ConsoleRole; bg: ConsoleRole; min: 3 | 4.5; use: string }> = [
+  ...(['sidebar', 'surface-2', 'accent-tint'] as const).flatMap((bg) => [
+    { fg: 'text' as const, bg, min: 4.5 as const, use: 'nav item, selected nav item' },
+    { fg: 'muted' as const, bg, min: 4.5 as const, use: 'nav item at rest, icons' },
+  ]),
+  { fg: 'faint', bg: 'sidebar', min: 4.5, use: 'group labels, key hints' },
+  { fg: 'accent-text', bg: 'sidebar', min: 4.5, use: 'brand subtitle, counts on the support views' },
+  { fg: 'accent-text', bg: 'accent-tint', min: 4.5, use: 'selected support view count' },
+  { fg: 'muted', bg: 'surface-3', min: 4.5, use: 'count badge' },
+  { fg: 'bad', bg: 'sidebar', min: 4.5, use: 'breached count' },
+  { fg: 'on-bad', bg: 'bad-solid', min: 4.5, use: 'alert count badge' },
+  { fg: 'accent', bg: 'sidebar', min: 3, use: 'brand tile, selected bar, count dot' },
+  { fg: 'accent', bg: 'accent-tint', min: 3, use: 'selected bar beside the selected item' },
+  { fg: 'focus', bg: 'sidebar', min: 3, use: 'focus ring' },
+  { fg: 'on-accent', bg: 'accent', min: 4.5, use: 'brand mark ink' },
+];
+
 function channels(hex: string): string {
   return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(' ');
 }
@@ -246,5 +290,6 @@ export function themeCss(): string {
   return [
     `:root,[data-theme=light]{color-scheme:light;${block(lightPalette)}${shadows(false)}}`,
     `[data-theme=dark]{color-scheme:dark;${block(darkPalette)}${shadows(true)}}`,
+    `[data-ink=date]{color-scheme:dark;${block(datePalette)}}`,
   ].join('\n');
 }

@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RoleKind } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { formatClock } from '@/lib/format';
 import { modLabel } from '@/lib/hotkeys';
 import { useMyRoles } from '@/lib/me';
 import { isActive, visibleNav } from '@/lib/nav';
@@ -43,7 +44,7 @@ export function headlineRole(roles: ReadonlySet<RoleKind>): RoleKind | null {
 export function TopBar({ onSearch }: { onSearch: () => void }) {
   const signedIn = useSignedIn();
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-canvas/85 backdrop-blur-md">
+    <header className="sticky top-0 z-20 border-b border-line bg-canvas">
       <div className="flex h-14 items-center gap-3 px-4 lg:px-6">
         <span className="lg:hidden">
           <BrandMark size={28} />
@@ -51,7 +52,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         <button
           type="button"
           onClick={onSearch}
-          className="group flex h-9 w-full max-w-[440px] items-center gap-2.5 rounded-md border border-line bg-surface px-3 text-start text-sm text-faint shadow-card transition-colors hover:border-line-strong"
+          className="group flex h-9 w-full max-w-[460px] items-center gap-2.5 rounded-pill border border-line bg-surface px-3.5 text-start text-sm text-faint transition-colors hover:border-line-strong"
         >
           <IconSearch size={17} className="shrink-0 text-muted" />
           <span className="min-w-0 flex-1 truncate">{t('console.search_open')}</span>
@@ -60,8 +61,9 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
             <Kbd>K</Kbd>
           </span>
         </button>
+        <ApiStatus />
         <div className="ms-auto flex items-center gap-1.5">
-          <ApiStatus />
+          <Clock />
           <ViewToggles />
           {signedIn ? (
             <Account />
@@ -91,12 +93,32 @@ function ApiStatus() {
       role="status"
       title={health.data?.version ? `API v${health.data.version}` : undefined}
       className={cx(
-        'me-1 hidden items-center gap-2 rounded-pill px-2.5 py-1 text-xs sm:inline-flex',
-        tone === 'bad' ? 'bg-bad-tint font-semibold text-bad' : 'text-muted',
+        'hidden h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-3 text-xs font-medium sm:inline-flex',
+        tone === 'bad' ? 'bg-bad-tint font-semibold text-bad' : 'bg-surface-3 text-muted',
       )}
     >
       <StatusDot tone={tone} pulse={tone === 'ok'} />
       {label}
+    </p>
+  );
+}
+
+/** The city clock, so a night-shift agent and the server agree on "now" (Baghdad time, Western digits). */
+function Clock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = window.setInterval(() => setNow(new Date()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!now) return null;
+  return (
+    <p
+      title={t('console.clock_baghdad')}
+      className="num me-1 hidden h-8 shrink-0 items-center rounded-pill bg-surface-3 px-3 text-xs font-semibold text-text md:inline-flex"
+    >
+      <span className="sr-only">{t('console.clock_baghdad')} </span>
+      {formatClock(now)}
     </p>
   );
 }
@@ -154,7 +176,7 @@ function Account() {
         aria-expanded={open}
         aria-label={t('console.account_menu')}
         onClick={() => setOpen((o) => !o)}
-        className="flex h-9 items-center gap-2 rounded-md ps-1 pe-2 transition-colors hover:bg-surface-2"
+        className="flex h-9 items-center gap-2 rounded-pill bg-surface-3 ps-1 pe-3 transition-colors hover:bg-surface-2"
       >
         <Avatar name={name} id={me.data?.personId ?? 'me'} size="sm" />
         <span className="hidden text-start leading-tight md:block">
@@ -224,7 +246,7 @@ function MobileNav() {
                 className={cx(
                   'flex h-9 items-center gap-2 rounded-md px-3 text-sm',
                   active
-                    ? 'bg-surface font-semibold text-text shadow-card'
+                    ? 'bg-accent-tint font-semibold text-text'
                     : 'text-muted hover:text-text',
                 )}
               >

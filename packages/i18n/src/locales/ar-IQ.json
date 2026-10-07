@@ -2926,6 +2926,7 @@
   "console.palette_new_ticket": "تذكرة دعم جديدة",
   "console.palette_order_hint": "{merchant} · {time}",
   "console.api_online_short": "متصل",
+  "console.clock_baghdad": "الوقت هسة ببغداد",
   "console.api_offline_short": "مقطوع",
   "console.staff_role_admin": "مدير",
   "console.staff_role_dispatcher": "ديسباتشر",
