@@ -83,6 +83,12 @@ export function useRefreshAccount() {
 // ── Phase 3 money moments (audit S-4, S-7) and the emergency contact ──
 
 /** The shift he just ended (`from` = when it started, from `partner.status.onlineSince`). */
+/** «كلام الزبائن» (joy l4): his compliments counted and the latest ones. */
+export function useCompliments() {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.compliments.queryOptions(), enabled: useEnabled(), staleTime: 60_000 });
+}
+
 export function useShiftSummary(from: Date | null) {
   const api = useApi();
   return useQuery({ ...api.driverAccount.shiftSummary.queryOptions(from ? { from } : {}), enabled: useEnabled(), staleTime: 60_000 });

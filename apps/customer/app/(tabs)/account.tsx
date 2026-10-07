@@ -120,6 +120,15 @@ function Account() {
         <ListRow testID="account-month" leading="star" title={t('month.row_title')} subtitle={t('month.row_sub')} onPress={() => router.push('/month')} />
       </Card>
 
+      {/* Joy J7d: the rides taken every week, and the drivers asked for first. */}
+      <View style={{ gap: theme.space[3] }}>
+        <SectionHeader title={t('habits.account_section')} />
+        <Card elevation={0} padding={0}>
+          <ListRow testID="account-regular" leading="refresh" title={t('habits.regular_title')} subtitle={t('habits.regular_row_sub')} onPress={() => router.push('/regular')} divider />
+          <ListRow testID="account-drivers" leading="heart" title={t('habits.fav_title')} subtitle={t('habits.fav_row_sub')} onPress={() => router.push('/drivers')} />
+        </Card>
+      </View>
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.places')} action={{ label: t('home.add_place'), onPress: () => router.push('/places/new') }} />
         <Card elevation={0} padding={0}>

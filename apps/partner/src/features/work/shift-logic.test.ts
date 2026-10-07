@@ -21,6 +21,7 @@ function summary(over: Partial<ShiftSummary> = {}): ShiftSummary {
     tomorrow: { from: new Date('2026-10-06T10:00:00Z'), to: new Date('2026-10-06T12:00:00Z'), orders: 12 },
     nudge: null,
     guarantee: [],
+    compliments: [],
     ...over,
   };
 }

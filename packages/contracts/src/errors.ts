@@ -195,6 +195,9 @@ export const ERROR_TABLE = {
   tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
   tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Compliments after a good rating (joy l4): rated 4–5, delivered, within a day; words from the order's own set.
+  compliment_not_offered: { retryHint: 'never', status: 'CONFLICT' },
+  compliment_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «عزيمة» (joy g1): a gift goes to someone else; hidden prices only when the sender pays from his wallet.
   gift_needs_recipient: { retryHint: 'never', status: 'BAD_REQUEST' },
   gift_hidden_prices_need_wallet: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -203,6 +206,15 @@ export const ERROR_TABLE = {
   invite_own: { retryHint: 'never', status: 'BAD_REQUEST' },
   invite_not_new: { retryHint: 'never', status: 'CONFLICT' },
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
+  // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
+  ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
+  favourite_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  favourite_needs_good_rating: { retryHint: 'never', status: 'CONFLICT' },
+  favourite_limit: { retryHint: 'never', status: 'CONFLICT' },
+  regular_trip_limit: { retryHint: 'never', status: 'CONFLICT' },
+  occurrence_closed: { retryHint: 'never', status: 'CONFLICT' },
+  dinner_not_available: { retryHint: 'never', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },

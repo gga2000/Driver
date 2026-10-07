@@ -11,7 +11,7 @@ import { AppModule } from './app.module.js';
 import { CatalogService } from './modules/catalog/index.js';
 import { NotifyService } from './modules/notify/index.js';
 import { IdentityService } from './modules/identity/index.js';
-import { OrdersService } from './modules/orders/index.js';
+import { ORDER_COMPLIMENTS_REPOSITORY, OrdersService, type ComplimentRecord } from './modules/orders/index.js';
 import { HouseholdsRpc, OrgsService } from './modules/orgs/index.js';
 import { BLOB_STORE, PlacesService, SavedPlacesService, type BlobStore } from './modules/places/index.js';
 import { CLOCK, FakeClock } from './shared/clock.js';
@@ -258,6 +258,30 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       const front = (await catalog.storefront(kareem.orgId))!;
       await catalog.saveStorefront({ ...front, story: null });
       await app.get(PrismaService).prisma.notifyPreference.deleteMany({ where: { personId: fan } });
+    } finally {
+      await close(app);
+    }
+  });
+
+  it('joy l4: a customer\'s compliments for a courier survive a restart, one row per order', async () => {
+    const orderId = `ord_cmp_${run}`;
+    const courierId = `courier_cmp_${run}`;
+    type Repo = { create(c: Omit<ComplimentRecord, 'id'>): Promise<ComplimentRecord>; forCourier(id: string): Promise<ComplimentRecord[]>; forOrder(id: string): Promise<ComplimentRecord | null> };
+    let app = await boot();
+    try {
+      const repo = app.get<Repo>(ORDER_COMPLIMENTS_REPOSITORY);
+      await repo.create({ orderId, courierId, customerId: `cust_${run}`, orderType: 'food', keys: ['polite', 'hot_food'], createdAt: clock.now() });
+      // A racing second send keeps the first words.
+      expect((await repo.create({ orderId, courierId, customerId: `cust_${run}`, orderType: 'food', keys: ['fast'], createdAt: clock.now() })).keys).toEqual(['polite', 'hot_food']);
+    } finally {
+      await close(app);
+    }
+    app = await boot();
+    try {
+      const repo = app.get<Repo>(ORDER_COMPLIMENTS_REPOSITORY);
+      expect((await repo.forOrder(orderId))?.keys).toEqual(['polite', 'hot_food']);
+      expect((await repo.forCourier(courierId)).map((r) => r.orderId)).toEqual([orderId]);
+      await app.get(PrismaService).prisma.orderCompliment.deleteMany({ where: { orderId } });
     } finally {
       await close(app);
     }

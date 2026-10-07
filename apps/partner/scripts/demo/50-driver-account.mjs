@@ -26,7 +26,7 @@
 //
 // The in-memory API has no past, so the scorecard's history (offer answers, completed trips and their
 // ratings over the last weeks) is fed to `DriverAccountService` alone through demo-only wrappers of
-// its event / trip / order reads. Money is real ledger postings, dated in the past.
+// its event / finished-trip / order reads. Money is real ledger postings, dated in the past.
 import { Buffer } from 'node:buffer';
 import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
 
@@ -263,7 +263,7 @@ export default async function register(demo) {
       const arrivedAt = new Date(windowEnd.getTime() + (late ? (5 + rs() * 10) * 60_000 : -rs() * 8 * 60_000));
       const orderId = `demo-score-${personId.slice(-4)}-${i}`;
       if (done && i < 60) h.ratings.set(orderId, ratings[i % ratings.length]);
-      h.trips.push({ id: `demo-score-trip-${i}`, state: done ? 'completed' : 'driver_cancelled', acceptedAt, completedAt: done ? new Date(arrivedAt.getTime() + 4 * 60_000) : null, stops: [{ windowEnd, arrivedAt }], orders: [{ orderId }] });
+      h.trips.push({ id: `demo-score-trip-${i}`, state: done ? 'completed' : 'driver_cancelled', acceptedAt, completedAt: done ? new Date(arrivedAt.getTime() + 4 * 60_000) : null, cancelledAt: done ? null : new Date(acceptedAt.getTime() + 10 * 60_000), stops: [{ windowEnd, arrivedAt }], orders: [{ orderId }] });
     }
     history.set(personId, h);
   }
@@ -281,7 +281,14 @@ export default async function register(demo) {
   const realEvents = account.events;
   account.events = wrap(realEvents, { forActor: async (id) => [...(await realEvents.forActor(id)), ...(history.get(id)?.events ?? [])] });
   const realTrips = account.trips;
-  account.trips = wrap(realTrips, { forDriver: async (id) => [...(await realTrips.forDriver(id)), ...(history.get(id)?.trips ?? [])] });
+  // The scorecard reads his finished trips since a time, like TripsService: completed ones by
+  // completedAt (the card's window and the rating), plus the ones he cancelled by cancelledAt.
+  const since = (at, from) => at !== null && at.getTime() >= from.getTime();
+  const pastTrips = (id, from, states) => (history.get(id)?.trips ?? []).filter((t) => states.includes(t.state) && since(t.state === 'completed' ? t.completedAt : t.cancelledAt, from));
+  account.trips = wrap(realTrips, {
+    completedForDriver: async (id, from) => [...(await realTrips.completedForDriver(id, from)), ...pastTrips(id, from, ['completed'])],
+    endedForDriver: async (id, from) => [...(await realTrips.endedForDriver(id, from)), ...pastTrips(id, from, ['completed', 'driver_cancelled'])],
+  });
   const realOrders = account.orders;
   account.orders = wrap(realOrders, {
     get: async (orderId) => {

@@ -78,10 +78,15 @@ export const NotifyPreferences = z.object({
    * is the opt-in; this switch silences all of them. Never 23:00–08:00, never on a quiet day, one a day.
    */
   dishPots: z.boolean(),
+  /**
+   * Joy r5: «تأكد رحلتك؟» for the person's own regular trips. On by default — saving the trip is the
+   * opt-in; this switch silences the pushes (the app still asks). Never 23:00–08:00, never on a quiet day.
+   */
+  regularTrips: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -98,14 +103,16 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
  * Promotional in tone: held on quiet days and before iftar (`promoHold`), deferred in quiet hours.
  * Only `marketing` counts toward the weekly offer cap; `dish_pot` is one a day by its event key.
+ * `regular_trip` (joy r5, the «تأكد رحلتك؟» reminder) follows the same quiet rules — the app still
+ * shows the occurrence to confirm when the push is held — and is never counted in the cap.
  */
-export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot']);
+export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip']);
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
@@ -125,6 +132,7 @@ export const NotifyTemplateId = z.enum([
   'courier_cash_receipt',
   'driver_pay_reply',
   'tip_received',
+  'compliment_received',
   'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
@@ -142,6 +150,7 @@ export const NotifyTemplateId = z.enum([
   'dish_pot_today',
   'household_approval',
   'month_ready',
+  'regular_trip_reminder',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -313,6 +322,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.tip_received.title', body: 'push.tip_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
     primary: ['push'],
     quietHours: 'send',
+  },
+  // «زينب قالتلك: سريع، مؤدب» (joy l4): a customer's kind words after a 4–5 rating; opens «كلام الزبائن».
+  // Held through quiet hours: nice news, never worth waking him.
+  compliment_received: {
+    id: 'compliment_received',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.compliment_received.title', body: 'push.compliment_received.body', androidChannel: 'orders', deepLink: 'driver-partner://compliments' },
+    primary: ['push'],
+    quietHours: 'defer',
   },
   driver_pay_reply: {
     id: 'driver_pay_reply',
@@ -515,12 +534,22 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'defer',
   },
+  // Joy r5: a regular trip asks the evening before (or that morning); only «أكدها» books it.
+  regular_trip_reminder: {
+    id: 'regular_trip_reminder',
+    category: 'regular_trip',
+    app: 'customer',
+    push: { title: 'push.regular_trip.title', body: 'push.regular_trip.body', androidChannel: 'orders', deepLink: 'driver://regular/{regularTripId}?date={day}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
 };
 
 /** Categories a preference can switch off, and which switch. */
 export function preferenceFor(category: NotifyCategory, channel: NotifyChannel): keyof NotifyPreferences | null {
   if (category === 'marketing') return 'marketing';
   if (category === 'dish_pot') return 'dishPots';
+  if (category === 'regular_trip') return 'regularTrips';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

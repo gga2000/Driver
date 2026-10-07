@@ -3,6 +3,7 @@ import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { Avatar, Card, DepartureTime, Icon, PlateChip, StatusPill, Text, useTheme, type StatusTone } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { apiPhoto } from '@/lib/photo';
 import type { SeatFit } from './fit';
 import { fitLabel, fitReason, seatsLeftLabel, vehicleDesc } from './labels';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, type FillTone } from './logic';
@@ -15,7 +16,26 @@ const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'acc
  * his car and plate on one line under it; then the pickup options. Two to three cars fit in the first
  * screen. The seat map lives on the seat sheet the tile opens.
  */
-export function DepartureTile({ dep, now, driver, fit, onPress }: { dep: DepartureCard; now: Date; driver?: RajaaDriverCard; /** Seats for the rider's «تسافر:» choice (r1); absent = not asked yet. */ fit?: SeatFit; onPress?: () => void }) {
+export function DepartureTile({
+  dep,
+  now,
+  driver,
+  fit,
+  onPress,
+  favourite,
+  selected,
+}: {
+  dep: DepartureCard;
+  now: Date;
+  driver?: RajaaDriverCard;
+  /** Seats for the rider's «تسافر:» choice (r1); absent = not asked yet. */
+  fit?: SeatFit;
+  onPress?: () => void;
+  /** Joy l9: the driver is one of the rider's favourites («سايقك المفضل»). */
+  favourite?: boolean;
+  /** The car chosen on a regular trip's «أكدها» (joy r5): the tile shows it picked. */
+  selected?: boolean;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -29,7 +49,14 @@ export function DepartureTile({ dep, now, driver, fit, onPress }: { dep: Departu
   const name = driver?.firstName ?? t('rajaa.driver_unnamed');
 
   return (
-    <Card testID={`departure-${dep.id}`} padding={4} elevation={1} onPress={onPress} accessibilityLabel={`${t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })}، ${pill}، ${name}`}>
+    <Card
+      testID={`departure-${dep.id}`}
+      padding={4}
+      elevation={1}
+      tone={selected ? 'tint' : 'surface'}
+      onPress={onPress}
+      accessibilityLabel={[t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) }), pill, name, favourite ? t('habits.fav_badge_long') : null].filter(Boolean).join('، ')}
+    >
       <View style={{ gap: theme.space[3] }}>
         {/* Time · seats for you · price: the three things a rider scans for. */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
@@ -49,13 +76,14 @@ export function DepartureTile({ dep, now, driver, fit, onPress }: { dep: Departu
 
         {/* سايقك on one line: initial (verified ring), first name and car, the plate never clipped (R-08). */}
         <View testID={`departure-driver-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Avatar name={name} uri={driver?.photoUrl ?? undefined} size={36} ring={Boolean(driver?.verifiedTodayAt)} {...(driver?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
+          <Avatar name={name} uri={apiPhoto(driver?.photoUrl) ?? undefined} size={36} ring={Boolean(driver?.verifiedTodayAt)} {...(driver?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text variant="label" weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {name}
               </Text>
               {driver?.verifiedTodayAt ? <Icon name="shield" size={13} color="successText" strokeWidth={2.2} accessibilityLabel={t('trip.verified_today')} /> : null}
+              {favourite ? <StatusPill testID={`departure-fav-${dep.id}`} size="sm" tone="accent" icon="heart" label={t('habits.fav_badge')} /> : null}
             </View>
             <Text variant="caption" color="textMuted" numberOfLines={1}>
               {vehicleDesc(t, dep.vehicle)}

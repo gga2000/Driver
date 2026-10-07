@@ -28,6 +28,7 @@ import {
   type ScorecardView,
   type SetMainPhotoInput,
   type ShiftSummary,
+  type CourierCompliments,
   type SubmitCheckInInput,
   type UploadDocumentInput,
 } from '@driver/contracts';
@@ -39,9 +40,9 @@ import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { LedgerFacade } from '../ledger/index.js';
-import { OrdersService } from '../orders/index.js';
+import { OrderComplimentsService, OrdersService } from '../orders/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
-import { nudgesFor, OBSERVATION_DAYS, reliabilityCard } from '../scoring/index.js';
+import { deliveryRatings, nudgesFor, OBSERVATION_DAYS, reliabilityCard, RELIABILITY_WINDOW_DAYS } from '../scoring/index.js';
 import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
 import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, type DriverAccountRepository } from './driver-account.repository.js';
@@ -160,6 +161,8 @@ export class DriverAccountService implements DriverAccountPort {
     @Optional() private readonly support?: SupportService,
     /** The city's pricing rules, for the night / wait reasons on a receipt. */
     @Optional() private readonly config?: ConfigService,
+    /** Joy l4: customers' kind words (the orders module's compliments); absent in tests that don't need them. */
+    @Optional() private readonly kindWords?: OrderComplimentsService,
   ) {
     this.codes = new HandoverCodes(secret);
   }
@@ -235,16 +238,18 @@ export class DriverAccountService implements DriverAccountPort {
 
   async scorecardFor(driverId: string, backOffice = false): Promise<ScorecardView> {
     const now = this.clock.now();
-    const [events, trips, cash] = await Promise.all([
+    // His finished trips of the window (completed, or cancelled after accepting): a trip accepted in
+    // the window ends in it too. `forDriver` would give only the unfinished ones.
+    const [events, trips, ratings, cash] = await Promise.all([
       this.events.forActor(driverId),
-      this.trips.forDriver(driverId),
+      this.trips.endedForDriver(driverId, new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS)),
+      deliveryRatings({ trips: this.trips, orders: this.orders }, driverId, now),
       this.ledger.driverLedger({ driverId, from: new Date(now.getTime() - 15 * DAY_MS) }).then((v) => v.cash.lines),
     ]);
     const firstActiveAt = events.length > 0 ? new Date(Math.min(...events.map((e) => e.occurredAt.getTime()))) : now;
     const dayNumber = Math.floor((now.getTime() - firstActiveAt.getTime()) / DAY_MS) + 1;
     const visibleFrom = new Date(firstActiveAt.getTime() + OBSERVATION_DAYS * DAY_MS);
     const observation = dayNumber <= OBSERVATION_DAYS;
-    const ratings = await this.deliveryRatings(trips);
     const card = reliabilityCard(
       {
         events,
@@ -266,32 +271,12 @@ export class DriverAccountService implements DriverAccountPort {
       index: show ? card.index : null,
       tier: show ? (observation ? 'bronze' : card.tier) : null,
       completedTrips: card.completedTrips,
-      windowDays: 14,
+      windowDays: RELIABILITY_WINDOW_DAYS,
       metrics: show ? card.metrics : [],
       nudges,
       // Scoring §1: consequences the following Sunday, never the same day; none in month 1.
       consequencesFrom: !observation && nudges.length > 0 ? nextLocalSunday(now) : null,
     };
-  }
-
-  /** Delivery scores customers gave on his trips' orders, newest trips first, enough for the last 50. */
-  private async deliveryRatings(trips: Awaited<ReturnType<TripsService['forDriver']>>): Promise<Array<{ score: number; at: Date }>> {
-    const out: Array<{ score: number; at: Date }> = [];
-    const ordered = [...trips].sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
-    for (const t of ordered) {
-      if (out.length >= 50) break;
-      if (t.state !== 'completed') continue;
-      for (const link of t.orders) {
-        try {
-          const order = await this.orders.get(link.orderId);
-          const score = order.rating?.delivery;
-          if (score) out.push({ score, at: order.rating!.ratedAt });
-        } catch {
-          // an order the orders module no longer knows contributes nothing
-        }
-      }
-    }
-    return out;
   }
 
   // ───────────────────────── documents ─────────────────────────
@@ -569,12 +554,13 @@ export class DriverAccountService implements DriverAccountPort {
     const day = localPeriod('day', to);
     // Ledger reads are [from, to): one minute past `to` keeps a job posted in the same instant.
     const until = new Date(to.getTime() + 60_000);
-    const [shiftView, dayView, card, tomorrow, guarantee] = await Promise.all([
+    const [shiftView, dayView, card, tomorrow, guarantee, compliments] = await Promise.all([
       this.ledger.driverLedger({ driverId, from, to: until }),
       this.ledger.driverLedger({ driverId, from: day.from, to: until }),
       this.scorecardFor(driverId).catch(() => null),
       this.busiestTomorrow(now),
       this.shiftGuarantees(driverId, from, until),
+      this.kindWords ? this.kindWords.countsBetween(driverId, from, until) : Promise.resolve([]),
     ]);
     const shift = composeEarnings(shiftView, 'day', { from, to }, AZIZIYAH_MONEY_RULES);
     const today = composeEarnings(dayView, 'day', { from: day.from, to }, AZIZIYAH_MONEY_RULES);
@@ -595,7 +581,14 @@ export class DriverAccountService implements DriverAccountPort {
       // Shift-end carries a single nudge, never a list (audit S-4); none in the first 30 days.
       nudge: card && card.visible && !card.observation ? (card.nudges[0] ?? null) : null,
       guarantee,
+      compliments,
     };
+  }
+
+  /** «كلام الزبائن» (joy l4): his own compliments, counted and the latest (never who said them). */
+  async compliments(actor: Actor): Promise<CourierCompliments> {
+    if (!this.kindWords) return { customers: 0, counts: [], recent: [] };
+    return this.kindWords.courierView(actor.personId);
   }
 
   /** G-91: the guarantee shifts his work shift overlapped (none when the guarantee does not cover him). */

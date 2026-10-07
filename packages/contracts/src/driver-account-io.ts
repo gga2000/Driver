@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Iqd } from './common.js';
 import type { Actor } from './identity-io.js';
+import { ComplimentCount, type CourierCompliments } from './order-compliment.js';
 import { LedgerEventType } from './ledger.js';
 import { CapRole, CapTier } from './ledger-rules.js';
 
@@ -395,6 +396,8 @@ export const ShiftSummary = z.object({
   nudge: ScoreNudge.nullable(),
   /** G-91: the peak shifts this shift overlapped, oldest first (empty when the guarantee does not cover him). */
   guarantee: z.array(GuaranteeWindowView).default([]),
+  /** Joy l4: the kind words customers picked for him during the shift, most said first (empty: none). */
+  compliments: z.array(ComplimentCount).default([]),
 });
 export type ShiftSummary = z.infer<typeof ShiftSummary>;
 
@@ -504,6 +507,8 @@ export type PayQueryResult = z.infer<typeof PayQueryResult>;
 export interface DriverAccountPort {
   guarantee(actor: Actor): Promise<GuaranteeView>;
   shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
+  /** «كلام الزبائن» (joy l4): his compliments counted and the latest ones. */
+  compliments(actor: Actor): Promise<CourierCompliments>;
   jobReceipt(actor: Actor, input: z.output<typeof JobReceiptInput>): Promise<JobReceipt>;
   payQuery(actor: Actor, input: z.output<typeof PayQueryInput>): Promise<PayQueryResult>;
   earnings(actor: Actor, input: z.output<typeof EarningsInput>): Promise<EarningsView>;

@@ -25,6 +25,8 @@
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
+//   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
+//                                                                     a booked ride, «عشاك يوصل وياك»
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -201,7 +203,11 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
-// Scenarios: preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
+// Scenarios: kitchen · preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
+// Joy J5b: `kitchen` = the kitchen said yes, not cooking yet, no courier; then
+//   POST /demo/track/kitchen?orderId=…&step=preparing|ready   the kitchen's next button (kitchen strip, l3)
+//   POST /demo/track/assign?orderId=…[&rated=1]                a courier with a photo takes it now (driver reveal, l2)
+// `&rated=1` on any scenario gives its courier six rated past deliveries (the card's ★ rating).
 // `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
 // `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
 // read (or the sweep) sends the one "آسفين، طلبك تأخر شوية" push and the banner says sorry;
@@ -259,7 +265,7 @@ function metres(a, b) {
   return Math.hypot(dx, (b.lat - a.lat) * k);
 }
 
-async function newCourier(at) {
+async function newCourier(at, { photo = null } = {}) {
   courierSeq += 1;
   const phone = `07712${String(340000 + courierSeq).padStart(6, '0')}`;
   await identity.requestOtp({ phone, purpose: 'login' });
@@ -268,7 +274,7 @@ async function newCourier(at) {
   await identity.grantRole({ personId: 'system:demo' }, { personId: courierId, kind: 'courier' });
   await identity.setName({ personId: courierId, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
   // Every other courier has his approved photo; the rest show the initial (the fallback).
-  if (courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
+  if (photo ?? courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
   vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length], label: null });
   await dispatch.presence.online(courierId, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
   return courierId;
@@ -319,7 +325,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -342,17 +348,41 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
-  await orders.markPreparing('demo-staff', { orderId: placed.id });
+  if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
 }
 
 /** Dispatcher hands the trip to the courier; he accepts through dispatch (the real path). */
-async function assign(orderId, courierId) {
+async function assign(orderId, courierId, { force = false } = {}) {
   const trip = await trips.activeForOrder(orderId);
   if (!trip) throw new Error(`no trip for ${orderId}`);
-  const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: courierId, reason: 'demo' });
+  const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: courierId, reason: 'demo', ...(force ? { force: true } : {}) });
   await dispatch.respond({ personId: courierId, sessionId: 'demo' }, { offerId, accept: true });
   return trip.id;
+}
+
+/**
+ * Joy l2: past deliveries for a courier, each rated by a different customer, so his card carries the
+ * rating customers see (shown from 5 ratings). `force` lets a taxi/tuktuk driver carry them (demo only).
+ */
+let raterSeq = 0;
+async function ratedHistory(courierId, { scores = [5, 5, 4, 5, 5, 5], force = false } = {}) {
+  for (const score of scores) {
+    raterSeq += 1;
+    const personId = `demo-rater-${raterSeq}`;
+    const placed = await orders.place(personId, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines: [{ catalogItemId: khalid.itemIds.get('liver_plate'), qty: 1 }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: HOME } });
+    await accept(placed.id);
+    const tripId = await assign(placed.id, courierId, { force });
+    await orders.markReady('demo-staff', { orderId: placed.id });
+    const pickup = await stopOf(tripId, 'pickup');
+    await trips.arrive(tripId, pickup.id, courierId, { pin: kitchen });
+    await trips.completeStop(tripId, pickup.id, courierId);
+    const drop = await stopOf(tripId, 'dropoff');
+    await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+    const o = await orders.get(placed.id);
+    await trips.completeStop(tripId, drop.id, courierId, { handover: { cashCollectedIqd: o.totalIqd } });
+    await orders.rate(personId, { orderId: placed.id, delivery: score, food: 5 });
+  }
 }
 
 async function stopOf(tripId, type) {
@@ -425,12 +455,20 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'kitchen') {
+    // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
+    // the kitchen on, /demo/track/assign brings the courier (the reveal plays on an open screen).
+    const orderId = await placeAccepted(personId, 20, undefined, opts.tender ?? null, { cooking: false });
+    demos.set(orderId, { tripId: null, courierId: null, step: 'kitchen', door: null, noChange: false });
+    return { orderId };
+  }
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
   const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
+  if (opts.rated) await ratedHistory(courierId);
   const tripId = await assign(orderId, courierId);
   const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(opts.noChange) };
   demos.set(orderId, d);
@@ -473,7 +511,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
@@ -482,6 +520,27 @@ app.use('/demo/track', async (req, res) => {
     if (req.method !== 'POST') {
       res.statusCode = 405;
       res.end('{"error":"POST"}');
+      return;
+    }
+    if (url.pathname.endsWith('/kitchen')) {
+      // Joy l3: the kitchen presses its next button — «بدأنا» (preparing) or «جاهز» (ready).
+      const orderId = url.searchParams.get('orderId');
+      const step = url.searchParams.get('step') ?? 'preparing';
+      if (step === 'ready') await orders.markReady('demo-staff', { orderId });
+      else await orders.markPreparing('demo-staff', { orderId });
+      res.end(JSON.stringify({ orderId, state: (await orders.get(orderId)).state }));
+      return;
+    }
+    if (url.pathname.endsWith('/assign')) {
+      // Joy l2: a courier (with his approved photo; `rated=1` → six rated past deliveries) takes the order now.
+      const orderId = url.searchParams.get('orderId');
+      const courierId = await newCourier(TO_KITCHEN[0], { photo: true });
+      if (url.searchParams.get('rated') === '1') await ratedHistory(courierId);
+      const tripId = await assign(orderId, courierId);
+      const d = demos.get(orderId) ?? { door: null, noChange: false };
+      demos.set(orderId, { ...d, tripId, courierId, step: 'preparing' });
+      await startMover(tripId, courierId, TO_KITCHEN, 30);
+      res.end(JSON.stringify({ orderId, tripId, courierId }));
       return;
     }
     if (url.pathname.endsWith('/advance')) {
@@ -499,7 +558,8 @@ app.use('/demo/track', async (req, res) => {
     const tender = Number(url.searchParams.get('tender') ?? 0) || null;
     const noChange = url.searchParams.get('nochange') === '1';
     const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin })) }));
+    const rated = url.searchParams.get('rated') === '1';
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin, rated })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));
@@ -1408,6 +1468,9 @@ const rajaa = await (async () => {
     await giveMainPhoto(id, `ride:${def.name}`);
     vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
+    // Joy l2: riders see his rating on the reveal (six rated past jobs; demo only).
+    if (process.env.DEMO_RIDE_RATED !== "0") await ratedHistory(id, { force: true });
+    await dispatch.presence.heartbeat(id, def.at).catch(() => undefined);
     return { id, def, pos: { ...def.at }, tripId: null };
   }
 
@@ -1509,6 +1572,163 @@ const rajaa = await (async () => {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
   });
+
+  // ───────────────────────── joy J7d: ride habits ─────────────────────────
+  //   POST /demo/ride-habits?personId=…   → {regularRideId, rideDate, regularRajaaId, rajaaDate, bookedOrderId, rajaaBookingId}
+  // Home and الدائرة saved (when missing); two taxi rides finished today, both rated 5 — حسين علي kept as
+  // a favourite, مصطفى جاسم offered as «خليه سايقك المفضل؟»; a الرجعة from Kut with جاسم rated 5 and kept,
+  // whose next car to Kut leaves the Gate 1 garage in about 75 minutes; two regular trips asking now —
+  // البيت ← الدائرة every day about 3 hours from now (with حسين), Aziziyah → Kut about an hour from now
+  // (with جاسم) — and the work trip's next day already booked (a ride for later, حسين asked first).
+  //   POST /demo/dinner?personId=…[&kind=rajaa]   → {orderId} | {bookingId}
+  // «عشاك يوصل وياك»: a taxi from الدائرة to البيت on the trip now (home and checkout offer dinner), or
+  // with kind=rajaa a seat from Kut to Aziziyah leaving in 30 minutes (its pass offers dinner).
+  {
+    const { RideHabitsService } = await load('modules/ride-habits/index.js');
+    const { DeparturesService: J7Departures, RoutesRpc: J7Routes } = await load('modules/routes/index.js');
+    const { SavedPlacesService: J7Places } = await load('modules/places/index.js');
+    const habits = app.get(RideHabitsService);
+    const j7deps = app.get(J7Departures);
+    const j7routes = app.get(J7Routes);
+    const j7places = app.get(J7Places);
+    const WORK = { lat: 32.9139, lng: 45.0603 };
+    const MIN = 60_000;
+    const MIN5 = 5 * MIN;
+    const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
+    const actor = (personId) => ({ personId, sessionId: 'demo' });
+    const at5 = (ms) => new Date(Math.ceil(ms / MIN5) * MIN5);
+    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+    const point = (p) => ({ zoneKey: p.zoneId, pin: p.pin, placeId: p.id });
+    /** Baghdad minutes since midnight of an instant. */
+    const minuteOfDay = (d) => {
+      const local = new Date(d.getTime() + 3 * 3_600_000);
+      return local.getUTCHours() * 60 + local.getUTCMinutes();
+    };
+    const nextDate = (date) => new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+    async function homeAndWork(personId) {
+      const mine = await j7places.mine(personId);
+      const home = mine.find((p) => p.label === 'home') ?? (await j7places.save(personId, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: HOME, photoIds: [], shareWithHousehold: false, clientRef: 'demo-j7d-home' }));
+      const work = mine.find((p) => p.label === 'work') ?? (await j7places.save(personId, { cityId: 'aziziyah', label: 'work', name: 'الدائرة', pin: WORK, photoIds: [], shareWithHousehold: false, clientRef: 'demo-j7d-work' }));
+      return { home, work };
+    }
+
+    /** A ride with that demo driver, driven to the end and rated. */
+    async function finishedRide(personId, driverName, from, to, stars) {
+      const d = (await ensureDrivers()).find((x) => x.def.name === driverName && !x.tripId);
+      if (!d) throw new Error(`demo driver ${driverName} is busy`);
+      const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: d.def.vehicle === 'tuktuk' ? 'tuktuk' : 'taxi', pickup: point(from), dropoff: point(to), paymentMethod: 'cash' });
+      const trip = await trips.activeForOrder(ride.id);
+      const { offerId } = await dispatch.override(dispatcher, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true });
+      await acceptOffer(d, offerId);
+      for (let i = 0; i < 3; i += 1) await advanceRide(ride.id);
+      await orders.rate(personId, { orderId: ride.id, delivery: stars });
+      return ride.id;
+    }
+
+    let j7seq = 0;
+    /** A named الرجعة driver with an approved photo (a fresh one per call: runs may not overlap). */
+    async function namedRajaaDriver(name) {
+      j7seq += 1;
+      const phone = `07716${String(770000 + j7seq).padStart(6, '0')}`;
+      await identity.requestOtp({ phone, purpose: 'login' });
+      const { code } = await identity.devLastOtp(phone);
+      const id = (await identity.verifyOtp({ phone, code })).personId;
+      await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'intercity_driver' });
+      await identity.setName({ personId: id, sessionId: 'demo' }, name);
+      await giveMainPhoto(id, `rajaa:j7d:${j7seq}`);
+      return id;
+    }
+
+    /** A whole Kut → Aziziyah trip with that driver, arrived and rated 5. */
+    async function rajaaTripDone(personId, driverId) {
+      const departAt = at5(Date.now() + 10 * MIN);
+      const dep = await j7deps.announce(driverId, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+      const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await j7deps.book(personId, held.id, 'cash');
+      await j7deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+      for (const seatId of ['front', 'back_left', 'back_middle']) await j7deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
+      await j7deps.checkIn(driverId, dep.id, booked.pin);
+      await j7deps.depart(driverId, dep.id);
+      await j7deps.arrive(driverId, dep.id);
+      await j7routes.rateBooking(actor(personId), { bookingId: booked.id, stars: 5, tags: [] });
+      return booked.id;
+    }
+
+    app.use('/demo/ride-habits', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/ride-habits?personId=…' });
+        const a = actor(personId);
+        const { home, work } = await homeAndWork(personId);
+        const first = await finishedRide(personId, 'حسين علي', home, work, 5);
+        await habits.favourite(a, { orderId: first, on: true });
+        await finishedRide(personId, 'مصطفى جاسم', work, home, 5);
+        const jasim = await namedRajaaDriver('جاسم محمد');
+        const rajaaBookingId = await rajaaTripDone(personId, jasim);
+        const favs = await habits.favourite(a, { bookingId: rajaaBookingId, on: true });
+        const next = at5(Date.now() + 75 * MIN);
+        await j7deps.announce(jasim, { garageId: 'mp_garage_bab1', corridorId: 'aziziyah_kut', departAt: next, latestDepartureAt: new Date(next.getTime() + 30 * MIN), vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+        const favTaxi = favs.find((f) => f.kinds.includes('taxi')) ?? null;
+        const favRajaa = favs.find((f) => f.kinds.includes('intercity')) ?? null;
+        const everyDay = [0, 1, 2, 3, 4, 5, 6];
+        const rideTrip = await habits.regularSave(a, {
+          days: everyDay,
+          timeMin: minuteOfDay(at5(Date.now() + 3 * 3_600_000)),
+          remind: 'evening',
+          paymentMethod: 'cash',
+          favouriteId: favTaxi?.id ?? null,
+          active: true,
+          plan: { kind: 'ride', rideVertical: 'taxi', pickup: { ...point(home), label: home.name }, dropoff: { ...point(work), label: work.name }, doorPickup: false },
+        });
+        const rajaaTrip = await habits.regularSave(a, {
+          days: everyDay,
+          timeMin: minuteOfDay(at5(Date.now() + 60 * MIN)),
+          remind: 'evening',
+          paymentMethod: 'cash',
+          favouriteId: favRajaa?.id ?? null,
+          active: true,
+          plan: { kind: 'rajaa', corridorId: 'aziziyah_kut', direction: 'from_aziziyah', garageId: 'mp_garage_bab1', travellingAs: 'rijal' },
+        });
+        // The work trip's next day, booked already: a ride for later with حسين asked first.
+        const bookDate = nextDate(rideTrip.next.date);
+        const occ = await habits.occurrence(a, { id: rideTrip.id, date: bookDate });
+        const booked = await habits.confirm(a, { id: rideTrip.id, date: bookDate, fareIqd: occ.ride.fareIqd, clientRequestId: `demo-j7d-${Date.now().toString(36)}` });
+        json(res, 200, { regularRideId: rideTrip.id, rideDate: rideTrip.next.date, regularRajaaId: rajaaTrip.id, rajaaDate: rajaaTrip.next.date, bookedOrderId: booked.occurrence.orderId, rajaaBookingId });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+
+    app.use('/demo/dinner', async (req, res) => {
+      try {
+        const url = new URL(req.url ?? '/', 'http://x');
+        const personId = url.searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/dinner?personId=…[&kind=rajaa]' });
+        const { home, work } = await homeAndWork(personId);
+        if (url.searchParams.get('kind') === 'rajaa') {
+          const driverId = await namedRajaaDriver('ليث حسن');
+          const departAt = at5(Date.now() + 30 * MIN);
+          const dep = await j7deps.announce(driverId, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('60412 واسط', 'كامري', 'بيضاء'), familyOnly: false });
+          const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+          const booked = await j7deps.book(personId, held.id, 'cash');
+          return json(res, 200, { bookingId: booked.id });
+        }
+        // Not the two drivers /demo/ride-habits rides with, so both hooks can run in any order.
+        const d = (await ensureDrivers()).find((x) => !x.tripId && x.def.vehicle === 'car' && !['حسين علي', 'مصطفى جاسم'].includes(x.def.name));
+        if (!d) throw new Error('no free demo taxi');
+        const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', pickup: point(work), dropoff: point(home), paymentMethod: 'cash' });
+        const trip = await trips.activeForOrder(ride.id);
+        const { offerId } = await dispatch.override(dispatcher, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true });
+        await acceptOffer(d, offerId);
+        await advanceRide(ride.id); // at the pickup
+        await advanceRide(ride.id); // on the trip, driving home
+        json(res, 200, { orderId: ride.id });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+  }
 }
 
 // ───────────────────────── joy J7b: gifts and invitations ─────────────────────────

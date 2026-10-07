@@ -7,6 +7,7 @@ import {
   latePromiseTerms,
   MIN_PER_EARLIER_DROP,
   positionVisible,
+  publicCourierRating,
   type Actor,
   type CourierCard,
   type CourierPosition,
@@ -60,6 +61,13 @@ export interface TrackingIdentityPort {
   /** `photoRef`: the storage ref of his APPROVED main photo (Ali, 2026-10-06); absent/null = his initial. */
   courierCard(courierId: string, accessorId: string): Promise<{ firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null }>;
 }
+/**
+ * The delivery scores customers gave a courier/driver (joy l2): the card's public rating is
+ * `publicCourierRating` of them (newest 50, shown from 5).
+ */
+export interface TrackingRatingsPort {
+  courierScores(courierId: string): Promise<Array<{ score: number; at: Date }>>;
+}
 /** Signs a short-lived read URL for a stored photo (the places module's blob store). */
 export interface TrackingPhotosPort {
   readUrl(ref: string): string;
@@ -100,6 +108,7 @@ export const TRACKING_IDENTITY = Symbol('TRACKING_IDENTITY');
 export const TRACKING_MERCHANTS = Symbol('TRACKING_MERCHANTS');
 export const TRACKING_POINTS = Symbol('TRACKING_POINTS');
 export const TRACKING_PHOTOS = Symbol('TRACKING_PHOTOS');
+export const TRACKING_RATINGS = Symbol('TRACKING_RATINGS');
 
 /** Asia/Baghdad is UTC+3 all year (no DST). */
 const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -156,7 +165,7 @@ export function lateApologyDue(
  */
 @Injectable()
 export class TrackingService implements TrackingPort {
-  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null }>();
+  private readonly cards = new Map<string, { firstName: string | null; lastVerifiedAt: Date | null; photoRef?: string | null; rating: { rating: number; count: number } | null }>();
 
   constructor(
     @Inject(TRACKING_ORDERS) private readonly orders: TrackingOrdersPort,
@@ -171,6 +180,8 @@ export class TrackingService implements TrackingPort {
     @Optional() @Inject(TRACKING_LATE_APOLOGY) private readonly lateApology: TrackingLateApologyPort | null = null,
     /** Signs the approved main photo's URL on the courier card; without it the card has no photo. */
     @Optional() @Inject(TRACKING_PHOTOS) private readonly photos: TrackingPhotosPort | null = null,
+    /** Customers' delivery scores for the card's public rating (joy l2); without it the card has none. */
+    @Optional() @Inject(TRACKING_RATINGS) private readonly ratings: TrackingRatingsPort | null = null,
   ) {}
 
   private readonly logger = new Logger(TrackingService.name);
@@ -600,7 +611,8 @@ export class TrackingService implements TrackingPort {
     const key = `${trip.id}:${courierId}:${readerId}`;
     let who = this.cards.get(key);
     if (!who) {
-      who = await this.identity.courierCard(courierId, readerId);
+      const [card, scores] = await Promise.all([this.identity.courierCard(courierId, readerId), this.ratings ? this.ratings.courierScores(courierId) : Promise.resolve([])]);
+      who = { ...card, rating: publicCourierRating(scores) };
       if (this.cards.size >= CARD_CACHE_MAX) this.cards.delete(this.cards.keys().next().value!);
       this.cards.set(key, who);
     }
@@ -610,9 +622,9 @@ export class TrackingService implements TrackingPort {
       vehicleClass: vehicle?.vehicleClass ?? defaultVehicle(trip.vertical),
       plate: vehicle?.plate ?? null,
       vehicleLabel: vehicle?.label ?? null,
-      // TODO(scoring): customer-facing courier rating; the scoring module keeps internal scores only.
-      rating: null,
-      ratingCount: 0,
+      // Joy l2: what customers said about his deliveries (newest 50, only from 5 ratings).
+      rating: who.rating?.rating ?? null,
+      ratingCount: who.rating?.count ?? 0,
       verifiedTodayAt: who.lastVerifiedAt && sameBaghdadDay(who.lastVerifiedAt, now) ? who.lastVerifiedAt : null,
       // Only the approved main photo, signed when the card is built (the cache keeps the ref, not the URL).
       photoUrl: who.photoRef && this.photos ? this.photos.readUrl(who.photoRef) : null,

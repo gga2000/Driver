@@ -11,6 +11,8 @@ import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
+import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
+import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
@@ -145,6 +147,12 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />
         <Stack.Screen name="ride/pin" options={{ headerShown: false }} />
         <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
+        {/* Joy J7d: a ride booked for later waits here until its search starts; regular trips; favourite drivers. */}
+        <Stack.Screen name="ride/booked/[id]" options={{ title: t('habits.booked_title'), headerLeft: () => <HeaderBack fallback="/orders" /> }} />
+        <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
+        <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        <Stack.Screen name="drivers" options={{ title: t('habits.fav_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* SOS: the emergency contact's live-location page (public, signed token). */}
@@ -160,6 +168,10 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
       </Stack>
       {/* الرجعة boarding pass on the lock screen from T−30 (audit d-8; Android). */}
       {lockScreenPassSupported ? <LockScreenPass /> : null}
+      {/* The live order or ride on the lock screen (joy l1; Android). */}
+      {lockScreenOrderSupported ? <LockScreenOrder /> : null}
+      {/* Long-press shortcuts on the app icon (joy t1). */}
+      {Platform.OS === 'web' ? null : <QuickActionsSync />}
       {ready && !fontsPending ? null : <Splash />}
     </View>
   );

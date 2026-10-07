@@ -28,6 +28,8 @@ import { MerchantDealsPromotions } from './promotions.adapter.js';
 import { ORDERS_PROMOTIONS, type PromotionsPort } from './promotions.port.js';
 import { OrdersStorefrontMerchants } from './storefront.port.js';
 import { OrderTipsService } from './tips.js';
+import { OrderComplimentsService } from './compliments.js';
+import { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, PrismaOrderComplimentsRepository, type OrderComplimentsRepository } from './compliments.repository.js';
 import { ReferralsModule, ReferralsService } from '../referrals/index.js';
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
@@ -101,9 +103,16 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     OrdersService,
     // «تحب تكرم عباس؟»: the tip after a 4–5 rating, wallet → driver (docs/api/tips.md).
     OrderTipsService,
+    // «شنو عجبك بـ حيدر؟» (joy l4): kind words for the courier after a 4–5 rating; no money.
+    {
+      provide: ORDER_COMPLIMENTS_REPOSITORY,
+      useFactory: (prisma: PrismaService): OrderComplimentsRepository => (prisma.configured ? new PrismaOrderComplimentsRepository(prisma) : new InMemoryOrderComplimentsRepository()),
+      inject: [PrismaService],
+    },
+    OrderComplimentsService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService],
+  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);

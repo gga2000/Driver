@@ -16,14 +16,16 @@ type PrefKey = keyof NotifyPreferences;
 
 const PUSH_ROWS: ReadonlyArray<{
   key: PrefKey;
-  icon: 'bag' | 'chat' | 'gift' | 'bell';
-  title: 'notify.pref.order_updates' | 'notify.pref.chat' | 'notify.pref.marketing' | 'notify.pref.dish_pots';
-  hint: 'notify.pref.order_updates_hint' | 'notify.pref.chat_hint' | 'notify.pref.marketing_hint' | 'notify.pref.dish_pots_hint';
+  icon: 'bag' | 'chat' | 'gift' | 'bell' | 'refresh';
+  title: 'notify.pref.order_updates' | 'notify.pref.chat' | 'notify.pref.marketing' | 'notify.pref.dish_pots' | 'notify.pref.regular_trips';
+  hint: 'notify.pref.order_updates_hint' | 'notify.pref.chat_hint' | 'notify.pref.marketing_hint' | 'notify.pref.dish_pots_hint' | 'notify.pref.regular_trips_hint';
 }> = [
   { key: 'orderUpdates', icon: 'bag', title: 'notify.pref.order_updates', hint: 'notify.pref.order_updates_hint' },
   { key: 'chat', icon: 'chat', title: 'notify.pref.chat', hint: 'notify.pref.chat_hint' },
   // Joy h2: dishes the person follows, on the day a kitchen cooks them (on by default; following is the opt-in).
   { key: 'dishPots', icon: 'bell', title: 'notify.pref.dish_pots', hint: 'notify.pref.dish_pots_hint' },
+  // Joy r5: «تأكد رحلتك؟» for his own regular trips (on by default; saving the trip is the opt-in).
+  { key: 'regularTrips', icon: 'refresh', title: 'notify.pref.regular_trips', hint: 'notify.pref.regular_trips_hint' },
   { key: 'marketing', icon: 'gift', title: 'notify.pref.marketing', hint: 'notify.pref.marketing_hint' },
 ];
 
@@ -66,7 +68,7 @@ export default function NotificationSettings() {
     );
   };
 
-  const row = (r: { key: PrefKey; icon: 'bag' | 'chat' | 'gift' | 'bell' | 'receipt' | 'phone'; title: Parameters<typeof t>[0]; hint: Parameters<typeof t>[0] }, divider: boolean) => (
+  const row = (r: { key: PrefKey; icon: 'bag' | 'chat' | 'gift' | 'bell' | 'receipt' | 'phone' | 'refresh'; title: Parameters<typeof t>[0]; hint: Parameters<typeof t>[0] }, divider: boolean) => (
     <ListRow
       key={r.key}
       testID={`pref-${r.key}`}

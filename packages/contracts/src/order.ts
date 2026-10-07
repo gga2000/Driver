@@ -3,6 +3,7 @@ import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { AppliedDiscount } from './deals.js';
 import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
+import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
@@ -120,8 +121,18 @@ export const PlaceOrderInput = z.object({
   pickup: DeliveryPoint.optional(),
   /** Where the courier delivers (the customer's saved place: zone key + pin). Dispatch builds the courier trip from it. */
   dropoff: DeliveryPoint.optional(),
-  /** Scheduled orders are offered to the merchant at T − prep − 10 min (edge-case review A.12). */
+  /**
+   * Scheduled orders are offered to the merchant at T − prep − 10 min (edge-case review A.12). A ride
+   * booked for later (joy J7d) is 20 min – 7 days ahead (`ride_schedule_invalid`), priced at its time,
+   * and dispatch starts looking 15 min before.
+   */
   scheduledFor: z.coerce.date().optional(),
+  /**
+   * Joy l9: a ride booked for later may ask for one of the rider's favourite drivers (the favourite's
+   * id from `rideHabits.favourites`). He gets the job alone for a minute when the search starts, then
+   * dispatch carries on as always. Refused on a ride for now (`favourite_needs_schedule`).
+   */
+  favouriteId: z.string().min(1).optional(),
   /** For the kitchen ("بدون بصل", an allergy): the merchant's card and receipt show it. */
   note: z.string().max(500).optional(),
   /**
@@ -296,6 +307,8 @@ export const Order = z.object({
   heldForPayer: z.boolean().optional(),
   /** J5a «للسفرة»: placed with dishes for the family table. */
   familyTable: z.boolean().optional(),
+  /** Joy l9: the favourite driver this ride booked for later asked for; null/absent = anyone. */
+  preferredDriverId: z.string().nullable().optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */
@@ -469,6 +482,10 @@ export interface OrdersPort {
   tipOptions(actor: Actor, input: { orderId: string }): Promise<TipOffer>;
   /** The tip after the rating, from his wallet to the driver: once per order (a replay of the same amount returns it). */
   tip(actor: Actor, input: TipOrderInput): Promise<TipResult>;
+  /** «شنو عجبك بـ حيدر؟» (joy l4): whether the compliment chips show after the rating, and which. */
+  complimentOptions(actor: Actor, input: { orderId: string }): Promise<ComplimentOffer>;
+  /** The kind words for the courier/driver, once per order (a replay returns the first). No money. */
+  compliment(actor: Actor, input: ComplimentInput): Promise<ComplimentResult>;
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
   /** «أني نازل» while the courier waits at the door (J-D8). The orderer or a participant only. */
   comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult>;

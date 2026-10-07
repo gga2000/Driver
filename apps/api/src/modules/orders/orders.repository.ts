@@ -84,6 +84,8 @@ export interface OrderRecord {
   heldForPayer?: boolean;
   /** J5a «للسفرة»: placed with dishes for the family table (`orders.family_table`). */
   familyTable?: boolean;
+  /** Joy l9: the favourite driver a ride booked for later asked for (`orders.preferred_driver_id`). */
+  preferredDriverId?: string | null;
 }
 
 /** `orders.discount_meta`: the applied discount without its amount and promotion id (those are columns). */
@@ -290,6 +292,7 @@ function orderFromRow(r: any): OrderRecord {
     rating: ratingFromJson(r.rating),
     heldForPayer: r.heldForPayer ?? false,
     familyTable: r.familyTable ?? false,
+    preferredDriverId: r.preferredDriverId ?? null,
   };
 }
 

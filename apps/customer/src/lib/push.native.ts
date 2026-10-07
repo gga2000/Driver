@@ -4,6 +4,9 @@ import { Linking, Platform } from 'react-native';
 import { ANDROID_CHANNELS } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { momentBehavior } from './moment-sound';
+
+/** `data.kind` of the live order card (`features/track/lockscreen/ongoing.native.ts`). */
+const LIVE_ORDER_KIND = 'live_order';
 import type { PushData, PushDevice, PushPermission, PushToken } from './push';
 
 export type { PushData, PushDevice, PushPermission, PushToken } from './push';
@@ -13,7 +16,12 @@ export type { PushData, PushDevice, PushPermission, PushToken } from './push';
  * sound (`moment-channel`, Android) only plays its channel's sound: nothing is shown.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async (n) => momentBehavior(n.request.content.data) ?? { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false },
+  handleNotification: async (n) =>
+    momentBehavior(n.request.content.data) ??
+    // The live order card (joy l1) is re-posted as the order moves: listed and on the lock screen, never a banner or a sound.
+    ((n.request.content.data as { kind?: unknown } | null)?.kind === LIVE_ORDER_KIND
+      ? { shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }
+      : { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
 const APP = 'customer';

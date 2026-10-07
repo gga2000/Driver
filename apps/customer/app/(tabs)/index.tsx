@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import type { LaunchService } from '@driver/contracts';
 import { agoText, Button, Card, Icon, SearchField, SkyBackdrop, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
@@ -12,7 +12,9 @@ import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
 import { nightHome } from '@/features/home/night';
 import { HomeHeader } from '@/features/home/HomeHeader';
-import { useActiveOrder, usePicks, useRestaurants } from '@/features/home/queries';
+import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
+import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
+import { useDinnerChance } from '@/features/ride-habits/queries';
 import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
 import { DaypartBand } from '@/features/home/DaypartBand';
 import { useUsuals } from '@/features/home/habit-queries';
@@ -28,6 +30,7 @@ import { foodFact } from '@/features/home/service-facts';
 import { ComingSoonStrip, ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { CuisineCircles } from '@/features/home/CuisineCircles';
 import { lastReorderable } from '@/features/orders/history';
+import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
@@ -59,6 +62,9 @@ export default function Home() {
   const active = useActiveOrder();
   const restaurants = useRestaurants();
   const rajaaTrip = useActiveBooking();
+  // Joy J7d: a ride booked for later (its own card), and «عشاك يوصل وياك» while a ride home is on.
+  const booked = useBookedRide();
+  const dinner = useDinnerChance(Boolean(active.data?.type === 'ride' || rajaaTrip.data));
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
@@ -91,6 +97,15 @@ export default function Home() {
   const night = useMemo(() => nightHome(list ?? []), [list]);
   const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
+  // Joy t1: «اطلب نفس الطلب» from the app icon lands here with `?reorder=last` — the reorder sheet opens once.
+  const { reorder: reorderParam } = useLocalSearchParams<{ reorder?: string }>();
+  const startedReorder = useRef(false);
+  useEffect(() => {
+    if (reorderParam !== REORDER_LAST_PARAM || !last || startedReorder.current) return;
+    startedReorder.current = true;
+    router.setParams({ reorder: undefined });
+    void reorder.start(last);
+  }, [reorderParam, last, reorder]);
   // Joy s3: the usual for this hour, and Thursday evening / Friday morning the Friday booking.
   const usuals = useUsuals();
   const usual = useMemo(() => usualNow(usuals.data ?? [], now), [usuals.data, now]);
@@ -139,6 +154,8 @@ export default function Home() {
       <ServicesRow onPress={onService} foodFact={food} foodOff={foodOff} />
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
+      {dinner.data ? <DinnerCard chance={dinner.data} now={now} testID="home-dinner" /> : null}
+      {booked.data ? <BookedRideCard order={booked.data} now={now} /> : null}
       {cards.includes('rajaa_trip') ? <RajaaCard hour={dp.hour} /> : null}
       {cards.includes('friday') && friday ? <FridayCard ahead={friday} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
       {cards.includes('usual') && usual ? <UsualCard usual={usual} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}

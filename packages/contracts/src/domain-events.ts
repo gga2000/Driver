@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd, Vertical } from './common.js';
+import { ComplimentKey } from './order-compliment.js';
 import {
   DepartureCancelledPayload,
   ErrandMoneyPayload,
@@ -120,6 +121,18 @@ export const OrderTippedPayload = z.object({
   amountIqd: Iqd.positive(),
 });
 export type OrderTippedPayload = z.infer<typeof OrderTippedPayload>;
+
+/**
+ * `order.complimented`: the customer's kind words after a 4–5 rating (joy l4, keys from
+ * `ComplimentKey`; no money). The notify module pushes «زينب قالتلك: سريع، مؤدب» to the courier.
+ */
+export const OrderComplimentedPayload = z.object({
+  customerId: z.string().min(1),
+  courierId: z.string().min(1),
+  tripId: z.string().min(1).nullable(),
+  keys: z.array(ComplimentKey).min(1),
+});
+export type OrderComplimentedPayload = z.infer<typeof OrderComplimentedPayload>;
 
 /**
  * `order.cash_collected`: cash is in the courier's (or driver's) hand. The ledger posts the money
@@ -275,6 +288,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'order.cash_collected': OrderCashCollectedPayload,
   'order.change_to_wallet': OrderChangeToWalletPayload,
   'order.tipped': OrderTippedPayload,
+  'order.complimented': OrderComplimentedPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,
   'merchant.payable_accrued': MerchantPayableAccruedPayload,

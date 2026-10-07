@@ -504,6 +504,33 @@ describe('TripsService — order links (attach/detach history)', () => {
     expect(h.events.last('trip.cancelled')!.payload).toMatchObject({ by: 'driver', orderIds: ['ord_a'], arrivedPickupAt: h.clock.now().toISOString() });
     expect(await code(h.trips.cancel(t.id, 'platform', 'disp', 'x'))).toBe('trip_state_conflict');
   });
+
+  it("endedForDriver lists the trips he completed or cancelled since a time (his scorecard's); forDriver only the unfinished", async () => {
+    const h = tripsHarness();
+    const start = h.clock.now();
+    const done = await h.acceptedTrip('ord_a');
+    await h.trips.arrive(done.id, done.stops[0]!.id, 'd1', { pin: PINS.kitchen });
+    await h.trips.completeStop(done.id, done.stops[0]!.id, 'd1', { handover: { pickupCode: '0000' } });
+    await h.trips.arrive(done.id, done.stops[1]!.id, 'd1', { pin: PINS.home });
+    await h.trips.completeStop(done.id, done.stops[1]!.id, 'd1', { handover: { cashCollectedIqd: 16500 } });
+    h.clock.advance(60_000);
+    const dropped = await h.acceptedTrip('ord_b');
+    await h.trips.cancel(dropped.id, 'driver', 'd1', 'vehicle_problem');
+    h.clock.advance(60_000);
+    const pulled = await h.acceptedTrip('ord_c');
+    await h.trips.cancel(pulled.id, 'platform', 'disp', 'test');
+    h.clock.advance(60_000);
+    const going = await h.acceptedTrip('ord_d');
+
+    expect((await h.trips.endedForDriver('d1', start)).map((t) => [t.id, t.state])).toEqual([
+      [done.id, 'completed'],
+      [dropped.id, 'driver_cancelled'],
+    ]);
+    expect((await h.trips.forDriver('d1')).map((t) => t.id)).toEqual([going.id]);
+    // Only trips that ended at or after `since`.
+    expect((await h.trips.endedForDriver('d1', new Date(start.getTime() + 30_000))).map((t) => t.id)).toEqual([dropped.id]);
+    expect(await h.trips.endedForDriver('d2', start)).toEqual([]);
+  });
 });
 
 describe('TripsService — rides', () => {

@@ -775,6 +775,19 @@ export class TripsService implements OnModuleInit {
     return Promise.all(trips.map((t) => this.view(t.id)));
   }
 
+  /**
+   * The trips that speak for a driver's reliability since `since` (scoring §1, his Partner
+   * scorecard): the ones he completed and the ones he cancelled after accepting.
+   * `forDriver` lists only unfinished trips, so the card reads these instead.
+   */
+  async endedForDriver(driverId: string, since: Date): Promise<Trip[]> {
+    const [completed, cancelled] = await Promise.all([
+      this.repo.findTrips({ courierId: driverId, states: ['completed'], completedSince: since }),
+      this.repo.findTrips({ courierId: driverId, states: ['driver_cancelled'], cancelledSince: since }),
+    ]);
+    return Promise.all([...completed, ...cancelled].map((t) => this.view(t.id)));
+  }
+
   /** The non-terminal trip an order is currently attached to, if any. */
   async activeForOrder(orderId: string): Promise<Trip | null> {
     for (const link of await this.repo.linksForOrder(orderId)) {

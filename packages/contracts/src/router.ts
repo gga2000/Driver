@@ -25,6 +25,7 @@ import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, season
 import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
+import { rideHabitsRouter } from './routers/ride-habits.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -86,6 +87,8 @@ export const appRouter = router({
   // SOS (scoring & safety §3): the person's alert and the Console's incident desk.
   safety: safetyRouter,
   referral: referralRouter,
+  // Joy J7d: favourite drivers, regular trips, dinner timed to the ride home.
+  rideHabits: rideHabitsRouter,
   finance: financeRouter,
   metrics: metricsRouter,
 });

@@ -271,6 +271,22 @@ API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07
 - `SHOTS=gift` writes `gift-*.png` (checkout gift, kitchen heads-up, invite, invite landing as a
   guest, stickers, share card sheet) and saves the share cards the web renders (`gift-card-*.png`).
 
+## Ride habits (joy J7d, `src/features/ride-habits/`, `docs/api/ride-habits.md`)
+
+- **Booked for later**: the choose screen's «وكتها» (هسة / a quarter hour today, tomorrow or the day after,
+  20 minutes to 7 days ahead, priced by the server for that time) with «سايقك المفضل» chips; the ride waits
+  on `/ride/booked/[id]` (and its home card) until the search starts 15 minutes before, then opens the live
+  screen. Free to cancel until a driver accepts.
+- **«رحلاتي الثابتة»** (`app/regular/*`, account, ride and الرجعة tabs): a weekly ride or الرجعة; each day is
+  asked about the evening before or that morning («تأكد رحلتك؟», switch in notifications) and booked only
+  on «أكدها» — the server's fare, a seat on one of that day's cars, or «نحجزلك أول ما تنعلن سيارة».
+- **«سواقي المفضلين»** (`app/drivers.tsx`): from a ride or الرجعة rated 4–5 («خليه سايقك المفضل؟» on the
+  ride tab, the heart on the pass); photo, rating, trips together; «سايقك» on his cars on the board.
+- **«عشاك يوصل وياك»**: while a ride home (or a seat to Aziziyah) is on — the card on home and on the pass,
+  the banner on the restaurants list, checkout's «وياك · 8:05» slot (the server's time; an ordinary pre-order).
+- Demo: `POST /demo/ride-habits?personId=…` and `POST /demo/dinner?personId=…[&kind=rajaa]`;
+  `SHOTS=trips` writes `trips-*.png` on a fresh account (`TRIPS_PHONE`, default 0770 456 8899).
+
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
 
 - Reads `orders.track` (own order + trip summary + courier card, every 4 s while live) and
@@ -303,6 +319,31 @@ API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07
 - Welcome (audit d-6): `features/welcome/WelcomeMap.tsx` (the map of home) + `today.ts` (spots, captions,
   the "اليوم: …" line) over the public `catalog.today`.
   `?sheet=1|2` opens the sheet at a detent.
+
+## Live moments (joy J5b, `docs/api/compliments-and-live.md`)
+
+- **Kitchen steps (l3)**: `features/track/kitchen-progress.ts` (pure, tested) + `KitchenProgress.tsx` —
+  «المطعم قبل · يطبخون · جاهز · استلمه حيدر» in the collapsed sheet from the kitchen's yes until pickup, each
+  lit only by its recorded event (`acceptedAt`, `preparingAt`, `readyAt`, `pickedUpAt`), never by time.
+- **Driver reveal (l2)**: `DriverReveal.tsx` + `moments.ts` (`courier_assigned`, `revealPlays`) — photo,
+  name, vehicle, plate (rides), «متحقق اليوم» and the rating customers gave him (`CourierCard.rating`, shown
+  from 5 ratings), once per order (live, or opened within a minute of the accept). Sparkle only on ordinary
+  days without reduce motion.
+- **Delivered with the courier + compliments (l4)**: «حيدر وصّلك طلبك» on the delivered screen;
+  `Compliments.tsx` in the rating panel's done step, before the unchanged tip card
+  (`orders.complimentOptions` / `orders.compliment`).
+- **Lock screen (l1, Android only)**: `features/track/lockscreen/*` — ongoing notification on the quiet
+  «تتبع الطلب» channel, mounted at the root (`LockScreenOrder`). Needs a development build; nothing on the
+  web, iOS (Live Activity designed in the J5b plan) or Expo Go.
+- **Shortcuts (t1)**: `features/shortcuts/*` (expo-quick-actions): «وين طلبي؟», «اطلب نفس الطلب»
+  (`/?reorder=last`), «احجز الرجعة». Needs a development build.
+- **ETA box**: kashi (`EtaBox` in `SheetParts.tsx`); the range option is `ETA_BOX_SHOWS_RANGE` in
+  `features/track/eta-display.ts` (off — an open question for Ali); `?etaRange=1` previews it in a
+  dev-tools web build.
+- Demo: `POST /demo/track?personId=…&scenario=kitchen` (the kitchen said yes, not cooking, no courier),
+  `POST /demo/track/kitchen?orderId=…&step=preparing|ready`, `POST /demo/track/assign?orderId=…[&rated=1]`
+  (a courier with a photo takes it now: the reveal), `&rated=1` on any scenario (six rated past deliveries),
+  taxi/tuktuk demo drivers already have ratings. `SHOTS=live node scripts/web-shots.mjs` writes `live-*.png`.
 
 ## Chat, masked call, share-trip (`src/features/chat/`, `src/features/share/`)
 

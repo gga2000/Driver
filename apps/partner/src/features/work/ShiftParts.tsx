@@ -5,6 +5,7 @@ import type { ShiftSummary } from '@driver/contracts';
 import { Button, Card, Icon, Text, useTheme, type IconName } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { CashMeter } from '@/features/account/CashMeter';
+import { ComplimentPills } from '@/features/account/ComplimentParts';
 import { Glyph } from '@/features/account/Glyph';
 import { useCountFrom } from '@/features/account/EarningsParts';
 import { useT } from '@/lib/i18n';
@@ -158,6 +159,25 @@ export function ShiftGuarantee({ s }: { s: ShiftSummary }) {
           {lines.map((l) => (
             <GuaranteeNote key={l.id} line={l} testID={`shift-guarantee-${l.id}`} />
           ))}
+        </View>
+      </Card>
+    </Animated.View>
+  );
+}
+
+/** Joy l4: «قالوا عنك بهالشفت» — the kind words customers picked for him this shift (nothing when none). */
+export function ShiftCompliments({ s, onOpen }: { s: ShiftSummary; onOpen: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  if (s.compliments.length === 0) return null;
+  return (
+    <Animated.View entering={enter(theme.reduceMotion, 3)}>
+      <Card elevation={1} padding={4} testID="shift-compliments" onPress={onOpen} accessibilityLabel={`${t('partner.shiftsum_compliments')}: ${s.compliments.map((c) => t('partner.compliments_word_count', { word: t(`compliment.${c.key}`), n: c.count })).join('، ')}`}>
+        <View style={{ gap: theme.space[3] }}>
+          <Text variant="label" weight={600}>
+            {t('partner.shiftsum_compliments')}
+          </Text>
+          <ComplimentPills counts={s.compliments} />
         </View>
       </Card>
     </Animated.View>

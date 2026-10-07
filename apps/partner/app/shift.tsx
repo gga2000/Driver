@@ -6,7 +6,7 @@ import { Screen } from '@/components/Screen';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { useShiftSummary } from '@/features/account/queries';
 import { shareDay } from '@/features/work/share-day';
-import { ShareDayCard, ShiftCash, ShiftGuarantee, ShiftHero, ShiftNudge, ShiftStats, ShiftTomorrow } from '@/features/work/ShiftParts';
+import { ShareDayCard, ShiftCash, ShiftCompliments, ShiftGuarantee, ShiftHero, ShiftNudge, ShiftStats, ShiftTomorrow } from '@/features/work/ShiftParts';
 import { shareCardModel, shareFileName, shiftRange } from '@/features/work/shift-logic';
 import { useLocale, useT } from '@/lib/i18n';
 
@@ -99,6 +99,7 @@ export default function ShiftSummaryScreen() {
           <ShiftStats s={s} />
           <ShiftGuarantee s={s} />
           <ShiftCash s={s} onCode={() => setCode(true)} />
+          <ShiftCompliments s={s} onOpen={() => router.push('/compliments')} />
           <ShiftTomorrow s={s} />
           <ShiftNudge s={s} onOpen={() => router.push('/scorecard')} />
           {/* The picture "شارك يومك" captures on a phone; the web draws it on a canvas instead. */}
