@@ -7,7 +7,8 @@ import { AnimatedPressable, usePressScale } from '../motion/motion';
 import { useTheme, type HapticKind } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+/** `ink`: a dark, firm action beside a primary one (the Partner dashboard's «روح هناك»). */
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'ink';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -43,6 +44,7 @@ const PALETTE: Record<ButtonVariant, { bg: ThemeColorKey | 'transparent'; fg: Th
   secondary: { bg: 'surface', fg: 'text', border: 'borderStrong' },
   ghost: { bg: 'transparent', fg: 'accentText' },
   destructive: { bg: 'danger', fg: 'onDanger' },
+  ink: { bg: 'inverse', fg: 'onInverse' },
 };
 
 export function Button({

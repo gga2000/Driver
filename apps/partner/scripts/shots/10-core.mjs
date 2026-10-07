@@ -24,7 +24,8 @@ export default async function run(s) {
   await c.wait('online-switch');
   await c.shot('home-offline', { settle: 1500 });
   await c.byTestId('online-switch').click();
-  await c.page.getByText('شغّال، ندورلك طلب').waitFor({ timeout: 15_000 });
+  await c.page.getByTestId('check-go').click({ timeout: 4000 }).catch(() => undefined);
+  await c.page.getByText('شغّال · ندورلك طلب').waitFor({ timeout: 15_000 });
   await c.shot('home-online', { settle: 4500 });
 
   await s.demoPost('/demo/offer?who=courier&kind=food');

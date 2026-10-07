@@ -65,6 +65,8 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   // Alert (P-01): heavy haptic, then the doorbell and the vibration loop until he answers or the
   // offer goes (silent mode included on the phone); the last 5 s add a warning haptic every second.
   useEffect(() => {
+    // Bug b2: a message from the last offer («رفضت الطلب», «فات الطلب») never sits over a new one.
+    toast.hide();
     theme.haptic('heavy');
     startOfferAlert();
     const id = setInterval(() => setLeft(secondsLeft(offer.expiresAt, Date.now())), 250);

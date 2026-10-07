@@ -92,14 +92,14 @@ export function faceStyle(face: BrandFace, mode: FontMode): Pick<TextStyle, 'fon
 
 export function createTheme(
   name: ThemeName = 'light',
-  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler } = {},
+  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler; colors?: ThemeColors } = {},
 ): Theme {
   const direction = opts.direction ?? 'rtl';
   const fonts = opts.fonts ?? 'plex';
   return {
     name,
     scheme: scheme[name],
-    colors: themes[name],
+    colors: opts.colors ?? themes[name],
     identity: identity[name],
     secondaryButtonHaptic: hapticTokens.secondaryButton[name],
     space,
@@ -131,6 +131,11 @@ export interface ThemeProviderProps {
   haptics?: HapticHandler;
   /** Force reduced motion; otherwise follows the OS setting. */
   reduceMotion?: boolean;
+  /**
+   * An app's own complete role palette over `theme`'s structure (the Partner app's «الدشبول» sun and
+   * ember, `partnerThemes`). `theme` still decides everything else (scheme, haptics, monograms).
+   */
+  colors?: ThemeColors;
   children: ReactNode;
 }
 
@@ -161,12 +166,12 @@ function useWebFocusRing(color: string) {
   }, [color]);
 }
 
-export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, children }: ThemeProviderProps) {
+export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, colors, children }: ThemeProviderProps) {
   const osReduceMotion = useReducedMotion();
   const dir: Direction = direction ?? (Platform.OS === 'web' || I18nManager.isRTL ? 'rtl' : 'ltr');
   const value = useMemo(
-    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion }),
-    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion],
+    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion, colors }),
+    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion, colors],
   );
   useWebFocusRing(value.colors.focusRing);
   return (
