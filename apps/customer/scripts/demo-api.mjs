@@ -53,6 +53,11 @@ const orders = app.get(OrdersService);
 const controls = app.get(ControlsService);
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
+{
+  const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
+  await seedDemoLandmarks(app.get(PlacesService));
+}
 // Demo restaurants stay open around the clock so screens and shots work at any hour
 // (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
 if (process.env.DEMO_HOURS !== 'real') {

@@ -34,7 +34,7 @@ describe('LandmarkFeedService (maps program b3)', () => {
   it('the seed and approved landmark places only — never proposed or rejected ones, never saved homes', async () => {
     const h = harness();
     await h.landmark('جامع زاكور الكبير', ZAKUR, { landmarkCategory: 'mosque' });
-    await h.landmark('سوك زاكور', { lat: 32.8858, lng: 45.0781 });
+    await h.landmark('سوك زاكور', { lat: 32.8861, lng: 45.0759 });
     await h.landmark('مدرسة مقترحة', STREET_30, { landmarkState: 'proposed' });
     await h.landmark('مستوصف مرفوض', STREET_30, { landmarkState: 'rejected' });
     await h.places.save({ cityId: 'aziziyah', pin: STREET_30, name: 'فرن تعلّم', photos: [], confidence: 0.4, sharedWith: [], landmark: false });
