@@ -16,6 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
+import type { RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
@@ -128,6 +129,8 @@ export interface AppContext {
   authError: ErrorCode | null;
   /** The caller as the transport saw it (client IP behind the configured proxy); absent in tests. */
   client?: { ip: string | null };
+  /** Per-person and per-address request limits (SCALE-20), checked before every call; absent in tests. */
+  limits?: RequestLimitsPort;
   env: { nodeEnv: string };
   now(): Date;
   version: string;
@@ -172,9 +175,10 @@ export const router = t.router;
  * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
  * tRPC with the new code.
  */
-export const publicProcedure = t.procedure.use(async ({ next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
   let result;
   try {
+    if (ctx.limits && type !== 'subscription') await ctx.limits.check({ path, type, personId: ctx.auth?.sub ?? null, ip: ctx.client?.ip ?? null });
     result = await next();
   } catch (err) {
     throw toTrpcError(err);

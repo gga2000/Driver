@@ -2,7 +2,7 @@
 
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
-import { transformer, type AppRouter } from '@driver/contracts';
+import { REQUEST_LIMITS, transformer, type AppRouter } from '@driver/contracts';
 import { createStreamTokenCache, type StreamTokenCache } from '@driver/contracts/live-client';
 import { consoleFetch } from './network';
 import { getAccessToken } from './session';
@@ -24,6 +24,8 @@ export function makeTrpcClient() {
     transformer,
     // Every answer and failure feeds the network monitor (live badge, offline strip, Arabic errors).
     fetch: consoleFetch,
+    // The API takes at most REQUEST_LIMITS.maxBatchSize calls per request (SEC-03); split well below it.
+    maxItems: REQUEST_LIMITS.clientBatchItems,
     // Read per request so signing in or out takes effect without rebuilding the client.
     headers() {
       const token = getAccessToken();

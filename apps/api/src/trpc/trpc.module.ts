@@ -1,6 +1,6 @@
-import { Injectable, Logger, Module, type INestApplication } from '@nestjs/common';
+import { Inject, Injectable, Logger, Module, type INestApplication } from '@nestjs/common';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
-import { isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
+import { REQUEST_LIMITS, isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
@@ -40,6 +40,8 @@ import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/inde
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
 import { requestIdMiddleware } from '../shared/request-context.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../shared/window-counter.js';
+import { RequestLimits, ipModeFromEnv } from './request-limits.js';
 
 export const API_VERSION = '0.1.0';
 export const TRPC_PATH = '/trpc';
@@ -91,7 +93,13 @@ export class TrpcService {
     private readonly rideHabits: RideHabitsService,
     private readonly phoneBookings: PhoneBookingService,
     private readonly garageTaxi: GarageTaxiService,
-  ) {}
+    @Inject(WINDOW_COUNTER) counter: WindowCounter,
+  ) {
+    this.limits = new RequestLimits(counter, ipModeFromEnv());
+  }
+
+  /** SCALE-20: per-person and per-address limits on every call (`request-limits.ts`). */
+  private readonly limits: RequestLimits;
 
   /**
    * Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. `ip` is the
@@ -166,6 +174,7 @@ export class TrpcService {
       auth,
       authError,
       client: { ip: ip ?? null },
+      limits: this.limits,
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
       now: () => new Date(),
       version: API_VERSION,
@@ -179,6 +188,8 @@ export class TrpcService {
       requestIdMiddleware,
       createExpressMiddleware({
         router: appRouter,
+        // SEC-03: one request carries at most this many calls (the apps' links split at half of it).
+        maxBatchSize: REQUEST_LIMITS.maxBatchSize,
         createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
