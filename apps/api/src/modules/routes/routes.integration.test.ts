@@ -283,4 +283,32 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     await requests.complete(ids.driver, r.id);
     expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 1 });
   });
+
+  it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
+    // A second writer stands in for a second API machine: its own in-process mutex, the same database,
+    // so only the transaction's advisory lock keeps «seen» and «pick» apart. Its reads are slowed, so
+    // without the lock the pick would commit between seen's read and its write.
+    const slow = Object.create(repo) as PrismaRoutesRepository;
+    slow.getRequest = async (id, tx) => {
+      const r = await repo.getRequest(id, tx);
+      await new Promise((done) => setTimeout(done, 200));
+      return r;
+    };
+    const otherMachine = new RequestBoardService(slow, events, wallet, clock, new RoutesWriter(uow, slow), INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
+    const r = await requests.post(
+      ids.r2,
+      PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(300), seats: 1, travellingAs: 'aila' }),
+    );
+    const offered = await requests.offer(ids.driver, r.id, 20_000);
+    wallet.set(ids.r2, 100_000);
+    const seen = otherMachine.seen(ids.d2, r.id);
+    await new Promise((done) => setTimeout(done, 50));
+    await Promise.all([seen, requests.pick(ids.r2, r.id, offered.offers[0]!.id)]);
+    const back = await repo.getRequest(r.id);
+    expect(back).toMatchObject({ state: 'matched', pickedOfferId: offered.offers[0]!.id, depositIqd: 5_000 });
+    expect(back?.offers.map((o) => o.state)).toEqual(['picked']);
+    expect(back?.seenDriverIds).toEqual([ids.driver, ids.d2]);
+    // Once picked, a driver who didn't offer can't read it.
+    await expect(requests.seen(ids.d2, r.id)).rejects.toMatchObject({ code: 'request_not_found' });
+  });
 });
