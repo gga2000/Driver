@@ -46,8 +46,15 @@ import { playCue } from '@/lib/sound';
 import { cleanCard, giftInput } from '@/features/gift/gift';
 import { GiftChoice, type GiftChoiceValue } from '@/features/gift/GiftChoice';
 import { giftStore } from '@/features/gift/gift-store';
+import { CheckoutFlow } from '@/features/food/CheckoutFlow';
+import { useUiSwitch } from '@/lib/ui-switches';
 
 const STREET_SAVING_IQD = 250;
+
+/** Checkout v2 (two steps ending on «الوصل») behind the `checkout_v2` switch; today's screen otherwise. */
+export default function CheckoutRoute() {
+  return useUiSwitch('checkout_v2') ? <CheckoutFlow /> : <CheckoutScreen />;
+}
 
 /**
  * One-screen checkout (spec §3): deliver-to (saved place, door or street hand-over −250), who
@@ -64,7 +71,7 @@ const STREET_SAVING_IQD = 250;
  * itself once the network is back — re-sends it and the server answers with the order it already
  * placed, which opens. Kitchen and courier notes are separate fields (M-09).
  */
-export default function CheckoutScreen() {
+function CheckoutScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();

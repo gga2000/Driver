@@ -48,6 +48,8 @@
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 //   basket-* the V2 basket (`basket_v2` switch, on in dev builds): a cart for two (all, سارة's tab), the
 //            kitchen card waiting, slow (after 45 s; start the demo API with DEMO_KITCHEN_MS=0) and accepted
+//   checkout-* the V2 checkout (`checkout_v2`): step 1 (place, door/street, when, pay, the note chips),
+//            the «الوصل» slip with a fee's «ليش؟», back to step 1 kept, and the calm price-change sheet
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -109,7 +111,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'basket', 'checkout'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -249,6 +251,7 @@ try {
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
   if (wants('basket')) await basketShots(khalid);
+  if (wants('checkout')) await checkoutShots(khalid);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -1532,4 +1535,71 @@ async function basketShots(khalid) {
   await byTestId('kitchen-accepted').waitFor({ timeout: 15_000 }).catch(() => errors.push('kitchen accepted card not shown'));
   await page.waitForTimeout(350);
   await page.screenshot({ path: join(outDir, 'basket-kitchen-accepted.png') });
+}
+
+/** The V2 checkout (switch `checkout_v2`, on in DEV_TOOLS builds): step 1, the slip, the price-change sheet. */
+async function checkoutShots(khalid) {
+  const item = (key) => `${khalid}_${key}`;
+  const cartBar = page.locator('[data-testid="cart-bar"]:visible');
+  const fill = async () => {
+    await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+    await byTestId(`dish-add-${item('pepsi')}`).waitFor({ timeout: 15_000 });
+    await byTestId(`dish-add-${item('pepsi')}`).click();
+    await cartBar.waitFor();
+    await byTestId(`dish-${item('kebab_plate')}`).click();
+    await byTestId('item-sheet').waitFor();
+    await byTestId(`variant-${item('kebab_plate')}_mg_1_m_2`).click();
+    await byTestId('item-add').click();
+    await byTestId('item-sheet').waitFor({ state: 'detached' });
+    await cartBar.click();
+    await byTestId('cart-checkout').waitFor({ timeout: 15_000 });
+    await byTestId('cart-price').waitFor({ timeout: 15_000 }).catch(() => {});
+    await byTestId('cart-checkout').click();
+    await byTestId('checkout-next').waitFor({ timeout: 15_000 });
+    await byTestId('checkout-total-amount').waitFor({ timeout: 15_000 });
+  };
+  await fill();
+  await page.waitForTimeout(3800); // let the last "added" toast go
+  await shot('checkout-step1');
+  await fullShot('checkout-step1-full');
+  // A note above the total, then street hand-over: the chips and the change line.
+  await page.locator('[data-testid="checkout-pay-with"] [role="button"], [data-testid="checkout-pay-with"] [role="checkbox"], [data-testid="checkout-pay-with"] [role="radio"]').nth(1).click().catch(() => errors.push('tender chip not found'));
+  await byTestId('checkout-pickup-street').click();
+  await byTestId('checkout-pay-with-note').waitFor({ timeout: 10_000 }).catch(() => errors.push('tender note not shown'));
+  await page.mouse.move(W / 2, 300);
+  await page.mouse.wheel(0, 900);
+  await shot('checkout-step1-pay');
+
+  await byTestId('checkout-next').click();
+  await byTestId('checkout-slip').waitFor({ timeout: 10_000 });
+  await shot('checkout-slip');
+  const why = page.locator('[data-testid$="-why"]').first();
+  if ((await why.count()) > 0) await why.click();
+  await fullShot('checkout-slip-full');
+
+  // Back (the header's, as Android's) keeps step 1 as it was (street, the note).
+  await page.locator('[data-testid="header-back"]:visible').first().click();
+  await byTestId('checkout-next').waitFor({ timeout: 10_000 }).catch(() => errors.push('back from the slip did not return to step 1'));
+  if ((await byTestId('checkout-pickup-street').getAttribute('aria-checked').catch(() => null)) !== 'true') errors.push('street choice lost on back');
+  await shot('checkout-back-kept');
+
+  // c12: a price that moved under the basket (an older price kept on this phone) → the calm sheet.
+  const before = errors.length;
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('driver.customer.cart');
+    if (!raw) return;
+    const c = JSON.parse(raw);
+    if (c.cart?.lines?.[0]) c.cart.lines[0].basePriceIqd = Math.max(250, c.cart.lines[0].basePriceIqd - 500);
+    localStorage.setItem('driver.customer.cart', JSON.stringify(c));
+  });
+  await page.reload(LOADED);
+  await byTestId('checkout-next').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-total-amount').waitFor({ timeout: 15_000 }).catch(() => {});
+  await byTestId('checkout-next').click();
+  await byTestId('checkout-place').click();
+  await byTestId('checkout-change-sheet').waitFor({ timeout: 15_000 }).catch(() => errors.push('price-change sheet not shown'));
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: join(outDir, 'checkout-price-change.png') });
+  // The server's 409 (price_changed) is this flow's point, not a console error.
+  for (let i = errors.length - 1; i >= before; i--) if (/status of 409/.test(errors[i])) errors.splice(i, 1);
 }

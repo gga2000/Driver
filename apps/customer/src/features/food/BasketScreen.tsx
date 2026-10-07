@@ -4,6 +4,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import type { MenuItem } from '@driver/contracts';
 import { Button, Card, EmptyState, Icon, IconButton, SketchScene, Skeleton, Text, stageOf, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { useMyOrders } from '@/features/home/queries';
 import { requireSignIn } from '@/lib/guest';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -12,7 +13,7 @@ import { basketGap, basketUpsell, pickHint, type BasketHint } from './basket-hin
 import { groupByPerson, itemCount, itemsTotal, ME, TABLE, type PersonGroup } from './cart';
 import { CartLineRow } from './CartLineRow';
 import { cartStore, useCart } from './cart-store';
-import { checkoutTotals, lineSavings, otherDeals } from './checkout';
+import { NEW_CUSTOMER_CAP_IQD, checkoutTotals, lineSavings, otherDeals, overNewCustomerCap, priorCashOrders } from './checkout';
 import { earnCopy } from './checkout-lines';
 import { DeliverToRow } from './DeliverToRow';
 import { FoodArt, artOf } from './FoodArt';
@@ -43,6 +44,7 @@ export function BasketScreen() {
   const orderQuote = useOrderQuote(cart, dropoff, false);
   const menu = useMenu(cart.merchant?.id);
   const guest = !useSignedIn();
+  const mine = useMyOrders();
   const [tab, setTab] = useState<string>(ALL);
 
   const { grouped, groups } = groupByPerson(cart);
@@ -96,12 +98,23 @@ export function BasketScreen() {
 
   // The server's items deal comes off the big figure, so it agrees with the deal prices on the lines.
   const itemsDealIqd = totals?.discount?.target === 'items' ? totals.dealIqd : 0;
+  const itemsIqd = Math.max(0, itemsTotal(cart) - itemsDealIqd);
+  // c7: a new account's cash cap, said here instead of failing at the button (a hint: the server decides).
+  const capHint = !guest && mine.data !== undefined && overNewCustomerCap(totals?.totalIqd ?? itemsIqd, priorCashOrders(mine.data), 'cash');
   const footer = (
     <View style={{ gap: theme.space[3] }}>
       {/* Always in view (the small-order fee warning sat in the old footer too). */}
       {hint ? <HintStrip hint={hint} others={hint.kind === 'deal_applied' ? otherDeals(deals, totals?.discount ?? null).map((d) => (locale === 'en' ? d.label_en : d.label_ar)) : []} /> : null}
+      {capHint ? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }} testID="basket-cash-cap" accessibilityLiveRegion="polite">
+          <Icon name="cash" size={16} color="warningText" />
+          <Text variant="footnote" color="warningText" style={{ flex: 1 }}>
+            {t('basket.cash_cap_hint', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) })}
+          </Text>
+        </View>
+      ) : null}
       <TotalCard
-        itemsIqd={Math.max(0, itemsTotal(cart) - itemsDealIqd)}
+        itemsIqd={itemsIqd}
         state={!dropoff ? (guest ? 'guest' : 'no_place') : totals ? 'ready' : quote.isError ? 'error' : 'loading'}
         onRetry={() => void quote.refetch()}
       />
