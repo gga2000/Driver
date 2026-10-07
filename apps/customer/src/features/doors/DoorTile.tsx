@@ -7,6 +7,7 @@ import { lift } from '@driver/design-tokens';
 import { DishDrawing, Text, usePressScale, useTheme, withAlpha } from '@driver/ui';
 import { countKey } from '@/lib/plural';
 import { useT } from '@/lib/i18n';
+import { DoorDrip } from './DoorDrip';
 import { DOOR_ART, type DoorFact } from './doors';
 import { doorSwatch } from './palette';
 
@@ -35,12 +36,15 @@ export function DoorTile({
   fact,
   width,
   height,
+  melting = false,
   testID,
 }: {
   door: FoodDoor;
   fact: DoorFact | null;
   width: number;
   height: number;
+  /** Summer on the ice cream door (p4): a slow chocolate drip off the arch. */
+  melting?: boolean;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -124,6 +128,7 @@ export function DoorTile({
             backgroundColor: s.inner,
           }}
         />
+        {melting && !quiet ? <DoorDrip width={width} top={0} /> : null}
         <Animated.View
           pointerEvents="none"
           style={[
