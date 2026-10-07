@@ -21,10 +21,12 @@ export interface ScreenMarker {
   y: number;
   /** Height of the marker above its anchor, px (a centre pin's head sits well above its tip). 0 = a dot. */
   up?: number;
+  /** Half its width, px, when known (the centre pin's narrow head); landmarks keep a wide default box otherwise. */
+  halfW?: number;
 }
 
 /** Something a map wants zone names kept away from: a place on the ground, or the fixed centre pin. */
-export type LabelObstacle = { at: GeoPoint; up?: number } | { centre: true; up?: number };
+export type LabelObstacle = { at: GeoPoint; up?: number; halfW?: number } | { centre: true; up?: number; halfW?: number };
 
 /** A zone name at its anchor: SVG text centred on `x` with its baseline on `y`. */
 export interface PlacedLabel {
@@ -33,9 +35,14 @@ export interface PlacedLabel {
   name: string;
 }
 
+/** About how wide a line of Arabic text draws, px (a little generous, so a name is never judged clear when it is not). */
+export function textWidth(text: string, fontPx: number): number {
+  return text.length * fontPx * GLYPH_WIDTH_EM;
+}
+
 /** The box a centred label takes, from its text length and font size. */
 export function labelBox(label: PlacedLabel, fontPx = ZONE_LABEL_FONT_PX): { left: number; right: number; top: number; bottom: number } {
-  const half = (label.name.length * fontPx * GLYPH_WIDTH_EM) / 2;
+  const half = textWidth(label.name, fontPx) / 2;
   return { left: label.x - half, right: label.x + half, top: label.y - fontPx, bottom: label.y + fontPx * 0.3 };
 }
 
@@ -65,7 +72,7 @@ export function labelsClearOf<T extends PlacedLabel>(labels: readonly T[], marke
 export function obstaclesOnScreen(obstacles: readonly LabelObstacle[], size: { w: number; h: number }, project: (p: GeoPoint) => { x: number; y: number }): ScreenMarker[] {
   return obstacles.map((o) => {
     const at = 'centre' in o ? { x: size.w / 2, y: size.h / 2 } : project(o.at);
-    return { x: at.x, y: at.y, up: o.up ?? 0 };
+    return { x: at.x, y: at.y, up: o.up ?? 0, ...(o.halfW !== undefined ? { halfW: o.halfW } : {}) };
   });
 }
 
@@ -98,7 +105,7 @@ export const PIN_LABEL_CLEARANCE_PX = 4;
  * padding around it, never wider than the pill's cap.
  */
 export function pinLabelWidth(text: string, fontPx: number, chromePx: number, maxPx: number): number {
-  return Math.min(maxPx, chromePx + text.length * fontPx * GLYPH_WIDTH_EM);
+  return Math.min(maxPx, chromePx + textWidth(text, fontPx));
 }
 
 /** The pill's box for a pin whose tip is at `tip`, on `side`. */
