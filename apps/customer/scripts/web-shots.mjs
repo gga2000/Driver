@@ -314,7 +314,7 @@ async function simpleShots() {
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${origin}/phone`, LOADED);
   await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
-  await page.locator('[data-testid="phone-input"]').fill(process.env.SIMPLE_PHONE ?? '0770 456 7711');
+  await page.locator('[data-testid="phone-input"]').fill(process.env.SIMPLE_PHONE ?? '0770 456 7722');
   await byTestId('phone-submit').click();
   await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
   const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
@@ -384,6 +384,8 @@ async function simpleShots() {
   await byTestId('courier-marker').waitFor({ timeout: 15_000 }).catch(() => undefined);
   await page.waitForTimeout(3500);
   await shot('simple-live-matched');
+  // Drive the ride to the end so its demo driver is free for the flows after this one.
+  for (let i = 0; i < 3; i += 1) await demoPost(`/demo/ride/advance?orderId=${orderId}`);
 }
 
 /**
