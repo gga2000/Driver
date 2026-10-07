@@ -6443,7 +6443,7 @@
   "habits.booked_cancelled_pill": "Cancelled",
   "habits.booked_home": "Your booked ride {when}",
   "habits.booked_search": "We start finding a driver at {time} and tell you when one accepts.",
-  "habits.booked_fav": "We'll ask {name} first",
+  "habits.booked_fav": "We ask {name} first",
   "habits.booked_cancel": "Cancel booking",
   "habits.booked_cancel_free": "Free to cancel until a driver accepts",
   "habits.booked_cancelled": "Booking cancelled",

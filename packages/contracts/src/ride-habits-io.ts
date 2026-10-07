@@ -91,6 +91,9 @@ export const FavouriteDriverView = z.object({
   /** His approved main photo, signed and short-lived; null → the app draws his initial. */
   photoUrl: z.string().nullable(),
   kinds: z.array(FavouriteKind),
+  /** What customers gave him (joy l2's public rating: newest 50, shown from 5); null below that. */
+  rating: z.number().nullable(),
+  ratingCount: z.number().int().min(0),
   /** Finished rides and الرجعة trips this rider took with him. */
   tripsTogether: z.number().int().min(0),
   since: z.coerce.date(),

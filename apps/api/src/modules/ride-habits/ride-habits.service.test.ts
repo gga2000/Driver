@@ -114,6 +114,7 @@ function setup() {
     rideInProgress: async () => state.inProgress,
     kitchen: async (id) => (id === 'm_khalid' ? { prepMin: 25, leadMin: 10, pin: { lat: 32.9, lng: 45.05 } } : null),
     minutes: async () => 8,
+    driverRating: async (id) => (id === 'd_abbas' ? { rating: 4.8, count: 12 } : null),
   };
   const rajaa: HabitsRajaaPort = {
     bookings: async () => state.bookings,
@@ -149,7 +150,7 @@ describe('favourite drivers (l9)', () => {
   it('hearts the driver of my ride rated 5, with his first name, photo and trips together', async () => {
     const { svc } = setup();
     const list = await svc.favourite(ME, { orderId: 'r_good', on: true });
-    expect(list).toEqual([expect.objectContaining({ driverId: 'd_abbas', firstName: 'عباس', photoUrl: '/files/d_abbas.jpg', kinds: ['taxi'], tripsTogether: 2 })]);
+    expect(list).toEqual([expect.objectContaining({ driverId: 'd_abbas', firstName: 'عباس', photoUrl: '/files/d_abbas.jpg', kinds: ['taxi'], rating: 4.8, ratingCount: 12, tripsTogether: 2 })]);
   });
 
   it('refuses a ride rated 3, and a ride that is not mine', async () => {

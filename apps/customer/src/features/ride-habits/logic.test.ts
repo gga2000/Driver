@@ -73,7 +73,7 @@ describe('regular trips', () => {
 
 describe('favourites and dinner', () => {
   it('offers only favourites who drive that kind', () => {
-    const f = (id: string, kinds: FavouriteDriverView['kinds']) => ({ id, driverId: id, firstName: id, photoUrl: null, kinds, tripsTogether: 1, since: NOW });
+    const f = (id: string, kinds: FavouriteDriverView['kinds']) => ({ id, driverId: id, firstName: id, photoUrl: null, kinds, rating: null, ratingCount: 0, tripsTogether: 1, since: NOW });
     expect(favouritesFor([f('a', ['taxi']), f('b', ['tuktuk', 'taxi']), f('c', ['intercity'])], 'taxi').map((x) => x.id)).toEqual(['a', 'b']);
   });
   it('says dinner comes with him, or how long after', () => {

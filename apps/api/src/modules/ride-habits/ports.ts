@@ -34,6 +34,8 @@ export interface HabitsRidesPort {
   rideInProgress(personId: string): Promise<RideInProgress | null>;
   /** A kitchen's minutes before a delivery time (prep + busy now, and the scheduled lead), and its pin. */
   kitchen(merchantOrgId: string): Promise<{ prepMin: number; leadMin: number; pin: LatLng | null } | null>;
+  /** His public rating from customers' delivery scores (joy l2); null below the minimum count. */
+  driverRating(driverId: string): Promise<{ rating: number; count: number } | null>;
   /** Travel minutes between two points (the one ETA, learned corrections included). */
   minutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<number>;
 }

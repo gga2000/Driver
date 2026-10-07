@@ -6443,7 +6443,7 @@
   "habits.booked_cancelled_pill": "انلغى",
   "habits.booked_home": "مشوارك المحجوز {when}",
   "habits.booked_search": "نبدي ندوّر سايق {time}، ونخبرك من يقبل.",
-  "habits.booked_fav": "طلبنا {name} أول",
+  "habits.booked_fav": "نطلب {name} أول",
   "habits.booked_cancel": "ألغي الحجز",
   "habits.booked_cancel_free": "الإلغاء ببلاش قبل ما يقبل سايق",
   "habits.booked_cancelled": "ألغينا الحجز",

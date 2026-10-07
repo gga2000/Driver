@@ -1,5 +1,5 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
-import type { IntercityDirection, LatLng, Order, Trip } from '@driver/contracts';
+import { publicCourierRating, type IntercityDirection, type LatLng, type Order, type Trip } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
@@ -10,7 +10,7 @@ import type { BlobStore } from '../places/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { CORRIDORS, DeparturesService, GARAGES, RoutesModule, RoutesRpc } from '../routes/index.js';
 import { EtaService, RoutingModule } from '../routing/index.js';
-import { TrackingModule, TrackingService } from '../tracking/index.js';
+import { TrackingModule, TrackingService, tripsOrdersRatings } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { FAVOURITE_READ_PURPOSE, HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
 import { RegularTripJob } from './regular-trip.job.js';
@@ -53,7 +53,10 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
     },
     {
       provide: HABITS_RIDES,
-      useFactory: (orders: OrdersService, trips: TripsService, pricing: PricingService, tracking: TrackingService, eta: EtaService, clock: Clock): HabitsRidesPort => ({
+      useFactory: (orders: OrdersService, trips: TripsService, pricing: PricingService, tracking: TrackingService, eta: EtaService, clock: Clock): HabitsRidesPort => {
+        // Joy l2's public rating, the same scores the live driver card shows.
+        const scores = tripsOrdersRatings(trips, orders, () => clock.now());
+        return {
         finishedRides: async (personId, from) => {
           const out: FinishedRide[] = [];
           for (const o of await orders.listForPerson(personId)) {
@@ -93,7 +96,9 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
         },
         kitchen: (merchantOrgId) => orders.kitchenTiming(merchantOrgId),
         minutes: async (from, to, vehicle) => (await eta.minutes(from, to, vehicle)).minutes,
-      }),
+        driverRating: async (driverId) => publicCourierRating(await scores.courierScores(driverId)),
+        };
+      },
       inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK],
     },
     {

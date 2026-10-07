@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import type { FavouriteDriverView } from '@driver/contracts';
+import { pluralKey } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
@@ -90,6 +91,15 @@ function FavouriteRow({ f }: { f: FavouriteDriverView }) {
             <Text variant="footnote" color="textMuted" numberOfLines={1}>
               {kinds}
             </Text>
+            {/* Joy l2's public rating, the same as on the live driver card. */}
+            {f.rating !== null && f.ratingCount > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} testID={`driver-rating-${f.id}`}>
+                <Icon name="star" size={14} color="star" />
+                <Text variant="caption" color="textMuted" tabular>
+                  {t(pluralKey('track.reveal_rating', f.ratingCount), { rating: f.rating.toFixed(1), n: f.ratingCount })}
+                </Text>
+              </View>
+            ) : null}
             {f.tripsTogether > 0 ? (
               <Text variant="caption" color="textMuted" tabular>
                 {t('habits.fav_together', { n: f.tripsTogether })}

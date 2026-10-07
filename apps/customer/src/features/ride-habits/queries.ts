@@ -121,13 +121,13 @@ export function useSkipOccurrence() {
  * What a ride booked for later is (its vehicle and two ends): what this phone remembered when it was
  * booked, else the regular trip it was booked from (confirmed on another phone or from a push).
  */
-export function useBookedRoute(orderId: string): { vertical: 'taxi' | 'tuktuk'; from: string; to: string; doorPickup: boolean } | null {
+export function useBookedRoute(orderId: string): { vertical: 'taxi' | 'tuktuk'; from: string; to: string; doorPickup: boolean; fromRegular: boolean } | null {
   const memo = useRideMemo(orderId);
   const trips = useRegularTrips();
-  if (memo) return { vertical: memo.vertical, from: memo.from, to: memo.to, doorPickup: memo.doorPickup ?? false };
   const trip = trips.data?.find((t) => t.booked.some((o) => o.orderId === orderId));
+  if (memo) return { vertical: memo.vertical, from: memo.from, to: memo.to, doorPickup: memo.doorPickup ?? false, fromRegular: Boolean(trip) };
   if (!trip || trip.plan.kind !== 'ride') return null;
-  return { vertical: trip.plan.rideVertical, from: trip.plan.pickup.label, to: trip.plan.dropoff.label, doorPickup: trip.plan.doorPickup };
+  return { vertical: trip.plan.rideVertical, from: trip.plan.pickup.label, to: trip.plan.dropoff.label, doorPickup: trip.plan.doorPickup, fromRegular: true };
 }
 
 /** A ride home or a الرجعة to Aziziyah on now (polled while the app is open; cheap on the server). */

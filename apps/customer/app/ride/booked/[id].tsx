@@ -135,7 +135,7 @@ function BookedRide() {
 
           {!cancelled ? (
             <>
-              <Button testID="booked-regular" variant="secondary" icon="refresh" label={t('habits.booked_make_regular')} fullWidth onPress={makeRegular} />
+              {memo?.fromRegular ? null : <Button testID="booked-regular" variant="secondary" icon="refresh" label={t('habits.booked_make_regular')} fullWidth onPress={makeRegular} />}
               <Button testID="booked-cancel" variant="ghost" label={t('habits.booked_cancel')} onPress={() => void doCancel()} />
               {cancel.data?.free ? (
                 <Text variant="caption" color="textMuted" align="center">

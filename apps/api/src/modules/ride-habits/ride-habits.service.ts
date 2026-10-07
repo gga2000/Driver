@@ -140,14 +140,25 @@ export class RideHabitsService implements RideHabitsPort {
     if (favs.length === 0) return [];
     const ids = favs.map((f) => f.driverId);
     const since = new Date(this.clock.now().getTime() - TOGETHER_DAYS * DAY);
-    const [names, photos, rides, seats] = await Promise.all([
+    const [names, photos, rides, seats, ratings] = await Promise.all([
       this.people.firstNames(ids, actor.personId),
       this.people.photoUrls(ids, actor.personId),
       this.rides.finishedRides(actor.personId, since),
       this.rajaa.bookings(actor),
+      Promise.all(ids.map((id) => this.rides.driverRating(id))),
     ]);
     const together = (driverId: string) => rides.filter((r) => r.driverId === driverId).length + seats.filter((b) => b.state === 'completed' && b.departure.driverId === driverId).length;
-    return favs.map((f) => ({ id: f.id, driverId: f.driverId, firstName: names[f.driverId] ?? null, photoUrl: photos[f.driverId] ?? null, kinds: [...f.kinds], tripsTogether: together(f.driverId), since: f.createdAt }));
+    return favs.map((f, i) => ({
+      id: f.id,
+      driverId: f.driverId,
+      firstName: names[f.driverId] ?? null,
+      photoUrl: photos[f.driverId] ?? null,
+      kinds: [...f.kinds],
+      rating: ratings[i]?.rating ?? null,
+      ratingCount: ratings[i]?.count ?? 0,
+      tripsTogether: together(f.driverId),
+      since: f.createdAt,
+    }));
   }
 
   // ───────────────────────── regular trips (r5) ─────────────────────────
