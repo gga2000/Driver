@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CallSession, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView } from '../chat-io.js';
+import { CallSession, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView, ChatVoiceUploadInput, VoiceUploadTicket } from '../chat-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -20,6 +20,11 @@ export const chatRouter = router({
     .input(ChatSendInput)
     .output(ChatMessage)
     .mutation(({ ctx, input }) => ctx.chat.send(ctx.actor, input)),
+  /** A signed upload for a voice note (≤ 60 s, ≤ 1 MB): PUT the recording, then `send` with `voiceUploadId`. */
+  voiceUpload: protectedProcedure()
+    .input(ChatVoiceUploadInput)
+    .output(VoiceUploadTicket)
+    .mutation(({ ctx, input }) => ctx.chat.voiceUpload(ctx.actor, input)),
   markRead: protectedProcedure()
     .input(ChatMarkReadInput)
     .output(ChatMarkReadOutput)

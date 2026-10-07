@@ -233,6 +233,8 @@ export const ERROR_TABLE = {
   chat_not_open: { retryHint: 'later', status: 'CONFLICT' },
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  /** Voice notes are for the customer ↔ courier / driver chat and the support chat only (`VOICE_THREAD_KINDS`). */
+  chat_voice_unavailable: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «كلّم الدعم»: a customer opens at most CHAT_SUPPORT_OPENS_PER_DAY new support chats a day.
   chat_support_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },

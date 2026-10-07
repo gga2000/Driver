@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { t, type Locale, type MessageKey } from '@driver/i18n';
+import { PhotoUploadTicket } from './account-io.js';
 import { LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 
@@ -29,7 +30,7 @@ export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 export const ChatRole = z.enum(['customer', 'courier', 'merchant', 'support']);
 export type ChatRole = z.infer<typeof ChatRole>;
 
-export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location']);
+export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location', 'voice']);
 export type ChatMessageKind = z.infer<typeof ChatMessageKind>;
 
 /** `not_open`: before accept · `open` · `closed`: 30 min after completion (read-only). */
@@ -51,6 +52,29 @@ export const CHAT_CLOSE_AFTER_MIN = 30;
 export const CHAT_SUPPORT_CLOSE_AFTER_H = 24;
 /** A customer opens at most this many new support chats (one per order) per 24 h; messages keep the normal send limit. */
 export const CHAT_SUPPORT_OPENS_PER_DAY = 5;
+/**
+ * Voice notes (ride ideas n7/n8): hold the mic to record, release to send, slide to cancel. A note is at
+ * most `maxSec` long and `maxBytes` big (mono AAC / Opus at ~48 kb/s is about 360 KB a minute). The file
+ * is gone with the chat: the server deletes it once the thread closes and the bubble says so.
+ */
+export const VOICE_RULES = { maxSec: 60, maxBytes: 1_000_000 } as const;
+/**
+ * What a recorder writes: m4a (iOS and Android, Safari) is `audio/mp4`, a raw ADTS stream `audio/aac`,
+ * Chrome's MediaRecorder `audio/webm` (Opus), Firefox's `audio/ogg` (Opus). The server checks the
+ * file's first bytes against the declared type.
+ */
+export const VoiceContentType = z.enum(['audio/mp4', 'audio/aac', 'audio/webm', 'audio/ogg']);
+export type VoiceContentType = z.infer<typeof VoiceContentType>;
+
+/**
+ * Where voice notes are offered: the customer and his courier / driver, and the customer and our
+ * support desk (n7/n8). The kitchen's threads stay text and photos (the merchant app has no player).
+ */
+export const VOICE_THREAD_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'customer_support'];
+export function voiceAllowedIn(kind: ChatThreadKind): boolean {
+  return VOICE_THREAD_KINDS.includes(kind);
+}
+
 /** Old poll interval of the open thread; the apps now get messages over `live.chat` (kept for older clients). */
 export const CHAT_POLL_MS = 3000;
 
@@ -120,9 +144,10 @@ export function chatPushTitle(senderRole: ChatRole, ride: boolean, locale: Local
   return t(`push.chat_message.title_${who}` as MessageKey, {}, locale);
 }
 
-/** Push body: the message preview, or "دزلك صورة" / "دزلك لوكيشن". */
+/** Push body: the message preview, or "دزلك صورة" / "دزلك لوكيشن" / "رسالة صوتية". */
 export function chatPushBody(messageKind: ChatMessageKind, preview: string | null, locale: Locale = 'ar-IQ'): string {
   if (preview) return preview;
+  if (messageKind === 'voice') return t('push.chat_message.voice', {}, locale);
   return t(messageKind === 'photo' ? 'push.chat_message.photo' : 'push.chat_message.location', {}, locale);
 }
 
@@ -136,12 +161,19 @@ export const ChatMessage = z.object({
   /** Written by the reader. */
   mine: z.boolean(),
   kind: ChatMessageKind,
-  /** Text as stored (phone numbers masked); a quick reply's Arabic text; null for photo / location. */
+  /** Text as stored (phone numbers masked); a quick reply's Arabic text; null for photo / location / voice. */
   text: z.string().nullable(),
   quickReplyKey: QuickReplyKey.nullable(),
   /** Signed, short-lived read URL of a photo message. */
   photoUrl: z.string().nullable(),
   location: LatLng.nullable(),
+  /**
+   * Signed, short-lived read URL of a voice note; null on other kinds and on a voice note whose file
+   * went with the closed chat (the bubble says «انتهت الرسالة الصوتية»).
+   */
+  audioUrl: z.string().nullable(),
+  /** A voice note's length in whole seconds (1–`VOICE_RULES.maxSec`); null on other kinds. */
+  durationSec: z.number().int().positive().nullable(),
   /** The server hid a phone number in this message (the app explains: calls go through the app). */
   masked: z.boolean(),
   createdAt: z.coerce.date(),
@@ -219,11 +251,30 @@ export const ChatSendInput = z
     /** A finished `places.photoUpload` of the sender. */
     photoUploadId: z.string().min(1).optional(),
     location: LatLng.optional(),
+    /** A finished `chat.voiceUpload` of the sender, with `durationSec`. */
+    voiceUploadId: z.string().min(1).optional(),
+    /** The voice note's length as the recorder measured it, rounded up to whole seconds. */
+    durationSec: z.number().int().min(1).max(VOICE_RULES.maxSec).optional(),
   })
-  .refine((v) => [v.text, v.quickReplyKey, v.photoUploadId, v.location].filter((x) => x !== undefined).length === 1, {
-    message: 'exactly one of text, quickReplyKey, photoUploadId, location',
-  });
+  .refine((v) => [v.text, v.quickReplyKey, v.photoUploadId, v.location, v.voiceUploadId].filter((x) => x !== undefined).length === 1, {
+    message: 'exactly one of text, quickReplyKey, photoUploadId, location, voiceUploadId',
+  })
+  .refine((v) => (v.voiceUploadId !== undefined) === (v.durationSec !== undefined), { message: 'durationSec goes with voiceUploadId (and only with it)' });
 export type ChatSendInput = z.infer<typeof ChatSendInput>;
+
+/**
+ * A signed upload for a voice note in this thread (the same ticket as `places.photoUpload`): the caller
+ * must be able to write in the thread now. PUT the recording, then `chat.send` with `voiceUploadId`.
+ */
+export const ChatVoiceUploadInput = z.object({
+  orderId: z.string().min(1),
+  kind: ChatThreadKind,
+  contentType: VoiceContentType,
+  sizeBytes: z.number().int().positive().max(VOICE_RULES.maxBytes),
+});
+export type ChatVoiceUploadInput = z.infer<typeof ChatVoiceUploadInput>;
+export const VoiceUploadTicket = PhotoUploadTicket;
+export type VoiceUploadTicket = PhotoUploadTicket;
 
 export const ChatMarkReadInput = z.object({ orderId: z.string().min(1), kind: ChatThreadKind, seq: z.number().int().min(0) });
 export type ChatMarkReadInput = z.infer<typeof ChatMarkReadInput>;
@@ -267,7 +318,7 @@ export const ChatMessageSentPayload = z.object({
   ride: z.boolean(),
   /** People to notify (the other party; the kitchen's on-shift staff). */
   recipientIds: z.array(z.string()),
-  /** Short preview: the (masked) text or the quick reply, cut to 80 characters; null for photo / location. */
+  /** Short preview: the (masked) text or the quick reply, cut to 80 characters; null for photo / location / voice. */
   preview: z.string().nullable(),
 });
 export type ChatMessageSentPayload = z.infer<typeof ChatMessageSentPayload>;
@@ -279,6 +330,7 @@ export interface ChatPort {
   threads(actor: Actor, input: ChatThreadsInput): Promise<ChatThreadSummary[]>;
   thread(actor: Actor, input: ChatThreadInput): Promise<ChatThreadView>;
   send(actor: Actor, input: ChatSendInput): Promise<ChatMessage>;
+  voiceUpload(actor: Actor, input: ChatVoiceUploadInput): Promise<VoiceUploadTicket>;
   // (the desk's own reads and replies on `customer_support` go through `support.*`, see support-io)
   markRead(actor: Actor, input: ChatMarkReadInput): Promise<ChatMarkReadOutput>;
   requestCall(actor: Actor, input: ChatRequestCallInput): Promise<CallSession>;

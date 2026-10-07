@@ -12,6 +12,8 @@ const msg = (seq: number, senderRole: ChatMessage['senderRole'], text: string, m
   text,
   quickReplyKey: null,
   photoUrl: null,
+  audioUrl: null,
+  durationSec: null,
   location: null,
   masked: false,
   createdAt: at(min),

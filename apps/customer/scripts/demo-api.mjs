@@ -27,6 +27,7 @@
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
 //                                                                     a booked ride, «عشاك يوصل وياك»
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -1322,11 +1323,25 @@ const rajaa = await (async () => {
 // and زينب (support) answered (one unread); `support_empty`: an order on the way, support chat unused.
 // `/demo/chat/clock?minutes=31` lets a screenshot show a closed thread
 // (minutes=0 resets); it only moves the chat module's clock.
+//
+// Voice notes (ride ideas n7/n8): in `ride` the driver has also left a 3-second voice note, and a
+// voice note the customer sends to his courier / driver is answered by one from him 2.5 s later
+// (scripts/dev/demo-voice-note.m4a, a soft hum made with ffmpeg; uploaded through the real store).
 {
   const { ChatService } = await load('modules/chat/index.js');
   const { ShareLinksService } = await load('modules/tracking/index.js');
+  const { BLOB_STORE: VOICE_STORE } = await load('modules/places/index.js');
   const chat = app.get(ChatService);
   const shareLinks = app.get(ShareLinksService);
+  const voiceStore = app.get(VOICE_STORE);
+  const DEMO_VOICE = readFileSync(fileURLToPath(new URL('../../../scripts/dev/demo-voice-note.m4a', import.meta.url)));
+  /** The demo clip, uploaded as `ownerId`'s own voice note → upload id. */
+  async function demoVoiceNote(ownerId) {
+    const ticket = await voiceStore.createUpload({ ownerId, contentType: 'audio/mp4', sizeBytes: DEMO_VOICE.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await voiceStore.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'audio/mp4', bytes: DEMO_VOICE });
+    return ticket.uploadId;
+  }
   let skewMs = 0;
   chat.clock = { now: () => new Date(Date.now() + skewMs) };
   const as = (personId) => ({ personId, sessionId: 'demo' });
@@ -1389,6 +1404,7 @@ const rajaa = await (async () => {
       await trips.completeStop(trip.id, pickup.id, driverId);
       await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
+      await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: await demoVoiceNote(driverId), durationSec: 4 });
       const link = await shareLinks.createShareLink(as(personId), { orderId: ride.id });
       return { orderId: ride.id, tripId: trip.id, driverId, token: link.token, path: link.path };
     }
@@ -1419,6 +1435,18 @@ const rajaa = await (async () => {
     await chat.send(as(courierId), { orderId, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_two_min' });
     return { orderId, tripId, courierId };
   }
+
+  // His voice note to the courier / driver gets one back (the demo plays the other side).
+  events.subscribe('demo:voice-reply', ['chat.message_sent'], async (event) => {
+    const p = event.payload;
+    if (p.messageKind !== 'voice' || p.senderRole !== 'customer' || p.kind !== 'customer_courier' || p.recipientIds.length === 0) return;
+    const courierId = p.recipientIds[0];
+    setTimeout(() => {
+      void demoVoiceNote(courierId)
+        .then((voiceUploadId) => chat.send(as(courierId), { orderId: p.orderId, kind: 'customer_courier', clientId: cid(), voiceUploadId, durationSec: 4 }))
+        .catch((err) => console.warn(`[demo] voice reply: ${err?.message ?? err}`));
+    }, 2500);
+  });
 
   app.use('/demo/chat', async (req, res) => {
     try {
