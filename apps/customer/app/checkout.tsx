@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Platform, Pressable, Switch, View } from 'react-native';
 import { Avatar, Button, Card, ChipGroup, EmptyState, Icon, ListRow, PriceBreakdown, SegmentedControl, Skeleton, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { changeDue, householdApproval, tenderOptions } from '@driver/contracts';
-import { formatClock, formatMinuteCount, formatMinutesRange } from '@driver/i18n';
+import { cityDayDiff, formatClock, formatMinuteCount, formatMinutesRange } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { TABLE, groupByPerson, reconcile } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
@@ -26,6 +26,9 @@ import { payerOf as householdPayerOf } from '@/features/account/family';
 import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
+import { dinnerStore, useDinnerPick } from '@/features/ride-habits/dinner-store';
+import { dinnerLine, withDinnerSlot } from '@/features/ride-habits/logic';
+import { useDinnerTime } from '@/features/ride-habits/queries';
 import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
 import { useTimetable } from '@/features/season/use-timetable';
 import { useSeason } from '@/lib/use-season';
@@ -103,7 +106,16 @@ export default function CheckoutScreen() {
   const season = useSeason();
   const [timetable] = useTimetable();
   const iftar = timesFor(season.ramadan, timetable);
-  const slots = useMemo(() => (day === 0 ? withIftarSlot(baseSlots, iftar, new Date(), IFTAR_MIN_LEAD_MIN) : baseSlots.map((at) => ({ at, iftar: false }))), [baseSlots, iftar, day]);
+  const plainSlots = useMemo(() => (day === 0 ? withIftarSlot(baseSlots, iftar, new Date(), IFTAR_MIN_LEAD_MIN) : baseSlots.map((at) => ({ at, iftar: false }))), [baseSlots, iftar, day]);
+  // Joy r6 «عشاك يوصل وياك»: the server's time against the ride home (to this deliver-to place) joins
+  // the day's slots and is chosen; the order is an ordinary pre-order at that time.
+  const dinnerPick = useDinnerPick();
+  const dinnerOn = Boolean(dinnerPick && place && place.id === dinnerPick.placeId);
+  const dinnerTime = useDinnerTime(dinnerOn && dinnerPick ? dinnerPick.source : null, cart.merchant?.id ?? null);
+  const dinnerAt = dinnerTime.data?.deliverAt ?? null;
+  const dinnerDay: 0 | 1 | null = dinnerAt ? (cityDayDiff(dinnerAt, new Date()) >= 1 ? 1 : 0) : null;
+  const dinnerAtMs = dinnerAt?.getTime() ?? null;
+  const slots = useMemo(() => withDinnerSlot(plainSlots, dinnerAtMs !== null && dinnerDay === day ? new Date(dinnerAtMs) : null, (at) => ({ at, iftar: false })), [plainSlots, dinnerAtMs, dinnerDay, day]);
   const [slot, setSlot] = useState<string | null>(null);
   const preset = useRef(false);
   useEffect(() => {
@@ -117,6 +129,15 @@ export default function CheckoutScreen() {
     setDay(first.day);
     setSlot(null);
   }, [menu.data]);
+  // The dinner time, once the server gives it, is the chosen one (the rider may still pick another).
+  const dinnerPreset = useRef<number | null>(null);
+  useEffect(() => {
+    if (dinnerAtMs === null || dinnerDay === null || dinnerPreset.current === dinnerAtMs) return;
+    dinnerPreset.current = dinnerAtMs;
+    setWhen('later');
+    setDay(dinnerDay);
+    setSlot(String(dinnerAtMs));
+  }, [dinnerAtMs, dinnerDay]);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');
@@ -274,6 +295,7 @@ export default function CheckoutScreen() {
       // g1: the card line and who it goes to stay on this phone for the heads-up (never on the server).
       if (order.gift && receiver) giftStore.remember(order.id, { ...receiver, card: cleanCard(gift.card), paidByMe: payment === 'wallet' });
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
+      dinnerStore.clear();
       router.replace({ pathname: '/kitchen/[id]', params: { id: order.id } });
     } catch (err) {
       const errCode = apiErrorCode(err);
@@ -327,7 +349,9 @@ export default function CheckoutScreen() {
   const etaMax = restaurant?.etaMaxMinutes ?? null;
   const whenValue = !scheduledFor
     ? t('checkout.when_now')
-    : chosen?.iftar && iftar
+    : chosen?.dinner
+      ? t('dinner.slot', { time: clock12(scheduledFor) })
+      : chosen?.iftar && iftar
       ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) })
       : `${day === 1 ? t('time.tomorrow') : t('time.today')} ${t('checkout.when_at', { time: clock12(scheduledFor) })}`;
   const receiverValue = recipientId === 'me' ? t('checkout.recipient_me') : recipientId === 'other' ? otherName.trim() || t('checkout.recipient_other') : (recipientName ?? t('checkout.recipient_other'));
@@ -595,6 +619,17 @@ export default function CheckoutScreen() {
           </View>
         ) : null}
         <ChoiceRow testID="checkout-row-when" icon="clock" label={t('checkout.row_when')} value={whenValue} open={open.when} onPress={() => toggle('when')} />
+        {chosen?.dinner && scheduledFor && dinnerTime.data ? (
+          <View testID="checkout-dinner-note" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[3] }}>
+            <Icon name="food" size={16} color="accentText" />
+            <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+              {(() => {
+                const l = dinnerLine(dinnerTime.data.lateByMin);
+                return l.key === 'with' ? t('dinner.with', { place: dinnerTime.data.place.name, time: clock12(dinnerTime.data.arriveAt) }) : t('dinner.after', { minutes: formatMinuteCount(l.minutes, { locale }), time: clock12(dinnerTime.data.arriveAt) });
+              })()}
+            </Text>
+          </View>
+        ) : null}
         {open.when ? (
           <View style={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[4] }}>
             <ChipGroup
@@ -623,7 +658,7 @@ export default function CheckoutScreen() {
                 />
                 {slots.length > 0 ? (
                   <ChipGroup
-                    items={slots.map((sl) => ({ id: String(sl.at.getTime()), label: sl.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(sl.at) }) }))}
+                    items={slots.map((sl) => ({ id: String(sl.at.getTime()), ...(sl.dinner ? { icon: 'food' as const } : {}), label: sl.dinner ? t('dinner.slot', { time: clock12(sl.at) }) : sl.iftar && iftar ? t('checkout.when_iftar', { time: clock12(iftar.iftarAt) }) : t('checkout.when_at', { time: clock12(sl.at) }) }))}
                     value={chosen ? [String(chosen.at.getTime())] : []}
                     required
                     onChange={(v) => setSlot(v[0] ?? null)}

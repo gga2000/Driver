@@ -147,6 +147,12 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />
         <Stack.Screen name="ride/pin" options={{ headerShown: false }} />
         <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
+        {/* Joy J7d: a ride booked for later waits here until its search starts; regular trips; favourite drivers. */}
+        <Stack.Screen name="ride/booked/[id]" options={{ title: t('habits.booked_title'), headerLeft: () => <HeaderBack fallback="/orders" /> }} />
+        <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
+        <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        <Stack.Screen name="drivers" options={{ title: t('habits.fav_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* SOS: the emergency contact's live-location page (public, signed token). */}

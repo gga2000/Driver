@@ -7,6 +7,8 @@ import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList 
 import { passPhase } from '@/features/rajaa/pass';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
+import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
+import { useDinnerChance, useFavourites } from '@/features/ride-habits/queries';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
 import { cancelRule, clockLabel, boardingOpensAt, endpoints, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
@@ -71,6 +73,9 @@ export default function BoardingPassScreen() {
   const cancel = useCancelSeat();
   const [asking, setAsking] = useState(false);
   const now = useNow(1000);
+  // Joy l9 / r6: the favourite heart after a good rating; dinner timed to the arrival home.
+  const favs = useFavourites();
+  const dinner = useDinnerChance(live && b?.departure.direction === 'to_aziziyah');
 
   if (booking.isPending) {
     return (
@@ -156,6 +161,7 @@ export default function BoardingPassScreen() {
       <Screen testID="rajaa-pass" edges={['bottom']}>
         <Stack.Screen options={{ title: t('rajaa.kept_title') }} />
         <SafeArrival booking={b} route={route} driverName={driverCard?.firstName ?? null} now={now} />
+        {(b.rating?.stars ?? 0) >= 4 ? <FavouriteToggle source={{ bookingId: b.id }} driverId={b.departure.driverId} favourites={favs.data ?? []} name={driverCard?.firstName ?? null} /> : null}
         {/* Joy l5: a picture of the safe arrival to share (no address, the first name only if chosen). */}
         <ShareMomentButton moment={{ kind: 'rajaa', toCity: corridor ? cityName(t, endpoints(corridor.cityId, b.departure.direction).to) : null }} id={b.id} />
         <KeptStub booking={b} route={route} garage={garage} driver={driverCard} />
@@ -233,6 +239,9 @@ export default function BoardingPassScreen() {
           </View>
         ) : null}
       </Card>
+
+      {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
+      {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
 
       {/* Live car from T−30 (the car only, never other riders' stops). */}
       <Card padding={4} elevation={0} testID="rajaa-live-car">
