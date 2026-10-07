@@ -11,6 +11,7 @@ import {
   haptic as hapticTokens,
   hitTarget,
   identity,
+  liveStages,
   motion,
   radius,
   scheme,
@@ -23,6 +24,7 @@ import {
   type FontWeight,
   type HomeDecor,
   type IdentityColor,
+  type LiveStagePalette,
   type ServicePalette,
   type ThemeColors,
   type ThemeName,
@@ -52,6 +54,8 @@ export interface Theme {
   services: ServicePalette;
   /** Home decoration: the dot halo, the hour's sky wash, dish plates, the paper grain. */
   decor: HomeDecor;
+  /** The home live-order card's look at each stage (sent, accepted, cooking, ready, on the way). */
+  liveStages: LiveStagePalette;
   /** What a secondary or ghost `Button` buzzes: nothing in istikan (joy S2-18). */
   secondaryButtonHaptic: HapticKind | null;
   space: typeof space;
@@ -111,6 +115,7 @@ export function createTheme(
     identity: identity[name],
     services: services[name],
     decor: decor[name],
+    liveStages: liveStages[name],
     secondaryButtonHaptic: hapticTokens.secondaryButton[name],
     space,
     radius,
