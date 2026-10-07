@@ -60,6 +60,7 @@ const CODE_ATTEMPTS = 8;
 /** The referral rule as the apps say it, straight from the money rules (decisions §1). */
 export function inviteRuleOf(rules: MoneyRules): InviteRule {
   return {
+    rewardsOn: rules.referral.enabled,
     pointsPerSide: rules.referral.pointsPerSide,
     pointValueIqd: rules.points.pointValueIqd,
     minOrderIqd: rules.referral.minOrderIqd,
@@ -99,7 +100,7 @@ export class ReferralsService implements ReferralsPort {
     this.orders = port;
   }
 
-  private get rule(): InviteRule {
+  private get inviteRule(): InviteRule {
     return inviteRuleOf(this.rules);
   }
 
@@ -128,16 +129,20 @@ export class ReferralsService implements ReferralsPort {
       const state: InviteFriend['state'] = r.blockedReason ? 'not_counted' : (await this.paid(r.refereeId)) ? 'counted' : 'waiting';
       friends.push({ firstName: names[r.refereeId] ?? null, state });
     }
-    return { code, path: invitePath(code), rule: this.rule, invited: rows.length, rewarded, friends };
+    return { code, path: invitePath(code), rule: this.inviteRule, invited: rows.length, rewarded, friends };
+  }
+
+  rule(): Promise<InviteRule> {
+    return Promise.resolve(this.inviteRule);
   }
 
   async preview(input: InvitePreviewInput): Promise<InvitePreview> {
     const code = normalizeInviteCode(input.code);
     const owner = code ? await this.repo.ownerOf(code) : null;
-    if (!owner) return { valid: false, inviterFirstName: null, rule: this.rule };
+    if (!owner) return { valid: false, inviterFirstName: null, rule: this.inviteRule };
     // The inviter sent his own link: his first name on it is his choice (read as himself, not logged).
     const name = (await this.names.firstNamesFor([owner], owner, 'invite_preview'))[owner] ?? null;
-    return { valid: true, inviterFirstName: name, rule: this.rule };
+    return { valid: true, inviterFirstName: name, rule: this.inviteRule };
   }
 
   async claim(actor: Actor, input: ClaimInviteInput): Promise<ClaimInviteOutput> {
@@ -187,7 +192,7 @@ export class ReferralsService implements ReferralsPort {
 
   private async claimed(refereeId: string, referrerId: string): Promise<ClaimInviteOutput> {
     const name = (await this.names.firstNamesFor([referrerId], refereeId, 'invite_claim'))[referrerId] ?? null;
-    return { ok: true, inviterFirstName: name, rule: this.rule };
+    return { ok: true, inviterFirstName: name, rule: this.inviteRule };
   }
 
   /**
