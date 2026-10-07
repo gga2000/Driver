@@ -8,6 +8,9 @@ export interface ChatThreadRecord {
   orderId: string;
   kind: ChatThreadKind;
   lastSeq: number;
+  /** s7 «نسيت غرض»: a completed ride's chat reopened until then (ride end + 24 h); null = never reopened. */
+  lostItemUntil: Date | null;
+  lostItemAskedAt: Date | null;
   createdAt: Date;
 }
 
@@ -64,6 +67,10 @@ export interface ChatRepository {
   threadsWithVoice(opts: { afterThreadId?: string; limit: number }): Promise<ChatVoiceThread[]>;
   /** The voice file of this message is gone: forget its ref (the bubble then says so). */
   clearVoice(messageId: string): Promise<void>;
+  /** s7: reopens the thread until `until`, asked at `at` (a later ask keeps the first time). */
+  reopenForLostItem(threadId: string, until: Date, at: Date, tx: Tx): Promise<ChatThreadRecord>;
+  /** s7: threads reopened for a lost item that are still open at `now`. */
+  lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]>;
 }
 
 export const CHAT_REPOSITORY = Symbol('CHAT_REPOSITORY');
@@ -87,7 +94,7 @@ export class InMemoryChatRepository implements ChatRepository {
   async ensureThread(orderId: string, kind: ChatThreadKind, now: Date): Promise<ChatThreadRecord> {
     const existing = await this.findThread(orderId, kind);
     if (existing) return existing;
-    const t: ChatThreadRecord = { id: `cht_${randomUUID().replace(/-/g, '').slice(0, 20)}`, orderId, kind, lastSeq: 0, createdAt: now };
+    const t: ChatThreadRecord = { id: `cht_${randomUUID().replace(/-/g, '').slice(0, 20)}`, orderId, kind, lastSeq: 0, lostItemUntil: null, lostItemAskedAt: null, createdAt: now };
     this.threads.set(t.id, t);
     this.msgs.set(t.id, []);
     return { ...t };
@@ -148,14 +155,26 @@ export class InMemoryChatRepository implements ChatRepository {
       if (m) m.voiceRef = null;
     }
   }
+
+  async reopenForLostItem(threadId: string, until: Date, at: Date): Promise<ChatThreadRecord> {
+    const t = this.threads.get(threadId);
+    if (!t) throw new Error(`chat thread ${threadId} missing`);
+    t.lostItemUntil = until;
+    t.lostItemAskedAt ??= at;
+    return { ...t };
+  }
+
+  async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
+    return [...this.threads.values()].filter((t) => t.lostItemUntil !== null && t.lostItemUntil.getTime() > now.getTime()).map((t) => ({ ...t }));
+  }
 }
 
 // ───────────────────────── Prisma ─────────────────────────
 
-type ThreadRow = { id: string; orderId: string; kind: string; lastSeq: number; createdAt: Date };
+type ThreadRow = { id: string; orderId: string; kind: string; lastSeq: number; lostItemUntil: Date | null; lostItemAskedAt: Date | null; createdAt: Date };
 type MessageRow = Omit<ChatMessageRecord, 'senderRole' | 'kind'> & { senderRole: string; kind: string };
 
-const threadOf = (r: ThreadRow): ChatThreadRecord => ({ id: r.id, orderId: r.orderId, kind: r.kind as ChatThreadKind, lastSeq: r.lastSeq, createdAt: r.createdAt });
+const threadOf = (r: ThreadRow): ChatThreadRecord => ({ id: r.id, orderId: r.orderId, kind: r.kind as ChatThreadKind, lastSeq: r.lastSeq, lostItemUntil: r.lostItemUntil, lostItemAskedAt: r.lostItemAskedAt, createdAt: r.createdAt });
 const messageOf = (r: MessageRow): ChatMessageRecord => ({
   id: r.id,
   threadId: r.threadId,
@@ -285,5 +304,15 @@ export class PrismaChatRepository implements ChatRepository {
 
   async clearVoice(messageId: string): Promise<void> {
     await this.db().chatMessage.updateMany({ where: { id: messageId }, data: { voiceRef: null } });
+  }
+
+  async reopenForLostItem(threadId: string, until: Date, at: Date, tx: Tx): Promise<ChatThreadRecord> {
+    const db = this.db(tx);
+    await db.chatThread.updateMany({ where: { id: threadId, lostItemAskedAt: null }, data: { lostItemAskedAt: at } });
+    return threadOf(await db.chatThread.update({ where: { id: threadId }, data: { lostItemUntil: until } }));
+  }
+
+  async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
+    return (await this.db().chatThread.findMany({ where: { lostItemUntil: { gt: now } }, orderBy: { lostItemAskedAt: 'desc' } })).map(threadOf);
   }
 }

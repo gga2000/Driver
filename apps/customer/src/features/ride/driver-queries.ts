@@ -69,9 +69,3 @@ export function useUnavoidDriver() {
   const refresh = useAvoidRefresh();
   return useMutation({ ...api.rideHabits.unavoid.mutationOptions(), onSuccess: refresh });
 }
-
-/** Ride idea s7 «نسيت غرض»: reopens the chat with the driver for 24 hours after the ride. */
-export function useLostItem() {
-  const api = useApi();
-  return useMutation({ ...api.chat.lostItem.mutationOptions() });
-}

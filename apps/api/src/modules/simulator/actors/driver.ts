@@ -37,6 +37,11 @@ export const DRIVER_BEHAVIOUR = {
    * (picked by order id, not the driver's random stream, so the rest of the run is unchanged).
    */
   noChangeEvery: 8,
+  /**
+   * s1 «رمز المشوار»: at a night ride's pickup the rider reads out the code from his app; about one
+   * in this many times the driver mistypes it once first (picked by order id, like `noChangeEvery`).
+   */
+  startCodeTypoEvery: 4,
 };
 
 const TERMINAL_TRIP = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
@@ -283,6 +288,12 @@ async function cashToCollect(ctx: SimContext, orderId: string): Promise<{ cashIq
 }
 
 /** A fixed bucket 0…n−1 for an id (FNV-1a), independent of every random stream. */
+/** The code with its last digit off by one: the slip of a thumb, never the right code. */
+function mistyped(code: string): string {
+  const last = Number(code.at(-1));
+  return `${code.slice(0, -1)}${(last + 1) % 10}`;
+}
+
 function stableBucket(id: string, n: number): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
@@ -318,6 +329,8 @@ function recordDepartures(ctx: SimContext, d: DriverRun): void {
 
 async function act(ctx: SimContext, d: DriverRun, trip: DriverTrip, kind: ActionKind, stop: Trip['stops'][number], cashIqd?: number, changeToWalletIqd?: number): Promise<boolean> {
   d.seq += 1;
+  // What the rider's screen shows him (`OrderTracking.trip.startCode`): the order's code, if any.
+  const startCode = kind === 'complete' && stop.type === 'pickup' && stop.orderId ? ((await ctx.call('rider.start_code', () => ctx.s.orders.startCodeOf(stop.orderId!))) ?? undefined) : undefined;
   const a: DriverAction = {
     kind,
     tripId: trip.tripId,
@@ -329,11 +342,16 @@ async function act(ctx: SimContext, d: DriverRun, trip: DriverTrip, kind: Action
     pin: { ...d.pos },
     ...(cashIqd !== undefined ? { cashIqd } : {}),
     ...(changeToWalletIqd !== undefined ? { changeToWalletIqd } : {}),
+    ...(startCode !== undefined ? { startCode } : {}),
   };
   if (kind !== 'unreachable') trip.local.set(stop.id, kind === 'arrive' ? 'arrived' : 'completed');
   if (!d.online) {
     d.queue.push(a);
     return true;
+  }
+  // A mistyped code is refused (`start_code_wrong`) and counted; he asks again and types it right.
+  if (startCode !== undefined && stableBucket(`${a.orderId}:start_code`, DRIVER_BEHAVIOUR.startCodeTypoEvery) === 0) {
+    await send(ctx, d, { ...a, key: `${a.key}.typo`, startCode: mistyped(startCode) });
   }
   const ok = await send(ctx, d, a);
   if (!ok) {
@@ -354,6 +372,7 @@ async function send(ctx: SimContext, d: DriverRun, a: DriverAction): Promise<boo
         ? await ctx.call('driver.complete', () =>
             ctx.s.trips.completeStop(a.tripId, a.stopId, d.personId, {
               ...(a.cashIqd !== undefined ? { handover: { cashCollectedIqd: a.cashIqd, ...(a.changeToWalletIqd !== undefined ? { changeToWalletIqd: a.changeToWalletIqd } : {}) } } : {}),
+              ...(a.startCode !== undefined ? { startCode: a.startCode } : {}),
               ...stamp,
             }),
           )

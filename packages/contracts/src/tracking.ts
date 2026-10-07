@@ -76,7 +76,7 @@ export const TrackStop = z.object({
   mine: z.boolean(),
   /** Pin of this order's stops only; null for other customers' stops. */
   target: LatLng.nullable(),
-  /** My drop-off only: the server's first "almost there" fix (null otherwise). */
+  /** My drop-off: the server's first "almost there" fix; a ride's pickup: when the driver was a minute away (d3). Null otherwise. */
   courierNearAt: z.coerce.date().nullable().default(null),
   arrivedAt: z.coerce.date().nullable(),
   completedAt: z.coerce.date().nullable(),
@@ -94,6 +94,11 @@ export const TrackTrip = z.object({
   unreachable: UnreachableStatus.nullable(),
   /** The trip's vertical (rides: taxi or tuktuk before a driver accepts). */
   vertical: Vertical.optional(),
+  /**
+   * s1 «رمز المشوار»: a night ride's 4 digits the rider tells the driver before getting in, until the
+   * ride has started. Only on the orderer's and the rider's own screen; null otherwise.
+   */
+  startCode: z.string().nullable().optional(),
 });
 export type TrackTrip = z.infer<typeof TrackTrip>;
 

@@ -138,6 +138,7 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     this.orders.bindReferrals({ referrerOf: (personId) => this.referrals.referrerOf(personId) });
     this.referrals.bindOrders({ placedCount: (personId) => this.orders.placedCount(personId) });
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
+    this.trips.bindStartCodes({ codeOf: (orderId) => this.orders.startCodeOf(orderId) });
     this.trips.bindHandoverCheck({ check: (orderId, handover) => (orderId ? this.orders.handoverProblem(orderId, handover) : Promise.resolve(handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
     // Joy w4: a payer's yes or no moves the held household order (its timer settles it otherwise).
     this.households.bindDecision((req) => (req.state === 'approved' || req.state === 'declined' ? this.orders.onPayerDecision(req.orderId, req.state) : Promise.resolve()));

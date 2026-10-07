@@ -125,10 +125,13 @@ export class TrackingModule implements OnModuleInit {
   constructor(
     private readonly households: HouseholdsRpc,
     private readonly tracking: TrackingService,
+    private readonly trips: TripsService,
   ) {}
 
-  /** Joy w5: household approvals name the restaurant, the dishes and where it goes (orders + menus live here). */
   onModuleInit(): void {
+    // Joy w5: household approvals name the restaurant, the dishes and where it goes (orders + menus live here).
     this.households.bindOrderContext((orderId) => this.tracking.approvalContext(orderId));
+    // d3: «السايق قريب، اطلع هسة» goes by the same ETA the rider's screen counts down (tracking imports trips).
+    this.trips.bindRideNear({ secondsToPickup: (trip, orderId, pin, now) => this.tracking.secondsToPickup(trip, orderId, pin, now) });
   }
 }

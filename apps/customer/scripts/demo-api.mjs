@@ -1481,6 +1481,8 @@ const rajaa = await (async () => {
 //                                     nudges («نبّهه») accepts nudgeAcceptMs after the nudge (0 = never)
 //   POST /demo/ride/nudges?orderId=…  the drivers sent that ride and which were nudged (what each one's
 //                                     partner app shows as «راكب ينتظرك»)
+//   POST /demo/ride/night?orderId=…   the ride gets a night ride's 4-digit trip code (s1) by day: the live
+//                                     screen shows «رمز المشوار»; advance passes it like the rider would
 {
   const RIDE_DRIVERS = [
     // Ride step 3 (d1, n1, n2): model, the real colour and the features ops confirmed at the car check.
@@ -1600,7 +1602,9 @@ const rajaa = await (async () => {
       await trips.arrive(r.tripId, pickup.id, r.driverId, { pin: pickup.target });
       r.step = 'at_pickup';
     } else if (r.step === 'at_pickup') {
-      await trips.completeStop(r.tripId, pickup.id, r.driverId);
+      // A night ride starts with the rider's code (ride step 3, s1): the demo driver "asks" for it.
+      const startCode = (await orders.startCodeOf(orderId)) ?? undefined;
+      await trips.completeStop(r.tripId, pickup.id, r.driverId, startCode ? { startCode } : {});
       const mid = { lat: (pickup.target.lat + drop.target.lat) / 2 + 0.0008, lng: (pickup.target.lng + drop.target.lng) / 2 + 0.0006 };
       await startMover(r.tripId, r.driverId, [pickup.target, mid, drop.target], 30);
       r.step = 'on_trip';
@@ -1623,6 +1627,16 @@ const rajaa = await (async () => {
       if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
       const orderId = url.searchParams.get('orderId');
       if (url.pathname.endsWith('/advance')) return json(res, 200, { orderId, step: await advanceRide(orderId) });
+      if (url.pathname.endsWith('/night')) {
+        // Ride step 3 (s1) by day: the ride gets the 4-digit trip code a night ride is placed with
+        // (in-memory record only), so «رمز المشوار» shows and the partner app asks for it.
+        const { ORDERS_REPOSITORY, newStartCode } = await load('modules/orders/index.js');
+        const order = await orders.get(orderId);
+        if (order.type !== 'ride') return json(res, 409, { error: 'not a ride' });
+        const startCode = (await orders.startCodeOf(orderId)) ?? newStartCode();
+        await app.get(ORDERS_REPOSITORY).update(orderId, { startCode });
+        return json(res, 200, { orderId, startCode });
+      }
       if (url.pathname.endsWith('/search-age')) {
         // The 3-minute offer (J-D7) without waiting 3 minutes: the ride reads as placed `sec` ago
         // (in-memory record only; the dispatch search itself keeps its own clock).

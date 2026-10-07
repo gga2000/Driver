@@ -83,7 +83,11 @@ export interface PartnerDeps {
   };
   /** The road router (maps program d2); absent in fakes = straight lines on the app. */
   roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis }> };
-  orders: { get(orderId: string): Promise<Order | null> };
+  orders: {
+    get(orderId: string): Promise<Order | null>;
+    /** s1: whether a ride needs the rider's night code to start (the code itself never reaches the partner side). */
+    startCodeRequired?(orderId: string): Promise<boolean>;
+  };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
   money: {

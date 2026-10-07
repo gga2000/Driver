@@ -1401,6 +1401,14 @@ async function rideShots() {
   await shot('ride-driver-here');
   await nightShot(`/order/${orderId}`, 'ride-driver-here-night', 'driver-here-ring');
 
+  // Ride step 3 (s1): the same ride as if placed at night — «رمز المشوار» in the collapsed sheet.
+  await demoPost(`/demo/ride/night?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  if (await byTestId('ride-trip-code').waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await page.waitForTimeout(1500);
+    await shot('ride-trip-code');
+  } else errors.push('trip code not shown on a night ride');
+
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });

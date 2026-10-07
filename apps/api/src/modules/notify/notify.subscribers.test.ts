@@ -269,3 +269,51 @@ describe('joy w4 / w6 notifications', () => {
     expect(NOTIFY_EVENT_TYPES).toEqual(expect.arrayContaining(['org.payer_approval_requested', 'insights.month_ready']));
   });
 });
+
+describe('taxi/tuktuk safety pushes (ride step 3: d3, s2)', () => {
+  const NIGHT = new Date('2026-10-04T19:40:00Z'); // 22:40 Baghdad
+  /** ride_2 was booked by cust for mum (s3); ride_1 is cust's own. */
+  const rideLookups = (notifyOnArrival: boolean, accounts: string[] = ['sister', 'brother']): NotifyLookups => ({
+    ...lookups,
+    order: async (id) => (id === 'ride_2' ? { id, type: 'ride', customerId: 'cust', riderId: 'mum', merchantOrgId: null, totalIqd: 4000, itemCount: 0 } : lookups.order(id)),
+    firstName: async (personId) => ({ drv: 'حيدر', mum: 'أم علي' })[personId] ?? null,
+    safety: async () => ({ prefs: { autoShareRajaa: false, autoShareNight: false, notifyOnArrival }, contacts: 2 }),
+    trustedAccounts: async (personId) => (personId === 'mum' || personId === 'cust' ? accounts : []),
+  });
+  const run = async (e: PublishedEvent, L: NotifyLookups) => (await requestsFor(e, { ...deps(notifyHarness()), lookups: L })).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('«السايق قريب، اطلع هسة» goes to the orderer and the rider he booked for, rides only', async () => {
+    const L = rideLookups(false);
+    expect(await run(event('stop.driver_near', { stopId: 's1', etaSec: 50 }, { orderId: 'ride_1', actorId: 'drv' }), L)).toEqual([{ template: 'ride_near', to: 'cust', params: { orderId: 'ride_1' } }]);
+    expect(await run(event('stop.driver_near', { stopId: 's1', etaSec: 50 }, { orderId: 'ride_2', actorId: 'drv' }), L)).toEqual([
+      { template: 'ride_near', to: 'cust', params: { orderId: 'ride_2' } },
+      { template: 'ride_near', to: 'mum', params: { orderId: 'ride_2' } },
+    ]);
+    expect(await run(event('stop.driver_near', { stopId: 's1', etaSec: 50 }, { orderId: 'ord_1' }), L)).toEqual([]);
+    expect(NOTIFY_EVENT_TYPES).toContain('stop.driver_near');
+  });
+
+  it('«وصل بالسلامة»: a ride that ends at night reaches the rider’s trusted people who have the app', async () => {
+    const done = event('order.completed', {}, { orderId: 'ride_2', actorId: 'drv', occurredAt: NIGHT });
+    const out = await run(done, rideLookups(true));
+    expect(out.map((r) => r.template)).toEqual(['ride_receipt', 'ride_safe_arrival', 'ride_safe_arrival']);
+    expect(out.slice(1)).toEqual([
+      { template: 'ride_safe_arrival', to: 'sister', params: { name: 'أم علي', time: '10:40 م' } },
+      { template: 'ride_safe_arrival', to: 'brother', params: { name: 'أم علي', time: '10:40 م' } },
+    ]);
+  });
+
+  it('nothing extra by day, with the switch off, or when no trusted person has the app', async () => {
+    const byDay = event('order.completed', {}, { orderId: 'ride_2', actorId: 'drv' });
+    const atNight = event('order.completed', {}, { orderId: 'ride_2', actorId: 'drv', occurredAt: NIGHT });
+    expect((await run(byDay, rideLookups(true))).map((r) => r.template)).toEqual(['ride_receipt']);
+    expect((await run(atNight, rideLookups(false))).map((r) => r.template)).toEqual(['ride_receipt']);
+    expect((await run(atNight, rideLookups(true, []))).map((r) => r.template)).toEqual(['ride_receipt']);
+  });
+
+  it('a rider with no name on file is «واحد من أهلك»', async () => {
+    const L = { ...rideLookups(true), firstName: async () => null };
+    const out = await run(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv', occurredAt: NIGHT }), L);
+    expect(out[1]!.params).toMatchObject({ name: 'واحد من أهلك' });
+  });
+});

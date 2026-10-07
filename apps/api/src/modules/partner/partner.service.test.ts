@@ -113,6 +113,7 @@ function harness(
     rideOrder?: boolean;
     places?: PartnerDeps['places'];
     pickupSpots?: PartnerDeps['pickupSpots'];
+    startCodeFor?: string[];
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -155,7 +156,7 @@ function harness(
           },
         }
       : {}),
-    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()) },
+    orders: { get: async (id) => (opts.rideOrder ? order({ type: 'ride', merchantOrgId: null }) : id === 'o2' ? order({ id: 'o2', paymentMethod: 'wallet' }) : order()), ...(opts.startCodeFor ? { startCodeRequired: async (id: string) => opts.startCodeFor!.includes(id) } : {}) },
     merchants: { name: (id) => (id === 'm1' ? 'مطعم خالد' : null) },
     quotes: { quote: () => null },
     money: {
@@ -258,6 +259,21 @@ describe('PartnerService', () => {
     expect(roads).toEqual([[{ lat: 32.905, lng: 45.06 }, KITCHEN]]);
     expect(await harness({ online: true, offerTrip: t, roads: [] }).offerRoute(actor, { offerId: 'other' })).toMatchObject({ polyline6: null });
     expect(await harness({ online: true, offerTrip: t, roads: [], rideOrder: true }).offerRoute(actor, { offerId: 'do_1' })).toMatchObject({ polyline6: null });
+  });
+
+  it('«رمز المشوار» (ride s1): a night ride’s pickup still to do says a code is needed, never the code', async () => {
+    const ride = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'arrived'), stop('s2', 1, 'dropoff', 'zakur', HOME)], { vertical: 'taxi', state: 'arrived_pickup' });
+    const job = await harness({ trips: [ride], rideOrder: true, startCodeFor: ['o1'] }).activeJob(actor);
+    expect(job!.stops.map((s) => s.startCodeRequired)).toEqual([true, undefined]);
+    // A ride has no kitchen counter: no pickup code beside the trip code.
+    expect(job!.stops[0]!.pickupCode).toBeNull();
+    expect(JSON.stringify(job)).not.toMatch(/"startCode"/);
+    // Once the rider is in, a day ride, or a food pickup: nothing.
+    const started = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'completed'), stop('s2', 1, 'dropoff', 'zakur', HOME)], { vertical: 'taxi', state: 'in_transit' });
+    expect((await harness({ trips: [started], rideOrder: true, startCodeFor: ['o1'] }).activeJob(actor))!.stops.every((s) => s.startCodeRequired === undefined)).toBe(true);
+    expect((await harness({ trips: [ride], rideOrder: true, startCodeFor: [] }).activeJob(actor))!.stops.every((s) => s.startCodeRequired === undefined)).toBe(true);
+    const food = trip('t2', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [food], startCodeFor: ['o1'] }).activeJob(actor))!.stops.every((s) => s.startCodeRequired === undefined)).toBe(true);
   });
 
   it('jobRoute (maps program d2): from his last fix through the stops still to do, in order', async () => {

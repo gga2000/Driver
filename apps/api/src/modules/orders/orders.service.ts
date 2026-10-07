@@ -83,6 +83,7 @@ import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
 import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
 import { giftProblem, giftView } from './gift.js';
+import { startCodeForNewOrder } from './start-code.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 
@@ -421,6 +422,8 @@ export class OrdersService implements OnModuleInit {
             minVehicleClass: caps?.minVehicleClass ?? null,
             dropoff: input.dropoff ?? null,
             promisedRideMin,
+            // s1: a ride for the night starts only with the code the rider reads out.
+            startCode: startCodeForNewOrder(input.type, input.scheduledFor ?? now),
             placedAt: now,
             heldForPayer: askPayer !== null,
             familyTable: input.familyTable ?? false,
@@ -1586,6 +1589,14 @@ export class OrdersService implements OnModuleInit {
    * here, > 0, in 250s, at most the cap (25,000). Cash above the total without it is refused, so every
    * credit beyond the rounding change is named and capped. Null = the hand-over may be recorded.
    */
+  /**
+   * s1 «رمز المشوار»: the code a ride must start with (trips checks the driver's against it), or null
+   * when the order needs none — day rides, every other order, unknown orders.
+   */
+  async startCodeOf(orderId: string): Promise<string | null> {
+    return (await this.repo.find(orderId))?.order.startCode ?? null;
+  }
+
   async handoverProblem(orderId: string, handover: Pick<HandoverProof, 'cashCollectedIqd' | 'changeToWalletIqd'>): Promise<'change_to_wallet_not_cash' | 'change_to_wallet_mismatch' | 'change_to_wallet_above_cap' | null> {
     const extra = handover.changeToWalletIqd;
     const collected = handover.cashCollectedIqd;

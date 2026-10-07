@@ -124,6 +124,8 @@ export const NotifyTemplateId = z.enum([
   'ride_receipt',
   'ride_matched',
   'driver_arrived',
+  'ride_near',
+  'ride_safe_arrival',
   'merchant_new_order',
   'partner_new_job',
   'partner_zone_nudge',
@@ -283,6 +285,25 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.driver_arrived.title', body: 'push.driver_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // d3: «السايق قريب، اطلع هسة» — once per ride, when the one ETA puts him a minute from the pickup.
+  ride_near: {
+    id: 'ride_near',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_near.title', body: 'push.ride_near.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // s2 «وصل بالسلامة»: a night city ride ended — each trusted person of the rider who has the app.
+  // In the app only (a push to their own account); nothing goes to a number outside it.
+  ride_safe_arrival: {
+    id: 'ride_safe_arrival',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.ride_safe_arrival.title', body: 'push.ride_safe_arrival.body', androidChannel: 'orders', deepLink: 'driver://' },
     primary: ['push'],
     quietHours: 'send',
   },

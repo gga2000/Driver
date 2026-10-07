@@ -282,6 +282,11 @@ export const PartnerJobStop = z.object({
    * mentioned at the door («هدية — لا تذكر السعر») and no receipt goes in the bag. Null/absent = not a gift.
    */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
+  /**
+   * s1 «رمز المشوار»: a night ride's pickup not yet done — the rider must tell him the 4 digits before
+   * «الراكب صعد» (`trips.completeStop` with `startCode`). He never sees the code itself. Absent = none.
+   */
+  startCodeRequired: z.boolean().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

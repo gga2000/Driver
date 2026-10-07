@@ -10,6 +10,7 @@ import { season } from '@/lib/season';
 import { playCue } from '@/lib/sound';
 import { cashAtDoor } from './arrival-logic';
 import { rideNearDue } from '@/features/ride/logic';
+import { rideNearAt } from '@/features/ride/safety';
 import { almostThere, DRIVER_HERE_GAP_MS, momentFeedback, momentsBetween, type MomentSnapshot } from './moments';
 import { courierAtDoor, type Phase } from './timeline';
 import { apiPhoto } from '@/lib/photo';
@@ -58,8 +59,10 @@ export function useTrackingMoments(
   const door = card === 'door';
   // Joy l2: a courier on the job (the reveal's buzz on food orders).
   const onJob = Boolean(v?.courier && v.trip?.acceptedAt);
-  // Ride idea d3: a minute from the pickup, latched per order (the ETA may wobble back over the line).
-  const rideNear = Boolean(ride && orderId && (rideNearFor === orderId || rideNearDue({ comingToPickup: phase === 'to_pickup', eta, now })));
+  // Ride idea d3: a minute from the pickup, latched per order (the ETA may wobble back over the line);
+  // the server's stamp on my pickup (the same moment as the «السايق قريب» push) counts too.
+  const nearStamped = rideNearAt(v, phase) !== null;
+  const rideNear = Boolean(ride && orderId && (rideNearFor === orderId || nearStamped || rideNearDue({ comingToPickup: phase === 'to_pickup', eta, now })));
 
   useEffect(() => {
     if (!orderId || !phase) return;
