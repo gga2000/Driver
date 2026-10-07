@@ -29,6 +29,7 @@ import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
 import { opsZonesRouter } from './zones.js';
+import { opsWavesRouter } from './waves.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
 
@@ -135,4 +136,6 @@ export const opsRouter = router({
   zones: opsZonesRouter,
   /** Stores' pickup spots set from the Console (field ops, admin). */
   pickupSpots: opsPickupSpotsRouter,
+  /** Customer waves (W5): open places per zone and the waitlist (admin / dispatcher to change). */
+  waves: opsWavesRouter,
 });

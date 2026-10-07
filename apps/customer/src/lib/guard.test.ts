@@ -82,6 +82,18 @@ describe('route guard', () => {
     expect(g('signedIn', ['places', 'new'])).toBeNull();
   });
 
+  it('sends a customer still waiting for their area from checkout to the waitlist; menus and the cart stay open (W5)', () => {
+    const w = (segments: string[], extra: Partial<GuardInput> = {}) => resolveGuard({ status: 'signedIn', setupPending: false, segments, waitlisted: true, ...extra });
+    expect(w(['checkout'])).toEqual({ to: '/waitlist' });
+    expect(w(['cart'])).toBeNull();
+    expect(w(['restaurant', 'r1'])).toBeNull();
+    expect(w(['(tabs)'])).toBeNull();
+    expect(w(['waitlist'])).toBeNull();
+    expect(w(['(auth)', 'otp'], { returnTo: '/checkout' })).toEqual({ to: '/waitlist' });
+    expect(w(['(auth)', 'otp'], { returnTo: '/restaurant/r1' })).toEqual({ to: '/restaurant/r1' });
+    expect(resolveGuard({ status: 'signedIn', setupPending: false, segments: ['checkout'], waitlisted: false })).toBeNull();
+  });
+
   it('opens the share-trip page for anyone (signed out, signed in, mid-setup)', () => {
     expect(g('signedOut', ['share', '[token]'], false, { welcomed: false })).toBeNull();
     expect(g('signedIn', ['share', '[token]'])).toBeNull();

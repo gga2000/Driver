@@ -98,6 +98,8 @@ export const ERROR_TABLE = {
   // launch control room (kill switches, throttle, banner, approvals, support desk)
   service_paused: { retryHint: 'later', status: 'CONFLICT' },
   zone_at_capacity: { retryHint: 'later', status: 'CONFLICT' },
+  /** Customer waves (W5): the person's zone hasn't let them in yet; they get a message when it does. */
+  waitlisted: { retryHint: 'later', status: 'CONFLICT' },
   control_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   zone_key_taken: { retryHint: 'never', status: 'CONFLICT' },

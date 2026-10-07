@@ -110,6 +110,8 @@ export const NOTIFY_EVENT_TYPES = [
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
+  // Customer waves (W5): «صار دورك».
+  'access.opened',
   // Joy r5: «تأكد رحلتك؟» the evening before (or that morning) a regular trip.
   'regular_trip.due',
   // Step 4: half an hour before a ride booked for later (c10); «نفس مشوار البارحة؟» (o4).
@@ -544,6 +546,11 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const month = MonthKey.safeParse(p['month']);
       if (!personId || !month.success) return [];
       return [{ ...base, template: 'month_ready', to: personId, params: { month: month.data } }];
+    }
+    case 'access.opened': {
+      // Customer waves (W5): once per person (the event's key); deferred out of quiet hours by the engine.
+      const personId = str(p['personId']);
+      return personId ? [{ ...base, template: 'access_open', to: personId, params: {} }] : [];
     }
     case 'regular_trip.due': {
       // Joy r5: its own switch, quiet hours and quiet days (the engine); the app still asks when held.

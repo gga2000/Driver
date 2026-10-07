@@ -13,6 +13,7 @@ import { CartBar } from '@/features/food/CartBar';
 import { artOf } from '@/features/food/FoodArt';
 import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle } from '@/features/food/FlyToCart';
+import { WaitlistCard } from '@/features/access/WaitlistCard';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { CollapsedBar } from '@/features/home/CollapsedBar';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
@@ -239,6 +240,8 @@ export default function Home() {
         <Animated.View entering={rise(2)}>
           <ServicesRow onPress={onService} foodFact={food} foodOff={foodOff} scrollY={scrollY} />
         </Animated.View>
+        {/* Customer waves (W5): «لسه ما وصل دور منطقتك» while this person waits; nothing otherwise. */}
+        <WaitlistCard />
 
         {cards.includes('active') && active.data ? (
           <Animated.View entering={rise(3)}>

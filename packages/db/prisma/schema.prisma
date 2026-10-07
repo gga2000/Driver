@@ -3331,6 +3331,44 @@ model OpsZoneCapacity {
   @@schema("public")
 }
 
+/// Customer waves (W5, D-24): one row per customer once their place in line is decided. `waiting` until
+/// their zone's wave has room, then `admitted` for good (lowering a wave never puts anyone back in line).
+/// reason: open (no wave in the zone) | wave (let in by the wave) | existing (ordered before waves) | staff.
+model CustomerAccess {
+  id         String    @id @default(cuid())
+  personId   String    @unique @map("person_id")
+  cityId     String    @map("city_id")
+  /// Zone of the person's own saved place when decided (null = no place yet).
+  zoneKey    String?   @map("zone_key")
+  /// waiting | admitted
+  state      String
+  reason     String
+  joinedAt   DateTime  @map("joined_at")
+  admittedAt DateTime? @map("admitted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, zoneKey, state, joinedAt])
+  @@map("customer_access")
+  @@schema("public")
+}
+
+/// How many customers a zone lets in (W5). No row, or `open_slots` NULL = open to everyone.
+model OpsZoneWave {
+  id        String   @id @default(cuid())
+  cityId    String   @map("city_id")
+  zoneKey   String   @map("zone_key")
+  openSlots Int?     @map("open_slots")
+  setById   String   @map("set_by_id")
+  setAt     DateTime @map("set_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([cityId, zoneKey])
+  @@map("ops_zone_waves")
+  @@schema("public")
+}
+
 /// Status banner broadcast to every open app (customer / partner / merchant); always expires.
 model SystemBanner {
   id          String    @id @default(cuid())

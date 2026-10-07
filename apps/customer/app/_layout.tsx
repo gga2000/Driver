@@ -1,14 +1,15 @@
 import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme, useToast } from '@driver/ui';
 import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
+import { useAccessOpenedToast, useWaitlisted } from '@/features/access/queries';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushLaunch, usePushRegistration } from '@/features/notify/usePush';
@@ -142,10 +143,15 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const ready = status !== 'loading' && prof.loaded && words;
   // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
   useScreenSpeed(segments, ready && !fontsPending);
+  // Customer waves (W5): checkout waits for the area's turn; a toast when it comes while the app is open.
+  const waitlisted = useWaitlisted();
+  const toast = useToast();
+  const showOpened = useCallback((message: string) => toast.show({ message, tone: 'success' }), [toast]);
+  useAccessOpenedToast(showOpened, t('waitlist.open_toast'));
 
   useEffect(() => {
     if (!ready) return;
-    const input = { status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo };
+    const input = { status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo, waitlisted };
     // Back where the guest was going (after OTP and setup): the return path is spent.
     if (returnSpent(input)) void profile.setReturnTo(null);
     const target = resolveGuard(input);
@@ -153,9 +159,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
     // A guest stopped at a protected screen comes back to it after sign-in.
     if (target.remember) void profile.setReturnTo(target.remember);
     router.replace(target.to as never);
-  }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
+  }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, waitlisted, segments, pathname, router]);
   // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
-  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
+  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo, waitlisted }));
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>
@@ -187,6 +193,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="month" options={{ title: t('month.title'), headerLeft: () => <HeaderBack fallback="/wallet" /> }} />
+        {/* Customer waves (W5): «نبلّغك من يصير دورك»; checkout sends a waiting person here. */}
+        <Stack.Screen name="waitlist" options={{ title: '', headerLeft: () => <HeaderBack fallback="/" /> }} />
         <Stack.Screen name="order/[id]" options={{ title: t('order.timeline_title') }} />
         {/* City taxi / tuktuk (spec §5): where to → pin adjust → choose ride → /order/[id]. */}
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
-import { decodeRajaaPassPush } from '@driver/contracts';
+import { decodeRajaaPassPush, NOTIFY_TEMPLATES, WHATSAPP_SMS_FALLBACK_SEC } from '@driver/contracts';
 import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
 import { notifyHarness } from './test-harness.js';
 
@@ -285,6 +285,13 @@ describe('joy w4 / w6 notifications', () => {
     expect(await one(event('insights.month_ready', { personId: 'cust', month: '2026-09' }))).toEqual([{ template: 'month_ready', to: 'cust', params: { month: '2026-09' } }]);
     expect(await one(event('insights.month_ready', { personId: 'cust', month: 'September' }))).toEqual([]);
     expect(NOTIFY_EVENT_TYPES).toEqual(expect.arrayContaining(['org.payer_approval_requested', 'insights.month_ready']));
+  });
+
+  it('customer waves: «صار دورك» once to the person let in (push, SMS if the push is not confirmed)', async () => {
+    expect(await one(event('access.opened', { personId: 'cust', cityId: 'aziziyah', zoneKey: 'zakur' }))).toEqual([{ template: 'access_open', to: 'cust', params: {} }]);
+    expect(await one(event('access.opened', {}))).toEqual([]);
+    expect(NOTIFY_EVENT_TYPES).toContain('access.opened');
+    expect(NOTIFY_TEMPLATES.access_open).toMatchObject({ primary: ['push'], smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC, quietHours: 'defer' });
   });
 });
 

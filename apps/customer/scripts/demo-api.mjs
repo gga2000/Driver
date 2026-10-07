@@ -2436,6 +2436,50 @@ const rajaa = await (async () => {
   });
 }
 
+// Customer waves (W5, docs/api/waves.md):
+//   POST /demo/waves?zoneKey=<zone>&slots=<n|off>  → the city's waves (sets that zone's open places; off lets everyone in)
+//   POST /demo/waitlist?personId=<id>[&ahead=3]    → that person waits in their own place's zone (else زاكور),
+//                                                     with `ahead` people before them; «نبلّغك من يصير دورك»
+{
+  const { AccessService, ACCESS_REPOSITORY } = await load('modules/access/index.js');
+  const { SavedPlacesService } = await load('modules/places/index.js');
+  const access = app.get(AccessService);
+  const accessRepo = app.get(ACCESS_REPOSITORY);
+  const savedPlaces = app.get(SavedPlacesService);
+  const wavesOps = { personId: 'demo-ops', sessionId: 'demo', roles: ['admin'] };
+  app.use('/demo/waves', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const zoneKey = url.searchParams.get('zoneKey');
+      const slots = url.searchParams.get('slots');
+      if (req.method !== 'POST' || !zoneKey || slots === null) return json(res, 400, { error: 'POST /demo/waves?zoneKey=…&slots=<n|off>' });
+      await access.setSlots(wavesOps, { cityId: 'aziziyah', zoneKey, openSlots: slots === 'off' ? null : Number(slots) });
+      json(res, 200, await access.waves({ cityId: 'aziziyah' }));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+  app.use('/demo/waitlist', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/waitlist?personId=…[&ahead=3]' });
+      const ahead = Number(url.searchParams.get('ahead') ?? 3);
+      const own = (await savedPlaces.mine(personId)).find((p) => p.access === 'owner');
+      const zoneKey = own?.zoneId ?? 'zakur';
+      await access.setSlots(wavesOps, { cityId: 'aziziyah', zoneKey, openSlots: 0 });
+      const now = Date.now();
+      for (let i = 0; i < ahead; i += 1) {
+        await accessRepo.put({ personId: `demo-waiting-${zoneKey}-${i}`, cityId: 'aziziyah', zoneKey, state: 'waiting', reason: 'wave', joinedAt: new Date(now - (ahead - i) * 3_600_000), admittedAt: null });
+      }
+      await accessRepo.put({ personId, cityId: 'aziziyah', zoneKey: own ? zoneKey : null, state: 'waiting', reason: 'wave', joinedAt: new Date(now), admittedAt: null });
+      json(res, 200, await access.status({ personId, sessionId: 'demo' }));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
 await app.listen(PORT);
 console.log(`DEMO_API rajaa departures ${rajaa.departures.join(', ')}`);
 console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (${seeded.map((s) => `${s.seed.key}=${s.orgId}`).join(', ')})`);

@@ -28,6 +28,7 @@ import { RetentionModule } from './modules/retention/index.js';
 import { SafetyModule } from './modules/safety/index.js';
 import { InsightsModule } from './modules/insights/index.js';
 import { ReferralsModule } from './modules/referrals/index.js';
+import { AccessModule } from './modules/access/index.js';
 import { RideHabitsModule } from './modules/ride-habits/index.js';
 import { PhoneBookingModule } from './modules/phone-booking/index.js';
 import { InboxModule } from './modules/inbox/index.js';
@@ -70,6 +71,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     SafetyModule,
     InsightsModule,
     ReferralsModule,
+    AccessModule,
     RideHabitsModule,
     PhoneBookingModule,
     OnCallModule,

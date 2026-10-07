@@ -168,6 +168,7 @@ export const NotifyTemplateId = z.enum([
   'dish_pot_today',
   'household_approval',
   'month_ready',
+  'access_open',
   'regular_trip_reminder',
   'ride_booked_reminder',
   'garage_taxi_late',
@@ -874,6 +875,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'customer',
     push: { title: 'push.month_ready.title', body: 'push.month_ready.body', androidChannel: 'marketing', deepLink: 'driver://month?month={month}' },
     primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Customer waves (W5): «صار دورك» once, when the person's zone lets them in. Push first; the SMS goes
+  // only when the push isn't confirmed (a new phone often has none yet). Never in the night.
+  access_open: {
+    id: 'access_open',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.access_open.title', body: 'push.access_open.body', androidChannel: 'orders', deepLink: 'driver://' },
+    sms: { key: 'sms.access_open' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'defer',
   },
   // Joy r5: a regular trip asks the evening before (or that morning); only «أكدها» books it.

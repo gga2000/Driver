@@ -14,6 +14,7 @@ import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
+import type { AccessPort } from './waves-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
@@ -89,6 +90,8 @@ export interface AppContext {
   topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
   households: HouseholdsPort;
+  /** Customer waves and the waitlist (`modules/access`, W5). */
+  access: AccessPort;
   /** Driver Partner: own presence, open offer, active job, today's money (`modules/partner`). */
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */

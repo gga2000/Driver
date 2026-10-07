@@ -12,6 +12,7 @@ import type { SessionStatus } from './session';
  *  - signed out, anything else (checkout, rides, الرجعة, places…) → /phone, remembering the path
  *  - signed in, profile setup still due          → /setup (name + first place; skippable)
  *  - signed in, in (auth) otherwise              → where the guest was going (`returnTo`), else /
+ *  - signed in, waiting for their area's turn (customer waves, W5), at checkout → /waitlist
  *
  * Public routes (`PUBLIC_SEGMENTS`, the share-trip page) open for anyone, at any step.
  */
@@ -34,11 +35,16 @@ export interface GuardInput {
   welcomed?: boolean;
   /** Where to return after sign-in (from `requireSignIn` or a stopped deep link). */
   returnTo?: string | null;
+  /** Customer waves (W5): signed in but their area's turn hasn't come (or no place to wait for yet). */
+  waitlisted?: boolean;
 }
 
 export const AUTH_GROUP = '(auth)';
 export const TABS_GROUP = '(tabs)';
 export const SETUP_SCREEN = 'setup';
+/** Where a waiting customer is sent from checkout (menus and the cart stay open to browse). */
+export const WAITLIST_PATH = '/waitlist';
+const ORDER_SEGMENTS: ReadonlySet<string> = new Set<string>(['checkout']);
 /** Top-level segments reachable by anyone, signed in or not, mid-setup or not (share-trip, the SOS contact page). */
 export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 'sos']);
 /**
@@ -47,7 +53,7 @@ export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 's
  */
 export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'food', 'search', 'restaurants', 'restaurant', 'cart', 'i', 'stickers']);
 
-export function resolveGuard({ status, setupPending, segments, pathname, welcomed = true, returnTo = null }: GuardInput): GuardTarget | null {
+export function resolveGuard({ status, setupPending, segments, pathname, welcomed = true, returnTo = null, waitlisted = false }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;
   const first = segments[0];
   const inAuth = first === AUTH_GROUP;
@@ -66,7 +72,11 @@ export function resolveGuard({ status, setupPending, segments, pathname, welcome
 
   // signed in
   if (setupPending) return onSetup ? null : { to: '/setup' };
-  if (inAuth) return { to: returnTo ?? '/' };
+  if (inAuth) {
+    const back = returnTo ?? '/';
+    return { to: waitlisted && ORDER_SEGMENTS.has(back.split(/[/?]/)[1] ?? '') ? WAITLIST_PATH : back };
+  }
+  if (waitlisted && first && ORDER_SEGMENTS.has(first)) return { to: WAITLIST_PATH };
   return null;
 }
 

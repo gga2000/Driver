@@ -39,7 +39,8 @@ export function useLandmarksNear(pin: LatLng | null) {
 function usePlacesInvalidation() {
   const api = useApi();
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: api.places.mine.queryKey() });
+  // A first place puts a waiting person in their area's line (customer waves, W5).
+  return () => Promise.all([qc.invalidateQueries({ queryKey: api.places.mine.queryKey() }), qc.invalidateQueries({ queryKey: api.access.status.queryKey() })]);
 }
 
 export function useSavePlace() {

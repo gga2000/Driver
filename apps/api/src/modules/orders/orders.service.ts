@@ -165,6 +165,11 @@ export interface OrdersReferralsPort {
   referrerOf(personId: string): Promise<string | null>;
 }
 
+/** Customer waves (W5): refuses a food or shop order from someone still waiting (the access module). */
+export interface OrdersAccessPort {
+  assertMayOrder(personId: string): Promise<void>;
+}
+
 /** Joy l9: the driver behind one of the rider's favourites, or null when it is not his (the ride-habits module). */
 export interface OrdersFavouritesPort {
   driverFor(personId: string, favouriteId: string): Promise<string | null>;
@@ -290,6 +295,13 @@ export class OrdersService implements OnModuleInit {
     this.referrals = port;
   }
 
+  /** Customer waves (W5): who may order food yet. Bound by the access module; unbound = everyone may. */
+  private access: OrdersAccessPort | null = null;
+
+  bindAccess(port: OrdersAccessPort): void {
+    this.access = port;
+  }
+
   /** Joy l9: who a booked ride's favourite is. Bound by the ride-habits module (it owns favourites). */
   private favourites: OrdersFavouritesPort | null = null;
 
@@ -412,6 +424,8 @@ export class OrdersService implements OnModuleInit {
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
     await this.assertControls(input, merchantType, profile);
+    // Customer waves (W5): food and shop orders wait for the person's zone to let them in.
+    if (merchantType) await this.access?.assertMayOrder(ordererId);
     // J6: a kitchen capped per slot (Ramadan's iftar rush) refuses one order too many for that slot.
     if (merchantType && input.scheduledFor && input.merchantOrgId) {
       const merchantOrgId = input.merchantOrgId;

@@ -72,6 +72,8 @@
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 //   crash-*  the root crash screen («صار خلل بالتطبيق», a demo render error from `?crash=1`, dev tools
 //            only) and home again after «جرّب مرة ثانية»
+//   waves-*  customer waves (W5) on a fresh account: home's «لسه ما وصل دور منطقتك» card, «نبلّغك من
+//            يصير دورك» with 3 ahead, then the area opened   POST /demo/waitlist, /demo/waves
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -134,7 +136,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'waves'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -296,6 +298,7 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  if (wants('waves')) await wavesShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -564,6 +567,36 @@ async function freshSignIn(phoneNumber) {
  * نأكدلك قبل الساعة 10 بالليل») on home and its screen; cancelled from there; then one حسين confirmed
  * («سايقك محجوز: حسين» with his photo).                   POST /demo/booked-ride
  */
+/**
+ * Customer waves (W5, docs/api/waves.md) on a fresh account in شارع 30: home's «لسه ما وصل دور منطقتك»
+ * card, «نبلّغك من يصير دورك» with 3 ahead, checkout sending them back there, then the area opened
+ * («صار دورك»). The waves are switched off again at the end so later flows order as usual.
+ */
+async function wavesShots() {
+  await asOtherAccount(async () => {
+    const personId = await freshSignIn('0770 456 3322');
+    // The setup place reaches the server in the background: wait until the line knows its area.
+    let view = null;
+    for (let i = 0; i < 20 && !view?.zoneKey; i += 1) {
+      view = await demoPost(`/demo/waitlist?personId=${encodeURIComponent(personId)}&ahead=3`);
+      if (!view?.zoneKey) await page.waitForTimeout(500);
+    }
+    if (!view?.zoneKey) throw new Error(`waves: no area for ${personId}: ${JSON.stringify(view)}`);
+    await page.goto(`${origin}/`, LOADED);
+    await byTestId('waitlist-card').waitFor({ timeout: 20_000 });
+    await shot('waves-home-card');
+    await byTestId('waitlist-card').click();
+    await byTestId('waitlist').waitFor({ timeout: 15_000 });
+    await shot('waves-waitlist');
+    await page.goto(`${origin}/checkout`, LOADED);
+    await byTestId('waitlist').waitFor({ timeout: 15_000 });
+    await demoPost(`/demo/waves?zoneKey=${view.zoneKey}&slots=off`);
+    await page.goto(`${origin}/waitlist`, LOADED);
+    await byTestId('waitlist-open').waitFor({ timeout: 15_000 });
+    await shot('waves-open');
+  });
+}
+
 async function bookedShots() {
   const personId = await freshSignIn(process.env.BOOKED_PHONE ?? '0770 456 7711');
   const looking = await demoPost(`/demo/booked-ride?personId=${encodeURIComponent(personId)}&state=looking`);

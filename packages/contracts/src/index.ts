@@ -55,6 +55,7 @@ export * from './zones-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
+export * from './waves-io.js';
 export * from './driver-account-io.js';
 export * from './khat-io.js';
 export * from './fleet-io.js';
