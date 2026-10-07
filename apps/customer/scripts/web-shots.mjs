@@ -137,7 +137,7 @@ const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PRE
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
 // Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi'];
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
@@ -272,6 +272,7 @@ try {
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
   if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('later')) await laterShots();
+  if (wants('ride-errors')) await rideErrorShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
@@ -719,6 +720,83 @@ async function tripsFlow(khalid, personId, seed) {
  * button), its booked screen with the reminder, the booked rides in طلباتي with «ألغي», the
  * «نفس مشوار البارحة» switch, and the push's deep link landing on choose with البيت ← الدائرة filled.
  */
+/**
+ * W11 launch fixes: what the ride screens say when a read fails (VIS-41 known places, FLOW-28 the pin's
+ * area, FLOW-27 the price), each with its retry; and VIS-21, the pin at 360 px confirms after every drag
+ * and after a touch that never moves the map. Each failure is one procedure's request answered as a
+ * network failure (a batch carrying it fails as a whole, as it would on a phone).
+ */
+async function rideErrorShots() {
+  const failing = (proc) => async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
+  const withFailure = async (proc, flow) => {
+    const handler = failing(proc);
+    await page.route('**/trpc/**', handler);
+    try {
+      await flow();
+    } finally {
+      await page.unroute('**/trpc/**', handler);
+    }
+  };
+
+  await withFailure('places.landmarks', async () => {
+    await page.goto(`${origin}/ride`, LOADED);
+    await byTestId('ride-landmarks-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('known places: no failed state'));
+    await byTestId('ride-landmarks-failed').scrollIntoViewIfNeeded().catch(() => undefined);
+    await settle(700);
+    await shot('ride-errors-landmarks');
+  });
+
+  await withFailure('places.zoneFor', async () => {
+    await page.goto(`${origin}/ride/pin?field=dropoff`, LOADED);
+    await byTestId('ride-pin-zone-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('pin: no failed state'));
+    await settle(700);
+    await shot('ride-errors-pin');
+  });
+
+  await withFailure('pricing.quote', async () => {
+    await page.goto(`${origin}/ride`, LOADED);
+    // A saved place that isn't the pickup (البيت is): the choose screen opens with both ends.
+    await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+    await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(() => errors.push('choose not opened'));
+    await byTestId('ride-quote-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('choose: no price failed line'));
+    await settle(700);
+    await shot('ride-errors-price');
+  });
+
+  // VIS-21 at 360 px: ten drags, then a touch that lifts the pin without moving the map.
+  await page.setViewportSize({ width: 360, height: 740 });
+  try {
+    await page.goto(`${origin}/ride/pin?field=dropoff`, LOADED);
+    await byTestId('ride-pin').waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(1200);
+    const enabled = () => page.waitForFunction(() => !document.querySelector('[data-testid="ride-pin-confirm"]')?.getAttribute('aria-disabled')?.includes('true'), null, { timeout: 4_000 }).then(() => true).catch(() => false);
+    const box = await byTestId('ride-pin-map').boundingBox();
+    let stuck = 0;
+    for (let n = 0; box && n < 10; n++) {
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      const dx = (n % 2 ? -1 : 1) * 8;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * dx, y + i * 6, { steps: 2 });
+      await page.mouse.up();
+      if (!(await enabled())) stuck++;
+    }
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.up();
+      if (!(await enabled())) stuck++;
+    }
+    if (stuck > 0) errors.push(`pin at 360 px: «ثبّت الوجهة» stayed off ${stuck} of 11 times`);
+    else console.log('pin at 360 px: confirm enabled after all 11 touches');
+    await settle(600);
+    await shot('ride-errors-pin-360');
+  } finally {
+    await page.setViewportSize({ width: W, height: H });
+  }
+}
+
 async function laterShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
