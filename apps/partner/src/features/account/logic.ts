@@ -324,6 +324,26 @@ export function nextTierProgress(index: number, completedTrips: number): { key: 
   return null;
 }
 
+/** Bronze < 70 · Silver 70–84 · Gold ≥ 85 on the reliability index. */
+export const TIER_STEPS = [
+  { tier: 'bronze', from: 0, to: 70 },
+  { tier: 'silver', from: 70, to: 85 },
+  { tier: 'gold', from: 85, to: 100 },
+] as const;
+
+/**
+ * Where an index sits on the tier track (0–1). The track draws the three tiers as equal steps so
+ * each tier's name and cash cap reads whole under its own step (Silver and Gold are only 15 points
+ * wide, too narrow for "150,000" on a phone); the marker moves linearly inside its step.
+ */
+export function tierTrackShare(index: number): number {
+  const v = Math.max(0, Math.min(100, index));
+  for (const [i, s] of TIER_STEPS.entries()) {
+    if (v < s.to || i === TIER_STEPS.length - 1) return (i + (v - s.from) / (s.to - s.from)) / TIER_STEPS.length;
+  }
+  return 1;
+}
+
 /** Month one: day n of 30, share done, days until the card shows (day 31). */
 export function observation(dayNumber: number): { day: number; share: number; daysLeft: number } {
   const day = Math.max(1, Math.min(30, dayNumber));
