@@ -1,14 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, RefreshControl, View } from 'react-native';
-import type { HouseholdMemberView, HouseholdRole, HouseholdTableOrder } from '@driver/contracts';
-import { Avatar, Button, Card, EmptyState, ListRow, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
+import type { HouseholdInviteView, HouseholdMemberView, HouseholdRole, HouseholdTableOrder } from '@driver/contracts';
+import { Avatar, Button, Card, EmptyState, ListRow, ModalSheet, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { BudgetBar } from '@/features/account/BudgetBar';
+import { HouseholdInviteCard } from '@/features/account/HouseholdInviteCard';
 import { baghdadDayMonth, monthRows } from '@/features/account/family';
-import { useCreateHousehold, useGuardianChildren, useHousehold, useMe, useMyPlaces } from '@/features/account/queries';
+import { useCancelHouseholdInvite, useCreateHousehold, useGuardianChildren, useHousehold, useLeaveHousehold, useMe, useMyHouseholdInvites, useMyPlaces } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -24,7 +25,9 @@ const ROLE_KEY: Record<HouseholdRole, 'household.role_payer' | 'household.role_o
  * this month on the household wallet per member (a bullet bar against the monthly budget; the payer
  * sees everyone, a member only themselves), who is in the house and what each may spend, the family
  * table's orders this month, the trusted people (kept on the safety page), خطوط children and the
- * shared places. Payers invite and set limits; everyone else reads.
+ * shared places. Payers invite and set limits; everyone else reads. SEC-06: nobody is in a household
+ * without saying yes — invites wait here for the invitee (before the «سوّي حساب العائلة» form), the
+ * payer sees whom they still wait for (only the number's hint), and anyone but the payer can leave.
  */
 export default function Household() {
   const theme = useTheme();
@@ -37,7 +40,10 @@ export default function Household() {
   const me = useMe();
   const create = useCreateHousehold();
   const children = useGuardianChildren();
+  const invites = useMyHouseholdInvites();
+  const leave = useLeaveHousehold();
   const [name, setName] = useState('');
+  const [leaving, setLeaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const home = household.data;
 
@@ -75,9 +81,19 @@ export default function Household() {
         toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
       }
     };
+    const waiting = invites.data ?? [];
     return (
-      <Screen edges={['bottom']} testID="household-create" footer={<Button testID="household-create-submit" label={t('household.create')} size="lg" fullWidth loading={create.isPending} onPress={() => void submit()} />}>
-        <EmptyState icon="family" title={t('household.create_title')} body={t('household.create_body')} />
+      <Screen edges={['bottom']} testID="household-create" footer={<Button testID="household-create-submit" label={t('household.create')} size="lg" fullWidth variant={waiting.length > 0 ? 'secondary' : 'primary'} loading={create.isPending} onPress={() => void submit()} />}>
+        {waiting.length > 0 ? (
+          <View style={{ gap: theme.space[3] }} testID="household-my-invites">
+            {waiting.map((i) => (
+              <HouseholdInviteCard key={i.id} invite={i} />
+            ))}
+            <SectionHeader title={t('household.or_create')} />
+          </View>
+        ) : (
+          <EmptyState icon="family" title={t('household.create_title')} body={t('household.create_body')} />
+        )}
         <TextField label={t('household.name_label')} value={name} onChangeText={setName} placeholder={fallback} maxLength={60} />
       </Screen>
     );
@@ -89,6 +105,16 @@ export default function Household() {
   const table = home.month?.tableOrders ?? [];
   const trusted = me.data?.trustedContacts ?? [];
   const label = (m: HouseholdMemberView) => (m.isMe ? t('household.me', { name: m.name ?? m.phoneMasked }) : (m.name ?? `⁦${m.phoneMasked}⁩`));
+
+  const leaveNow = async () => {
+    try {
+      await leave.mutateAsync({ householdId: home.id });
+      setLeaving(false);
+      toast.show({ message: t('household.left'), tone: 'success' });
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    }
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -182,6 +208,17 @@ export default function Household() {
         </Card>
       </View>
 
+      {payer && home.invites.length > 0 ? (
+        <View style={{ gap: theme.space[3] }} testID="household-invites">
+          <SectionHeader title={t('household.invites_title')} />
+          <Card elevation={0} padding={0}>
+            {home.invites.map((i, n) => (
+              <InviteRow key={i.id} householdId={home.id} invite={i} divider={n < home.invites.length - 1} />
+            ))}
+          </Card>
+        </View>
+      ) : null}
+
       {home.month ? (
         <View style={{ gap: theme.space[3] }} testID="household-table">
           <SectionHeader title={t('household.table_title')} />
@@ -237,7 +274,56 @@ export default function Household() {
           </Card>
         )}
       </View>
+
+      {!payer ? (
+        <Button testID="household-leave" variant="ghost" label={t('household.leave')} fullWidth onPress={() => setLeaving(true)} />
+      ) : null}
+
+      <ModalSheet
+        visible={leaving}
+        onClose={() => (leave.isPending ? undefined : setLeaving(false))}
+        locked={leave.isPending}
+        title={t('household.leave_title', { household: home.name })}
+        testID="household-leave-sheet"
+        footer={
+          <View style={{ gap: theme.space[2] }}>
+            <Button testID="household-leave-confirm" variant="destructive" label={t('household.leave')} loading={leave.isPending} disabled={!net.online} fullWidth onPress={() => void leaveNow()} />
+            <Button label={t('action.cancel')} variant="ghost" fullWidth disabled={leave.isPending} onPress={() => setLeaving(false)} />
+          </View>
+        }
+      >
+        <Text variant="body" color="textMuted">
+          {t('household.leave_body')}
+        </Text>
+      </ModalSheet>
     </Screen>
+  );
+}
+
+/** SEC-06: someone the payer invited who has not said yes yet: the number's hint, what they'd do, «اسحب الدعوة». */
+function InviteRow({ householdId, invite, divider }: { householdId: string; invite: HouseholdInviteView; divider: boolean }) {
+  const t = useT();
+  const locale = useLocale();
+  const toast = useToast();
+  const cancel = useCancelHouseholdInvite();
+  const role = invite.role === 'member' ? t('household.role_member_line') : invite.spendingLimitIqd !== null ? [t('household.role_orderer_line'), t('household.limit_per_order', { amount: amountParam(invite.spendingLimitIqd) })].join(' · ') : t('household.role_orderer_line');
+  const takeBack = async () => {
+    try {
+      await cancel.mutateAsync({ householdId, inviteId: invite.id });
+      toast.show({ message: t('household.invite_cancelled'), tone: 'neutral' });
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    }
+  };
+  return (
+    <ListRow
+      testID={`invite-${invite.id}`}
+      leading={<Avatar icon="user" size={40} />}
+      title={`⁦${invite.phoneHint}⁩`}
+      subtitle={[t('household.state_pending'), role].join(' · ')}
+      trailing={<Button testID={`invite-cancel-${invite.id}`} size="sm" variant="ghost" label={t('household.invite_cancel')} loading={cancel.isPending} onPress={() => void takeBack()} />}
+      divider={divider}
+    />
   );
 }
 

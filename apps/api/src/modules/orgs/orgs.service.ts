@@ -1,13 +1,14 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { DriverError, type HouseholdApprovalReason } from '@driver/contracts';
+import { DriverError, HOUSEHOLD_INVITE_RULES, type HouseholdApprovalReason } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
-import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
+import { advisoryXactLock, DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { NoDatabaseRunner, UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { InMemoryOrgsRepository, ORGS_REPOSITORY, type OrgsRepository } from './orgs.repository.js';
 import {
   DEFAULT_MERCHANT_SETTINGS,
   isMerchantType,
+  type HouseholdInvite,
   type MerchantOrg,
   type MerchantSettings,
   type Org,
@@ -17,7 +18,7 @@ import {
   type PayerApprovalRequest,
 } from './orgs.types.js';
 
-export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
+export type { HouseholdInvite, MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
 
 /**
  * Orgs: restaurants, grocers, fleets and households (domain §12) — members, merchant order-taking
@@ -26,6 +27,11 @@ export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSett
  *
  * Constructed by hand (tests) it runs on its own in-memory repository and a database-less unit of work.
  */
+const DAY_MS = 86_400_000;
+/** SEC-06 locks: one person's household membership, and one household's people. Always person first. */
+const personLock = (personId: string) => `household.person:${personId}`;
+const householdKey = (orgId: string) => `household:${orgId}`;
+
 @Injectable()
 export class OrgsService {
   private readonly clock: Clock;
@@ -55,9 +61,16 @@ export class OrgsService {
     });
   }
 
-  /** A household: the creator is its first payer. */
+  /**
+   * A household: the creator is its first payer. One household per person (`household_exists`),
+   * checked under the person's lock so a yes to an invite on another phone cannot race it.
+   */
   createHousehold(input: { name: string; cityId: string; payerId: string }): Promise<Org> {
-    return this.create({ type: 'household', name: input.name, cityId: input.cityId, ownerId: input.payerId });
+    return this.uow.run(async (tx) => {
+      await advisoryXactLock(tx, personLock(input.payerId));
+      if ((await this.repo.list({ types: ['household'], memberId: input.payerId }, tx)).length > 0) throw new DriverError('household_exists');
+      return this.create({ type: 'household', name: input.name, cityId: input.cityId, ownerId: input.payerId });
+    });
   }
 
   /**
@@ -88,6 +101,123 @@ export class OrgsService {
       const member: OrgMember = { personId, role: opts.role ?? 'member', spendingLimitIqd: opts.spendingLimitIqd ?? null };
       await this.repo.upsertMember(orgId, member, tx);
       await this.emit(tx, 'org.member_added', opts.actorId ?? personId, { orgId, personId, role: member.role, spendingLimitIqd: member.spendingLimitIqd }, orgId);
+      return this.get(orgId, tx);
+    });
+  }
+
+  // ───────────────────────── household invites (SEC-06) ─────────────────────────
+
+  /** An invite still waiting: pending and younger than `HOUSEHOLD_INVITE_RULES.inviteDays`. */
+  private open(inv: HouseholdInvite | null, now: Date): inv is HouseholdInvite {
+    return !!inv && inv.state === 'pending' && now.getTime() - inv.invitedAt.getTime() < HOUSEHOLD_INVITE_RULES.inviteDays * DAY_MS;
+  }
+
+  /**
+   * The payer invites someone: an invite that waits for their yes (nobody is added by having their
+   * number typed). `member`: already in; `quiet`: they said no to this household lately, so it does not
+   * ask again (the payer is not told either way); `invited`: the invite is open. The household holds at
+   * most `maxMembers` people with its open invites (`household_full`), and sends at most
+   * `invitesPerDay` invites a day (`rate_limited`).
+   */
+  inviteToHousehold(input: { orgId: string; personId: string; role: 'orderer' | 'member'; spendingLimitIqd: number | null; actorId: string }): Promise<'member' | 'quiet' | 'invited'> {
+    return this.uow.run(async (tx) => {
+      await advisoryXactLock(tx, householdKey(input.orgId));
+      const now = this.clock.now();
+      const org = await this.get(input.orgId, tx);
+      if (org.members.some((m) => m.personId === input.personId)) return 'member';
+      const existing = await this.repo.inviteOf(input.orgId, input.personId, tx);
+      if (existing?.state === 'declined' && existing.respondedAt && now.getTime() - existing.respondedAt.getTime() < HOUSEHOLD_INVITE_RULES.declinedQuietDays * DAY_MS) return 'quiet';
+      const reopened = this.open(existing, now);
+      if (!reopened) {
+        const others = (await this.repo.pendingInvites({ orgId: input.orgId }, tx)).filter((i) => this.open(i, now) && i.personId !== input.personId);
+        if (org.members.length + others.length >= HOUSEHOLD_INVITE_RULES.maxMembers) throw new DriverError('household_full');
+        if ((await this.repo.invitesSentSince(input.orgId, new Date(now.getTime() - DAY_MS), tx)) >= HOUSEHOLD_INVITE_RULES.invitesPerDay) throw new DriverError('rate_limited', { retryAfterSec: 3_600 });
+      }
+      // Asking again while an invite is open only changes what it offers; it keeps its date.
+      const inv = await this.repo.saveInvite(
+        { orgId: input.orgId, personId: input.personId, invitedById: input.actorId, role: input.role, spendingLimitIqd: input.spendingLimitIqd, state: 'pending', invitedAt: reopened ? existing.invitedAt : now, respondedAt: null },
+        tx,
+      );
+      if (!reopened) await this.emit(tx, 'org.household_invited', input.actorId, { orgId: input.orgId, personId: input.personId, inviteId: inv.id, role: inv.role }, input.orgId);
+      return 'invited';
+    });
+  }
+
+  /** Open invites of a household (payer view), oldest first. */
+  async openInvitesOf(orgId: string): Promise<HouseholdInvite[]> {
+    const now = this.clock.now();
+    return (await this.repo.pendingInvites({ orgId })).filter((i) => this.open(i, now));
+  }
+
+  /** Open invites to a person. */
+  async openInvitesFor(personId: string): Promise<HouseholdInvite[]> {
+    const now = this.clock.now();
+    return (await this.repo.pendingInvites({ personId })).filter((i) => this.open(i, now));
+  }
+
+  /**
+   * The invitee answers. Yes: they join with the role and limit the invite offered, unless they are
+   * already in a household (`household_exists`) or it is full (`household_full`). An unknown, answered,
+   * taken-back or expired invite, or someone else's: `household_invite_gone`.
+   */
+  respondToHouseholdInvite(inviteId: string, personId: string, accept: boolean): Promise<HouseholdInvite> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      // The person, then their household: two yeses (or a yes and a new household) cannot both pass,
+      // nor two people take the last place.
+      await advisoryXactLock(tx, personLock(personId));
+      const inv = await this.repo.invite(inviteId, tx);
+      if (!inv || inv.personId !== personId || !this.open(inv, now)) throw new DriverError('household_invite_gone');
+      await advisoryXactLock(tx, householdKey(inv.orgId));
+      if (!accept) {
+        const done = await this.repo.closeInvite(inv.id, 'declined', now, tx);
+        if (!done) throw new DriverError('household_invite_gone');
+        await this.emit(tx, 'org.household_invite_declined', personId, { orgId: inv.orgId, personId, inviteId: inv.id }, inv.orgId);
+        return done;
+      }
+      if ((await this.repo.list({ types: ['household'], memberId: personId }, tx)).length > 0) throw new DriverError('household_exists');
+      const org = await this.get(inv.orgId, tx);
+      if (org.members.length >= HOUSEHOLD_INVITE_RULES.maxMembers) throw new DriverError('household_full');
+      const done = await this.repo.closeInvite(inv.id, 'accepted', now, tx);
+      if (!done) throw new DriverError('household_invite_gone');
+      const member: OrgMember = { personId, role: inv.role, spendingLimitIqd: inv.spendingLimitIqd };
+      await this.repo.upsertMember(inv.orgId, member, tx);
+      await this.emit(tx, 'org.member_added', personId, { orgId: inv.orgId, personId, role: member.role, spendingLimitIqd: member.spendingLimitIqd, inviteId: inv.id, invitedBy: inv.invitedById }, inv.orgId);
+      return done;
+    });
+  }
+
+  /** The payer takes back an open invite (`household_invite_gone` when it is not open). */
+  cancelHouseholdInvite(orgId: string, inviteId: string, actorId: string): Promise<HouseholdInvite> {
+    return this.uow.run(async (tx) => {
+      await advisoryXactLock(tx, householdKey(orgId));
+      const inv = await this.repo.invite(inviteId, tx);
+      if (!inv || inv.orgId !== orgId || !this.open(inv, this.clock.now())) throw new DriverError('household_invite_gone');
+      const done = await this.repo.closeInvite(inv.id, 'cancelled', this.clock.now(), tx);
+      if (!done) throw new DriverError('household_invite_gone');
+      await this.emit(tx, 'org.household_invite_cancelled', actorId, { orgId, personId: inv.personId, inviteId: inv.id }, orgId);
+      return done;
+    });
+  }
+
+  /**
+   * Someone leaves the household (`left`, by themselves) or the payer takes them out (`removed`, never
+   * a payer). The only payer cannot leave (`household_last_payer`): the household's wallet is theirs.
+   * Requests of theirs still waiting stay with the payer, who may still say yes or no.
+   */
+  leaveHousehold(orgId: string, personId: string, how: { by: 'self' } | { by: 'payer'; actorId: string }): Promise<Org> {
+    return this.uow.run(async (tx) => {
+      await advisoryXactLock(tx, householdKey(orgId));
+      const org = await this.get(orgId, tx);
+      const m = org.members.find((x) => x.personId === personId);
+      if (!m) throw new DriverError('not_household_member');
+      if (m.role === 'payer') {
+        if (how.by === 'payer') throw new DriverError('invalid_input');
+        if (org.members.filter((x) => x.role === 'payer').length <= 1) throw new DriverError('household_last_payer');
+      }
+      await this.repo.removeMember(orgId, personId, tx);
+      if (how.by === 'self') await this.emit(tx, 'org.member_left', personId, { orgId, personId }, orgId);
+      else await this.emit(tx, 'org.member_removed', how.actorId, { orgId, personId }, orgId);
       return this.get(orgId, tx);
     });
   }

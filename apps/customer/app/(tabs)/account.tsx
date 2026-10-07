@@ -8,7 +8,7 @@ import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
 import { MonthCard } from '@/features/account/MonthCard';
-import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople, useWalletBalance } from '@/features/account/queries';
+import { useGuardianChildren, useHousehold, useMe, useMyHouseholdInvites, useMyPlaces, useSavedPeople, useWalletBalance } from '@/features/account/queries';
 import { amountParam } from '@/lib/money';
 import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
@@ -46,6 +46,7 @@ function Account() {
   const places = useMyPlaces();
   const people = useSavedPeople();
   const household = useHousehold();
+  const householdInvites = useMyHouseholdInvites();
   const children = useGuardianChildren();
   // w10: the header knows you — your points and what you saved this year (both from the server).
   const wallet = useWalletBalance().data;
@@ -217,7 +218,7 @@ function Account() {
             testID="account-household"
             leading="family"
             title={t('household.title')}
-            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')) : undefined}
+            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : (householdInvites.data ?? []).length > 0 ? t('account.household_invite_pending') : t('account.household_hint')) : undefined}
             onPress={() => router.push('/household')}
             divider
           />

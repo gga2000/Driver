@@ -133,4 +133,17 @@ export interface PayerApprovalRequest {
   createdAt: Date;
 }
 
+/** SEC-06: the latest invite of one person to one household (one row per pair). */
+export interface HouseholdInvite {
+  id: string;
+  orgId: string;
+  personId: string;
+  invitedById: string;
+  role: 'orderer' | 'member';
+  spendingLimitIqd: number | null;
+  state: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  invitedAt: Date;
+  respondedAt: Date | null;
+}
+
 export const isMerchantType = (t: OrgType): t is 'restaurant' | 'grocer' => t === 'restaurant' || t === 'grocer';

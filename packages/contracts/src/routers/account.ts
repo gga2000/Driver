@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ApprovalIdInput,
+  CancelHouseholdInviteInput,
   ClaimPointsOutput,
   ConfirmPlaceInput,
   CreateHouseholdInput,
@@ -9,6 +10,7 @@ import {
   InviteMemberInput,
   MonthInput,
   MonthInsightsView,
+  MyHouseholdInvite,
   RiderLandmarksInput,
   LandmarkView,
   LandmarkNearView,
@@ -17,6 +19,8 @@ import {
   PhotoUploadInput,
   PhotoUploadTicket,
   PlaceIdInput,
+  RemoveHouseholdMemberInput,
+  RespondHouseholdInviteInput,
   SavedPlaceView,
   SavePlaceInput,
   SetBudgetInput,
@@ -165,4 +169,24 @@ export const householdRouter = router({
     .input(ApprovalIdInput)
     .output(PayerApprovalView)
     .mutation(({ ctx, input }) => ctx.households.decline(ctx.actor, input)),
+  /** SEC-06: nobody joins a household without saying yes. */
+  myInvites: protectedProcedure()
+    .output(z.array(MyHouseholdInvite))
+    .query(({ ctx }) => ctx.households.myInvites(ctx.actor)),
+  respondInvite: protectedProcedure()
+    .input(RespondHouseholdInviteInput)
+    .output(HouseholdView.nullable())
+    .mutation(({ ctx, input }) => ctx.households.respondInvite(ctx.actor, input)),
+  cancelInvite: protectedProcedure()
+    .input(CancelHouseholdInviteInput)
+    .output(HouseholdView)
+    .mutation(({ ctx, input }) => ctx.households.cancelInvite(ctx.actor, input)),
+  leave: protectedProcedure()
+    .input(HouseholdIdInput)
+    .output(z.null())
+    .mutation(({ ctx, input }) => ctx.households.leave(ctx.actor, input)),
+  removeMember: protectedProcedure()
+    .input(RemoveHouseholdMemberInput)
+    .output(HouseholdView)
+    .mutation(({ ctx, input }) => ctx.households.removeMember(ctx.actor, input)),
 });

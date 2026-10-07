@@ -167,6 +167,10 @@ export const ERROR_TABLE = {
   no_payer: { retryHint: 'never', status: 'CONFLICT' },
   household_payer_only: { retryHint: 'never', status: 'FORBIDDEN' },
   household_exists: { retryHint: 'never', status: 'CONFLICT' },
+  // SEC-06: household invites need a yes; the household has a size; the only payer stays
+  household_invite_gone: { retryHint: 'never', status: 'NOT_FOUND' },
+  household_full: { retryHint: 'never', status: 'CONFLICT' },
+  household_last_payer: { retryHint: 'never', status: 'CONFLICT' },
   // joy w4: only payers and orderers spend the household wallet, on kitchen and shop orders
   household_cannot_order: { retryHint: 'never', status: 'FORBIDDEN' },
   household_wallet_food_only: { retryHint: 'never', status: 'BAD_REQUEST' },

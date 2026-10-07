@@ -2,11 +2,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { HOUSEHOLD_RULES } from '@driver/contracts';
-import { Avatar, Button, Card, ChipGroup, RetryState, retryKindFor, Skeleton, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, ChipGroup, ModalSheet, RetryState, retryKindFor, Skeleton, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { BudgetBar } from '@/features/account/BudgetBar';
 import { parseAmount, presetChoice } from '@/features/account/family';
-import { useHousehold, useSetBudget, useSetLimit } from '@/features/account/queries';
+import { useHousehold, useRemoveHouseholdMember, useSetBudget, useSetLimit } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -16,7 +16,8 @@ type Choice = 'none' | 'other' | number;
 /**
  * Payer: a member's limits (joy w4, audit A-04). The per-order limit and the monthly budget, each as
  * presets («10,000» «25,000» «50,000» «بلا حد») or an amount of their own; over either, an order
- * comes to the payer for an OK — never a silent block. Shows what they spent this month.
+ * comes to the payer for an OK — never a silent block. Shows what they spent this month. SEC-06: the
+ * payer can also take them out of the household (after a confirm).
  */
 export default function MemberLimits() {
   const theme = useTheme();
@@ -31,6 +32,8 @@ export default function MemberLimits() {
   const member = household.data?.members.find((m) => m.personId === personId) ?? null;
   const [order, setOrder] = useState<{ choice: Choice; text: string } | null>(null);
   const [month, setMonth] = useState<{ choice: Choice; text: string } | null>(null);
+  const remove = useRemoveHouseholdMember();
+  const [removing, setRemoving] = useState(false);
 
   // Start from what is stored, once it arrives.
   useEffect(() => {
@@ -79,12 +82,24 @@ export default function MemberLimits() {
     }
   };
 
+  const shownName = member.name ?? `⁦${member.phoneMasked}⁩`;
+  const removeNow = async () => {
+    try {
+      await remove.mutateAsync({ householdId: homeId, personId: member.personId });
+      setRemoving(false);
+      toast.show({ message: t('household.removed'), tone: 'success' });
+      router.back();
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    }
+  };
+
   return (
     <Screen edges={['bottom']} testID="member-limits" footer={<Button testID="member-save" label={t('action.save')} size="lg" fullWidth disabled={!ready} loading={busy} onPress={() => void save()} />}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <Avatar name={member.name ?? '?'} icon={member.name ? undefined : 'user'} size={48} />
         <Text variant="title" style={{ flexShrink: 1 }}>
-          {member.name ?? `⁦${member.phoneMasked}⁩`}
+          {shownName}
         </Text>
       </View>
 
@@ -115,6 +130,25 @@ export default function MemberLimits() {
         state={month}
         onChange={setMonth}
       />
+
+      <Button testID="member-remove" variant="ghost" label={t('household.remove')} fullWidth onPress={() => setRemoving(true)} />
+      <ModalSheet
+        visible={removing}
+        onClose={() => (remove.isPending ? undefined : setRemoving(false))}
+        locked={remove.isPending}
+        title={t('household.remove_title', { name: shownName })}
+        testID="member-remove-sheet"
+        footer={
+          <View style={{ gap: theme.space[2] }}>
+            <Button testID="member-remove-confirm" variant="destructive" label={t('household.remove')} loading={remove.isPending} disabled={!net.online} fullWidth onPress={() => void removeNow()} />
+            <Button label={t('action.cancel')} variant="ghost" fullWidth disabled={remove.isPending} onPress={() => setRemoving(false)} />
+          </View>
+        }
+      >
+        <Text variant="body" color="textMuted">
+          {t('household.remove_body')}
+        </Text>
+      </ModalSheet>
     </Screen>
   );
 }

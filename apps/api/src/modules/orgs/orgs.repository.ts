@@ -7,6 +7,7 @@ import {
   isMerchantType,
   type MerchantPauseWindow,
   type MerchantSettings,
+  type HouseholdInvite,
   type Org,
   type OrgMember,
   type OrgType,
@@ -39,6 +40,18 @@ export interface OrgsRepository {
   approvals(orgId: string, filter?: { state?: PayerApprovalRequest['state'] }, tx?: Tx): Promise<PayerApprovalRequest[]>;
   /** pending → decision; null when the request was no longer pending (someone resolved it first). */
   resolveApproval(id: string, decision: 'approved' | 'declined' | 'withdrawn', tx?: Tx): Promise<PayerApprovalRequest | null>;
+  /** Takes the person out of the org (no-op when not a member). */
+  removeMember(orgId: string, personId: string, tx?: Tx): Promise<void>;
+  /** SEC-06: writes the household's invite of this person (one row per pair: a new invite replaces the old). */
+  saveInvite(input: Omit<HouseholdInvite, 'id'>, tx?: Tx): Promise<HouseholdInvite>;
+  invite(id: string, tx?: Tx): Promise<HouseholdInvite | null>;
+  inviteOf(orgId: string, personId: string, tx?: Tx): Promise<HouseholdInvite | null>;
+  /** Pending invites of a household (`orgId`) or to a person (`personId`), oldest first. */
+  pendingInvites(filter: { orgId?: string; personId?: string }, tx?: Tx): Promise<HouseholdInvite[]>;
+  /** Invites the household sent after `since` (any state). */
+  invitesSentSince(orgId: string, since: Date, tx?: Tx): Promise<number>;
+  /** pending → `to`; null when it was no longer pending. */
+  closeInvite(id: string, to: 'accepted' | 'declined' | 'cancelled', at: Date, tx?: Tx): Promise<HouseholdInvite | null>;
 }
 
 export const ORGS_REPOSITORY = Symbol('ORGS_REPOSITORY');
@@ -48,6 +61,7 @@ const clone = <T>(v: T): T => structuredClone(v);
 export class InMemoryOrgsRepository implements OrgsRepository {
   private readonly orgs = new Map<string, Org>();
   private readonly approvalRows = new Map<string, PayerApprovalRequest>();
+  private readonly inviteRows = new Map<string, HouseholdInvite>();
   private seq = 0;
 
   async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[] }): Promise<Org> {
@@ -113,6 +127,52 @@ export class InMemoryOrgsRepository implements OrgsRepository {
     const r = this.approvalRows.get(id);
     if (!r || r.state !== 'pending') return null;
     r.state = decision;
+    return { ...r };
+  }
+
+  async removeMember(orgId: string, personId: string): Promise<void> {
+    const org = this.orgs.get(orgId);
+    if (org) org.members = org.members.filter((m) => m.personId !== personId);
+  }
+
+  async saveInvite(input: Omit<HouseholdInvite, 'id'>): Promise<HouseholdInvite> {
+    const existing = [...this.inviteRows.values()].find((i) => i.orgId === input.orgId && i.personId === input.personId);
+    let id = existing?.id;
+    if (!id) {
+      this.seq += 1;
+      id = `hinv_${this.seq}`;
+    }
+    const row = { ...input, id };
+    this.inviteRows.set(id, row);
+    return { ...row };
+  }
+
+  async invite(id: string): Promise<HouseholdInvite | null> {
+    const r = this.inviteRows.get(id);
+    return r ? { ...r } : null;
+  }
+
+  async inviteOf(orgId: string, personId: string): Promise<HouseholdInvite | null> {
+    const r = [...this.inviteRows.values()].find((i) => i.orgId === orgId && i.personId === personId);
+    return r ? { ...r } : null;
+  }
+
+  async pendingInvites(filter: { orgId?: string; personId?: string }): Promise<HouseholdInvite[]> {
+    return [...this.inviteRows.values()]
+      .filter((i) => i.state === 'pending' && (filter.orgId === undefined || i.orgId === filter.orgId) && (filter.personId === undefined || i.personId === filter.personId))
+      .sort((a, b) => a.invitedAt.getTime() - b.invitedAt.getTime() || a.id.localeCompare(b.id))
+      .map((i) => ({ ...i }));
+  }
+
+  async invitesSentSince(orgId: string, since: Date): Promise<number> {
+    return [...this.inviteRows.values()].filter((i) => i.orgId === orgId && i.invitedAt > since).length;
+  }
+
+  async closeInvite(id: string, to: 'accepted' | 'declined' | 'cancelled', at: Date): Promise<HouseholdInvite | null> {
+    const r = this.inviteRows.get(id);
+    if (!r || r.state !== 'pending') return null;
+    r.state = to;
+    r.respondedAt = at;
     return { ...r };
   }
 }
@@ -336,4 +396,61 @@ export class PrismaOrgsRepository implements OrgsRepository {
     if (count === 0) return null;
     return this.approval(id, db);
   }
+
+  async removeMember(orgId: string, personId: string, tx?: Tx): Promise<void> {
+    await this.db(tx).orgMember.deleteMany({ where: { orgId, personId } });
+  }
+
+  async saveInvite(input: Omit<HouseholdInvite, 'id'>, tx?: Tx): Promise<HouseholdInvite> {
+    const data = { invitedById: input.invitedById, role: input.role, spendingLimitIqd: input.spendingLimitIqd, state: input.state, invitedAt: input.invitedAt, respondedAt: input.respondedAt };
+    const row = await this.db(tx).householdInvite.upsert({
+      where: { orgId_personId: { orgId: input.orgId, personId: input.personId } },
+      update: data,
+      create: { orgId: input.orgId, personId: input.personId, ...data },
+    });
+    return inviteFromRow(row);
+  }
+
+  async invite(id: string, tx?: Tx): Promise<HouseholdInvite | null> {
+    const r = await this.db(tx).householdInvite.findUnique({ where: { id } });
+    return r ? inviteFromRow(r) : null;
+  }
+
+  async inviteOf(orgId: string, personId: string, tx?: Tx): Promise<HouseholdInvite | null> {
+    const r = await this.db(tx).householdInvite.findUnique({ where: { orgId_personId: { orgId, personId } } });
+    return r ? inviteFromRow(r) : null;
+  }
+
+  async pendingInvites(filter: { orgId?: string; personId?: string }, tx?: Tx): Promise<HouseholdInvite[]> {
+    const rows = await this.db(tx).householdInvite.findMany({
+      where: { state: 'pending', ...(filter.orgId !== undefined ? { orgId: filter.orgId } : {}), ...(filter.personId !== undefined ? { personId: filter.personId } : {}) },
+      orderBy: [{ invitedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(inviteFromRow);
+  }
+
+  invitesSentSince(orgId: string, since: Date, tx?: Tx): Promise<number> {
+    return this.db(tx).householdInvite.count({ where: { orgId, invitedAt: { gt: since } } });
+  }
+
+  async closeInvite(id: string, to: 'accepted' | 'declined' | 'cancelled', at: Date, tx?: Tx): Promise<HouseholdInvite | null> {
+    const db = this.db(tx);
+    const { count } = await db.householdInvite.updateMany({ where: { id, state: 'pending' }, data: { state: to, respondedAt: at } });
+    if (count === 0) return null;
+    return this.invite(id, db);
+  }
+}
+
+function inviteFromRow(r: { id: string; orgId: string; personId: string; invitedById: string; role: string; spendingLimitIqd: number | null; state: string; invitedAt: Date; respondedAt: Date | null }): HouseholdInvite {
+  return {
+    id: r.id,
+    orgId: r.orgId,
+    personId: r.personId,
+    invitedById: r.invitedById,
+    role: r.role === 'member' ? 'member' : 'orderer',
+    spendingLimitIqd: r.spendingLimitIqd,
+    state: r.state as HouseholdInvite['state'],
+    invitedAt: r.invitedAt,
+    respondedAt: r.respondedAt,
+  };
 }

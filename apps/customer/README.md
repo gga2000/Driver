@@ -198,6 +198,11 @@ try it with `?now=2026-10-02T12:00:00+03:00` in a dev build).
   months of meals, savings and points and a الرجعة trip that just ended. Once per household.
 - Shots: `SHOTS=family` → `family-*.png` (hub, its month/table/trusted parts, a member's limits,
   «شهرك» this month and last, the month-start card, the account row).
+- Invites (SEC-06, `docs/api/household-invites.md`): nobody joins a household without «انضم». After
+  `POST /demo/account`, `0770 555 0011` has an open invite on the payer's list; `POST
+  /demo/household-invite?personId=…` has سجاد's «بيت أبو حيدر» invite you as an orderer (15,000 an order).
+  `SHOTS=consent` → `consent-*.png` (payer's open invites, the invite form, remove and leave sheets, the
+  invite card on a fresh account, joined, left).
 
 ## Deals and wallet top-up
 

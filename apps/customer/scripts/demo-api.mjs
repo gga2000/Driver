@@ -1360,6 +1360,9 @@ const rajaa = await (async () => {
       const kid = await identity.ensurePersonByPhone('07709876543', personId, 'demo');
       await identity.updateProfile({ personId: kid, sessionId: 'demo' }, { name: 'حسين' });
       await orgs.addMember(household.id, kid, { role: 'orderer', spendingLimitIqd: 10_000, actorId: personId });
+      // SEC-06: someone invited who has not said yes yet (the payer sees only the number's hint).
+      const cousin = await identity.ensurePersonByPhone('07705550011', personId, 'demo');
+      await orgs.inviteToHousehold({ orgId: household.id, personId: cousin, role: 'member', spendingLimitIqd: null, actorId: personId }).catch(() => undefined);
       // The household wallet first, so Minar's order can be paid from it.
       await ledger.recordAll(group(`demo:hh:${household.id}`, 'money', ago(30), [{ type: 'credit_issued', amount: 60_000, fromAccount: Accounts.bank, toAccount: Accounts.household(household.id), memo: 'topup:agent' }]));
       // A real order of Minar's at مطعم خالد on the household wallet, over her 25,000 limit: the server
@@ -1398,6 +1401,34 @@ const rajaa = await (async () => {
       }
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ householdId: household.id, homeId: home.id }));
+    } catch (err) {
+      res.statusCode = 500;
+      res.end(String(err?.stack ?? err));
+    }
+  });
+
+  // ───────────────────────── household invites (SEC-06) ─────────────────────────
+  //
+  //   POST /demo/household-invite?personId=<id>   → { householdId, inviteId }
+  //
+  // سجاد's household «بيت أبو حيدر» invites this person to order up to 15,000 an order: the invite
+  // waits on «بيتنا» (before the create form) for «انضم» or «لا شكراً». Use a person not in a household.
+  app.use('/demo/household-invite', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) {
+        res.statusCode = 400;
+        res.end('POST /demo/household-invite?personId=…');
+        return;
+      }
+      const sajjad = await identity.ensurePersonByPhone('07805550123', 'system:demo', 'demo');
+      await identity.updateProfile({ personId: sajjad, sessionId: 'demo' }, { name: 'سجاد' });
+      let home = (await orgs.householdsOf(sajjad))[0];
+      home ??= await orgs.createHousehold({ name: 'بيت أبو حيدر', cityId: 'aziziyah', payerId: sajjad });
+      await orgs.inviteToHousehold({ orgId: home.id, personId, role: 'orderer', spendingLimitIqd: 15_000, actorId: sajjad });
+      const invite = (await orgs.openInvitesFor(personId)).find((i) => i.orgId === home.id);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ householdId: home.id, inviteId: invite?.id ?? null }));
     } catch (err) {
       res.statusCode = 500;
       res.end(String(err?.stack ?? err));

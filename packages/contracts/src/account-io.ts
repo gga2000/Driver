@@ -434,6 +434,37 @@ export const HouseholdTableOrder = z.object({
 });
 export type HouseholdTableOrder = z.infer<typeof HouseholdTableOrder>;
 
+/**
+ * SEC-06: someone the payer invited who has not answered yet. Nothing about the person but the hint of
+ * the number the payer typed («0770 ••• 4567»): no name until they accept.
+ */
+export const HouseholdInviteView = z.object({
+  id: z.string(),
+  phoneHint: z.string(),
+  role: HouseholdRole.exclude(['payer']),
+  spendingLimitIqd: Iqd.nullable(),
+  invitedAt: z.coerce.date(),
+});
+export type HouseholdInviteView = z.infer<typeof HouseholdInviteView>;
+
+/** SEC-06: an invite waiting for the caller's yes or no: which household, and the payer's first name. */
+export const MyHouseholdInvite = z.object({
+  id: z.string(),
+  householdName: z.string(),
+  invitedByName: z.string().nullable(),
+  role: HouseholdRole.exclude(['payer']),
+  spendingLimitIqd: Iqd.nullable(),
+  invitedAt: z.coerce.date(),
+});
+export type MyHouseholdInvite = z.infer<typeof MyHouseholdInvite>;
+
+/**
+ * SEC-06 household limits: people in one household (members and open invites together); invites one
+ * household may send a day; how long an invite waits for an answer; how long a «لا» keeps the same
+ * household from asking the same number again.
+ */
+export const HOUSEHOLD_INVITE_RULES = { maxMembers: 10, invitesPerDay: 10, inviteDays: 14, declinedQuietDays: 30 } as const;
+
 export const HouseholdView = z.object({
   id: z.string(),
   name: z.string(),
@@ -442,6 +473,8 @@ export const HouseholdView = z.object({
   members: z.array(HouseholdMemberView),
   /** Payers see every pending request; other members see their own. */
   pendingApprovals: z.array(PayerApprovalView),
+  /** SEC-06: invites not answered yet (payers only; empty for others). */
+  invites: z.array(HouseholdInviteView).default([]),
   /** w4 «سفرة البيت»: this Baghdad month's shared orders (null when the server could not read them). */
   month: z
     .object({
@@ -472,6 +505,15 @@ export const HouseholdIdInput = z.object({ householdId: z.string().min(1) });
 export type HouseholdIdInput = z.infer<typeof HouseholdIdInput>;
 export const ApprovalIdInput = z.object({ requestId: z.string().min(1) });
 export type ApprovalIdInput = z.infer<typeof ApprovalIdInput>;
+/** SEC-06: the invitee's answer. */
+export const RespondHouseholdInviteInput = z.object({ inviteId: z.string().min(1), accept: z.boolean() });
+export type RespondHouseholdInviteInput = z.infer<typeof RespondHouseholdInviteInput>;
+/** SEC-06: the payer takes back an invite not answered yet. */
+export const CancelHouseholdInviteInput = z.object({ householdId: z.string().min(1), inviteId: z.string().min(1) });
+export type CancelHouseholdInviteInput = z.infer<typeof CancelHouseholdInviteInput>;
+/** SEC-06: the payer takes someone out of the household (never a payer). */
+export const RemoveHouseholdMemberInput = z.object({ householdId: z.string().min(1), personId: z.string().min(1) });
+export type RemoveHouseholdMemberInput = z.infer<typeof RemoveHouseholdMemberInput>;
 
 export interface HouseholdsPort {
   mine(actor: Actor): Promise<HouseholdView | null>;
@@ -482,4 +524,12 @@ export interface HouseholdsPort {
   approvals(actor: Actor, input: HouseholdIdInput): Promise<PayerApprovalView[]>;
   approve(actor: Actor, input: ApprovalIdInput): Promise<PayerApprovalView>;
   decline(actor: Actor, input: ApprovalIdInput): Promise<PayerApprovalView>;
+  /** SEC-06: invites waiting for the caller's answer. */
+  myInvites(actor: Actor): Promise<MyHouseholdInvite[]>;
+  /** SEC-06: yes joins the household (its view); no answers null. `household_invite_gone` when it is no longer open. */
+  respondInvite(actor: Actor, input: RespondHouseholdInviteInput): Promise<HouseholdView | null>;
+  cancelInvite(actor: Actor, input: CancelHouseholdInviteInput): Promise<HouseholdView>;
+  /** SEC-06: leave the household; the only payer cannot (`household_last_payer`). */
+  leave(actor: Actor, input: HouseholdIdInput): Promise<null>;
+  removeMember(actor: Actor, input: RemoveHouseholdMemberInput): Promise<HouseholdView>;
 }

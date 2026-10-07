@@ -37,6 +37,8 @@
 //   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
 //            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
 //            (`?now=`), the wallet and account rows                 POST /demo/account + /demo/family
+//   consent-* SEC-06 household invites: the payer's open invites, the invite form, removing someone;
+//            a fresh account's invite card, joined, leaving       POST /demo/account, /demo/household-invite
 //   gift-*   J7b: checkout «عزيمة» card, the kitchen's gift heads-up, «عزّم صديقك», a friend's /i/<code>
 //            as a guest, the sticker pack, the share card sheet (food and الرجعة) and the rendered cards
 //                                                                         POST /demo/account, /demo/invite, /demo/history, /demo/rajaa/arrived
@@ -134,7 +136,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'consent'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -290,6 +292,7 @@ try {
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
+  if (wants('consent')) await consentShots(personId);
   if (wants('habits')) await habitsShots();
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
@@ -1053,6 +1056,58 @@ async function familyShots(personId) {
   await page.goto(`${origin}/account`, LOADED);
   await byTestId('account-month').waitFor({ timeout: 15_000 });
   await shot('family-account');
+}
+
+/**
+ * SEC-06 household invites: the payer's «ينتظرون موافقتهم» (the number's hint only), the invite form's
+ * consent line and the «شيل من البيت» sheet; then a fresh account with an invite from «بيت أبو حيدر»:
+ * the account row, the invite card, joined, and the «اطلع من البيت» sheet.
+ */
+async function consentShots(personId) {
+  if (!personId) return;
+  await demoPost(`/demo/account?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/household`, LOADED);
+  await byTestId('household-invites').waitFor({ timeout: 15_000 });
+  await byTestId('household-invites').scrollIntoViewIfNeeded();
+  await shot('consent-payer-invites');
+  await page.goto(`${origin}/household/invite`, LOADED);
+  await byTestId('invite-consent-hint').waitFor({ timeout: 15_000 });
+  await shot('consent-invite-form');
+  await page.goto(`${origin}/household`, LOADED);
+  await byTestId('household-invites').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid^="member-"]').nth(1).click();
+  await byTestId('member-remove').waitFor({ timeout: 15_000 });
+  await byTestId('member-remove').scrollIntoViewIfNeeded();
+  await byTestId('member-remove').click();
+  await byTestId('member-remove-sheet').waitFor({ timeout: 10_000 });
+  await settle(500);
+  await shot('consent-remove-sheet');
+
+  await asOtherAccount(async () => {
+    const invitee = await freshSignIn(process.env.CONSENT_PHONE ?? '0770 456 3311');
+    await demoPost(`/demo/household-invite?personId=${encodeURIComponent(invitee)}`);
+    await page.goto(`${origin}/account`, LOADED);
+    await byTestId('account-household').waitFor({ timeout: 15_000 });
+    await byTestId('account-household').scrollIntoViewIfNeeded();
+    await settle(600);
+    await shot('consent-account-row');
+    await page.goto(`${origin}/household`, LOADED);
+    await byTestId('household-my-invites').waitFor({ timeout: 15_000 });
+    await shot('consent-my-invite');
+    await page.locator('[data-testid^="household-invite-accept-"]').click();
+    await byTestId('household').waitFor({ timeout: 15_000 });
+    await settle(600);
+    await shot('consent-joined');
+    await byTestId('household-leave').scrollIntoViewIfNeeded();
+    await byTestId('household-leave').click();
+    await byTestId('household-leave-sheet').waitFor({ timeout: 10_000 });
+    await settle(500);
+    await shot('consent-leave-sheet');
+    await byTestId('household-leave-confirm').click();
+    await byTestId('household-create').waitFor({ timeout: 15_000 });
+    await settle(600);
+    await shot('consent-left');
+  });
 }
 
 /** M3 account: seed places / points / household, then profile, place editor, wallet, household. */
