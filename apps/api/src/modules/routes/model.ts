@@ -1,5 +1,4 @@
 import type {
-  BookingRating,
   BookingOrigin,
   BookingState,
   DemandPostState,
@@ -11,7 +10,9 @@ import type {
   PickupStatus,
   PinAlertKind,
   PinAttemptResult,
+  RajaaRatingTag,
   RequestState,
+  ReviewHideReason,
   SeatPayment,
   TravellingAs,
   VehicleModelKey,
@@ -53,6 +54,9 @@ export interface DepartureRecord {
     modelKey: VehicleModelKey | null;
     model: string | null;
     color: string | null;
+    /** The driver's word for this run (x15 «ما يدخن», «جناط كبيرة»); false on older runs. */
+    noSmoking: boolean;
+    bigBags: boolean;
   };
   familyOnly: boolean;
   seatPriceIqd: number;
@@ -120,7 +124,25 @@ export interface BookingRecord {
   movedToBookingId: string | null;
   createdAt: Date;
   /** r2: the rider's stars and chips after the trip; absent/null = not rated. */
-  rating?: BookingRating | null;
+  rating?: RatingRecord | null;
+  /** x14: the rider's one line with the rating, and its moderation; absent/null = none written. */
+  review?: ReviewRecord | null;
+}
+
+export interface RatingRecord {
+  stars: number;
+  tags: RajaaRatingTag[];
+  at: Date;
+}
+
+/** A rider's written line about the trip (public on the driver's profile unless ops hid it). */
+export interface ReviewRecord {
+  text: string;
+  at: Date;
+  hiddenAt: Date | null;
+  /** The staff member who hid it. */
+  hiddenBy: string | null;
+  hiddenReason: ReviewHideReason | null;
 }
 
 export interface DemandPostRecord {
@@ -209,6 +231,8 @@ export const OCCUPYING: readonly BookingState[] = ['held', 'booked', 'checked_in
 export const LIVE: readonly BookingState[] = ['held', 'booked', 'checked_in'];
 /** Departure states a rider can still book into. */
 export const OPEN_DEPARTURE: readonly IntercityDepartureState[] = ['scheduled', 'boarding'];
+/** Runs that reached the other end (the driver's record counts these). */
+export const FINISHED_RUN: readonly IntercityDepartureState[] = ['arrived', 'closed'];
 
 export function bookingTotal(
   b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd'>,

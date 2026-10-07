@@ -6,7 +6,7 @@ import type {
   RequestState,
 } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { BookingRecord, DemandPostRecord, DepartureRecord, PinAttemptRecord, RequestRecord } from './model.js';
+import { FINISHED_RUN, type BookingRecord, type DemandPostRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 
 /**
  * Persistence of the routes module: departures (with their run state), seat bookings, demand posts
@@ -49,6 +49,22 @@ export interface RiderRecordStats {
   cashStrikes: number;
 }
 
+/** A driver's track record (the rider-facing profile, x12–x17). */
+export interface DriverRecord {
+  /** His finished runs (arrived or closed), oldest first. */
+  runs: DepartureRecord[];
+  /** Rated bookings on his runs, oldest rating first. */
+  rated: BookingRecord[];
+}
+
+export interface ReviewFilter {
+  /** true: only hidden; false: only shown; undefined: both. */
+  hidden?: boolean;
+  /** Written before this (paging). */
+  before?: Date;
+  limit: number;
+}
+
 export interface RoutesRepository {
   saveDeparture(d: DepartureRecord, tx?: Tx): Promise<void>;
   getDeparture(id: string, tx?: Tx): Promise<DepartureRecord | null>;
@@ -63,6 +79,9 @@ export interface RoutesRepository {
     tx?: Tx,
   ): Promise<BookingRecord[]>;
   riderStats(riderId: string, tx?: Tx): Promise<RiderRecordStats>;
+  driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord>;
+  /** Bookings with a written review, newest review first. */
+  reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]>;
 
   saveDemand(p: DemandPostRecord, tx?: Tx): Promise<void>;
   getDemand(id: string, tx?: Tx): Promise<DemandPostRecord | null>;
@@ -159,6 +178,30 @@ export class InMemoryRoutesRepository implements RoutesRepository {
       completedBookings: mine.filter((b) => b.state === 'completed').length,
       cashStrikes: mine.filter((b) => isCashStrike(b)).length,
     };
+  }
+
+  async driverRecord(driverId: string): Promise<DriverRecord> {
+    const runs = [...this.departures.values()]
+      .filter((d) => d.driverId === driverId && FINISHED_RUN.includes(d.state))
+      .sort((a, b) => a.departAt.getTime() - b.departAt.getTime());
+    const ids = new Set(runs.map((d) => d.id));
+    const rated = [...this.bookings.values()]
+      .filter((b) => ids.has(b.departureId) && b.rating)
+      .sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(clone), rated: rated.map(clone) };
+  }
+
+  async reviews(f: ReviewFilter): Promise<BookingRecord[]> {
+    return [...this.bookings.values()]
+      .filter(
+        (b) =>
+          b.review &&
+          (f.hidden === undefined || (b.review.hiddenAt !== null) === f.hidden) &&
+          (!f.before || b.review.at.getTime() < f.before.getTime()),
+      )
+      .sort((a, b) => b.review!.at.getTime() - a.review!.at.getTime())
+      .slice(0, f.limit)
+      .map(clone);
   }
 
   async saveDemand(p: DemandPostRecord): Promise<void> {

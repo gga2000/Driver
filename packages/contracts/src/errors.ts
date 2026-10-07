@@ -309,6 +309,9 @@ export const ERROR_TABLE = {
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلمة عن السفرة» (x14): a review line with a phone number, link or @handle; ops hide/unhide
+  review_contact_info: { retryHint: 'never', status: 'BAD_REQUEST' },
+  review_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   // Menu photo service (maps k3).
   menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

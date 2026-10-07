@@ -1607,6 +1607,8 @@
   "error.request_not_found": "ما لگينا الطلب",
   "error.request_state_conflict": "الطلب تغيّر هسة. حدّثناه، شوفه وكمّل",
   "error.offer_price_invalid": "السعر لازم يكون بالآلاف (1,000، 2,000…)",
+  "error.review_contact_info": "لا تكتب رقم تلفون أو رابط بالكلمة، كل الركاب يقرونها",
+  "error.review_not_found": "ما لگينا هذا التقييم",
   "error.menu_photo_request_open": "عندك طلب تصوير مفتوح. خلّيه يخلص أو ألغيه قبل طلب جديد",
   "error.menu_photo_not_found": "ما لگينا طلب التصوير",
   "error.menu_photo_state_conflict": "طلب التصوير تغيّر بهالأثناء. شوف حالته الجديدة",

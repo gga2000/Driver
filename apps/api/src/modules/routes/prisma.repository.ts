@@ -1,23 +1,28 @@
-import { BookingRating, PinAlertKind, PinAttemptResult, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { PinAlertKind, PinAttemptResult, RajaaRatingTag, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type {
-  BookingRecord,
-  DemandPostRecord,
-  DepartureRecord,
-  Fix,
-  PickupRecord,
-  PinAttemptRecord,
-  RequestOfferRecord,
-  RequestPlaceRecord,
-  RequestRecord,
-  WalkUp,
+import {
+  FINISHED_RUN,
+  type BookingRecord,
+  type DemandPostRecord,
+  type DepartureRecord,
+  type Fix,
+  type PickupRecord,
+  type PinAttemptRecord,
+  type RequestOfferRecord,
+  type RequestPlaceRecord,
+  type RequestRecord,
+  type ReviewRecord,
+  type WalkUp,
 } from './model.js';
 import type {
   DemandFilter,
   DepartureFilter,
+  DriverRecord,
   RequestFilter,
+  ReviewFilter,
   RiderRecordStats,
   RoutesRepository,
 } from './routes.repository.js';
@@ -156,6 +161,11 @@ export class PrismaRoutesRepository implements RoutesRepository {
       movedFromBookingId: b.movedFromBookingId,
       movedToBookingId: b.movedToBookingId,
       rating: b.rating ? ({ stars: b.rating.stars, tags: [...b.rating.tags], at: b.rating.at.toISOString() } as Prisma.InputJsonObject) : Prisma.DbNull,
+      reviewText: b.review?.text ?? null,
+      reviewAt: b.review?.at ?? null,
+      reviewHiddenAt: b.review?.hiddenAt ?? null,
+      reviewHiddenBy: b.review?.hiddenBy ?? null,
+      reviewHiddenReason: b.review?.hiddenReason ?? null,
     };
     await this.db(tx).seatBooking.upsert({
       where: { id: b.id },
@@ -186,6 +196,31 @@ export class PrismaRoutesRepository implements RoutesRepository {
     const rows = await this.db(tx).seatBooking.findMany({
       where: { riderId, ...(states ? { state: { in: [...states] } } : {}) },
       orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toBooking);
+  }
+
+  async driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord> {
+    const db = this.db(tx);
+    const finished = { driverId, state: { in: [...FINISHED_RUN] } };
+    const [runs, rated] = await Promise.all([
+      db.departure.findMany({ where: finished, orderBy: { scheduledAt: 'asc' } }),
+      db.seatBooking.findMany({ where: { departure: finished, rating: { not: Prisma.DbNull } }, orderBy: { completedAt: 'asc' } }),
+    ]);
+    const records = rated.map(toBooking).filter((b) => b.rating);
+    records.sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(toDeparture), rated: records };
+  }
+
+  async reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]> {
+    const rows = await this.db(tx).seatBooking.findMany({
+      where: {
+        reviewText: { not: null },
+        ...(f.hidden === undefined ? {} : { reviewHiddenAt: f.hidden ? { not: null } : null }),
+        ...(f.before ? { reviewAt: { lt: f.before } } : {}),
+      },
+      orderBy: [{ reviewAt: 'desc' }, { id: 'desc' }],
+      take: f.limit,
     });
     return rows.map(toBooking);
   }
@@ -408,10 +443,25 @@ type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & 
 };
 
 /** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
+/** Snapshots written before a field existed read its default (no model, no promises about the car). */
 function vehicleFromSnapshot(json: unknown): DepartureRecord['vehicle'] {
-  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey'> & { modelKey?: unknown };
+  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey' | 'noSmoking' | 'bigBags'> & { modelKey?: unknown; noSmoking?: unknown; bigBags?: unknown };
   const key = VehicleModelKey.safeParse(v.modelKey);
-  return { ...v, modelKey: key.success ? key.data : null };
+  return { ...v, modelKey: key.success ? key.data : null, noSmoking: v.noSmoking === true, bigBags: v.bigBags === true };
+}
+
+const RatingJson = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+
+function reviewFromRow(r: BookingRow): ReviewRecord | null {
+  if (r.reviewText === null) return null;
+  const reason = ReviewHideReason.safeParse(r.reviewHiddenReason);
+  return {
+    text: r.reviewText,
+    at: r.reviewAt ?? r.updatedAt,
+    hiddenAt: r.reviewHiddenAt,
+    hiddenBy: r.reviewHiddenBy,
+    hiddenReason: reason.success ? reason.data : null,
+  };
 }
 
 function toDeparture(r: DepartureRow): DepartureRecord {
@@ -482,7 +532,8 @@ function toBooking(r: BookingRow): BookingRecord {
     movedFromBookingId: r.movedFromBookingId,
     movedToBookingId: r.movedToBookingId,
     createdAt: r.createdAt,
-    rating: r.rating ? (BookingRating.safeParse(r.rating).data ?? null) : null,
+    rating: r.rating ? (RatingJson.safeParse(r.rating).data ?? null) : null,
+    review: reviewFromRow(r),
   };
 }
 

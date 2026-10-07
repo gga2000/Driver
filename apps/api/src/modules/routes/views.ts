@@ -200,7 +200,8 @@ export function bookingView(
     departure: departureSummary(dep),
     createdAt: b.createdAt,
     completedAt: b.completedAt,
-    rating: b.rating ?? null,
+    // The rider sees his own line as he wrote it, hidden or not.
+    rating: b.rating ? { ...b.rating, comment: b.review?.text ?? null } : null,
     pointsEarned,
   };
 }

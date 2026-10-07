@@ -219,6 +219,10 @@ export const IntercityVehicle = z.object({
   /** Free text: the model when `modelKey` is `other` (or a pre-list run). */
   model: z.string().nullable(),
   color: z.string().nullable(),
+  /** The driver's word for this run (idea x15): nobody smokes in the car → «ما يدخن». */
+  noSmoking: z.boolean().default(false),
+  /** The driver's word for this run: the boot takes big suitcases → «جناط كبيرة». */
+  bigBags: z.boolean().default(false),
 });
 export type IntercityVehicle = z.infer<typeof IntercityVehicle>;
 
@@ -336,11 +340,49 @@ export const RAJAA_LOW_TAGS: readonly RajaaRatingTag[] = ['late', 'fast_driving'
 /** Stars at or under this ask what went wrong. */
 export const RAJAA_LOW_STARS = 3;
 
-export const BookingRating = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+/**
+ * «كلمة عن السفرة» (idea x14, Ali 2026-10-07): one optional line under the stars. Other riders read it on
+ * the driver's profile without the writer's name, newest first; ops can hide one (`routes.hideReview`).
+ */
+export const RAJAA_REVIEW_MAX = 140;
+
+const ARABIC_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
+
+/**
+ * Why a review line can't be posted as written, or null. Reviews are public, so they must not carry a
+ * way to reach someone off the app: a phone number (7+ digits, Western or Arabic-Indic, spaces and
+ * dashes between them ignored), a link, or an @handle. Checked on the server and, for an inline hint,
+ * in the app.
+ */
+export function reviewTextProblem(text: string): 'contact' | null {
+  const western = text.replace(ARABIC_DIGITS, (d) => String(d.charCodeAt(0) & 0xf));
+  if (/\d(?:[\s\-.\u200f\u200e]*\d){6,}/.test(western)) return 'contact';
+  if (/(?:https?:\/\/|www\.)|\b[a-z0-9-]+\.(?:com|net|org|iq|me|ly|link)\b/i.test(western)) return 'contact';
+  if (/(?:^|\s)@[a-z0-9_.]{3,}/i.test(western)) return 'contact';
+  return null;
+}
+
+export const BookingRating = z.object({
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag),
+  /** The rider's one line, as he wrote it; null when he wrote none. */
+  comment: z.string().nullable().default(null),
+  at: z.coerce.date(),
+});
 export type BookingRating = z.infer<typeof BookingRating>;
 
-/** Once, on the rider's own completed booking. */
-export const RateBookingInput = z.object({ bookingId: z.string().min(1), stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag).max(7).default([]) });
+/** Once, on the rider's own completed booking. An empty line is no line. */
+export const RateBookingInput = z.object({
+  bookingId: z.string().min(1),
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag).max(7).default([]),
+  comment: z
+    .string()
+    .trim()
+    .max(RAJAA_REVIEW_MAX)
+    .optional()
+    .transform((c) => (c ? c : undefined)),
+});
 export type RateBookingInput = z.input<typeof RateBookingInput>;
 
 export const BookingView = z.object({
@@ -611,6 +653,8 @@ export const AnnounceInput = z
       modelKey: VehicleModelKey.optional(),
       model: z.string().max(60).optional(),
       color: z.string().max(30).optional(),
+      noSmoking: z.boolean().optional(),
+      bigBags: z.boolean().optional(),
     }),
     familyOnly: z.boolean().default(false),
   })
@@ -830,6 +874,52 @@ export type DepartureRiderName = z.infer<typeof DepartureRiderName>;
  * `intercity_driver_card`), whether he did this run's selfie check-in today, and his approved main
  * photo (Ali, 2026-10-06; null → the app draws his initial). Never a phone or full name.
  */
+/**
+ * The driver badges (idea x15, Ali 2026-10-07). Earned ones come and go with his record
+ * (`RAJAA_REPUTATION_RULES`); `no_smoking` and `big_bags` are his own word for the run he announced.
+ */
+export const RajaaDriverBadge = z.enum(['top_driver', 'family_trusted', 'no_smoking', 'big_bags']);
+export type RajaaDriverBadge = z.infer<typeof RajaaDriverBadge>;
+
+/**
+ * When a driver's record is shown and when he earns a badge. A number shows only once enough riders
+ * stand behind it, so one early 1★ (or 5★) never defines a new driver. Not money rules.
+ */
+export const RAJAA_REPUTATION_RULES = {
+  /** Ratings before the average, the quality bars and the two things riders say most show. */
+  minRatings: 3,
+  /** Finished runs (with a garage check-in) before the on-time share shows. */
+  minRunsForOnTime: 3,
+  /** Newest reviews the profile lists. */
+  reviewsShown: 20,
+  topDriver: { minRatings: 20, minAverage: 4.8, minOnTimeShare: 0.9 },
+  /** Ratings from riders travelling as women or as a family. */
+  familyTrusted: { minRatings: 8, minAverage: 4.8, noTag: 'fast_driving' as RajaaRatingTag },
+} as const;
+
+/**
+ * A driver's record as riders see it (ideas x12, x16, x17), computed on the server from finished runs
+ * and riders' ratings. Numbers below their minimum are null rather than misleading.
+ */
+export const RajaaDriverStats = z.object({
+  /** Runs he finished (arrived) with riders. */
+  trips: z.number().int().nonnegative(),
+  /** Average stars, one decimal; null under `minRatings`. */
+  ratingAvg: z.number().min(1).max(5).nullable(),
+  ratingCount: z.number().int().nonnegative(),
+  /**
+   * Share of finished runs that were on time (0–1): his garage late meter stayed within its grace, the
+   * same meter that pays waiting riders. Null under `minRunsForOnTime` judged runs.
+   */
+  onTimeShare: z.number().min(0).max(1).nullable(),
+  /** The good chips riders tick most, most first (at most two); empty under `minRatings`. */
+  topTags: z.array(RajaaRatingTag).max(2),
+  badges: z.array(RajaaDriverBadge),
+  /** «سافرت وياه قبل» (x17): finished trips the viewer took with him. */
+  ridesWithYou: z.number().int().nonnegative(),
+});
+export type RajaaDriverStats = z.infer<typeof RajaaDriverStats>;
+
 export const RajaaDriverCard = z.object({
   departureId: z.string(),
   driverId: z.string(),
@@ -839,8 +929,88 @@ export const RajaaDriverCard = z.object({
   verifiedTodayAt: z.coerce.date().nullable(),
   /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
   photoUrl: z.string().nullable(),
+  stats: RajaaDriverStats,
 });
 export type RajaaDriverCard = z.infer<typeof RajaaDriverCard>;
+
+/** One bar per good quality (x13): how many of his ratings ticked it, of `ratingCount`. */
+export const RajaaQualityBar = z.object({
+  tag: RajaaRatingTag,
+  count: z.number().int().nonnegative(),
+  share: z.number().min(0).max(1),
+});
+export type RajaaQualityBar = z.infer<typeof RajaaQualityBar>;
+
+/**
+ * A review as other riders see it: no name, no booking, and only the month, so a line can't be
+ * traced back to the one rider who sat on a given day.
+ */
+export const RajaaPublicReview = z.object({
+  stars: z.number().int().min(1).max(5),
+  text: z.string(),
+  /** First day of the month it was written (Baghdad). */
+  month: z.coerce.date(),
+});
+export type RajaaPublicReview = z.infer<typeof RajaaPublicReview>;
+
+/**
+ * `routes.driverProfile` (x12–x17): the driver of a departure the rider can see (on the board, or one
+ * he holds a seat on), opened from «ملفه». Asked by departure, never by driver id.
+ */
+export const RajaaDriverProfile = z.object({
+  card: RajaaDriverCard,
+  /** This run's car. */
+  vehicle: IntercityVehicle,
+  /** His first finished run on Driver; null before the first one. */
+  firstTripAt: z.coerce.date().nullable(),
+  /** In `RAJAA_GOOD_TAGS` order; empty under `minRatings`. */
+  qualities: z.array(RajaaQualityBar),
+  /** Visible reviews, newest first, at most `reviewsShown`. */
+  reviews: z.array(RajaaPublicReview),
+  /** All his visible reviews (the list may show fewer). */
+  reviewCount: z.number().int().nonnegative(),
+});
+export type RajaaDriverProfile = z.infer<typeof RajaaDriverProfile>;
+
+export const DriverProfileInput = z.object({ departureId: z.string().min(1) });
+export type DriverProfileInput = z.infer<typeof DriverProfileInput>;
+
+/** Why ops hid a review (Console). */
+export const ReviewHideReason = z.enum(['rude', 'personal_info', 'not_about_trip', 'untrue']);
+export type ReviewHideReason = z.infer<typeof ReviewHideReason>;
+
+/** Console «كلام الركاب»: reviews with a line, newest first, with who wrote them and about whom (ids). */
+export const ReviewsOpsInput = z.object({
+  /** Only hidden ones, only shown ones, or both (default). */
+  hidden: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  /** Older than this (paging). */
+  before: z.coerce.date().optional(),
+});
+export type ReviewsOpsInput = z.input<typeof ReviewsOpsInput>;
+
+export const ReviewOpsView = z.object({
+  bookingId: z.string(),
+  departureId: z.string(),
+  driverId: z.string(),
+  driverFirstName: z.string().nullable(),
+  riderId: z.string(),
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag),
+  text: z.string(),
+  at: z.coerce.date(),
+  corridorId: z.string(),
+  direction: IntercityDirection,
+  hiddenAt: z.coerce.date().nullable(),
+  hiddenBy: z.string().nullable(),
+  hiddenReason: ReviewHideReason.nullable(),
+});
+export type ReviewOpsView = z.infer<typeof ReviewOpsView>;
+
+export const HideReviewInput = z.object({ bookingId: z.string().min(1), reason: ReviewHideReason });
+export type HideReviewInput = z.infer<typeof HideReviewInput>;
+export const UnhideReviewInput = z.object({ bookingId: z.string().min(1) });
+export type UnhideReviewInput = z.infer<typeof UnhideReviewInput>;
 
 export const DriverCardsInput = z.object({ departureIds: z.array(z.string().min(1)).min(1).max(30) });
 export type DriverCardsInput = z.infer<typeof DriverCardsInput>;
@@ -928,6 +1098,8 @@ export interface RoutesPort {
   driverRiders(actor: Actor, input: DepartureIdInput): Promise<DepartureRiderName[]>;
   /** Riders: the driver of each departure that is on the board or that they hold a seat on (others are left out). */
   driverCards(actor: Actor, input: DriverCardsInput): Promise<RajaaDriverCard[]>;
+  /** Riders: the full profile of a departure's driver (same visibility as `driverCards`). */
+  driverProfile(actor: Actor, input: DriverProfileInput): Promise<RajaaDriverProfile>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
@@ -942,4 +1114,9 @@ export interface RoutesPort {
   pinAttempts(actor: Actor, input: PinAttemptsInput): Promise<PinAttemptView[]>;
   /** The strip's call button: a masked call from the staff member to the car's driver. */
   callPinAlertDriver(actor: Actor, input: PinAlertCallInput): Promise<SafetyCallSession>;
+  /** Console «كلام الركاب»: written reviews, newest first. */
+  reviews(actor: Actor, input: z.infer<typeof ReviewsOpsInput>): Promise<ReviewOpsView[]>;
+  /** Hide a review from the driver's profile (kept, logged, reversible). */
+  hideReview(actor: Actor, input: HideReviewInput): Promise<ReviewOpsView>;
+  unhideReview(actor: Actor, input: UnhideReviewInput): Promise<ReviewOpsView>;
 }

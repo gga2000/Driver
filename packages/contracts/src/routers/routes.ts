@@ -44,6 +44,12 @@ import {
   RequestPositionInput,
   RequestPostView,
   RajaaDriverCard,
+  RajaaDriverProfile,
+  DriverProfileInput,
+  ReviewsOpsInput,
+  ReviewOpsView,
+  HideReviewInput,
+  UnhideReviewInput,
   RespondPickupInput,
   SelfieInput,
 } from '../routes-io.js';
@@ -54,6 +60,8 @@ import { protectedProcedure, router } from '../trpc.js';
 export const INTERCITY_DRIVER_ROLES: readonly RoleKind[] = ['intercity_driver'];
 /** Ops roles that watch garages and act on any departure. */
 export const INTERCITY_OPS_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
+/** Who reads and hides riders' written reviews (Console «كلام الركاب»). */
+export const REVIEW_MODERATION_ROLES: readonly RoleKind[] = ['support', 'admin'];
 
 /**
  * الرجعة (customer spec §2): garages, departures, seats, the demand board and the request board.
@@ -70,6 +78,11 @@ export const routesRouter = router({
     .input(DriverCardsInput)
     .output(z.array(RajaaDriverCard))
     .query(({ ctx, input }) => ctx.routes.driverCards(ctx.actor, input)),
+  /** «ملفه» (x12–x17): the driver's record, quality bars, badges and reviews; same visibility as driverCards. */
+  driverProfile: protectedProcedure()
+    .input(DriverProfileInput)
+    .output(RajaaDriverProfile)
+    .query(({ ctx, input }) => ctx.routes.driverProfile(ctx.actor, input)),
   /** Live departure board per garage (or corridor + direction), with fill and front-seat status. */
   board: protectedProcedure()
     .input(BoardInput)
@@ -270,5 +283,19 @@ export const routesRouter = router({
       .input(PinAlertCallInput)
       .output(SafetyCallSession)
       .mutation(({ ctx, input }) => ctx.routes.callPinAlertDriver(ctx.actor, input)),
+    /** «كلام الركاب»: riders' written reviews, newest first, shown and hidden. */
+    reviews: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(ReviewsOpsInput)
+      .output(z.array(ReviewOpsView))
+      .query(({ ctx, input }) => ctx.routes.reviews(ctx.actor, input)),
+    /** Take a review off the driver's profile (kept and logged; `unhideReview` puts it back). */
+    hideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(HideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.hideReview(ctx.actor, input)),
+    unhideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(UnhideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.unhideReview(ctx.actor, input)),
   }),
 });

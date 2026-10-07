@@ -1607,6 +1607,8 @@
   "error.request_not_found": "Request not found",
   "error.request_state_conflict": "The request just changed. We refreshed it; check it and carry on",
   "error.offer_price_invalid": "Offers must be multiples of 1,000",
+  "error.review_contact_info": "Please leave out phone numbers and links, every rider can read this",
+  "error.review_not_found": "We couldn't find that review",
   "error.menu_photo_request_open": "There is already an open photo request. Let it finish or cancel it first",
   "error.menu_photo_not_found": "Photo request not found",
   "error.menu_photo_state_conflict": "The photo request changed meanwhile. Check where it is now",

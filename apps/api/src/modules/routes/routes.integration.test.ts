@@ -69,7 +69,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     randomIds,
   );
   const scheduler = new RoutesScheduler(writer, departures, demand, requests);
-  const ids = { driver: '', r1: '', r2: '' };
+  const ids = { driver: '', d2: '', r1: '', r2: '' };
   const at = (min: number) => new Date(clock.now().getTime() + min * 60_000);
 
   beforeAll(async () => {
@@ -77,16 +77,17 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     ids.driver = (await db.person.create({ data: {} })).id;
     ids.r1 = (await db.person.create({ data: {} })).id;
     ids.r2 = (await db.person.create({ data: {} })).id;
+    ids.d2 = (await db.person.create({ data: {} })).id;
   });
 
   afterAll(async () => {
     const db = prisma.prisma;
     const deps = await db.departure.findMany({
-      where: { driverId: ids.driver },
+      where: { driverId: { in: [ids.driver, ids.d2] } },
       select: { id: true },
     });
     await db.seatBooking.deleteMany({ where: { departureId: { in: deps.map((d) => d.id) } } });
-    await db.departure.deleteMany({ where: { driverId: ids.driver } });
+    await db.departure.deleteMany({ where: { driverId: { in: [ids.driver, ids.d2] } } });
     await db.demandPost.deleteMany({ where: { riderId: { in: [ids.r1, ids.r2] } } });
     const rqs = await db.rideRequest.findMany({
       where: { riderId: { in: [ids.r1, ids.r2] } },
@@ -94,7 +95,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     });
     await db.rideRequestOffer.deleteMany({ where: { requestId: { in: rqs.map((r) => r.id) } } });
     await db.rideRequest.deleteMany({ where: { id: { in: rqs.map((r) => r.id) } } });
-    await db.person.deleteMany({ where: { id: { in: [ids.driver, ids.r1, ids.r2] } } });
+    await db.person.deleteMany({ where: { id: { in: [ids.driver, ids.d2, ids.r1, ids.r2] } } });
     await prisma.onModuleDestroy();
   });
 
@@ -167,6 +168,48 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect((await repo.getBooking(bookings[0]!.id))?.state).toBe('expired');
     expect((await repo.getDemand(post.id))?.state).toBe('lapsed');
     expect(await repo.riderStats(ids.r2)).toEqual({ completedBookings: 0, cashStrikes: 1 });
+  });
+
+  it('the driver\'s record: a finished run, a rating with its line, the car\'s promises, and a hide round-trip (x12–x15)', async () => {
+    const dep = await departures.announce(
+      ids.d2,
+      AnnounceInput.parse({
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(40),
+        latestDepartureAt: at(70),
+        vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 2', modelKey: 'elantra', noSmoking: true, bigBags: true },
+      }),
+    );
+    expect((await repo.getDeparture(dep.id))?.vehicle).toMatchObject({ modelKey: 'elantra', noSmoking: true, bigBags: true });
+    const held = await departures.hold(ids.r1, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }));
+    wallet.set(ids.r1, 50_000);
+    const booked = await departures.book(ids.r1, held.id, 'wallet');
+    for (const seatId of ['front', 'back_middle', 'back_right'] as const) await departures.markWalkUp(ids.d2, dep.id, { seatId, travellingAs: 'rijal' });
+    await departures.selfie(ids.d2, dep.id, 'blob/2');
+    clock.advanceMinutes(30);
+    await departures.driverPosition(ids.d2, dep.id, { lat: 32.9032, lng: 45.0578 });
+    await departures.checkIn(ids.d2, dep.id, booked.pin);
+    clock.advanceMinutes(10);
+    await departures.depart(ids.d2, dep.id);
+    clock.advanceMinutes(90);
+    await departures.arrive(ids.d2, dep.id);
+
+    await departures.rate(ids.r1, booked.id, { stars: 5, tags: ['on_time', 'calm_driving'], comment: 'سياقته هادئة' });
+    const record = await repo.driverRecord(ids.d2);
+    expect(record.runs.map((d) => d.id)).toContain(dep.id);
+    expect(departures.runOnTime(record.runs.find((d) => d.id === dep.id)!)).toBe(true);
+    const mine = record.rated.find((b) => b.id === booked.id)!;
+    expect(mine.rating).toMatchObject({ stars: 5, tags: ['on_time', 'calm_driving'] });
+    expect(mine.review).toMatchObject({ text: 'سياقته هادئة', hiddenAt: null, hiddenBy: null, hiddenReason: null });
+
+    await departures.hideReview(ids.r2, booked.id, 'personal_info');
+    const hidden = await repo.reviews({ hidden: true, limit: 200 });
+    expect(hidden.find((b) => b.id === booked.id)?.review).toMatchObject({ hiddenBy: ids.r2, hiddenReason: 'personal_info' });
+    expect((await repo.reviews({ hidden: false, limit: 200 })).some((b) => b.id === booked.id)).toBe(false);
+    await departures.unhideReview(ids.r2, booked.id);
+    expect((await repo.getBooking(booked.id))?.review?.hiddenAt).toBeNull();
+    expect((await repo.reviews({ limit: 1, before: new Date(clock.now().getTime() + 1) }))[0]?.id).toBe(booked.id);
   });
 
   it('seat PIN attempts: a refused cross-use PIN is committed with its alert, and the log is append-only', async () => {
