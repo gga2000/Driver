@@ -77,7 +77,7 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }]} onLayout={onLayout} testID="share-map">
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} />
+          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} coveredBottom={SHEET_OVERLAP} />
           {fix && target ? <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} /> : null}
           {trip.target && target ? (
             <PlacePin cam={cam} size={sizeSV} at={target} kind={pinKind(trip)} label={pinLabel(trip, t)} side={placePinSide(target, pinLabel(trip, t), fix?.pin ?? null, Boolean(minutes), camera.drawn, size)} testID="share-target" />
