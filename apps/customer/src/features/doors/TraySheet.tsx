@@ -48,7 +48,9 @@ export function TraySheet({ mode, shops, visible, onClose }: { mode: TrayMode; s
         if (!menu) return [];
         const tray = mode === 'guests' ? guestTray(menu.categories, people) : mealTray(menu.categories, { people, budget, mood });
         return tray && tray.lines.length > 0 ? [{ menu, tray }] : [];
-      }),
+      })
+        // A shop with real sweets before one that only has ice cream (the order is otherwise the door's).
+        .sort((a, b) => Number(a.tray.fallback ?? false) - Number(b.tray.fallback ?? false)),
     [menus, mode, people, budget, mood],
   );
   const current = options[shopIndex % Math.max(1, options.length)];
@@ -204,7 +206,7 @@ export function TraySheet({ mode, shops, visible, onClose }: { mode: TrayMode; s
                     </Text>
                     <Text variant="caption" color="textMuted" tabular>
                       {l.qty > 1 ? `${l.qty} × ` : ''}
-                      {t('unit.iqd', { amount: amountParam(l.version.priceIqd * l.qty) })}
+                      {t('unit.iqd', { amount: amountParam(l.version.priceIqd) })}
                     </Text>
                   </View>
                   <Button

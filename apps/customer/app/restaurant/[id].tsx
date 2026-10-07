@@ -95,15 +95,19 @@ export default function RestaurantScreen() {
   const closed = restaurant ? !restaurant.open : false;
   // q2: the person's usual sugar and cardamom, filled into one-tap adds too.
   const taste = useTaste();
-  // m5: «ساخن» / «بارد» only on a menu that has both (a kebab place's بيبسي needs no label).
+  // m5: «ساخن» / «بارد» only on a menu that has both (a kebab place's بيبسي needs no label), and only on
+  // the fewer kind: a café marks its two cold drinks, not its ten hot ones.
   const temps = useMemo(() => {
     const m = new Map<string, Temperature>();
     for (const c of categories) for (const i of c.items) {
       const tp = temperatureOf(i.name, c.name);
       if (tp) m.set(i.id, tp);
     }
-    const kinds = new Set(m.values());
-    return kinds.size > 1 ? m : new Map<string, Temperature>();
+    const hot = [...m.values()].filter((v) => v === 'hot').length;
+    const cold = m.size - hot;
+    if (hot === 0 || cold === 0) return new Map<string, Temperature>();
+    const mark: Temperature = cold <= hot ? 'cold' : 'hot';
+    return new Map([...m].filter(([, v]) => v === mark));
   }, [categories]);
   // m1: a café or juice bar opens on its drinks as pictures.
   const drinkShop = restaurant ? doorOf(restaurant.tags) === 'cafe' || doorOf(restaurant.tags) === 'cold' : false;

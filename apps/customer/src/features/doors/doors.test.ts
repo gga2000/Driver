@@ -158,6 +158,11 @@ describe('compare (k2)', () => {
     expect(kilos.map((r) => r.priceIqd)).toEqual([20000, 18000, 24000]);
     // One sold by the piece: compare the menu price, not a kilo against a piece.
     expect(compareRows(withDish([20000, null, 24000])).map((r) => r.priceIqd)).toEqual([3000, 2500, 4000]);
+    // …and shown but not ranked.
+    expect(bestCells(compareRows(withDish([20000, null, 24000]))).price).toBeNull();
+    // Different dishes (a wrap against a plate) are shown, never ranked.
+    const named = picks.map((p, i) => ({ ...p, dish: { name: ['كباب عراقي', 'لفة كباب', 'كباب عراقي'][i]!, priceIqd: [13000, 2000, 12000][i]! } }));
+    expect(bestCells(compareRows(named)).price).toBeNull();
   });
 });
 

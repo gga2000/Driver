@@ -39,11 +39,40 @@ k11, wait for a fee decision). g3/r5: no paid ranking, ever.
   seeded by `apps/customer/scripts/demo-api.mjs`, never by `pnpm db:seed`. The db taxonomy gains `coffee`
   and `ice_cream`.
 
+## Step 3 (2026-10-07, built overnight on Ali's go)
+
+- **«شنو بخاطرك؟»** on every door: dish pictures (كباب، تكة، كنافة، بقلاوة، لاتيه مثلج…) with how many open
+  shops have it. One tap shows the best three for that dish, each card naming the dish and its price (the kilo
+  price for sweets by weight). The API's `catalog.cravings` returns one best dish per open shop per craving;
+  a craving no shop has is not shown. The order follows the hour and season (iced coffee first on a summer
+  noon, ice cream first on a summer night, kleicha and zalabia first in Ramadan and Eid).
+- **Compare** ranks prices only like for like: the same dish, or every one by the kilo. Different dishes (a
+  kebab wrap against a kebab plate) show their name and price with no «الأحسن».
+- **«ليش هالترتيب؟»** under the best three: four lines on how the order is made (no paid ranking, g3/r5).
+- **«ضيوف جايين؟»** (sweet door): how many guests → a tray from one shop: 2 kinds from 4 guests, 3 from 10,
+  sweets by weight first, ice cream only when a shop has nothing else. «بدّل» per line, «محل ثاني», then
+  «حطها بالسلة». Prices are the menu's; the server prices the cart again.
+- **«اختارلي سفرة»** (meal door): people, a rough budget per person and a mood (مشاوي، دجاج، أكل بيت، شي سريع)
+  → mains, a side for every 3 people and a drink each, from one shop (g4).
+- **Coffee usual** (café door): «طلبك المعتاد» from the person's own history, one tap to order it again.
+- **Remembered taste** (q2): sugar, cardamom and ice choices are remembered on the phone and filled in next
+  time («مثل آخر مرة»); only optional choices, never sent to the server, cleared on sign-out.
+- **Menus:** ربع · نص · كيلو pills on dishes sold by weight (the price follows the pick); a «بارد» or «ساخن»
+  mark only on the fewer kind in a menu that has both; cafés and juice bars open on a picture grid of six
+  drinks; one «details» line for delivery fee and small-order fee; «مشهور بـ» under the name.
+- **After a main** (s7): «وياها كنافة؟» once per visit, only at a meal shop that sells a sweet. The demo meal
+  shops sell no sweets, so it does not show in the demo.
+- **This hour's pick** (d7) under the four doors: one real dish from a shop open now.
+- **Joy:** the door's drawing steps forward when pressed (nothing moves with reduce motion); hot drinks
+  already draw their steam. Ten new drawings: baklava, zalabia, kleicha, cake, dallah, iced coffee,
+  pomegranate, lemonade, banana milk, cocktail.
+- Demo menus gained sugar / cardamom / ice choices. Screenshots: `/mnt/project-files/food-doors/step3/`.
+
 ## Waiting
 
-- Home: the food tile should open `/food` (d1/g2). Home belongs to the home redesign thread; asked there.
-- Later steps from the votes: weights and «ضيوف جايين» (s1, s2, m2), the coffee usual (q1), door and steam
-  animations (p2, q6), the street view (p3), Console shop kind and signature dish (o1), merchant per-kilo and
-  hot/cold (o3).
+- Home: the food tile should open `/food` (d1/g2). Home belongs to the home redesign thread.
+- Not built, owned elsewhere: gift and occasion pre-order (s3, s4) wait for the checkout redesign; Console shop
+  kind and signature dish (o1, o2); merchant per-kilo and hot/cold setup (o3). The street view (p3) and the
+  summer drip on the sweet door (p4) are left out for now.
 - Needs Ali: two-shop orders (k11) need a second-pickup fee decision; distance limits for hot food (g5)
   beyond the ice cream melt guard.

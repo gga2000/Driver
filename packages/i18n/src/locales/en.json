@@ -6616,6 +6616,7 @@
   "food.dish_kilo": "{dish} · {amount} IQD a kilo",
   "food.compare_price": "Price of «{name}»",
   "food.compare_kilo": "Price a kilo",
+  "food.compare_dish": "The dish and its price",
   "food.why": "Why this order?",
   "food.why_title": "How we order the shops",
   "food.why_1": "First the shops you ordered from before.",

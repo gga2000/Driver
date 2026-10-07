@@ -68,14 +68,13 @@ export function CravingRow({
                   height: SIZE,
                   borderRadius: SIZE / 2,
                   overflow: 'hidden',
-                  backgroundColor: on ? swatch.fill : theme.colors.surface,
+                  backgroundColor: on ? swatch.inner : theme.colors.surface,
                   borderWidth: on ? 3 : 1,
                   borderColor: on ? swatch.fill : theme.colors.border,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <View style={{ position: 'absolute', top: 4, start: 4, end: 4, bottom: 4, borderRadius: SIZE / 2, backgroundColor: on ? swatch.inner : 'transparent' }} />
                 <Svg width={SIZE - 6} height={SIZE - 6} viewBox="0 0 200 200">
                   <G transform="translate(6 2) scale(0.94)">
                     <DishDrawing kind={kind.art} look={0} line={5} window={false} />

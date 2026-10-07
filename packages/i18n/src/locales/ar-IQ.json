@@ -6616,6 +6616,7 @@
   "food.dish_kilo": "{dish} · الكيلو {amount} دينار",
   "food.compare_price": "سعر «{name}»",
   "food.compare_kilo": "سعر الكيلو",
+  "food.compare_dish": "الأكلة وسعرها",
   "food.why": "ليش هالترتيب؟",
   "food.why_title": "شلون نرتب المحلات",
   "food.why_1": "أول شي المحلات اللي طلبت منها قبل.",

@@ -53,7 +53,7 @@ export function CompareSheet({
           weight={700}
           tabular
           align="center"
-          numberOfLines={1}
+          numberOfLines={2}
           color={won ? 'accentText' : 'text'}
         >
           {value}
@@ -121,11 +121,22 @@ export function CompareSheet({
             </View>
           ))}
         </View>
-        {rows.every((r) => r.priceIqd !== null) && picks[0]?.dish
+        {rows.every((r) => r.dish !== null) && rows[0]?.dish
           ? row(
-              picks.every((p) => p.dish?.kiloIqd) ? t('food.compare_kilo') : t('food.compare_price', { name: picks[0].dish.name }),
+              rows[0].alike
+                ? picks.every((p) => p.dish?.kiloIqd)
+                  ? t('food.compare_kilo')
+                  : t('food.compare_price', { name: rows[0].dish.name })
+                : t('food.compare_dish'),
               best.price,
-              (i) => t('unit.iqd', { amount: amountParam(rows[i]!.priceIqd ?? 0) }),
+              (i) => {
+                const r = rows[i]!;
+                if (r.alike || !r.dish) return t('unit.iqd', { amount: amountParam(r.priceIqd ?? 0) });
+                const d = r.dish;
+                return d.kiloIqd
+                  ? t('food.dish_kilo', { dish: d.name, amount: amountParam(d.kiloIqd) })
+                  : t('food.dish_price', { dish: d.name, amount: amountParam(d.priceIqd) });
+              },
               'price',
             )
           : null}

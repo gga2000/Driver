@@ -1,4 +1,4 @@
-import { doorOf, meltsOnTheWay, type FoodDoor } from '@driver/contracts';
+import { doorOf, foldArabic, meltsOnTheWay, type FoodDoor } from '@driver/contracts';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import type { Motif } from '@/features/food/food-art';
 
@@ -146,6 +146,10 @@ export interface CompareRow {
   id: string;
   /** For a craving's three: what its dish costs (per kilo when every one is sold by weight); else null. */
   priceIqd: number | null;
+  /** The craving's dish at this shop, its kilo price when sold by weight (what its card says). */
+  dish: { name: string; priceIqd: number; kiloIqd: number | null } | null;
+  /** The three dishes are the same thing priced the same way, so their prices can be ranked. */
+  alike: boolean;
   name: string;
   rating: number | null;
   ratingCount: number;
@@ -154,12 +158,17 @@ export interface CompareRow {
   minOrderIqd: number;
 }
 
-export function compareRows(picks: ReadonlyArray<ShopPick & { dish?: { priceIqd: number; kiloIqd?: number | null } }>): CompareRow[] {
-  // Like for like: kilo prices only when all three sell it by the kilo.
+export function compareRows(picks: ReadonlyArray<ShopPick & { dish?: { name?: string; priceIqd: number; kiloIqd?: number | null } }>): CompareRow[] {
+  // Like for like: kilo prices only when all three sell it by the kilo; a menu price only against the
+  // same dish (a kebab wrap is not a cheaper kebab plate), else the prices are shown but not ranked.
   const kilo = picks.length > 0 && picks.every((p) => p.dish?.kiloIqd);
+  const names = new Set(picks.map((p) => foldArabic(p.dish?.name ?? '')));
+  const alike = kilo || (names.size === 1 && picks.every((p) => p.dish && !p.dish.kiloIqd));
   return picks.map(({ shop: r, dish }) => ({
     id: r.id,
     priceIqd: dish ? (kilo ? (dish.kiloIqd ?? null) : dish.priceIqd) : null,
+    dish: dish ? { name: dish.name ?? '', priceIqd: dish.priceIqd, kiloIqd: dish.kiloIqd ?? null } : null,
+    alike,
     name: r.name,
     rating: r.rating,
     ratingCount: r.ratingCount,
@@ -189,7 +198,7 @@ export function bestCells(rows: readonly CompareRow[]): {
   };
   return {
     price: pick(
-      rows.map((r) => [r.id, r.priceIqd]),
+      rows.map((r) => [r.id, r.alike ? r.priceIqd : null]),
       (a, b) => a < b,
     ),
     rating: pick(

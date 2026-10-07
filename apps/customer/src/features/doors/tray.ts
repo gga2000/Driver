@@ -70,6 +70,8 @@ export interface Tray {
   overBudget: boolean;
   /** Nothing matched the mood, so the tray took from the whole menu. */
   moodIgnored: boolean;
+  /** Guests: this shop has no sweets but ice cream, so another shop's tray should come first. */
+  fallback?: boolean;
 }
 
 /** A range read conservatively: «يشبّع 2–3» is 2, «4–6» is 5 (the middle, rounded down). */
@@ -214,7 +216,7 @@ export function guestTray(categories: readonly MenuCategory[], guests: number): 
     const { version, qty } = fit(c.versions, share);
     return { item: c.item, role: 'sweet', version, qty, share };
   });
-  return { lines, totalIqd: total(lines), serves: fed(lines, 'sweet'), overBudget: false, moodIgnored: false };
+  return { lines, totalIqd: total(lines), serves: fed(lines, 'sweet'), overBudget: false, moodIgnored: false, fallback: notIce.length === 0 };
 }
 
 /**
