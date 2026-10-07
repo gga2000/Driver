@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LATE_PROMISE_MEMO, orderTicketNumber, type Actor, type LedgerEvent } from '@driver/contracts';
 import { Accounts } from './accounts.js';
-import { claimablePending, CustomerWalletService, moneyLines, pageLines, pointsWorthIqd, type WalletHouseholds } from './customer-wallet.js';
+import { claimablePending, CustomerWalletService, moneyLines, pageLines, pointsWorthIqd, topupAgentsFromEnv, type WalletHouseholds } from './customer-wallet.js';
 import type { PostingGroup } from './postings.js';
 import { postOrderClosed, postPoints } from './postings.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
@@ -164,16 +164,35 @@ describe('customer wallet: pending points (domain §3, §10)', () => {
     expect(lines.map((l) => [l.title_ar, l.amount])).toEqual([['نقاط مستلمة', 40]]);
   });
 
-  it('topupOptions: agent shops placeholder, driver, ZainCash soon', async () => {
+  it('topupOptions (FLOW-24, THIN-11): no placeholder agents; the courier bringing the order; ZainCash soon', async () => {
     const h = walletHarness();
     const t = await h.wallet.topupOptions(actor('c1'));
-    expect(t.placeholder).toBe(true);
+    expect(t.placeholder).toBe(false);
     expect(t.channels.map((c) => [c.id, c.available])).toEqual([
-      ['agent', true],
+      ['agent', false],
       ['driver', true],
       ['zaincash', false],
     ]);
-    expect(t.agents.length).toBeGreaterThan(0);
+    expect(t.agents).toEqual([]);
+    expect(t.channels.find((c) => c.id === 'driver')!.body_ar).toContain('اللي جايب طلبك');
+    expect(t.channels.find((c) => c.id === 'driver')!.title_ar).not.toContain('السايق');
+  });
+
+  it('topupOptions lists signed agents from TOPUP_AGENTS_JSON only (unknown zones and broken rows dropped)', async () => {
+    const env = {
+      TOPUP_AGENTS_JSON: JSON.stringify([
+        { id: 'ag_1', zoneId: 'centre', name_ar: 'مكتب أبو علي', name_en: 'Abu Ali office', hours_ar: 'كل يوم 9 – 9', hours_en: 'Daily 9–9' },
+        { id: 'ag_2', zoneId: 'nowhere', name_ar: 'x', name_en: 'x', hours_ar: 'x', hours_en: 'x' },
+        { id: 'ag_3' },
+      ]),
+    };
+    expect(topupAgentsFromEnv(env).map((a) => a.id)).toEqual(['ag_1']);
+    expect(topupAgentsFromEnv({ TOPUP_AGENTS_JSON: 'not json' })).toEqual([]);
+    const h = walletHarness();
+    const wallet = new CustomerWalletService(h.ledger, h.rules, { phoneHashOf: async () => null }, { householdOf: () => null }, h.clock, topupAgentsFromEnv(env));
+    const t = await wallet.topupOptions(actor('c1'));
+    expect(t.channels.find((c) => c.id === 'agent')!.available).toBe(true);
+    expect(t.agents).toEqual([expect.objectContaining({ id: 'ag_1', zoneId: 'centre', pin: expect.any(Object) })]);
     expect(t.agents.every((a) => !/[٠-٩]/.test(a.zoneName_ar))).toBe(true);
   });
 });

@@ -95,7 +95,7 @@ describe('orders × trips — end to end', () => {
     expect(h.events.events.length).toBe(before);
   });
 
-  it('a rating closes early; a dispute is possible until closed, support only after', async () => {
+  it('a rating keeps the complaint window open (FLOW-20); a dispute is possible until closed, support only after', async () => {
     const h = ordersHarness();
     const a = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: a.id, prepMinutes: 15 });
@@ -113,8 +113,21 @@ describe('orders × trips — end to end', () => {
     const tb = await h.tripFor(b.id, { driverId: 'd2' });
     await h.pickup(tb.id, 'd2');
     await h.dropoff(tb.id, { driverId: 'd2' });
-    expect((await h.orders.rate('c1', { orderId: b.id })).state).toBe('closed');
-    expect(await code(h.orders.openDispute('c1', { orderId: b.id, kind: 'missing_item' }))).toBe('dispute_window_closed');
+    expect((await h.orders.rate('c1', { orderId: b.id })).state).toBe('delivered');
+    // FLOW-20: rated at the door, a missing item found later can still be complained about…
+    h.clock.advance(HOUR);
+    expect((await h.orders.openDispute('c1', { orderId: b.id, kind: 'missing_item' })).state).toBe('disputed');
+
+    const c = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: c.id, prepMinutes: 15 });
+    const tc = await h.tripFor(c.id, { driverId: 'd3' });
+    await h.pickup(tc.id, 'd3');
+    await h.dropoff(tc.id, { driverId: 'd3' });
+    await h.orders.rate('c1', { orderId: c.id, delivery: 5 });
+    // …and the 2-h auto-close ends the window as before.
+    await h.advance(3 * HOUR);
+    expect((await h.orders.get(c.id)).state).toBe('closed');
+    expect(await code(h.orders.openDispute('c1', { orderId: c.id, kind: 'missing_item' }))).toBe('dispute_window_closed');
   });
 
   it('unreachable customer: driver fails at 5:00 and the order is disputed with the food default (customer owes cost)', async () => {
