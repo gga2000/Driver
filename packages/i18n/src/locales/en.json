@@ -7326,5 +7326,8 @@
   "place.far_keep": "No, keep it where it is",
   "place.distance_m": "{n} m",
   "place.distance_km": "{n} km",
-  "orders.trips_failed": "Couldn't load your trip bookings"
+  "orders.trips_failed": "Couldn't load your trip bookings",
+  "kitchen.booked_title": "Your order is booked for {when}",
+  "kitchen.booked_body": "We send it to {name} ahead of time so it reaches you hot, and tell you when they accept",
+  "kitchen.booked_body_plain": "We send it to the kitchen ahead of time so it reaches you hot, and tell you when they accept"
 }

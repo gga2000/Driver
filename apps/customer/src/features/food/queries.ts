@@ -5,6 +5,7 @@ import { classifyError } from '@driver/contracts/net-client';
 import { useApi } from '@/lib/api';
 import { deliveryPointOf, selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
+import { BOOKED_AHEAD_POLL_MS, isBookedAhead } from './booked-ahead';
 import type { CartState } from './cart';
 import { cartQuoteRequest, orderQuoteInput } from './checkout';
 
@@ -121,6 +122,8 @@ export function useKitchenAnswer(orderId: string | undefined) {
       const o = q.state.data as Order | undefined;
       // An order the server says isn't there (an old link) stops asking; a failure for now keeps trying.
       if (!o && q.state.error && !classifyError(q.state.error).transient) return false;
+      // Booked for later: the kitchen won't see it for hours (FOOD-02).
+      if (o && isBookedAhead(o, Date.now())) return BOOKED_AHEAD_POLL_MS;
       return !o || o.state === 'placed' ? 2000 : false;
     },
   });

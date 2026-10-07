@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { travelMinutes, type RestaurantCard } from '@driver/contracts';
-import { formatClock, formatRange } from '@driver/i18n';
+import { cityDayDiff, formatClock, formatRange } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, QueryBoundary, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
@@ -20,6 +20,8 @@ import { GiftHeadsUpCard } from '@/features/gift/GiftHeadsUp';
 import { useGift } from '@/features/gift/gift-store';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { shareUrl } from '@/features/rajaa/share';
+import { isBookedAhead } from '@/features/food/booked-ahead';
+import { clock12 } from '@/features/food/checkout';
 import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -155,6 +157,8 @@ export default function KitchenScreen() {
   }
 
   if (isKitchenRejection(o)) return <Rejected orderId={o.id} reason={o.cancellationReason} />;
+  // FOOD-02: booked for later — the kitchen sees it shortly before its time, so nothing to wait for here.
+  if (o.scheduledFor && isBookedAhead(o, now)) return <BookedAhead at={o.scheduledFor} shop={name} cancelling={cancel.isPending} onCancel={() => void onCancel()} />;
 
   const offeredAt = o.merchantOfferedAt ?? o.placedAt;
   const waiting = o.state === 'placed';
@@ -225,6 +229,38 @@ function useNow(everyMs: number | null): number {
 }
 
 /** The kitchen said no: nothing charged; two similar open kitchens, cart carried over on a tap. */
+/** FOOD-02: a food order booked for later, before the kitchen is shown it: when it's for, and what happens next. */
+function BookedAhead({ at, shop, cancelling, onCancel }: { at: Date; shop: string; cancelling: boolean; onCancel: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const when = `${cityDayDiff(at, new Date()) <= 0 ? t('time.today') : t('time.tomorrow')} ${t('checkout.when_at', { time: clock12(at) })}`;
+  return (
+    <Screen
+      testID="kitchen-booked"
+      edges={['top', 'bottom']}
+      contentStyle={{ flexGrow: 1 }}
+      footer={
+        <View style={{ gap: theme.space[2] }}>
+          <Button testID="kitchen-booked-done" size="lg" fullWidth label={t('action.done')} onPress={() => router.replace('/orders')} />
+          <Button testID="kitchen-cancel" variant="ghost" fullWidth label={t('kitchen.cancel')} loading={cancelling} onPress={onCancel} />
+        </View>
+      }
+    >
+      <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[4] }}>
+        <View style={{ width: '100%', maxWidth: 260, marginBottom: theme.space[2] }}>
+          <SketchScene name="kitchen" animate={false} />
+        </View>
+        <Text variant="heading" align="center" testID="kitchen-booked-title" tabular>
+          {t('kitchen.booked_title', { when })}
+        </Text>
+        <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 320 }}>
+          {shop ? t('kitchen.booked_body', { name: shop }) : t('kitchen.booked_body_plain')}
+        </Text>
+      </View>
+    </Screen>
+  );
+}
+
 function Rejected({ orderId, reason }: { orderId: string; reason: string | null }) {
   const theme = useTheme();
   const t = useT();
