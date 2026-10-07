@@ -10,6 +10,8 @@ export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } fr
 
 // Illustration: the Aziziyah sketchbook (joy J4)
 export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
+// The Date & Saffron pictures Ali approved (services, empty and status screens).
+export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
 export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
