@@ -35,6 +35,8 @@ import { DriverHereCard } from '@/features/track/DriverHere';
 import { floatMode, rideCanCancel } from '@/features/track/ride-actions';
 import { buildTimeline, courierAtDoor, phaseOf, statusLine } from '@/features/track/timeline';
 import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostThere';
+import { KITCHEN_PROGRESS_H, KitchenProgress } from '@/features/track/KitchenProgress';
+import { kitchenStages, showKitchenProgress } from '@/features/track/kitchen-progress';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
@@ -293,7 +295,9 @@ export default function OrderLiveScreen() {
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
-  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0);
+  // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
+  const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
@@ -440,7 +444,13 @@ export default function OrderLiveScreen() {
               lateMin={lateMin}
               note={searching ? searchNote : null}
               aside={searching && searchStage ? <SearchStages stage={searchStage} seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
-              below={pushAsk.visible ? <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : undefined}
+              below={
+                pushAsk.visible ? (
+                  <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
+                ) : kitchen ? (
+                  <KitchenProgress stages={kitchen} courierName={courierName} />
+                ) : undefined
+              }
             />
           ) : (
             <View style={{ gap: theme.space[2] }}>

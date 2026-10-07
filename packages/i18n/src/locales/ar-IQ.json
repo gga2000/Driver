@@ -6245,5 +6245,14 @@
   "month.card_cta": "شوف شهرك",
   "month.card_close": "سكّر",
   "month.row_title": "شهرك",
-  "month.row_sub": "أكلات، مشاوير، رجعات وشكد وفّرت هالشهر"
+  "month.row_sub": "أكلات، مشاوير، رجعات وشكد وفّرت هالشهر",
+  "track.kitchen_title": "شغل المطبخ",
+  "track.kitchen_accepted": "المطعم قبل",
+  "track.kitchen_cooking": "يطبخون",
+  "track.kitchen_ready": "جاهز",
+  "track.kitchen_picked_up": "استلمه {name}",
+  "track.kitchen_picked_up_any": "استلمه الدليفري",
+  "track.kitchen_a11y_at": "{stage} {time}",
+  "track.kitchen_a11y_since": "{stage} من {time}",
+  "track.kitchen_a11y_next": "{stage}: بعده"
 }

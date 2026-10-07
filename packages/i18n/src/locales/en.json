@@ -6245,5 +6245,14 @@
   "month.card_cta": "See your month",
   "month.card_close": "Close",
   "month.row_title": "Your month",
-  "month.row_sub": "Meals, rides, trips and savings this month"
+  "month.row_sub": "Meals, rides, trips and savings this month",
+  "track.kitchen_title": "In the kitchen",
+  "track.kitchen_accepted": "Kitchen said yes",
+  "track.kitchen_cooking": "Cooking",
+  "track.kitchen_ready": "Ready",
+  "track.kitchen_picked_up": "{name} has it",
+  "track.kitchen_picked_up_any": "Courier has it",
+  "track.kitchen_a11y_at": "{stage} {time}",
+  "track.kitchen_a11y_since": "{stage} since {time}",
+  "track.kitchen_a11y_next": "{stage}: not yet"
 }
