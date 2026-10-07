@@ -6300,5 +6300,6 @@
   "shortcut.track_ride": "Where's my driver?",
   "shortcut.reorder": "Order it again",
   "shortcut.rajaa": "Book الرجعة",
-  "shortcut.rajaa_sub": "A seat to Baghdad or Kut"
+  "shortcut.rajaa_sub": "A seat to Baghdad or Kut",
+  "console.ev_order_complimented": "Customer complimented the driver"
 }

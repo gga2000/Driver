@@ -6300,5 +6300,6 @@
   "shortcut.track_ride": "وين السايق؟",
   "shortcut.reorder": "اطلب نفس الطلب",
   "shortcut.rajaa": "احجز الرجعة",
-  "shortcut.rajaa_sub": "مقعد لبغداد أو الكوت"
+  "shortcut.rajaa_sub": "مقعد لبغداد أو الكوت",
+  "console.ev_order_complimented": "الزبون قال كلام حلو عن السايق"
 }
