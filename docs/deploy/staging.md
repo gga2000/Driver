@@ -20,34 +20,25 @@ sizes, process groups, limits or checks: a change to `api.toml` reaches both.
 ## One-time setup (about 30 minutes)
 
 1. **Database.** In Supabase, create a second project `driver-staging` in Frankfurt (`eu-central-1`),
-   compute **Small**. Follow [supabase.md](supabase.md) for it exactly as for production, with **new**
-   secrets: its own database password and a **different** `PHONE_HASH_PEPPER`. Note the project ref
-   (the `abcd…` part of its URL).
-2. **Fly apps.** At the repository root:
-
-   ```bash
-   fly apps create driver-api-staging
-   fly apps create driver-redis-staging
-
-   fly volumes create redis_data --config deploy/fly/redis.toml --app driver-redis-staging --region fra --size 1 --yes
-   REDIS_PASSWORD=$(openssl rand -hex 24)
-   fly secrets set --config deploy/fly/redis.toml --app driver-redis-staging REDIS_PASSWORD="$REDIS_PASSWORD" --stage
-   fly deploy . --config deploy/fly/redis.toml --app driver-redis-staging --dockerfile deploy/fly/redis/Dockerfile --remote-only
-
-   fly secrets set --config deploy/fly/api.toml --app driver-api-staging --stage \
-     DATABASE_URL='<staging transaction pooler, :6543>' \
-     REDIS_URL="redis://default:${REDIS_PASSWORD}@driver-redis-staging.internal:6379?family=6" \
-     JWT_SECRET="$(openssl rand -hex 32)" JWT_KID=k1 \
-     PHONE_HASH_PEPPER='<the staging pepper>' UPLOADS_SECRET="$(openssl rand -hex 32)" \
-     SMS_PROVIDER=fake
-   ```
-
-   Storage (`S3_*`) comes from the staging project's own Storage, as in [supabase.md](supabase.md) step 5.
-3. **GitHub.** Settings → Environments → **New environment** `staging`. On it (not on the repository):
-   - secrets `DIRECT_URL` (staging), `FLY_API_TOKEN` (`fly tokens create deploy -a driver-api-staging`),
-     and the Cloudflare ones only if staging web apps are wanted;
+   compute **Small** before a load test. Follow [supabase.md](supabase.md) steps 1–4 with its **own**
+   database password; step 3 below replaces steps 6–7 (and makes staging's own `PHONE_HASH_PEPPER`).
+   Note the project ref (the `abcd…` part of its URL).
+2. **GitHub.** Settings → Environments → **New environment** `staging`. On it (not on the repository):
+   - secrets `DIRECT_URL` (the staging **session pooler**, port 5432, password in place of
+     `[YOUR-PASSWORD]` with the brackets removed) and `FLY_API_TOKEN` (fly.io → Tokens → **Org Deploy
+     Token** for the organisation; an org token, because the apps don't exist yet);
    - variables `DEPLOY_ENVIRONMENT` = `staging`, `DATABASE_REF` = the staging project ref,
-     `FLY_API_APP` = `driver-api-staging`, `API_PUBLIC_URL` = `https://driver-api-staging.fly.dev/trpc`.
+     `FLY_API_APP` = `driver-api-staging`, `API_PUBLIC_URL` = `https://driver-api-staging.fly.dev/trpc`;
+     optional `FLY_REDIS_APP` (default `driver-redis-staging`), `FLY_ORG` (default `personal`),
+     `STAGING_ADMIN_PHONE` (default `07700000099`, a made-up number: codes go to the API log).
+3. **Actions → Staging setup → Run workflow** (`.github/workflows/staging-setup.yml`). Nobody runs
+   `flyctl` or handles a secret: it creates the two Fly apps and Redis's volume, generates the API's
+   secrets on the runner and hands them straight to Fly (`JWT_SECRET`, `PHONE_HASH_PEPPER`,
+   `UPLOADS_SECRET`, the Redis password; never printed or stored in GitHub), sets `DATABASE_URL` (the
+   same pooler on port 6543), `SMS_PROVIDER=fake` and `DATABASE_CA_CERT` (Supabase's public root CA,
+   `deploy/supabase/prod-ca-2021.crt`, unless a `DATABASE_CA_CERT` secret is set), deploys Redis, then
+   migrates, hardens, seeds (production profile + the staging admin) and verifies the database. It is
+   safe to run again: what exists is kept. Storage (`S3_*`) is not set up yet.
 
    Keep production's deploy secrets on the `production` environment too, never at repository level:
    GitHub falls back to repository secrets when an environment lacks one. The deploy workflow's
