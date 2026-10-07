@@ -187,10 +187,10 @@ working.) `PHONE_HASH_PEPPER` is never rotated.
 
   | Variable | Where | Notes |
   |---|---|---|
-  | `EXPO_PUBLIC_SENTRY_DSN` | expo.dev → each app → Environment variables (production, preview); GitHub variables `SENTRY_DSN_CUSTOMER`, `SENTRY_DSN_PARTNER`, `SENTRY_DSN_MERCHANT` for the web builds | unset = nothing sent |
+  | `EXPO_PUBLIC_SENTRY_DSN` | expo.dev → each app → Environment variables (production, preview); GitHub variable `SENTRY_DSN` for the web builds (one Sentry project "driver" for everything; `SENTRY_DSN_CUSTOMER`, `SENTRY_DSN_PARTNER`, `SENTRY_DSN_MERCHANT` override it per app) | unset = nothing sent |
   | `EXPO_PUBLIC_SENTRY_ENVIRONMENT` | same | default `development` under `expo start`, `production` in builds |
   | `EXPO_PUBLIC_APP_RELEASE` | same | default `iq.driver.<app>@<app.json version>` |
-  | `NEXT_PUBLIC_SENTRY_DSN` | GitHub variable `SENTRY_DSN_CONSOLE` (the deploy workflow passes it as a Docker build argument) | unset = nothing sent |
+  | `NEXT_PUBLIC_SENTRY_DSN` | GitHub variable `SENTRY_DSN`, or `SENTRY_DSN_CONSOLE` to override it (the deploy workflow passes it as a Docker build argument) | unset = nothing sent |
   | `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_APP_RELEASE` | build argument / environment | defaults `NODE_ENV`, `driver-console@<package.json version>` |
 
   Sentry shows minified stacks for now (no source-map upload yet); the message, the screen's component

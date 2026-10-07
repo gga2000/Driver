@@ -19,7 +19,7 @@ you prefer it anyway, it works unchanged: import the repo, root directory `apps/
 (`outputFileTracingRoot` = the monorepo root), and ships only that server and its static files
 (~90 MB). `NEXT_PUBLIC_API_URL` is a **build argument**: it is baked into the browser bundle, so change
 it by rebuilding. `NEXT_PUBLIC_SENTRY_DSN` (optional build argument, from the GitHub variable
-`SENTRY_DSN_CONSOLE`) turns on crash reports ([hosting.md](hosting.md) "Logs and errors"). CI's normal
+`SENTRY_DSN`, or `SENTRY_DSN_CONSOLE` to override it) turns on crash reports ([hosting.md](hosting.md) "Logs and errors"). CI's normal
 `next build` is unaffected (no `NEXT_OUTPUT`). Checked on 2026-10-04: the
 standalone build serves `/login` and `/orders/<id>` with the headers below.
 
