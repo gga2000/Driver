@@ -34,6 +34,23 @@ describe('tRPC batch size (SEC-03)', () => {
     expect(refused.status).toBe(400);
   });
 
+  it('a refused call answers 429 with retry-after (CON-21)', async () => {
+    // Price checks from one guest address are enforced at launch; calls count before their input is read.
+    const quotes = (n: number) => {
+      const paths = Array.from({ length: n }, () => 'pricing.quote').join(',');
+      const input = Object.fromEntries(Array.from({ length: n }, (_, i) => [i, { json: {} }]));
+      return fetch(`${base}/trpc/${paths}?batch=1&input=${encodeURIComponent(JSON.stringify(input))}`);
+    };
+    for (let sent = 0; sent < REQUEST_LIMITS.quotePerGuestIp; sent += REQUEST_LIMITS.clientBatchItems) {
+      expect((await quotes(Math.min(REQUEST_LIMITS.clientBatchItems, REQUEST_LIMITS.quotePerGuestIp - sent))).status).toBe(400);
+    }
+    const refused = await quotes(1);
+    expect(refused.status).toBe(429);
+    const wait = Number(refused.headers.get('retry-after'));
+    expect(wait).toBeGreaterThan(0);
+    expect(wait).toBeLessThanOrEqual(60);
+  });
+
   it('the apps split their batches well below the limit', () => {
     expect(REQUEST_LIMITS.clientBatchItems).toBeLessThan(REQUEST_LIMITS.maxBatchSize);
   });

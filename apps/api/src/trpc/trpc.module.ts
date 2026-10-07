@@ -46,6 +46,16 @@ import { RequestLimits, ipModeFromEnv } from './request-limits.js';
 export const API_VERSION = '0.1.0';
 export const TRPC_PATH = '/trpc';
 
+/** The longest `retryAfterSec` among a response's errors (a batch may carry several), or null. */
+export function retryAfterOf(errors: readonly { cause?: unknown }[]): number | null {
+  let wait: number | null = null;
+  for (const e of errors) {
+    const sec = isDriverError(e.cause) ? e.cause.envelope.retryAfterSec : undefined;
+    if (sec !== undefined && (wait === null || sec > wait)) wait = sec;
+  }
+  return wait;
+}
+
 /** Builds the tRPC context from Nest providers; the router itself lives in @driver/contracts. */
 @Injectable()
 export class TrpcService {
@@ -191,6 +201,11 @@ export class TrpcService {
         // SEC-03: one request carries at most this many calls (the apps' links split at half of it).
         maxBatchSize: REQUEST_LIMITS.maxBatchSize,
         createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
+        // A refused call (rate limit, resend cool-down) says when to try again in the standard header too.
+        responseMeta: ({ errors }) => {
+          const wait = retryAfterOf(errors);
+          return wait === null ? {} : { headers: { 'retry-after': String(wait) } };
+        },
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
           if (error.code === 'INTERNAL_SERVER_ERROR') this.logger.error(`${path ?? '?'}: ${error.message}`, (error.cause as Error | undefined)?.stack ?? error.stack);

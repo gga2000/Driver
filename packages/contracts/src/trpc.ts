@@ -16,7 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
-import type { RequestLimitsPort } from './request-limits.js';
+import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
@@ -192,7 +192,7 @@ export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next })
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.use(async ({ ctx, next }) => {
+  return publicProcedure.use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
     if (roles && roles.length > 0) {
@@ -204,6 +204,13 @@ export function protectedProcedure(roles?: readonly RoleKind[]) {
         }
       }
       if (!allowed) throw toTrpcError(new DriverError('forbidden'));
+    }
+    if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
+      try {
+        await ctx.limits.checkStaff({ path, type, personId: actor.personId, ip: ctx.client?.ip ?? null });
+      } catch (err) {
+        throw toTrpcError(err);
+      }
     }
     return next({ ctx: { ...ctx, actor } });
   });

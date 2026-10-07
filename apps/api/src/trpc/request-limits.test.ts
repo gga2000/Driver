@@ -87,4 +87,45 @@ describe('request limits (SCALE-20)', () => {
     expect(ipModeFromEnv({ REQUEST_LIMIT_IP_MODE: 'enforce' })).toBe('enforce');
     expect(ipModeFromEnv({ REQUEST_LIMIT_IP_MODE: 'yes' })).toBe('alert');
   });
+
+  it('staff calls: writes and reads have their own limits per staff person, always enforced (CON-21)', async () => {
+    const { clock, limits } = setup('alert');
+    const staff = (type: 'query' | 'mutation', personId = 's1') => ({ path: type === 'mutation' ? 'dispatch.override' : 'dispatch.board', type, personId, ip: '10.0.0.9' });
+    const writes: string[] = [];
+    for (let i = 0; i <= L.staffWritesPerPerson; i++) writes.push(await outcome(limits.checkStaff(staff('mutation'))));
+    expect(writes.slice(0, L.staffWritesPerPerson).every((r) => r === 'ok')).toBe(true);
+    expect(writes.at(-1)).toBe('rate_limited');
+    // Reads are counted apart, and another staff person is not affected.
+    expect(await outcome(limits.checkStaff(staff('query')))).toBe('ok');
+    expect(await outcome(limits.checkStaff(staff('mutation', 's2')))).toBe('ok');
+    const reads: string[] = [];
+    for (let i = 0; i < L.staffReadsPerPerson; i++) reads.push(await outcome(limits.checkStaff(staff('query'))));
+    expect(reads.at(-1)).toBe('rate_limited');
+    // Never a ban: the next minute works again.
+    clock.advance(L.windowMs);
+    expect(await outcome(limits.checkStaff(staff('mutation')))).toBe('ok');
+  });
+
+  it('logs the first refusal of a minute and every 50th after it, naming the call', async () => {
+    const { limits } = setup('alert');
+    const warned: string[] = [];
+    (limits as unknown as { logger: { warn: (m: string) => void } }).logger.warn = (m: string) => warned.push(m);
+    for (let i = 0; i < L.staffWritesPerPerson + 100; i++) await outcome(limits.checkStaff({ path: 'support.refund', type: 'mutation', personId: 's1', ip: null }));
+    expect(warned).toHaveLength(3);
+    expect(warned[0]).toContain('support.refund');
+    expect(warned[0]).toContain('1 over');
+    expect(warned[2]).toContain('100 over');
+  });
+
+  it('a staff person gets the Console ceiling overall once they made a staff call', async () => {
+    const { limits } = setup('alert');
+    const call = (personId: string) => ({ path: 'console.wall', type: 'query' as const, personId, ip: null });
+    // Someone who never made a staff call stays on the app ceiling.
+    const app = await calls(limits, call('a1'), L.perPerson + 1);
+    expect(app.at(-1)).toBe('rate_limited');
+    await limits.checkStaff({ ...call('s1') });
+    const staff = await calls(limits, call('s1'), L.staffReadsPerPerson + L.staffWritesPerPerson + 1);
+    expect(staff.slice(0, -1).every((r) => r === 'ok')).toBe(true);
+    expect(staff.at(-1)).toBe('rate_limited');
+  });
 });
