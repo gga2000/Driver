@@ -105,7 +105,7 @@ function RequestCard({ r }: { r: RequestPostView }) {
                   offer={o}
                   details={r.details}
                   wins={wins.get(o.id) ?? []}
-                  action={!open ? <Button testID={`offer-${o.id}`} variant="secondary" label={t('request.pick')} onPress={() => setConfirming(o.id)} /> : null}
+                  action={!open ? <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} /> : null}
                 >
                   {open ? (
                     <Card tone="sunken" elevation={0} padding={4} testID="rajaa-deposit">

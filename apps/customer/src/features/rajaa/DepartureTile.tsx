@@ -13,10 +13,10 @@ import { compactRecord, rodeBefore } from './driver-record';
 const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'accent', last: 'warning', full: 'neutral' };
 
 /**
- * One departure on the garage board, compact (joy r7, audit R-05): when it leaves and the hard latest
- * time, the seats left (for you, once you said who travels: r1) and the price on one row; the driver,
- * his car and plate on one line under it; then the pickup options. Two to three cars fit in the first
- * screen. The seat map lives on the seat sheet the tile opens.
+ * One departure on the garage board, compact (joy r7, audit R-05; second polish pass 2026-10-07):
+ * the time and the price with the seats left on the top row, one quiet line with the latest it
+ * leaves and when it arrives, the driver with his rating, trips, car and a small plate, then the
+ * pickup options. The seat map lives on the seat sheet the tile opens.
  */
 export function DepartureTile({
   dep,
@@ -76,68 +76,74 @@ export function DepartureTile({
         .join('، ')}
     >
       <View style={{ gap: theme.space[3] }}>
-        {/* Time · seats for you · price: the three things a rider scans for. */}
+        {/* The two things a rider scans for, big and apart: when it leaves (start) and what a seat
+            costs with how many are left (end). Everything else is quieter and below. */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-          <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flex: 1, gap: theme.space[1] }}>
             <DepartureTime testID={`departure-time-${dep.id}`} at={dep.departAt} now={now.getTime()} size="compact" countdown={mins > 0 && mins < 120} />
             {/* b3: the car at the garage loading now pulses. */}
             {boarding ? <StatusPill testID={`departure-loading-${dep.id}`} size="sm" tone="accent" live label={t('rajaa.loading_now')} style={{ alignSelf: 'flex-start' }} /> : null}
-            <Text variant="caption" color="textMuted">
-              {t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
-            </Text>
-            {arrive ? (
-              <Text variant="caption" color="textMuted" testID={`departure-arrive-${dep.id}`}>
-                {t('rajaa.arrive_about', { city: arrive.city, time: clockLabel(arrivalAt(dep, arrive.travelMin)) })}
-              </Text>
-            ) : null}
           </View>
-          <View style={{ alignItems: 'flex-end', gap: theme.space[1] }}>
-            <StatusPill size="sm" tone={pillTone} label={pill} testID={`departure-pill-${dep.id}`} />
-            <SeatDots dep={dep} />
-            <Text variant="bodyStrong" tabular>
+          <View style={{ alignItems: 'flex-end', gap: theme.space[2] }}>
+            <Text variant="title" weight={700} tabular testID={`departure-price-${dep.id}`}>
               {iqd(dep.seatPriceIqd, { locale })}
             </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <StatusPill size="sm" tone={pillTone} label={pill} testID={`departure-pill-${dep.id}`} />
+              <SeatDots dep={dep} />
+            </View>
           </View>
         </View>
 
-        {/* سايقك on one line: initial (verified ring), first name and car, the plate never clipped (R-08). */}
-        <View testID={`departure-driver-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        {/* «أو من تكمل · آخر حد 9:55 · توصل حوالي 11:15» on one full-width line (s6). */}
+        <Text variant="caption" color="textMuted" tabular testID={`departure-arrive-${dep.id}`}>
+          {arrive
+            ? t('rajaa.tile_when', { latest: clockLabel(dep.latestDepartureAt), arrive: clockLabel(arrivalAt(dep, arrive.travelMin)) })
+            : t('rajaa.or_full_latest', { time: clockLabel(dep.latestDepartureAt) })}
+        </Text>
+
+        {/* سايقك: photo (verified ring), name and rating on one line, his trips and the car under it; the plate small at the end. */}
+        <View
+          testID={`departure-driver-${dep.id}`}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingTop: theme.space[3], borderTopWidth: 1, borderTopColor: theme.colors.border }}
+        >
           <Avatar name={name} uri={apiPhoto(driver?.photoUrl) ?? undefined} size={36} ring={Boolean(driver?.verifiedTodayAt)} {...(driver?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text variant="label" weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <View testID={`departure-record-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text variant="label" weight={700} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {name}
               </Text>
               {driver?.verifiedTodayAt ? <Icon name="shield" size={13} color="successText" strokeWidth={2.2} accessibilityLabel={t('trip.verified_today')} /> : null}
+              {record?.rating ? (
+                <>
+                  <Icon name="star" size={13} color="accent" filled fillColor="accent" style={{ marginStart: 2 }} />
+                  <Text variant="footnote" weight={700} tabular>
+                    {record.rating}
+                  </Text>
+                </>
+              ) : null}
               {favourite ? (
                 <StatusPill testID={`departure-fav-${dep.id}`} size="sm" tone="accent" icon="heart" label={t('habits.fav_badge')} />
               ) : rode ? (
                 <StatusPill testID={`departure-rode-${dep.id}`} size="sm" tone="success" icon="check" label={rode} />
               ) : null}
             </View>
-            {/* His record (x16) on its own line, «★ 4.9 · 120 سفرة», then the car, so neither gets cut. */}
-            <View testID={`departure-record-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              {record?.rating ? <Icon name="star" size={12} color="accent" filled fillColor="accent" /> : null}
-              <Text variant="caption" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
-                {[record?.rating, record?.text].filter(Boolean).join(' · ')}
-              </Text>
-            </View>
-            <Text variant="caption" color="textMuted" numberOfLines={1}>
-              {vehicleDesc(t, dep.vehicle)}
+            <Text variant="caption" color="textMuted" numberOfLines={2}>
+              {[record?.text, vehicleDesc(t, dep.vehicle)].filter(Boolean).join(' · ')}
             </Text>
           </View>
-          <PlateChip plate={dep.vehicle.plate} accessibilityLabel={t('driver.plate')} />
+          <PlateChip size="sm" plate={dep.vehicle.plate} accessibilityLabel={t('driver.plate')} style={{ alignSelf: 'center' }} />
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-          <Icon name="map-pin" size={14} color="textMuted" style={{ marginTop: 3 }} />
+        {/* Where you can get in, and what the car has. Family-only isn't shown: every rider books as a family now (RIDER_TRAVELLING_AS). */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <Icon name="map-pin" size={14} color="textMuted" />
           <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
             {[
               t('rajaa.pickup_short_garage'),
               hasWay ? `${t('rajaa.pickup_short_way')} ${iqd(wayFrom, { locale, sign: true })}` : null,
               dep.doorPickupsLeft > 0 ? t('rajaa.pickup_short_door') : null,
               dep.frontSeat === 'free' ? t('rajaa.front_free', { amount: amountParam(dep.frontPremiumIqd) }) : null,
-              dep.familyOnly ? t('intercity.family_only') : null,
               dep.vehicle.ac ? t('rajaa.badge_ac') : null,
             ]
               .filter(Boolean)

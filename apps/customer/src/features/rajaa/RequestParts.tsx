@@ -3,13 +3,14 @@ import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { RequestDetails } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Icon, StatusPill, Text, usePulse, useTheme } from '@driver/ui';
+import { Avatar, Icon, PlateChip, StatusPill, Text, usePulse, useTheme } from '@driver/ui';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { apiPhoto } from '@/lib/photo';
 import { countKey } from '@/lib/plural';
 import { compactRecord } from './driver-record';
+import { vehicleDesc } from './labels';
 import { clockLabel } from './logic';
-import { RajaaDriver } from './RajaaDriver';
 import { offerMismatches, type Mismatch, type OfferSort, type RequestOffer } from './request-offers';
 
 /**
@@ -88,19 +89,23 @@ function missLine(t: TFn, m: Mismatch, offer: RequestOffer): string {
 }
 
 /**
- * y5: one offer as a card. The winner labels on top (y6), the driver and his car, his record with
- * the private trips he has done, what the car has, anything it lacks of what was asked, the price.
+ * y5: one offer as a card (second polish pass, 2026-10-07). The winner labels on top (y6); then the
+ * driver with his rating beside his name and the price big at the other end, the two things weighed
+ * against each other; his car with a small plate; his trips; what the car has and anything it lacks
+ * of what was asked; the action full width at the bottom.
  */
 export function OfferCard({ offer, details, wins, action, children }: { offer: RequestOffer; details: RequestDetails; wins: readonly OfferSort[]; action: ReactNode; children?: ReactNode }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const d = offer.driver;
+  const name = d?.firstName ?? t('rajaa.driver_unnamed');
   const record = d?.stats ? compactRecord(t, d.stats) : null;
   const facts = [record?.text, d && d.privateTrips > 0 ? t(countKey('rajaa.offer_private_trips', d.privateTrips), { n: d.privateTrips }) : null].filter((x): x is string => !!x);
   const has = d?.vehicle ? [d.vehicle.ac ? t('rajaa.badge_ac') : null, d.vehicle.bigBags ? t('rajaa.badge.big_bags') : null, d.vehicle.noSmoking ? t('rajaa.badge.no_smoking') : null].filter((x): x is string => !!x) : [];
   const misses = offerMismatches(details, d?.vehicle);
   const price = iqd(offer.priceIqd, { locale });
+  const best = wins.includes('best');
   return (
     <View
       testID={`offer-card-${offer.id}`}
@@ -108,8 +113,8 @@ export function OfferCard({ offer, details, wins, action, children }: { offer: R
         gap: theme.space[3],
         padding: theme.space[4],
         borderRadius: theme.radius.lg,
-        borderWidth: wins.includes('best') ? 1.5 : 1,
-        borderColor: wins.includes('best') ? theme.colors.accent : theme.colors.border,
+        borderWidth: best ? 2 : 1,
+        borderColor: best ? theme.colors.accent : theme.colors.border,
         backgroundColor: theme.colors.surface,
       }}
     >
@@ -120,46 +125,52 @@ export function OfferCard({ offer, details, wins, action, children }: { offer: R
           ))}
         </View>
       ) : null}
-      <RajaaDriver dep={{ vehicle: d?.vehicle ?? null }} card={d} testID={`offer-driver-${offer.id}`} />
-      {facts.length > 0 ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }} testID={`offer-record-${offer.id}`}>
-          {record?.rating ? (
-            <>
-              <Icon name="star" size={14} color="accent" filled fillColor="accent" />
-              <Text variant="footnote" weight={700} tabular>
-                {record.rating}
-              </Text>
-              <Text variant="footnote" color="textMuted">
-                ·
-              </Text>
-            </>
+      <View testID={`offer-driver-${offer.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+        <Avatar name={name} uri={apiPhoto(d?.photoUrl) ?? undefined} size={44} ring={Boolean(d?.verifiedTodayAt)} {...(d?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text variant="label" weight={700} numberOfLines={1} style={{ flexShrink: 1 }}>
+              {name}
+            </Text>
+            {d?.verifiedTodayAt ? <Icon name="shield" size={13} color="successText" strokeWidth={2.2} accessibilityLabel={t('trip.verified_today')} /> : null}
+            {record?.rating ? (
+              <>
+                <Icon name="star" size={13} color="accent" filled fillColor="accent" style={{ marginStart: 2 }} />
+                <Text variant="footnote" weight={700} tabular>
+                  {record.rating}
+                </Text>
+              </>
+            ) : null}
+          </View>
+          {d?.vehicle ? (
+            <Text variant="caption" color="textMuted" numberOfLines={2}>
+              {vehicleDesc(t, d.vehicle)}
+            </Text>
           ) : null}
-          <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+        </View>
+        <Text variant="title" weight={700} tabular testID={`offer-price-${offer.id}`} accessibilityLabel={t('rajaa.offer_a11y', { name, price })}>
+          {price}
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        {d?.vehicle ? <PlateChip size="sm" plate={d.vehicle.plate} accessibilityLabel={t('driver.plate')} /> : null}
+        {facts.length > 0 ? (
+          <Text variant="footnote" color="textMuted" style={{ flex: 1 }} testID={`offer-record-${offer.id}`}>
             {facts.join(' · ')}
           </Text>
-        </View>
-      ) : null}
-      {has.length > 0 ? (
+        ) : null}
+      </View>
+      {has.length > 0 || misses.length > 0 ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {has.map((h) => (
             <StatusPill key={h} size="sm" tone="success" icon="check" label={h} />
           ))}
+          {misses.map((m) => (
+            <StatusPill key={m} testID={`offer-miss-${m}`} size="sm" tone="warning" icon="x" label={missLine(t, m, offer)} />
+          ))}
         </View>
       ) : null}
-      {misses.map((m) => (
-        <View key={m} testID={`offer-miss-${m}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Icon name="x" size={14} color="warningText" strokeWidth={2.4} />
-          <Text variant="caption" color="warningText" weight={600} style={{ flex: 1 }}>
-            {missLine(t, m, offer)}
-          </Text>
-        </View>
-      ))}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <Text variant="heading" tabular style={{ flex: 1 }} testID={`offer-price-${offer.id}`} accessibilityLabel={t('rajaa.offer_a11y', { name: d?.firstName ?? t('rajaa.driver_unnamed'), price })}>
-          {price}
-        </Text>
-        {action}
-      </View>
+      {action}
       {children}
     </View>
   );

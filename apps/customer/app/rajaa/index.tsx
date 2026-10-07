@@ -7,7 +7,7 @@ import { Screen } from '@/components/Screen';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
 import { SectionHeader } from '@/components/SectionHeader';
-import { CorridorPicker, DemandBanner, TripPill } from '@/features/rajaa/BoardParts';
+import { DemandBanner, DirectionRow, TripPill } from '@/features/rajaa/BoardParts';
 import { foldBoard, seatFit } from '@/features/rajaa/fit';
 import { baghdadMidnight, boardDays, dayCounts, filterBoard, partsAhead, wishWindow, type BoardDayId, type DayPartId } from '@/features/rajaa/board-filters';
 import { CorridorCards, DayChart, DayStrip, dayName, PartChips, partName, WishCard } from '@/features/rajaa/BoardNarrow';
@@ -163,16 +163,9 @@ export default function RajaaBoard() {
         {network.isPending ? (
           <Skeleton height={60} radius={20} />
         ) : (
-          <CorridorPicker
-            corridors={corridor ? [corridor] : []}
-            corridorId={corridorId}
+          <DirectionRow
             direction={direction}
             suggested={suggested}
-            onCorridor={(id) => {
-              touched.current = true;
-              setSuggested(false);
-              setCorridorId(id);
-            }}
             onFlip={() => {
               touched.current = true;
               setSuggested(false);
@@ -207,8 +200,8 @@ export default function RajaaBoard() {
 
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
 
-      {/* Joy r5: a regular الرجعة asking now, and «رحلاتي الثابتة». */}
-      <RideHabitsStrip kind="rajaa" />
+      {/* Joy r5: a regular الرجعة asking now; the «رحلاتي الثابتة» row waits near the end. */}
+      <RideHabitsStrip kind="rajaa" part="due" />
 
       {narrowing && board.data ? (
         <View style={{ gap: theme.space[3] }} testID="board-narrow">
@@ -308,6 +301,8 @@ export default function RajaaBoard() {
           {anyCars ? <DemandBanner demand={banner} empty={false} direction={direction} onPost={openDemand} /> : null}
         </>
       )}
+
+      <RideHabitsStrip kind="rajaa" part="row" />
 
       <Card testID="rajaa-request-entry" padding={4} onPress={() => router.push('/rajaa/request')}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>

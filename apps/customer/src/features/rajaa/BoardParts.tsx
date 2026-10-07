@@ -1,64 +1,23 @@
 import { router } from 'expo-router';
-import type { ReactNode } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
-import type { BookingView, CorridorView, IntercityDirection, TravellingAs } from '@driver/contracts';
+import { Pressable, View } from 'react-native';
+import type { BookingView, IntercityDirection, TravellingAs } from '@driver/contracts';
 import { Button, Card, Chip, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { cityName, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, wayKey, windowLabel } from './labels';
-import { bookingHref, clockLabel, endpoints, holdCountdown, type DemandSummary } from './logic';
+import { TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, wayKey, windowLabel } from './labels';
+import { bookingHref, clockLabel, holdCountdown, type DemandSummary } from './logic';
 
 /**
- * The route as one row (joy r7, audit R-05): "بغداد ← العزيزية" with the swap button, and the
- * corridors as small chips under it ("بغداد" · "الكوت", the far city named like the garage sign).
+ * Which way (second polish pass, 2026-10-07): one quiet line, «راجع للعزيزية», with «اقلب» at its
+ * end. The far city is picked on the corridor cards under it, so the route isn't said twice.
  */
-export function CorridorPicker({
-  corridors,
-  corridorId,
-  direction,
-  onCorridor,
-  onFlip,
-  suggested,
-  leading,
-}: {
-  /** First in the chip row: the «تسافر:» chip (r1). */
-  leading?: ReactNode;
-  corridors: readonly CorridorView[];
-  corridorId: string;
-  direction: IntercityDirection;
-  onCorridor: (id: string) => void;
-  onFlip: () => void;
-  suggested?: boolean;
-}) {
+export function DirectionRow({ direction, onFlip, suggested }: { direction: IntercityDirection; onFlip: () => void; suggested?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const corridor = corridors.find((c) => c.id === corridorId);
-  const e = endpoints(corridor?.cityId ?? 'baghdad', direction);
   return (
-    <View style={{ gap: theme.space[2] }}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: theme.space[3],
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.radius.xl,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          paddingVertical: theme.space[2],
-          paddingStart: theme.space[4],
-          paddingEnd: theme.space[2],
-        }}
-      >
+    <View style={{ gap: theme.space[1] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <Text variant="title" style={{ flex: 1 }} numberOfLines={1} testID="rajaa-route" accessibilityRole="header">
-          <Text variant="title" testID="rajaa-from">
-            {cityName(t, e.from)}
-          </Text>
-          <Text variant="title" color="textMuted">
-            {'  ←  '}
-          </Text>
-          <Text variant="title" testID="rajaa-to">
-            {cityName(t, e.to)}
-          </Text>
+          {t(`rajaa.dir_line.${direction}`)}
         </Text>
         <Pressable
           testID="rajaa-flip"
@@ -68,30 +27,25 @@ export function CorridorPicker({
             theme.haptic('selection');
             onFlip();
           }}
+          hitSlop={4}
           style={({ pressed }) => ({
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken,
+            minHeight: 44,
+            flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'center',
+            gap: theme.space[1],
+            paddingHorizontal: theme.space[3],
+            borderRadius: theme.radius.pill,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surface,
           })}
         >
-          <Text variant="title" color="accentText" style={{ lineHeight: 26, transform: [{ rotate: '90deg' }] }}>
-            ⇄
+          <Icon name="refresh" size={16} color="accentText" />
+          <Text variant="label" weight={700} color="accentText">
+            {t('rajaa.flip_short')}
           </Text>
         </Pressable>
       </View>
-      {corridors.length > 1 || leading ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], alignItems: 'center' }}>
-          {leading}
-          {corridors.length > 1
-            ? corridors.map((c) => (
-                <Chip key={c.id} testID={`corridor-${c.id}`} role="radio" label={t('rajaa.corridor_chip', { city: cityName(t, c.cityId) })} selected={c.id === corridorId} onPress={() => onCorridor(c.id)} />
-              ))
-            : null}
-        </ScrollView>
-      ) : null}
       {suggested ? (
         <Text variant="footnote" color="textMuted">
           {t('rajaa.suggested_back')}

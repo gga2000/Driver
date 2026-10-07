@@ -65,23 +65,21 @@ export function CorridorCards({ items, value, onChange }: { items: readonly Corr
               backgroundColor: on ? theme.colors.accentTint : pressed ? theme.colors.surfaceSunken : theme.colors.surface,
             })}
           >
-            <Text variant="title" weight={700}>
-              {cityName(t, c.cityId)}
-            </Text>
+            {/* City and seat price on one row, the trip and today's cars under it: three short lines, not five. */}
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
+              <Text variant="title" weight={700} style={{ flex: 1 }} numberOfLines={1}>
+                {cityName(t, c.cityId)}
+              </Text>
+              <Text variant="label" weight={700} tabular>
+                {iqd(c.seatPriceIqd, { locale })}
+              </Text>
+            </View>
             <Text variant="caption" color="textMuted" numberOfLines={1}>
               {trip}
             </Text>
-            <Text variant="label" weight={700} tabular>
-              {iqd(c.seatPriceIqd, { locale })}
+            <Text variant="caption" color={today > 0 ? 'text' : 'textMuted'} numberOfLines={2} tabular>
+              {[cars, first ? t('rajaa.corridor_first', { time: clockLabel(first.departAt) }) : null].filter(Boolean).join(' · ')}
             </Text>
-            <Text variant="caption" color={today > 0 ? 'text' : 'textMuted'} numberOfLines={1}>
-              {cars}
-            </Text>
-            {first ? (
-              <Text variant="caption" color="textMuted" numberOfLines={1} tabular>
-                {t('rajaa.corridor_first', { time: clockLabel(first.departAt) })}
-              </Text>
-            ) : null}
           </Pressable>
         );
       })}
