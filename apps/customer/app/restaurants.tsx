@@ -9,6 +9,8 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { activeFilterCount, applyList, cuisineOptions, hasFreeDelivery, hasRatings, type ListFilters, type ListSort } from '@/features/food/list';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
 import { useRestaurants } from '@/features/home/queries';
+import { showTools } from '@/features/doors/doors';
+import { ShopFront } from '@/features/doors/ShopFront';
 import { DinnerBanner } from '@/features/ride-habits/Cards';
 import { useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
@@ -16,9 +18,13 @@ import { countKey } from '@/lib/plural';
 /** Rail presets "شوف الكل" opens with (`?preset=`). */
 const PRESETS: Record<string, ListFilters> = { open: { openNow: true }, deals: { deals: true }, all: {} };
 
+/** The market or the plain list (food doors p3); the market first, and the last choice kept while the app runs. */
+type ListView = 'street' | 'list';
+let lastView: ListView = 'street';
+
 /**
- * كل المطاعم (audit C-02): every kitchen in town, sorted (الأقرب، الأسرع، الأعلى تقييماً once ratings
- * exist) and filtered (مفتوح هسة، توصيل مجاني and عروض when some kitchen has them, cuisine). Closed
+ * كل المحلات (audit C-02): every shop in town, sorted (الأقرب، الأسرع، الأعلى تقييماً once ratings
+ * exist) and filtered once more than 8 are open (food doors k6: a short list needs no tools) (مفتوح هسة، توصيل مجاني and عروض when some kitchen has them, cuisine). Closed
  * kitchens stay reachable in their own section with when they open. Public, like home.
  */
 export default function Restaurants() {
@@ -29,10 +35,18 @@ export default function Restaurants() {
   const [sort, setSort] = useState<ListSort>('nearest');
   const [filters, setFilters] = useState<ListFilters>(() => PRESETS[params.preset ?? 'all'] ?? {});
   const [refreshing, setRefreshing] = useState(false);
+  const [view, setViewState] = useState<ListView>(lastView);
+  const setView = (v: ListView) => {
+    lastView = v;
+    setViewState(v);
+  };
+  const Row = view === 'street' ? ShopFront : RestaurantRow;
   const list = useMemo(() => restaurants.data ?? [], [restaurants.data]);
   const out = useMemo(() => applyList(list, sort, filters), [list, sort, filters]);
   const cuisines = useMemo(() => cuisineOptions(list), [list]);
   const total = out.open.length + out.closed.length;
+  // k6: sorting and filters only once there is a crowd to sort (more than 8 open); a short list is just read.
+  const crowded = showTools(list.filter((r) => r.open).length);
 
   const sorts: { value: ListSort; label: string }[] = [
     { value: 'nearest', label: t('list.sort_nearest') },
@@ -65,10 +79,20 @@ export default function Restaurants() {
         <SearchField testID="restaurants-search" placeholder={t('search.placeholder')} onPress={() => router.push('/search')} accessibilityLabel={t('search.a11y_open')} />
         {/* Joy r6: choosing dinner for the ride home — checkout times it with the arrival. */}
         <DinnerBanner />
+        <SegmentedControl
+          options={[
+            { value: 'street', label: t('list.view_street') },
+            { value: 'list', label: t('list.view_list') },
+          ]}
+          value={view}
+          onChange={setView}
+          accessibilityLabel={t('list.view_label')}
+        />
       </View>
 
-      <View style={{ gap: theme.space[3] }}>
-        <SegmentedControl options={sorts} value={sort} onChange={setSort} accessibilityLabel={t('list.sort_label')} />
+      {crowded ? (
+        <View style={{ gap: theme.space[3] }}>
+          <SegmentedControl options={sorts} value={sort} onChange={setSort} accessibilityLabel={t('list.sort_label')} />
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -94,7 +118,8 @@ export default function Restaurants() {
             />
           ))}
         </ScrollView>
-      </View>
+        </View>
+      ) : null}
 
       {restaurants.isPending ? (
         <View style={{ gap: theme.space[3] }} accessibilityLabel={t('status.loading')}>
@@ -123,8 +148,9 @@ export default function Restaurants() {
         <View style={{ gap: theme.space[6] }}>
           {out.open.length ? (
             <View style={{ gap: theme.space[3] }} testID="restaurants-open">
+              {view === 'street' ? <StreetSign label={t('list.street_sign')} /> : null}
               {out.open.map((r) => (
-                <RestaurantRow key={r.id} r={r} />
+                <Row key={r.id} r={r} />
               ))}
             </View>
           ) : null}
@@ -137,12 +163,32 @@ export default function Restaurants() {
                 </Text>
               </View>
               {out.closed.map((r) => (
-                <RestaurantRow key={r.id} r={r} />
+                <Row key={r.id} r={r} />
               ))}
             </View>
           ) : null}
         </View>
       )}
     </Screen>
+  );
+}
+
+/** The street's name plate over the market (p3): dark like the café door, cream letters. */
+function StreetSign({ label }: { label: string }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        alignSelf: 'center',
+        paddingHorizontal: theme.space[4],
+        paddingVertical: theme.space[1],
+        borderRadius: theme.radius.sm,
+        backgroundColor: theme.services.trips.fill,
+      }}
+    >
+      <Text variant="label" weight={700} style={{ color: theme.services.trips.on }}>
+        {label}
+      </Text>
+    </View>
   );
 }

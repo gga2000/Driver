@@ -1,4 +1,4 @@
-import { AZIZIYAH_LANDMARKS, AZIZIYAH_ZONES, foldArabic, searchScore, westernDigits, type IntercityDirection, type LaunchService } from '@driver/contracts';
+import { AZIZIYAH_LANDMARKS, AZIZIYAH_ZONES, foldArabic, searchScore, westernDigits, type FoodDoor, type IntercityDirection, type LaunchService } from '@driver/contracts';
 import { bandWords } from '@/features/home/daypart';
 import type { RideVertical, Spot } from '@/features/ride/logic';
 
@@ -8,17 +8,20 @@ import type { RideVertical, Spot } from '@/features/ride/logic';
  *  - «بغداد», «الكوت», «كراج», «رجعة», «سفر»         → a الرجعة card (next car, «احجز»);
  *  - «تكسي», «تاكسي», «تكتك» (+ «للسوق», «لشارع 30»)  → a ride row, the destination filled in;
  *  - a zone or landmark said exactly («شارع ٣٠»)      → «تكسي لـ شارع 30»;
- *  - «فطور», «غدا», «عشا», «حلو», «عصير»…              → a meal: dish words and kitchen tags;
+ *  - «فطور», «غدا», «عشا»                              → a meal: dish words and kitchen tags;
+ *  - «قهوة», «عصير», «حلويات», «آيس كريم»…            → a food door (its best shops, «شوف الكل»);
  *  - «سوق», «خضرة», «خط», «مدرسة», «طرد»               → the coming-soon sheet.
  * Pure (no React), so the matcher is tested on its own. The screen shows these as a «خدمات» group
  * above the kitchens and dishes.
  */
-export type MealKey = 'breakfast' | 'lunch' | 'dinner' | 'sweet' | 'drink';
+export type MealKey = 'breakfast' | 'lunch' | 'dinner';
 
 export type SearchIntent =
   | { kind: 'rajaa'; cityId: 'baghdad' | 'kut'; direction: IntercityDirection }
   | { kind: 'ride'; vertical: RideVertical; to: Spot | null }
   | { kind: 'meal'; meal: MealKey; words: readonly string[]; tags: readonly string[] }
+  /** A word for a whole kind of shop (food doors f1): «قهوة», «عصائر», «حلويات», «آيس كريم». */
+  | { kind: 'door'; door: FoodDoor; iceCream: boolean }
   | { kind: 'soon'; service: Exclude<LaunchService, 'errand'> };
 
 const f = (words: readonly string[]) => new Set(words.map(foldArabic));
@@ -38,9 +41,20 @@ const MEALS: ReadonlyArray<{ meal: MealKey; words: Set<string>; dishes: readonly
   { meal: 'breakfast', words: f(['فطور', 'ريوگ', 'ريوك', 'صبحية']), dishes: bandWords({ key: 'dawn', friday: false }), tags: ['breakfast', 'pacha'] },
   { meal: 'lunch', words: f(['غدا', 'غداء', 'الغدا']), dishes: bandWords({ key: 'lunch', friday: false }), tags: ['rice', 'stew'] },
   { meal: 'dinner', words: f(['عشا', 'عشاء', 'العشا']), dishes: bandWords({ key: 'dinner', friday: false }), tags: ['grill', 'kebab', 'shawarma'] },
-  { meal: 'sweet', words: f(['حلو', 'حلويات', 'حلوى', 'حلويه']), dishes: ['كنافة', 'بقلاوة', 'زلابية', 'حلاوة', 'بسبوسة', 'كيك'], tags: ['dessert'] },
-  { meal: 'drink', words: f(['مشروب', 'مشروبات', 'عصير', 'عصائر']), dishes: ['عصير', 'ليمون', 'لبن', 'شنينة', 'چاي'], tags: [] },
 ];
+
+/**
+ * Words for a whole door, not a dish (food doors f1, bug b1: «حلويات» found nothing and offered kebab).
+ * A dish word («كنافة», «لاتيه») stays a dish search: the catalog finds the dish and its shops.
+ */
+const DOORS: ReadonlyArray<[Set<string>, FoodDoor]> = [
+  [f(['قهوة', 'قهوه', 'كوفي', 'كافيه', 'كافي', 'كافيهات', 'كوفيشوب', 'مقهى', 'مقهي']), 'cafe'],
+  [f(['عصير', 'عصاير', 'عصائر', 'مشروب', 'مشروبات', 'بارد', 'باردات']), 'cold'],
+  [f(['حلو', 'حلويات', 'حلوى', 'حلويه', 'حلوايات']), 'sweet'],
+];
+const ICE_CREAM = f(['ايسكريم', 'آيسكريم', 'دوندرمة', 'دوندرمه', 'دندرمة', 'بوظة', 'بوظه', 'جيلاتي', 'جلاتي', 'مثلجات']);
+/** «آيس كريم» is two words: the folded phrase. */
+const ICE_CREAM_PHRASE = foldArabic('ايس كريم');
 
 const SOON: ReadonlyArray<[Set<string>, 'grocery' | 'khat' | 'parcel']> = [
   [f(['سوق', 'السوق', 'خضرة', 'خضار', 'بقالة', 'مسواك']), 'grocery'],
@@ -117,6 +131,8 @@ export function searchIntents(query: string): SearchIntent[] {
   }
 
   for (const m of MEALS) if (has(m.words)) out.push({ kind: 'meal', meal: m.meal, words: m.dishes, tags: m.tags });
+  if (has(ICE_CREAM) || words.join(' ').includes(ICE_CREAM_PHRASE)) out.push({ kind: 'door', door: 'sweet', iceCream: true });
+  for (const [set, door] of DOORS) if (has(set) && !out.some((i) => i.kind === 'door' && i.door === door)) out.push({ kind: 'door', door, iceCream: false });
   if (!vertical) for (const [set, service] of SOON) if (words.every((w) => set.has(w))) out.push({ kind: 'soon', service });
   return out;
 }

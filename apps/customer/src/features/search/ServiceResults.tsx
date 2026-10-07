@@ -13,7 +13,7 @@ import { countKey } from '@/lib/plural';
 import { useSignedIn } from '@/lib/session';
 import type { SearchIntent } from './intents';
 
-type ServiceIntent = Exclude<SearchIntent, { kind: 'meal' }>;
+type ServiceIntent = Exclude<SearchIntent, { kind: 'meal' } | { kind: 'door' }>;
 
 /**
  * «خدمات» (joy h4): what the query means beyond food, above the kitchens — الرجعة with its next car
@@ -24,7 +24,7 @@ export function ServiceResults({ intents, onSoon, onPick }: { intents: readonly 
   const theme = useTheme();
   const t = useT();
   const presets = useMotionPresets();
-  const rows = intents.filter((i): i is ServiceIntent => i.kind !== 'meal');
+  const rows = intents.filter((i): i is ServiceIntent => i.kind !== 'meal' && i.kind !== 'door');
   if (rows.length === 0) return null;
   return (
     <View style={{ gap: theme.space[3] }} testID="search-services">
