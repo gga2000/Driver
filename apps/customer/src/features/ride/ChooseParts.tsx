@@ -193,12 +193,13 @@ export function VehicleCard({
             <SvgXml xml={vertical === 'taxi' ? TAXI_ART : TUKTUK_ART} width={ART_W + 6} height={ART_W + 6} style={{ marginTop: 4 }} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            {/* DEV-16: at large text the «أرخص بـ» badge drops under the name instead of running out of the card. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.space[2], rowGap: 2 }}>
               <Text variant={simple ? 'heading' : 'title'} weight={700} style={simple ? undefined : { fontSize: 18, lineHeight: 26 }}>
                 {t(v.name)}
               </Text>
               {cheaperBy && cheaperBy > 0 && !off && !simple ? (
-                <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
+                <View style={{ paddingHorizontal: 8, minHeight: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
                   <Text variant="caption" weight={600} color="successText" style={{ lineHeight: 18 }}>
                     {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
                   </Text>

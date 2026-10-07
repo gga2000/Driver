@@ -797,10 +797,10 @@ async function laterShots() {
   await shot('later-orders');
   if (seed.bookedOrderId) {
     await visible(`booked-cancel-${seed.bookedOrderId}`).click();
-    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).waitFor({ timeout: 10_000 });
+    await byTestId(`booked-cancel-sheet-${seed.bookedOrderId}-yes`).waitFor({ timeout: 10_000 });
     await settle(700);
     await shot('later-orders-cancel');
-    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-cancel-sheet-${seed.bookedOrderId}-yes`).click();
     await byTestId(`booked-${seed.bookedOrderId}`).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('cancelled booked ride still listed'));
     await settle(900);
     await shot('later-orders-cancelled');
