@@ -109,6 +109,8 @@ export function useRequestActions() {
   const invalidate = useInvalidateRoutes();
   const opts = { onSettled: () => void invalidate() };
   return {
+    // No invalidate: nothing on the driver's screens changes when he is counted as having seen it.
+    seen: useMutation(api.routes.requestBoard.seen.mutationOptions()),
     offer: useMutation({ ...api.routes.requestBoard.offer.mutationOptions(), ...opts }),
     arrived: useMutation({ ...api.routes.requestBoard.arrived.mutationOptions(), ...opts }),
     complete: useMutation({ ...api.routes.requestBoard.complete.mutationOptions(), ...opts }),

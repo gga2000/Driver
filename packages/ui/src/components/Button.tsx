@@ -107,7 +107,8 @@ export function Button({
         style,
       ]}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+      {/* The label gives way (ellipsis) before the trailing amount does, so a long label never pushes it off the button. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1, minWidth: 0 }}>
         {loading ? (
           <ActivityIndicator size="small" color={fg} />
         ) : icon ? (
@@ -118,7 +119,7 @@ export function Button({
         </Text>
       </View>
       {trailing != null && !loading ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], flexShrink: 0 }}>
           <View style={{ width: 1, alignSelf: 'stretch', marginVertical: 2, backgroundColor: fg, opacity: 0.25 }} />
           {typeof trailing === 'string' ? (
             <Text variant={textVariant} color={fg} tabular>

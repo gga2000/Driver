@@ -185,7 +185,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
-        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        {/* p4: the hold folds into the ticket: the pass rises in place of the pay screen, no blank jump. */}
+        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), animation: 'fade_from_bottom', headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/driver/[id]" options={{ title: t('rajaa.profile_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/request" options={{ title: t('request.title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
       </Stack>

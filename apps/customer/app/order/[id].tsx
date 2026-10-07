@@ -11,7 +11,7 @@ import { FREE_CANCEL_H, FreeCancelChip, NameThisPlace, RideRoute, rideVehicleLab
 import { RideNearCard, ScreenLight } from '@/features/ride/ArrivalParts';
 import { AvoidDriverSheet, DriverProfileSheet } from '@/features/ride/DriverProfileSheet';
 import { OfferedDrivers } from '@/features/ride/OfferedDrivers';
-import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
+import { freeCancelLeftSec, paidWaitPerIqd, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
 import { isBookedRide } from '@/features/ride-habits/logic';
 import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
 import { RiderFollowCard } from '@/features/ride/RiderParts';
@@ -371,7 +371,7 @@ export default function OrderLiveScreen() {
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   // The arrived card already shows him, the car and the plate: the float steps aside until it is closed.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat && !showHere ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
-  const waitPerIqd = city.data?.verticals.find((x) => x.vertical === rideVertical)?.components.find((c) => c.key === 'wait')?.perUnit ?? 250;
+  const waitPerIqd = paidWaitPerIqd(city.data, rideVertical);
   const sayComingOut = async () => {
     setRideComingOut({ orderId: id, state: 'sending' });
     try {
@@ -544,7 +544,7 @@ export default function OrderLiveScreen() {
               now={now}
               lateMin={lateMin}
               // The arrived card carries the free-wait ring (d5); once it is closed the counter sits here.
-              aside={ride && phase === 'at_pickup' && pickupArrivedAt && !showHere ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
+              aside={ride && phase === 'at_pickup' && pickupArrivedAt && !showHere ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} paid={waitPerIqd !== null} /> : undefined}
               below={
                 (searching && searchBar) || freeCancel || showTrip || pushAsk.visible || kitchen || sheetCode ? (
                   <View style={{ gap: theme.space[3] }}>
