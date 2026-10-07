@@ -10,7 +10,7 @@ The approved design is in [`docs/specs/2026-10-02-platform-core-design.md`](docs
 
 | Path | What |
 |---|---|
-| `apps/api` | NestJS 10 modular monolith exposing tRPC v11 (`/trpc`). 15 modules under `src/modules`. |
+| `apps/api` | NestJS 11 (Express 5) modular monolith exposing tRPC v11 (`/trpc`). 15 modules under `src/modules`. |
 | `apps/console` | Next.js 15 "Driver Console" (RTL) — health + live quote breakdown. |
 | `apps/customer`, `apps/partner`, `apps/merchant` | Expo SDK 52 + expo-router apps, RTL forced, one screen each fetching a quote. |
 | `packages/contracts` | zod schemas, TS types, the tRPC `AppRouter` and wire transformer. Root export is client-safe; `@driver/contracts/router` is server-only. |
