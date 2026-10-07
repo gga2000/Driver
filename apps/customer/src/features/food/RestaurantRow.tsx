@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import type { CatalogSearchDish } from '@driver/contracts';
+import { longRideForHotFood, type CatalogSearchDish } from '@driver/contracts';
 import { View } from 'react-native';
 import { Card, Icon, Skeleton, StatusPill, stageOf, Text, useTheme } from '@driver/ui';
 import { formatRange } from '@driver/i18n';
@@ -117,6 +117,7 @@ export function RestaurantRow({
               <StatusPill size="sm" tone="neutral" icon="clock" label={closedLabel} />
             </View>
           )}
+          {r.open && longRideForHotFood(r) ? <LongRide testID={`${testID ?? `restaurant-row-${r.id}`}-long-ride`} /> : null}
         </View>
       </View>
     </Card>
@@ -156,5 +157,18 @@ export function RestaurantRowSkeleton() {
         </View>
       </View>
     </Card>
+  );
+}
+
+/** g5: a hot kitchen far from you is still yours to order from; the row just says it arrives warm. */
+export function LongRide({ testID }: { testID?: string }) {
+  const t = useT();
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+      <Icon name="bike" size={13} color="textMuted" />
+      <Text variant="caption" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
+        {t('food.long_ride')}
+      </Text>
+    </View>
   );
 }

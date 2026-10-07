@@ -84,5 +84,11 @@ k11, wait for a fee decision). g3/r5: no paid ranking, ever.
 - Home: the food tile opens `/food` (d1/g2), one line changed here with the home thread's OK.
 - Not built, owned elsewhere: gift and occasion pre-order (s3, s4) wait for the checkout redesign; Console shop
   kind and signature dish (o1, o2); merchant per-kilo and hot/cold setup (o3).
-- Needs Ali: two-shop orders (k11) need a second-pickup fee decision; distance limits for hot food (g5)
-  beyond the ice cream melt guard.
+- Decided (Ali 2026-10-07: "go ahead with whatever best"):
+  - **Hot food far away (g5):** no kitchen is hidden or refused for distance (who we deliver to is the zones'
+    rule, G0-8). When the ride alone runs past 25 minutes (`HOT_RIDE_LONG_MIN`, display only) a meal row
+    says «طريقها طويل، توصلك دافية مو حارة». No fee, no limit.
+  - **Two-shop orders (k11):** one shop per order at launch, as Ali chose in g4. After launch (about D+30,
+    with the after-order screens) the way in is two ordinary orders placed together, each with its own
+    courier and its own usual delivery fee: no new second-pickup fee, so no new money rule. Not built now:
+    the cart, checkout and orders service are held by the launch lanes until then.

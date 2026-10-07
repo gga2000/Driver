@@ -4,6 +4,8 @@ import {
   doorOf,
   doorOrder,
   FOOD_DOORS,
+  HOT_RIDE_LONG_MIN,
+  longRideForHotFood,
   meltsOnTheWay,
   onlyIceCream,
   sellsIceCream,
@@ -69,5 +71,15 @@ describe('door order by the hour and the season (ideas d4, j1, i5)', () => {
     for (let h = 0; h < 24; h++)
       for (const m of [1, 7])
         expect([...doorOrder(at(m, h))].sort()).toEqual([...FOOD_DOORS].sort());
+  });
+});
+
+describe('hot food on a long ride (g5)', () => {
+  const grill = { tags: ['grill'], prepMaxMinutes: 20 };
+  it('says so only when the ride alone runs long, never for unknown times or other doors', () => {
+    expect(longRideForHotFood({ ...grill, etaMaxMinutes: 20 + HOT_RIDE_LONG_MIN })).toBe(false);
+    expect(longRideForHotFood({ ...grill, etaMaxMinutes: 21 + HOT_RIDE_LONG_MIN })).toBe(true);
+    expect(longRideForHotFood({ ...grill, etaMaxMinutes: null })).toBe(false);
+    expect(longRideForHotFood({ tags: ['juice'], prepMaxMinutes: 5, etaMaxMinutes: 60 })).toBe(false);
   });
 });
