@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SosView } from '@driver/contracts';
-import { createSosOutbox, type SosOutboxDeps } from './sos-outbox';
+import { createMemoryStorage } from '@/lib/storage';
+import { createSosOutbox, SOS_PENDING_KEY, SOS_RESEND_MAX_AGE_MS, type SosOutboxDeps } from './sos-outbox';
 
 const subject = { kind: 'order' as const, id: 'ord_1' };
 const view = { incidentId: 'sos_1' } as unknown as SosView;
@@ -70,5 +71,57 @@ describe('SOS outbox (FLOW-05)', () => {
     box.nudge();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('stops on a definitive refusal and says so, instead of retrying forever', async () => {
+    vi.useFakeTimers();
+    const box = createSosOutbox({ retryMs: 4_000, newId: () => 'sos-press-1' });
+    const refusal = Object.assign(new Error('forbidden'), { data: { httpStatus: 403, code: 'forbidden' } });
+    const send = vi.fn<SosOutboxDeps['send']>(async () => {
+      throw refusal;
+    });
+    box.setDeps({ send, fix: async () => null, online: () => true });
+    box.press(subject);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(box.getState()).toMatchObject({ press: null, failure: null, refused: { subjectKey: 'order:ord_1', restored: false } });
+    expect(box.pendingFor(subject)).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('a press made offline survives the app being killed and is sent on the next launch, as the same incident', async () => {
+    vi.useFakeTimers();
+    const storage = createMemoryStorage();
+    const fix = { lat: 32.91, lng: 45.06, accuracyM: 12, at: new Date() } as never;
+    const first = createSosOutbox({ retryMs: 4_000, newId: () => 'sos-press-1', storage });
+    first.setDeps({ send: async () => Promise.reject(new TypeError('Network request failed')), fix: async () => fix, online: () => false });
+    const p = first.press(subject);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(storage.dump()[SOS_PENDING_KEY]).toBeDefined();
+
+    // The app is killed; a new launch, still without a fix this time.
+    const second = createSosOutbox({ retryMs: 4_000, storage });
+    const send = vi.fn<SosOutboxDeps['send']>(async () => view);
+    second.setDeps({ send, fix: async () => null, online: () => true });
+    await second.restore();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0]).toMatchObject({ clientId: 'sos-press-1', subject, position: fix });
+    expect(send.mock.calls[0]![0].pressedAt.getTime()).toBe(p.pressedAt.getTime());
+    expect(second.getState().delivered).toMatchObject({ restored: true, view });
+    expect(storage.dump()[SOS_PENDING_KEY]).toBeUndefined();
+  });
+
+  it('a saved press too old to matter is not sent at launch; the person is pointed to 911 instead', async () => {
+    vi.useFakeTimers();
+    const pressedAt = new Date('2026-10-07T20:00:00Z');
+    const storage = createMemoryStorage({ [SOS_PENDING_KEY]: JSON.stringify({ clientId: 'sos-old', pressedAt: pressedAt.toISOString(), subject, position: null }) });
+    const box = createSosOutbox({ storage, now: () => pressedAt.getTime() + SOS_RESEND_MAX_AGE_MS + 1 });
+    const send = vi.fn<SosOutboxDeps['send']>(async () => view);
+    box.setDeps({ send, fix: async () => null, online: () => true });
+    await box.restore();
+    expect(send).not.toHaveBeenCalled();
+    expect(box.getState().refused).toMatchObject({ subjectKey: 'order:ord_1', restored: true });
+    expect(storage.dump()[SOS_PENDING_KEY]).toBeUndefined();
   });
 });

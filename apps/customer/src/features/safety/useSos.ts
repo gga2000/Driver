@@ -1,24 +1,13 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AppState, Linking } from 'react-native';
+import { Linking } from 'react-native';
 import { SAFETY_RULES, type SosSubject, type SosView } from '@driver/contracts';
-import { getNetwork, useToast, type SosSheetPhase } from '@driver/ui';
+import { useToast, type SosSheetPhase } from '@driver/ui';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { classifyError } from '@/lib/errors';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentSosFix } from './fix';
-import { createSosOutbox, subjectKey } from './sos-outbox';
-
-/**
- * The app's one SOS outbox (FLOW-05): a press that hasn't got through keeps trying after the sheet is
- * closed or the trip screen left, and tries at once when the network or the app comes back.
- */
-const outbox = createSosOutbox();
-getNetwork().subscribe(() => {
-  if (getNetwork().getSnapshot().state === 'online') outbox.nudge();
-});
-AppState.addEventListener('change', (s) => {
-  if (s === 'active') outbox.nudge();
-});
+import { sosOutbox as outbox } from './outbox';
+import { subjectKey } from './sos-outbox';
 
 export function sosPhaseOf(v: Pick<SosView, 'state'>): SosSheetPhase {
   return v.state === 'open' ? 'open' : v.state === 'acknowledged' ? 'acknowledged' : v.state === 'resolved' ? 'resolved' : 'cancelled';
@@ -32,7 +21,9 @@ export function sosPhaseOf(v: Pick<SosView, 'state'>): SosSheetPhase {
  * it. An open incident survives a restart of the screen (`safety.status`); a press still on its way
  * keeps the button lit, and tapping it shows the sheet again.
  */
-export function useSos(subject: SosSubject | null) {
+export function useSos(subject: SosSubject | null, opts: { launch?: boolean } = {}) {
+  /** The root's instance shows only presses restored at launch; a trip screen's, only its own. */
+  const launch = Boolean(opts.launch);
   const client = useApiClient();
   const toast = useToast();
   const t = useT();
@@ -50,7 +41,7 @@ export function useSos(subject: SosSubject | null) {
     setView(v);
     setOffset(v.serverNow.getTime() - Date.now());
     if (openSheet) setPhase(sosPhaseOf(v));
-    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' ? sosPhaseOf(v) : cur));
+    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' && cur !== 'final' ? sosPhaseOf(v) : cur));
   }, []);
 
   // An alert already open (the screen was reopened): the button shows it, no new hold needed.
@@ -68,22 +59,30 @@ export function useSos(subject: SosSubject | null) {
     };
   }, [key, client, accept]);
 
-  useEffect(() => {
-    outbox.setDeps({
-      send: (input) => client.safety.sos.mutate(input),
-      fix: () => currentSosFix(2500),
-      online: () => getNetwork().getSnapshot().state === 'online',
-    });
-  }, [client]);
-
-  // The press got through (now or after the sheet was closed): show the incident and its cancel.
+  // The press got through (now, after the sheet was closed, or after a relaunch): show the incident and
+  // its cancel. A press restored at launch is shown by the root; a trip screen just lights its button.
   const delivered = box.delivered;
   const seen = useRef<SosView | null>(null);
   useEffect(() => {
     if (!delivered || delivered.subjectKey !== key || seen.current === delivered.view) return;
     seen.current = delivered.view;
-    accept(delivered.view, true);
-  }, [delivered, key, accept]);
+    accept(delivered.view, delivered.restored === launch);
+  }, [delivered, key, accept, launch]);
+
+  // Refused for good (a retry can't help): the sheet opens on "call 911" (audit FLOW-05 review).
+  const refused = box.refused;
+  const seenRefused = useRef<typeof refused>(null);
+  useEffect(() => {
+    if (!refused || refused.subjectKey !== key || refused.restored !== launch || seenRefused.current === refused) return;
+    seenRefused.current = refused;
+    setPhase('final');
+  }, [refused, key, launch]);
+
+  // At launch, a press saved before the app was closed: the sheet says it is being sent again.
+  const restoredPress = launch && box.press?.restored ? box.press : null;
+  useEffect(() => {
+    if (restoredPress) setPhase((cur) => cur ?? 'sending');
+  }, [restoredPress]);
 
   // Not through yet: the open sheet says why (the outbox keeps trying either way).
   useEffect(() => {

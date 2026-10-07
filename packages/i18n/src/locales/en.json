@@ -7024,5 +7024,6 @@
   "call.soon_action": "Message",
   "sos.cancel_failed": "The cancel didn't get through and the alert is still on. Try again",
   "not_found.title": "This link doesn't work",
-  "not_found.body": "It may have expired or been typed wrong. Go back home and carry on from there"
+  "not_found.body": "It may have expired or been typed wrong. Go back home and carry on from there",
+  "sos.final": "We couldn't get the alert through. Call emergency on {number} now"
 }
