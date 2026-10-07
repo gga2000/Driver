@@ -227,14 +227,6 @@ export function useCancelRequest() {
   return useMutation(api.routes.requestBoard.cancel.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
-/**
- * TODO(api): the customer wallet balance. No customer wallet read exists yet, so the pay step offers
- * the wallet and lets the server answer (`wallet_insufficient` → Arabic message, switch to cash).
- */
-export function useWalletBalance(): number | null {
-  return null;
-}
-
 // ── home card ──
 
 /** Home's الرجعة card: the live primary corridor board (way back to Aziziyah) and the rider's own trip. */

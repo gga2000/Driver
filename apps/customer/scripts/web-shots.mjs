@@ -832,6 +832,12 @@ async function rajaaShots(personId) {
   await page.waitForTimeout(2500);
   await shot('rajaa-hold');
   await fullShot('rajaa-hold-full');
+  // p2/p3: the wallet, «الأضمن», with what it lacks and «اشحن»; back to cash for the reservation.
+  await byTestId('pay-wallet').click();
+  await byTestId('rajaa-wallet-balance').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('rajaa-pay-wallet');
+  await byTestId('pay-cash').click();
 
   // Cash reservation → boarding pass (boarding is open on this car: live position shows).
   await byTestId('rajaa-confirm').click();
