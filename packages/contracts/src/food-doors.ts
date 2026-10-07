@@ -62,6 +62,26 @@ export function meltsOnTheWay(shop: {
   );
 }
 
+/**
+ * Hot food on a long ride (Ali's g5, "whatever is best", 2026-10-07): a meal kitchen is never hidden or
+ * refused for being far (who we deliver to is the zones' rule, G0-8), but when the ride alone (door time
+ * minus kitchen time, upper bounds) runs past this many minutes the row says so honestly: it arrives warm,
+ * not straight off the grill. A display line only; no fee, no limit. Unknown times say nothing.
+ */
+export const HOT_RIDE_LONG_MIN = 25;
+
+export function longRideForHotFood(shop: {
+  tags: readonly string[];
+  etaMaxMinutes: number | null;
+  prepMaxMinutes: number;
+}): boolean {
+  return (
+    doorOf(shop.tags) === 'meal' &&
+    shop.etaMaxMinutes !== null &&
+    shop.etaMaxMinutes - shop.prepMaxMinutes > HOT_RIDE_LONG_MIN
+  );
+}
+
 /** Iraqi summer (June to September): cold drinks lead the afternoon and ice cream the night. */
 export function isSummer(now: Date): boolean {
   const m = now.getMonth();

@@ -3,10 +3,11 @@ import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Path, Rect } from 'react-native-svg';
-import { doorOf } from '@driver/contracts';
+import { doorOf, longRideForHotFood } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
 import { Icon, StatusPill, Text, usePressScale, useTheme, withAlpha } from '@driver/ui';
 import { FoodArt, kitchenLook, motifForKitchen } from '@/features/food/FoodArt';
+import { LongRide } from '@/features/food/RestaurantRow';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { doorSwatch } from './palette';
@@ -127,6 +128,7 @@ export function ShopFront({ r }: { r: RestaurantSummary }) {
                 <StatusPill size="sm" tone="neutral" icon="clock" label={closedLabel} />
               </View>
             )}
+            {r.open && longRideForHotFood(r) ? <LongRide testID={`shop-front-${r.id}-long-ride`} /> : null}
           </View>
         </View>
         {/* The pavement in front of the shop. */}
