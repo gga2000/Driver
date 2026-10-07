@@ -27,6 +27,9 @@ export default async function run(s) {
   await p.wait('intercity-announce');
   await p.shot('announce', { settle: 1500 });
   await p.shot('announce-full', { full: true, settle: 400 });
+  // «شنو سيارتك؟»: the listed models for this seat layout (the rider sees this car under the seats).
+  await p.byTestId('announce-model').scrollIntoViewIfNeeded();
+  await p.shot('announce-car', { settle: 600 });
 
   // Run A: boarding at the garage — garage mode.
   await p.goto(`/intercity/departure/${seed.runA}`);

@@ -6,7 +6,7 @@ import type { MessageKey } from '@driver/i18n';
 import { Card, Icon, StatusPill, Text, useTheme, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { cityName, countdownLabel, demandLine, departureState, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from './labels';
+import { cityName, countdownLabel, demandLine, departureState, requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from './labels';
 import { boardedSeats, clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
 
 /** Section title with an optional one-line explainer. */
@@ -179,6 +179,7 @@ export function RequestCard({ post, now }: { post: RequestPostView; now: Date })
   const theme = useTheme();
   const t = useT();
   const mine = post.offers.find((o) => o.state === 'open');
+  const details = requestDetailLabels(t, post.details, post.when);
   return (
     <Card testID={`request-${post.id}`} onPress={() => router.push(`/intercity/request/${post.id}`)} accessibilityLabel={t('rajaa.route', { from: post.from.label, to: post.to.label })}>
       <View style={{ gap: theme.space[2] }}>
@@ -191,6 +192,12 @@ export function RequestCard({ post, now }: { post: RequestPostView; now: Date })
         <Text variant="footnote" color="textMuted" tabular>
           {[whenLabel(t, post.when, now), seatsCount(t, post.seats), travellingAsLabel(t, post.travellingAs)].join(' · ')}
         </Text>
+        {/* y1: the trip kind, bags, car and AC the rider asked for, on one line. */}
+        {details.length > 0 ? (
+          <Text variant="footnote" color="text" weight={600} numberOfLines={2} testID={`request-details-${post.id}`}>
+            {details.join(' · ')}
+          </Text>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingTop: 2 }}>
           {mine ? (
             <StatusPill label={t('partner.ic_req_my_offer', { amount: amountParam(mine.priceIqd) })} tone="accent" size="sm" icon="check" />

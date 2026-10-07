@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AnnounceInput, HoldSeatInput, type DriverError } from '@driver/contracts';
 import { offsetNorth } from '../trips/index.js';
+import { vehicleModelText } from './departures.service.js';
 import type { BookingRecord } from './model.js';
 import { BAB1, BAB2, NAHDHA, routesHarness } from './test-harness.js';
 
@@ -58,6 +59,29 @@ describe('announce (driver)', () => {
         vehicle: { kind: 'saloon', layout: 4, plate: 'x 1' },
       }),
     ).toThrow();
+  });
+});
+
+describe('the car model (Ali 2026-10-07: riders see the driver\'s own car)', () => {
+  it('a listed model is kept by key and named in Iraqi Arabic; `other` keeps what the driver typed', async () => {
+    const h = routesHarness();
+    const elantra = await h.announce({ vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 1', modelKey: 'elantra', model: 'ignored' } });
+    expect(elantra.vehicle).toMatchObject({ modelKey: 'elantra', model: 'النترا' });
+    const other = await h.announce({
+      driverId: 'd2',
+      vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 2', modelKey: 'other', model: '  كامري ' },
+    });
+    expect(other.vehicle).toMatchObject({ modelKey: 'other', model: 'كامري' });
+    const old = await h.announce({ driverId: 'd3', vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 3', model: 'سوناتا' } });
+    expect(old.vehicle).toMatchObject({ modelKey: null, model: 'سوناتا' });
+    expect(vehicleModelText(undefined, '  ')).toBeNull();
+  });
+
+  it('refuses a model on a seat layout it cannot carry, and `other` without a name', () => {
+    const base = { garageId: BAB1.id, corridorId: 'aziziyah_baghdad', departAt: new Date(0), latestDepartureAt: new Date(0) };
+    expect(() => AnnounceInput.parse({ ...base, vehicle: { kind: 'van', layout: 7, plate: 'x 1', modelKey: 'elantra' } })).toThrow();
+    expect(() => AnnounceInput.parse({ ...base, vehicle: { kind: 'saloon', layout: 4, plate: 'x 1', modelKey: 'other' } })).toThrow();
+    expect(() => AnnounceInput.parse({ ...base, vehicle: { kind: 'van', layout: 7, plate: 'x 1', modelKey: 'starex' } })).not.toThrow();
   });
 });
 
