@@ -9,18 +9,22 @@ import { amountParam } from '@/lib/money';
 import { season } from '@/lib/season';
 import { playCue } from '@/lib/sound';
 import { cashAtDoor } from './arrival-logic';
+import { rideNearDue } from '@/features/ride/logic';
 import { almostThere, DRIVER_HERE_GAP_MS, momentFeedback, momentsBetween, type MomentSnapshot } from './moments';
 import { courierAtDoor, type Phase } from './timeline';
 import { apiPhoto } from '@/lib/photo';
 
 export type DoorCardVariant = 'near' | 'door';
+/** Every card the moments put over the map: food's two, and a ride's "a minute away" (ride idea d3). */
+export type MomentCard = DoorCardVariant | 'ride_near';
 
 /**
  * The tracking screen's moments (maps program SP5b, joy f3): compares each read of the order with the
  * last one and, for every new moment, buzzes and plays its soft cue. Returns which card shows over the
  * map: "almost there" from the first read with him about two minutes out (latched, so ETA or GPS
  * jitter at the line does not blink it), then "at your door" once he pressed "وصلت" at my door —
- * until he hands it over or the customer closes it.
+ * until he hands it over or the customer closes it. Rides: "a minute away" (d3), latched the same
+ * way, until he is at the pickup (the driver-here card takes over).
  */
 export function useTrackingMoments(
   v: OrderTracking | undefined,
@@ -28,10 +32,11 @@ export function useTrackingMoments(
   courier: LatLng | null,
   eta: Date | null,
   now: number,
-): { card: DoorCardVariant | null; closeCard: () => void } {
+): { card: MomentCard | null; closeCard: () => void } {
   const theme = useTheme();
   const prev = useRef<MomentSnapshot | null>(null);
   const [nearFor, setNearFor] = useState<string | null>(null);
+  const [rideNearFor, setRideNearFor] = useState<string | null>(null);
   const [closed, setClosed] = useState<string | null>(null);
   const ride = Boolean(v && v.order.type === 'ride');
   const orderId = v?.order.id ?? null;
@@ -53,10 +58,12 @@ export function useTrackingMoments(
   const door = card === 'door';
   // Joy l2: a courier on the job (the reveal's buzz on food orders).
   const onJob = Boolean(v?.courier && v.trip?.acceptedAt);
+  // Ride idea d3: a minute from the pickup, latched per order (the ETA may wobble back over the line).
+  const rideNear = Boolean(ride && orderId && (rideNearFor === orderId || rideNearDue({ comingToPickup: phase === 'to_pickup', eta, now })));
 
   useEffect(() => {
     if (!orderId || !phase) return;
-    const next: MomentSnapshot = { orderId, phase, near, door, ride, courier: onJob };
+    const next: MomentSnapshot = { orderId, phase, near, door, ride, courier: onJob, rideNear };
     for (const m of momentsBetween(prev.current, next)) {
       // Quiet days (J1a): no sound, no celebratory buzz; the door has no sound of its own (the knock is enough).
       const f = momentFeedback(m, season.current);
@@ -65,12 +72,19 @@ export function useTrackingMoments(
     }
     // The card also shows when the screen opens with him already close (the customer tapped the push).
     if (near) setNearFor(orderId);
+    if (rideNear) setRideNearFor(orderId);
     prev.current = next;
     // `theme` is stable for the screen's life; re-running on it would replay nothing anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, phase, near, door, ride, onJob]);
+  }, [orderId, phase, near, door, ride, onJob, rideNear]);
 
-  const variant: DoorCardVariant | null = door ? 'door' : orderId && nearFor === orderId && phase === 'on_the_way' ? 'near' : null;
+  const variant: MomentCard | null = door
+    ? 'door'
+    : orderId && nearFor === orderId && phase === 'on_the_way'
+      ? 'near'
+      : rideNear && phase === 'to_pickup'
+        ? 'ride_near'
+        : null;
   const key = variant && orderId ? `${orderId}:${variant}` : null;
   return { card: key && closed !== key ? variant : null, closeCard: () => setClosed(key) };
 }

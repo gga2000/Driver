@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
   addNoteChip,
+  rideNearDue,
+  standsAwayM,
+  tripProgress,
   freeCancelLeftSec,
   rideBackOffer,
   searchProgress,
@@ -317,5 +320,31 @@ describe('step 2 (ride ideas w2, w7, a4, m2, m4, p4)', () => {
     expect(addNoteChip('', 'يم الصيدلية')).toBe('يم الصيدلية');
     expect(addNoteChip('الباب الأخضر', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
     expect(addNoteChip('الباب الأخضر، يم الصيدلية', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
+  });
+  it('he is a minute away: only while coming to the pickup, from the one ETA', () => {
+    expect(rideNearDue({ comingToPickup: true, eta: new Date(70_000), now: 10_000 })).toBe(true);
+    expect(rideNearDue({ comingToPickup: true, eta: new Date(80_000), now: 10_000 })).toBe(false);
+    expect(rideNearDue({ comingToPickup: false, eta: new Date(20_000), now: 10_000 })).toBe(false);
+    expect(rideNearDue({ comingToPickup: true, eta: null, now: 10_000 })).toBe(false);
+  });
+
+  it('trip progress: by time to the ETA, never backwards, never full before the end', () => {
+    const start = new Date(0);
+    expect(tripProgress({ startedAt: start, eta: new Date(600_000), now: 150_000 })).toEqual({ fraction: 0.25, leftMin: 8 });
+    // The ETA grew: the line holds where it was.
+    expect(tripProgress({ startedAt: start, eta: new Date(900_000), now: 150_000, floor: 0.25 })?.fraction).toBe(0.25);
+    expect(tripProgress({ startedAt: start, eta: new Date(600_000), now: 700_000 })).toEqual({ fraction: 0.97, leftMin: 1 });
+    expect(tripProgress({ startedAt: null, eta: new Date(600_000), now: 0 })).toBeNull();
+    // Still the pickup leg's ETA: nothing to draw yet.
+    expect(tripProgress({ startedAt: new Date(600_000), eta: new Date(500_000), now: 610_000 })).toBeNull();
+  });
+
+  it('where he stands: on the pin, in 5 m then 10 m steps, nothing for a bad fix', () => {
+    const pin = { lat: 32.9, lng: 45.06 };
+    expect(standsAwayM({ lat: 32.9, lng: 45.0601 }, pin)).toBe(0);
+    expect(standsAwayM({ lat: 32.9003, lng: 45.06 }, pin)).toBe(35);
+    expect(standsAwayM({ lat: 32.9011, lng: 45.06 }, pin)).toBe(120);
+    expect(standsAwayM({ lat: 32.95, lng: 45.06 }, pin)).toBeNull();
+    expect(standsAwayM(null, pin)).toBeNull();
   });
 });

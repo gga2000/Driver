@@ -502,3 +502,42 @@ export function addNoteChip(note: string, chip: string, max = 200): string {
   if (parts.includes(chip)) return note;
   return [...parts, chip].join('، ').slice(0, max);
 }
+
+/** Ride idea d3: «السايق قريب، اطلع هسة» once his ETA to the pickup is this close. */
+export const RIDE_NEAR_SEC = 60;
+
+/** He is still coming to the pickup and the one ETA says a minute or less (ride idea d3). */
+export function rideNearDue(i: { comingToPickup: boolean; eta: Date | null; now: number }): boolean {
+  return i.comingToPickup && i.eta !== null && i.eta.getTime() - i.now <= RIDE_NEAR_SEC * 1000;
+}
+
+/**
+ * Ride idea t1: how far along the ride is, by time — from when the rider got in (`startedAt`) to the
+ * one ETA at the drop-off — and the whole minutes left. `floor` is the last fraction shown, so the
+ * line never slides back when the ETA grows a little. Null until the ride has started and has an ETA
+ * for the ride itself.
+ */
+export function tripProgress(i: { startedAt: Date | null; eta: Date | null; now: number; floor?: number }): { fraction: number; leftMin: number } | null {
+  if (!i.startedAt || !i.eta) return null;
+  const total = i.eta.getTime() - i.startedAt.getTime();
+  // An ETA from before he picked the rider up (the pickup leg's, not yet refreshed) says nothing yet.
+  if (total <= 0) return null;
+  const left = Math.max(0, i.eta.getTime() - i.now);
+  const raw = (i.now - i.startedAt.getTime()) / total;
+  // Never quite full until he ends the ride: the last sliver belongs to «وصلنا».
+  const fraction = Math.min(0.97, Math.max(i.floor ?? 0, raw, 0));
+  return { fraction, leftMin: Math.max(1, Math.ceil(left / 60_000)) };
+}
+
+/**
+ * Ride idea d5: how far from the rider's pickup pin he has stopped, in steps a person can picture
+ * (5 m under 50, then 10 m); `0` when he is on the pin (15 m or less); null without both points or
+ * when he is far enough that "where he stands" means nothing (over 400 m: a bad fix).
+ */
+export function standsAwayM(driver: LatLng | null, pickup: LatLng | null): number | null {
+  if (!driver || !pickup) return null;
+  const d = haversineM(driver, pickup);
+  if (d > 400) return null;
+  if (d <= 15) return 0;
+  return d < 50 ? Math.round(d / 5) * 5 : Math.round(d / 10) * 10;
+}

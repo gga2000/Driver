@@ -1313,18 +1313,40 @@ async function rideShots() {
   await byTestId('courier-card').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await shot('ride-matched-expanded');
+  // d3 a minute away (with d4's light at night), d4 the screen light, t3 the safety shield.
+  await nightShot(`/order/${orderId}`, 'ride-near', 'ride-near', { etaInSec: 45 });
+  await nightShot(`/order/${orderId}`, 'ride-light', 'ride-light', {
+    etaInSec: 45,
+    act: async (p) => {
+      await p.locator('[data-testid="ride-light-button"]').first().click({ timeout: 15_000 });
+    },
+  });
+  await byTestId('safety-shield').click();
+  await byTestId('safety-sheet').waitFor({ timeout: 10_000 }).catch(() => errors.push('safety sheet not shown'));
+  await settle(700);
+  await shot('ride-shield');
+  await page.keyboard.press('Escape');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-wait-note').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot('ride-at-pickup');
+  // d5: the arrived card in the tuktuk's colour with the free-wait ring (and d4's light at night).
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('driver-here').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver-here card not shown'));
+  await page.waitForTimeout(1500);
+  await shot('ride-driver-here');
+  await nightShot(`/order/${orderId}`, 'ride-driver-here-night', 'driver-here-ring');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(5000);
   await shot('ride-on-trip');
+  // t1 the trip line in the collapsed sheet; t2 the night share card up front.
+  await byTestId('ride-trip-progress').waitFor({ timeout: 10_000 }).catch(() => errors.push('trip progress not shown'));
+  await nightShot(`/order/${orderId}?sheet=1`, 'ride-night-share', 'ride-night-share');
   await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
   await byTestId('sheet-body').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
@@ -1354,6 +1376,58 @@ async function rideShots() {
   await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));
   await settle(900);
   await shot('ride-where-picks');
+}
+
+/**
+ * Ride ideas d3/d4/t2: a second tab that lives at night. Every date the API sends moves by the same
+ * amount, so the app's server-corrected clock reads 22:30 in Baghdad while every countdown keeps its
+ * real length (unless it already is night). `etaInSec` pins the driver's ETA that far ahead of that
+ * clock (the "a minute away" card). Shoots `name` once `testID` shows; `act` runs first on the page.
+ */
+async function nightShot(path, name, testID, { etaInSec = null, act = null } = {}) {
+  if (!wanted(name)) return;
+  const now = Date.now();
+  const bagh = new Date(now + 3 * 3_600_000);
+  const h = bagh.getUTCHours();
+  const night = h >= 21 || h < 6;
+  const target = Date.UTC(bagh.getUTCFullYear(), bagh.getUTCMonth(), bagh.getUTCDate(), 19, 30);
+  const shift = night ? 0 : target - now;
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+  const move = (node) => {
+    if (Array.isArray(node)) return node.map(move);
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) {
+        if (k === 'etaAt' && etaInSec !== null && typeof v === 'string') node[k] = new Date(Date.now() + shift + etaInSec * 1000).toISOString();
+        else node[k] = move(v);
+      }
+      return node;
+    }
+    return typeof node === 'string' && iso.test(node) ? new Date(new Date(node).getTime() + shift).toISOString() : node;
+  };
+  const ctx = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  await ctx.route(/\/trpc\//, async (route) => {
+    // Live subscriptions stream; the next read of the order carries the moved dates anyway.
+    if ((route.request().headers().accept ?? '').includes('event-stream')) return route.continue();
+    const res = await route.fetch().catch(() => null);
+    if (!res) return route.abort().catch(() => undefined);
+    const type = res.headers()['content-type'] ?? '';
+    if (!type.includes('json')) return route.fulfill({ response: res });
+    await route.fulfill({ response: res, json: move(await res.json()) });
+  });
+  const night_ = await ctx.newPage();
+  try {
+    await night_.goto(`${origin}${path}`, LOADED);
+    if (act) await act(night_);
+    await night_.locator(`[data-testid="${testID}"]`).first().waitFor({ timeout: 15_000 });
+    await night_.waitForTimeout(1500);
+    const file = join(outDir, `${name}.png`);
+    await night_.screenshot({ path: file });
+    console.log(file);
+  } catch (err) {
+    errors.push(`${name}: ${err?.message ?? err}`);
+  }
+  await ctx.unrouteAll({ behavior: 'ignoreErrors' });
+  await ctx.close();
 }
 
 /**
