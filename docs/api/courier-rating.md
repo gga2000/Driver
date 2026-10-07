@@ -38,7 +38,7 @@ card.
   from 5 ratings.
 - Customer app (`apps/customer/src/features/track/Arrival.tsx`, `rating-logic.ts`): step 1 is the
   courier — his stars, then «شنو اللي ما عجبك بـ عباس؟» (1–3) or «شنو عجبك بـ عباس؟» (4–5) with the
-  chips («اختياري، يوصل لـ عباس بدون اسمك») and «كمّل» / «دز التقييم»; step 2 the food (kitchen orders).
+  chips («اختياري، يساعدنا نخلي التوصيل أحسن») and «كمّل» / «دز التقييم»; step 2 the food (kitchen orders).
   A low courier score still offers «افتح شكوى»; a late courier opens `cold_or_late`, others `other`.
   The tip after a good rating is unchanged (`docs/api/tips.md`).
 

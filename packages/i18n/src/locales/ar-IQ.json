@@ -3271,7 +3271,7 @@
   "rating.sorry_title": "آسفين على هذا",
   "rating.courier_good_q": "شنو عجبك بـ {name}؟",
   "rating.courier_low_q": "شنو اللي ما عجبك بـ {name}؟",
-  "rating.courier_optional": "اختياري، يوصل لـ {name} بدون اسمك",
+  "rating.courier_optional": "اختياري، يساعدنا نخلي التوصيل أحسن",
   "rating.courier.late": "تأخر",
   "rating.courier.rude": "ما كان لطيف",
   "rating.courier.mishandled": "الطلب انضرب أو انكب",

@@ -3271,7 +3271,7 @@
   "rating.sorry_title": "Sorry about that",
   "rating.courier_good_q": "What did you like about {name}?",
   "rating.courier_low_q": "What went wrong with {name}?",
-  "rating.courier_optional": "Optional, {name} sees it without your name",
+  "rating.courier_optional": "Optional, it helps us make delivery better",
   "rating.courier.late": "Late",
   "rating.courier.rude": "Not polite",
   "rating.courier.mishandled": "Order damaged or spilled",

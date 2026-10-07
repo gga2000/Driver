@@ -331,7 +331,7 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
                   {t(delivery <= LOW_SCORE ? 'rating.courier_low_q' : 'rating.courier_good_q', { name })}
                 </Text>
                 <Text variant="caption" color="textMuted" align="center">
-                  {t('rating.courier_optional', { name })}
+                  {t('rating.courier_optional')}
                 </Text>
               </View>
               <ChipGroup
