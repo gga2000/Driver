@@ -177,6 +177,8 @@ export class PartnerService implements PartnerPort {
       collectIqd: collect > 0 ? collect : null,
       // Joy l9: the rider asked for him on this booked ride — the offer says so, and nothing more.
       favourite: offer.policy === FAVOURITE_OFFER_POLICY,
+      // Ride step 3 (n4): the waiting rider nudged him — «راكب ينتظرك» and a soft chime on the card.
+      nudgedAt: offer.nudgedAt ?? null,
     };
   }
 

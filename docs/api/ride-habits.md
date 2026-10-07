@@ -39,7 +39,10 @@ The order stores `preferred_driver_id` (`Order.preferredDriverId`) and `order.pl
 (offer policy `favourite`, wave 0, `dispatch.wave_sent` with `favourite: true`) — only when he is online,
 idle, fits the vehicle and has cap room, like anyone. He accepts → assigned; he declines → the normal
 waves start at once; the minute rings out → the normal waves start with their usual 60 s re-broadcast and
-180 s free-cancel clocks. He is not asked again in waves 1–3. On-demand rides never carry a favourite.
+180 s free-cancel clocks. He is not asked again in waves 1–3. On-demand rides never carry a
+`favouriteId`; since ride step 3 (s4) dispatch itself asks the nearest favourite within 2 km first on
+any taxi/tuktuk ride — see `docs/api/ride-offered-drivers.md`. Avoiding a driver («ما أريده مرة
+ثانية») removes him from the favourites, and making him a favourite again lifts the avoid.
 
 Partner: `PartnerOffer.favourite: boolean` → «الزبون طلبك إنت» on the offer. Nothing else about who
 favourited him is ever shown (no list, no count, no name).
@@ -51,6 +54,7 @@ favourited him is ever shown (no list, no count, no name).
 | `favourites` | — | `FavouriteDriverView[]` — id, driverId, first name, approved photo (signed), kinds (`taxi`/`tuktuk`/`intercity`), J5b's public rating (`rating`, `ratingCount`), trips together this year |
 | `favourite` | `{orderId \| bookingId, on}` | the list. Adding needs his own **finished** ride or الرجعة trip rated **4–5** (`favourite_needs_good_rating`), at most 20 (`favourite_limit`); someone else's trip → `not_found` |
 | `unfavourite` | `{favouriteId}` | the list (`favourite_not_found`) |
+| `avoid` / `avoided` / `unavoid` | `{orderId}` / — / `{avoidId}` | the avoid list (ride step 3, s5) — `docs/api/ride-offered-drivers.md` |
 | `recentGood` | — | the driver of his last trip rated 4–5 in the last 24 h who isn't a favourite yet, or null |
 | `regular.list` | — | `RegularTripView[]` with `next` (the next day to ask about or decided) and `booked` (days booked and still ahead) |
 | `regular.save` | `SaveRegularTripInput` (+`id` to edit) | the trip. At most 10 (`regular_trip_limit`); a morning ask needs a trip from 09:00 |

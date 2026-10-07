@@ -23,6 +23,7 @@ const food = (over: Partial<PartnerOffer> = {}): PartnerOffer => ({
   merchant: { name: 'مطعم خالد', state: 'preparing', readyInMin: 9 },
   collectIqd: 18_000,
   favourite: false,
+  nudgedAt: null,
   ...over,
 });
 

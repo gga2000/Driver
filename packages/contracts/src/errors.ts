@@ -217,6 +217,11 @@ export const ERROR_TABLE = {
   regular_trip_limit: { retryHint: 'never', status: 'CONFLICT' },
   occurrence_closed: { retryHint: 'never', status: 'CONFLICT' },
   dinner_not_available: { retryHint: 'never', status: 'CONFLICT' },
+  // Ride step 3: the offered drivers and «نبّهه» only while the ride searches; one nudge per driver; avoid list.
+  ride_not_searching: { retryHint: 'never', status: 'CONFLICT' },
+  nudge_offer_closed: { retryHint: 'never', status: 'CONFLICT' },
+  nudge_already: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
+  avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },

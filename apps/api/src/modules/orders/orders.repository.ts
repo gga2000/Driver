@@ -86,6 +86,8 @@ export interface OrderRecord {
   familyTable?: boolean;
   /** Joy l9: the favourite driver a ride booked for later asked for (`orders.preferred_driver_id`). */
   preferredDriverId?: string | null;
+  /** Ride step 3 (s6) «عوائل»: family-tagged, long-standing, well-rated drivers first (`orders.family_preferred`). */
+  familyPreferred?: boolean;
 }
 
 /** `orders.discount_meta`: the applied discount without its amount and promotion id (those are columns). */
@@ -310,6 +312,7 @@ function orderFromRow(r: any): OrderRecord {
     heldForPayer: r.heldForPayer ?? false,
     familyTable: r.familyTable ?? false,
     preferredDriverId: r.preferredDriverId ?? null,
+    familyPreferred: r.familyPreferred ?? false,
   };
 }
 

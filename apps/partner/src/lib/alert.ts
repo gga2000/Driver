@@ -38,13 +38,13 @@ function audio(): Ctx | null {
   return ctx;
 }
 
-function tone(c: Ctx, freq: number, at: number, dur: number) {
+function tone(c: Ctx, freq: number, at: number, dur: number, peak = 0.4) {
   const o = c.createOscillator();
   const g = c.createGain();
   o.type = 'sine';
   o.frequency.setValueAtTime(freq, at);
   g.gain.setValueAtTime(0.0001, at);
-  g.gain.exponentialRampToValueAtTime(0.4, at + 0.02);
+  g.gain.exponentialRampToValueAtTime(peak, at + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   o.connect(g);
   g.connect(c.destination);
@@ -64,6 +64,30 @@ export function playOfferChime(): void {
   } catch {
     /* audio blocked until the first tap: the haptic and the ring still tell him */
   }
+}
+
+/** Soft volume of the rider's nudge (ride step 3): a reminder, not a second doorbell. */
+export const NUDGE_GAIN = 0.12;
+/** One short tap for the nudge. */
+export const NUDGE_VIBRATION = [0, 120];
+
+/**
+ * «راكب ينتظرك»: the rider nudged this offer — one soft, quick chime (falling, unlike the offer's
+ * rising doorbell) and a short tap. Plays once; the offer's own loop keeps going.
+ */
+export function playNudgeChime(): void {
+  const c = audio();
+  if (c) {
+    try {
+      if (c.state === 'suspended') void c.resume?.();
+      const t = c.currentTime + 0.01;
+      tone(c, 1175, t, 0.14, NUDGE_GAIN);
+      tone(c, 988, t + 0.12, 0.22, NUDGE_GAIN);
+    } catch {
+      /* audio blocked until the first tap: the card still shows it */
+    }
+  }
+  buzz(NUDGE_VIBRATION);
 }
 
 function buzz(pattern: number[]) {

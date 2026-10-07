@@ -12,7 +12,7 @@ import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, 
 import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
-import { startOfferAlert, stopOfferAlert } from '@/lib/alert';
+import { playNudgeChime, startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -73,6 +73,14 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.offerId]);
+  // Ride step 3: the rider nudged this offer («راكب ينتظرك») — one soft chime when it lands, not on
+  // an offer that opened already nudged (the doorbell is ringing for it anyway).
+  const nudged = Boolean(offer.nudgedAt);
+  const wasNudged = useRef(nudged);
+  useEffect(() => {
+    if (nudged && !wasNudged.current && !answered.current) playNudgeChime();
+    wasNudged.current = nudged;
+  }, [nudged]);
   useEffect(() => {
     if (offerWarnTick(left) && !answered.current) theme.haptic('warning');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -270,6 +278,23 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
                 </Text>
                 <Text variant="caption" color="textMuted">
                   {t('partner.offer_favourite_body')}
+                </Text>
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {/* Ride step 3: the rider tapped «نبّه السايق» on this offer. */}
+          {nudged ? (
+            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-nudged" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.liveTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="bell" size={18} color="liveText" strokeWidth={2.4} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} color="liveText">
+                  {t('partner.offer_nudged_title')}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_nudged_body')}
                 </Text>
               </View>
             </Animated.View>

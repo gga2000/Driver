@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  AvoidDriverInput,
+  AvoidedDriverView,
   ConfirmOccurrenceInput,
   DinnerChance,
   DinnerTime,
@@ -12,6 +14,7 @@ import {
   RegularTripIdInput,
   RegularTripView,
   SaveRegularTripInput,
+  UnavoidInput,
   UnfavouriteInput,
 } from '../ride-habits-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -24,6 +27,10 @@ export const rideHabitsRouter = router({
   favourites: protectedProcedure().output(z.array(FavouriteDriverView)).query(({ ctx }) => ctx.rideHabits.favourites(ctx.actor)),
   favourite: protectedProcedure().input(FavouriteInput).output(z.array(FavouriteDriverView)).mutation(({ ctx, input }) => ctx.rideHabits.favourite(ctx.actor, input)),
   unfavourite: protectedProcedure().input(UnfavouriteInput).output(z.array(FavouriteDriverView)).mutation(({ ctx, input }) => ctx.rideHabits.unfavourite(ctx.actor, input)),
+  /** s5 «ما أريده مرة ثانية»: the driver of one of my rides never gets my rides again. */
+  avoid: protectedProcedure().input(AvoidDriverInput).output(z.array(AvoidedDriverView)).mutation(({ ctx, input }) => ctx.rideHabits.avoid(ctx.actor, input)),
+  avoided: protectedProcedure().output(z.array(AvoidedDriverView)).query(({ ctx }) => ctx.rideHabits.avoided(ctx.actor)),
+  unavoid: protectedProcedure().input(UnavoidInput).output(z.array(AvoidedDriverView)).mutation(({ ctx, input }) => ctx.rideHabits.unavoid(ctx.actor, input)),
   recentGood: protectedProcedure().output(RecentDriverView.nullable()).query(({ ctx }) => ctx.rideHabits.recentGood(ctx.actor)),
   regular: router({
     list: protectedProcedure().output(z.array(RegularTripView)).query(({ ctx }) => ctx.rideHabits.regularList(ctx.actor)),

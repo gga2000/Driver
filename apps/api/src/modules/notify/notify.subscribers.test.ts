@@ -103,6 +103,9 @@ describe('notify subscribers: events → notifications', () => {
       { template: 'partner_zone_nudge', to: 'd1', params: { zone: 'العزيزية (مركز)' } },
       { template: 'partner_zone_nudge', to: 'd2', params: { zone: 'العزيزية (مركز)' } },
     ]);
+    // Ride step 3 (n4): «نبّهه» — one soft «راكب ينتظرك» to the nudged driver.
+    expect(await one(event('dispatch.offer_nudged', { offerId: 'do_1', driverId: 'drv' }, { tripId: 'trp_1', actorId: 'cust' }))).toEqual([{ template: 'ride_nudge', to: 'drv', params: {} }]);
+    expect(await one(event('dispatch.offer_nudged', { offerId: 'do_1' }, { tripId: 'trp_1' }))).toEqual([]);
     expect(await one(event('order.accepted', {}, { orderId: 'gone' }))).toEqual([]);
     // M-12: the kitchen's one "+5 د" — the customer hears "المطعم زاد 5 دقايق".
     expect(await one(event('order.prep_extended', { minutes: 5 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_prep_extended', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);

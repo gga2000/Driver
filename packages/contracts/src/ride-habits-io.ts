@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DeliveryPoint, Iqd } from './common.js';
+import type { DriverProfile, DriverProfileInput, MyRideOffers, MyRideOffersInput, NudgeOfferInput, NudgeOfferResult } from './dispatch-io.js';
 import type { Actor } from './identity-io.js';
 import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js';
 
@@ -11,8 +12,12 @@ import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js'
 export const RIDE_HABIT_RULES = {
   /** A ride booked for later: at least this far ahead, at most this many days, the search starts this early. */
   schedule: { minLeadMin: 20, maxAheadDays: 7, searchLeadMin: 15, stepMin: 15 },
-  /** l9: the favourite rings alone this long before the normal waves; at most this many per person. */
-  favourite: { offerWindowSec: 60, maxPerPerson: 20, goodStars: 4, recentHours: 24 },
+  /**
+   * l9: the favourite rings alone this long before the normal waves; at most this many per person.
+   * s4: without a favourite asked for, a favourite online and free within `autoFirstKm` of the pickup
+   * gets any ride of his first, alone, for the same window.
+   */
+  favourite: { offerWindowSec: 60, maxPerPerson: 20, goodStars: 4, recentHours: 24, autoFirstKm: 2 },
   /**
    * r5: the evening ask at 20:00 the day before, the morning ask at 08:00 (the end of quiet hours) for
    * trips from 09:00; an occurrence closer than `closeLeadMin` can no longer be confirmed. الرجعة looks
@@ -108,6 +113,28 @@ export type FavouriteInput = z.input<typeof FavouriteInput>;
 
 export const UnfavouriteInput = z.object({ favouriteId: z.string().min(1) });
 export type UnfavouriteInput = z.infer<typeof UnfavouriteInput>;
+
+// ───────────────────────── «ما أريده مرة ثانية» (s5) ─────────────────────────
+
+/**
+ * Keep the driver of one of my rides (finished, or the one assigned now) off my rides for good.
+ * Dispatch never offers my rides to him again; if he was a favourite, he no longer is.
+ */
+export const AvoidDriverInput = z.object({ orderId: z.string().min(1) });
+export type AvoidDriverInput = z.infer<typeof AvoidDriverInput>;
+
+/** A driver I keep off my rides: first name and approved photo only (logged vault reads). */
+export const AvoidedDriverView = z.object({
+  /** The avoid row's id (what `unavoid` takes); not the driver's. */
+  id: z.string(),
+  firstName: z.string().nullable(),
+  photoUrl: z.string().nullable(),
+  since: z.coerce.date(),
+});
+export type AvoidedDriverView = z.infer<typeof AvoidedDriverView>;
+
+export const UnavoidInput = z.object({ avoidId: z.string().min(1) });
+export type UnavoidInput = z.infer<typeof UnavoidInput>;
 
 /** The driver of my last good trip (last 24 h, 4–5 stars) who is not a favourite yet. */
 export const RecentDriverView = z.object({
@@ -364,4 +391,14 @@ export interface RideHabitsPort {
   skip(actor: Actor, input: OccurrenceInput): Promise<OccurrenceView>;
   dinnerChance(actor: Actor): Promise<DinnerChance | null>;
   dinnerTime(actor: Actor, input: DinnerTimeInput): Promise<DinnerTime>;
+  /** s5: keep the driver of one of my rides off my rides; returns my whole list. */
+  avoid(actor: Actor, input: AvoidDriverInput): Promise<AvoidedDriverView[]>;
+  avoided(actor: Actor): Promise<AvoidedDriverView[]>;
+  unavoid(actor: Actor, input: UnavoidInput): Promise<AvoidedDriverView[]>;
+  /** n3: the drivers who were sent my searching ride (`dispatch.myRideOffers`). */
+  myRideOffers(actor: Actor, input: MyRideOffersInput): Promise<MyRideOffers>;
+  /** n4 «نبّهه» (`dispatch.nudgeOffer`). */
+  nudgeOffer(actor: Actor, input: NudgeOfferInput): Promise<NudgeOfferResult>;
+  /** n5: an offered or the assigned driver's profile (`tracking.driverProfile`). */
+  driverProfile(actor: Actor, input: DriverProfileInput): Promise<DriverProfile>;
 }

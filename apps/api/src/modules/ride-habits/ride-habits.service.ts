@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   askAt,
   atLocal,
@@ -12,6 +12,8 @@ import {
   RIDE_HABIT_RULES,
   SaveRegularTripInput,
   type Actor,
+  type AvoidDriverInput,
+  type AvoidedDriverView,
   type BookingView,
   type CalendarDate,
   type ConfirmOccurrenceInput,
@@ -20,11 +22,17 @@ import {
   type DinnerSource,
   type DinnerTime,
   type DinnerTimeInput,
+  type DriverProfile,
+  type DriverProfileInput,
   type FavouriteDriverView,
   type FavouriteInput,
   type FavouriteKind,
   type IntercitySeatId,
   type LatLng,
+  type MyRideOffers,
+  type MyRideOffersInput,
+  type NudgeOfferInput,
+  type NudgeOfferResult,
   type OccurrenceDecision,
   type OccurrenceInput,
   type OccurrenceSummary,
@@ -34,12 +42,14 @@ import {
   type RegularTripView,
   type RideHabitsPort,
   type SavedPlaceView,
+  type UnavoidInput,
   type UnfavouriteInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
 import { RIDE_HABITS_REPOSITORY, type FavouriteRecord, type OccurrenceRecord, type RegularTripRecord, type RideHabitsRepository } from './ride-habits.repository.js';
+import { RiderDriversService } from './rider-drivers.service.js';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -66,6 +76,8 @@ export class RideHabitsService implements RideHabitsPort {
     @Inject(HABITS_PEOPLE) private readonly people: HabitsPeoplePort,
     @Inject(HABITS_EVENTS) private readonly events: HabitsEventsPort,
     @Inject(CLOCK) private readonly clock: Clock,
+    /** Ride step 3: the offered drivers, «نبّهه», the driver profile and the avoid list. */
+    @Optional() private readonly riderDrivers?: RiderDriversService,
   ) {}
 
   // ───────────────────────── favourites (l9) ─────────────────────────
@@ -87,6 +99,8 @@ export class RideHabitsService implements RideHabitsPort {
     if ((trip.stars ?? 0) < RIDE_HABIT_RULES.favourite.goodStars) throw new DriverError('favourite_needs_good_rating');
     const mine = await this.repo.favouritesOf(actor.personId);
     if (!mine.some((f) => f.driverId === trip.driverId) && mine.length >= RIDE_HABIT_RULES.favourite.maxPerPerson) throw new DriverError('favourite_limit');
+    // s5: hearting a driver he once kept off his rides takes him off that list.
+    await this.repo.removeAvoid(actor.personId, trip.driverId);
     await this.repo.addFavourite(actor.personId, trip.driverId, trip.kind, this.clock.now());
     return this.favourites(actor);
   }
@@ -117,6 +131,42 @@ export class RideHabitsService implements RideHabitsPort {
     if (!best) return null;
     const [names, photos] = await Promise.all([this.people.firstNames([best.driverId], actor.personId), this.people.photoUrls([best.driverId], actor.personId)]);
     return { orderId: best.orderId, bookingId: best.bookingId, firstName: names[best.driverId] ?? null, photoUrl: photos[best.driverId] ?? null, kind: best.kind, stars: best.stars, finishedAt: best.finishedAt };
+  }
+
+  // ───────────────────────── ride step 3: the drivers of his ride ─────────────────────────
+
+  myRideOffers(actor: Actor, input: MyRideOffersInput): Promise<MyRideOffers> {
+    return this.drivers.myRideOffers(actor, input);
+  }
+
+  nudgeOffer(actor: Actor, input: NudgeOfferInput): Promise<NudgeOfferResult> {
+    return this.drivers.nudgeOffer(actor, input);
+  }
+
+  driverProfile(actor: Actor, input: DriverProfileInput): Promise<DriverProfile> {
+    return this.drivers.driverProfile(actor, input);
+  }
+
+  avoid(actor: Actor, input: AvoidDriverInput): Promise<AvoidedDriverView[]> {
+    return this.drivers.avoid(actor, input);
+  }
+
+  avoided(actor: Actor): Promise<AvoidedDriverView[]> {
+    return this.drivers.avoided(actor);
+  }
+
+  unavoid(actor: Actor, input: UnavoidInput): Promise<AvoidedDriverView[]> {
+    return this.drivers.unavoid(actor, input);
+  }
+
+  private get drivers(): RiderDriversService {
+    if (!this.riderDrivers) throw new DriverError('internal');
+    return this.riderDrivers;
+  }
+
+  /** Dispatch's read when a ride of his starts searching (s4): his favourite drivers. */
+  async favouriteDriverIds(personId: string): Promise<string[]> {
+    return (await this.repo.favouritesOf(personId)).map((f) => f.driverId);
   }
 
   /** Orders' check at placement: the driver behind one of his favourites, or null. */
