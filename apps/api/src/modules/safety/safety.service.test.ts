@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appRouter } from '@driver/contracts/router';
 import { SAFETY_RULES, type Actor, type AppContext, type LiveBusEvent, type Order, type SessionClaims, type Trip } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
@@ -14,6 +15,7 @@ import { emergencyContactOwner, NotifyService } from '../notify/notify.service.j
 import { DevPushProvider } from '../notify/providers/push.js';
 import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
 import { InMemorySafetyRepository } from './safety.repository.js';
+import type { OnCallPort } from './on-call.js';
 import { SafetyService } from './safety.service.js';
 import type { SafetySources } from './safety.subjects.js';
 
@@ -26,7 +28,7 @@ const POS = { lat: 32.9095, lng: 45.0635, accuracyM: 12, at: new Date('2026-10-0
 const NAMES: Record<string, string> = { p_rider: 'زينب علي', p_driver: 'حيدر كاظم', p_haider: 'حيدر جاسم', p_ali: 'علي أحمد' };
 const PHONES: Record<string, string> = { p_rider: '+9647702223344', p_driver: '+9647701110002', p_haider: '+9647700000002', p_ali: '+9647700000001' };
 
-function harness(opts: { contact?: boolean; driverContact?: boolean } = {}) {
+function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null } = {}) {
   const clock = new FakeClock('2026-10-05T18:00:00Z');
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -131,6 +133,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean } = {}) {
     staff,
     ev.uow,
     clock,
+    opts.onCall ?? null,
   );
   svc.onModuleInit();
   const raise = (actor: Actor = RIDER, clientId = 'press-0001', subject = { kind: 'order' as const, id: order.id }) => svc.sos(actor, { subject, position: POS, clientId, pressedAt: new Date('2026-10-05T17:59:59Z') });
@@ -139,7 +142,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean } = {}) {
     if (ms > 0) clock.advance(ms);
     await queue.drain();
   };
-  return { svc, clock, ev, vault, published, controls, calls, order, trip, raise, deliveries, run, whatsapp, sms };
+  return { svc, clock, ev, vault, published, controls, calls, order, trip, raise, deliveries, run, whatsapp, sms, notify };
 }
 
 describe('SafetyService — raising an SOS', () => {
@@ -148,7 +151,7 @@ describe('SafetyService — raising an SOS', () => {
     const view = await h.raise();
     expect(view).toMatchObject({ state: 'open', sharing: true, contactName: 'أم زينب', contactStatus: 'queued' });
     expect(view.cancelUntil.getTime() - view.raisedAt.getTime()).toBe(SAFETY_RULES.cancelWindowSec * 1000);
-    expect((await h.ev.events.forAggregate('safety_incident', view.incidentId)).map((e) => e.type)).toEqual(['sos.raised']);
+    expect((await h.ev.events.forAggregate('safety_incident', view.incidentId)).map((e) => e.type)).toEqual(['sos.raised', 'safety.incident_opened']);
     await h.run();
     const paged = [...(await h.deliveries('p_haider')), ...(await h.deliveries('p_ali'))];
     expect(paged.map((d) => [d.personId, d.template, d.channel])).toEqual([
@@ -161,7 +164,7 @@ describe('SafetyService — raising an SOS', () => {
     expect(h.published).toContainEqual({ channel: 'safety', event: { type: 'invalidate', keys: ['safety.open'], cause: 'sos.raised' } });
     const c = await h.svc.get(HAIDER, { id: view.incidentId });
     expect(c.timeline.map((e) => e.kind)).toEqual(['raised', 'paged']);
-    expect(c.timeline[1]!.data).toEqual({ count: '2' });
+    expect(c.timeline[1]!.data).toEqual({ count: '2', source: 'fallback_all_dispatchers' });
     expect(c).toMatchObject({ raiser: { role: 'customer', displayName: 'زينب ع.' }, counterpart: { personId: 'p_driver', role: 'driver' }, subject: { label: 'مشوار تكتك #' + c.subject.label.split('#')[1], vehicle: 'تكتك باجاج · 12345 واسط' } });
     expect(c.lastPosition).toMatchObject({ lat: POS.lat, lng: POS.lng, accuracyM: 12, deviceAt: POS.at });
   });
@@ -326,6 +329,94 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
   });
 });
 
+describe('SafetyService — the on-call paging port', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** Who got the first page (one dispatch per person) and what the fallback log said. */
+  async function firstPage(onCall: OnCallPort | null, opts: { slow?: boolean } = {}) {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const h = harness({ onCall });
+    const dispatch = vi.spyOn(h.notify, 'dispatch');
+    if (opts.slow) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const raised = h.raise();
+    if (opts.slow) await vi.advanceTimersByTimeAsync(2_001);
+    const v = await raised;
+    if (opts.slow) await vi.advanceTimersByTimeAsync(2_001);
+    if (opts.slow) vi.useRealTimers();
+    await h.run();
+    const paged = dispatch.mock.calls.filter(([req]) => req.template === 'sos_dispatch_alert').map(([req]) => req.to);
+    const fallbackLogs = warn.mock.calls.map(([m]) => String(m)).filter((m) => m.startsWith('safety_oncall_fallback'));
+    const kase = await h.svc.get(HAIDER, { id: v.incidentId });
+    return { h, v, paged, fallbackLogs, pagedEntry: kase.timeline.find((e) => e.kind === 'paged')! };
+  }
+
+  it('port absent → every live dispatcher and admin, logged', async () => {
+    const r = await firstPage(null);
+    expect(r.v.state).toBe('open');
+    expect(r.paged).toEqual(['p_haider', 'p_ali']);
+    expect(r.fallbackLogs).toEqual([expect.stringContaining('reason=absent')]);
+    expect(r.pagedEntry.data).toMatchObject({ source: 'fallback_all_dispatchers' });
+  });
+
+  it('port throws → fallback; the SOS still opens', async () => {
+    const r = await firstPage({ firstPage: async () => Promise.reject(new Error('rota down')) });
+    expect(r.v.state).toBe('open');
+    expect(r.paged).toEqual(['p_haider', 'p_ali']);
+    expect(r.fallbackLogs).toEqual([expect.stringMatching(/reason=threw .*rota down/)]);
+  });
+
+  it('port slower than 2 s → fallback', async () => {
+    const r = await firstPage({ firstPage: () => new Promise(() => undefined) }, { slow: true });
+    expect(r.v.state).toBe('open');
+    expect(r.paged).toEqual(['p_haider', 'p_ali']);
+    expect(r.fallbackLogs).toEqual([expect.stringContaining('reason=timeout')]);
+  });
+
+  it('port returns nobody → fallback', async () => {
+    const r = await firstPage({ firstPage: async () => ({ step: 1, staffPersonIds: [], ackWithinSec: 60, source: 'roster' }) });
+    expect(r.paged).toEqual(['p_haider', 'p_ali']);
+    expect(r.fallbackLogs).toEqual([expect.stringContaining('reason=empty')]);
+  });
+
+  it('port returns two people → exactly those two are paged; escalation is left to the on-call module', async () => {
+    const seen: unknown[] = [];
+    const r = await firstPage({
+      firstPage: async (i) => {
+        seen.push(i);
+        return { step: 1, staffPersonIds: ['p_haider', 'p_oncall'], ackWithinSec: 90, source: 'roster' };
+      },
+    });
+    expect(r.paged).toEqual(['p_haider', 'p_oncall']);
+    expect(r.fallbackLogs).toEqual([]);
+    expect(r.pagedEntry.data).toEqual({ count: '2', source: 'roster', step: '1' });
+    expect(seen).toEqual([{ incidentId: r.v.incidentId, kind: 'sos', cityId: 'aziziyah', zoneKey: null, orderId: 'ord_ride_1', rideId: null, tripId: 'trp_1', createdAt: r.v.raisedAt }]);
+    // Nobody took it in 60 s: the incident is marked escalated, but safety pages nobody again.
+    const dispatch = vi.spyOn(r.h.notify, 'dispatch');
+    r.h.clock.advance(61_000);
+    expect((await r.h.svc.sweep()).escalated).toBe(1);
+    await r.h.run();
+    expect(dispatch.mock.calls.filter(([req]) => req.template === 'sos_dispatch_alert')).toHaveLength(0);
+  });
+
+  it('emits the on-call events: opened, acked (with who), closed', async () => {
+    const h = harness();
+    const v = await h.raise();
+    await h.svc.acknowledge(HAIDER, { id: v.incidentId });
+    await h.svc.resolve(HAIDER, { id: v.incidentId, outcome: 'safe', note: 'اتصلنا، بخير' });
+    const evs = await h.ev.events.forAggregate('safety_incident', v.incidentId);
+    const of = (t: string) => evs.find((e) => e.type === t)?.payload;
+    expect(of('safety.incident_opened')).toMatchObject({ incidentId: v.incidentId, kind: 'sos', cityId: 'aziziyah', orderId: 'ord_ride_1', tripId: 'trp_1' });
+    expect(of('safety.incident_acked')).toEqual({ incidentId: v.incidentId, byPersonId: HAIDER.personId });
+    expect(of('safety.incident_closed')).toEqual({ incidentId: v.incidentId, outcome: 'safe', byPersonId: HAIDER.personId });
+    const w = await h.raise(RIDER, 'press-cancel-1');
+    await h.svc.cancel(RIDER, { incidentId: w.incidentId });
+    expect((await h.ev.events.forAggregate('safety_incident', w.incidentId)).find((e) => e.type === 'safety.incident_closed')?.payload).toEqual({ incidentId: w.incidentId, outcome: 'false_alarm', byPersonId: null });
+  });
+});
+
 describe('SafetyService — the Console desk', () => {
   it('acknowledge → call → note → resolve, all on the timeline and in the audit log', async () => {
     const h = harness();
@@ -348,7 +439,7 @@ describe('SafetyService — the Console desk', () => {
     const c = await h.svc.get(HAIDER, { id: v.incidentId });
     expect(c.timeline.map((e) => e.kind)).toEqual(['raised', 'paged', 'acknowledged', 'call', 'call', 'call', 'note', 'resolved']);
     expect(h.controls.auditRows.map((a) => a.action)).toEqual(['safety.acknowledge', 'safety.call', 'safety.call', 'safety.call', 'safety.resolve']);
-    expect((await h.ev.events.forAggregate('safety_incident', v.incidentId)).map((e) => e.type)).toEqual(['sos.raised', 'sos.acknowledged', 'sos.resolved']);
+    expect((await h.ev.events.forAggregate('safety_incident', v.incidentId)).map((e) => e.type)).toEqual(['sos.raised', 'safety.incident_opened', 'sos.acknowledged', 'safety.incident_acked', 'sos.resolved', 'safety.incident_closed']);
     expect(await h.svc.list(HAIDER, { scope: 'open', limit: 10 })).toEqual([]);
     expect(await h.svc.status(RIDER, {})).toBeNull();
   });
