@@ -7,6 +7,10 @@ work on it later. I don't want to work on them now."
 to prepare for launch, work through it from the top. When an item is done or Ali changes his mind,
 update this file in the same commit.
 
+**Started 2026-10-07 (Ali's D-22, in the approved launch plan):** the items a food-only launch needs
+are now open and tracked in `docs/launch/can-deliver-plan.md` (gate G0), which says where every item
+below goes. Items it marks "after launch" stay parked.
+
 Each item says what it is in plain words and where the details are written. "Blocks launch" means
 we can't open to the public without it.
 
