@@ -6,3 +6,5 @@ export { COURIER_VEHICLES, InMemoryCourierVehicles, PrismaCourierVehicles } from
 export type { CourierVehicle, CourierVehicleDirectory } from './vehicles.js';
 export { ShareLinksService, InMemoryShareLinksRepository, PrismaShareLinksRepository, SHARE_LINKS_REPOSITORY, expiryOf } from './share-links.js';
 export type { ShareLinksRepository, ShareLinkRecord, ShareIntercityPort, ShareNamesPort } from './share-links.js';
+/** Joy l2: a driver's delivery scores from his finished trips (the public rating's source). */
+export { tripsOrdersRatings } from './ratings.js';

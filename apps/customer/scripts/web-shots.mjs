@@ -39,6 +39,11 @@
 //            box (on the way, the range option, late), delivered with the courier, the compliment chips
 //            (picked, sent) before the tip card            POST /demo/track (kitchen, on_the_way, late; rated=1)
 //            and the ride reveal (a taxi accepted while the screen is open)    POST /demo/ride
+//   trips-*  joy J7d on a fresh account: the ride tab (a regular trip asking, «خليه سايقك المفضل؟»),
+//            «رحلاتي الثابتة», a day to confirm (ride, الرجعة) and confirmed, the editor (ride, الرجعة),
+//            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
+//            الرجعة board's «سايقك», the kept pass's heart, «عشاك يوصل وياك» on home, the list and
+//            checkout, and on the الرجعة pass, the notification switch     POST /demo/ride-habits, /demo/dinner
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -102,7 +107,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -240,12 +245,185 @@ try {
   if (wants('habits')) await habitsShots();
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
+  if (wants('trips')) await tripsShots(khalid);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+/**
+ * Joy J7d ride habits, as a fresh account (no order running): POST /demo/ride-habits gives two
+ * finished taxi rides and a الرجعة (two favourites), two regular trips asking now and a ride booked for
+ * the work trip's next day; POST /demo/dinner puts a taxi home on the road, then a seat to Aziziyah.
+ */
+async function tripsShots(khalid) {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.TRIPS_PHONE ?? '0770 456 8899');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('أبو زهراء');
+    await byTestId('setup-next').click();
+    await byTestId('chip-street_30').click();
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('no person after sign-in');
+  const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+
+  // Home: the ride booked for the work trip's next day has its own card.
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-booked-ride').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked ride card not shown'));
+  await shot('trips-home');
+
+  // The ride tab: the regular trip asking now, the last good driver, «رحلاتي الثابتة».
+  await page.goto(`${origin}/ride`, LOADED);
+  await byTestId(`regular-due-${seed.regularRideId}`).waitFor({ timeout: 15_000 }).catch(() => errors.push('regular due card not shown'));
+  await byTestId('recent-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('recent driver card not shown'));
+  await shot('trips-ride-tab');
+  await fullShot('trips-ride-tab-full');
+
+  await page.goto(`${origin}/regular`, LOADED);
+  await byTestId(`regular-trip-${seed.regularRideId}`).waitFor({ timeout: 15_000 });
+  await shot('trips-regular');
+  await fullShot('trips-regular-full');
+
+  await page.goto(`${origin}/regular/${seed.regularRideId}?date=${seed.rideDate}`, LOADED);
+  await byTestId('occurrence-fare-amount').waitFor({ timeout: 15_000 });
+  await shot('trips-occurrence-ride');
+
+  await page.goto(`${origin}/regular/${seed.regularRajaaId}?date=${seed.rajaaDate}`, LOADED);
+  await byTestId('occurrence-head').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('trips-occurrence-rajaa');
+  await fullShot('trips-occurrence-rajaa-full');
+
+  // «أكدها» on the ride day: booked, with the search time.
+  await page.goto(`${origin}/regular/${seed.regularRideId}?date=${seed.rideDate}`, LOADED);
+  await byTestId('occurrence-confirm').waitFor({ timeout: 15_000 });
+  await byTestId('occurrence-confirm').click();
+  await byTestId('occurrence-booked').waitFor({ timeout: 15_000 }).catch(() => errors.push('occurrence not booked'));
+  await shot('trips-occurrence-booked');
+
+  // The editor: the work ride, then a new الرجعة.
+  await page.goto(`${origin}/regular`, LOADED);
+  await byTestId(`regular-edit-${seed.regularRideId}`).click();
+  await byTestId('regular-save').waitFor({ timeout: 15_000 });
+  await shot('trips-edit-ride');
+  await page.locator('[data-testid="regular-save"]:visible').first().scrollIntoViewIfNeeded();
+  await shot('trips-edit-ride-bottom');
+  await page.goto(`${origin}/regular`, LOADED);
+  await byTestId('regular-add-rajaa').click();
+  await byTestId('regular-save').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('trips-edit-rajaa');
+  await page.locator('[data-testid="regular-save"]:visible').first().scrollIntoViewIfNeeded();
+  await shot('trips-edit-rajaa-bottom');
+
+  await page.goto(`${origin}/drivers`, LOADED);
+  await page.locator('[data-testid^="driver-fav_"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('favourites not shown'));
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete)).catch(() => {});
+  await shot('trips-drivers');
+
+  await page.goto(`${origin}/ride/booked/${seed.bookedOrderId}`, LOADED);
+  await byTestId('booked-card').waitFor({ timeout: 15_000 });
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete)).catch(() => {});
+  await shot('trips-booked');
+  await fullShot('trips-booked-full');
+
+  // Booking a ride for later with the favourite: home → work, «لوكت ثاني», حسين.
+  await page.goto(`${origin}/ride`, LOADED);
+  // The where-to screen may open on «من» or on «إلى»: الدائرة, then البيت if it was the pickup.
+  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+  await settle(600);
+  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(async () => {
+    errors.push('choose screen not shown');
+    await page.screenshot({ path: join(outDir, 'trips-debug-choose.png') });
+  });
+  // «وكتها» lives in the trip options sheet (ride idea c7).
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await page.getByText('لوكت ثاني', { exact: true }).click();
+  await byTestId('ride-fav').waitFor({ timeout: 10_000 }).catch(() => errors.push('favourite chips not shown'));
+  await page.getByText('حسين', { exact: true }).click().catch(() => errors.push('favourite chip not found'));
+  await byTestId('ride-when').scrollIntoViewIfNeeded();
+  await settle(900);
+  await shot('trips-choose-later');
+  await byTestId('ride-options-done').click();
+  await settle(600);
+  await shot('trips-choose-later-row');
+
+  // The الرجعة board: «سايقك» on جاسم's car to Kut, and the regular trip asking.
+  await page.goto(`${origin}/rajaa?corridor=aziziyah_kut&direction=from_aziziyah`, LOADED);
+  await page.locator('[data-testid^="departure-fav-"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('favourite badge on the board not shown'));
+  await shot('trips-rajaa-board');
+  await page.locator('[data-testid^="departure-fav-"]').first().scrollIntoViewIfNeeded().catch(() => {});
+  await settle(500);
+  await shot('trips-rajaa-board-fav');
+
+  // The kept pass of the rated الرجعة: the heart, already on.
+  await page.goto(`${origin}/rajaa/pass/${seed.rajaaBookingId}`, LOADED);
+  await byTestId('favourite-toggle').waitFor({ timeout: 15_000 }).catch(() => errors.push('favourite toggle on the pass not shown'));
+  await byTestId('favourite-toggle').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('trips-pass-favourite');
+
+  // «عشاك يوصل وياك»: a taxi home on the road → home card → the kitchens → checkout's «وياك».
+  const homeRide = await demoPost(`/demo/dinner?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-dinner').waitFor({ timeout: 20_000 }).catch(() => errors.push('dinner card on home not shown'));
+  await shot('trips-dinner-home');
+  await byTestId('home-dinner-go').click();
+  await byTestId('dinner-banner').waitFor({ timeout: 15_000 }).catch(() => errors.push('dinner banner not shown'));
+  await shot('trips-dinner-list');
+  // Screens stay mounted under the new one on web: the visible copy of each element.
+  const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
+  await visible(`restaurant-row-${khalid}`).click();
+  await visible(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
+  await visible(`dish-add-${khalid}_pepsi`).click();
+  if (await visible('item-sheet').isVisible().catch(() => false)) {
+    await visible('item-add').click();
+    await byTestId('item-sheet').waitFor({ state: 'detached' });
+  }
+  await visible('cart-bar').click();
+  await visible('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-dinner-note').waitFor({ timeout: 15_000 }).catch(() => errors.push('dinner note at checkout not shown'));
+  await byTestId('checkout-row-when').scrollIntoViewIfNeeded().catch(() => {});
+  await settle(900);
+  await shot('trips-dinner-checkout');
+
+  // The taxi gets home first (one trip on at a time offers dinner), then a seat back from Kut.
+  if (homeRide?.orderId) await demoPost(`/demo/ride/advance?orderId=${homeRide.orderId}`);
+  const seat = await demoPost(`/demo/dinner?personId=${encodeURIComponent(personId)}&kind=rajaa`);
+  if (seat?.bookingId) {
+    await page.goto(`${origin}/rajaa/pass/${seat.bookingId}`, LOADED);
+    await byTestId('rajaa-dinner').waitFor({ timeout: 20_000 }).catch(() => errors.push('dinner card on the pass not shown'));
+    await byTestId('rajaa-dinner').scrollIntoViewIfNeeded().catch(() => {});
+    await settle(700);
+    await shot('trips-dinner-pass');
+  }
+
+  await page.goto(`${origin}/profile/notifications`, LOADED);
+  await byTestId('pref-regularTrips').waitFor({ timeout: 15_000 });
+  await byTestId('pref-regularTrips').scrollIntoViewIfNeeded();
+  await shot('trips-notify');
 }
 
 /**

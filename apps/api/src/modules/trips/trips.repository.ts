@@ -141,7 +141,7 @@ export interface TripsRepository extends TripOrderLookup {
    */
   updateTrip(id: string, patch: TripPatch, now: Date, tx?: Tx): Promise<TripRecord>;
   updateTripIf(id: string, expectState: TripState, patch: TripPatch, now: Date, tx?: Tx): Promise<TripRecord | null>;
-  findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date }, tx?: Tx): Promise<TripRecord[]>;
+  findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date; cancelledSince?: Date }, tx?: Tx): Promise<TripRecord[]>;
 
   stopsOf(tripId: string, tx?: Tx): Promise<StopRecord[]>;
   /** Appends stops after the trip's last `seq`. */
@@ -292,13 +292,14 @@ export class PrismaTripsRepository implements TripsRepository {
     return this.findTrip(id, tx);
   }
 
-  async findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date }, tx?: Tx) {
+  async findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date; cancelledSince?: Date }, tx?: Tx) {
     const rows = await this.db(tx).trip.findMany({
       where: {
         ...(filter.cityId ? { cityId: filter.cityId } : {}),
         ...(filter.courierId ? { courierId: filter.courierId } : {}),
         ...(filter.states ? { state: { in: [...filter.states] } } : {}),
         ...(filter.completedSince ? { completedAt: { gte: filter.completedSince } } : {}),
+        ...(filter.cancelledSince ? { cancelledAt: { gte: filter.cancelledSince } } : {}),
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -524,7 +525,7 @@ export class InMemoryTripsRepository implements TripsRepository {
     return this.updateTrip(id, patch, now);
   }
 
-  async findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date }) {
+  async findTrips(filter: { cityId?: string; courierId?: string; states?: readonly TripState[]; completedSince?: Date; cancelledSince?: Date }) {
     // Creation order either way (ids are `trip_<seq>`).
     const scope = filter.courierId
       ? [...(this.tripsByCourier.get(filter.courierId) ?? [])].sort((a, b) => Number(a.slice(5)) - Number(b.slice(5))).map((id) => this.trips.get(id)!)
@@ -535,7 +536,8 @@ export class InMemoryTripsRepository implements TripsRepository {
           (!filter.cityId || t.cityId === filter.cityId) &&
           (!filter.courierId || t.courierId === filter.courierId) &&
           (!filter.states || filter.states.includes(t.state)) &&
-          (!filter.completedSince || (t.completedAt !== null && t.completedAt.getTime() >= filter.completedSince.getTime())),
+          (!filter.completedSince || (t.completedAt !== null && t.completedAt.getTime() >= filter.completedSince.getTime())) &&
+          (!filter.cancelledSince || (t.cancelledAt !== null && t.cancelledAt.getTime() >= filter.cancelledSince.getTime())),
       )
       .map((t) => ({ ...t }));
   }

@@ -258,6 +258,23 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
             </Animated.View>
           ) : null}
 
+          {/* Joy l9: a rider booked this ride and asked for him — it rings for him alone for a minute. */}
+          {offer.favourite ? (
+            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-favourite" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.liveTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="heart" size={18} color="liveText" strokeWidth={2.4} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} color="liveText">
+                  {t('partner.offer_favourite_title')}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_favourite_body')}
+                </Text>
+              </View>
+            </Animated.View>
+          ) : null}
+
           {/* 3 · pickup → drop-off */}
           <RouteNodes
             gap={layout.compact ? theme.space[3] : theme.space[4]}

@@ -252,15 +252,16 @@ export function VehicleCard({
  * Ride idea c7: how you pay, where he picks you up and the note in one row («كاش · أطلع للشارع ·
  * ملاحظة»); tapping it opens `RideOptionsPanel` with the full controls.
  */
-export function OptionsRow({ payment, pickup, note, onPress }: { payment: string; pickup: string; note: string; onPress: () => void }) {
+export function OptionsRow({ when, payment, pickup, note, onPress }: { when: string | null; payment: string; pickup: string; note: string; onPress: () => void }) {
   const theme = useTheme();
   const t = useT();
+  // A ride booked for later (joy J7d) leads with its time; «هسة» is the default and goes unsaid.
   const parts = [payment, pickup, note.trim() ? `«${note.trim()}»` : t('ride.note_add')];
   return (
     <Pressable
       testID="ride-options"
       accessibilityRole="button"
-      accessibilityLabel={`${t('ride.options_title')}: ${parts.join('، ')}`}
+      accessibilityLabel={`${t('ride.options_title')}: ${[when, ...parts].filter(Boolean).join('، ')}`}
       onPress={() => {
         theme.haptic('selection');
         onPress();
@@ -275,8 +276,13 @@ export function OptionsRow({ payment, pickup, note, onPress }: { payment: string
         backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken,
       })}
     >
-      <Icon name="wallet" size={18} color="text" strokeWidth={2} />
+      <Icon name={when ? 'clock' : 'wallet'} size={18} color={when ? 'liveText' : 'text'} strokeWidth={2} />
       <Text variant="label" weight={600} numberOfLines={1} style={{ flex: 1 }}>
+        {when ? (
+          <Text variant="label" weight={700} color="liveText">
+            {`${when} · `}
+          </Text>
+        ) : null}
         {parts[0]}
         <Text variant="label" color="textMuted">
           {` · ${parts[1]} · `}

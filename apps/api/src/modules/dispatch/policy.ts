@@ -41,6 +41,10 @@ export interface DispatchJob {
   departureId?: string;
   /** pre_assigned: vetted substitutes whose stops match the route (caller-filtered). */
   eligibleDriverIds?: string[];
+  /** smart_broadcast (joy J7d): a ride booked for later starts its search at this time. */
+  startAt?: Date;
+  /** smart_broadcast (joy l9): the rider's favourite, offered the job alone for a minute first. */
+  preferDriverIds?: readonly string[];
 }
 
 export interface Wave {

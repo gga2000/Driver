@@ -57,6 +57,8 @@ export const NOTIFY_EVENT_TYPES = [
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
+  // Joy r5: «تأكد رحلتك؟» the evening before (or that morning) a regular trip.
+  'regular_trip.due',
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -266,6 +268,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const month = MonthKey.safeParse(p['month']);
       if (!personId || !month.success) return [];
       return [{ ...base, template: 'month_ready', to: personId, params: { month: month.data } }];
+    }
+    case 'regular_trip.due': {
+      // Joy r5: its own switch, quiet hours and quiet days (the engine); the app still asks when held.
+      const personId = str(p['personId']);
+      const regularTripId = str(p['regularTripId']);
+      const day = str(p['date']);
+      const at = str(p['at']);
+      if (!personId || !regularTripId || !day || !at || Number.isNaN(Date.parse(at))) return [];
+      return [{ ...base, template: 'regular_trip_reminder', to: personId, params: { regularTripId, day, route: str(p['route']) ?? '', time: localTime(new Date(at)) }, data: { regularTripId, date: day } }];
     }
     case 'wallet.topped_up': {
       const customerId = str(p['customerId']);

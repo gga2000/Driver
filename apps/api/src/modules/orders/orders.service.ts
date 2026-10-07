@@ -21,6 +21,7 @@ import {
   orderTicketNumber,
   parseOrderTicket,
   redeemablePoints,
+  rideScheduleProblem,
   smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
@@ -141,6 +142,11 @@ export interface OrdersReferralsPort {
   referrerOf(personId: string): Promise<string | null>;
 }
 
+/** Joy l9: the driver behind one of the rider's favourites, or null when it is not his (the ride-habits module). */
+export interface OrdersFavouritesPort {
+  driverFor(personId: string, favouriteId: string): Promise<string | null>;
+}
+
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
@@ -237,6 +243,13 @@ export class OrdersService implements OnModuleInit {
     this.referrals = port;
   }
 
+  /** Joy l9: who a booked ride's favourite is. Bound by the ride-habits module (it owns favourites). */
+  private favourites: OrdersFavouritesPort | null = null;
+
+  bindFavourites(port: OrdersFavouritesPort): void {
+    this.favourites = port;
+  }
+
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
     return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
@@ -297,6 +310,7 @@ export class OrdersService implements OnModuleInit {
   private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>): Promise<Order> {
     const input = { ...raw, pickup: await this.placeLink(ordererId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.dropoff) };
     const now = this.clock.now();
+    const preferredDriverId = await this.rideBooking(ordererId, input, now);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
@@ -407,6 +421,7 @@ export class OrdersService implements OnModuleInit {
             placedAt: now,
             heldForPayer: askPayer !== null,
             familyTable: input.familyTable ?? false,
+            preferredDriverId,
           },
           newLines,
           participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
@@ -426,7 +441,7 @@ export class OrdersService implements OnModuleInit {
           participantCount: agg.participants.length,
           arrivingCallRequired: risk?.requiresArrivingCall ?? false,
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
-          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null } } : {}),
+          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId } } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -443,6 +458,19 @@ export class OrdersService implements OnModuleInit {
         return this.view(order.id, tx);
       });
     return spendKey ? this.householdLock.run(spendKey, write) : write();
+  }
+
+  /**
+   * Joy J7d / l9 at placement: a ride booked for later is 20 min – 7 days ahead; only such a ride may
+   * ask for a favourite, and only one of the orderer's own. Returns the favourite's driver (or null).
+   */
+  private async rideBooking(ordererId: string, input: z.output<typeof PlaceOrderInput>, now: Date): Promise<string | null> {
+    if (input.type === 'ride' && input.scheduledFor && rideScheduleProblem(input.scheduledFor, now)) throw new DriverError('ride_schedule_invalid');
+    if (!input.favouriteId) return null;
+    if (input.type !== 'ride' || !input.scheduledFor) throw new DriverError('favourite_needs_schedule');
+    const driverId = this.favourites ? await this.favourites.driverFor(ordererId, input.favouriteId) : null;
+    if (!driverId) throw new DriverError('favourite_not_found');
+    return driverId;
   }
 
   /**
@@ -470,6 +498,16 @@ export class OrdersService implements OnModuleInit {
       monthSpentIqd: householdMonthSpend(month, householdId, ordererId),
       totalIqd,
     });
+  }
+
+  /**
+   * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —
+   * its prep (with today's busy extra) and the scheduled lead `scheduleOffer` uses — and where it is.
+   */
+  async kitchenTiming(merchantOrgId: string): Promise<{ prepMin: number; leadMin: number; pin: LatLng | null } | null> {
+    const profile = await this.merchants.profile(merchantOrgId);
+    if (!profile) return null;
+    return { prepMin: profile.defaultPrepMin + busyExtraMinutes(profile, this.clock.now()), leadMin: ORDERS_RULES.scheduledLeadMin, pin: profile.location?.pin ?? null };
   }
 
   /** The kitchen sees the order now, or at T − prep − lead for a scheduled one (review A.12). */
@@ -2106,6 +2144,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     householdOrgId: order.householdOrgId,
     ...(order.heldForPayer ? { heldForPayer: true } : {}),
     ...(order.familyTable ? { familyTable: true } : {}),
+    ...(order.preferredDriverId ? { preferredDriverId: order.preferredDriverId } : {}),
     quoteId: order.quoteId,
     paymentMethod: order.paymentMethod,
     itemsTotalIqd: order.itemsTotalIqd,

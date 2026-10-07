@@ -1,4 +1,4 @@
-// Wave-2 driver account shots: الأرباح (day / week / last month, a bar and a job opened, the hand-over
+// Wave-2 driver account shots: الأرباح (day / week / last month, a bar and a job's receipt, the hand-over
 // code), the statement, the scorecard (visible and month one), documents (all fine, mixed, expired,
 // the upload sheet), the daily check-in (intro, move, selfie, failure, success, locked) and the home
 // gate (banner + locked switch). Personas from scripts/demo/50-driver-account.mjs.
@@ -57,11 +57,12 @@ export default async function run(s) {
   await c.page.locator('[data-testid="earnings-chart"] [role="button"]').nth(4).click();
   await c.page.waitForTimeout(500);
   await c.shot('week-bar', { settle: 300 });
-  // A job opened to every component.
+  // A job opens its receipt with every component (audit S-7: its own screen, not in place); then back.
   await c.page.locator('[data-testid="latest-jobs"] [role="button"]').first().click();
-  await c.page.waitForTimeout(400);
-  await c.page.locator('[data-testid="latest-jobs"]').scrollIntoViewIfNeeded();
-  await c.shot('week-job-open', { settle: 400 });
+  await c.wait('receipt-head');
+  await c.shot('week-job-open', { settle: 900 });
+  await c.page.goBack();
+  await c.wait('earnings-hero');
 
   await c.page.locator('[data-testid="earnings-hero"]').scrollIntoViewIfNeeded();
   await c.byTestId('segment-month').click();
@@ -89,9 +90,10 @@ export default async function run(s) {
   await c.shot('scorecard', { settle: 1600 });
   await c.shot('scorecard-full', { full: true, settle: 400 });
 
+  // His papers are fine; the new main photo he sent waits for approval (demo seed), so the summary says «دنراجع أوراقك».
   await c.goto('/documents');
-  await c.wait('docs-summary-ok');
-  await c.shot('documents-ok', { settle: 800 });
+  await c.wait('docs-summary-review');
+  await c.shot('documents-review', { settle: 800 });
   await c.close();
 
   // ── tuktuk: the take, mixed documents and the upload sheet ─────────────

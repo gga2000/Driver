@@ -28,14 +28,16 @@ export interface StatusPillProps {
   dot?: boolean;
   size?: 'sm' | 'md';
   style?: StyleProp<ViewStyle>;
+  testID?: string;
 }
 
-export function StatusPill({ label, tone = 'neutral', icon, live, dot, size = 'md', style }: StatusPillProps) {
+export function StatusPill({ label, tone = 'neutral', icon, live, dot, size = 'md', style, testID }: StatusPillProps) {
   const theme = useTheme();
   const c = STATUS_TONES[tone];
   const pulse = usePulse(!!live);
   return (
     <View
+      testID={testID}
       accessibilityRole="text"
       accessibilityLabel={label}
       style={[

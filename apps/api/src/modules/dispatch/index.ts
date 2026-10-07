@@ -17,7 +17,7 @@ export { TRIP_OFFERS, CAPS, DEPARTURES, DISPATCH_HOLDS, FakeTripOffers, FakeCaps
 export type { TripOffersPort, CapsPort, DeparturesPort, DispatchHoldsPort, CourierTripInput, JobExposure } from './ports.js';
 export { TripsServiceTripOffers } from './trips.adapter.js';
 /** The offer-timer queue (the simulator drains it on its fake clock). */
-export { DISPATCH_QUEUE } from './offer.orchestrator.js';
+export { DISPATCH_QUEUE, FAVOURITE_OFFER_POLICY } from './offer.orchestrator.js';
 export type { TimerJob as DispatchTimerJob } from './offer.orchestrator.js';
 export { DispatchSubscribers, DISPATCH_AUTO_ASSIGN_SUBSCRIBER, DISPATCH_TRIP_SUBSCRIBER, DISPATCH_REDISPATCH_SUBSCRIBER } from './events.subscribers.js';
 export { DispatchOfferCheck } from './offer-check.js';

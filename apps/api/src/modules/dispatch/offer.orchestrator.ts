@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { DriverError, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type Vertical } from '@driver/contracts';
+import { DriverError, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
@@ -31,7 +31,9 @@ export type TimerKind =
   | 'route_driver_timeout'
   | 'sub_wave_end'
   | 'override_timeout'
-  | 'low_fill_check';
+  | 'low_fill_check'
+  | 'broadcast_start'
+  | 'favourite_end';
 
 export interface TimerJob {
   kind: TimerKind;
@@ -43,6 +45,12 @@ export interface TimerJob {
 }
 
 export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
+
+/**
+ * Joy l9: the offer a rider's favourite driver gets alone, for `RIDE_HABIT_RULES.favourite.offerWindowSec`,
+ * when the search for his booked ride starts (wave 0, before the normal waves).
+ */
+export const FAVOURITE_OFFER_POLICY = 'favourite';
 export const DISPATCH_QUEUE_NAME = 'dispatch';
 
 /** The first-accept lock is the assignment claim; it outlives any trip. */
@@ -203,6 +211,8 @@ export class OfferOrchestrator {
       departureId: job.departureId ?? null,
       departureAt: job.departureAt?.getTime() ?? null,
       eligibleDriverIds: job.eligibleDriverIds ?? null,
+      startAt: job.startAt?.getTime() ?? null,
+      preferDriverIds: job.preferDriverIds ? [...job.preferDriverIds] : [],
     };
 
     return this.uow.run(async () => {
@@ -232,11 +242,15 @@ export class OfferOrchestrator {
 
       switch (r.policy) {
         case 'smart_broadcast': {
-          r.searchStartedAt = now;
-          await this.store.saveRequest(r);
-          await this.schedule('rebroadcast', r, now + cfg.rebroadcastAfterSec * 1000, 0);
-          await this.schedule('free_cancel', r, now + cfg.customerFreeCancelAfterSec * 1000, 0);
-          await this.sendWave(r, cfg, 0);
+          // Joy J7d: a ride booked for later waits, on the board as «مجدول», until its search starts.
+          if (r.startAt != null && r.startAt > now) {
+            r.status = 'scheduled';
+            r.nextTimerAt = r.startAt;
+            await this.store.saveRequest(r);
+            await this.schedule('broadcast_start', r, r.startAt, 0);
+            break;
+          }
+          await this.beginBroadcast(r, cfg);
           break;
         }
         case 'auto_assign': {
@@ -263,6 +277,54 @@ export class OfferOrchestrator {
   }
 
   // ───────────────────────── smart_broadcast ─────────────────────────
+
+  /**
+   * The search starts. Joy l9: a booked ride that asked for the rider's favourite offers it to him
+   * alone first (wave 0, `favourite`, one minute) when he is online, idle and eligible like anyone
+   * else; otherwise — or once he declines or lets it ring out — the normal waves start with their
+   * usual timers, exactly as for any ride.
+   */
+  private async beginBroadcast(r: DispatchRequest, cfg: DispatchConfig): Promise<void> {
+    const prefer = r.preferDriverIds ?? [];
+    if (prefer.length > 0) {
+      const chosen = await this.candidates(r, cfg, { requireIdle: true, only: prefer });
+      if (chosen.length > 0) {
+        const seconds = RIDE_HABIT_RULES.favourite.offerWindowSec;
+        const expiresAt = this.now() + seconds * 1000;
+        const ids = chosen.map((c) => c.ranked.driverId);
+        r.status = 'searching';
+        r.searchStartedAt = this.now();
+        r.wave = 0;
+        r.pass = 0;
+        r.nextTimerAt = expiresAt;
+        await this.createOffers(r, FAVOURITE_OFFER_POLICY, chosen, { wave: 0, pass: 0, expiresAt, compensation: () => 0 });
+        await this.trips.offer(r.tripId, ids, seconds);
+        await this.emit('dispatch.wave_sent', r, { wave: 0, driverIds: ids, seconds, radiusKm: null, favourite: true });
+        await this.store.saveRequest(r);
+        await this.schedule('favourite_end', r, expiresAt, 0);
+        return;
+      }
+    }
+    await this.startWaves(r, cfg);
+  }
+
+  /** The smart broadcast proper: re-broadcast and free-cancel clocks from now, then wave 1. */
+  private async startWaves(r: DispatchRequest, cfg: DispatchConfig): Promise<void> {
+    const now = this.now();
+    r.status = 'searching';
+    r.searchStartedAt = now;
+    await this.store.saveRequest(r);
+    await this.schedule('rebroadcast', r, now + cfg.rebroadcastAfterSec * 1000, 0);
+    await this.schedule('free_cancel', r, now + cfg.customerFreeCancelAfterSec * 1000, 0);
+    await this.sendWave(r, cfg, 0);
+  }
+
+  /** The favourite's minute is over without an answer: his offer times out and the waves start. */
+  private async onFavouriteEnd(r: DispatchRequest): Promise<void> {
+    if (r.status !== 'searching' || r.pass !== 0) return;
+    await this.expireOpen(r, (o) => o.policy === FAVOURITE_OFFER_POLICY);
+    await this.startWaves(r, this.baseConfig(r.cityId, r.vertical));
+  }
 
   private async sendWave(r: DispatchRequest, cfg: DispatchConfig, index: number): Promise<void> {
     const waves = cfg.waves ?? DEFAULT_WAVES;
@@ -641,10 +703,11 @@ export class OfferOrchestrator {
    * rules against what he now carries. Dispatcher overrides and route offers are not second-guessed.
    */
   private async fitsCurrentJobs(r: DispatchRequest, offer: OfferRecord, driverId: string): Promise<boolean> {
-    if (offer.policy !== 'smart_broadcast' && offer.policy !== 'auto_assign') return true;
+    const broadcast = offer.policy === 'smart_broadcast' || offer.policy === FAVOURITE_OFFER_POLICY;
+    if (!broadcast && offer.policy !== 'auto_assign') return true;
     const jobs = (await this.store.driverJobs(driverId)).filter((id) => id !== r.tripId);
     if (jobs.length === 0) return true;
-    if (offer.policy === 'smart_broadcast') return false;
+    if (broadcast) return false;
     const cfg = this.baseConfig(r.cityId, r.vertical);
     const p = await this.presence.get(driverId);
     if (jobs.length >= batchLimit(p?.vehicle ?? 'bike', cfg.maxBatch)) return false;
@@ -671,6 +734,8 @@ export class OfferOrchestrator {
       if (offer.policy === 'auto_assign' && fresh.status === 'searching' && fresh.pass === offer.pass) await this.startPass(fresh, cfg, offer.pass + 1);
       else if (offer.policy === 'pre_assigned' && offer.pass === 1 && fresh.status === 'searching' && fresh.pass === 1) await this.openSubstituteWave(fresh, cfg, 1);
       else if (offer.policy === 'override' && fresh.status === 'searching') await this.needsDispatcher(fresh, 'override_declined');
+      // Joy l9: the favourite said no — the normal waves start now, not after his minute.
+      else if (offer.policy === FAVOURITE_OFFER_POLICY && fresh.status === 'searching' && fresh.pass === 0) await this.startWaves(fresh, cfg);
       return { outcome: 'declined' as const, tripId: offer.tripId, compensationIqd: 0 };
     });
   }
@@ -944,6 +1009,11 @@ export class OfferOrchestrator {
           return this.onOverrideTimeout(r);
         case 'low_fill_check':
           return this.onLowFillCheck(r);
+        case 'broadcast_start':
+          if (r.status !== 'scheduled') return;
+          return this.beginBroadcast(r, this.baseConfig(r.cityId, r.vertical));
+        case 'favourite_end':
+          return this.onFavouriteEnd(r);
       }
     });
   }

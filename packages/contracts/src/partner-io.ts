@@ -210,6 +210,11 @@ export const PartnerOffer = z.object({
   merchant: PartnerMerchantPrep.nullable(),
   /** Cash he collects at the door (cash orders); null when prepaid. */
   collectIqd: Iqd.nullable(),
+  /**
+   * Joy l9: a rider booked this ride for later and asked for him — «الزبون طلبك إنت». It rings for him
+   * alone for a minute; nothing else about who favourited him is ever shown.
+   */
+  favourite: z.boolean().default(false),
 });
 export type PartnerOffer = z.infer<typeof PartnerOffer>;
 

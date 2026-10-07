@@ -51,6 +51,10 @@ export interface DispatchRequest {
   departureId: string | null;
   departureAt: number | null;
   eligibleDriverIds: string[] | null;
+  /** Joy J7d: a ride booked for later starts its search then (epoch ms); null/absent = at once. */
+  startAt?: number | null;
+  /** Joy l9: the rider's favourite, offered the job alone for a minute when the search starts. */
+  preferDriverIds?: string[];
 }
 
 export interface PolicyOverride {

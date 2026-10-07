@@ -304,6 +304,10 @@ export interface RidePlaceArgs {
   cityId?: string;
   /** The request attempt's idempotency key (`features/food/place-attempt.ts`): re-sent on a retry. */
   clientRequestId?: string;
+  /** Joy J7d: a ride booked for later (20 min – 7 days ahead), priced at that time. */
+  scheduledFor?: Date | null;
+  /** Joy l9: one of the rider's favourites, asked first (booked rides only). */
+  favouriteId?: string | null;
 }
 
 /** The exact `orders.place` payload for a ride (what scripts/e2e/three-apps.mjs sends, plus options). */
@@ -321,10 +325,12 @@ export function buildRidePlaceInput(a: RidePlaceArgs): PlaceOrderInput {
     dropoff: spotPoint(a.dropoff),
     ...(note ? { note: note.slice(0, 500) } : {}),
     ...(a.clientRequestId ? { clientRequestId: a.clientRequestId } : {}),
+    ...(a.scheduledFor ? { scheduledFor: a.scheduledFor } : {}),
+    ...(a.scheduledFor && a.favouriteId ? { favouriteId: a.favouriteId } : {}),
   };
 }
 
-export type RideProblem = 'price_changed' | 'cash_cap' | 'location' | 'wallet' | 'other';
+export type RideProblem = 'price_changed' | 'cash_cap' | 'location' | 'wallet' | 'schedule' | 'other';
 
 /** How the choose screen answers a refused `orders.place`. */
 export function rideProblem(code: string | null | undefined): RideProblem {
@@ -338,6 +344,8 @@ export function rideProblem(code: string | null | undefined): RideProblem {
       return 'location';
     case 'wallet_insufficient':
       return 'wallet';
+    case 'ride_schedule_invalid':
+      return 'schedule';
     default:
       return 'other';
   }
