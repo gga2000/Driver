@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
-import { doorMoment, doorOrder } from '@driver/contracts';
+import { doorMoment, doorOrder, isSummer } from '@driver/contracts';
 import {
   Button,
   Card,
@@ -113,6 +113,7 @@ export default function FoodHome() {
                 fact={list ? doorFact(list, door) : null}
                 width={tileW}
                 height={Math.round(tileW * 1.18)}
+                melting={door === 'sweet' && isSummer(now)}
               />
             ))
           : null}
