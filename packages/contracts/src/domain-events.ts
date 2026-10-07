@@ -276,6 +276,41 @@ export const StopCompletedPayload = z.object({
 });
 export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 
+// ───────────────────────── safety → on-call ─────────────────────────
+
+/** What kind of safety incident pages the desk (SOS today; reports and خطوط alerts later). */
+export const SafetyIncidentKind = z.enum(['sos', 'safety_report', 'sweep_alert', 'pin_alert']);
+export type SafetyIncidentKind = z.infer<typeof SafetyIncidentKind>;
+
+/**
+ * `safety.incident_opened`: a safety incident row has committed. The on-call module (rota,
+ * escalation after the first page) reads it; safety's own first page goes out on `sos.raised`.
+ */
+export const SafetyIncidentOpenedPayload = z.object({
+  incidentId: z.string().min(1),
+  kind: SafetyIncidentKind,
+  cityId: CityId,
+  zoneKey: z.string().nullable(),
+  orderId: z.string().nullable(),
+  rideId: z.string().nullable(),
+  tripId: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+export type SafetyIncidentOpenedPayload = z.infer<typeof SafetyIncidentOpenedPayload>;
+
+/** `safety.incident_acked`: a staff person took the incident (stops the on-call escalation). */
+export const SafetyIncidentAckedPayload = z.object({ incidentId: z.string().min(1), byPersonId: z.string().min(1) });
+export type SafetyIncidentAckedPayload = z.infer<typeof SafetyIncidentAckedPayload>;
+
+/** `safety.incident_closed`: resolved by staff, or cancelled by the person who pressed (a false alarm). */
+export const SafetyIncidentClosedPayload = z.object({
+  incidentId: z.string().min(1),
+  outcome: z.enum(['safe', 'false_alarm', 'emergency', 'escalated']),
+  /** Staff who resolved it; null when the person cancelled it themselves. */
+  byPersonId: z.string().nullable(),
+});
+export type SafetyIncidentClosedPayload = z.infer<typeof SafetyIncidentClosedPayload>;
+
 // ───────────────────────── registry ─────────────────────────
 
 /**
@@ -308,6 +343,9 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'subscription.renewed': SubscriptionChargePayload,
   'subscription.prorated': SubscriptionChargePayload,
   'merchant.settlement_requested': MerchantSettlementRequestedPayload,
+  'safety.incident_opened': SafetyIncidentOpenedPayload,
+  'safety.incident_acked': SafetyIncidentAckedPayload,
+  'safety.incident_closed': SafetyIncidentClosedPayload,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 export type DomainEventType = keyof typeof DOMAIN_EVENT_PAYLOADS;

@@ -177,6 +177,7 @@ export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking
 /** Street hand-over saves 250 (pricing: `streetHandover` −250). */
 export const STREET_SAVING_IQD = 250;
 
+/** Not offered while `LIVE_STREET_SWITCH_ENABLED` (./street-switch) is off: it calls no server yet (HUNT-01). */
 export function StreetPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const toast = useToast();

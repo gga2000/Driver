@@ -87,16 +87,14 @@ export class OrdersRpc implements OrdersPort {
   async get(actor: Actor, input: { orderId: string }): Promise<Order> {
     const agg = await this.orders.aggregate(input.orderId);
     const o = agg.order;
-    const allowed =
-      o.ordererId === actor.personId ||
-      agg.participants.some((p) => p.personId === actor.personId) ||
-      (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId))) ||
-      (await this.trips.activeForOrder(o.id))?.courierId === actor.personId ||
-      (await this.any(actor, OPS));
+    const own = o.ordererId === actor.personId || agg.participants.some((p) => p.personId === actor.personId);
+    // SEC-14: the courier and the desk read the recipient's name (vault, logged); the kitchen does not.
+    const carrierOrDesk = !own && ((await this.trips.activeForOrder(o.id))?.courierId === actor.personId || (await this.any(actor, OPS)));
+    const allowed = own || carrierOrDesk || (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId)));
     if (!allowed) throw new DriverError('forbidden');
     // c9/s3: a ride for someone else names its rider for whoever may read the order.
     const [order] = await this.orders.withRiders([await this.orders.get(o.id)], actor.personId);
-    return order!;
+    return carrierOrDesk ? (await this.orders.withRecipients([order!], actor.personId, 'order_recipient_name'))[0]! : order!;
   }
 
   async mine(actor: Actor): Promise<Order[]> {
