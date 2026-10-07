@@ -100,10 +100,10 @@ describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
       '#FFF8EF', '#FFFFFF', '#F6EADB', '#24170E', '#6E5A4B', '#EFDFC9', '#8A735C',
     ]);
   });
-  it('saffron acts and feeds, kashi moves, ink chooses, yellow treats, palm is done, pomegranate stops, date anchors', () => {
+  it('saffron acts and feeds, cinnamon moves (no teal), ink chooses, yellow treats, palm is done, pomegranate stops, date anchors', () => {
     expect([i.accent, i.accentTint, i.accentText]).toEqual(['#F38A1B', '#FFE6C2', '#A24F08']);
-    expect([i.live, i.liveTint, i.liveText]).toEqual(['#0B6577', '#D3EAF0', '#0B5A6B']);
-    expect([i.info, i.infoTint, i.infoText]).toEqual(['#0B6577', '#D3EAF0', '#0B5A6B']);
+    expect([i.live, i.liveTint, i.liveText]).toEqual(['#8A4C22', '#F3D9C0', '#6E3A1A']);
+    expect([i.info, i.infoTint, i.infoText]).toEqual(['#8A4C22', '#F3D9C0', '#6E3A1A']);
     expect([i.selected, i.onSelected, i.selectedSoft, i.segmentSelected]).toEqual(['#24170E', '#FFF8EF', '#24170E', '#24170E']);
     expect([i.deal, i.onDeal, i.star, i.starOutline]).toEqual(['#F2C14E', '#24170E', '#F2C14E', '#24170E']);
     expect([i.success, i.successTint, i.successText]).toEqual(['#2F7D4E', '#DCEEDF', '#23653E']);
@@ -122,7 +122,7 @@ describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
     expect(themes.istikanNight.bg).toBe('#1A100A');
   });
   it('identity colours are non-semantic, and every letter on them passes AA', () => {
-    expect(identity.istikan.map((c) => c.fill)).toEqual(['#7A4A2A', '#AD5E36', '#6B7B2E', '#5E4B8B', '#0B6577', '#B23A2E']);
+    expect(identity.istikan.map((c) => c.fill)).toEqual(['#7A4A2A', '#AD5E36', '#6B7B2E', '#5C2A12', '#8E5A12', '#B23A2E']);
     for (const n of Object.keys(themes) as ThemeName[]) {
       for (const c of identity[n]) expect(contrastRatio(c.on, c.fill), `${n} ${c.fill}`).toBeGreaterThanOrEqual(4.5);
     }
