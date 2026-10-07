@@ -557,9 +557,10 @@ export default function OrderLiveScreen() {
             ) : null}
             {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
             {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
+            {/* n3: while it searches, the drivers who were sent it take that place. */}
+            {searching ? <OfferedDrivers orderId={id} onProfile={(offerId) => setProfileFor({ offerId })} /> : null}
             {ride ? <RideRoute view={v} /> : null}
             {ride && (phase === 'arrived' || phase === 'done') ? <NameThisPlace view={v} /> : null}
-            {searching ? <OfferedDrivers orderId={id} onProfile={(offerId) => setProfileFor({ offerId })} /> : null}
             {searching && canCancel ? (
               <View style={{ gap: theme.space[1] }}>
                 <Button label={t('ride.cancel_free_button')} variant="secondary" icon="x" fullWidth onPress={() => setPanel('cancel')} testID="ride-cancel-searching" />

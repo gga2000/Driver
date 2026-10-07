@@ -1188,7 +1188,8 @@ async function seasonShots(khalid) {
  * rating. The demo API plays the drivers (POST /demo/ride; offers held until /demo/ride/accept).
  */
 async function rideShots() {
-  await demoPost('/demo/ride?acceptMs=0');
+  // Offers are held, and a nudged driver doesn't answer either, so the searching and cancel shots stay put.
+  await demoPost('/demo/ride?acceptMs=0&nudgeAcceptMs=0');
   await page.goto(`${origin}/`, LOADED);
   await byTestId('service-taxi').waitFor({ timeout: 15_000 });
   await byTestId('service-taxi').scrollIntoViewIfNeeded();
@@ -1364,9 +1365,18 @@ async function rideShots() {
     await ctx.close();
   }
 
-  // The nearest tuktuk accepts and drives over.
-  const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
-  if (!ok) return;
+  // The nearest tuktuk accepts and drives over. Between two waves no offer is open (and a held offer
+  // can run out while the shots above are taken), so wait for the next one to ring.
+  let ok = null;
+  const held = await demoPost(`/demo/ride/nudges?orderId=${orderId}`);
+  console.log('offers before accept:', JSON.stringify(held?.offers?.map((o) => [o.name, o.state]) ?? null), 'searching:', held?.searching);
+  for (let i = 0; i < 40 && !ok; i++) {
+    const r = await fetch(`${apiBase}/demo/ride/accept?orderId=${orderId}`, { method: 'POST' });
+    if (r.ok) ok = await r.json().catch(() => ({}));
+    else if (r.status === 409) await page.waitForTimeout(1000);
+    else return void errors.push(`/demo/ride/accept: ${r.status} ${await r.text()}`);
+  }
+  if (!ok) return void errors.push(`/demo/ride/accept?orderId=${orderId}: no offer rang within 40 s`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(4500);
