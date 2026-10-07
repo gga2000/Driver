@@ -591,6 +591,9 @@ model Place {
   confidence         Float                                 @default(0.5)
   landmark           Boolean                               @default(false)
   landmarkState      String?                               @map("landmark_state")
+  /// Maps program b3: the landmark's icon (mosque, school, market, clinic, fuel, bridge, garage, other;
+  /// CHECK in the migration). NULL = derived from the name (`landmarkCategoryOf`).
+  landmarkCategory   String?                               @map("landmark_category")
   /// Household sharing (opt-in): org ids that may use this place.
   shares             String[]                              @default([])
   /// Domain §7: a far arrival tap flags for review; never moves the pin.
