@@ -32,28 +32,28 @@ describe('rating branches (C-12)', () => {
 });
 
 describe('rate the courier (step 1 reasons)', () => {
-  it('offers what went wrong under 1–3 and what was good under 4–5, per delivery or ride', () => {
+  it('asks what went wrong under 1–3, per delivery or ride; 4–5 moves on (kind words are compliments)', () => {
     expect(courierReasons(2, 'food')).toEqual(['late', 'rude', 'mishandled', 'hard_to_reach']);
-    expect(courierReasons(5, 'food')).toEqual(['polite', 'fast', 'careful', 'found_us']);
+    expect(courierReasons(5, 'food')).toEqual([]);
     expect(courierReasons(1, 'ride')).toEqual(['late', 'rude', 'hard_to_reach', 'unsafe_driving']);
-    expect(courierReasons(4, 'ride')).toEqual(['polite', 'fast', 'found_us', 'safe_driving']);
+    expect(courierReasons(4, 'ride')).toEqual([]);
     expect(courierReasons(0, 'food')).toEqual([]);
   });
 
   it('changing the stars drops the reasons that no longer fit', () => {
     expect(keepFitting(['late', 'rude'], 5, 'food')).toEqual([]);
-    expect(keepFitting(['polite', 'careful'], 4, 'food')).toEqual(['polite', 'careful']);
-    expect(keepFitting(['careful'], 4, 'ride')).toEqual([]);
+    expect(keepFitting(['late', 'mishandled'], 3, 'food')).toEqual(['late', 'mishandled']);
+    expect(keepFitting(['mishandled'], 2, 'ride')).toEqual([]);
   });
 
   it('every reason has Iraqi words in both languages', () => {
     const ar = createT('ar-IQ');
     const en = createT('en');
-    for (const r of [...courierReasons(1, 'food'), ...courierReasons(5, 'food'), ...courierReasons(1, 'ride'), ...courierReasons(5, 'ride')]) {
+    for (const r of [...courierReasons(1, 'food'), ...courierReasons(1, 'ride')]) {
       expect(ar(`rating.courier.${r}` as never)).not.toContain('rating.courier');
       expect(en(`rating.courier.${r}` as never)).not.toContain('rating.courier');
     }
-    expect(ar('rating.courier_good_q', { name: 'عباس' })).toBe('شنو عجبك بـ عباس؟');
+    expect(ar('rating.courier_low_q', { name: 'عباس' })).toBe('شنو اللي ما عجبك بـ عباس؟');
   });
 });
 

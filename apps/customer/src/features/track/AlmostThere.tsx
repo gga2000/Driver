@@ -51,10 +51,12 @@ export function useTrackingMoments(
       : null;
   const near = card === 'near';
   const door = card === 'door';
+  // Joy l2: a courier on the job (the reveal's buzz on food orders).
+  const onJob = Boolean(v?.courier && v.trip?.acceptedAt);
 
   useEffect(() => {
     if (!orderId || !phase) return;
-    const next: MomentSnapshot = { orderId, phase, near, door, ride };
+    const next: MomentSnapshot = { orderId, phase, near, door, ride, courier: onJob };
     for (const m of momentsBetween(prev.current, next)) {
       // Quiet days (J1a): no sound, no celebratory buzz; the door has no sound of its own (the knock is enough).
       const f = momentFeedback(m, season.current);
@@ -66,7 +68,7 @@ export function useTrackingMoments(
     prev.current = next;
     // `theme` is stable for the screen's life; re-running on it would replay nothing anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, phase, near, door, ride]);
+  }, [orderId, phase, near, door, ride, onJob]);
 
   const variant: DoorCardVariant | null = door ? 'door' : orderId && nearFor === orderId && phase === 'on_the_way' ? 'near' : null;
   const key = variant && orderId ? `${orderId}:${variant}` : null;

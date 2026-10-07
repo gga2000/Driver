@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError, RATING_RULES, courierReasonsFor } from '@driver/contracts';
+import { DriverError, RATING_RULES, courierReasonsFor, publicCourierRating } from '@driver/contracts';
 import { ordersHarness } from './test-harness.js';
 
 /**
  * Rate the courier (before-launch §6; customer app §4 two-tap rating, step 1): the delivery score is
  * the courier's own rating — one row per order for the driver who carried it, only by the order's
- * customer, within 24 h of delivery, with one-tap reasons that fit the score.
+ * customer, within 24 h of delivery, with one-tap reasons under a low score.
  */
 const code = async (p: Promise<unknown>) => {
   try {
@@ -66,12 +66,13 @@ describe('rate the courier', () => {
   it('takes only the reasons offered under the score, and only with a courier score', async () => {
     const h = ordersHarness();
     const { o } = await delivered(h);
-    // A good score with a low reason, a ride-only reason on a delivery, reasons without a score.
+    // A good score with a reason (kind words are compliments), a ride-only reason on a delivery, reasons without a score.
     expect(await code(h.orders.rate('c1', { orderId: o.id, delivery: 5, courierReasons: ['rude'] }))).toBe('invalid_input');
-    expect(await code(h.orders.rate('c1', { orderId: o.id, delivery: 5, courierReasons: ['safe_driving'] }))).toBe('invalid_input');
-    expect(await code(h.orders.rate('c1', { orderId: o.id, food: 5, courierReasons: ['polite'] }))).toBe('invalid_input');
-    expect(await code(h.orders.rate('c1', { orderId: o.id, delivery: 5, courierReasons: ['polite', 'careful'] }))).toBe('ok');
-    expect(courierReasonsFor(5, false)).toEqual(['polite', 'fast', 'careful', 'found_us']);
+    expect(await code(h.orders.rate('c1', { orderId: o.id, delivery: 2, courierReasons: ['unsafe_driving'] }))).toBe('invalid_input');
+    expect(await code(h.orders.rate('c1', { orderId: o.id, food: 2, courierReasons: ['late'] }))).toBe('invalid_input');
+    expect(await code(h.orders.rate('c1', { orderId: o.id, delivery: 2, courierReasons: ['late', 'mishandled'] }))).toBe('ok');
+    expect(courierReasonsFor(5, false)).toEqual([]);
+    expect(courierReasonsFor(3, false)).toEqual(['late', 'rude', 'mishandled', 'hard_to_reach']);
     expect(courierReasonsFor(2, true)).toEqual(['late', 'rude', 'hard_to_reach', 'unsafe_driving']);
   });
 
@@ -82,21 +83,21 @@ describe('rate the courier', () => {
     expect(await h.repo.courierRatingOf(o.id)).toBeNull();
   });
 
-  it('the card’s average shows from 5 ratings, over his newest 50, and counts only his', async () => {
+  it('his ratings are his own, newest first (the scorecard and the card read them)', async () => {
     const h = ordersHarness();
     const scores = [5, 4, 5, 3];
     for (const [i, s] of scores.entries()) {
       const { o } = await delivered(h, { customer: `c${i + 1}` });
       await h.orders.rate(`c${i + 1}`, { orderId: o.id, delivery: s });
     }
-    expect(await h.orders.courierRatingSummary('d1')).toBeNull();
     const fifth = await delivered(h, { customer: 'c9' });
     await h.orders.rate('c9', { orderId: fifth.o.id, delivery: 4 });
-    expect(await h.orders.courierRatingSummary('d1')).toEqual({ avg: 4.2, count: 5 });
     // Another driver's rating is his own.
     const other = await delivered(h, { customer: 'c10', driverId: 'd2' });
     await h.orders.rate('c10', { orderId: other.o.id, delivery: 1 });
-    expect((await h.orders.courierRatingSummary('d1'))?.avg).toBe(4.2);
+    const mine = await h.orders.courierRatings('d1');
+    expect(mine.map((r) => r.score).sort()).toEqual([3, 4, 4, 5, 5]);
+    expect(publicCourierRating(mine)).toEqual({ rating: 4.2, count: 5 });
     expect((await h.orders.courierRatings('d2')).map((r) => r.score)).toEqual([1]);
   });
 });

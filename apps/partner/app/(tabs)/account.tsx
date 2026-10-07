@@ -57,6 +57,7 @@ export default function Account() {
     { key: 'checkin', icon: 'shield', title: t('partner.hub_checkin'), subtitle: t('partner.hub_checkin_sub'), href: '/checkin' },
     { key: 'documents', icon: 'receipt', title: t('partner.hub_documents'), subtitle: t('partner.hub_documents_sub'), href: '/documents' },
     { key: 'scorecard', icon: 'star', title: t('partner.hub_scorecard'), subtitle: t('partner.hub_scorecard_sub'), href: '/scorecard' },
+    { key: 'compliments', icon: 'heart', title: t('partner.compliments_title'), subtitle: t('partner.compliments_row_sub'), href: '/compliments' },
     // The SOS button messages this person (scoring & safety §3); shows who it is once set.
     { key: 'emergency', icon: 'sos', title: t('partner.ec_row'), subtitle: contact ? `${contact.name} · \u2066${contact.phoneMasked}\u2069` : t('partner.ec_row_hint'), href: '/emergency' },
   ];

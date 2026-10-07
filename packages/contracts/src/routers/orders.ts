@@ -22,6 +22,7 @@ import {
   SwitchRideVehicleInput,
 } from '../order.js';
 import { TipOffer, TipOrderInput, TipResult } from '../order-tip.js';
+import { ComplimentInput, ComplimentOffer, ComplimentResult } from '../order-compliment.js';
 import { Usual } from '../habits-io.js';
 import { CourierPosition, OrderFirsts, OrderHistoryRow, OrderRoute, OrderTracking } from '../tracking.js';
 import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, OrderSearchInput, OrderSearchPage } from '../console-io.js';
@@ -59,6 +60,10 @@ export const ordersRouter = router({
   tipOptions: protectedProcedure().input(OrderIdInput).output(TipOffer).query(({ ctx, input }) => ctx.orders.tipOptions(ctx.actor, input)),
   /** The tip after the rating: wallet → driver, 100 %, once per order, server-checked. */
   tip: protectedProcedure().input(TipOrderInput).output(TipResult).mutation(({ ctx, input }) => ctx.orders.tip(ctx.actor, input)),
+  /** «شنو عجبك بـ حيدر؟» after a 4–5 rating: whether to ask and which words (docs/api/compliments-and-live.md). */
+  complimentOptions: protectedProcedure().input(OrderIdInput).output(ComplimentOffer).query(({ ctx, input }) => ctx.orders.complimentOptions(ctx.actor, input)),
+  /** The kind words for the courier/driver: once per order, the orderer only, no money. */
+  compliment: protectedProcedure().input(ComplimentInput).output(ComplimentResult).mutation(({ ctx, input }) => ctx.orders.compliment(ctx.actor, input)),
   /** Customer live screen (spec §4): own order + trip summary + courier card. Orderer or participant only. */
   track: protectedProcedure().input(OrderIdInput).output(OrderTracking).query(({ ctx, input }) => ctx.tracking.track(ctx.actor, input)),
   /** Courier's last fix for the customer, only between accept and complete (null otherwise). Polled every 2 s. */

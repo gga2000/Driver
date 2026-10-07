@@ -107,6 +107,7 @@ function RootNavigator() {
         {/* Wave 2 replaces these routes' contents; titles are set by each screen. */}
         <Stack.Screen name="earnings/statement" options={{ title: t('partner.earnings_breakdown') }} />
         <Stack.Screen name="scorecard" options={{ title: t('partner.hub_scorecard') }} />
+        <Stack.Screen name="compliments" options={{ title: t('partner.compliments_title') }} />
         <Stack.Screen name="documents/index" options={{ title: t('partner.hub_documents') }} />
         <Stack.Screen name="photo" options={{ title: t('partner.mainphoto_title') }} />
         <Stack.Screen name="checkin" options={{ title: t('partner.hub_checkin') }} />

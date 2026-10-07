@@ -40,6 +40,7 @@ import {
   type RateOrderInput,
   type RideSwitchQuote,
   RATING_RULES,
+  COURIER_RATING_WINDOW,
   courierReasonsFor,
   type Trip,
   type TripState,
@@ -1070,19 +1071,12 @@ export class OrdersService implements OnModuleInit {
     );
   }
 
-  /** A driver's newest courier ratings (the scorecard reads the last `RATING_RULES.averageOf`). */
-  async courierRatings(driverId: string, limit: number = RATING_RULES.averageOf): Promise<Array<{ orderId: string; score: number; reasons: string[]; at: Date }>> {
-    return (await this.repo.courierRatingsOf(driverId, limit)).map((r) => ({ orderId: r.orderId, score: r.score, reasons: [...r.reasons], at: r.ratedAt }));
-  }
-
   /**
-   * The average on the courier card a customer sees: his newest `averageOf` ratings, one decimal; null
-   * until he has `minCountShown` (one early 1-star never brands a new courier).
+   * A driver's newest courier ratings (`courier_ratings`, newest first, at most `limit` — the scorecard
+   * and the card's public rating read the last `COURIER_RATING_WINDOW`).
    */
-  async courierRatingSummary(driverId: string): Promise<{ avg: number; count: number } | null> {
-    const rows = await this.repo.courierRatingsOf(driverId, RATING_RULES.averageOf);
-    if (rows.length < RATING_RULES.minCountShown) return null;
-    return { avg: Math.round((rows.reduce((a, r) => a + r.score, 0) / rows.length) * 10) / 10, count: rows.length };
+  async courierRatings(driverId: string, limit: number = COURIER_RATING_WINDOW): Promise<Array<{ orderId: string; score: number; reasons: string[]; at: Date }>> {
+    return (await this.repo.courierRatingsOf(driverId, limit)).map((r) => ({ orderId: r.orderId, score: r.score, reasons: [...r.reasons], at: r.ratedAt }));
   }
 
   /**

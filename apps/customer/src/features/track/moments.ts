@@ -7,7 +7,7 @@ import type { Phase } from './timeline';
  * a soft sound) once. Rides add the two peaks a stranger brings: `matched` (a driver took it) and
  * `driver_here` (he is at the pickup, the free wait is running).
  */
-export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered' | 'matched' | 'driver_here';
+export type Moment = 'accepted' | 'picked_up' | 'near' | 'at_door' | 'delivered' | 'matched' | 'driver_here' | 'courier_assigned';
 
 /** What one read of the order says, for comparing with the previous read. */
 export interface MomentSnapshot {
@@ -19,6 +19,8 @@ export interface MomentSnapshot {
   door: boolean;
   /** A taxi / tuktuk ride (its own two moments). */
   ride?: boolean;
+  /** A courier has accepted the job (food: the driver reveal's moment, joy l2). Absent = unknown. */
+  courier?: boolean;
 }
 
 const BEFORE_ACCEPT: ReadonlySet<Phase> = new Set(['waiting_merchant']);
@@ -38,6 +40,8 @@ export function momentsBetween(prev: MomentSnapshot | null, next: MomentSnapshot
   if (next.ride && SEARCHING.has(prev.phase) && DRIVER_COMING.has(next.phase)) out.push('matched');
   if (next.ride && prev.phase !== 'at_pickup' && next.phase === 'at_pickup') out.push('driver_here');
   if (BEFORE_ACCEPT.has(prev.phase) && !BEFORE_ACCEPT.has(next.phase) && !AT_DOOR.has(next.phase)) out.push('accepted');
+  // Joy l2: a courier took my food order (before he has it; a later read with the food on its way is not "news").
+  if (!next.ride && prev.courier === false && next.courier === true && next.phase !== 'on_the_way' && !AT_DOOR.has(next.phase)) out.push('courier_assigned');
   if (prev.phase !== 'on_the_way' && !AT_DOOR.has(prev.phase) && next.phase === 'on_the_way') out.push('picked_up');
   if (!prev.near && !prev.door && next.near && !next.door && !AT_DOOR.has(next.phase)) out.push('near');
   if (!prev.door && next.door && !AT_DOOR.has(next.phase)) out.push('at_door');
@@ -96,6 +100,8 @@ const FEEDBACK: Record<Moment, { haptics: MomentHaptic[]; cue: MomentCue | null 
   delivered: { haptics: [], cue: 'delivered' },
   matched: { haptics: ['success'], cue: 'accepted' },
   driver_here: { haptics: ['heavy', 'heavy'], cue: 'near' },
+  // Food's reveal is a light touch: the kitchen's yes already chimed.
+  courier_assigned: { haptics: ['light'], cue: null },
 };
 
 /**
@@ -114,4 +120,25 @@ export function momentFeedback(m: Moment, today: Pick<PublicSeason, 'celebration
 /** Within the first seconds after a driver accepted (server time), the status says who was found. */
 export function rideMatchedFresh(acceptedAt: Date | null | undefined, now: number): boolean {
   return acceptedAt != null && now - acceptedAt.getTime() < MATCHED_STATUS_MS;
+}
+
+/** The driver reveal (joy l2): opening the order this soon after he accepted still shows it (he tapped the push). */
+export const REVEAL_FRESH_MS = 60_000;
+/** The reveal card closes by itself after this long; the courier stays on the float. */
+export const REVEAL_SHOW_MS = 8_000;
+
+/** Storage key marking that this phone already showed an order's driver reveal. */
+export function revealSeenKey(orderId: string): string {
+  return `driver.customer.reveal-seen.${orderId.replace(/[^\w.-]/g, '_')}`;
+}
+
+/**
+ * Whether the reveal plays for this order now (joy l2): never twice on this phone (`seen`), and only
+ * when the screen saw him accept (`liveTransition`) or the order was opened within a minute of it.
+ * An order opened later just shows him on the float and in the sheet, without ceremony.
+ */
+export function revealPlays(i: { seen: boolean; liveTransition: boolean; acceptedAt: Date | null; now: number }): boolean {
+  if (i.seen) return false;
+  if (i.liveTransition) return true;
+  return i.acceptedAt !== null && i.now - i.acceptedAt.getTime() >= 0 && i.now - i.acceptedAt.getTime() <= REVEAL_FRESH_MS;
 }

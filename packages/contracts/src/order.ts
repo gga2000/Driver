@@ -3,6 +3,7 @@ import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { AppliedDiscount } from './deals.js';
 import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
+import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { VehicleClass } from './trip.js';
@@ -221,30 +222,27 @@ export type RatingTag = z.infer<typeof RatingTag>;
 export const RatingScore = z.number().int().min(1).max(5);
 
 /**
- * One-tap reasons about the courier/driver himself (step 1 of the two-tap rating), kept apart from
- * the food's: they go with his own rating (`courier_ratings`), not with the kitchen. The low set shows
- * under 1–3 stars, the good set under 4–5; `unsafe_driving` / `safe_driving` are for rides only.
+ * One-tap reasons about the courier/driver himself under a low score (1–3, step 1 of the two-tap
+ * rating), kept apart from the food's: they go with his own rating (`courier_ratings`), not with the
+ * kitchen. `mishandled` is for deliveries only, `unsafe_driving` for rides only. A good score (4–5)
+ * gets no reasons here: the kind words after it are compliments (`orders.compliment`, joy l4).
  */
-export const CourierRatingReason = z.enum(['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving', 'polite', 'fast', 'careful', 'found_us', 'safe_driving']);
+export const CourierRatingReason = z.enum(['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving']);
 export type CourierRatingReason = z.infer<typeof CourierRatingReason>;
 export const COURIER_LOW_REASONS: readonly CourierRatingReason[] = ['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving'];
-export const COURIER_GOOD_REASONS: readonly CourierRatingReason[] = ['polite', 'fast', 'careful', 'found_us', 'safe_driving'];
-const RIDE_ONLY_REASONS: readonly CourierRatingReason[] = ['unsafe_driving', 'safe_driving'];
-const DELIVERY_ONLY_REASONS: readonly CourierRatingReason[] = ['mishandled', 'careful'];
 
-/** The reasons offered under a courier score: the low set for 1–3, the good set for 4–5, per order kind. */
+/** The reasons offered under a courier score: the low set for 1–3 (per order kind), none for 4–5. */
 export function courierReasonsFor(score: number, ride: boolean): CourierRatingReason[] {
-  const set = score <= 3 ? COURIER_LOW_REASONS : COURIER_GOOD_REASONS;
-  return set.filter((r) => (ride ? !DELIVERY_ONLY_REASONS.includes(r) : !RIDE_ONLY_REASONS.includes(r)));
+  if (score < 1 || score > 3) return [];
+  return COURIER_LOW_REASONS.filter((r) => (ride ? r !== 'mishandled' : r !== 'unsafe_driving'));
 }
 
 /**
  * Rating rules (customer app §4 two-tap rating). A scored rating is taken until `windowHours` after
- * the order reached the customer — the same 24 h the tip after a good rating uses, so the tip prompt
- * always follows a rating that counted. The courier's average shows on his card from `minCountShown`
- * ratings, over his newest `averageOf`.
+ * the order reached the customer — the same 24 h the tip and the compliments after a good rating use,
+ * so they always follow a rating that counted. (The card's public average: `publicCourierRating`.)
  */
-export const RATING_RULES = { windowHours: 24, minCountShown: 5, averageOf: 50 } as const;
+export const RATING_RULES = { windowHours: 24 } as const;
 
 export const OrderRating = z.object({
   delivery: RatingScore.nullable(),
@@ -499,6 +497,10 @@ export interface OrdersPort {
   tipOptions(actor: Actor, input: { orderId: string }): Promise<TipOffer>;
   /** The tip after the rating, from his wallet to the driver: once per order (a replay of the same amount returns it). */
   tip(actor: Actor, input: TipOrderInput): Promise<TipResult>;
+  /** «شنو عجبك بـ حيدر؟» (joy l4): whether the compliment chips show after the rating, and which. */
+  complimentOptions(actor: Actor, input: { orderId: string }): Promise<ComplimentOffer>;
+  /** The kind words for the courier/driver, once per order (a replay returns the first). No money. */
+  compliment(actor: Actor, input: ComplimentInput): Promise<ComplimentResult>;
   confirmRideArrived(actor: Actor, input: { orderId: string }): Promise<Order>;
   /** «أني نازل» while the courier waits at the door (J-D8). The orderer or a participant only. */
   comingOut(actor: Actor, input: { orderId: string }): Promise<ComingOutResult>;

@@ -201,7 +201,11 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
-// Scenarios: preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
+// Scenarios: kitchen · preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
+// Joy J5b: `kitchen` = the kitchen said yes, not cooking yet, no courier; then
+//   POST /demo/track/kitchen?orderId=…&step=preparing|ready   the kitchen's next button (kitchen strip, l3)
+//   POST /demo/track/assign?orderId=…[&rated=1]                a courier with a photo takes it now (driver reveal, l2)
+// `&rated=1` on any scenario gives its courier six rated past deliveries (the card's ★ rating).
 // `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
 // `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
 // read (or the sweep) sends the one "آسفين، طلبك تأخر شوية" push and the banner says sorry;
@@ -259,7 +263,7 @@ function metres(a, b) {
   return Math.hypot(dx, (b.lat - a.lat) * k);
 }
 
-async function newCourier(at) {
+async function newCourier(at, { photo = null } = {}) {
   courierSeq += 1;
   const phone = `07712${String(340000 + courierSeq).padStart(6, '0')}`;
   await identity.requestOtp({ phone, purpose: 'login' });
@@ -268,7 +272,7 @@ async function newCourier(at) {
   await identity.grantRole({ personId: 'system:demo' }, { personId: courierId, kind: 'courier' });
   await identity.setName({ personId: courierId, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
   // Every other courier has his approved photo; the rest show the initial (the fallback).
-  if (courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
+  if (photo ?? courierSeq % 2 === 1) await giveMainPhoto(courierId, `courier:${courierSeq}`);
   vehicles.register?.(courierId, { vehicleClass: 'bike', plate: PLATES[(courierSeq - 1) % PLATES.length], label: null });
   await dispatch.presence.online(courierId, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
   return courierId;
@@ -319,7 +323,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -342,17 +346,41 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
-  await orders.markPreparing('demo-staff', { orderId: placed.id });
+  if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
 }
 
 /** Dispatcher hands the trip to the courier; he accepts through dispatch (the real path). */
-async function assign(orderId, courierId) {
+async function assign(orderId, courierId, { force = false } = {}) {
   const trip = await trips.activeForOrder(orderId);
   if (!trip) throw new Error(`no trip for ${orderId}`);
-  const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: courierId, reason: 'demo' });
+  const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: courierId, reason: 'demo', ...(force ? { force: true } : {}) });
   await dispatch.respond({ personId: courierId, sessionId: 'demo' }, { offerId, accept: true });
   return trip.id;
+}
+
+/**
+ * Joy l2: past deliveries for a courier, each rated by a different customer, so his card carries the
+ * rating customers see (shown from 5 ratings). `force` lets a taxi/tuktuk driver carry them (demo only).
+ */
+let raterSeq = 0;
+async function ratedHistory(courierId, { scores = [5, 5, 4, 5, 5, 5], force = false } = {}) {
+  for (const score of scores) {
+    raterSeq += 1;
+    const personId = `demo-rater-${raterSeq}`;
+    const placed = await orders.place(personId, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines: [{ catalogItemId: khalid.itemIds.get('liver_plate'), qty: 1 }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: HOME } });
+    await accept(placed.id);
+    const tripId = await assign(placed.id, courierId, { force });
+    await orders.markReady('demo-staff', { orderId: placed.id });
+    const pickup = await stopOf(tripId, 'pickup');
+    await trips.arrive(tripId, pickup.id, courierId, { pin: kitchen });
+    await trips.completeStop(tripId, pickup.id, courierId);
+    const drop = await stopOf(tripId, 'dropoff');
+    await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+    const o = await orders.get(placed.id);
+    await trips.completeStop(tripId, drop.id, courierId, { handover: { cashCollectedIqd: o.totalIqd } });
+    await orders.rate(personId, { orderId: placed.id, delivery: score, food: 5 });
+  }
 }
 
 async function stopOf(tripId, type) {
@@ -425,12 +453,20 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'kitchen') {
+    // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
+    // the kitchen on, /demo/track/assign brings the courier (the reveal plays on an open screen).
+    const orderId = await placeAccepted(personId, 20, undefined, opts.tender ?? null, { cooking: false });
+    demos.set(orderId, { tripId: null, courierId: null, step: 'kitchen', door: null, noChange: false });
+    return { orderId };
+  }
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
   const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null);
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
+  if (opts.rated) await ratedHistory(courierId);
   const tripId = await assign(orderId, courierId);
   const d = { tripId, courierId, step: late ? 'late' : 'preparing', door: home?.pin ?? null, noChange: Boolean(opts.noChange) };
   demos.set(orderId, d);
@@ -473,7 +509,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
@@ -482,6 +518,27 @@ app.use('/demo/track', async (req, res) => {
     if (req.method !== 'POST') {
       res.statusCode = 405;
       res.end('{"error":"POST"}');
+      return;
+    }
+    if (url.pathname.endsWith('/kitchen')) {
+      // Joy l3: the kitchen presses its next button — «بدأنا» (preparing) or «جاهز» (ready).
+      const orderId = url.searchParams.get('orderId');
+      const step = url.searchParams.get('step') ?? 'preparing';
+      if (step === 'ready') await orders.markReady('demo-staff', { orderId });
+      else await orders.markPreparing('demo-staff', { orderId });
+      res.end(JSON.stringify({ orderId, state: (await orders.get(orderId)).state }));
+      return;
+    }
+    if (url.pathname.endsWith('/assign')) {
+      // Joy l2: a courier (with his approved photo; `rated=1` → six rated past deliveries) takes the order now.
+      const orderId = url.searchParams.get('orderId');
+      const courierId = await newCourier(TO_KITCHEN[0], { photo: true });
+      if (url.searchParams.get('rated') === '1') await ratedHistory(courierId);
+      const tripId = await assign(orderId, courierId);
+      const d = demos.get(orderId) ?? { door: null, noChange: false };
+      demos.set(orderId, { ...d, tripId, courierId, step: 'preparing' });
+      await startMover(tripId, courierId, TO_KITCHEN, 30);
+      res.end(JSON.stringify({ orderId, tripId, courierId }));
       return;
     }
     if (url.pathname.endsWith('/advance')) {
@@ -499,7 +556,8 @@ app.use('/demo/track', async (req, res) => {
     const tender = Number(url.searchParams.get('tender') ?? 0) || null;
     const noChange = url.searchParams.get('nochange') === '1';
     const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin })) }));
+    const rated = url.searchParams.get('rated') === '1';
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin, rated })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));
@@ -1431,6 +1489,9 @@ const rajaa = await (async () => {
     await giveMainPhoto(id, `ride:${def.name}`);
     vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
+    // Joy l2: riders see his rating on the reveal (six rated past jobs; demo only).
+    if (process.env.DEMO_RIDE_RATED !== "0") await ratedHistory(id, { force: true });
+    await dispatch.presence.heartbeat(id, def.at).catch(() => undefined);
     return { id, def, pos: { ...def.at }, tripId: null };
   }
 

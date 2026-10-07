@@ -39,7 +39,8 @@
       ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": false }],
       "expo-asset",
       "expo-status-bar",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-quick-actions"
     ],
     "experiments": { "typedRoutes": true }
   }

@@ -32,3 +32,5 @@ export type { OrdersHouseholdsPort } from './households.port.js';
 export type { OrderAggregate, OrderRecord, OrderLineRecord } from './orders.repository.js';
 export type { OrdersControlsPort } from './controls.port.js';
 export { OrderTipsService, ORDER_TIPPED_EVENT, TIP_RULES } from './tips.js';
+export { OrderComplimentsService, ORDER_COMPLIMENTED_EVENT } from './compliments.js';
+export { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, type ComplimentRecord } from './compliments.repository.js';

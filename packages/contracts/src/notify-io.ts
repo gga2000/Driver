@@ -125,6 +125,7 @@ export const NotifyTemplateId = z.enum([
   'courier_cash_receipt',
   'driver_pay_reply',
   'tip_received',
+  'compliment_received',
   'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
@@ -313,6 +314,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.tip_received.title', body: 'push.tip_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
     primary: ['push'],
     quietHours: 'send',
+  },
+  // «زينب قالتلك: سريع، مؤدب» (joy l4): a customer's kind words after a 4–5 rating; opens «كلام الزبائن».
+  // Held through quiet hours: nice news, never worth waking him.
+  compliment_received: {
+    id: 'compliment_received',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.compliment_received.title', body: 'push.compliment_received.body', androidChannel: 'orders', deepLink: 'driver-partner://compliments' },
+    primary: ['push'],
+    quietHours: 'defer',
   },
   driver_pay_reply: {
     id: 'driver_pay_reply',

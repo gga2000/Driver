@@ -10,8 +10,12 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
 export type DepartureTimeSize = 'compact' | 'card' | 'hero';
-/** `ink`: the garage board (ink tiles, cream digits). `warning` / `success` for a late or done time. `quiet` for dense lists. */
-export type DepartureTimeTone = 'ink' | 'warning' | 'success' | 'quiet';
+/**
+ * `ink`: the garage board (ink tiles, cream digits). `warning` / `success` for a late or done time.
+ * `quiet` for dense lists. `live`: something on the move (the food ETA box, joy J5b) — kashi in the
+ * customer's Istikan theme, the accent text colour in light/dark.
+ */
+export type DepartureTimeTone = 'ink' | 'warning' | 'success' | 'quiet' | 'live';
 
 export interface DepartureTimeProps {
   /** The departure (or the ETA, which reads like one). */
@@ -64,6 +68,7 @@ const TILE: Record<DepartureTimeTone, { tile: ThemeColorKey; digit: ThemeColorKe
   warning: { tile: 'warningText', digit: 'surface' },
   success: { tile: 'successText', digit: 'surface' },
   quiet: { tile: 'surfaceSunken', digit: 'text' },
+  live: { tile: 'liveText', digit: 'surface' },
 };
 
 /** One split-flap cell: on a change the new digit drops in from the top hinge as the old one falls away. */

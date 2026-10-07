@@ -35,6 +35,10 @@
 //   season-* J6 on a frozen 13:00 Baghdad clock: home Ramadan card (pick, then the countdown), the
 //            timetable in notifications, checkout's «على الفطور» slot, the Eid card
 //                                                                         POST /demo/season
+//   live-*   joy J5b: the kitchen strip (accepted, cooking, ready), the food driver reveal, the kashi ETA
+//            box (on the way, the range option, late), delivered with the courier, the compliment chips
+//            (picked, sent) before the tip card            POST /demo/track (kitchen, on_the_way, late; rated=1)
+//            and the ride reveal (a taxi accepted while the screen is open)    POST /demo/ride
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -98,7 +102,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -235,6 +239,7 @@ try {
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
   if (wants('gift')) await giftShots(khalid, personId);
+  if (wants('live')) await liveShots(personId);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -583,18 +588,14 @@ async function trackShots(personId) {
   await byTestId('arrival-rate').click();
   await byTestId('stars-delivery').waitFor();
   await shot('track-rating');
-  // Rate the courier: a low score asks what went wrong, a good one what he liked (optional chips).
+  // Rate the courier: a low score asks what went wrong (optional chips).
   await byTestId('stars-delivery-2').click();
   await byTestId('courier-reasons').waitFor();
   await byTestId('chip-late').click();
   await settle(400);
   await shot('track-rating-courier-low');
+  // A good score moves straight on to the food (the kind words come after, as compliments).
   await byTestId('stars-delivery-5').click();
-  await byTestId('chip-polite').click();
-  await byTestId('chip-found_us').click();
-  await settle(400);
-  await shot('track-rating-courier');
-  await byTestId('rating-courier-next').click();
   await byTestId('stars-food').waitFor();
   await settle(400);
   await shot('track-rating-food');
@@ -1090,6 +1091,9 @@ async function rideShots() {
   await page.waitForTimeout(1200);
   await shot('ride-on-trip-actions');
 
+  // Leave the order screen first: an open screen would see the arrival live and play it there (once
+  // per order), and the reload below would then open on the calm receipt.
+  await page.goto(`${origin}/`, LOADED);
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('arrival').waitFor({ timeout: 15_000 });
@@ -1203,4 +1207,99 @@ async function giftShots(khalid, personId) {
 if (errors.length) {
   console.error('Errors:\n' + errors.map((e) => JSON.stringify(e).slice(0, 2000)).join('\n'));
   process.exitCode = 1;
+}
+
+/**
+ * Joy J5b live moments on a food order, each from real events the demo API plays: the kitchen's yes,
+ * «بدأنا», a courier taking it while the screen is open (the reveal), «جاهز»; the ETA box in kashi, its
+ * range option (dev preview `?etaRange=1`) and late look; then the delivered moment with the courier
+ * and the compliments after a 5-star rating (the tip card still follows).
+ */
+async function liveShots(personId) {
+  const pid = encodeURIComponent(personId ?? '');
+  const k = await demoPost(`/demo/track?personId=${pid}&scenario=kitchen`);
+  if (!k) return;
+  await page.goto(`${origin}/order/${k.orderId}`, LOADED);
+  await byTestId('kitchen-progress').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('live-kitchen-accepted');
+  await demoPost(`/demo/track/kitchen?orderId=${k.orderId}&step=preparing`);
+  await page.locator('[data-testid="kitchen-cooking"]').getByText(/\d:\d\d/).waitFor({ timeout: 20_000 }).catch(() => errors.push('kitchen strip did not show cooking'));
+  await settle(900);
+  await shot('live-kitchen-cooking');
+  await demoPost(`/demo/track/assign?orderId=${k.orderId}&rated=1`);
+  if (await byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => true).catch(() => false)) {
+    await settle(1500);
+    await shot('live-reveal-food');
+    await byTestId('driver-reveal-close').click();
+  } else errors.push('driver reveal did not show');
+  await demoPost(`/demo/track/kitchen?orderId=${k.orderId}&step=ready`);
+  await page.locator('[data-testid="kitchen-ready"]').getByText(/\d:\d\d/).waitFor({ timeout: 20_000 }).catch(() => errors.push('kitchen strip did not show ready'));
+  await settle(900);
+  await shot('live-kitchen-ready');
+  await page.goto(`${origin}/order/${k.orderId}?etaRange=1`, LOADED);
+  await byTestId('eta-range').waitFor({ timeout: 15_000 }).catch(() => errors.push('ETA range option did not show'));
+  await settle(1200);
+  await shot('live-eta-range');
+
+  const late = await demoPost(`/demo/track?personId=${pid}&scenario=late&pastPromiseMin=6`);
+  if (late) {
+    await page.goto(`${origin}/order/${late.orderId}`, LOADED);
+    await byTestId('eta').waitFor({ timeout: 15_000 });
+    // A fresh demo order opens within a minute of the courier's accept: the reveal shows; close it.
+    if (await byTestId('driver-reveal').waitFor({ timeout: 3_000 }).then(() => true).catch(() => false)) await byTestId('driver-reveal-close').click();
+    await settle(1500);
+    await shot('live-eta-late');
+  }
+
+  const o = await demoPost(`/demo/track?personId=${pid}&scenario=on_the_way&rated=1`);
+  if (!o) return;
+  await page.goto(`${origin}/order/${o.orderId}`, LOADED);
+  await byTestId('eta').waitFor({ timeout: 15_000 });
+  if (await byTestId('driver-reveal').waitFor({ timeout: 3_000 }).then(() => true).catch(() => false)) await byTestId('driver-reveal-close').click();
+  await settle(2500);
+  await shot('live-eta');
+  await demoPost(`/demo/track/advance?orderId=${o.orderId}`);
+  await demoPost(`/demo/track/advance?orderId=${o.orderId}`);
+  if (!(await byTestId('arrival').waitFor({ timeout: 25_000 }).then(() => true).catch(() => false))) {
+    errors.push('arrival did not show');
+    return;
+  }
+  await settle(1800);
+  await shot('live-delivered');
+  await byTestId('arrival-rate').click();
+  await byTestId('stars-delivery-5').click();
+  await byTestId('stars-food-5').click();
+  if (!(await byTestId('compliment-offer').waitFor({ timeout: 15_000 }).then(() => true).catch(() => false))) {
+    errors.push('compliment chips did not show');
+    return;
+  }
+  await settle(1500);
+  await shot('live-compliments');
+  await page.getByText('مؤدب', { exact: true }).first().click();
+  await page.getByText('الأكل وصل حار', { exact: true }).first().click();
+  await settle(500);
+  await shot('live-compliments-picked');
+  await byTestId('compliment-send').click();
+  await byTestId('compliment-sent').waitFor({ timeout: 15_000 }).catch(() => errors.push('compliments not sent'));
+  await settle(900);
+  await shot('live-compliments-sent');
+
+  // The ride reveal: a taxi to the first landmark; the demo driver accepts while the screen is open.
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('service-taxi').click();
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click();
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const rideId = new URL(page.url()).pathname.split('/').pop();
+  await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(2500);
+  await demoPost(`/demo/ride/accept?orderId=${rideId}`);
+  if (await byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => true).catch(() => false)) {
+    await settle(1500);
+    await shot('live-reveal-ride');
+  } else errors.push('ride reveal did not show');
 }

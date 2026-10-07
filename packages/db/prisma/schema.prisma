@@ -3199,3 +3199,23 @@ model SupportTicketEntry {
   @@map("support_ticket_entries")
   @@schema("public")
 }
+
+/// Compliments after a good rating (joy l4): the kind words one customer picked for the courier or
+/// driver who carried one order — keys only (`fast`, `polite`, …), never free text, never money. One
+/// row per order; the courier reads them in the Partner app. No personal data (ids and keys only).
+model OrderCompliment {
+  id         String   @id @default(cuid())
+  orderId    String   @map("order_id")
+  courierId  String   @map("courier_id")
+  customerId String   @map("customer_id")
+  /// `food`, `ride`, … (the order's type, for the Partner list).
+  orderType  String   @map("order_type")
+  keys       String[]
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId])
+  @@index([courierId, createdAt])
+  @@map("order_compliments")
+  @@schema("public")
+}

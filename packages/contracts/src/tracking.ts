@@ -37,6 +37,25 @@ export const CourierCard = z.object({
 });
 export type CourierCard = z.infer<typeof CourierCard>;
 
+/**
+ * The courier/driver rating customers see on his card (joy l2, the driver reveal): the delivery scores
+ * customers gave him, newest `COURIER_RATING_WINDOW` (the scorecard's window), and only from
+ * `COURIER_RATING_MIN_COUNT` of them — one early score is noise, not a reputation.
+ */
+export const COURIER_RATING_WINDOW = 50;
+export const COURIER_RATING_MIN_COUNT = 5;
+
+/** `{ rating, count }` to one decimal, or null below the minimum. Pure; the API feeds it. */
+export function publicCourierRating(scores: ReadonlyArray<{ score: number; at: Date }>): { rating: number; count: number } | null {
+  const recent = [...scores]
+    .filter((s) => s.score >= 1 && s.score <= 5)
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, COURIER_RATING_WINDOW);
+  if (recent.length < COURIER_RATING_MIN_COUNT) return null;
+  const avg = recent.reduce((sum, s) => sum + s.score, 0) / recent.length;
+  return { rating: Math.round(avg * 10) / 10, count: recent.length };
+}
+
 // ───────────────────────── the tracking view ─────────────────────────
 
 export const TrackStop = z.object({

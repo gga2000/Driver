@@ -2,7 +2,7 @@ import { courierReasonsFor, type CourierRatingReason, type DisputeKind, type Ord
 
 /**
  * The rating as plain data. Step 1 rates the courier/driver himself (before-launch §6): under his
- * stars, optional one-tap reasons — what went wrong for 1–3, what was good for 4–5 — that go with his
+ * stars, optional one-tap reasons — what went wrong, only for 1–3 — that go with his
  * own rating. Low-rating recovery (audit C-12): 1–3 on either score offers to open a complaint on
  * the spot (a low food score first asks what was wrong with the food, stored as rating tags);
  * 4–5 thanks, then asks «تحب تكرم عباس؟» (Ali, 2026-10-06): the tip after a good rating, from the

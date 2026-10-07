@@ -2,7 +2,7 @@ import { color as palette } from '@driver/design-tokens';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking, type QuickReplyKey, type VehicleClass } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
+import { formatRange, type MessageKey } from '@driver/i18n';
 import {
   Avatar,
   Chip,
@@ -23,6 +23,7 @@ import {
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { ChangeReceiptLine } from './ChangeCredited';
+import { etaBoxContent, etaBoxShowsRange } from './eta-display';
 import { promiseCopy } from './late-promise';
 import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
@@ -89,19 +90,7 @@ export function SheetHeader({
           </Text>
         ) : null}
       </View>
-      {aside ? (
-        aside
-      ) : eta && minutes !== null ? (
-        <View
-          testID="eta"
-          accessible
-          accessibilityLabel={`${t('track.eta_label')} ${formatClock(eta)}، ${t('track.eta_minutes', { minutes })}`}
-          style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: lateMin > 0 ? theme.colors.warningTint : theme.colors.accentTint, minWidth: 84 }}
-        >
-          {/* "يوصلك 7:00" on the same split-flap tiles as a الرجعة departure (audit d-2). */}
-          <DepartureTime at={eta} now={now} size="compact" align="center" label={t('track.eta_label')} tone={lateMin > 0 ? 'warning' : 'ink'} countdown={false} note={t('track.eta_minutes', { minutes })} testID="eta-time" />
-        </View>
-      ) : null}
+      {aside ? aside : eta && minutes !== null ? <EtaBox eta={eta} now={now} late={lateMin > 0} /> : null}
     </View>
   );
   if (!below) return row;
@@ -109,6 +98,50 @@ export function SheetHeader({
     <View style={{ gap: theme.space[3] }}>
       {row}
       {below}
+    </View>
+  );
+}
+
+/**
+ * The ETA box (joy J5b, J-D1): «يوصلك 7:05» on split-flap tiles in kashi — the Istikan colour of what
+ * moves — with the minutes under it; the warning look once running late. With the range option (an
+ * open question for Ali, `eta-display.ts`) it says «12–19 دقيقة» instead. Quiet for screen readers'
+ * live regions: it would chatter every minute (L-23); it is read when focused.
+ */
+export function EtaBox({ eta, now, late }: { eta: Date; now: number; late: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const box = etaBoxContent({ eta, now, showRange: etaBoxShowsRange });
+  const minutesText = t('track.eta_minutes', { minutes: box.minutes });
+  const rangeText = box.kind === 'range' ? t('track.map_minutes_range', { range: formatRange(box.low, box.high, locale) }) : null;
+  return (
+    <View
+      testID="eta"
+      accessible
+      accessibilityLabel={rangeText ? `${t('track.eta_label')} ${rangeText}` : `${t('track.eta_label')} ${formatClock(eta)}، ${minutesText}`}
+      style={{
+        alignItems: 'center',
+        paddingHorizontal: theme.space[3],
+        paddingVertical: theme.space[2],
+        borderRadius: theme.radius.lg,
+        backgroundColor: late ? theme.colors.warningTint : theme.colors.liveTint,
+        minWidth: 84,
+      }}
+    >
+      {rangeText ? (
+        <View testID="eta-range" style={{ alignItems: 'center', gap: 2 }}>
+          <Text variant="caption" weight={600} color={late ? 'warningText' : 'liveText'}>
+            {t('track.eta_label')}
+          </Text>
+          <Text variant="title" weight={700} tabular color={late ? 'warningText' : 'liveText'}>
+            {rangeText}
+          </Text>
+        </View>
+      ) : (
+        // "يوصلك 7:00" on the same split-flap tiles as a الرجعة departure (audit d-2), kashi tiles (J5b).
+        <DepartureTime at={eta} now={now} size="compact" align="center" label={t('track.eta_label')} tone={late ? 'warning' : 'live'} countdown={false} note={minutesText} testID="eta-time" />
+      )}
     </View>
   );
 }

@@ -4,10 +4,11 @@ import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, wi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type CourierRatingReason, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
+import { Avatar, Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
+import { apiPhoto } from '@/lib/photo';
 import { amountParam, iqd } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
@@ -21,6 +22,7 @@ import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { courierReasons, disputeKindFor, keepFitting, lowReasons, LOW_SCORE, ratingBranch } from './rating-logic';
+import { ComplimentCard } from './Compliments';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
@@ -93,7 +95,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         <Animated.View
           testID="arrival-scene"
           entering={celebrate ? ZoomIn.springify().damping(16) : theme.reduceMotion ? undefined : FadeIn.duration(220)}
-          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : ARRIVAL_SCENE_MAX }}
+          style={{ width: '100%', maxWidth: photo ? ARRIVAL_SCENE_WITH_PHOTO : !ride && view.courier ? ARRIVAL_SCENE_WITH_COURIER : ARRIVAL_SCENE_MAX }}
         >
           {ride ? <SketchScene name="safe_arrival" vehicle={sceneVehicle(view.courier?.vehicleClass ?? null)} /> : <SketchScene name="door" />}
         </Animated.View>
@@ -105,6 +107,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
+        {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
+        {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}
         <FirstMoment kind={first} />
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
         {ride ? (
@@ -137,9 +141,26 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   );
 }
 
+/** «حيدر وصّلك طلبك» with his approved photo (or his initial) under the delivered title. */
+function ArrivedWith({ courier }: { courier: NonNullable<OrderTracking['courier']> }) {
+  const theme = useTheme();
+  const t = useT();
+  const name = courier.firstName ?? t('track.courier_fallback');
+  return (
+    <View testID="arrival-courier" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2], paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+      <Avatar name={name} uri={apiPhoto(courier.photoUrl) ?? undefined} size={40} />
+      <Text variant="label" weight={600}>
+        {t('track.arrived_courier', { name })}
+      </Text>
+    </View>
+  );
+}
+
 /** How wide the arrival drawing grows; smaller when the customer's own gate photo also shows. */
 const ARRIVAL_SCENE_MAX = 300;
 const ARRIVAL_SCENE_WITH_PHOTO = 168;
+/** With the courier's row under the title (joy l4): a little smaller, so the cash card still fits a 360×740 phone. */
+const ARRIVAL_SCENE_WITH_COURIER = 236;
 
 /** Which vehicle brings a rider home in the arrival drawing. */
 function sceneVehicle(vehicle: VehicleClass | null): SceneVehicle {
@@ -247,7 +268,7 @@ export function Stars({ value, onPick, testID }: { value: number; onPick: (n: nu
 /**
  * Two steps: the courier/driver, then the food (kitchen orders only). Step 1 is the courier's own
  * rating (before-launch §6): his stars, then optional one-tap reasons under them — what went wrong
- * for 1–3, what was good for 4–5 — and «كمّل». The food's stars send `orders.rate` straight away;
+ * for 1–3 — and «كمّل»; 4–5 moves straight on (the kind words come after as compliments). The food's stars send `orders.rate` straight away;
  * then the points this order earned count up and fly into the wallet. 1–3 on either (audit C-12)
  * offers "افتح شكوى" (a low food score first asks what was wrong with the food), which opens the
  * complaint (`orders.openDispute`, a support ticket) before the rating is stored, so the case stays
@@ -280,11 +301,14 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
   const foodReasons = lowReasons(view.order.type, food ? foodScore : null);
 
   const fail = (e: unknown) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' });
-  const submit = (d: number, f: number | null, withTags: readonly RatingTag[] = []) =>
+  const submit = (d: number, f: number | null, withTags: readonly RatingTag[] = []) => {
+    // Only the reasons that fit the final score go (a 2 changed to a 5 sends none).
+    const reasons = keepFitting(picked, d, view.order.type);
     rate.mutate(
-      { orderId: view.order.id, delivery: d, ...(f ? { food: f } : {}), ...(withTags.length ? { tags: [...withTags] } : {}), ...(picked.length ? { courierReasons: [...picked] } : {}) },
+      { orderId: view.order.id, delivery: d, ...(f ? { food: f } : {}), ...(withTags.length ? { tags: [...withTags] } : {}), ...(reasons.length ? { courierReasons: reasons } : {}) },
       { onSuccess: () => setStep('done'), onError: fail },
     );
+  };
   const finish = (d: number, f: number | null) => (ratingBranch(d, f) === 'recover' ? setStep('reasons') : submit(d, f));
   const nextFromCourier = () => (food ? setStep(2) : finish(delivery, null));
   const complain = () => {
@@ -322,20 +346,25 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
             onPick={(n) => {
               setDelivery(n);
               setPicked((p) => keepFitting(p, n, view.order.type));
+              // 4–5 moves straight on (the kind words come after, «شنو عجبك بـ حيدر؟»); 1–3 asks what went wrong.
+              if (n > LOW_SCORE) {
+                if (food) setTimeout(() => setStep(2), 220);
+                else finish(n, null);
+              }
             }}
           />
-          {delivery > 0 ? (
+          {delivery > 0 && delivery <= LOW_SCORE ? (
             <View testID="courier-reasons" style={{ gap: theme.space[3] }}>
               <View style={{ alignItems: 'center', gap: 2 }}>
                 <Text variant="label" weight={600} align="center">
-                  {t(delivery <= LOW_SCORE ? 'rating.courier_low_q' : 'rating.courier_good_q', { name })}
+                  {t('rating.courier_low_q', { name })}
                 </Text>
                 <Text variant="caption" color="textMuted" align="center">
                   {t('rating.courier_optional')}
                 </Text>
               </View>
               <ChipGroup
-                accessibilityLabel={t(delivery <= LOW_SCORE ? 'rating.courier_low_q' : 'rating.courier_good_q', { name })}
+                accessibilityLabel={t('rating.courier_low_q', { name })}
                 items={offered.map((r) => ({ id: r, label: t(`rating.courier.${r}` as MessageKey) }))}
                 value={picked}
                 onChange={(next) => setPicked(next as CourierRatingReason[])}
@@ -398,6 +427,8 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
             </View>
           ) : null}
           <PointsEarned points={view.pointsEarned} />
+          {/* Joy l4: kind words for him first, then the tip offer exactly as before (rating → tip). */}
+          <ComplimentCard orderId={view.order.id} name={name} enabled={!complained && goodRating} />
           <TipOffer orderId={view.order.id} name={name} enabled={!complained && goodRating} />
         </View>
       )}

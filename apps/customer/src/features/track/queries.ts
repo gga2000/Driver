@@ -163,3 +163,19 @@ export function useTipOrder(orderId: string) {
     },
   });
 }
+
+/** «شنو عجبك بـ حيدر؟» (joy l4): whether the compliment chips show after the rating, and which. */
+export function useComplimentOptions(orderId: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({ ...api.orders.complimentOptions.queryOptions({ orderId }), enabled: enabled && orderId.length > 0 });
+}
+
+/** The kind words for the courier: refreshes the offer (it then thanks). */
+export function useSendCompliment(orderId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.orders.compliment.mutationOptions(),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: api.orders.complimentOptions.queryKey({ orderId }) }),
+  });
+}
