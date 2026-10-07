@@ -83,6 +83,8 @@ fly secrets set --config deploy/fly/api.toml --stage \
   JWT_KID=k1 \
   PHONE_HASH_PEPPER='<the value you used in supabase-setup — NEVER change it>' \
   UPLOADS_SECRET="$(openssl rand -hex 32)" \
+  SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
+  SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
 
@@ -121,6 +123,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
 | `PHONE_HASH_PEPPER` | **yes** | 64 hex chars. **Never changes**: changing it orphans every account. |
 | `UPLOADS_SECRET` | **yes** | signs `/files` and `/uploads` links; defaults to `JWT_SECRET` — set it so a JWT rotation does not break photo links |
+| `SHARE_LINK_SECRET` | **yes** | 64 hex chars; signs share-trip links. Its own value: production refuses to boot without it or with JWT_SECRET's value (SEC-15) |
+| `SAFETY_LINK_SECRET` | **yes** | 64 hex chars; signs SOS links for emergency contacts. Its own value, different from `JWT_SECRET` and `SHARE_LINK_SECRET` |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | no | Supabase Storage, [supabase.md](supabase.md) step 5 |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
@@ -150,7 +154,8 @@ fly secrets set --config deploy/fly/api.toml JWT_SECRET="$(openssl rand -hex 32)
 Fly restarts the API with the new secret. Every phone's current access token stops verifying, the app
 gets a 401, refreshes once with its refresh token, gets a new pair, and carries on. Do it when someone
 who knew the secret leaves, or after a leak. (With `UPLOADS_SECRET` set separately, photo links keep
-working.) `PHONE_HASH_PEPPER` is never rotated.
+working; share-trip and SOS links have their own secrets and are never affected.) `PHONE_HASH_PEPPER` is
+never rotated.
 
 ## Logs and errors
 
