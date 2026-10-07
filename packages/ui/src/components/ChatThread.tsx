@@ -342,6 +342,17 @@ function Row({ row, t, photoUri, onRetry }: { row: ChatRow; t: ChatT; photoUri: 
     );
   }
   const m = row.message;
+  // A line the server writes into the thread (ride s7 «الراكب يدور على غرض نساه»): centred, no bubble.
+  if (m.kind === 'system') {
+    return (
+      <View testID={`chat-msg-${m.seq}`} style={{ alignSelf: 'center', maxWidth: '88%', flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, marginVertical: theme.space[1] }}>
+        <Icon name="bag" size={15} color="accentText" />
+        <Text variant="caption" weight={600} style={{ flexShrink: 1 }}>
+          {m.text}
+        </Text>
+      </View>
+    );
+  }
   const senderLabel = !m.mine && m.senderRole === 'support' ? t('chat.role.support') : null;
   return (
     <View testID={`chat-msg-${m.seq}`}>

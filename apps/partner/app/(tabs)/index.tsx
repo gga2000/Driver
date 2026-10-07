@@ -6,6 +6,7 @@ import Animated from 'react-native-reanimated';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { BlockedSwitch, GateBanner } from '@/features/account/GateParts';
 import { gateKind } from '@/features/account/logic';
+import { LostItemStrips } from '@/features/chat/LostItems';
 import { FleetInviteBanner } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
@@ -134,6 +135,8 @@ export default function Home() {
               ) : null}
 
               {s.activeTripId ? <ActiveJobBanner /> : null}
+              {/* s7: a rider looking for something left in the car (the chat is open again for 24 h). */}
+              {s.canDrive ? <LostItemStrips /> : null}
               {invite && !s.activeTripId ? <FleetInviteBanner invite={invite} /> : null}
               {online && !cut && s.demand ? <DemandRow demand={s.demand} /> : null}
 

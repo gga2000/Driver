@@ -64,6 +64,9 @@ export const ERROR_TABLE = {
   khat_not_child_stop: { retryHint: 'never', status: 'BAD_REQUEST' },
   khat_child_not_on_trip: { retryHint: 'never', status: 'NOT_FOUND' },
   khat_child_not_tapped_in: { retryHint: 'never', status: 'CONFLICT' },
+  // s1 «رمز المشوار»: a night ride starts only with the 4 digits the rider reads out
+  start_code_required: { retryHint: 'never', status: 'BAD_REQUEST' },
+  start_code_wrong: { retryHint: 'now', status: 'BAD_REQUEST' },
   khat_child_absent: { retryHint: 'never', status: 'CONFLICT' },
   // khat.confirmEmptyCar before every child stop is settled (partner S-6 sweep)
   khat_run_not_finished: { retryHint: 'never', status: 'CONFLICT' },
@@ -232,6 +235,8 @@ export const ERROR_TABLE = {
   chat_not_party: { retryHint: 'never', status: 'FORBIDDEN' },
   chat_not_open: { retryHint: 'later', status: 'CONFLICT' },
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
+  // s7 «نسيت غرض»: only a completed ride, only within 24 h of its end
+  chat_lost_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «كلّم الدعم»: a customer opens at most CHAT_SUPPORT_OPENS_PER_DAY new support chats a day.
   chat_support_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },

@@ -174,6 +174,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   }, orgsHouseholds(orgs), eta);
   orders.onModuleInit();
   // "الخردة علينا": as OrdersModule binds it at start-up.
+  trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));

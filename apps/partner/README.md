@@ -288,6 +288,17 @@ When a customer sends a meal to someone else as a gift, the job card says so (`G
 prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
 الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
 
+## Night trip code and «نسيت غرض» (taxi/tuktuk step 3)
+
+A ride placed at night (21:00–05:59 Baghdad) starts only with the 4 digits in the rider's app: the job says
+«بالليل: يحتاج رمز من الراكب» (`PartnerJobStop.startCodeRequired`; the code itself never reaches this app)
+and «الراكب صعد» opens a big-key pad (`src/features/work/StartCodePanel.tsx`) whose code the server checks
+(`start_code_wrong` clears it; five wrong ones alert the Console). Needs internet, like the unreachable
+protocol. A rider who left something in the car reopens the chat for 24 h after the ride: home shows one
+strip per reopened chat (`src/features/chat/LostItems.tsx`, `chat.lostItems`). API: `docs/api/ride-safety.md`.
+Demo: `POST /demo/ride-safety?who=tuktuk&step=at_pickup` (answers with the `startCode` to type) and
+`…&step=lost_item`.
+
 ## «الزبون طلبك إنت» — a favourite's offer (joy l9)
 
 A rider who kept a driver as a favourite may ask for him on a ride booked for later. When its search starts

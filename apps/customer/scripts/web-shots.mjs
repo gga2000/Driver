@@ -1320,6 +1320,14 @@ async function rideShots() {
   await page.waitForTimeout(1500);
   await shot('ride-at-pickup');
 
+  // Ride step 3 (s1): the same ride as if placed at night — «رمز المشوار» in the collapsed sheet.
+  await demoPost(`/demo/ride/night?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  if (await byTestId('ride-trip-code').waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await page.waitForTimeout(1500);
+    await shot('ride-trip-code');
+  } else errors.push('trip code not shown on a night ride');
+
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
@@ -1349,6 +1357,17 @@ async function rideShots() {
   await byTestId('ride-name-place').waitFor({ timeout: 15_000 }).catch(() => errors.push('name-this-place not shown'));
   await byTestId('ride-name-place').scrollIntoViewIfNeeded().catch(() => undefined);
   await shot('ride-receipt-name');
+  // Ride step 3 (s7): «نسيت غرض بالسيارة؟» among the receipt's actions, then the chat it reopens.
+  await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
+  if (await byTestId('action-lost-item').waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await byTestId('action-lost-item').scrollIntoViewIfNeeded();
+    await settle(600);
+    await shot('ride-lost-item');
+    await byTestId('action-lost-item').click();
+    await page.waitForURL(/\/chat\//, { timeout: 15_000 }).catch(() => errors.push('lost item did not open the chat'));
+    await settle(1500);
+    await shot('ride-lost-item-chat');
+  } else errors.push('lost-item action not shown after a ride');
   await page.goto(`${origin}/ride`, LOADED);
   await byTestId('ride-picks').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart picks not shown after a ride'));
   await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));

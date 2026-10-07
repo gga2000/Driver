@@ -74,7 +74,8 @@ function envInt(name: string, fallback: number): number {
         order: (orderId) =>
           orNull(async () => {
             const o = await orders.get(orderId);
-            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0) };
+            const riderId = o.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
+            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId };
           }),
         storeName: (orgId) => orNull(async () => (await orgs.get(orgId)).name),
         orgPeople: async (orgId, kinds) => (await orNull(async () => (await identity.orgRoleHolders(orgId, kinds)).filter((r) => !r.frozen).map((r) => r.personId))) ?? [],
@@ -129,6 +130,8 @@ function envInt(name: string, fallback: number): number {
           }),
         // w9: the switches and how many trusted people (no names or numbers leave identity here).
         safety: (personId) => orNull(async () => ({ prefs: await identity.safetyPrefsOf(personId), contacts: await identity.trustedContactCount(personId) })),
+        // s2: «وصل بالسلامة» reaches only trusted people with an account (identity matches their numbers).
+        trustedAccounts: async (personId, purpose) => (await orNull(() => identity.trustedContactAccounts(personId, 'system:notify', purpose))) ?? [],
         // w9 auto-share: the same signed link the rider's own «شارك» makes, created for the rider.
         shareLink: (personId, subject) =>
           orNull(async () => {

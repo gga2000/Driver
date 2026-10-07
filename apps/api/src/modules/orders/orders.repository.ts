@@ -60,6 +60,11 @@ export interface OrderRecord {
    * (rides, unknown pins), or placed before it — tracking then uses the router's own minutes.
    */
   promisedRideMin?: number | null;
+  /**
+   * s1 «رمز المشوار» (`orders.start_code`): the 4 digits a ride placed for the night starts with. Never
+   * on the `Order` view: tracking shows it to the orderer and the rider only, trips checks it.
+   */
+  startCode?: string | null;
   /** When the kitchen used its one "+5 د" (`orders.prep_extended_at`); absent/null = not used. */
   prepExtendedAt?: Date | null;
   /** S-M4: when the kitchen tapped "سلّمته" at the pass (`orders.handed_over_at`); absent/null = not yet. */
@@ -291,6 +296,7 @@ function orderFromRow(r: any): OrderRecord {
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
     promisedRideMin: r.promisedRideMin ?? null,
+    startCode: r.startCode ?? null,
     prepExtendedAt: r.prepExtendedAt ?? null,
     handedOverAt: r.handedOverAt ?? null,
     minVehicleClass: r.minVehicleClass,

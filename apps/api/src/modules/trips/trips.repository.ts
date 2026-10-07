@@ -66,6 +66,10 @@ export interface StopRecord {
   childRef: string | null;
   childTapInAt: Date | null;
   childTapOutAt: Date | null;
+  /** s1: wrong night-ride codes typed on this pickup. */
+  startCodeWrong: number;
+  /** s1: when the wrong codes reached `START_CODE_RULES.wrongAlertAt` (ops alerted, once). */
+  startCodeAlertAt: Date | null;
 }
 
 export interface TripOrderRecord {
@@ -168,6 +172,13 @@ export interface TripsRepository extends TripOrderLookup {
   handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>>;
   /** Completed drop-offs at a saved place, outside one trip (maps program a5: a courier's first visit). */
   dropoffsAt(placeId: string, excludeTripId: string): Promise<number>;
+  /**
+   * s1: one more wrong night-ride code on a pickup (an atomic increment). The increment that reaches
+   * `alertAt` stamps `startCodeAlertAt` (once); `alerted` says this call was that one.
+   */
+  noteStartCodeWrong(stopId: string, alertAt: number, now: Date, tx?: Tx): Promise<{ wrong: number; alerted: boolean }>;
+  /** s1: pickups whose wrong codes alerted ops at or after `since`, in the city, newest first, with their trips. */
+  startCodeAlertsSince(cityId: string, since: Date): Promise<Array<{ stop: StopRecord; trip: TripRecord }>>;
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
@@ -226,6 +237,8 @@ interface StopRow {
   childRef: string | null;
   childTapInAt: Date | null;
   childTapOutAt: Date | null;
+  startCodeWrong: number;
+  startCodeAlertAt: Date | null;
 }
 
 interface PinRow {
@@ -447,6 +460,25 @@ export class PrismaTripsRepository implements TripsRepository {
     return rows.flatMap((r) => (typeof r.proof['photoUploadId'] === 'string' ? [{ stopId: r.id, uploadId: r.proof['photoUploadId'], proof: r.proof }] : []));
   }
 
+  async noteStartCodeWrong(stopId: string, alertAt: number, now: Date, tx?: Tx): Promise<{ wrong: number; alerted: boolean }> {
+    const db = this.db(tx);
+    const row = await db.stop.update({ where: { id: stopId }, data: { startCodeWrong: { increment: 1 } }, select: { startCodeWrong: true } });
+    // Only the increment that reaches the threshold stamps it, and only while unstamped (two taps at once raise one alert).
+    const alerted = row.startCodeWrong >= alertAt && (await db.stop.updateMany({ where: { id: stopId, startCodeAlertAt: null }, data: { startCodeAlertAt: now } })).count === 1;
+    return { wrong: row.startCodeWrong, alerted };
+  }
+
+  async startCodeAlertsSince(cityId: string, since: Date): Promise<Array<{ stop: StopRecord; trip: TripRecord }>> {
+    const rows = await this.db().stop.findMany({ where: { startCodeAlertAt: { gte: since }, trip: { cityId } }, select: { id: true, tripId: true }, orderBy: { startCodeAlertAt: 'desc' } });
+    const out: Array<{ stop: StopRecord; trip: TripRecord }> = [];
+    for (const r of rows) {
+      const [trip, stops] = await Promise.all([this.findTrip(r.tripId), this.stopsOf(r.tripId)]);
+      const stop = stops.find((x) => x.id === r.id);
+      if (trip && stop) out.push({ stop, trip });
+    }
+    return out;
+  }
+
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
     const latest = await this.db().tripOrder.findFirst({ where: { tripId, orderId }, orderBy: { attachedAt: 'desc' } });
     return latest?.detachedAt ?? null;
@@ -577,6 +609,8 @@ export class InMemoryTripsRepository implements TripsRepository {
         childRef: s.childRef ?? null,
         childTapInAt: null,
         childTapOutAt: null,
+        startCodeWrong: 0,
+        startCodeAlertAt: null,
       };
       this.stops.set(stop.id, stop);
       const ids = this.stopIds.get(tripId);
@@ -656,6 +690,22 @@ export class InMemoryTripsRepository implements TripsRepository {
 
   async dropoffsAt(placeId: string, excludeTripId: string): Promise<number> {
     return [...this.stops.values()].filter((s) => s.placeId === placeId && s.type === 'dropoff' && s.state === 'completed' && s.tripId !== excludeTripId).length;
+  }
+
+  async noteStartCodeWrong(stopId: string, alertAt: number, now: Date): Promise<{ wrong: number; alerted: boolean }> {
+    const s = this.stops.get(stopId);
+    if (!s) throw new Error(`stop ${stopId} not found`);
+    const wrong = s.startCodeWrong + 1;
+    const alerted = wrong >= alertAt && s.startCodeAlertAt === null;
+    this.stops.set(stopId, { ...s, startCodeWrong: wrong, ...(alerted ? { startCodeAlertAt: now } : {}) });
+    return { wrong, alerted };
+  }
+
+  async startCodeAlertsSince(cityId: string, since: Date): Promise<Array<{ stop: StopRecord; trip: TripRecord }>> {
+    return [...this.stops.values()]
+      .filter((s) => s.startCodeAlertAt !== null && s.startCodeAlertAt.getTime() >= since.getTime() && this.trips.get(s.tripId)?.cityId === cityId)
+      .sort((a, b) => b.startCodeAlertAt!.getTime() - a.startCodeAlertAt!.getTime())
+      .map((s) => ({ stop: { ...s }, trip: { ...this.trips.get(s.tripId)! } }));
   }
 
   async handoverPhotosBefore(cutoff: Date, limit: number): Promise<Array<{ stopId: string; uploadId: string; proof: Record<string, unknown> }>> {

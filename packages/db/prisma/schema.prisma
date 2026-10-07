@@ -1059,6 +1059,8 @@ model Order {
   /// The honest-delay promise's kitchen → door ride, locked at placement (Ali, 2026-10-07): the one ETA's learned
   /// minutes (router × the clamped correction); promise = promisedReadyAt + this. Null = no promise, or placed before it.
   promisedRideMin    Int?          @map("promised_ride_min")
+  /// s1 «رمز المشوار» (ride step 3): the 4 digits a ride placed for the night needs before it starts; null otherwise.
+  startCode          String?       @map("start_code")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.
   prepExtendedAt     DateTime?     @map("prep_extended_at")
   handedOverAt       DateTime?     @map("handed_over_at")
@@ -1347,6 +1349,10 @@ model Stop {
   childTapOutAt          DateTime?                              @map("child_tap_out_at")
   /// Opaque ref into vault.child_identities; the child's name never sits in the public schema.
   childRef               String?                                @map("child_ref")
+  /// s1: wrong night-ride codes typed on this pickup (the code itself is on the order, never here).
+  startCodeWrong         Int                                    @default(0) @map("start_code_wrong")
+  /// s1: when the wrong codes reached START_CODE_RULES.wrongAlertAt and ops were alerted (once).
+  startCodeAlertAt       DateTime?                              @map("start_code_alert_at")
   createdAt              DateTime                               @default(now()) @map("created_at")
   updatedAt              DateTime                               @updatedAt @map("updated_at")
 
@@ -1357,6 +1363,7 @@ model Stop {
 
   @@unique([tripId, seq])
   @@index([orderId])
+  @@index([startCodeAlertAt])
   @@map("stops")
   @@schema("public")
 }
@@ -2108,15 +2115,20 @@ model SafetyIncidentFix {
 /// Participants are derived live from the order (the courier changes on a reassign), so none are stored.
 /// No foreign keys: orders are owned by the orders module.
 model ChatThread {
-  id        String   @id @default(cuid())
-  orderId   String   @map("order_id")
-  kind      String
+  id              String    @id @default(cuid())
+  orderId         String    @map("order_id")
+  kind            String
   /// Highest message seq (the next message takes lastSeq + 1 under a row lock).
-  lastSeq   Int      @default(0) @map("last_seq")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  lastSeq         Int       @default(0) @map("last_seq")
+  /// s7 «نسيت غرض»: a completed ride's chat reopened by the customer until this time (ride end + 24 h).
+  lostItemUntil   DateTime? @map("lost_item_until")
+  /// s7: when the customer asked.
+  lostItemAskedAt DateTime? @map("lost_item_asked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@unique([orderId, kind])
+  @@index([lostItemUntil])
   @@map("chat_threads")
   @@schema("public")
 }
@@ -2245,24 +2257,24 @@ model FavouriteDriver {
 /// Joy r5: a ride or a الرجعة the rider takes every week. Each occurrence is asked about (the evening
 /// before or that morning) and booked only when he taps «أكدها»; prices are the server's at that moment.
 model RegularTrip {
-  id            String    @id @default(cuid())
-  personId      String    @map("person_id")
+  id            String   @id @default(cuid())
+  personId      String   @map("person_id")
   /// ride | rajaa
   kind          String
   /// Baghdad weekdays, 0 = Sunday … 6 = Saturday.
   days          Int[]
   /// Minutes since Baghdad midnight.
-  timeMin       Int       @map("time_min")
+  timeMin       Int      @map("time_min")
   /// evening (20:00 the day before) | morning (08:00 that day)
   remind        String
   /// cash | wallet
-  paymentMethod String    @default("cash") @map("payment_method")
-  favouriteId   String?   @map("favourite_id")
-  active        Boolean   @default(true)
+  paymentMethod String   @default("cash") @map("payment_method")
+  favouriteId   String?  @map("favourite_id")
+  active        Boolean  @default(true)
   /// The plan: a ride's points, vehicle and door pickup, or a الرجعة corridor, direction, garage and seat rule.
   plan          Json
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   favourite   FavouriteDriver?        @relation(fields: [favouriteId], references: [id], onDelete: SetNull)
   occurrences RegularTripOccurrence[]

@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { CallSession, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView } from '../chat-io.js';
+import { CallSession, ChatLostItemInput, ChatLostItemResult, ChatLostItemThread, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView } from '../chat-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { DRIVING_ROLES } from './trips.js';
 
 /**
  * In-order chat and masked calls (`modules/chat` behind `ctx.chat`). Any signed-in person may call;
@@ -29,4 +30,13 @@ export const chatRouter = router({
     .input(ChatRequestCallInput)
     .output(CallSession)
     .mutation(({ ctx, input }) => ctx.chat.requestCall(ctx.actor, input)),
+  /** s7 «نسيت غرض»: reopens the chat with the driver of a ride completed in the last 24 h. */
+  lostItem: protectedProcedure()
+    .input(ChatLostItemInput)
+    .output(ChatLostItemResult)
+    .mutation(({ ctx, input }) => ctx.chat.lostItem(ctx.actor, input)),
+  /** s7: the driver's open «نسيت غرض» chats (partner app). */
+  lostItems: protectedProcedure(DRIVING_ROLES)
+    .output(z.array(ChatLostItemThread))
+    .query(({ ctx }) => ctx.chat.lostItems(ctx.actor)),
 });

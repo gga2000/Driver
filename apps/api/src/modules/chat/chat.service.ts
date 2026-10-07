@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { t } from '@driver/i18n';
 import {
   CHAT_CLOSE_AFTER_MIN,
+  CHAT_LOST_ITEM_H,
   CHAT_SUPPORT_CLOSE_AFTER_H,
   CHAT_SUPPORT_OPENS_PER_DAY,
   CHAT_THREAD_PARTIES,
@@ -12,6 +14,9 @@ import {
   type Actor,
   type CallSession,
   type ChatMarkReadInput,
+  type ChatLostItemInput,
+  type ChatLostItemResult,
+  type ChatLostItemThread,
   type ChatMarkReadOutput,
   type ChatMessage,
   type ChatParticipant,
@@ -88,6 +93,10 @@ interface OrderContext {
   courierId: string | null;
   courierAcceptedAt: Date | null;
   doneAt: Date | null;
+  /** A ride whose trip completed: when (s7 «نسيت غرض» counts from it); null otherwise. */
+  rideCompletedAt: Date | null;
+  /** s7: the driver chat reopened for a lost item until then; null when never reopened. */
+  lostItemUntil: Date | null;
 }
 
 const NAME_CACHE_MAX = 2000;
@@ -200,7 +209,7 @@ export class ChatService implements ChatPort {
       orderId: ctx.order.id,
       kind: input.kind,
       status,
-      closesAt: ctx.doneAt ? closesAt(ctx.doneAt, input.kind) : null,
+      closesAt: this.closesAt(ctx, input.kind),
       myRole: role,
       ride: ctx.ride,
       participants: await this.participants(actor.personId, ctx, input.kind, role),
@@ -343,6 +352,68 @@ export class ChatService implements ChatPort {
     }
   }
 
+  // ───────────────────────── «نسيت غرض» (s7) ─────────────────────────
+
+  /**
+   * s7 «نسيت غرض»: within `CHAT_LOST_ITEM_H` of a completed ride, its orderer or rider reopens the chat
+   * with the driver until the ride's end + `CHAT_LOST_ITEM_H`, and the thread gets one line the server
+   * writes («الراكب يدور على غرض نساه») — which also pushes the driver. Asking again is safe: the window
+   * stays the same and the line is written once.
+   */
+  async lostItem(actor: Actor, input: ChatLostItemInput): Promise<ChatLostItemResult> {
+    const ctx = await this.context(input.orderId);
+    if (!ctx.customerIds.has(actor.personId)) throw new DriverError('chat_not_party');
+    const now = this.clock.now();
+    const until = ctx.rideCompletedAt ? new Date(ctx.rideCompletedAt.getTime() + CHAT_LOST_ITEM_H * 3_600_000) : null;
+    if (!ctx.ride || !until || !ctx.courierId || now.getTime() >= until.getTime()) throw new DriverError('chat_lost_item_unavailable');
+    await this.sendLimiter.hit(actor.personId);
+    const kind: ChatThreadKind = 'customer_courier';
+    const recipients = await this.recipients(ctx, kind, 'customer', actor.personId);
+    const body = t('chat.lost_item_line', {}, 'ar-IQ');
+    const thread = await this.uow.run(async (tx) => {
+      const opened = await this.repo.reopenForLostItem((await this.repo.ensureThread(ctx.order.id, kind, now, tx)).id, until, now, tx);
+      const { message, inserted } = await this.repo.append(
+        opened.id,
+        { senderId: actor.personId, senderRole: 'customer', kind: 'system', body, quickReplyKey: null, photoRef: null, lat: null, lng: null, masked: false, clientId: LOST_ITEM_CLIENT_ID, createdAt: now },
+        tx,
+      );
+      if (inserted) {
+        await this.repo.markRead(opened.id, readerKey('customer', actor.personId, kind), message.seq, tx);
+        const payload = ChatMessageSentPayload.parse({
+          threadId: opened.id,
+          orderId: ctx.order.id,
+          kind,
+          messageId: message.id,
+          seq: message.seq,
+          senderRole: 'customer',
+          messageKind: 'system',
+          ride: true,
+          recipientIds: recipients,
+          preview: body.slice(0, 80),
+        });
+        await this.events.emit(
+          tx,
+          { type: 'chat.message_sent', actorId: actor.personId, occurredAt: now, orderId: ctx.order.id, payload, idempotencyKey: `chat:${opened.id}:${actor.personId}:${LOST_ITEM_CLIENT_ID}` },
+          { name: 'chat_thread', id: opened.id },
+        );
+      }
+      return opened;
+    });
+    return { threadId: thread.id, openUntil: until };
+  }
+
+  /** s7: the driver's reopened «نسيت غرض» chats still open, newest ask first (the partner app's list). */
+  async lostItems(actor: Actor): Promise<ChatLostItemThread[]> {
+    const out: ChatLostItemThread[] = [];
+    for (const thread of await this.repo.lostItemThreadsOpen(this.clock.now())) {
+      if (thread.kind !== 'customer_courier' || !thread.lostItemUntil) continue;
+      const ctx = await this.context(thread.orderId).catch(() => null);
+      if (!ctx || ctx.courierId !== actor.personId) continue;
+      out.push({ orderId: thread.orderId, threadId: thread.id, openUntil: thread.lostItemUntil, askedAt: thread.lostItemAskedAt ?? thread.createdAt, unread: await this.unreadOf(thread, 'courier', actor.personId) });
+    }
+    return out.sort((a, b) => b.askedAt.getTime() - a.askedAt.getTime());
+  }
+
   // ───────────────────────── rules ─────────────────────────
 
   private async context(orderId: string): Promise<OrderContext> {
@@ -360,14 +431,25 @@ export class ChatService implements ChatPort {
     } else if (trip?.state === 'completed' && trip.completedAt) {
       doneAt = trip.completedAt;
     }
+    const ride = order.type === 'ride';
+    const lostItem = ride ? await this.repo.findThread(orderId, 'customer_courier') : null;
     return {
       order,
-      ride: order.type === 'ride',
+      ride,
       customerIds,
       courierId: courierOn ? trip!.courierId : null,
       courierAcceptedAt: courierOn ? trip!.acceptedAt : null,
       doneAt,
+      rideCompletedAt: ride && trip?.state === 'completed' ? trip.completedAt : null,
+      lostItemUntil: lostItem?.lostItemUntil ?? null,
     };
+  }
+
+  /** When a thread closes: completion + 30 min (support: + 24 h), or later while a lost item reopened it (s7). */
+  private closesAt(ctx: OrderContext, kind: ChatThreadKind): Date | null {
+    if (!ctx.doneAt) return null;
+    const usual = closesAt(ctx.doneAt, kind);
+    return kind === 'customer_courier' && ctx.lostItemUntil && ctx.lostItemUntil.getTime() > usual.getTime() ? ctx.lostItemUntil : usual;
   }
 
   private applicableKinds(ctx: OrderContext): ChatThreadKind[] {
@@ -376,7 +458,8 @@ export class ChatService implements ChatPort {
   }
 
   private status(ctx: OrderContext, kind: ChatThreadKind, now: Date): ChatThreadStatus {
-    if (ctx.doneAt && now.getTime() >= closesAt(ctx.doneAt, kind).getTime()) return 'closed';
+    const closes = this.closesAt(ctx, kind);
+    if (closes && now.getTime() >= closes.getTime()) return 'closed';
     // «كلّم الدعم» works from the moment the order is placed.
     if (kind === 'customer_support') return 'open';
     const opened = kind === 'customer_merchant' ? (ctx.order.merchantOrgId ? ctx.order.acceptedAt : null) : ctx.courierAcceptedAt;
@@ -515,6 +598,9 @@ export class ChatService implements ChatPort {
 }
 
 // ───────────────────────── helpers ─────────────────────────
+
+/** The client id of the one «نسيت غرض» line per asker (a repeated ask writes nothing new). */
+const LOST_ITEM_CLIENT_ID = 'system:lost_item';
 
 export function closesAt(doneAt: Date, kind?: ChatThreadKind): Date {
   if (kind === 'customer_support') return new Date(doneAt.getTime() + CHAT_SUPPORT_CLOSE_AFTER_H * 3_600_000);

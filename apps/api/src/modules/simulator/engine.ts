@@ -18,7 +18,7 @@ import {
   type SimContext,
   type SimServices,
 } from './context.js';
-import type { GuaranteeSnapshot, QuarantinedEvent, SimSnapshot } from './invariants.js';
+import type { GuaranteeSnapshot, QuarantinedEvent, RideStartRecord, SimSnapshot } from './invariants.js';
 import { createRand } from './prng.js';
 import { DAY_MINUTES, type PlannedOrder } from './scenario.js';
 import { simDriverRoles, type World } from './world.js';
@@ -423,10 +423,17 @@ export class Simulation implements SimContext {
     }
     const trips: Trip[] = [];
     const quarantined: QuarantinedEvent[] = [];
+    const rideStarts: RideStartRecord[] = [];
     for (const id of [...tripIds].sort()) {
-      trips.push(await this.s.trips.get(id));
+      const trip = await this.s.trips.get(id);
+      trips.push(trip);
       for (const e of await this.s.events.forTrip(id)) {
         if (e.quarantined) quarantined.push({ id: e.id, type: e.type, tripId: e.tripId ?? null, orderId: e.orderId ?? null, recordedAt: e.recordedAt });
+        // s1: a ride starts when its pickup is completed.
+        const p = e.payload as { stopId?: unknown; stopType?: unknown; startCodeChecked?: unknown };
+        if (!e.quarantined && e.type === 'stop.completed' && e.orderId && p.stopType === 'pickup' && (trip.vertical === 'taxi' || trip.vertical === 'tuktuk')) {
+          rideStarts.push({ orderId: e.orderId, tripId: id, stopId: String(p.stopId), startCodeChecked: p.startCodeChecked === true });
+        }
       }
     }
     const ledgerById = new Map<string, Awaited<ReturnType<SimServices['ledger']['eventsFor']>>[number]>();
@@ -461,6 +468,7 @@ export class Simulation implements SimContext {
       doorCash: [...this.doorCash.values()],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },
+      rideStarts,
       errors: [...this.errors],
     };
   }

@@ -599,6 +599,20 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /**
+   * s2 «وصل بالسلامة» in the app only: the accounts behind a person's trusted people, matched by their
+   * numbers — only those who signed up (and are not deleted), never the person himself. Reading his
+   * list is a logged vault read; only person ids leave identity, never a name or a number.
+   */
+  async trustedContactAccounts(personId: string, accessorId: string, purpose: string): Promise<string[]> {
+    const out = new Set<string>();
+    for (const c of await this.trustedContactsOf(personId, accessorId, purpose)) {
+      const p = await this.repo.findPersonByPhoneHash(this.phone(c.phoneE164).hash);
+      if (p && !p.deletedAt && p.id !== personId) out.add(p.id);
+    }
+    return [...out];
+  }
+
   /** How many trusted people a person has (w9): a count, no names or numbers, so not logged. */
   async trustedContactCount(personId: string): Promise<number> {
     const identity = await this.repo.readIdentity(personId);

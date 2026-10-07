@@ -40,7 +40,7 @@ import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
  */
 export interface TrackingOrdersPort {
   aggregate(orderId: string): Promise<{
-    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null };
+    order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null; startCode?: string | null };
     lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null }>;
     participants: Array<{ personId: string | null }>;
   }>;
@@ -116,6 +116,17 @@ const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
 export function sameBaghdadDay(a: Date, b: Date): boolean {
   const day = (d: Date) => Math.floor((d.getTime() + BAGHDAD_OFFSET_MS) / 86_400_000);
   return day(a) === day(b);
+}
+
+/**
+ * s1 «رمز المشوار» on the rider's screen: a ride's code until the rider is in the car (its pickup
+ * completed or skipped) or the ride is over. `track` is only ever read by the orderer or a participant
+ * (the rider), so the code never reaches the driver.
+ */
+export function startCodeShown(order: Pick<Order, 'type' | 'state'>, trip: Pick<Trip, 'stops'> | null, code: string | null): string | null {
+  if (!code || order.type !== 'ride' || SETTLED_ORDER_STATES.has(order.state)) return null;
+  const pickup = trip?.stops.find((s) => s.type === 'pickup');
+  return pickup && (pickup.state === 'completed' || pickup.state === 'skipped') ? null : code;
 }
 
 /** Orders whose courier is no longer coming to this customer (nothing left to track live). */
@@ -213,7 +224,7 @@ export class TrackingService implements TrackingPort {
       items,
       merchant: merchant && agg.order.merchantOrgId ? { id: agg.order.merchantOrgId, name: merchant.name, pin: merchant.pin } : null,
       dropoff: agg.order.dropoff,
-      trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? this.tripView(trip, order.id) : null,
+      trip: trip && !(reassigning && trip.state === 'driver_cancelled') ? { ...this.tripView(trip, order.id), startCode: startCodeShown(order, trip, agg.order.startCode ?? null) } : null,
       courier,
       reassigning,
       promisedAt,
@@ -305,6 +316,17 @@ export class TrackingService implements TrackingPort {
     const atKitchen = now.getTime() + (await leg(pin, kitchen)) * MIN;
     const ready = (order.readyAt ?? order.promisedReadyAt)?.getTime() ?? now.getTime();
     return done(Math.max(atKitchen, ready, now.getTime()) + ((await leg(kitchen, door)) + extra) * MIN);
+  }
+
+  /**
+   * d3: seconds until the driver at `pin` reaches the ride's pickup, by `liveEta` (the countdown on the
+   * rider's screen); null when it can't say. Trips asks it on his fixes near the pickup.
+   */
+  async secondsToPickup(trip: Trip, orderId: string, pin: LatLng, now: Date): Promise<number | null> {
+    const order = await this.orders.get(orderId);
+    if (order.type !== 'ride') return null;
+    const eta = await this.liveEta(order, trip, pin, now);
+    return eta ? Math.max(0, (eta.at.getTime() - now.getTime()) / 1000) : null;
   }
 
   /**
@@ -595,7 +617,7 @@ export class TrackingService implements TrackingPort {
     return carried ? this.trips.get(carried.tripId) : null;
   }
 
-  private tripView(trip: Trip, orderId: string): OrderTracking['trip'] {
+  private tripView(trip: Trip, orderId: string): NonNullable<OrderTracking['trip']> {
     const stops: TrackStop[] = trip.stops.map((s) => {
       const mine = s.orderId === orderId;
       return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, completedAt: s.completedAt };
@@ -603,7 +625,7 @@ export class TrackingService implements TrackingPort {
     const myDrop = stops.find((s) => s.mine && s.type === 'dropoff');
     const dropsBeforeMine = myDrop ? stops.filter((s) => !s.mine && s.type === 'dropoff' && s.seq < myDrop.seq && s.state !== 'completed' && s.state !== 'skipped').length : 0;
     const unreachable = trip.unreachable && (!trip.unreachable.stopId || trip.stops.some((s) => s.id === trip.unreachable!.stopId && s.orderId === orderId)) ? trip.unreachable : null;
-    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable, vertical: trip.vertical };
+    return { id: trip.id, state: trip.state, acceptedAt: trip.acceptedAt, completedAt: trip.completedAt, stops, dropsBeforeMine, unreachable, vertical: trip.vertical, startCode: null };
   }
 
   private async courierCard(trip: Trip, readerId: string, now: Date): Promise<CourierCard> {

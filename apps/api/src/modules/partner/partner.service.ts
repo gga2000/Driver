@@ -252,6 +252,8 @@ export class PartnerService implements PartnerPort {
     const byId = new Map(orders.map((o) => [o.id, o]));
     const doors = await this.doorsOf(trip, actor.personId, now);
     const spots = await this.pickupSpotsOf(trip, byId, actor.personId, now);
+    const codes = await this.startCodesOf(trip);
+    const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -274,12 +276,15 @@ export class PartnerService implements PartnerPort {
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
-          // Maps program r4: the code he shows at the counter, while the pickup is still to do.
-          pickupCode: s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          // Maps program r4: the code he shows at the counter, while the pickup is still to do. Rides have
+          // no counter (and a second 4-digit number next to the night trip code would only confuse).
+          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
           // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
           gift: order?.gift ?? null,
+          // s1 «رمز المشوار»: only that one is needed before «الراكب صعد», never the code itself.
+          ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -306,6 +311,17 @@ export class PartnerService implements PartnerPort {
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  /** s1: the ride pickups still to do that need the rider's night code, by stop id. */
+  private async startCodesOf(trip: Trip): Promise<ReadonlySet<string>> {
+    const ask = this.deps.orders.startCodeRequired;
+    const out = new Set<string>();
+    if (!ask || (trip.vertical !== 'taxi' && trip.vertical !== 'tuktuk')) return out;
+    for (const s of trip.stops) {
+      if (s.type === 'pickup' && s.orderId && s.state !== 'completed' && s.state !== 'skipped' && (await ask(s.orderId))) out.add(s.id);
+    }
+    return out;
+  }
 
   /** Doors of the job's drop-offs at customers' saved places (maps program f6, a5), by stop id. */
   private async doorsOf(trip: Trip, courierId: string, now: Date): Promise<Map<string, PartnerDoor>> {

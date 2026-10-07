@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { ComplimentKey, encodeRajaaPassPush, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
-import type { NotifyLookups } from './notify.lookups.js';
+import type { NotifyLookups, OrderFacts } from './notify.lookups.js';
 import type { NotifyRepository } from './notify.repository.js';
 import { trustedContactRecipient } from './notify.service.js';
 import { iqd, localDate, localTime } from './render.js';
@@ -31,6 +31,8 @@ export const NOTIFY_EVENT_TYPES = [
   'order.offered_to_merchant',
   'order.delivered',
   'stop.courier_near',
+  // d3: «السايق قريب، اطلع هسة» (trips stamps it once per ride by the one ETA).
+  'stop.driver_near',
   'order.completed',
   'order.matched',
   'stop.arrived',
@@ -119,12 +121,6 @@ export async function passUpdatesFor(e: PublishedEvent, lookups: Pick<NotifyLook
   return out;
 }
 
-/** Night for the auto-share switch (w9): 9 المسا – 6 الصبح, Baghdad (UTC+3, no DST). */
-export function isNight(at: Date): boolean {
-  const h = (at.getUTCHours() + 3) % 24;
-  return h >= 21 || h < 6;
-}
-
 /**
  * A trip link for each trusted person when the rider turned that switch on (w9): one share link,
  * made for the rider, sent to `tc:<rider>:<i>`. Nothing when the switch is off or nobody is set.
@@ -137,6 +133,25 @@ async function sharedWithPeople(deps: NotifySubscriberDeps, e: PublishedEvent, r
   if (!link) return [];
   const name = (await L.firstName(riderId, 'notify_trip_shared')) ?? '';
   return Array.from({ length: safety.contacts }, (_, i) => ({ eventId: e.id, template: 'trip_shared_contact' as const, to: trustedContactRecipient(riderId, i), params: { name, what, link }, data: { ...subject } }));
+}
+
+/**
+ * s2 «وصل بالسلامة»: a city ride that ended at night (`isNightAt` of its completion) reaches each
+ * trusted person of the rider who has the app, when the rider turned «بلّغهم من أوصل» on — the same
+ * switch as الرجعة's. A push to their own account only: nothing goes to a number outside the app, and
+ * it names the rider and the time, never where he went.
+ */
+async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts): Promise<NotifyRequest[]> {
+  const L = deps.lookups;
+  if (!isNightAt(e.occurredAt) || !L.safety || !L.trustedAccounts) return [];
+  const riderId = order.riderId ?? order.customerId;
+  const safety = await L.safety(riderId);
+  if (!safety?.prefs.notifyOnArrival || safety.contacts === 0) return [];
+  const accounts = await L.trustedAccounts(riderId, 'notify_ride_safe_arrival');
+  if (accounts.length === 0) return [];
+  const name = (await L.firstName(riderId, 'notify_ride_safe_arrival')) ?? t('push.ride_safe_arrival.someone');
+  const params = { name, time: localTime(e.occurredAt) };
+  return accounts.map((to) => ({ eventId: e.id, template: 'ride_safe_arrival' as const, to, params }));
 }
 
 /** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
@@ -215,7 +230,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const order = e.orderId ? await L.order(e.orderId) : null;
       if (!order || order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, 'ride_receipt')) ?? '';
-      return [{ ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } }];
+      const own: NotifyRequest = { ...base, template: 'ride_receipt', to: order.customerId, orderId: order.id, params: { amount: iqd(order.totalIqd), driver, receiptUrl: receipt(order.id), orderId: order.id }, data: { orderId: order.id } };
+      return [own, ...(await safeArrival(deps, e, order))];
+    }
+    case 'stop.driver_near': {
+      // d3: «السايق قريب، اطلع هسة» — the orderer, and the rider of a ride booked for him (s3).
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type !== 'ride') return [];
+      const to = [...new Set([order.customerId, ...(order.riderId ? [order.riderId] : [])])];
+      return to.map((person) => ({ ...base, template: 'ride_near' as const, to: person, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }));
     }
     case 'order.matched':
     case 'stop.arrived': {
@@ -226,8 +249,8 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
       const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
       const own: NotifyRequest = { ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } };
-      // w9: a night ride (21:00–06:00 Baghdad) is shared with the trusted people when the rider asked.
-      const shared = e.type === 'order.matched' && isNight(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
+      // w9: a night ride (21:00–06:00 Baghdad, `isNightAt`) is shared with the trusted people when the rider asked.
+      const shared = e.type === 'order.matched' && isNightAt(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
       return [own, ...shared];
     }
     case 'merchant.paid_by_courier': {

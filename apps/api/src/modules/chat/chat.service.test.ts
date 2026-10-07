@@ -357,3 +357,55 @@ describe('ChatService — masked calls', () => {
     await expect(staging.open({ callId: 'c', orderId: 'o', callerId: 'a', calleeId: 'b' }, new Date())).rejects.toMatchObject({ code: 'call_unavailable' });
   });
 });
+
+describe('ChatService — «نسيت غرض» after a ride (ride step 3, s7)', () => {
+  /** A day taxi ride from c1, driven by d1 to the end. */
+  async function completedRide(h: H) {
+    const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', fareIqd: 3000, pickup: { zoneKey: 'centre', pin: { lat: 32.9105, lng: 45.0665 } }, dropoff: { zoneKey: 'street_30', pin: { lat: 32.9185, lng: 45.0712 } } });
+    const t = await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    await h.pickup(t.id);
+    await h.dropoff(t.id);
+    expect((await h.trips.get(t.id)).state).toBe('completed');
+    return o;
+  }
+
+  it('reopens the driver chat until the ride’s end + 24 h, writes the line once, and lists it for the driver', async () => {
+    const { h, chat, ev } = setup();
+    const o = await completedRide(h);
+    const ended = (await h.trips.get((await h.trips.courierOf(o.id))!.tripId)).completedAt!;
+    h.clock.advance(3 * 60 * MIN);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).status).toBe('closed');
+    const res = await chat.lostItem(as('c1'), { orderId: o.id });
+    expect(res.openUntil.getTime()).toBe(ended.getTime() + 24 * 60 * MIN);
+    const view = await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(view.status).toBe('open');
+    const lines = view.messages.filter((m) => m.kind === 'system');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.text).toBe('الراكب يدور على غرض نساه بالسيارة');
+    // The driver can answer, and sees it in his list.
+    await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'لگيته، أرجعه هسة' });
+    expect(await chat.lostItems(as('d1'))).toEqual([expect.objectContaining({ orderId: o.id, threadId: res.threadId })]);
+    expect(await chat.lostItems(as('d2'))).toEqual([]);
+    // Asking again: same window, no second line.
+    h.clock.advance(MIN);
+    expect((await chat.lostItem(as('c1'), { orderId: o.id })).openUntil).toEqual(res.openUntil);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).messages.filter((m) => m.kind === 'system')).toHaveLength(1);
+    expect((await ev.repo.find({})).filter((e) => e.type === 'chat.message_sent' && (e.payload as { messageKind?: string }).messageKind === 'system')).toHaveLength(1);
+    // Past the window the chat closes again and leaves the driver's list.
+    h.clock.advance(24 * 60 * MIN);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).status).toBe('closed');
+    expect(await chat.lostItems(as('d1'))).toEqual([]);
+  });
+
+  it('only the orderer or rider, only on a completed ride, only within 24 h', async () => {
+    const { h, chat } = setup();
+    const food = await acceptedOrder(h);
+    await h.tripFor(food.id, { driverId: 'd2' });
+    expect(await code(chat.lostItem(as('c1'), { orderId: food.id }))).toBe('chat_lost_item_unavailable');
+    const o = await completedRide(h);
+    expect(await code(chat.lostItem(as('d1'), { orderId: o.id }))).toBe('chat_not_party');
+    expect(await code(chat.lostItem(as('stranger'), { orderId: o.id }))).toBe('chat_not_party');
+    h.clock.advance(24 * 60 * MIN);
+    expect(await code(chat.lostItem(as('c1'), { orderId: o.id }))).toBe('chat_lost_item_unavailable');
+  });
+});

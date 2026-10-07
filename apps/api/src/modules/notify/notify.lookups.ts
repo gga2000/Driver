@@ -7,6 +7,8 @@ export interface OrderFacts {
   merchantOrgId: string | null;
   totalIqd: number;
   itemCount: number;
+  /** A ride booked for someone else (s3): the rider's account, when he has one; null otherwise. */
+  riderId?: string | null;
 }
 
 export interface BookingFacts {
@@ -61,6 +63,8 @@ export interface NotifyLookups {
   tripZones(tripId: string): Promise<{ pickup: string; dropoff: string } | null>;
   /** Joy w9: the person's safety switches and how many trusted people they have (no names or numbers). */
   safety?(personId: string): Promise<{ prefs: SafetyPrefs; contacts: number } | null>;
+  /** s2 «وصل بالسلامة»: the accounts of the person's trusted people who have the app (logged vault read). */
+  trustedAccounts?(personId: string, purpose: string): Promise<string[]>;
   /** Joy w9 auto-share: a share-trip link (full URL) on the person's booking or ride; null when it can't be made. */
   shareLink?(personId: string, subject: { bookingId: string } | { orderId: string }): Promise<string | null>;
 }

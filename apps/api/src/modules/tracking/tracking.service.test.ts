@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
 import { ordersHarness } from '../orders/test-harness.js';
 import { ratingFrom } from '../orders/orders.service.js';
-import { promisedArrival, sameBaghdadDay, TrackingService, type TrackingRatingsPort } from './tracking.service.js';
+import { promisedArrival, sameBaghdadDay, startCodeShown, TrackingService, type TrackingRatingsPort } from './tracking.service.js';
 import { tripsOrdersRatings } from './ratings.js';
 import { EtaService, StraightLineRouter, type Router } from '../routing/index.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
@@ -21,8 +21,8 @@ const code = async (p: Promise<unknown>) => {
 
 const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` });
 
-function setup(router: Router = new StraightLineRouter(), ratings: TrackingRatingsPort | null = null) {
-  const h = ordersHarness();
+function setup(router: Router = new StraightLineRouter(), ratings: TrackingRatingsPort | null = null, start?: string) {
+  const h = ordersHarness(start);
   const vehicles = new InMemoryCourierVehicles();
   const vaultReads: Array<{ courierId: string; accessorId: string }> = [];
   const tracking = new TrackingService(
@@ -395,5 +395,77 @@ describe('TrackingService — late before it is late (maps program o4)', () => {
     expect(risks.map((r) => r.orderId)).toEqual([late.id]);
     expect(risks[0]!.lateByMin).toBeGreaterThan(2);
     expect(risks[0]!.predictedAt.getTime()).toBeGreaterThan(risks[0]!.promisedAt.getTime());
+  });
+});
+
+describe('TrackingService — «رمز المشوار» on the rider’s screen (ride step 3, s1)', () => {
+  const HOME = { lat: 32.9185, lng: 45.0712 };
+  /** 22:30 in Baghdad. */
+  const NIGHT = '2026-10-03T19:30:00Z';
+
+  async function nightRide(start = NIGHT) {
+    const { h, tracking } = setup(new StraightLineRouter(), null, start);
+    h.people.set('07705554433', 'p_mum');
+    const o = await h.orders.place('c1', {
+      cityId: 'aziziyah',
+      type: 'ride',
+      rideVertical: 'taxi',
+      fareIqd: 3000,
+      pickup: { zoneKey: 'centre', pin: KITCHEN },
+      dropoff: { zoneKey: 'street_30', pin: HOME },
+      participants: [{ ref: 'mum', role: 'rider' as const, phone: '07705554433' }],
+    });
+    const t = await h.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'taxi',
+      orders: [{ orderId: o.id, minVehicleClass: null }],
+      stops: [
+        { orderId: o.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: o.id, type: 'dropoff', zoneKey: 'street_30', target: HOME },
+      ],
+    });
+    await h.trips.offer(t.id);
+    await h.trips.accept(t.id, 'd1', { vehicleClass: 'car' });
+    return { h, tracking, o, t };
+  }
+
+  it('the orderer and the rider see the code until the rider is in; the driver never reads the tracking', async () => {
+    const { h, tracking, o, t } = await nightRide();
+    const stored = await h.orders.startCodeOf(o.id);
+    expect(stored).toMatch(/^\d{4}$/);
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBe(stored);
+    expect((await tracking.track(as('p_mum'), { orderId: o.id })).trip!.startCode).toBe(stored);
+    expect(await code(tracking.track(as('d1'), { orderId: o.id }))).toBe('forbidden');
+    const pickup = t.stops.find((s) => s.type === 'pickup')!;
+    await h.trips.arrive(t.id, pickup.id, 'd1', { pin: KITCHEN });
+    await h.trips.completeStop(t.id, pickup.id, 'd1', { startCode: stored! });
+    await h.deliver();
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBeNull();
+  });
+
+  it('a day ride shows none', async () => {
+    const { tracking, o } = await nightRide('2026-10-03T09:00:00Z');
+    expect((await tracking.track(as('c1'), { orderId: o.id })).trip!.startCode).toBeNull();
+  });
+
+  it('the one ETA to the pickup answers the ride-near check, and only for rides', async () => {
+    const { h, tracking, o, t } = await nightRide();
+    const near = await tracking.secondsToPickup(await h.trips.get(t.id), o.id, { lat: KITCHEN.lat + 0.001, lng: KITCHEN.lng }, h.clock.now());
+    const far = await tracking.secondsToPickup(await h.trips.get(t.id), o.id, { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng }, h.clock.now());
+    expect(near).not.toBeNull();
+    expect(far!).toBeGreaterThan(near!);
+    const food = await acceptedOrder(h);
+    const foodTrip = await h.tripFor(food.id, { driverId: 'd2' });
+    expect(await tracking.secondsToPickup(foodTrip, food.id, KITCHEN, h.clock.now())).toBeNull();
+  });
+
+  it('startCodeShown: none for other orders, settled rides, or once the pickup is done', () => {
+    const pending = { stops: [{ type: 'pickup' as const, state: 'arrived' as const }] };
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, pending as never, '4821')).toBe('4821');
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, null, '4821')).toBe('4821');
+    expect(startCodeShown({ type: 'food', state: 'placed' }, pending as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'customer_cancelled' }, pending as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, { stops: [{ type: 'pickup', state: 'completed' }] } as never, '4821')).toBeNull();
+    expect(startCodeShown({ type: 'ride', state: 'matched' }, pending as never, null)).toBeNull();
   });
 });

@@ -249,7 +249,9 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
   `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid),
   `/demo/ride/search-age?orderId=&sec=200` (the ride reads as searching that long: the 3-minute
-  "try the other vehicle" card). `SHOTS=ride` writes
+  "try the other vehicle" card), `/demo/ride/night?orderId=` (the ride gets a night ride's trip
+  code by day: «رمز المشوار» in the sheet until the rider is in; `docs/api/ride-safety.md`). After a
+  finished ride, «نسيت غرض بالسيارة؟» reopens the driver chat for 24 h. `SHOTS=ride` writes
   `ride-*.png`.
 
 ## Gifts, invitations, stickers and the share card (joy J7b)

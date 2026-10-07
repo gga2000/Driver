@@ -12,6 +12,8 @@ import { freeCancelLeftSec, switchOfferDue, type RideVertical } from '@/features
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
+import { laterBaghdadDay, lostItemUntil, tripCodeOf } from '@/features/ride/safety';
+import { TRIP_CODE_H, TripCodeCard, useRideNearToast } from '@/features/ride/SafetyParts';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
@@ -127,6 +129,9 @@ export default function OrderLiveScreen() {
   const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
   const searchNote = useSearchNote(searching ? v : undefined, now);
   const searchBar = useSearchProgress(searching ? v : undefined, now);
+  // Ride step 3: the night trip code to tell the driver (s1); «السايق قريب، اطلع هسة» on the open screen (d3).
+  const tripCode = tripCodeOf(v, phase);
+  useRideNearToast(v, phase);
   // Ride idea m4: the first minute after he accepts, cancelling is still free.
   const freeCancel = Boolean(ride && phase === 'to_pickup' && v?.trip && freeCancelLeftSec(v.trip.acceptedAt, now) !== null);
   // J-D7 / L-03: free cars around the pickup while searching, and the other vehicle at 3 minutes.
@@ -237,6 +242,23 @@ export default function OrderLiveScreen() {
     }
   };
   const openChat = (kind: 'customer_courier' | 'customer_merchant' | 'customer_support') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
+  // s7 «نسيت غرض بالسيارة؟»: up to 24 h after the ride, the chat with the driver opens again.
+  const lostUntil = lostItemUntil(v, now);
+  const lostBusy = useRef(false);
+  const askLostItem = async () => {
+    if (lostBusy.current) return;
+    lostBusy.current = true;
+    try {
+      await client.chat.lostItem.mutate({ orderId: id });
+      toast.show({ message: t('ride.lost_item_done'), tone: 'success', icon: 'chat' });
+      void threads.refetch();
+      openChat('customer_courier');
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+    } finally {
+      lostBusy.current = false;
+    }
+  };
   const reply = async (key: QuickReplyKey) => {
     try {
       await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: key });
@@ -305,7 +327,7 @@ export default function OrderLiveScreen() {
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
-  const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0) + (tripCode ? TRIP_CODE_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
@@ -457,8 +479,9 @@ export default function OrderLiveScreen() {
               lateMin={lateMin}
               aside={ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
               below={
-                (searching && searchBar) || freeCancel || pushAsk.visible || kitchen ? (
+                (searching && searchBar) || freeCancel || pushAsk.visible || kitchen || tripCode ? (
                   <View style={{ gap: theme.space[3] }}>
+                    {tripCode ? <TripCodeCard code={tripCode} /> : null}
                     {searching && searchBar ? <SearchProgress part={searchBar.part} fill={searchBar.fill} note={searchNote} seconds={searchElapsedSec(v, now)} /> : null}
                     {freeCancel && v.trip ? <FreeCancelChip acceptedAt={v.trip.acceptedAt} now={now} onPress={() => setPanel('cancel')} /> : null}
                     {pushAsk.visible ? (
@@ -540,6 +563,9 @@ export default function OrderLiveScreen() {
                 <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
               ) : null}
               {happy && moment ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
+              {lostUntil ? (
+                <ActionRow icon="bag" label={t('ride.lost_item_action')} hint={t(laterBaghdadDay(lostUntil, now) ? 'ride.lost_item_hint_tomorrow' : 'ride.lost_item_hint', { time: formatClock(lostUntil, { period: true, locale }) })} onPress={() => void askLostItem()} testID="action-lost-item" />
+              ) : null}
               {happy ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
               {supportThread && (supportThread.status === 'open' || supportThread.lastMessageAt) ? (
                 <ActionRow

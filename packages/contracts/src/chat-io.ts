@@ -29,7 +29,8 @@ export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 export const ChatRole = z.enum(['customer', 'courier', 'merchant', 'support']);
 export type ChatRole = z.infer<typeof ChatRole>;
 
-export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location']);
+/** `system`: a line the server writes into the thread (s7 «الراكب يدور على غرض نساه»); nobody types one. */
+export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location', 'system']);
 export type ChatMessageKind = z.infer<typeof ChatMessageKind>;
 
 /** `not_open`: before accept · `open` · `closed`: 30 min after completion (read-only). */
@@ -49,6 +50,11 @@ export const CHAT_TEXT_MAX = 500;
 export const CHAT_CLOSE_AFTER_MIN = 30;
 /** The support chat stays writable this long after the order is done (the same-day answer rule needs room). */
 export const CHAT_SUPPORT_CLOSE_AFTER_H = 24;
+/**
+ * s7 «نسيت غرض»: within this many hours of a completed ride the customer may reopen the chat with the
+ * driver, and it stays open until this many hours after the ride ended (`chat.lostItem`).
+ */
+export const CHAT_LOST_ITEM_H = 24;
 /** A customer opens at most this many new support chats (one per order) per 24 h; messages keep the normal send limit. */
 export const CHAT_SUPPORT_OPENS_PER_DAY = 5;
 /** Old poll interval of the open thread; the apps now get messages over `live.chat` (kept for older clients). */
@@ -231,6 +237,29 @@ export type ChatMarkReadInput = z.infer<typeof ChatMarkReadInput>;
 export const ChatMarkReadOutput = z.object({ myReadSeq: z.number().int().min(0), unread: z.number().int().min(0) });
 export type ChatMarkReadOutput = z.infer<typeof ChatMarkReadOutput>;
 
+/** s7 «نسيت غرض»: the customer reopens the chat with the driver of a completed ride. */
+export const ChatLostItemInput = z.object({ orderId: z.string().min(1) });
+export type ChatLostItemInput = z.infer<typeof ChatLostItemInput>;
+
+export const ChatLostItemResult = z.object({
+  /** The `customer_courier` thread, open again. */
+  threadId: z.string(),
+  /** It closes again at the ride's end + `CHAT_LOST_ITEM_H`. */
+  openUntil: z.coerce.date(),
+});
+export type ChatLostItemResult = z.infer<typeof ChatLostItemResult>;
+
+/** A reopened «نسيت غرض» chat on the driver's side (the partner app lists them until they close). */
+export const ChatLostItemThread = z.object({
+  orderId: z.string(),
+  threadId: z.string(),
+  openUntil: z.coerce.date(),
+  /** When the customer asked. */
+  askedAt: z.coerce.date(),
+  unread: z.number().int().min(0),
+});
+export type ChatLostItemThread = z.infer<typeof ChatLostItemThread>;
+
 export const ChatRequestCallInput = z.object({ orderId: z.string().min(1), kind: ChatThreadKind });
 export type ChatRequestCallInput = z.infer<typeof ChatRequestCallInput>;
 
@@ -282,4 +311,8 @@ export interface ChatPort {
   // (the desk's own reads and replies on `customer_support` go through `support.*`, see support-io)
   markRead(actor: Actor, input: ChatMarkReadInput): Promise<ChatMarkReadOutput>;
   requestCall(actor: Actor, input: ChatRequestCallInput): Promise<CallSession>;
+  /** s7: reopens the chat with the driver of a completed ride (the orderer or the rider, within `CHAT_LOST_ITEM_H`). */
+  lostItem(actor: Actor, input: ChatLostItemInput): Promise<ChatLostItemResult>;
+  /** s7: the driver's reopened «نسيت غرض» chats that are still open, newest first. */
+  lostItems(actor: Actor): Promise<ChatLostItemThread[]>;
 }
