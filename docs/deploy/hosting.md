@@ -164,6 +164,7 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
 | `DATABASE_POOL_MAX` | no | `10` (toml), per process: 3 processes use 30 of Small compute's 400 pooled clients |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
+| `TIMERS_SWEEPER` | no | `off` (default) or `on`: a sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. `TIMERS_SWEEP_MS` default 5000 |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |

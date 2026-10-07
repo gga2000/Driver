@@ -6,6 +6,7 @@ import { PrismaService } from './db/prisma.service.js';
 import { UnitOfWork } from './db/unit-of-work.js';
 import { PROCESS_ROLE, processRoleFromEnv, type ProcessRole } from './process-role.js';
 import { BullMqQueueFactory, QUEUE_FACTORY } from './queue.js';
+import { InMemoryTimerStore, PrismaTimerStore, TIMER_STORE, timerSweeperOptionsFromEnv, TimerSweeper, type TimerStore } from './timers/index.js';
 
 /**
  * Cross-cutting infrastructure: database client, unit of work, clock, process role and queue factory.
@@ -22,6 +23,13 @@ import { BullMqQueueFactory, QUEUE_FACTORY } from './queue.js';
     { provide: PROCESS_ROLE, useFactory: (): ProcessRole => processRoleFromEnv(process.env) },
     { provide: BullMqQueueFactory, useFactory: (role: ProcessRole) => new BullMqQueueFactory(process.env['REDIS_URL'], 'driver', role), inject: [PROCESS_ROLE] },
     { provide: QUEUE_FACTORY, useExisting: BullMqQueueFactory },
+    // Durable timers (plan W4): Postgres when DATABASE_URL is set; the sweeper runs with TIMERS_SWEEPER=on.
+    { provide: TIMER_STORE, useFactory: (p: PrismaService): TimerStore => (p.configured ? new PrismaTimerStore(p) : new InMemoryTimerStore()), inject: [PrismaService] },
+    {
+      provide: TimerSweeper,
+      useFactory: (store: TimerStore, clock: Clock, role: ProcessRole) => new TimerSweeper(store, clock, role, timerSweeperOptionsFromEnv(process.env)),
+      inject: [TIMER_STORE, CLOCK, PROCESS_ROLE],
+    },
     // Rate limits and attempt counters every API instance shares (review 2026-10-04 #22): Redis when
     // REDIS_URL is set, in process otherwise.
     {
@@ -33,6 +41,6 @@ import { BullMqQueueFactory, QUEUE_FACTORY } from './queue.js';
       inject: [CLOCK],
     },
   ],
-  exports: [PrismaService, UnitOfWork, CLOCK, PROCESS_ROLE, BullMqQueueFactory, QUEUE_FACTORY, WINDOW_COUNTER],
+  exports: [PrismaService, UnitOfWork, CLOCK, PROCESS_ROLE, BullMqQueueFactory, QUEUE_FACTORY, TIMER_STORE, TimerSweeper, WINDOW_COUNTER],
 })
 export class InfraModule {}

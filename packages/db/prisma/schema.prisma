@@ -2629,6 +2629,47 @@ model Outbox {
   @@schema("public")
 }
 
+enum TimerStatus {
+  pending
+  fired
+  failed
+
+  @@schema("public")
+}
+
+/// Durable timers (plan W4, SCALE-08/09, OPS-03): every delayed job (auto-reject, courier release,
+/// household auto-cancel, nightly close…) is a row written in the caller's transaction. BullMQ only
+/// fires it sooner; the sweeper (`apps/api/src/shared/timers`) claims due rows with a lease and
+/// `SKIP LOCKED`, retries with backoff and marks them fired, so losing Redis only delays a timer.
+/// `data` holds ids only, never personal data.
+model ScheduledTimer {
+  id           String      @id @default(cuid())
+  /// The queue whose handler runs it (`orders.timers`, `dispatch`, …).
+  queue        String
+  /// Job name inside the queue (`order.autoReject`, …).
+  name         String
+  /// Same id as the BullMQ job: scheduling it again while pending is a no-op.
+  jobId        String?     @map("job_id")
+  data         Json
+  status       TimerStatus @default(pending)
+  dueAt        DateTime    @map("due_at")
+  attempts     Int         @default(0)
+  maxAttempts  Int         @default(5) @map("max_attempts")
+  /// A sweeper holds the row until then; past it, another sweeper may claim it (a crashed worker).
+  claimedUntil DateTime?   @map("claimed_until")
+  claimedBy    String?     @map("claimed_by")
+  firedAt      DateTime?   @map("fired_at")
+  lastError    String?     @map("last_error")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@unique([queue, jobId])
+  @@index([status, dueAt])
+  @@index([status, firedAt])
+  @@map("scheduled_timers")
+  @@schema("public")
+}
+
 /// Per-subscriber delivery record: at-least-once publishing, exactly-once effect per subscriber.
 model SubscriberDelivery {
   id          String    @id @default(cuid())
