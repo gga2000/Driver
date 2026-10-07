@@ -60,7 +60,7 @@ export const ordersRouter = router({
   cancel: protectedProcedure().input(CancelOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.cancel(ctx.actor, input)),
   respondPartial: protectedProcedure().input(RespondPartialInput).output(Order).mutation(({ ctx, input }) => ctx.orders.respondPartial(ctx.actor, input)),
   openDispute: protectedProcedure().input(OpenDisputeInput).output(Order).mutation(({ ctx, input }) => ctx.orders.openDispute(ctx.actor, input)),
-  /** Closes early; `delivery` / `food` (1–5), tags and a note store the two-tap rating (food only on kitchen orders). */
+  /** Never closes the order (FLOW-20: the 2-h complaint window stays open); `delivery` / `food` (1–5), tags and a note store the two-tap rating (food only on kitchen orders). */
   rate: protectedProcedure().input(RateOrderInput).output(Order).mutation(({ ctx, input }) => ctx.orders.rate(ctx.actor, input)),
   /** «تحب تكرم عباس؟» after a 4–5 rating: whether to ask and the wallet chips (docs/api/tips.md). */
   tipOptions: protectedProcedure().input(OrderIdInput).output(TipOffer).query(({ ctx, input }) => ctx.orders.tipOptions(ctx.actor, input)),

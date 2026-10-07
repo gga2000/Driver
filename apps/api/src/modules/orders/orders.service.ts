@@ -1139,7 +1139,8 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
-   * Rating closes the order early (domain §2). With scores (customer app §4 two-tap rating) it also
+   * Rating no longer closes the order (FLOW-20, W3): the 2-h complaint window stays open and the
+   * auto-close settles it. With scores (customer app §4 two-tap rating) it also
    * stores them: delivery for the courier/driver, food only on kitchen/shop orders. The first rating
    * stands (a replay returns the order unchanged); an order auto-closed before the customer rated can
    * still take its rating.

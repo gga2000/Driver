@@ -789,7 +789,8 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
     primary: ['push'],
     quietHours: 'send',
-  },  order_ops_cancelled: {
+  },
+  order_ops_cancelled: {
     id: 'order_ops_cancelled',
     category: 'order_updates',
     app: 'customer',
