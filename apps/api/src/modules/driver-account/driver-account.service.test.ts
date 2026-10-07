@@ -16,6 +16,7 @@ import { DriverAccountService } from './driver-account.service.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const DAY = 86_400_000;
+const UNFINISHED: readonly string[] = ['accepted', 'en_route_to_pickup', 'arrived_pickup', 'in_transit', 'arrived_dropoff'];
 
 /** Stores a tiny JPEG through the dev blob store's signed PUT, as the app would. */
 async function storedUpload(blobs: BlobStore, ownerId: string): Promise<string> {
@@ -36,7 +37,15 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   const repo = new InMemoryDriverAccountRepository();
   const trips: Trip[] = [];
   const orders = new Map<string, Order>();
-  const tripsFake = { forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId) } as unknown as TripsService;
+  // Same reads as TripsService: `forDriver` lists only unfinished trips, the finished ones come from
+  // `completedForDriver` / `endedForDriver` (the scorecard once read `forDriver` and saw none).
+  const after = (at: Date | null, since: Date) => at !== null && at.getTime() >= since.getTime();
+  const tripsFake = {
+    forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId && UNFINISHED.includes(t.state)),
+    completedForDriver: async (driverId: string, since: Date) => trips.filter((t) => t.courierId === driverId && t.state === 'completed' && after(t.completedAt, since)),
+    endedForDriver: async (driverId: string, since: Date) =>
+      trips.filter((t) => t.courierId === driverId && ((t.state === 'completed' && after(t.completedAt, since)) || (t.state === 'driver_cancelled' && after(t.cancelledAt, since)))),
+  } as unknown as TripsService;
   /** Orders placed per Baghdad hour on the day `placedPerHour` is asked about (tomorrow's busy window). */
   const hourly: { counts: number[]; asked: Array<{ from: Date; to: Date }> } = { counts: new Array<number>(24).fill(0), asked: [] };
   const ordersFake = {
@@ -170,6 +179,53 @@ describe('driverAccount.scorecard', () => {
     expect(rating.value).toBe(4);
     expect(rating.display).toBe('4.0');
     expect(rating.belowSilver).toBe(true);
+  });
+
+  it('counts his finished trips of the 14 days (not just the unfinished ones): completed trips, on-time stops, cancellations and ratings', async () => {
+    const h = setup('2026-10-03T09:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    const at = (daysAgo: number) => new Date(h.clock.now().getTime() - daysAgo * DAY);
+    await h.ev.events.emit(undefined, { actorId: d.personId, type: 'role.used', occurredAt: at(40) }, { name: 'person', id: d.personId });
+    const trip = (id: string, state: Trip['state'], daysAgo: number, lateMin: number, orderId: string | null): Trip => {
+      const end = at(daysAgo);
+      const arrivedAt = new Date(end.getTime() - 5 * 60_000);
+      return {
+        id,
+        courierId: d.personId,
+        state,
+        acceptedAt: new Date(end.getTime() - 30 * 60_000),
+        completedAt: state === 'completed' ? end : null,
+        cancelledAt: state === 'driver_cancelled' ? end : null,
+        stops: state === 'completed' ? [{ windowEnd: new Date(arrivedAt.getTime() - lateMin * 60_000), arrivedAt }] : [],
+        orders: orderId ? [{ orderId, attachedAt: end, detachedAt: null, reason: null, minVehicleClass: null }] : [],
+      } as unknown as Trip;
+    };
+    // Four completed in the window (one 10 min late), one he cancelled, one completed before the
+    // window and one still on the road.
+    h.trips.push(
+      trip('t1', 'completed', 1, 0, 'o1'),
+      trip('t2', 'completed', 2, 0, 'o2'),
+      trip('t3', 'completed', 3, 10, 'o3'),
+      trip('t4', 'completed', 10, 0, 'o4'),
+      trip('t5', 'driver_cancelled', 2, 0, null),
+      trip('t6', 'completed', 20, 0, 'o6'),
+      { ...trip('t7', 'in_transit', 0, 0, null), completedAt: null },
+    );
+    const rated = (id: string, delivery: number, daysAgo: number) => ({ id, rating: { delivery, food: 5, tags: [], note: null, ratedAt: at(daysAgo) } }) as unknown as Order;
+    h.orders.set('o1', rated('o1', 5, 1));
+    h.orders.set('o2', rated('o2', 5, 2));
+    h.orders.set('o3', rated('o3', 4, 3));
+    h.orders.set('o6', rated('o6', 3, 20)); // older than the 14 days, still among his last 50 ratings
+    const card = await h.service.scorecard(d, {});
+    expect(card.completedTrips).toBe(4);
+    const metric = (key: string) => card.metrics.find((m) => m.key === key)!;
+    expect(metric('on_time').samples).toBe(4);
+    // The 10-day-old stop sits in the older week and weighs half: (1 + 1 + 0 + ½) / 3½.
+    expect(metric('on_time').value).toBeCloseTo(2.5 / 3.5);
+    expect(metric('completion').samples).toBe(5);
+    expect(metric('completion').value).toBeLessThan(1);
+    expect(metric('rating').samples).toBe(4);
+    expect(metric('rating').value).toBeCloseTo((5 + 5 + 4 + 3) / 4);
   });
 });
 
