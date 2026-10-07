@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RequestTimeoutError } from '@driver/contracts/net-client';
-import { RETRY_RULES, retryDelayMs, shouldRetryQuery } from './errors';
+import { publicPageFailure, RETRY_RULES, retryDelayMs, shouldRetryQuery } from './errors';
 
 const answered = (httpStatus: number, code?: string, extra: Record<string, unknown> = {}) =>
   Object.assign(new Error(code ?? 'x'), { data: { httpStatus, ...(code ? { code } : {}), ...extra } });
@@ -35,5 +35,23 @@ describe('query retry policy (CORE-16)', () => {
     expect(retryDelayMs(10, answered(500), mid)).toBe(RETRY_RULES.backoffMaxMs);
     expect(retryDelayMs(2, answered(500), () => 0)).toBe(3_200);
     expect(retryDelayMs(2, answered(500), () => 1)).toBe(4_800);
+  });
+});
+
+describe('public pages end only on the server\'s word (FLOW-06, FLOW-07)', () => {
+  it('a blip or our server failing keeps the page', () => {
+    expect(publicPageFailure(new TypeError('Network request failed'))).toBe('transient');
+    expect(publicPageFailure(new RequestTimeoutError(15_000))).toBe('transient');
+    expect(publicPageFailure(answered(500, 'internal'))).toBe('transient');
+    expect(publicPageFailure(answered(503, 'service_unavailable'))).toBe('transient');
+  });
+
+  it('a link that is over says so', () => {
+    expect(publicPageFailure(answered(404, 'share_link_invalid'))).toBe('invalid');
+    expect(publicPageFailure(answered(404, 'not_found'))).toBe('invalid');
+  });
+
+  it('any other definitive answer shows its own words', () => {
+    expect(publicPageFailure(answered(400, 'invalid_input'))).toBe('final');
   });
 });

@@ -35,3 +35,17 @@ export function retryDelayMs(failureCount: number, err: unknown, random: () => n
   const raw = Math.min(RETRY_RULES.backoffMaxMs, RETRY_RULES.backoffBaseMs * 2 ** Math.max(0, failureCount));
   return Math.round(raw * (0.8 + 0.4 * random()));
 }
+
+/** Codes a public page (SOS contact, family share) reads as "this link is over". */
+const LINK_GONE = new Set(['share_link_invalid', 'not_found']);
+
+/**
+ * A public page's failed read (audit FLOW-06, FLOW-07): `invalid` (the link is over: say so), `final`
+ * (another definitive answer: show its words), or `transient` (no response, our server): keep what is
+ * on screen, mark it as old and keep trying. "Ended" or "expired" never comes from a network blip.
+ */
+export function publicPageFailure(err: unknown): 'invalid' | 'final' | 'transient' {
+  const c = classifyError(err);
+  if (c.transient) return 'transient';
+  return c.code !== null && LINK_GONE.has(c.code) ? 'invalid' : 'final';
+}
