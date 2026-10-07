@@ -94,7 +94,7 @@ function NightlyCard() {
       {!signedIn ? (
         <NeedLogin />
       ) : (
-        <Button variant="primary" loading={run.isPending} onClick={() => run.mutate()}>
+        <Button variant="primary" needsNet loading={run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? t('console.nightly_running') : t('console.nightly_run')}
         </Button>
       )}

@@ -1074,7 +1074,7 @@ function PolicyDialog({
           <Button variant="ghost" onClick={onClose}>
             {t('console.cancel')}
           </Button>
-          <Button variant="primary" loading={save.isPending} onClick={confirm}>
+          <Button variant="primary" needsNet loading={save.isPending} onClick={confirm}>
             {change?.mode === 'reset'
               ? t('console.ctl_mode_reset_do')
               : t('console.ctl_mode_do', { mode: to })}
@@ -1576,6 +1576,7 @@ export function SwitchDialog({
           </Button>
           <Button
             variant={restore ? 'primary' : 'danger'}
+            needsNet
             disabled={!valid}
             loading={save.isPending}
             onClick={() => submit()}
@@ -1752,6 +1753,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
             <Button
               variant="danger-soft"
               className="me-auto"
+              needsNet
               disabled={save.isPending}
               onClick={() => submit(undefined, null)}
             >
@@ -1763,6 +1765,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
           </Button>
           <Button
             variant="primary"
+            needsNet
             disabled={!valid}
             loading={save.isPending}
             onClick={() => submit()}

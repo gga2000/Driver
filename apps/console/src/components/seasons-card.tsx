@@ -148,7 +148,7 @@ export function SeasonsCard({ signedIn, canEdit }: { signedIn: boolean; canEdit:
               </div>
             </div>
           )}
-          <Button type="submit" variant="primary" disabled={!valid} loading={set.isPending}>
+          <Button type="submit" variant="primary" needsNet disabled={!valid} loading={set.isPending}>
             {t('console.season_save')}
           </Button>
         </fieldset>
@@ -179,7 +179,7 @@ function SeasonRow({ season: q, canEdit, clearing, onClear, onSaved }: { season:
           </p>
         </div>
         {canEdit && (
-          <Button variant="danger-soft" size="sm" loading={clearing} onClick={onClear}>
+          <Button variant="danger-soft" size="sm" needsNet loading={clearing} onClick={onClear}>
             {t('console.quiet_clear')}
           </Button>
         )}

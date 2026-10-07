@@ -12,7 +12,8 @@ import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
-import { cx, NetworkBanner, ToastProvider } from './ui';
+import { useConsoleNetwork } from '@/lib/network';
+import { cx, NetworkBanner, SectionBoundary, ToastProvider } from './ui';
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -24,6 +25,9 @@ export function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
+  // Offline freeze (build plan section 6): the page stays readable but dims, so nobody acts on it
+  // as if it were live; risky buttons say "not sent" (Button `needsNet`).
+  const frozen = useConsoleNetwork().state !== 'online';
   const bare = pathname === '/login';
   // Full-bleed pages fill the height and scroll inside their panes (the desk; the map and dispatch
   // fill it with the live map). They show the network banner themselves.
@@ -87,7 +91,17 @@ export function Shell({ children }: { children: ReactNode }) {
             )}
           >
             {fullBleed ? null : <NetworkBanner />}
-            {children}
+            <div
+              data-frozen={frozen || undefined}
+              className={cx(
+                'transition-[opacity,filter] duration-base data-[frozen]:opacity-70 data-[frozen]:saturate-50',
+                fullBleed && 'h-full',
+              )}
+            >
+              <SectionBoundary key={pathname} name={pathname}>
+                {children}
+              </SectionBoundary>
+            </div>
           </main>
         </div>
       </div>

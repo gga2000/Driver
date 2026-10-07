@@ -7,6 +7,7 @@ import type { RoleKind } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useState } from 'react';
 import { formatClock } from '@/lib/format';
+import { useConsoleNetwork } from '@/lib/network';
 import { modLabel } from '@/lib/hotkeys';
 import { useMyRoles } from '@/lib/me';
 import { isActive, visibleNav } from '@/lib/nav';
@@ -82,12 +83,17 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
 function ApiStatus() {
   const trpc = useTRPC();
   const health = useQuery(trpc.health.ping.queryOptions(undefined, { refetchInterval: 10_000 }));
-  const tone = health.isPending ? 'idle' : health.isSuccess ? 'ok' : 'bad';
-  const label = health.isPending
-    ? t('console.api_checking')
-    : health.isSuccess
-      ? t('console.api_online_short')
-      : t('console.api_offline_short');
+  // The health read is unchanged (W6's). Offline, the paused query still holds its last answer, so
+  // the chip also listens to the network monitor rather than saying "متصل" with the cable out.
+  const cut = useConsoleNetwork().state !== 'online';
+  const tone = cut ? 'bad' : health.isPending ? 'idle' : health.isSuccess ? 'ok' : 'bad';
+  const label = cut
+    ? t('console.api_offline_short')
+    : health.isPending
+      ? t('console.api_checking')
+      : health.isSuccess
+        ? t('console.api_online_short')
+        : t('console.api_offline_short');
   return (
     <p
       role="status"
