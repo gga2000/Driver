@@ -29,6 +29,7 @@ export function RideMap({
   bottomInset,
   radar = false,
   nearby,
+  frame,
   testID,
 }: {
   pickup: LatLng;
@@ -42,6 +43,8 @@ export function RideMap({
   radar?: boolean;
   /** Free vehicles of the chosen kind around the pickup (blurred by the server). */
   nearby?: { data: NearbyVehiclesData | undefined; kind: VehicleKind };
+  /** More points to keep in view with the pickup (the where-to map frames the nearest free cars, ride idea w1). */
+  frame?: readonly LatLng[];
   testID?: string;
 }) {
   const theme = useTheme();
@@ -61,10 +64,11 @@ export function RideMap({
     waypoints.value = dropoff ? [dropoff] : [];
   }, [pickup, dropoff, start, waypoints]);
 
-  const key = `${pickup.lat},${pickup.lng}|${dropoff?.lat},${dropoff?.lng}|${size.w}x${size.h}|${topInset}|${bottomInset}`;
+  // The extra points count, not their positions: free cars move every refresh and the camera stays put.
+  const key = `${pickup.lat},${pickup.lng}|${dropoff?.lat},${dropoff?.lng}|${size.w}x${size.h}|${topInset}|${bottomInset}|${frame?.length ?? 0}`;
   useEffect(() => {
     if (size.w === 0) return;
-    const pts = dropoff ? [pickup, dropoff] : [pickup];
+    const pts = [...(dropoff ? [pickup, dropoff] : [pickup]), ...(frame ?? [])];
     const target = fitCamera(pts, size, { top: topInset + 56, bottom: bottomInset + 36, left: 64, right: 64 }, [11, dropoff ? 16 : 15.5]);
     if (!placed.current) {
       placed.current = true;

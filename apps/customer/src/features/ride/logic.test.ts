@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
+  addNoteChip,
+  freeCancelLeftSec,
+  rideBackOffer,
+  searchProgress,
+  shopSpot,
+  smartPicks,
   destinationPinKind,
   searchStageIndex,
   switchOfferDue,
@@ -225,7 +231,7 @@ describe('ride store', () => {
     store.start('tuktuk');
     expect(store.getSnapshot().draft).toEqual({ ...EMPTY_DRAFT, vertical: 'tuktuk', payment: 'wallet' });
     store.placed('o1', { vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة' }, landmarkSpot(park, 'ar-IQ', ''), 1000);
-    expect(store.getSnapshot().memos['o1']).toEqual({ vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', at: 1000 });
+    expect(store.getSnapshot().memos['o1']).toEqual({ vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', dest: landmarkSpot(park, 'ar-IQ', ''), at: 1000 });
     expect(store.getSnapshot().recent[0]?.title).toBe('حديقة الشاشة');
     await Promise.resolve();
     const again = createRideStore(storage);
@@ -261,5 +267,55 @@ describe('ride search finish line and the 3-minute offer (L-03, J-D7)', () => {
     expect(destinationPinKind({ savedLabel: 'work' })).toBe('destination');
     expect(destinationPinKind({})).toBe('destination');
     expect(destinationPinKind(null)).toBe('destination');
+  });
+});
+
+describe('step 2 (ride ideas w2, w7, a4, m2, m4, p4)', () => {
+  const at = (id: string, lat: number, extra: Partial<Spot> = {}): Spot => ({ id, kind: 'saved', title: id, zoneId: 'street_30', pin: { lat, lng: 45.06 }, ...extra });
+  const home = at('home', 32.9, { savedLabel: 'home' });
+  const work = at('work', 32.92, { savedLabel: 'work' });
+  const market = at('market', 32.91, { kind: 'recent' });
+
+  it('smart picks: work first in the morning, home first later, never where he is', () => {
+    expect(smartPicks({ hour: 8, saved: [home, work], recent: [market], pickup: null }).map((s) => s.id)).toEqual(['work', 'home', 'market']);
+    expect(smartPicks({ hour: 18, saved: [home, work], recent: [market], pickup: null }).map((s) => s.id)).toEqual(['home', 'work', 'market']);
+    expect(smartPicks({ hour: 18, saved: [home, work], recent: [market], pickup: home }).map((s) => s.id)).toEqual(['work', 'market']);
+  });
+
+  it('a restaurant becomes a destination at its pickup point; none without one', () => {
+    const s = shopSpot({ id: 'org_1', name: 'مطعم خالد', pickup: { zoneKey: 'street_30', pin: { lat: 32.9, lng: 45.06 } } }, 'ar-IQ', 'مطعم');
+    expect(s).toMatchObject({ id: 'shop:org_1', kind: 'shop', zoneId: 'street_30' });
+    expect(shopSpot({ id: 'org_2', name: 'x', pickup: null }, 'ar-IQ', 'مطعم')).toBeNull();
+    expect(searchSpots('خالد', { saved: [], recent: [], landmarks: [], shops: [s!], zones: [] })[0]?.id).toBe('shop:org_1');
+  });
+
+  it('ride back: same day, 20 min to 10 h after a ride that did not end at home', () => {
+    const t0 = new Date(2026, 9, 7, 9, 0).getTime();
+    const base = { lastAt: t0, lastToHome: false, lastPlace: market, home };
+    expect(rideBackOffer({ ...base, now: t0 + 10 * 60_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, now: t0 + 2 * 3_600_000 })).toEqual({ from: market, to: home });
+    expect(rideBackOffer({ ...base, now: t0 + 11 * 3_600_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, lastToHome: true, now: t0 + 2 * 3_600_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, home: null, now: t0 + 2 * 3_600_000 })).toBeNull();
+  });
+
+  it('the free minute after acceptance counts down, then is gone', () => {
+    const acc = new Date(1_000_000);
+    expect(freeCancelLeftSec(acc, 1_000_000 + 18_000)).toBe(42);
+    expect(freeCancelLeftSec(acc, 1_000_000 + 61_000)).toBeNull();
+    expect(freeCancelLeftSec(null, 0)).toBeNull();
+  });
+
+  it('search bar: 3 asked, then 8, then everyone up to the free-cancel time', () => {
+    expect(searchProgress(5, undefined)).toEqual({ part: 1, fill: 5 / 15, asked: 3 });
+    expect(searchProgress(20, undefined)).toEqual({ part: 2, fill: 5 / 15, asked: 8 });
+    expect(searchProgress(30, undefined)).toMatchObject({ part: 3, fill: 0, asked: 'all' });
+    expect(searchProgress(400, undefined)).toMatchObject({ part: 3, fill: 1 });
+  });
+
+  it('note chips add once, after what he wrote', () => {
+    expect(addNoteChip('', 'يم الصيدلية')).toBe('يم الصيدلية');
+    expect(addNoteChip('الباب الأخضر', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
+    expect(addNoteChip('الباب الأخضر، يم الصيدلية', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
   });
 });

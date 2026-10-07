@@ -38,6 +38,8 @@ export interface TrackMapProps {
   nearby?: { data: NearbyVehiclesData | undefined; kind: VehicleKind } | null;
   /** Rides: the saved home gets the house, any other destination a flag (L-15). */
   destinationKind?: 'home' | 'destination';
+  /** Rides while searching (ride idea m1): the search wave — how far the rings reach, who is asked. */
+  wave?: { part: 1 | 2 | 3; asked: number | 'all' } | null;
 }
 
 /** Where the route still goes after the courier: next stops of this order, in order. */
@@ -58,7 +60,12 @@ export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoi
  * short gaps, no backwards hops, turning with the road (`motion.ts`) — his top-down vehicle with the
  * minutes to arrival, the home and kitchen pins, and a follow camera with a re-centre chip.
  */
-export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination' }: TrackMapProps) {
+/** How far the search rings spread in each wave: the nearest few, wider, then everyone. */
+const WAVE_REACH = { 1: 0.45, 2: 0.72, 3: 1 } as const;
+/** The search shot with the nearest cars in it: wide enough for them, never closer than the plain search shot. */
+const SEARCH_WITH_CARS: readonly [number, number] = [13.5, 15.5];
+
+export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination', wave = null }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
@@ -113,7 +120,16 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
       }),
     [phase, view.order.type, fix, kitchen, home, route, ridePickup],
   );
-  const camera = useFollowCamera({ size, focus: shot.points, zoom: shot.zoom, pad: { top: topInset + 40, bottom: bottomInset + (searching ? 120 : 40), left: 48, right: 48 } });
+  // Ride idea m1: while searching, keep the nearest free cars (the first ones asked) in the frame
+  // with the pickup. Taken once, from the first answer, so the camera doesn't drift as they move.
+  const [askedFrame, setAskedFrame] = useState<LngLat[] | null>(null);
+  const firstCars = searching ? (nearby?.data?.vehicles ?? null) : null;
+  useEffect(() => {
+    if (!searching) setAskedFrame(null);
+    else if (firstCars && firstCars.length > 0) setAskedFrame((f) => f ?? firstCars.slice(0, 3).map((c) => ({ lat: c.lat, lng: c.lng })));
+  }, [searching, firstCars]);
+  const framed = searching && askedFrame && ridePickup ? { points: [ridePickup, ...askedFrame], zoom: SEARCH_WITH_CARS } : shot;
+  const camera = useFollowCamera({ size, focus: framed.points, zoom: framed.zoom, pad: { top: topInset + 40, bottom: bottomInset + (searching ? 120 : 40), left: 48, right: 48 } });
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -142,8 +158,8 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
           {/* No straight line across the river without a road route (joy f19): a heading arrow instead. */}
           <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} straight={false} />
           <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />
-          {searching && nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
-          {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
+          {searching && nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} asked={wave?.asked ?? 0} /> : null}
+          {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} reach={wave ? WAVE_REACH[wave.part] : 1} testID="ride-radar" /> : null}
           {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} side={sideOf(ridePickup, t('ride.pickup_here'))} testID="pin-pickup" /> : null}
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
           {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={kitchenLabel} side={sideOf(kitchen, kitchenLabel)} testID="pin-kitchen" /> : null}

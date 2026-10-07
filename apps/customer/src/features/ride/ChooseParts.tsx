@@ -1,14 +1,14 @@
 import { useEffect, type ReactNode } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
-import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, { Easing, FadeInDown, runOnJS, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { SvgXml } from 'react-native-svg';
 import type { CityPricingConfig, Quote, QuoteComponent } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, formatClock, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
+import { Button, Chip, formatClock, Icon, PriceBreakdown, Skeleton, Text, useTheme, withAlpha, type IconName, type PriceItem } from '@driver/ui';
 import { BottomPanel } from '@/features/track/Panels';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { fareLines, hour12, ruleHours, type RideVertical, type Spot, type Surcharge } from './logic';
+import { addNoteChip, fareLines, hour12, ruleHours, type RideVertical, type Spot, type Surcharge } from './logic';
 import { TAXI_ART, TUKTUK_ART } from './vehicle-art';
 
 export const VEHICLE: Record<RideVertical, { name: MessageKey; hint: MessageKey; icon: IconName }> = {
@@ -397,5 +397,82 @@ export function FarePanel({ vertical, quote, city, locale, onClose }: { vertical
       <PriceBreakdown items={fareItems(quote, t, locale, city, vertical)} total={quote.total} note={t('quote.quote_locked')} testID="ride-fare" />
       <Button label={t('action.ok')} variant="secondary" fullWidth onPress={onClose} testID="ride-fare-close" />
     </BottomPanel>
+  );
+}
+
+/** The note's quick words (ride idea p4): what riders in Aziziyah tell a driver most. */
+const NOTE_CHIPS = ['ride.note_chip_pharmacy', 'ride.note_chip_green_door', 'ride.note_chip_alley_end'] as const satisfies readonly MessageKey[];
+
+/** One tap adds the words to the note; a chip already in it shows chosen (edit the note to drop it). */
+export function NoteChips({ note, onNote }: { note: string; onNote: (note: string) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="ride-note-chips">
+      {NOTE_CHIPS.map((key, i) => {
+        const words = t(key);
+        const on = note.split('،').some((p) => p.trim() === words);
+        return (
+          <Chip
+            key={key}
+            role="button"
+            label={words}
+            selected={on}
+            onPress={() => {
+              if (on) return;
+              theme.haptic('selection');
+              onNote(addNoteChip(note, words));
+            }}
+            testID={`ride-note-chip-${i}`}
+          />
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+const BLOOM_MS = 520;
+
+/**
+ * Ride idea l4: after «اطلب», the button grows into the search rings — a soft disc spreading from
+ * the button over the screen with two rings running ahead of it — and then the live screen opens on
+ * its radar, so there is no blank jump. `onDone` navigates; under reduce-motion it runs at once.
+ */
+export function RequestBloom({ fromBottom, onDone }: { fromBottom: number; onDone: () => void }) {
+  const theme = useTheme();
+  const { width, height } = useWindowDimensions();
+  const p = useSharedValue(0);
+  const cx = width / 2;
+  const cy = height - fromBottom;
+  // Far enough to reach the farthest corner from the button.
+  const r = Math.hypot(Math.max(cx, width - cx), cy);
+  useEffect(() => {
+    if (theme.reduceMotion) {
+      onDone();
+      return;
+    }
+    p.value = withTiming(1, { duration: BLOOM_MS, easing: Easing.out(Easing.cubic) }, (done) => {
+      if (done) runOnJS(onDone)();
+    });
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const disc = useAnimatedStyle(() => ({ transform: [{ scale: 0.04 + p.value * 0.96 }] }));
+  // The rings run ahead of the disc (×1.35 and ×1.7 its pace) and fade as they reach the edge.
+  const ring1 = useAnimatedStyle(() => {
+    const q = Math.min(1, p.value * 1.35);
+    return { opacity: 0.7 * (1 - q), transform: [{ scale: 0.04 + q * 0.96 }] };
+  });
+  const ring2 = useAnimatedStyle(() => {
+    const q = Math.min(1, p.value * 1.7);
+    return { opacity: 0.7 * (1 - q), transform: [{ scale: 0.04 + q * 0.96 }] };
+  });
+  const circle = { position: 'absolute' as const, left: cx - r, top: cy - r, width: r * 2, height: r * 2, borderRadius: r };
+  return (
+    <View pointerEvents="auto" style={StyleSheet.absoluteFill} testID="ride-request-bloom" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Animated.View style={[circle, { backgroundColor: theme.colors.accentTint }, disc]} />
+      <Animated.View style={[circle, { borderWidth: 3, borderColor: theme.colors.accent }, ring1]} />
+      <Animated.View style={[circle, { borderWidth: 2, borderColor: theme.colors.accent }, ring2]} />
+    </View>
   );
 }

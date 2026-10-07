@@ -7,8 +7,8 @@ import type { MessageKey } from '@driver/i18n';
 import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
 import { newRequestKey } from '@/features/food/place-attempt';
-import { RideRoute, rideVehicleLabel, SearchStages, searchElapsedSec, useSearchNote, useSearchStage, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
-import { switchOfferDue, type RideVertical } from '@/features/ride/logic';
+import { FREE_CANCEL_H, FreeCancelChip, NameThisPlace, RideRoute, rideVehicleLabel, SEARCH_PROGRESS_H, SearchProgress, searchElapsedSec, useSearchNote, useSearchProgress, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
+import { freeCancelLeftSec, switchOfferDue, type RideVertical } from '@/features/ride/logic';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
@@ -53,7 +53,7 @@ const TOP_BAR = 64;
 /** The inline notification ask in the collapsed sheet (rides, joy f1): two text lines and the buttons. */
 const PUSH_ASK_H = 136;
 /** The 3-minute offer card over the map (J-D7): the camera keeps the pickup above it. */
-const SWITCH_OFFER_H = 200;
+const SWITCH_OFFER_H = 290;
 
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -126,7 +126,9 @@ export default function OrderLiveScreen() {
   const searching = Boolean(ride && phase === 'searching');
   const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
   const searchNote = useSearchNote(searching ? v : undefined, now);
-  const searchStage = useSearchStage(searching ? v : undefined, now);
+  const searchBar = useSearchProgress(searching ? v : undefined, now);
+  // Ride idea m4: the first minute after he accepts, cancelling is still free.
+  const freeCancel = Boolean(ride && phase === 'to_pickup' && v?.trip && freeCancelLeftSec(v.trip.acceptedAt, now) !== null);
   // J-D7 / L-03: free cars around the pickup while searching, and the other vehicle at 3 minutes.
   const asked: RideVertical = v?.trip?.vertical === 'tuktuk' || (!v?.trip && memo?.vertical === 'tuktuk') ? 'tuktuk' : 'taxi';
   const ridePickupPin = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.target ?? null) : null;
@@ -145,7 +147,7 @@ export default function OrderLiveScreen() {
       {
         onSuccess: (next) => {
           switchKey.current = null;
-          rideStore.remember(next.id, { vertical: to, from: memo?.from ?? t('ride.pickup_here'), to: memo?.to ?? t('track.destination_pin'), doorPickup: memo?.doorPickup ?? false, toHome: memo?.toHome ?? false });
+          rideStore.remember(next.id, { vertical: to, from: memo?.from ?? t('ride.pickup_here'), to: memo?.to ?? t('track.destination_pin'), doorPickup: memo?.doorPickup ?? false, toHome: memo?.toHome ?? false, ...(memo?.dest ? { dest: memo.dest } : {}) });
           toast.show({ message: t('ride.switch_done', { vehicle: t(to === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi') }), tone: 'success', icon: 'check' });
           void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
           router.replace({ pathname: '/order/[id]', params: { id: next.id } });
@@ -301,7 +303,7 @@ export default function OrderLiveScreen() {
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
-  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
@@ -346,6 +348,7 @@ export default function OrderLiveScreen() {
           minutes={mapMinutes}
           spotlight={phase === 'unreachable'}
           nearby={searching ? { data: nearby.data, kind: asked === 'tuktuk' ? 'tuktuk' : 'car' } : null}
+          wave={searching && searchBar ? { part: searchBar.part, asked: searchBar.asked } : null}
           destinationKind={memo?.toHome ? 'home' : 'destination'}
         />
       ) : (
@@ -446,16 +449,22 @@ export default function OrderLiveScreen() {
                 .filter(Boolean)
                 .join(' · ')}
               // At the door there is no time left to show (f3): the card says what to do instead.
-              eta={atDoor ? null : eta}
+              // While searching there is no driver to time: the search bar below says where it is.
+              eta={atDoor || searching ? null : eta}
               now={now}
               lateMin={lateMin}
-              note={searching ? searchNote : null}
-              aside={searching && searchStage ? <SearchStages stage={searchStage} seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
+              aside={ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
               below={
-                pushAsk.visible ? (
-                  <PushAskCard kind={searching ? 'ride_search' : 'ride'} busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
-                ) : kitchen ? (
-                  <KitchenProgress stages={kitchen} courierName={courierName} />
+                (searching && searchBar) || freeCancel || pushAsk.visible || kitchen ? (
+                  <View style={{ gap: theme.space[3] }}>
+                    {searching && searchBar ? <SearchProgress part={searchBar.part} fill={searchBar.fill} note={searchNote} seconds={searchElapsedSec(v, now)} /> : null}
+                    {freeCancel && v.trip ? <FreeCancelChip acceptedAt={v.trip.acceptedAt} now={now} onPress={() => setPanel('cancel')} /> : null}
+                    {pushAsk.visible ? (
+                      <PushAskCard kind={searching ? 'ride_search' : 'ride'} busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
+                    ) : kitchen ? (
+                      <KitchenProgress stages={kitchen} courierName={courierName} />
+                    ) : null}
+                  </View>
                 ) : undefined
               }
             />
@@ -479,6 +488,7 @@ export default function OrderLiveScreen() {
             {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
             {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
             {ride ? <RideRoute view={v} /> : null}
+            {ride && (phase === 'arrived' || phase === 'done') ? <NameThisPlace view={v} /> : null}
             {searching && canCancel ? (
               <View style={{ gap: theme.space[1] }}>
                 <Button label={t('ride.cancel_free_button')} variant="secondary" icon="x" fullWidth onPress={() => setPanel('cancel')} testID="ride-cancel-searching" />

@@ -318,10 +318,15 @@ const RADAR = 240;
 
 /**
  * "ندور لك سايق": rings sweeping out from the pickup while dispatch broadcasts the ride (customer
- * spec §5). Three staggered rings on the UI thread; still under reduce-motion.
+ * spec §5). Three staggered rings on the UI thread; still under reduce-motion. `reach` (0–1) is how
+ * far they spread: the search waves widen it, nearest drivers first, then everyone (ride idea m1).
  */
-export function RadarPulse({ cam, size, at, testID }: LayerProps & { at: LngLat; testID?: string }) {
+export function RadarPulse({ cam, size, at, reach = 1, testID }: LayerProps & { at: LngLat; reach?: number; testID?: string }) {
   const theme = useTheme();
+  const spread = useSharedValue(reach);
+  useEffect(() => {
+    spread.value = theme.reduceMotion ? reach : withTiming(reach, { duration: 900, easing: Easing.inOut(Easing.cubic) });
+  }, [reach, spread, theme.reduceMotion]);
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
     return { transform: [{ translateX: p.x - RADAR / 2 }, { translateY: p.y - RADAR / 2 }] };
@@ -329,20 +334,20 @@ export function RadarPulse({ cam, size, at, testID }: LayerProps & { at: LngLat;
   return (
     <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: RADAR, height: RADAR }, place]}>
       {[0, 1, 2].map((i) => (
-        <RadarRing key={i} delay={i * 700} color={theme.colors.accent} still={theme.reduceMotion} />
+        <RadarRing key={i} delay={i * 700} color={theme.colors.accent} still={theme.reduceMotion} spread={spread} />
       ))}
     </Animated.View>
   );
 }
 
-function RadarRing({ delay, color, still }: { delay: number; color: string; still: boolean }) {
+function RadarRing({ delay, color, still, spread }: { delay: number; color: string; still: boolean; spread: SharedValue<number> }) {
   const p = useSharedValue(still ? 0.5 : 0);
   useEffect(() => {
     if (still) return;
     p.value = withDelay(delay, withRepeat(withTiming(1, { duration: 2100, easing: Easing.out(Easing.cubic) }), -1, false));
     return () => cancelAnimation(p);
   }, [delay, p, still]);
-  const style = useAnimatedStyle(() => ({ opacity: 0.55 * (1 - p.value), transform: [{ scale: 0.12 + p.value * 0.88 }] }));
+  const style = useAnimatedStyle(() => ({ opacity: 0.55 * (1 - p.value), transform: [{ scale: 0.12 + p.value * 0.88 * spread.value }] }));
   return (
     <Animated.View
       style={[

@@ -31,6 +31,8 @@ export interface RideMemo {
   doorPickup?: boolean;
   /** The destination is the saved home (the live map draws the house, else a flag). */
   toHome?: boolean;
+  /** The destination as the rider chose it: «تحب تسمّي هالمكان؟» and the ride back (ride ideas a3, a4). */
+  dest?: Spot;
 }
 
 interface PersistedRide {
@@ -98,7 +100,7 @@ export function createRideStore(store: KeyValueStorage) {
     },
     /** After `orders.place`: remember the destination and what the rider chose for this order. */
     placed(orderId: string, memo: Omit<RideMemo, 'at'>, destination: Spot, at = Date.now()) {
-      const memos = Object.entries({ ...state.memos, [orderId]: { ...memo, at } })
+      const memos = Object.entries({ ...state.memos, [orderId]: { ...memo, dest: destination, at } })
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, MAX_MEMOS);
       persist({ ...state, recent: pushRecent(state.recent, destination), memos: Object.fromEntries(memos), draft: { ...state.draft, note: '' } });
@@ -130,4 +132,12 @@ export function useRideStore(): RideStoreState {
 
 export function useRideMemo(orderId: string): RideMemo | null {
   return useRideStore().memos[orderId] ?? null;
+}
+
+/** The latest ride placed on this device (newest memo), with its order id. */
+export function useLastRide(): (RideMemo & { orderId: string }) | null {
+  const memos = useRideStore().memos;
+  let best: (RideMemo & { orderId: string }) | null = null;
+  for (const [orderId, m] of Object.entries(memos)) if (!best || m.at > best.at) best = { ...m, orderId };
+  return best;
 }

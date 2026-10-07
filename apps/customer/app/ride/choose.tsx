@@ -11,7 +11,7 @@ import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, hourOptions, minuteOptions, scheduleAt, SCHEDULE_DAYS, settleChoice, type ScheduleChoice, type ScheduleDay } from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { useWalletBalance } from '@/features/account/queries';
-import { FarePanel, OptionsRow, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
+import { FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
 import { buildRidePlaceInput, destinationPinKind, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
 import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
 import { RideMap } from '@/features/ride/RideMap';
@@ -61,6 +61,8 @@ export default function RideChoose() {
   const [problem, setProblem] = useState<string | null>(null);
   const [details, setDetails] = useState<RideVertical | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  // l4: the request button grows into the search rings, then the live screen opens on its radar.
+  const [bloomFor, setBloomFor] = useState<string | null>(null);
   // The arrival clocks on the rows («توصل 11:55») move with the minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -96,6 +98,11 @@ export default function RideChoose() {
   const tukTotal = quotes.grid.tuktuk[mode]?.total;
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
 
+  const openLive = (orderId: string) => {
+    if (router.canDismiss()) router.dismissAll();
+    router.push({ pathname: '/order/[id]', params: { id: orderId } });
+  };
+
   const request = async () => {
     if (!quote || inFlight.current) return;
     setProblem(null);
@@ -111,11 +118,11 @@ export default function RideChoose() {
       attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
       void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
-      if (router.canDismiss()) router.dismissAll();
       if (bookedAt) {
+        if (router.canDismiss()) router.dismissAll();
         bookedMemory.remember(order.id, pickup, dropoff);
         router.push({ pathname: '/ride/booked/[id]', params: { id: order.id } });
-      } else router.push({ pathname: '/order/[id]', params: { id: order.id } });
+      } else setBloomFor(order.id);
     } catch (err) {
       attemptRef.current = afterFailure(attempt, apiErrorCode(err));
       const kind = rideProblem(apiErrorCode(err));
@@ -322,9 +329,13 @@ export default function RideChoose() {
             </View>
           </View>
 
-          <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
+          <View style={{ gap: theme.space[2] }}>
+            <NoteChips note={d.note} onNote={(note) => rideStore.update({ note })} />
+            <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
+          </View>
         </RideOptionsPanel>
       ) : null}
+      {bloomFor ? <RequestBloom fromBottom={Math.max(insets.bottom, theme.space[3]) + 52} onDone={() => openLive(bloomFor)} /> : null}
       {details && quotes.grid[details][mode] ? <FarePanel vertical={details} quote={quotes.grid[details][mode]!} city={city.data ?? undefined} locale={lang} onClose={() => setDetails(null)} /> : null}
     </View>
   );

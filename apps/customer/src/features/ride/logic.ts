@@ -32,7 +32,7 @@ export function isRideVertical(v: unknown): v is RideVertical {
 
 // ───────────────────────── places ("وين رايح؟") ─────────────────────────
 
-export type SpotKind = 'saved' | 'recent' | 'landmark' | 'zone' | 'pin';
+export type SpotKind = 'saved' | 'recent' | 'landmark' | 'shop' | 'zone' | 'pin';
 
 /** A place a ride can start or end at: always a zone (pricing) and a pin (the driver's target). */
 export interface Spot {
@@ -49,6 +49,8 @@ export interface Spot {
   landmarkKind?: LandmarkView['kind'];
   /** Search-only extra names ("الجامع الكبير" for "باب الجامع الكبير"). */
   aliases?: readonly string[];
+  /** A meeting point's photo (ride idea p3), so rider and driver stand at the same door. */
+  photoUrl?: string | null;
 }
 
 export function spotPoint(s: Pick<Spot, 'zoneId' | 'pin'>): DeliveryPoint {
@@ -111,15 +113,17 @@ export interface SpotSources {
   saved: readonly Spot[];
   recent: readonly Spot[];
   landmarks: readonly Spot[];
+  /** Restaurants and shops as destinations (ride idea w7): «خالد» finds مطعم خالد. */
+  shops?: readonly Spot[];
   zones: readonly Spot[];
 }
 
-const KIND_RANK: Record<SpotKind, number> = { saved: 0, recent: 1, landmark: 2, zone: 3, pin: 4 };
+const KIND_RANK: Record<SpotKind, number> = { saved: 0, recent: 1, landmark: 2, shop: 3, zone: 4, pin: 5 };
 
 /** Search results over every source, best match first (saved before recent before landmarks before zones on ties). */
 export function searchSpots(query: string, sources: SpotSources, limit = 12): Spot[] {
   if (!normalizeArabic(query)) return [];
-  const all = [...sources.saved, ...sources.recent, ...sources.landmarks, ...sources.zones];
+  const all = [...sources.saved, ...sources.recent, ...sources.landmarks, ...(sources.shops ?? []), ...sources.zones];
   const scored: Array<{ s: Spot; score: number; i: number }> = [];
   all.forEach((s, i) => {
     const score = matchScore(query, [s.title, ...(s.aliases ?? [])]);
@@ -180,6 +184,20 @@ export function landmarkSpot(l: LandmarkView, locale: 'ar-IQ' | 'en', kindLabel:
     pin: l.pin,
     landmarkKind: l.kind,
     aliases: [l.name_ar, l.name_en, ...l.aliases_ar],
+    photoUrl: l.photoUrl,
+  };
+}
+
+/** A restaurant or shop as a ride destination (ride idea w7): its pickup point, the zone under it. */
+export function shopSpot(m: { id: string; name: string; pickup: DeliveryPoint | null }, locale: 'ar-IQ' | 'en', kindLabel: string): Spot | null {
+  if (!m.pickup?.pin || !zoneOf(m.pickup.zoneKey)) return null;
+  return {
+    id: `shop:${m.id}`,
+    kind: 'shop',
+    title: westernDigits(m.name),
+    subtitle: `${kindLabel} · ${zoneTitle(m.pickup.zoneKey, locale)}`,
+    zoneId: m.pickup.zoneKey,
+    pin: m.pickup.pin,
   };
 }
 
@@ -398,4 +416,89 @@ export function destinationPinKind(spot: Pick<Spot, 'savedLabel'> | null | undef
 export function mmss(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// ───────────────────────── step 2: picks, ride back, the wait ─────────────────────────
+
+/**
+ * Ride idea w2: three places the rider is likely going now, by hour and habit — work on a weekday
+ * morning, home from the afternoon on, then the latest trips — never where he already is.
+ */
+export function smartPicks(input: { hour: number; saved: readonly Spot[]; recent: readonly Spot[]; pickup: Pick<Spot, 'pin'> | null; max?: number }): Spot[] {
+  const { hour, saved, recent, pickup } = input;
+  const home = saved.find((s) => s.savedLabel === 'home');
+  const work = saved.find((s) => s.savedLabel === 'work');
+  const morning = hour >= 5 && hour < 12;
+  const ordered = [...(morning ? [work, home] : [home, work]), ...recent, ...saved];
+  const out: Spot[] = [];
+  for (const s of ordered) {
+    if (!s || (pickup && tooClose(pickup, s)) || out.some((o) => sameSpot(o, s))) continue;
+    out.push(s);
+    if (out.length >= (input.max ?? 3)) break;
+  }
+  return out;
+}
+
+/** How long after a ride the «ترجع من نفس المكان؟» card waits, and when it stops asking. */
+export const RIDE_BACK_AFTER_MIN = 20;
+export const RIDE_BACK_UNTIL_H = 10;
+
+/**
+ * Ride idea a4: later the same day, the way back from the last ride's destination to home. Only when
+ * that ride did not end at home, started at least 20 minutes ago and no more than 10 hours ago, on
+ * the same calendar day.
+ */
+export function rideBackOffer(input: { lastAt: number | null; lastToHome: boolean; lastPlace: Spot | null; home: Spot | null; now: number }): { from: Spot; to: Spot } | null {
+  const { lastAt, lastPlace, home, now } = input;
+  if (lastAt === null || !lastPlace || !home || input.lastToHome) return null;
+  const age = now - lastAt;
+  if (age < RIDE_BACK_AFTER_MIN * 60_000 || age > RIDE_BACK_UNTIL_H * 3_600_000) return null;
+  if (new Date(lastAt).toDateString() !== new Date(now).toDateString()) return null;
+  if (tooClose(lastPlace, home)) return null;
+  return { from: lastPlace, to: home };
+}
+
+/**
+ * The free minute after a driver accepts (pricing/cancellation.ts `rideFreeAfterAcceptSec`, 60 s): the
+ * seconds left of it, or null once it is over (ride idea m4). The server decides the fee either way.
+ */
+export const RIDE_FREE_AFTER_ACCEPT_SEC = 60;
+export function freeCancelLeftSec(acceptedAt: Date | null, now: number): number | null {
+  if (!acceptedAt) return null;
+  const left = RIDE_FREE_AFTER_ACCEPT_SEC - Math.floor((now - acceptedAt.getTime()) / 1000);
+  return left > 0 && left <= RIDE_FREE_AFTER_ACCEPT_SEC ? left : null;
+}
+
+/**
+ * Ride idea m2: the three-part search bar — which part, how full it is, and how many drivers have
+ * been asked (3, then 8, then everyone). The last part runs to the free-cancel time (180 s), where
+ * the «جرّب التكتك» offer takes over, so the bar has an honest end.
+ */
+export function searchProgress(elapsedSec: number, dispatch: Pick<DispatchConfig, 'waves'> | undefined, endSec = 180): { part: 1 | 2 | 3; fill: number; asked: number | 'all' } {
+  const waves = dispatch?.waves ?? [
+    { size: 3, seconds: 15 },
+    { size: 5, seconds: 15 },
+    { size: 'all', seconds: 30 },
+  ];
+  let start = 0;
+  let asked = 0;
+  for (let i = 0; i < waves.length; i++) {
+    const w = waves[i]!;
+    const part = Math.min(3, i + 1) as 1 | 2 | 3;
+    if (w.size === 'all' || i >= 2) {
+      const span = Math.max(1, endSec - start);
+      return { part: 3, fill: Math.min(1, Math.max(0, (elapsedSec - start) / span)), asked: 'all' };
+    }
+    asked += w.size;
+    if (elapsedSec < start + w.seconds) return { part, fill: Math.max(0, (elapsedSec - start) / w.seconds), asked };
+    start += w.seconds;
+  }
+  return { part: 3, fill: 1, asked: 'all' };
+}
+
+/** Ride idea p4: one-tap notes for the driver, added to what the rider already wrote. */
+export function addNoteChip(note: string, chip: string, max = 200): string {
+  const parts = note.split('،').map((p) => p.trim()).filter(Boolean);
+  if (parts.includes(chip)) return note;
+  return [...parts, chip].join('، ').slice(0, max);
 }

@@ -13,6 +13,23 @@ export function useLandmarks() {
   return useQuery({ ...api.places.landmarks.queryOptions({ cityId: CITY_ID }), enabled: signedIn, staleTime: 10 * 60_000 });
 }
 
+/** Restaurants as ride destinations (ride idea w7): the same public list food shows, names and pickup points only. */
+export function useShopPlaces() {
+  const api = useApi();
+  return useQuery({ ...api.catalog.restaurants.queryOptions({ cityId: CITY_ID, filters: {} }), staleTime: 10 * 60_000 });
+}
+
+/**
+ * One taxi quote (street pickup, now) for a smart pick on «وين رايح؟» (ride idea w2): the same engine
+ * as the choose screen, so the price shown there is the price the rider then sees.
+ */
+export function usePickQuote(pickup: Spot | null, dropoff: Spot | null) {
+  const api = useApi();
+  const minute = quoteMinute().getTime();
+  const input = pickup && dropoff ? rideQuoteRequest({ vertical: 'taxi', pickup: spotPoint(pickup), dropoff: spotPoint(dropoff), doorPickup: false, at: new Date(minute) }) : null;
+  return useQuery({ ...api.pricing.quote.queryOptions(input ?? rideQuoteRequest({ vertical: 'taxi', pickup: { zoneKey: 'x' }, dropoff: { zoneKey: 'x' }, doorPickup: false, at: new Date(minute) })), enabled: input !== null, staleTime: 60_000, placeholderData: keepPreviousData });
+}
+
 /** The city config (night/peak hours for the reason lines, dispatch waves for the search copy). */
 export function useCityConfig() {
   const api = useApi();
