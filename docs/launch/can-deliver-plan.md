@@ -106,8 +106,8 @@ Each is Ali's own action or involves money, so no thread does it for him. Recomm
    *Recommended: name one by Sun 18 Oct; the courier recruiting starts the same week.*
 4. **Calls (G0-10): decided 2026-10-07, chat first.** Chat and voice notes at launch; in-app
    internet calls after launch.
-5. **Prices (G0-7) and zones (G0-8) 💰, by Mon 2 Nov.** *Recommended: this thread prepares a one-page
-   fill-in sheet with today's demo numbers and what each changes; you write your numbers on it.*
+5. **Prices (G0-7) and zones (G0-8) 💰, by Mon 2 Nov.** The fill-in sheet is ready: `/mnt/project-files/launch/price-sheet.md` (food first; taxi, tuktuk and seat prices, including the parked ideas, for about D+30).
+   Ali writes his number next to each line; empty means today's number stays.
 6. **Things to buy.** The 7 test phones (plan 6.2, this week) and one tablet per launch kitchen (by
    Mon 2 Nov). *Recommended: yes; the plan lists the phone models.*
 7. **Street map (G0-6).** The street map on phones belongs to the map session, which is not part of
@@ -177,3 +177,4 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 
 - 2026-10-07: first draft, after Ali approved the launch plan and D-22.
 - 2026-10-07: Ali chose "chat first" for calls (G0-10).
+- 2026-10-07: price sheet ready for Ali (G0-7), with the parked ride and seat prices.
