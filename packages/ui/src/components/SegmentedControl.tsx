@@ -7,6 +7,10 @@ import { Text } from './Text';
 export interface SegmentOption<T extends string> {
   value: T;
   label: string;
+  /** A second, smaller line under the label (e.g. «4 سيارات» under «باچر»). */
+  detail?: string;
+  /** What a screen reader says instead of label + detail. */
+  accessibilityLabel?: string;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -15,10 +19,12 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (v: T) => void;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
+  /** Segments get `${testIDPrefix}-${value}` (default `segment`). */
+  testIDPrefix?: string;
 }
 
 /** Equal-width segments with a thumb that springs between them (direction-aware). */
-export function SegmentedControl<T extends string>({ options, value, onChange, accessibilityLabel, style }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ options, value, onChange, accessibilityLabel, style, testIDPrefix = 'segment' }: SegmentedControlProps<T>) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
   const pad = 3;
@@ -73,8 +79,8 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             key={o.value}
             accessibilityRole="tab"
             aria-selected={selected}
-            accessibilityLabel={o.label}
-            testID={`segment-${o.value}`}
+            accessibilityLabel={o.accessibilityLabel ?? (o.detail ? `${o.label} ${o.detail}` : o.label)}
+            testID={`${testIDPrefix}-${o.value}`}
             onPress={() => {
               if (!selected) {
                 theme.haptic('selection');
@@ -86,6 +92,11 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact>
               {o.label}
             </Text>
+            {o.detail ? (
+              <Text variant="caption" weight={selected ? 600 : 400} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact tabular>
+                {o.detail}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}

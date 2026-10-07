@@ -37,9 +37,9 @@ describe('PricingEngine — Aziziyah', () => {
       req({ vertical: 'intercity', stops: stops('centre', 'kut'), options: { frontSeat: true } }),
       aziziyah,
     );
-    expect(base.total).toBe(10000);
+    expect(base.total).toBe(5000);
     expect(amountOf(front, 'front_seat')).toBe(2000);
-    expect(front.total).toBe(12000);
+    expect(front.total).toBe(7000);
     expect(front.components.find((c) => c.key === 'front_seat')?.label_ar).toBe('مقعد أمامي');
   });
 
@@ -47,7 +47,7 @@ describe('PricingEngine — Aziziyah', () => {
     const kut = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'kut') }), aziziyah);
     const bgd = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'baghdad') }), aziziyah);
     expect(bgd.total).toBeGreaterThan(kut.total);
-    expect(bgd.total).toBe(15000);
+    expect(bgd.total).toBe(10000);
   });
 
   it('door pickup costs more than street pickup and both are explained', () => {

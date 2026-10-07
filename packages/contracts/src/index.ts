@@ -35,6 +35,7 @@ export * from './climate-check.js';
 export * from './ride-cargo.js';
 export * from './console-io.js';
 export * from './routes-io.js';
+export * from './vehicle-models.js';
 export * from './deals.js';
 export * from './catalog-io.js';
 export * from './habits-io.js';

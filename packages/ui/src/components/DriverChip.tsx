@@ -12,13 +12,14 @@ export interface PlateChipProps {
   plate: string;
   /** "رقم السيارة" — read before the plate by screen readers. */
   accessibilityLabel: string;
-  /** `xl`: the driver-here card, where the plate is the thing to find at the kerb (L-02). */
-  size?: 'md' | 'lg' | 'xl';
+  /** `sm`: a list row where the plate is a detail, not the thing to find. `xl`: the driver-here card, where the plate is the thing to find at the kerb (L-02). */
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
 const PLATE_SIZE = {
+  sm: { height: 24, pad: 6, regionPad: 4, number: 13, numberLine: 18, region: 10, regionLine: 13 },
   md: { height: 32, pad: 9, regionPad: 6, number: 16, numberLine: 22, region: 12, regionLine: 16 },
   lg: { height: 40, pad: 12, regionPad: 8, number: 20, numberLine: 26, region: 13, regionLine: 18 },
   xl: { height: 52, pad: 14, regionPad: 10, number: 28, numberLine: 34, region: 15, regionLine: 20 },
