@@ -379,15 +379,19 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
     case 'order.driver_cancelled':
     case 'dispatch.free_cancel_available': {
       // NTF-04: «حيدر لغى المشوار، دا ندورلك سايق ثاني» / «ما لگينا سايق هسة: انتظر، الغي ببلاش، أو احجز
-      // لوقت ثاني». The orderer, and the rider of a ride booked for someone else. No credit is promised:
-      // nothing posts the driver-cancel credit to the wallet yet.
+      // لوقت ثاني». The orderer, and the rider of a ride booked for someone else. The orderer also hears
+      // the credit the ledger posts to his wallet (M-15, after the driver reached the pickup).
       const orderId = e.orderId ?? str(p['orderId']);
       const order = orderId ? await L.order(orderId) : null;
       if (!order || order.type !== 'ride') return [];
       const cancelled = e.type === 'order.driver_cancelled';
       const driver = cancelled ? ((await L.firstName(e.actorId, 'notify_ride_driver_cancelled')) ?? 'السايق') : '';
       const template = cancelled ? ('ride_driver_cancelled' as const) : ('ride_no_driver' as const);
-      return [...new Set([order.customerId, order.riderId].filter((x): x is string => Boolean(x)))].map((to) => ({ ...base, template, to, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }));
+      const creditIqd = cancelled ? (num(p['customerCreditIqd']) ?? 0) : 0;
+      return [...new Set([order.customerId, order.riderId].filter((x): x is string => Boolean(x)))].map((to) => {
+        const credited = creditIqd > 0 && to === order.customerId;
+        return { ...base, template: credited ? ('ride_driver_cancelled_credit' as const) : template, to, orderId: order.id, params: { driver, orderId: order.id, ...(credited ? { amount: iqd(creditIqd) } : {}) }, data: { orderId: order.id } };
+      });
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

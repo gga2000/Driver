@@ -107,6 +107,17 @@ describe('customer wallet: readable lines', () => {
     ]);
   });
 
+  it('M-15: a driver\'s cancel paid to the customer reads as credit; the customer\'s own cancel fee stays a penalty', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('order:o1:driver_cancel:t1', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1'), memo: 'driver_cancel' }]));
+    await h.ledger.recordAll(group('order:o2:cancel', 'money', '2026-10-03T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.customer('c1'), toAccount: Accounts.driver('d1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount])).toEqual([
+      ['credit', 500],
+      ['penalty', -500],
+    ]);
+  });
+
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {
     const h = walletHarness();
     await h.ledger.recordAll(group('topup:1', 'money', '2026-10-01T09:00:00Z', [{ type: 'credit_issued', amount: 20_000, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));

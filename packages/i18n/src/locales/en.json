@@ -7517,6 +7517,7 @@
   "push.booked_searching.body": "Your ride {when}. We'll tell you as soon as a driver accepts",
   "push.ride_driver_cancelled.title": "{driver} cancelled the ride",
   "push.ride_driver_cancelled.body": "Don't worry, we're finding you another driver now",
+  "push.ride_driver_cancelled.body_credit": "We're finding you another driver now, and we put {amount} dinars in your wallet",
   "push.ride_no_driver.title": "No driver yet",
   "push.ride_no_driver.body": "You can wait, cancel for free, or book for later",
   "push.booked_released.title": "{driver} can't make it",

@@ -7517,6 +7517,7 @@
   "push.booked_searching.body": "مشوارك {when}. نخبرك أول ما يقبل سايق",
   "push.ride_driver_cancelled.title": "{driver} لغى المشوار",
   "push.ride_driver_cancelled.body": "لا تشيل هم، دا ندورلك سايق ثاني هسة",
+  "push.ride_driver_cancelled.body_credit": "دا ندورلك سايق ثاني هسة، ونزّلنالك {amount} دينار برصيدك",
   "push.ride_no_driver.title": "ما لگينا سايق هسة",
   "push.ride_no_driver.body": "تگدر تنتظر، أو تلغي ببلاش، أو تحجز لوقت ثاني",
   "push.booked_released.title": "{driver} ما يگدر يجي",

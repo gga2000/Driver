@@ -35,11 +35,23 @@ const deps = (order: OrderFacts | null = ride) => {
 type Sent = { sent: Array<{ title: string; body: string; data: Record<string, string> }> };
 
 describe('NTF-04: a ride\'s bad turns reach the rider', () => {
+  it('the driver cancelled after arriving: the orderer hears the 500 دينار credit landed in his wallet', async () => {
+    const h = notifyHarness({ start: AT.toISOString() });
+    await h.register('cust');
+    const reqs = await requestsFor(event('order.driver_cancelled', { tripId: 'trip_1', customerCreditIqd: 500, creditFundedBy: 'driver' }, { orderId: 'ord_1', actorId: 'drv_haider' }), { engine: h.engine, repo: h.repo, lookups: lookupsWith(ride), receiptBaseUrl: '' });
+    expect(reqs.map((r) => ({ template: r.template, to: r.to }))).toEqual([{ template: 'ride_driver_cancelled_credit', to: 'cust' }]);
+    await h.service.dispatch(reqs[0]!);
+    await h.run();
+    const push = (h.push as unknown as Sent).sent[0]!;
+    expect(push.title).toBe('حيدر لغى المشوار');
+    expect(push.body).toBe('دا ندورلك سايق ثاني هسة، ونزّلنالك 500 دينار برصيدك');
+  });
+
   it('the driver who took the ride cancelled: «حيدر لغى المشوار», sent at night too, no credit promised', async () => {
     expect(NOTIFY_EVENT_TYPES).toContain('order.driver_cancelled');
     const h = notifyHarness({ start: AT.toISOString() });
     await h.register('cust');
-    const reqs = await requestsFor(event('order.driver_cancelled', { tripId: 'trip_1', customerCreditIqd: 500 }, { orderId: 'ord_1', actorId: 'drv_haider' }), { engine: h.engine, repo: h.repo, lookups: lookupsWith(ride), receiptBaseUrl: '' });
+    const reqs = await requestsFor(event('order.driver_cancelled', { tripId: 'trip_1', customerCreditIqd: 0 }, { orderId: 'ord_1', actorId: 'drv_haider' }), { engine: h.engine, repo: h.repo, lookups: lookupsWith(ride), receiptBaseUrl: '' });
     expect(reqs.map((r) => ({ template: r.template, to: r.to }))).toEqual([{ template: 'ride_driver_cancelled', to: 'cust' }]);
     await h.service.dispatch(reqs[0]!);
     await h.run();

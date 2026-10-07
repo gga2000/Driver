@@ -6,6 +6,7 @@ import {
   SeatMoneyPayload,
   SubscriptionChargePayload,
   type DepartureCancelledPayload,
+  type DriverCancelledPayload,
   type DomainEventInput,
   type LateMeterPayload,
   type MoneyRules,
@@ -20,6 +21,7 @@ import {
   pointsForRideTake,
   postCancellation,
   postDepartureCancelled,
+  postDriverCancelled,
   postErrand,
   postLateMeter,
   postOrderClosed,
@@ -164,6 +166,11 @@ export class PostingService {
 
   async cancellation(input: DomainEventInput<'order.cancelled'>): Promise<RecordAllResult> {
     return this.record([postCancellation(input)]);
+  }
+
+  /** M-15: the customer's credit when a ride's driver cancelled after reaching the pickup. */
+  async driverCancelled(input: DriverCancelledPayload): Promise<RecordAllResult> {
+    return this.record([postDriverCancelled(input)]);
   }
 
   async departureCancelled(input: DepartureCancelledPayload): Promise<RecordAllResult> {

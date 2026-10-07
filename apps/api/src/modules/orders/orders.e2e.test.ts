@@ -288,7 +288,7 @@ describe('orders × trips — rides', () => {
     await h.trips.cancel(t.id, 'driver', 'd1', 'ما طلع');
     await h.deliver();
     expect((await h.orders.get(o.id)).state).toBe('placed');
-    expect(h.events.last('order.driver_cancelled')!.payload).toMatchObject({ customerCreditIqd: 500, creditFundedBy: 'driver', scoringHit: true });
+    expect(h.events.last('order.driver_cancelled')!.payload).toMatchObject({ orderId: o.id, tripId: t.id, customerId: 'c1', driverId: 'd1', customerCreditIqd: 500, creditFundedBy: 'driver', scoringHit: true });
     expect(h.events.ofType('order.rematch_needed')).toHaveLength(1);
   });
 });

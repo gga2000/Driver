@@ -176,6 +176,7 @@ export const NotifyTemplateId = z.enum([
   'booked_ride_released',
   'booked_ride_searching',
   'ride_driver_cancelled',
+  'ride_driver_cancelled_credit',
   'ride_no_driver',
   'partner_booked_offer',
   'partner_booked_favourite',
@@ -757,6 +758,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // M-15: the same, after he reached the pickup — the orderer also hears the credit in his wallet.
+  ride_driver_cancelled_credit: {
+    id: 'ride_driver_cancelled_credit',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body_credit', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     quietHours: 'send',
   },
