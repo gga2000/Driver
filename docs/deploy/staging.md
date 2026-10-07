@@ -30,7 +30,9 @@ sizes, process groups, limits or checks: a change to `api.toml` reaches both.
    - variables `DEPLOY_ENVIRONMENT` = `staging`, `DATABASE_REF` = the staging project ref,
      `FLY_API_APP` = `driver-api-staging`, `API_PUBLIC_URL` = `https://driver-api-staging.fly.dev/trpc`;
      optional `FLY_REDIS_APP` (default `driver-redis-staging`), `FLY_ORG` (default `personal`),
-     `STAGING_ADMIN_PHONE` (default `07700000099`, a made-up number: codes go to the API log).
+     `STAGING_ADMIN_PHONE` (default `07700000099`, a made-up number: codes go to the API log);
+   - **Deployment branches and tags** → **Selected branches and tags** → `main`, so only reviewed code
+     can reach the staging secrets.
 3. **Actions → Staging setup → Run workflow** (`.github/workflows/staging-setup.yml`). Nobody runs
    `flyctl` or handles a secret: it creates the two Fly apps and Redis's volume, generates the API's
    secrets on the runner and hands them straight to Fly (`JWT_SECRET`, `PHONE_HASH_PEPPER`,

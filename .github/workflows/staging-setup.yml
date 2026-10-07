@@ -40,8 +40,6 @@ jobs:
     timeout-minutes: 30
     env:
       TURBO_TELEMETRY_DISABLED: '1'
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
       DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
       DATABASE_REF: ${{ vars.DATABASE_REF }}
       API_APP: ${{ vars.FLY_API_APP }}
@@ -51,6 +49,9 @@ jobs:
     steps:
       # Same rule as the Deploy workflow's guard: this job may only ever touch the staging twin.
       - name: Staging never reaches production
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: |
           fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
           [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
@@ -64,7 +65,7 @@ jobs:
           [[ "$DIRECT_URL" != *'['* && "$DIRECT_URL" != *']'* ]] || fail "DIRECT_URL still has [ ] around the password: remove the brackets"
 
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
 
       - name: Supabase CA certificate (secret, else the public root CA in deploy/supabase/)
         env:
@@ -75,6 +76,8 @@ jobs:
           { echo 'DATABASE_CA_CERT<<CA_EOF'; echo "$pem"; echo 'CA_EOF'; } >> "$GITHUB_ENV"
 
       - name: Fly apps and Redis volume (created when missing)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           has_app() { flyctl apps list --json | jq -e --arg a "$1" 'any(.[]; (.Name // .name // .ID) == $a)' > /dev/null; }
           for app in "$API_APP" "$REDIS_APP"; do
@@ -90,6 +93,9 @@ jobs:
 
       - name: Secrets on Fly (generated here when missing, never printed)
         id: secrets
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: |
           names() { flyctl secrets list --app "$1" --json | jq -r '(. // [])[] | (.Name // .name)'; }
           api=$(names "$API_APP"); redis=$(names "$REDIS_APP")
@@ -131,6 +137,8 @@ jobs:
           echo "API secrets set: ${set_api[*]%%=*}"
 
       - name: Deploy Redis
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl deploy . --config deploy/fly/redis.toml --app "$REDIS_APP" --dockerfile deploy/fly/redis/Dockerfile --remote-only --ha=false
 
       - uses: actions/setup-node@v4
@@ -138,12 +146,14 @@ jobs:
           node-version-file: .nvmrc
       - run: npm install --global corepack@latest && corepack enable
       - name: Install (db package only)
-        run: pnpm install --frozen-lockfile --filter=driver --filter=@driver/db...
+        # No install scripts: Prisma fetches its migration engine when first used.
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter=driver --filter=@driver/db...
       - name: Build @driver/db
         run: pnpm turbo run build --filter=@driver/db
 
       - name: Database (migrate, harden, production seed, verify)
         env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           NEW_PEPPER: ${{ steps.secrets.outputs.new_pepper }}
         run: |
           export DATABASE_URL="${DIRECT_URL/:5432\//:6543/}"
@@ -153,6 +163,8 @@ jobs:
 
       - name: Pepper on Fly (only after the seed used it)
         if: steps.secrets.outputs.new_pepper == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl secrets set --app "$API_APP" --stage "PHONE_HASH_PEPPER=$PHONE_HASH_PEPPER" > /dev/null && echo "pepper set"
 
       - name: Summary
