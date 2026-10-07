@@ -43,6 +43,8 @@ export { Badge, type BadgeProps } from './components/Badge';
 export { StatusPill, STATUS_TONES, type StatusPillProps, type StatusTone } from './components/StatusPill';
 export { Timeline, stepStates, type TimelineProps, type TimelineStep, type StepState } from './components/Timeline';
 export { SeatMap, SeatLegend, type SeatMapProps } from './components/SeatMap';
+export { CarSeatArt, type CarSeatArtProps } from './components/CarSeatArt';
+export { MeterBar, StatStrip, type MeterBarProps, type StatStripItem } from './components/StatStrip';
 export { CountdownRing, type CountdownRingProps } from './components/CountdownRing';
 export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { Skeleton, type SkeletonProps } from './components/Skeleton';
