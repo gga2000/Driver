@@ -236,7 +236,7 @@ export function ControlsBoard({
               ? on
                   .map((s) => s.label_ar)
                   .slice(0, 3)
-                  .join('، ')
+                  .join(t('console.list_sep'))
               : t('console.ctl_all_running')
           }
         />
@@ -248,7 +248,7 @@ export function ControlsBoard({
             full
               .map((z) => z.name_ar)
               .slice(0, 3)
-              .join('، ') || t('console.ctl_no_pressure')
+              .join(t('console.list_sep')) || t('console.ctl_no_pressure')
           }
         />
         <Stat
@@ -430,7 +430,7 @@ function RestoredLine({ restored }: { restored: KillSwitchView[] }) {
       {t('console.ctl_recent_restored')}:{' '}
       {restored.map((s, i) => (
         <span key={s.id}>
-          {i > 0 ? '، ' : ''}
+          {i > 0 ? t('console.list_sep') : ''}
           {s.label_ar} <span className="num">{formatClock(s.setAt)}</span>
         </span>
       ))}
@@ -1207,7 +1207,7 @@ function BannerCard({ banners, canBanner }: { banners: SystemBannerView[]; canBa
   const who =
     audiences.length === 3
       ? t('console.banner_to_all')
-      : audiences.map((a) => t(`console.banner_to_${a}` as MessageKey)).join(' و');
+      : audiences.map((a) => t(`console.banner_to_${a}` as MessageKey)).join(t('console.list_and'));
   const live = banners.filter((b) => b.active);
   const past = banners.filter((b) => !b.active).slice(0, 3);
   return (
@@ -1232,7 +1232,7 @@ function BannerCard({ banners, canBanner }: { banners: SystemBannerView[]; canBa
                   <span className="min-w-0">{b.message_ar}</span>
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  {b.audiences.map((a) => t(`console.banner_app_${a}` as MessageKey)).join('، ')} ·{' '}
+                  {b.audiences.map((a) => t(`console.banner_app_${a}` as MessageKey)).join(t('console.list_sep'))} ·{' '}
                   {t('console.ctl_until', { time: formatClock(b.expiresAt) })} ·{' '}
                   {b.setByName ?? t('console.someone')}
                 </p>

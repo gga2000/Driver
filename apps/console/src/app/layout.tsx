@@ -8,6 +8,7 @@ import '@fontsource/ibm-plex-sans-arabic/400.css';
 import '@fontsource/ibm-plex-sans-arabic/500.css';
 import '@fontsource/ibm-plex-sans-arabic/600.css';
 import '@fontsource/ibm-plex-sans-arabic/700.css';
+import { consoleDir, consoleLang } from '@/lib/locale';
 import { Providers } from '@/lib/providers';
 import { PREPAINT_SCRIPT } from '@/lib/prefs-keys';
 import { CrashReporting } from '@/components/crash-panel';
@@ -17,7 +18,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: `${t('app.console')} · Driver Console`,
-  description: 'لوحة التحكم — الإرسال والدعم والمالية',
+  description: t('console.meta_description'),
 };
 
 export const viewport: Viewport = {
@@ -33,8 +34,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html
-      lang="ar-IQ"
-      dir="rtl"
+      lang={consoleLang()}
+      dir={consoleDir()}
       data-theme="light"
       data-density="comfortable"
       suppressHydrationWarning

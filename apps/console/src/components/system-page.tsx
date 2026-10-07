@@ -235,7 +235,7 @@ function SimulatorCard() {
                   <Chip tone={s.lastReport.ok ? 'done' : 'bad'}>
                     {s.lastReport.ok
                       ? t('console.simulator_report_ok', { delivered: s.lastReport.delivered, orders: s.lastReport.orders })
-                      : t('console.simulator_report_failed', { count: s.lastReport.violations.length, names: s.lastReport.violations.map((v) => v.invariant).join('، ') })}
+                      : t('console.simulator_report_failed', { count: s.lastReport.violations.length, names: s.lastReport.violations.map((v) => v.invariant).join(t('console.list_sep')) })}
                   </Chip>
                 }
               />

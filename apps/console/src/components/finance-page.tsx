@@ -132,7 +132,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
           label={t('console.fin_over_cap')}
           value={t('console.fin_over_cap_value', { n: desk.totals.couriersOverCap })}
           tone={desk.totals.couriersOverCap ? 'bad' : 'default'}
-          hint={overCap.length ? overCap.map((c) => c.name ?? '—').slice(0, 3).join('، ') : t('console.fin_over_cap_none')}
+          hint={overCap.length ? overCap.map((c) => c.name ?? '—').slice(0, 3).join(t('console.list_sep')) : t('console.fin_over_cap_none')}
         />
         <Stat label={t('console.fin_merchants_payable')} value={formatMoney(desk.totals.merchantsPayableIqd)} hint={t('console.fin_merchants_n', { n: desk.merchants.filter((m) => m.payableIqd !== 0).length })} />
         <Stat label={t('console.fin_collected_today')} value={formatMoney(desk.totals.collectedTodayIqd)} hint={t('console.fin_handovers_n', { n: desk.handovers.length })} />

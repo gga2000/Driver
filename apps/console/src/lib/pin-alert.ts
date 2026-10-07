@@ -13,7 +13,7 @@ import { ageText } from './safety';
 
 /** "قدام" / "ورا يسار، ورا نص" — a booking can hold several seats. */
 export function seatsText(seats: readonly IntercitySeatId[]): string {
-  return seats.map((s) => t(`seat.${s}`)).join('، ');
+  return seats.map((s) => t(`seat.${s}`)).join(t('console.list_sep'));
 }
 
 export function pinDriverName(a: Pick<PinAlertView, 'driver'>): string {
