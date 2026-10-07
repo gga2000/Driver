@@ -3,7 +3,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/dev/cloud-setup.sh", "timeout": 600 }
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/dev/cloud-setup.sh", "timeout": 600 },
+          { "type": "command", "command": "command -v git >/dev/null 2>&1 && cd \"$CLAUDE_PROJECT_DIR\" && git rev-parse --git-dir >/dev/null 2>&1 && git config merge.i18n-json.name 'Driver locale JSON merge (scripts/i18n-merge.mjs)' && git config merge.i18n-json.driver 'node scripts/i18n-merge.mjs %O %A %B'; exit 0", "timeout": 30 }
         ]
       }
     ]
