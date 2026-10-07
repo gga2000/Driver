@@ -106,7 +106,7 @@ Ali decided taxis open from day one, so these rows join G0-closed. Lane work for
 
 Each is Ali's own action or involves money, so no thread does it for him. Recommended answers first.
 
-1. **Accounts and numbers (this week).** Open Fly.io and Supabase Pro (Frankfurt) by **Wed 14 Oct**
+1. **Accounts and numbers.** *Ali postponed the lawyer, company registration, D-U-N-S, the Play accounts, the test phones and branch protection on 2026-10-07; they are listed in `before-launch.md` §7 with the latest safe dates, because each still moves D-day if it slips.* Open Fly.io and Supabase Pro (Frankfurt) by **Wed 14 Oct**
    so staging can be built; then Cloudflare, the EAS plan (D-11) and the domain (D-18) by Wed 28 Oct.
    Get a **dedicated SIM for the WhatsApp support number** (not your own phone) and ask two Iraqi SMS
    gateways for a quote. File the **company registration this week**: WhatsApp Business verification,
@@ -192,5 +192,6 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 - 2026-10-07: first draft, after Ali approved the launch plan and D-22.
 - 2026-10-07: Ali chose "chat first" for calls (G0-10).
 - 2026-10-07: dress rehearsal script and courier briefing written.
+- 2026-10-07: Ali postponed his own tasks and the money questions M-1 … M-14 ("to do later"); listed in `before-launch.md` §7.
 - 2026-10-07: Ali opened taxis and tuktuks on day one; added G0-21 … G0-25.
 - 2026-10-07: price sheet ready for Ali (G0-7), with the parked ride and seat prices.
