@@ -4,6 +4,8 @@
  * itself or carry this request's nonce (Next.js stamps its own inline scripts with it; the root
  * layout stamps the pre-paint script). Pure so it can be tested; `src/middleware.ts` sends it.
  */
+import { RTL_TEXT_PLUGIN_URL } from '@driver/map';
+
 export interface CspOptions {
   nonce: string;
   /** The API's tRPC URL (`NEXT_PUBLIC_API_URL`): calls and the live stream go there. */
@@ -12,8 +14,12 @@ export interface CspOptions {
   dev: boolean;
 }
 
-/** Map extras (packages/map/src/style.ts): the RTL text plugin is a script on unpkg. */
-const MAP_SCRIPT_HOSTS = ['https://unpkg.com'];
+/**
+ * The one outside script the map loads: the RTL text plugin (packages/map/src/style.ts). Pinned to
+ * that exact file, never the whole host: unpkg serves every npm package, so allowing the host would
+ * let injected markup load anyone's script and defeat the nonce.
+ */
+const MAP_SCRIPTS = [RTL_TEXT_PLUGIN_URL];
 
 export function buildCsp({ nonce, apiUrl, dev }: CspOptions): string {
   let api = "'self'";
@@ -24,7 +30,7 @@ export function buildCsp({ nonce, apiUrl, dev }: CspOptions): string {
   }
   const directives: Record<string, string[]> = {
     'default-src': ["'self'"],
-    'script-src': ["'self'", `'nonce-${nonce}'`, ...MAP_SCRIPT_HOSTS, ...(dev ? ["'unsafe-eval'"] : [])],
+    'script-src': ["'self'", `'nonce-${nonce}'`, ...MAP_SCRIPTS, ...(dev ? ["'unsafe-eval'"] : [])],
     // React and the map set style attributes; styles can't run code.
     'style-src': ["'self'", "'unsafe-inline'"],
     // Map tiles, glyphs and styles come from map hosts that change as the map work lands, and
