@@ -6679,5 +6679,9 @@
   "restaurant.after_meal": "وياها {dish}؟",
   "restaurant.after_meal_a11y": "ضيف {dish} {amount} دينار",
   "restaurant.top_drinks": "الأكثر طلباً",
-  "item.remembered": "مثل آخر مرة"
+  "item.remembered": "مثل آخر مرة",
+  "list.view_label": "شلون تشوف المحلات",
+  "list.view_street": "السوق",
+  "list.view_list": "قائمة",
+  "list.street_sign": "سوق العزيزية"
 }

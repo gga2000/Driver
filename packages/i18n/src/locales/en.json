@@ -6679,5 +6679,9 @@
   "restaurant.after_meal": "{dish} with it?",
   "restaurant.after_meal_a11y": "Add {dish}, {amount} IQD",
   "restaurant.top_drinks": "Most ordered",
-  "item.remembered": "Like last time"
+  "item.remembered": "Like last time",
+  "list.view_label": "How to see the shops",
+  "list.view_street": "Market",
+  "list.view_list": "List",
+  "list.street_sign": "Aziziyah market"
 }
