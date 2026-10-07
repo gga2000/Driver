@@ -2,11 +2,12 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { DriverError, type Actor, type Trip } from '@driver/contracts';
+import { AnnounceInput, DriverError, HoldSeatInput, type Actor, type Trip } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersRpc, OrdersService, OrdersStaffService } from './modules/orders/index.js';
+import { DeparturesService, RoutesRpc } from './modules/routes/index.js';
 import { TripsService } from './modules/trips/index.js';
 import { CLOCK, FakeClock } from './shared/clock.js';
 import { PrismaService } from './shared/db/prisma.service.js';
@@ -14,7 +15,7 @@ import { PrismaService } from './shared/db/prisma.service.js';
 /**
  * W3 staff way-outs on a real Postgres (migrated + seeded), every money switch on through the env the
  * app reads at boot: a staff cancel, the open-cash cap, a complaint resolved with a partial refund and
- * a courier who vanished with the food. Each mutation leaves its `console_audit_log` row, its outbox
+ * a courier who vanished with the food, and a الرجعة departure whose driver never came. Each mutation leaves its `console_audit_log` row, its outbox
  * event and (where money moves) its ledger group. Skipped without DATABASE_URL.
  */
 const url = process.env['DATABASE_URL'];
@@ -176,5 +177,30 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     expect(await outboxTypes(order.id)).toEqual(expect.arrayContaining(['order.disputed', 'order.courier_lost']));
     // The stuck list no longer shows it.
     expect((await app.get(OrdersStaffService).stuck({ cityId: 'aziziyah', limit: 500 })).some((s) => s.orderId === order.id)).toBe(false);
+  }, 60_000);
+
+  it('NTF-14: a staff cancel of a departure moves nobody into a fee, leaves its audit row and the ledger-facing event', async () => {
+    const departures = app.get(DeparturesService);
+    const routes = app.get(RoutesRpc);
+    const at = (min: number) => new Date(clock.now().getTime() + min * 60_000);
+    const driver = people.courier;
+    const dep = await departures.announce(
+      driver,
+      AnnounceInput.parse({ garageId: 'mp_garage_bab1', corridorId: 'aziziyah_baghdad', departAt: at(120), latestDepartureAt: at(150), vehicle: { kind: 'saloon', layout: 4, plate: `واسط ${run}` } }),
+    );
+    const held = await departures.hold(people.customer, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['front'] }, travellingAs: 'rijal' }));
+    await departures.book(people.customer, held.id, 'cash');
+    expect(await routes.overdueDepartures(as(people.ops), { limit: 200 })).toEqual(expect.any(Array));
+
+    const r = await routes.opsCancelDeparture(as(people.ops), { departureId: dep.id, reason: 'السايق ما يرد' });
+    expect(r).toMatchObject({ departureId: dep.id, state: 'cancelled_by_driver', changed: true });
+    expect((await db.departure.findUnique({ where: { id: dep.id } }))?.state).toBe('cancelled_by_driver');
+    const rows = await db.consoleAuditLog.findMany({ where: { subjectKind: 'departure', subjectId: dep.id } });
+    expect(rows.map((x) => [x.action, x.actorId])).toEqual([['departure.ops_cancel', people.ops]]);
+    const types = (await db.event.findMany({ where: { aggregate: 'departure', aggregateId: dep.id }, select: { type: true, payload: true } }));
+    expect(types.find((e) => e.type === 'departure.cancelled')?.payload).toMatchObject({ cancelledBy: 'driver', feeIqd: 0 });
+    expect(types.map((e) => e.type)).toContain('departure.ops_cancelled');
+    expect(await routes.opsCancelDeparture(as(people.ops), { departureId: dep.id, reason: 'مرة ثانية' })).toMatchObject({ changed: false });
+    expect(await db.consoleAuditLog.count({ where: { subjectKind: 'departure', subjectId: dep.id } })).toBe(1);
   }, 60_000);
 });
