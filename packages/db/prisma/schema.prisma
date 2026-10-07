@@ -1195,6 +1195,7 @@ model Participant {
   seats         Seat[]
 
   @@index([orderId])
+  @@index([personId])
   @@index([phoneHash])
   @@map("participants")
   @@schema("public")
