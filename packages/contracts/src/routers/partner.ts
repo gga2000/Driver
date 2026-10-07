@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AnswerClimateCheckInput } from '../climate-check.js';
 import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerDemandMap, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
@@ -22,6 +23,11 @@ export const partnerRouter = router({
     .input(z.object({}).optional())
     .output(PartnerStatus)
     .mutation(({ ctx }) => ctx.partner.goOffline(ctx.actor)),
+  /** «المكيّفة شغالة اليوم؟» (ride idea x1): his answer for this shift; only ride drivers are asked. */
+  answerClimateCheck: protectedProcedure(['driver'])
+    .input(AnswerClimateCheckInput)
+    .output(PartnerStatus)
+    .mutation(({ ctx, input }) => ctx.partner.answerClimateCheck(ctx.actor, input)),
   /** The open offer for this driver (pay components, ring deadline, batch), or null. */
   currentOffer: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerOffer.nullable())

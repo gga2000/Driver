@@ -7,11 +7,13 @@ import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { useChatActions, useChatThread } from './queries';
+import { useChatVoice } from './useChatVoice';
 import { useMaskedCall } from './useMaskedCall';
 
 /**
  * One conversation of a job, for the courier / driver (partner spec "quick contact"): the shared
- * `ChatThread` from @driver/ui wired to this app's API, camera and location.
+ * `ChatThread` from @driver/ui wired to this app's API, camera and location, and voice notes with the
+ * customer (ride ideas n7/n8; not in the kitchen's thread).
  */
 export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; kind: ChatThreadKind; orderNumber?: string }) {
   const t = useT();
@@ -20,6 +22,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const thread = useChatThread(orderId, kind);
   const actions = useChatActions(orderId, kind);
   const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
+  const voice = useChatVoice(orderId, kind);
   return (
     <ChatThread
       orderId={orderId}
@@ -43,6 +46,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         const uploadId = await uploadPhoto(picked, (input) => client.places.photoUpload.mutate(input));
         return { uploadId, localUri: picked.uri };
       }}
+      voice={voice}
       currentLocation={async () => {
         const fix = await currentFix();
         return fix ? { lat: fix.lat, lng: fix.lng } : null;

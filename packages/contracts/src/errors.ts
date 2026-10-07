@@ -64,6 +64,9 @@ export const ERROR_TABLE = {
   khat_not_child_stop: { retryHint: 'never', status: 'BAD_REQUEST' },
   khat_child_not_on_trip: { retryHint: 'never', status: 'NOT_FOUND' },
   khat_child_not_tapped_in: { retryHint: 'never', status: 'CONFLICT' },
+  // s1 «رمز المشوار»: a night ride starts only with the 4 digits the rider reads out
+  start_code_required: { retryHint: 'never', status: 'BAD_REQUEST' },
+  start_code_wrong: { retryHint: 'now', status: 'BAD_REQUEST' },
   khat_child_absent: { retryHint: 'never', status: 'CONFLICT' },
   // khat.confirmEmptyCar before every child stop is settled (partner S-6 sweep)
   khat_run_not_finished: { retryHint: 'never', status: 'CONFLICT' },
@@ -71,6 +74,8 @@ export const ERROR_TABLE = {
   fleet_ambiguous: { retryHint: 'never', status: 'BAD_REQUEST' },
   vehicle_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   vehicle_plate_taken: { retryHint: 'never', status: 'CONFLICT' },
+  // fleet.setMyVehicleFeatures: a feature his kind of vehicle cannot offer (AC on a tuktuk), `CLASS_FEATURES`
+  vehicle_feature_not_offered: { retryHint: 'never', status: 'BAD_REQUEST' },
   driver_not_in_fleet: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_code_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   handover_code_locked: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
@@ -115,6 +120,9 @@ export const ERROR_TABLE = {
   refund_customer_cap: { retryHint: 'support', status: 'CONFLICT' },
   refund_exceeds_order: { retryHint: 'never', status: 'BAD_REQUEST' },
   refund_no_customer: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
+  phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -211,12 +219,22 @@ export const ERROR_TABLE = {
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
+  ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
+  ride_rider_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   favourite_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   favourite_needs_good_rating: { retryHint: 'never', status: 'CONFLICT' },
   favourite_limit: { retryHint: 'never', status: 'CONFLICT' },
   regular_trip_limit: { retryHint: 'never', status: 'CONFLICT' },
   occurrence_closed: { retryHint: 'never', status: 'CONFLICT' },
   dinner_not_available: { retryHint: 'never', status: 'CONFLICT' },
+  // Ride step 3: the offered drivers and «نبّهه» only while the ride searches; one nudge per driver; avoid list.
+  ride_not_searching: { retryHint: 'never', status: 'CONFLICT' },
+  nudge_offer_closed: { retryHint: 'never', status: 'CONFLICT' },
+  nudge_already: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
+  // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
+  climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
+  avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },
@@ -232,7 +250,11 @@ export const ERROR_TABLE = {
   chat_not_party: { retryHint: 'never', status: 'FORBIDDEN' },
   chat_not_open: { retryHint: 'later', status: 'CONFLICT' },
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
+  // s7 «نسيت غرض»: only a completed ride, only within 24 h of its end
+  chat_lost_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  /** Voice notes are for the customer ↔ courier / driver chat and the support chat only (`VOICE_THREAD_KINDS`). */
+  chat_voice_unavailable: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «كلّم الدعم»: a customer opens at most CHAT_SUPPORT_OPENS_PER_DAY new support chats a day.
   chat_support_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },

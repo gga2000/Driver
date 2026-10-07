@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { t } from '@driver/i18n';
 import {
   CHAT_CLOSE_AFTER_MIN,
+  CHAT_LOST_ITEM_H,
   CHAT_SUPPORT_CLOSE_AFTER_H,
   CHAT_SUPPORT_OPENS_PER_DAY,
   CHAT_THREAD_PARTIES,
@@ -9,9 +11,13 @@ import {
   DriverError,
   quickRepliesFor,
   quickReplyText,
+  voiceAllowedIn,
   type Actor,
   type CallSession,
   type ChatMarkReadInput,
+  type ChatLostItemInput,
+  type ChatLostItemResult,
+  type ChatLostItemThread,
   type ChatMarkReadOutput,
   type ChatMessage,
   type ChatParticipant,
@@ -25,18 +31,20 @@ import {
   type ChatThreadStatus,
   type ChatThreadSummary,
   type ChatThreadView,
+  type ChatVoiceUploadInput,
   type Order,
   type OrderState,
   type RoleKind,
   type Trip,
   type TripState,
+  type VoiceUploadTicket,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { CALL_BRIDGE, type CallBridgePort } from './call-bridge.js';
-import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord } from './chat.repository.js';
+import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord, type ChatVoiceThread } from './chat.repository.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { maskIraqiPhones } from './mask.js';
 import { SharedSlidingWindowLimiter } from './rate-limit.js';
@@ -46,6 +54,8 @@ import { SharedSlidingWindowLimiter } from './rate-limit.js';
 /** The slices of orders / trips / identity / orgs the chat reads (it owns only its own tables). */
 export interface ChatOrdersPort {
   get(orderId: string): Promise<Order>;
+  /** Ride ideas c9/s3: the rider of a ride booked for someone else and the name the booker gave them (logged read). */
+  riderOf?(orderId: string, accessorId: string, purpose: string): Promise<{ personId: string; name: string } | null>;
 }
 export interface ChatTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -85,9 +95,15 @@ interface OrderContext {
   order: Order;
   ride: boolean;
   customerIds: ReadonlySet<string>;
+  /** c9/s3: on a ride booked for someone else, the rider (the person the driver picks up). */
+  riderId: string | null;
   courierId: string | null;
   courierAcceptedAt: Date | null;
   doneAt: Date | null;
+  /** A ride whose trip completed: when (s7 «نسيت غرض» counts from it); null otherwise. */
+  rideCompletedAt: Date | null;
+  /** s7: the driver chat reopened for a lost item until then; null when never reopened. */
+  lostItemUntil: Date | null;
 }
 
 const NAME_CACHE_MAX = 2000;
@@ -200,7 +216,7 @@ export class ChatService implements ChatPort {
       orderId: ctx.order.id,
       kind: input.kind,
       status,
-      closesAt: ctx.doneAt ? closesAt(ctx.doneAt, input.kind) : null,
+      closesAt: this.closesAt(ctx, input.kind),
       myRole: role,
       ride: ctx.ride,
       participants: await this.participants(actor.personId, ctx, input.kind, role),
@@ -222,6 +238,19 @@ export class ChatService implements ChatPort {
     return this.sendAs(actor.personId, ctx, role, input);
   }
 
+  /**
+   * A signed upload for a voice note (ride ideas n7/n8), in the customer ↔ courier and support chats:
+   * only for someone who may write in the thread right now, so nobody fills storage through a closed or foreign chat. The bytes are checked on
+   * arrival (an audio container of the declared type, at most `VOICE_RULES.maxBytes`).
+   */
+  async voiceUpload(actor: Actor, input: ChatVoiceUploadInput): Promise<VoiceUploadTicket> {
+    if (!voiceAllowedIn(input.kind)) throw new DriverError('chat_voice_unavailable');
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    if (!(input.kind === 'customer_support' && role === 'support')) this.assertOpen(this.status(ctx, input.kind, this.clock.now()));
+    return this.blobs.createUpload({ ownerId: actor.personId, contentType: input.contentType, sizeBytes: input.sizeBytes });
+  }
+
   private async sendAs(personId: string, ctx: OrderContext, role: ChatRole, input: ChatSendInput): Promise<ChatMessage> {
     const actor = { personId };
     const now = this.clock.now();
@@ -236,6 +265,7 @@ export class ChatService implements ChatPort {
     let masked = false;
     let kind: ChatMessage['kind'];
     let photoRef: string | null = null;
+    let voiceRef: string | null = null;
     if (input.text !== undefined) {
       const m = maskIraqiPhones(input.text.trim());
       body = m.text;
@@ -250,6 +280,12 @@ export class ChatService implements ChatPort {
       if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored') throw new DriverError('upload_invalid');
       photoRef = blob.id;
       kind = 'photo';
+    } else if (input.voiceUploadId !== undefined) {
+      if (!voiceAllowedIn(input.kind)) throw new DriverError('chat_voice_unavailable');
+      const blob = await this.blobs.getVoice(input.voiceUploadId);
+      if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored') throw new DriverError('upload_invalid');
+      voiceRef = blob.id;
+      kind = 'voice';
     } else {
       kind = 'location';
     }
@@ -266,6 +302,8 @@ export class ChatService implements ChatPort {
           body,
           quickReplyKey: input.quickReplyKey ?? null,
           photoRef,
+          voiceRef,
+          durationSec: voiceRef ? (input.durationSec ?? null) : null,
           lat: input.location?.lat ?? null,
           lng: input.location?.lng ?? null,
           masked,
@@ -343,6 +381,104 @@ export class ChatService implements ChatPort {
     }
   }
 
+  // ───────────────────────── retention ─────────────────────────
+
+  /**
+   * Voice notes go with the chat (ride ideas n7/n8): every file of a thread that is closed now is
+   * deleted and its message keeps only its length (the bubble says the note is gone). Threads are
+   * walked in id order, `batch` at a time, so open ones never block the rest. Returns the files deleted.
+   */
+  async purgeClosedVoice(batch: number): Promise<number> {
+    const now = this.clock.now();
+    let deleted = 0;
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.repo.threadsWithVoice({ ...(after !== undefined ? { afterThreadId: after } : {}), limit: batch });
+      for (const t of page) deleted += await this.purgeVoiceIfClosed(t, now);
+      if (page.length < batch) return deleted;
+      after = page[page.length - 1]!.threadId;
+    }
+  }
+
+  private async purgeVoiceIfClosed(t: ChatVoiceThread, now: Date): Promise<number> {
+    let ctx: OrderContext;
+    try {
+      ctx = await this.context(t.orderId);
+    } catch (err) {
+      // An order that cannot be read is skipped this round, never purged on a guess.
+      this.logger.warn(`voice retention: order ${t.orderId} unreadable: ${(err as Error).message}`);
+      return 0;
+    }
+    if (this.status(ctx, t.kind, now) !== 'closed') return 0;
+    for (const v of t.voices) {
+      await this.blobs.remove(v.voiceRef);
+      await this.repo.clearVoice(v.messageId);
+    }
+    return t.voices.length;
+  }
+
+  // ───────────────────────── «نسيت غرض» (s7) ─────────────────────────
+
+  /**
+   * s7 «نسيت غرض»: within `CHAT_LOST_ITEM_H` of a completed ride, its orderer or rider reopens the chat
+   * with the driver until the ride's end + `CHAT_LOST_ITEM_H`, and the thread gets one line the server
+   * writes («الراكب يدور على غرض نساه») — which also pushes the driver. Asking again is safe: the window
+   * stays the same and the line is written once.
+   */
+  async lostItem(actor: Actor, input: ChatLostItemInput): Promise<ChatLostItemResult> {
+    const ctx = await this.context(input.orderId);
+    if (!ctx.customerIds.has(actor.personId)) throw new DriverError('chat_not_party');
+    const now = this.clock.now();
+    const until = ctx.rideCompletedAt ? new Date(ctx.rideCompletedAt.getTime() + CHAT_LOST_ITEM_H * 3_600_000) : null;
+    if (!ctx.ride || !until || !ctx.courierId || now.getTime() >= until.getTime()) throw new DriverError('chat_lost_item_unavailable');
+    await this.sendLimiter.hit(actor.personId);
+    const kind: ChatThreadKind = 'customer_courier';
+    const recipients = await this.recipients(ctx, kind, 'customer', actor.personId);
+    const body = t('chat.lost_item_line', {}, 'ar-IQ');
+    const thread = await this.uow.run(async (tx) => {
+      const opened = await this.repo.reopenForLostItem((await this.repo.ensureThread(ctx.order.id, kind, now, tx)).id, until, now, tx);
+      const { message, inserted } = await this.repo.append(
+        opened.id,
+        { senderId: actor.personId, senderRole: 'customer', kind: 'system', body, quickReplyKey: null, photoRef: null, voiceRef: null, durationSec: null, lat: null, lng: null, masked: false, clientId: LOST_ITEM_CLIENT_ID, createdAt: now },
+        tx,
+      );
+      if (inserted) {
+        await this.repo.markRead(opened.id, readerKey('customer', actor.personId, kind), message.seq, tx);
+        const payload = ChatMessageSentPayload.parse({
+          threadId: opened.id,
+          orderId: ctx.order.id,
+          kind,
+          messageId: message.id,
+          seq: message.seq,
+          senderRole: 'customer',
+          messageKind: 'system',
+          ride: true,
+          recipientIds: recipients,
+          preview: body.slice(0, 80),
+        });
+        await this.events.emit(
+          tx,
+          { type: 'chat.message_sent', actorId: actor.personId, occurredAt: now, orderId: ctx.order.id, payload, idempotencyKey: `chat:${opened.id}:${actor.personId}:${LOST_ITEM_CLIENT_ID}` },
+          { name: 'chat_thread', id: opened.id },
+        );
+      }
+      return opened;
+    });
+    return { threadId: thread.id, openUntil: until };
+  }
+
+  /** s7: the driver's reopened «نسيت غرض» chats still open, newest ask first (the partner app's list). */
+  async lostItems(actor: Actor): Promise<ChatLostItemThread[]> {
+    const out: ChatLostItemThread[] = [];
+    for (const thread of await this.repo.lostItemThreadsOpen(this.clock.now())) {
+      if (thread.kind !== 'customer_courier' || !thread.lostItemUntil) continue;
+      const ctx = await this.context(thread.orderId).catch(() => null);
+      if (!ctx || ctx.courierId !== actor.personId) continue;
+      out.push({ orderId: thread.orderId, threadId: thread.id, openUntil: thread.lostItemUntil, askedAt: thread.lostItemAskedAt ?? thread.createdAt, unread: await this.unreadOf(thread, 'courier', actor.personId) });
+    }
+    return out.sort((a, b) => b.askedAt.getTime() - a.askedAt.getTime());
+  }
+
   // ───────────────────────── rules ─────────────────────────
 
   private async context(orderId: string): Promise<OrderContext> {
@@ -360,14 +496,27 @@ export class ChatService implements ChatPort {
     } else if (trip?.state === 'completed' && trip.completedAt) {
       doneAt = trip.completedAt;
     }
+    const ride = order.type === 'ride';
+    const lostItem = ride ? await this.repo.findThread(orderId, 'customer_courier') : null;
+    const riderId = order.type === 'ride' ? (order.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null) : null;
     return {
       order,
-      ride: order.type === 'ride',
+      ride,
       customerIds,
+      riderId,
       courierId: courierOn ? trip!.courierId : null,
       courierAcceptedAt: courierOn ? trip!.acceptedAt : null,
       doneAt,
+      rideCompletedAt: ride && trip?.state === 'completed' ? trip.completedAt : null,
+      lostItemUntil: lostItem?.lostItemUntil ?? null,
     };
+  }
+
+  /** When a thread closes: completion + 30 min (support: + 24 h), or later while a lost item reopened it (s7). */
+  private closesAt(ctx: OrderContext, kind: ChatThreadKind): Date | null {
+    if (!ctx.doneAt) return null;
+    const usual = closesAt(ctx.doneAt, kind);
+    return kind === 'customer_courier' && ctx.lostItemUntil && ctx.lostItemUntil.getTime() > usual.getTime() ? ctx.lostItemUntil : usual;
   }
 
   private applicableKinds(ctx: OrderContext): ChatThreadKind[] {
@@ -376,7 +525,8 @@ export class ChatService implements ChatPort {
   }
 
   private status(ctx: OrderContext, kind: ChatThreadKind, now: Date): ChatThreadStatus {
-    if (ctx.doneAt && now.getTime() >= closesAt(ctx.doneAt, kind).getTime()) return 'closed';
+    const closes = this.closesAt(ctx, kind);
+    if (closes && now.getTime() >= closes.getTime()) return 'closed';
     // «كلّم الدعم» works from the moment the order is placed.
     if (kind === 'customer_support') return 'open';
     const opened = kind === 'customer_merchant' ? (ctx.order.merchantOrgId ? ctx.order.acceptedAt : null) : ctx.courierAcceptedAt;
@@ -455,6 +605,8 @@ export class ChatService implements ChatPort {
       text: m.body,
       quickReplyKey: (m.quickReplyKey as ChatMessage['quickReplyKey']) ?? null,
       photoUrl: m.photoRef ? this.blobs.readUrl(m.photoRef) : null,
+      audioUrl: m.voiceRef ? this.blobs.readUrl(m.voiceRef) : null,
+      durationSec: m.kind === 'voice' ? m.durationSec : null,
       location: m.lat !== null && m.lng !== null ? { lat: m.lat, lng: m.lng } : null,
       masked: m.masked,
       createdAt: m.createdAt,
@@ -469,12 +621,17 @@ export class ChatService implements ChatPort {
     const out: ChatParticipant[] = [];
     for (const r of CHAT_THREAD_PARTIES[kind]) {
       let name: string | null = null;
-      if (r === 'customer') name = names[ctx.order.ordererId] ?? null;
+      if (r === 'customer') name = ctx.riderId ? await this.riderName(ctx, readerId) : (names[ctx.order.ordererId] ?? null);
       else if (r === 'courier') name = ctx.courierId ? (names[ctx.courierId] ?? null) : null;
       else if (r === 'merchant' && ctx.order.merchantOrgId) name = await this.stores.storeName(ctx.order.merchantOrgId);
       out.push({ role: r, name, you: r === myRole });
     }
     return out;
+  }
+
+  /** c9/s3: on a ride for someone else the customer side is the rider, by the name the booker gave them. */
+  private async riderName(ctx: OrderContext, readerId: string): Promise<string | null> {
+    return (await this.orders.riderOf?.(ctx.order.id, readerId, 'chat_thread'))?.name ?? null;
   }
 
   private async firstNames(orderId: string, readerId: string, personIds: string[]): Promise<Record<string, string | null>> {
@@ -492,8 +649,11 @@ export class ChatService implements ChatPort {
     const roles = senderRole === 'support' ? [...CHAT_THREAD_PARTIES[kind]] : [counterpartOf(kind, senderRole)];
     const out = new Set<string>();
     for (const r of roles) {
-      if (r === 'customer') out.add(ctx.order.ordererId);
-      else if (r === 'courier' && ctx.courierId) out.add(ctx.courierId);
+      if (r === 'customer') {
+        out.add(ctx.order.ordererId);
+        // c9/s3: the rider is at the pickup, so the driver's messages reach them too (the booker follows).
+        if (ctx.riderId && kind === 'customer_courier') out.add(ctx.riderId);
+      } else if (r === 'courier' && ctx.courierId) out.add(ctx.courierId);
       else if (r === 'merchant' && ctx.order.merchantOrgId) {
         for (const h of await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)) if (!h.frozen) out.add(h.personId);
       }
@@ -502,10 +662,13 @@ export class ChatService implements ChatPort {
     return [...out];
   }
 
-  /** The person a masked call rings: the courier, the orderer, or the kitchen's owner. */
+  /**
+   * The person a masked call rings: the courier, the orderer (the rider on a ride booked for someone
+   * else, c9 — «اتصل بالراكب»), or the kitchen's owner.
+   */
   private async calleeOf(ctx: OrderContext, role: ChatRole): Promise<string | null> {
     if (role === 'courier') return ctx.courierId;
-    if (role === 'customer') return ctx.order.ordererId;
+    if (role === 'customer') return ctx.riderId ?? ctx.order.ordererId;
     if (role === 'merchant' && ctx.order.merchantOrgId) {
       const holders = (await this.identity.orgRoleHolders(ctx.order.merchantOrgId, MERCHANT_ROLES)).filter((h) => !h.frozen);
       return (holders.find((h) => h.kind === 'merchant_owner') ?? holders[0])?.personId ?? null;
@@ -515,6 +678,9 @@ export class ChatService implements ChatPort {
 }
 
 // ───────────────────────── helpers ─────────────────────────
+
+/** The client id of the one «نسيت غرض» line per asker (a repeated ask writes nothing new). */
+const LOST_ITEM_CLIENT_ID = 'system:lost_item';
 
 export function closesAt(doneAt: Date, kind?: ChatThreadKind): Date {
   if (kind === 'customer_support') return new Date(doneAt.getTime() + CHAT_SUPPORT_CLOSE_AFTER_H * 3_600_000);

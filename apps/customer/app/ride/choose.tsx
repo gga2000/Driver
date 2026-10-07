@@ -1,33 +1,40 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Redirect, router, Stack } from 'expo-router';
+import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
+import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, Chip, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
-import { formatClock, formatHourPart, formatWhen } from '@driver/i18n';
+import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
+import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
-import { favouritesFor, firstSlot, hourOptions, minuteOptions, scheduleAt, SCHEDULE_DAYS, settleChoice, type ScheduleChoice, type ScheduleDay } from '@/features/ride-habits/logic';
+import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { useWalletBalance } from '@/features/account/queries';
-import { FarePanel, PayOption, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
-import { buildRidePlaceInput, destinationPinKind, doorExtra, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
+import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
+import { WhenPicker } from '@/features/ride/LaterPicker';
+import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
+import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions } from '@/features/ride/queries';
+import { riderInput } from '@/features/ride/rider';
+import { RiderRow, RiderSheet } from '@/features/ride/RiderParts';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { useSimpleMode } from '@/features/simple/pref';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { color as palette } from '@driver/design-tokens';
 
 /**
- * Choose ride (customer spec §5): the trip on the map, تكسي and تكتك with the server's quote for
- * each (`pricing.quote`, the engine `orders.place` locks the fare with), the ride time, door pickup
- * or "أطلع للشارع" with its price difference, cash or wallet, a note for the driver, and the night /
- * peak line when it applies. Requests with the quoted fare; a fare that moved in between is
- * re-quoted and explained (`price_changed`), never charged silently.
+ * Choose ride (customer spec §5; ride ideas c1–c7): the trip on the map, then on one screen تكسي and
+ * تكتك as slim rows with the server's quote for each (`pricing.quote`, the engine `orders.place` locks
+ * the fare with) and the clock you get there, one row for how you pay, where he picks you up and the
+ * note (its sheet holds door pickup or "أطلع للشارع" with its price difference, cash or wallet, and
+ * the note), the night / peak line when it applies, and «السعر مثبّت» under the button. Requests with the quoted fare; a fare that moved in between is
+ * re-quoted and explained (`price_changed`), never charged silently. In simple mode (ride idea v2) it
+ * is the trip, the one vehicle he chose with its price in the larger type, how he pays, and the button:
+ * no second vehicle, no options sheet, no details link.
  */
 export default function RideChoose() {
   const theme = useTheme();
@@ -40,10 +47,13 @@ export default function RideChoose() {
   const qc = useQueryClient();
   const ride = useRideStore();
   const { defaultPickup } = useRideSpots();
+  const simple = useSimpleMode().on;
   const d = ride.draft;
   const pickup = d.pickup ?? defaultPickup;
   const dropoff = d.dropoff;
   // Joy J7d: now, or booked for later (20 min – 7 days), quoted for that time; l9: a favourite asked first.
+  // «نفس مشوار البارحة؟» (step 4, o4) opened choose filled in: say so.
+  const { again } = useLocalSearchParams<{ again?: string }>();
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [choice, setChoice] = useState<ScheduleChoice>(() => firstSlot(new Date()));
   const [favouriteId, setFavouriteId] = useState<string | null>(null);
@@ -59,6 +69,19 @@ export default function RideChoose() {
   const place = usePlaceRide();
   const [problem, setProblem] = useState<string | null>(null);
   const [details, setDetails] = useState<RideVertical | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  // c9/s3 «لمنو المشوار؟»: «إلي», or someone he picks in its sheet.
+  const [riderOpen, setRiderOpen] = useState(false);
+  const riderOpts = useRiderOptions();
+  const rider = riderInput(d.rider);
+  // l4: the request button grows into the search rings, then the live screen opens on its radar.
+  const [bloomFor, setBloomFor] = useState<string | null>(null);
+  // The arrival clocks on the rows («توصل 11:55») move with the minute.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const attemptRef = useRef<PlaceAttempt | null>(null);
   const inFlight = useRef(false);
 
@@ -74,13 +97,15 @@ export default function RideChoose() {
   const askFav = when === 'later' && favouriteId && vertFavs.some((f) => f.id === favouriteId) ? favouriteId : null;
   const balance = wallet.data?.moneyIqd ?? null;
   const walletOk = walletCovers(balance, quote?.total);
+  // x1: «اليوم حار، نبعثلك سيارة مكيّفة» on the server's clock (the nearby read carries it), rides for now.
+  const climate = when === 'now' ? rideClimate(nearby.taxi.data?.at ?? null, vertical) : null;
 
   useEffect(() => {
     // The wallet stopped covering the fare (door pickup, night): back to cash.
     if (d.payment === 'wallet' && quote && balance !== null && !walletOk) rideStore.update({ payment: 'cash' });
   }, [d.payment, quote, balance, walletOk]);
 
-  useEffect(() => setProblem(null), [vertical, mode, d.payment]);
+  useEffect(() => setProblem(null), [vertical, mode, d.payment, d.rider]);
 
   if (!pickup || !dropoff) return <Redirect href="/ride" />;
 
@@ -88,26 +113,31 @@ export default function RideChoose() {
   const tukTotal = quotes.grid.tuktuk[mode]?.total;
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
 
+  const openLive = (orderId: string) => {
+    if (router.canDismiss()) router.dismissAll();
+    router.push({ pathname: '/order/[id]', params: { id: orderId } });
+  };
+
   const request = async () => {
     if (!quote || inFlight.current) return;
     setProblem(null);
     // No duplicate rides: one key per request attempt, kept when the answer is lost so a second tap
     // gets the ride already requested (the server answers a repeated key with it).
-    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}`, () => newRequestKey('ride'));
+    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}|${JSON.stringify(rider ?? null)}`, () => newRequestKey('ride'));
     attemptRef.current = attempt;
     inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav }),
+        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred, rideCargo: d.rideCargo, rider }),
       );
       attemptRef.current = null;
       rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
       void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
-      if (router.canDismiss()) router.dismissAll();
       if (bookedAt) {
+        if (router.canDismiss()) router.dismissAll();
         bookedMemory.remember(order.id, pickup, dropoff);
         router.push({ pathname: '/ride/booked/[id]', params: { id: order.id } });
-      } else router.push({ pathname: '/order/[id]', params: { id: order.id } });
+      } else setBloomFor(order.id);
     } catch (err) {
       attemptRef.current = afterFailure(attempt, apiErrorCode(err));
       const kind = rideProblem(apiErrorCode(err));
@@ -128,7 +158,8 @@ export default function RideChoose() {
     }
   };
 
-  const mapH = Math.round(Math.min(Math.max(height * 0.36, 240), 380));
+  // c1: map, route, both vehicles, the options row and the button fit on one phone screen.
+  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380));
   const edgeReason = tuktuk.edgeZoneId && !d.allowEdgeTuktuk ? t('ride.tuktuk_edge', { zone: zoneTitle(tuktuk.edgeZoneId, lang) }) : null;
 
   return (
@@ -166,38 +197,121 @@ export default function RideChoose() {
           overflow: 'hidden',
         }}
       >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: theme.space[5], paddingTop: theme.space[4], gap: theme.space[4], width: '100%', maxWidth: 560, alignSelf: 'center' }} testID="ride-choose-body">
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: theme.space[4], paddingTop: theme.space[3], gap: theme.space[3], width: '100%', maxWidth: 560, alignSelf: 'center' }} testID="ride-choose-body">
           <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, marginBottom: -theme.space[1] }} />
-          <RouteSummary pickup={pickup} dropoff={dropoff} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {simple ? (
+            <Text variant="heading" accessibilityRole="header">
+              {t('simple.choose_title')}
+            </Text>
+          ) : null}
+          <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {again ? (
+            <View testID="ride-again-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
+              <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
+              <Text variant="footnote" weight={600} color="successText" style={{ flex: 1 }}>
+                {t('ride.again_note')}
+              </Text>
+            </View>
+          ) : null}
 
           {surcharges.map((s) => (
             <SurchargeBanner key={s.key} s={s} city={city.data ?? undefined} vertical={vertical} />
           ))}
 
           <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup">
-            {RIDE_VERTICALS.map((v) => (
-              <VehicleCard
-                key={v}
-                vertical={v}
-                quote={quotes.grid[v][mode]}
-                loading={quotes.loading}
-                selected={vertical === v}
-                disabledReason={v === 'tuktuk' ? edgeReason : null}
-                minutes={estimate?.[v].minutes ?? null}
-                nearMinutes={nearby[v].data?.nearestMinutes ?? null}
-                cheaperBy={v === 'tuktuk' ? cheaper : null}
-                onPress={() => rideStore.update({ vertical: v })}
-                onDetails={() => setDetails(v)}
-                onTryAnyway={v === 'tuktuk' ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' }) : undefined}
-              />
-            ))}
+            {(simple ? [vertical] : RIDE_VERTICALS).map((v, i) => {
+              const near = nearby[v].data?.nearestMinutes ?? null;
+              const trip = estimate?.[v].minutes ?? null;
+              return (
+                <VehicleCard
+                  key={v}
+                  index={i}
+                  simple={simple}
+                  vertical={v}
+                  quote={quotes.grid[v][mode]}
+                  loading={quotes.loading}
+                  selected={vertical === v}
+                  disabledReason={v === 'tuktuk' ? edgeReason : null}
+                  minutes={trip}
+                  nearMinutes={near}
+                  arriveAt={trip ? new Date(now + ((near ?? 0) + trip) * 60_000) : null}
+                  cheaperBy={v === 'tuktuk' ? cheaper : null}
+                  fitHint={cargoFits(d.rideCargo, v) ? t('ride.cargo_tuktuk_fit') : null}
+                  onPress={() => rideStore.update({ vertical: v })}
+                  onDetails={() => setDetails(v)}
+                  onTryAnyway={v === 'tuktuk' ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' }) : undefined}
+                />
+              );
+            })}
             {vertical === 'tuktuk' && d.allowEdgeTuktuk && tuktuk.edgeZoneId ? (
               <Text variant="footnote" color="textMuted" testID="ride-tuktuk-tried">
                 {t('ride.tuktuk_edge_tried')}
               </Text>
             ) : null}
+            {climate ? <ClimateLine climate={climate} /> : null}
           </View>
 
+          {simple ? (
+            <View testID="ride-simple-pay" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 48 }}>
+              <Icon name={d.payment === 'wallet' ? 'wallet' : 'cash'} size={24} color="textMuted" strokeWidth={2} />
+              <Text variant="title" weight={500} style={{ flex: 1 }}>
+                {t(d.payment === 'wallet' ? 'simple.pay_wallet' : 'simple.pay_cash')}
+              </Text>
+            </View>
+          ) : (
+            <>
+              <RiderRow pick={d.rider} onPress={() => setRiderOpen(true)} />
+              <OptionsRow
+                when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
+                payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null, d.rideCargo.length > 0 ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) }) : null].filter(Boolean).join(' · ')}
+                pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
+                note={d.note}
+                onPress={() => setOptionsOpen(true)}
+              />
+            </>
+          )}
+        </ScrollView>
+
+        <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+          {problem ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
+              <Icon name="receipt" size={18} color="dangerText" />
+              <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
+                {problem}
+              </Text>
+            </View>
+          ) : null}
+          <Button
+            testID="ride-request"
+            size="lg"
+            fullWidth
+            label={
+              quote
+                ? bookedAt
+                  ? t('ride.book_for', { when: formatWhen(bookedAt, new Date()), amount: amountParam(quote.total) })
+                  : t('ride.request', { vehicle: t(VEHICLE[vertical].name), amount: amountParam(quote.total) })
+                : t('ride.choose_title')
+            }
+            loading={place.isPending}
+            loadingLabel={t('ride.requesting')}
+            disabled={!quote}
+            haptic="success"
+            onPress={() => void request()}
+            style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
+          />
+          {quote ? (
+            <View testID="ride-price-locked" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
+              <Icon name="lock" size={13} color="textMuted" strokeWidth={2.2} />
+              <Text variant="caption" color="textMuted">
+                {t('ride.price_locked')}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      {optionsOpen ? (
+        <RideOptionsPanel onClose={() => setOptionsOpen(false)}>
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="textMuted">
               {t('ride.pickup_mode')}
@@ -219,7 +333,7 @@ export default function RideChoose() {
             </View>
           </View>
 
-          <WhenPicker when={when} onWhen={setWhen} choice={settled} onChoice={setChoice} />
+          <WhenPicker when={when} onWhen={setWhen} choice={settled} onChoice={setChoice} now={new Date()} />
 
           {when === 'later' && vertFavs.length > 0 ? (
             <View style={{ gap: theme.space[2] }} testID="ride-fav">
@@ -240,12 +354,36 @@ export default function RideChoose() {
             </View>
           ) : null}
 
+          {/* Ride idea s6: «سايق للعوائل». */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 56 }}>
+            <Icon name="family" size={22} color="textMuted" />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="label" weight={600}>
+                {t('ride.family_pref')}
+              </Text>
+              <Text variant="footnote" color="textMuted">
+                {t('ride.family_pref_hint')}
+              </Text>
+            </View>
+            <Switch
+              testID="ride-family"
+              accessibilityLabel={t('ride.family_pref')}
+              value={d.familyPreferred}
+              trackColor={{ false: theme.colors.borderStrong, true: theme.colors.selected }}
+              thumbColor={theme.colors.surface}
+              onValueChange={(familyPreferred) => rideStore.update({ familyPreferred })}
+            />
+          </View>
+
+          {/* Ride idea x5 «عندي غراض»: the driver knows before he accepts; the tuktuk row says it fits best. */}
+          <CargoChips value={d.rideCargo} onChange={(rideCargo) => rideStore.update({ rideCargo })} />
+
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="textMuted">
               {t('checkout.payment')}
             </Text>
             <View style={{ flexDirection: 'row', gap: theme.space[2] }} accessibilityRole="radiogroup">
-              <PayOption icon="wallet" title={t('ride.pay_cash')} subtitle={t('ride.pay_cash_hint')} selected={d.payment === 'cash'} onPress={() => rideStore.update({ payment: 'cash' })} testID="ride-pay-cash" />
+              <PayOption icon="cash" title={t('ride.pay_cash')} subtitle={t('ride.pay_cash_hint')} selected={d.payment === 'cash'} onPress={() => rideStore.update({ payment: 'cash' })} testID="ride-pay-cash" />
               <PayOption
                 icon="wallet"
                 title={t('ride.pay_wallet')}
@@ -258,103 +396,26 @@ export default function RideChoose() {
             </View>
           </View>
 
-          <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-            <Icon name="shield" size={15} color="successText" strokeWidth={2.2} />
-            <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
-              {t('ride.cancel_policy')}
-            </Text>
+          <View style={{ gap: theme.space[2] }}>
+            <NoteChips note={d.note} onNote={(note) => rideStore.update({ note })} />
+            <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
           </View>
-        </ScrollView>
-
-        <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
-          {problem ? (
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
-              <Icon name="receipt" size={18} color="dangerText" />
-              <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
-                {problem}
-              </Text>
-            </View>
-          ) : null}
-          <Button
-            testID="ride-request"
-            size="lg"
-            fullWidth
-            label={
-              quote
-                ? bookedAt
-                  ? t('ride.book_later', { vehicle: t(VEHICLE[vertical].name), when: formatWhen(bookedAt, new Date()), amount: amountParam(quote.total) })
-                  : t('ride.request', { vehicle: t(VEHICLE[vertical].name), amount: amountParam(quote.total) })
-                : t('ride.choose_title')
-            }
-            loading={place.isPending}
-            loadingLabel={t('ride.requesting')}
-            disabled={!quote}
-            haptic="success"
-            onPress={() => void request()}
-            style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
-          />
-        </View>
-      </View>
-
+        </RideOptionsPanel>
+      ) : null}
+      {riderOpen ? (
+        <RiderSheet
+          pick={d.rider}
+          options={riderOpts}
+          onPick={(next) => {
+            rideStore.update({ rider: next });
+            setRiderOpen(false);
+          }}
+          onClose={() => setRiderOpen(false)}
+        />
+      ) : null}
+      {bloomFor ? <RequestBloom fromBottom={Math.max(insets.bottom, theme.space[3]) + 52} onDone={() => openLive(bloomFor)} /> : null}
       {details && quotes.grid[details][mode] ? <FarePanel vertical={details} quote={quotes.grid[details][mode]!} city={city.data ?? undefined} locale={lang} onClose={() => setDetails(null)} /> : null}
     </View>
   );
 }
 
-/**
- * «وكتها» (joy J7d): هسة, or a time from 20 minutes to the day after tomorrow on the quarter hour (the
- * server takes 20 min – 7 days). The fare above is the server's quote for that time.
- */
-function WhenPicker({ when, onWhen, choice, onChoice }: { when: 'now' | 'later'; onWhen: (w: 'now' | 'later') => void; choice: ScheduleChoice; onChoice: (c: ScheduleChoice) => void }) {
-  const theme = useTheme();
-  const t = useT();
-  const now = new Date();
-  const hours = hourOptions(now, choice.day);
-  const minutes = minuteOptions(now, choice.day, choice.hour);
-  const dayLabel = (day: ScheduleDay) => (day === 0 ? t('time.today') : day === 1 ? t('time.tomorrow') : t('ride.when_day_after'));
-  return (
-    <View style={{ gap: theme.space[2] }} testID="ride-when">
-      <Text variant="label" weight={600} color="textMuted">
-        {t('ride.when')}
-      </Text>
-      <SegmentedControl
-        accessibilityLabel={t('ride.when')}
-        value={when}
-        onChange={onWhen}
-        options={[
-          { value: 'now', label: t('ride.when_now') },
-          { value: 'later', label: t('ride.when_later') },
-        ]}
-      />
-      {when === 'later' ? (
-        <View style={{ gap: theme.space[2] }}>
-          <SegmentedControl
-            accessibilityLabel={t('ride.when_day')}
-            value={String(choice.day) as '0' | '1' | '2'}
-            onChange={(v) => onChoice(settleChoice(now, { ...choice, day: Number(v) as ScheduleDay }))}
-            options={SCHEDULE_DAYS.filter((day) => hourOptions(now, day).length > 0).map((day) => ({ value: String(day) as '0' | '1' | '2', label: dayLabel(day) }))}
-          />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="ride-when-hours">
-            {hours.map((h) => (
-              <Chip key={h} role="radio" label={formatHourPart(scheduleAt(now, { day: choice.day, hour: h, minute: 0 }))} selected={choice.hour === h} onPress={() => onChoice(settleChoice(now, { ...choice, hour: h }))} testID={`ride-hour-${h}`} />
-            ))}
-          </ScrollView>
-          <SegmentedControl
-            accessibilityLabel={t('ride.when_minute')}
-            value={String(choice.minute) as '0' | '15' | '30' | '45'}
-            onChange={(v) => onChoice(settleChoice(now, { ...choice, minute: Number(v) }))}
-            options={minutes.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: formatClock(scheduleAt(now, { ...choice, minute: m }), { period: false }) }))}
-          />
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-            <Icon name="clock" size={15} color="liveText" strokeWidth={2} />
-            <Text variant="footnote" color="textMuted" style={{ flex: 1 }} testID="ride-when-hint">
-              {t('ride.later_hint')}
-            </Text>
-          </View>
-        </View>
-      ) : null}
-    </View>
-  );
-}

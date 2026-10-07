@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError, type Actor, type BookingView, type DepartureCard, type IntercityBoard, type Order, type PlaceOrderInput, type SavedPlaceView } from '@driver/contracts';
+import { DriverError, type Actor, type BookingView, type DepartureCard, type IntercityBoard, type Order, type PlaceOrderInput, type RideFootprint, type SavedPlaceView } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import type { FinishedRide, HabitsEventsPort, HabitsPeoplePort, HabitsRajaaPort, HabitsRidesPort, RideInProgress } from './ports.js';
 import { InMemoryRideHabitsRepository } from './ride-habits.repository.js';
-import { REGULAR_TRIP_DUE_EVENT, RideHabitsService } from './ride-habits.service.js';
+import { REGULAR_TRIP_DUE_EVENT, RideHabitsService, SAME_RIDE_DUE_EVENT } from './ride-habits.service.js';
 
 // Wednesday 7 Oct 2026, 18:00 Baghdad.
 const START = '2026-10-07T15:00:00Z';
@@ -99,7 +99,7 @@ function setup() {
   const held: unknown[] = [];
   const demands: unknown[] = [];
   const emitted: Array<{ type: string; payload: Record<string, unknown>; idempotencyKey?: string }> = [];
-  const state = { inProgress: null as RideInProgress | null, bookings: [booking({ id: 'bk_done' })], board: [] as DepartureCard[], fare: 3000 };
+  const state = { inProgress: null as RideInProgress | null, bookings: [booking({ id: 'bk_done' })], board: [] as DepartureCard[], fare: 3000, unfinished: new Set<string>(), rideOn: false };
   const ridesPort: HabitsRidesPort = {
     finishedRides: async (personId, from) => (personId === 'c1' ? rides.filter((r) => r.finishedAt >= from) : []),
     finishedRide: async (personId, orderId) => (personId === 'c1' ? (rides.find((r) => r.orderId === orderId) ?? null) : null),
@@ -115,6 +115,8 @@ function setup() {
     kitchen: async (id) => (id === 'm_khalid' ? { prepMin: 25, leadMin: 10, pin: { lat: 32.9, lng: 45.05 } } : null),
     minutes: async () => 8,
     driverRating: async (id) => (id === 'd_abbas' ? { rating: 4.8, count: 12 } : null),
+    finishedOrderIds: async (ids) => new Set(ids.filter((id) => !state.unfinished.has(id))),
+    rideOn: async () => state.rideOn,
   };
   const rajaa: HabitsRajaaPort = {
     bookings: async () => state.bookings,
@@ -318,5 +320,102 @@ describe('«عشاك يوصل وياك» (r6)', () => {
     const { svc, state } = setup();
     state.bookings = [booking({ id: 'bk_out', state: 'booked', departure: { ...booking({ id: 'x' }).departure, direction: 'from_aziziyah', state: 'scheduled', departAt: new Date('2026-10-07T15:30:00Z') } })];
     expect(await svc.dinnerChance(ME)).toBeNull();
+  });
+});
+
+describe('«نفس مشوار البارحة؟» (step 4, o4)', () => {
+  // Thursday 8 Oct 2026: he took the taxi home → work at about 7:30 on Monday, Tuesday and Wednesday.
+  const at = (iso: string) => new Date(iso);
+  const ride = (orderId: string, when: string, over: Partial<RideFootprint> = {}): RideFootprint => ({
+    orderId,
+    vertical: 'taxi',
+    doorPickup: true,
+    pickup: { zoneKey: 'centre', pin: HOME_PIN, placeId: 'pl_home' },
+    dropoff: { zoneKey: 'street_30', pin: WORK_PIN },
+    at: at(when),
+    ...over,
+  });
+  async function habit(rides: RideFootprint[]) {
+    const h = setup();
+    for (const r of rides) await h.svc.recordRide('c1', r);
+    return h;
+  }
+  const WEEK = [ride('o_mon', '2026-10-05T04:25:00Z'), ride('o_tue', '2026-10-06T04:30:00Z'), ride('o_wed', '2026-10-07T04:40:00Z')];
+
+  it('offers the same ride ten minutes before his usual time, once a day, with the link that fills choose', async () => {
+    const h = await habit(WEEK);
+    h.clock.set('2026-10-08T04:20:00Z'); // Thursday 7:20
+    expect(await h.svc.sameRideDue()).toBe(1);
+    expect(h.emitted).toEqual([
+      {
+        type: SAME_RIDE_DUE_EVENT,
+        payload: {
+          personId: 'c1',
+          date: '2026-10-08',
+          at: '2026-10-08T04:30:00.000Z',
+          vertical: 'taxi',
+          doorPickup: true,
+          from: '32.910000,45.060000,centre,pl_home',
+          to: '32.920000,45.070000,street_30',
+          route: 'البيت ← شارع 30',
+          afterWeekend: false,
+        },
+        idempotencyKey: 'same_ride.due:c1:2026-10-08',
+      },
+    ]);
+  });
+
+  it('only inside its window: 10 to 3 minutes before', async () => {
+    const h = await habit(WEEK);
+    h.clock.set('2026-10-08T04:19:00Z');
+    expect(await h.svc.sameRideDue()).toBe(0);
+    h.clock.set('2026-10-08T04:28:00Z');
+    expect(await h.svc.sameRideDue()).toBe(0);
+    h.clock.set('2026-10-08T04:27:00Z');
+    expect(await h.svc.sameRideDue()).toBe(1);
+  });
+
+  it('needs 3 of the last 4 working days, yesterday included, and finished rides only', async () => {
+    const twoDays = await habit(WEEK.slice(1));
+    twoDays.clock.set('2026-10-08T04:20:00Z');
+    expect(await twoDays.svc.sameRideDue()).toBe(0);
+
+    const notYesterday = await habit([ride('o_thu', '2026-10-01T04:30:00Z'), ...WEEK.slice(0, 2)]);
+    notYesterday.clock.set('2026-10-08T04:20:00Z');
+    expect(await notYesterday.svc.sameRideDue()).toBe(0);
+
+    const cancelled = await habit(WEEK);
+    cancelled.state.unfinished.add('o_tue');
+    cancelled.clock.set('2026-10-08T04:20:00Z');
+    expect(await cancelled.svc.sameRideDue()).toBe(0);
+
+    const elsewhere = await habit([...WEEK.slice(0, 2), ride('o_wed', '2026-10-07T04:40:00Z', { dropoff: { zoneKey: 'street_30', pin: { lat: 32.925, lng: 45.07 } } })]);
+    elsewhere.clock.set('2026-10-08T04:20:00Z');
+    expect(await elsewhere.svc.sameRideDue()).toBe(0);
+  });
+
+  it('stays quiet with a ride on, the ride already taken today, or a regular trip for it', async () => {
+    const busy = await habit(WEEK);
+    busy.state.rideOn = true;
+    busy.clock.set('2026-10-08T04:20:00Z');
+    expect(await busy.svc.sameRideDue()).toBe(0);
+
+    const early = await habit([...WEEK, ride('o_today', '2026-10-08T04:12:00Z')]);
+    early.clock.set('2026-10-08T04:20:00Z');
+    expect(await early.svc.sameRideDue()).toBe(0);
+
+    const regular = await habit(WEEK);
+    await regular.svc.regularSave(ME, { days: [0, 1, 2, 3, 4], timeMin: 7 * 60 + 30, remind: 'evening', paymentMethod: 'cash', favouriteId: null, active: true, plan: RIDE_PLAN });
+    regular.clock.set('2026-10-08T04:20:00Z');
+    expect(await regular.svc.sameRideDue()).toBe(0);
+  });
+
+  it('on Sunday it is Thursday\'s ride; never on the weekend', async () => {
+    const h = await habit([ride('o_tue', '2026-10-06T04:30:00Z'), ride('o_wed', '2026-10-07T04:30:00Z'), ride('o_thu', '2026-10-08T04:35:00Z')]);
+    h.clock.set('2026-10-09T04:20:00Z'); // Friday
+    expect(await h.svc.sameRideDue()).toBe(0);
+    h.clock.set('2026-10-11T04:20:00Z'); // Sunday
+    expect(await h.svc.sameRideDue()).toBe(1);
+    expect(h.emitted[0]?.payload).toMatchObject({ date: '2026-10-11', afterWeekend: true });
   });
 });

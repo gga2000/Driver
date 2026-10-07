@@ -141,7 +141,7 @@ export class NotifyEngine {
       ...(req.data ? { data: req.data } : {}),
       app: req.app ?? def.app,
       title: preview.title,
-      body: preview.whatsapp && !def.push ? preview.whatsapp.text : preview.body,
+      body: preview.whatsapp && !def.push ? preview.whatsapp.text : (preview.body ?? (def.sms ? preview.sms : null)),
     };
     const channels = req.channels ?? def.primary;
     const capped = def.category === 'marketing' && (await this.repo.countMarketingSince(req.to, new Date(now.getTime() - WEEK_MS))) >= MARKETING_MAX_PER_WEEK;

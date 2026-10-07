@@ -1,3 +1,4 @@
+import { DriverProfile, DriverProfileInput } from '../dispatch-io.js';
 import { CreateShareLinkInput, RevokeShareLinkInput, SharedTrip, SharedTripInput, ShareLink } from '../share-io.js';
 import { OrderRoute } from '../tracking.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
@@ -25,4 +26,12 @@ export const trackingRouter = router({
     .input(SharedTripInput)
     .output(OrderRoute)
     .query(({ ctx, input }) => ctx.trackingShare.sharedRoute(input)),
+  /**
+   * Ride step 3 (n5): a driver's profile on tap — one offered my searching ride, or the one assigned to
+   * it (plate only then). The order's orderer or rider only (ride habits composes it).
+   */
+  driverProfile: protectedProcedure()
+    .input(DriverProfileInput)
+    .output(DriverProfile)
+    .query(({ ctx, input }) => ctx.rideHabits.driverProfile(ctx.actor, input)),
 });

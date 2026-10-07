@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { CallSession, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView } from '../chat-io.js';
+import { CallSession, ChatLostItemInput, ChatLostItemResult, ChatLostItemThread, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView, ChatVoiceUploadInput, VoiceUploadTicket } from '../chat-io.js';
 import { protectedProcedure, router } from '../trpc.js';
+import { DRIVING_ROLES } from './trips.js';
 
 /**
  * In-order chat and masked calls (`modules/chat` behind `ctx.chat`). Any signed-in person may call;
@@ -20,6 +21,11 @@ export const chatRouter = router({
     .input(ChatSendInput)
     .output(ChatMessage)
     .mutation(({ ctx, input }) => ctx.chat.send(ctx.actor, input)),
+  /** A signed upload for a voice note (≤ 60 s, ≤ 1 MB): PUT the recording, then `send` with `voiceUploadId`. */
+  voiceUpload: protectedProcedure()
+    .input(ChatVoiceUploadInput)
+    .output(VoiceUploadTicket)
+    .mutation(({ ctx, input }) => ctx.chat.voiceUpload(ctx.actor, input)),
   markRead: protectedProcedure()
     .input(ChatMarkReadInput)
     .output(ChatMarkReadOutput)
@@ -29,4 +35,13 @@ export const chatRouter = router({
     .input(ChatRequestCallInput)
     .output(CallSession)
     .mutation(({ ctx, input }) => ctx.chat.requestCall(ctx.actor, input)),
+  /** s7 «نسيت غرض»: reopens the chat with the driver of a ride completed in the last 24 h. */
+  lostItem: protectedProcedure()
+    .input(ChatLostItemInput)
+    .output(ChatLostItemResult)
+    .mutation(({ ctx, input }) => ctx.chat.lostItem(ctx.actor, input)),
+  /** s7: the driver's open «نسيت غرض» chats (partner app). */
+  lostItems: protectedProcedure(DRIVING_ROLES)
+    .output(z.array(ChatLostItemThread))
+    .query(({ ctx }) => ctx.chat.lostItems(ctx.actor)),
 });

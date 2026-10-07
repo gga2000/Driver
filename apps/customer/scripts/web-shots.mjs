@@ -22,9 +22,13 @@
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
 //                                                                         POST /demo/ops-agent
 //   chat-*   order screen chat/call/share, courier + kitchen + support threads, quick reply, masked call,
-//            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
-//   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
-//            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
+//            closed thread, ride share sheet, public share page (live + ended), and voice notes in the
+//            ride chat (the driver's note, the mic explainer, recording, sent + his reply)  POST /demo/chat
+//   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door, family driver), edge
+//            zone, pin, searching with the drivers sent it («نبّهه», a profile), cancel preview, matched,
+//            a minute away, the screen light and safety shield (a night tab), the arrived card, on the
+//            trip, night share, arrival (with the 10th-ride sticker), rating, the receipt's lost-item and
+//            not-again rows
 //                                                                         POST /demo/ride
 //   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
 //            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
@@ -44,6 +48,20 @@
 //            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
 //            الرجعة board's «سايقك», the kept pass's heart, «عشاك يوصل وياك» on home, the list and
 //            checkout, and on the الرجعة pass, the notification switch     POST /demo/ride-habits, /demo/dinner
+//   simple-* ride idea v2 «الوضع البسيط» on a fresh account with the phone's position faked: the account
+//            switch, the simple home without a saved home and «وين بيتك؟», home saved from the phone, «رجعني
+//            للبيت» from the souq to the simple choose screen, the simple search, the ride as the big card
+//            (searching, then the driver coming)                         POST /demo/ride, /demo/ride/accept
+//   later-*  step 4 c10/o4 on a fresh account: choose with «هسة / بعدين», the day+time picker (opened, a
+//            time picked), the summary and «احجز لـ …», «مشوارك محجوز» with the reminder, the booked rides
+//            in طلباتي and the free cancel, the «نفس مشوار البارحة» switch, and the push's link landing
+//            on choose with both ends filled           POST /demo/ride-habits, /demo/same-ride
+//   rajaa-taxi-* taxi ideas x2/x3/x4: the dev preview of the الرجعة taxi cards in every state (one shot per
+//            card, plus the page), the live cards on the demo's seats, and the late notice on the live
+//            ride screen of a taxi to a car                                POST /demo/rajaa-taxi
+//            and ride idea n9 «Baghdad mode» (rajaa-taxi-n9-*): its card in every state, then live with the
+//            browser's position in Baghdad (the next car back, then his seat with the n10 switch)
+//                                                                         POST /demo/rajaa-taxi[&baghdadSeat=1]
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -85,7 +103,8 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
+// A fake microphone (a steady tone) so the chat's voice notes record headless.
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
 const errors = [];
 page.on('console', (m) => {
@@ -112,11 +131,15 @@ const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PRE
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
-const groups = new Set(selected.includes('all') ? GROUPS : selected);
-for (const g of groups) if (!GROUPS.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${GROUPS.join(', ')} or all)`);
-/** Whether a flow runs / a file is written: by its group, the name's first segment. */
+// Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi'];
+const known = [...GROUPS, ...RIDE_GROUPS];
+const groups = new Set(selected.includes('all') ? known : selected);
+for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
+/** Whether a flow runs / a file is written: by its group, the longest group name the file name starts with. */
 const wants = (group) => groups.has(group);
-const wanted = (name) => wants(name.split('-')[0]);
+const groupOf = (name) => known.filter((g) => name === g || name.startsWith(`${g}-`)).sort((a, b) => b.length - a.length)[0] ?? name.split('-')[0];
+const wanted = (name) => wants(groupOf(name));
 const shot = async (name) => {
   if (!wanted(name)) return;
   await settle();
@@ -239,7 +262,12 @@ try {
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
-  if (wants('ride')) await rideShots();
+  // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
+  if (wants('ride')) await rideShots().finally(() => rideForShots());
+  if (wants('later')) await laterShots();
+  // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
+  if (wants('simple')) await asOtherAccount(simpleShots);
+  if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
@@ -252,6 +280,214 @@ try {
 } finally {
   await browser.close();
   server.close();
+}
+
+/**
+ * Runs a flow that signs in as another account on the shared page, then restores the demo account's
+ * session (cookies + local storage) and drops the granted permissions, so the flows after it carry on
+ * as before.
+ */
+async function asOtherAccount(flow) {
+  const ctx = page.context();
+  const saved = await ctx.storageState();
+  try {
+    await flow();
+  } finally {
+    await ctx.clearPermissions();
+    await ctx.clearCookies();
+    if (saved.cookies.length) await ctx.addCookies(saved.cookies);
+    await page.goto(`${origin}/`, LOADED);
+    const items = saved.origins.find((o) => o.origin === origin)?.localStorage ?? [];
+    await page.evaluate((entries) => {
+      localStorage.clear();
+      for (const { name, value } of entries) localStorage.setItem(name, value);
+    }, items);
+    await page.goto(`${origin}/`, LOADED);
+    await byTestId('home').waitFor({ timeout: 20_000 });
+  }
+}
+
+/**
+ * Taxi ideas x2/x3/x4 (docs/api/rajaa-taxi.md): the dev-only preview route with every card state on
+ * sample data, one element shot per card; then the same route with the demo's seats (the live cards),
+ * and the live ride screen of the taxi that would bring him late to his car (the x3 notice).
+ */
+async function rajaaTaxiShots(personId) {
+  if (!personId) throw new Error('rajaa-taxi: no person');
+  const seed = await demoPost(`/demo/rajaa-taxi?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const cardShot = async (name, id) => {
+    if (!wanted(name)) return;
+    const el = byTestId(id);
+    await el.scrollIntoViewIfNeeded();
+    await settle(400);
+    const file = join(outDir, `${name}.png`);
+    await el.screenshot({ path: file });
+    console.log(file);
+  };
+  await page.goto(`${origin}/ride/garage-preview`, LOADED);
+  await byTestId('garage-preview').waitFor({ timeout: 20_000 });
+  await byTestId('pv-x4-error').waitFor({ timeout: 10_000 });
+  await shot('rajaa-taxi-preview');
+  await fullShot('rajaa-taxi-preview-full');
+  const states = {
+    x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
+    x3: ['not-told', 'told'],
+    x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
+    n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
+  };
+  for (const [idea, keys] of Object.entries(states)) for (const key of keys) await cardShot(`rajaa-taxi-${idea}-${key}`, `pv-${idea}-${key}`);
+
+  // The live cards on the demo server's seats.
+  const q = Object.entries({ out: seed.outboundBookingId, ret: seed.returnBookingId, armed: seed.armedBookingId, placed: seed.placedBookingId, late: seed.lateOrderId })
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  await page.goto(`${origin}/ride/garage-preview?${q}`, LOADED);
+  await byTestId('garage-preview').waitFor({ timeout: 20_000 });
+  for (const id of ['live-x2-body', 'live-x4-body', 'live-x4-armed-body', 'live-x4-placed', 'live-x3']) {
+    await byTestId(id).waitFor({ timeout: 15_000 }).catch(() => errors.push(`rajaa-taxi: ${id} not shown`));
+  }
+  await cardShot('rajaa-taxi-live-x2', 'pv-live-x2');
+  await cardShot('rajaa-taxi-live-x4-off', 'pv-live-x4');
+  await cardShot('rajaa-taxi-live-x4-armed', 'pv-live-x4-armed');
+  await cardShot('rajaa-taxi-live-x4-placed', 'pv-live-x4-placed');
+  await cardShot('rajaa-taxi-live-x3', 'pv-live-x3');
+
+  await rajaaTaxiN9Shots(personId, cardShot);
+
+  // x3 where it lives: the taxi's own live screen.
+  await page.goto(`${origin}/order/${seed.lateOrderId}`, LOADED);
+  await byTestId('garage-late-notice').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: late notice not on the order screen'));
+  await byTestId('garage-late-notice').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('rajaa-taxi-order-late');
+  await fullShot('rajaa-taxi-order-late-full');
+}
+
+/**
+ * Ride idea n9 «Baghdad mode» live on the preview route (`?n9=1`): nothing without the location
+ * permission (the card never asks) or at home in Aziziyah; with the browser's position in Baghdad the
+ * next car back from النهضة (the demo announced two), then — after `baghdadSeat=1` books him a seat — his
+ * seat with the n10 switch under it. The permission is dropped again afterwards.
+ */
+async function rajaaTaxiN9Shots(personId, cardShot) {
+  const BAGHDAD = { latitude: 33.3128, longitude: 44.3615, accuracy: 20 };
+  const AZIZIYAH = { latitude: 32.9062, longitude: 45.0612, accuracy: 20 };
+  const absent = async (why) => {
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('pv-live-n9').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(3000);
+    if ((await byTestId('live-n9').count()) > 0) errors.push(`rajaa-taxi: the n9 card showed ${why}`);
+  };
+  const ctx = page.context();
+  try {
+    await absent('without the location permission');
+    await ctx.grantPermissions(['geolocation'], { origin });
+    await ctx.setGeolocation(AZIZIYAH);
+    await absent('in Aziziyah');
+
+    await ctx.setGeolocation(BAGHDAD);
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('live-n9-time').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: n9 live card (next car) not shown'));
+    await cardShot('rajaa-taxi-n9-live-next', 'pv-live-n9');
+
+    const seat = await demoPost(`/demo/rajaa-taxi?personId=${encodeURIComponent(personId)}&baghdadSeat=1`);
+    if (!seat) return;
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('live-n9-seat-time').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: n9 live card (his seat) not shown'));
+    await byTestId('live-n9-armed-body').waitFor({ timeout: 15_000 }).catch(() => errors.push('rajaa-taxi: n10 switch not under his seat'));
+    await cardShot('rajaa-taxi-n9-live-booked', 'pv-live-n9');
+  } finally {
+    await ctx.clearPermissions();
+  }
+}
+
+/**
+ * Ride idea v2 «الوضع البسيط», as a fresh account with no saved place. The phone's position is faked
+ * (granted geolocation): at home in الهاشمي to save it with «أني بالبيت هسة», then at كراج السوق for
+ * «رجعني للبيت» → the simple choose screen → the search → the simple home's big ride card.
+ */
+async function simpleShots() {
+  const HOME = { latitude: 32.896, longitude: 45.0675, accuracy: 15 };
+  const SOUQ = { latitude: 32.9062, longitude: 45.0612, accuracy: 15 };
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.context().grantPermissions(['geolocation'], { origin });
+  await page.context().setGeolocation(HOME);
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.SIMPLE_PHONE ?? '0770 456 7722');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('كاظم');
+    await byTestId('setup-next').click();
+    await byTestId('setup-skip-place').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+
+  // The account page: the switch with its one-line explanation; turning it on opens the simple home.
+  await byTestId('tab-account').click();
+  await byTestId('account-simple').waitFor({ timeout: 15_000 });
+  await byTestId('account-simple').scrollIntoViewIfNeeded();
+  await shot('simple-account');
+  await byTestId('account-simple-switch').click();
+  await byTestId('simple-home').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('simple-no-home');
+
+  // «رجعني للبيت» with no saved home: «وين بيتك؟», then «أني بالبيت هسة» saves the phone's position.
+  await byTestId('simple-go-home').click();
+  await byTestId('simple-set-home').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('simple-set-home');
+  await byTestId('simple-set-home-here').click();
+  await byTestId('simple-set-home').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('home not saved from the phone'));
+  await page.waitForFunction(() => !document.querySelector('[data-testid="simple-go-home-sub"]')?.textContent?.includes('بيتك أول'), null, { timeout: 15_000 }).catch(() => errors.push('simple home still asks for the home'));
+  await page.waitForTimeout(2600);
+  await shot('simple-home');
+
+  // From the souq: one tap to the fares home, one confirm.
+  // The web build asks the browser with maximumAge: Infinity (expo-location), so a fresh page reads the new position.
+  await page.context().setGeolocation(SOUQ);
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-go-home').waitFor({ timeout: 15_000 });
+  await byTestId('simple-go-home').click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('simple-choose');
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  await byTestId('ride-offers').waitFor({ timeout: 15_000 }).catch(() => errors.push('offered drivers not shown (simple)'));
+  await page.waitForTimeout(3000);
+  await shot('simple-searching');
+
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-active-ride').waitFor({ timeout: 15_000 }).catch(() => errors.push('active ride card not shown on the simple home'));
+  await settle(900);
+  await shot('simple-active');
+  const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
+  if (!ok) return;
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-active-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver not shown on the simple ride card'));
+  await settle(900);
+  await shot('simple-active-matched');
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 }).catch(() => undefined);
+  await page.waitForTimeout(3500);
+  await shot('simple-live-matched');
+  // Drive the ride to the end so its demo driver is free for the flows after this one.
+  for (let i = 0; i < 3; i += 1) await demoPost(`/demo/ride/advance?orderId=${orderId}`);
 }
 
 /**
@@ -347,7 +583,7 @@ async function tripsShots(khalid) {
   await shot('trips-booked');
   await fullShot('trips-booked-full');
 
-  // Booking a ride for later with the favourite: home → work, «لوكت ثاني», حسين.
+  // Booking a ride for later with the favourite: home → work, «بعدين» (its picker's first time), حسين.
   await page.goto(`${origin}/ride`, LOADED);
   // The where-to screen may open on «من» or on «إلى»: الدائرة, then البيت if it was the pickup.
   await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
@@ -357,12 +593,21 @@ async function tripsShots(khalid) {
     errors.push('choose screen not shown');
     await page.screenshot({ path: join(outDir, 'trips-debug-choose.png') });
   });
-  await page.getByText('لوكت ثاني', { exact: true }).click();
+  // «وكتها» lives in the trip options sheet (ride idea c7).
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await page.getByText('بعدين', { exact: true }).click();
+  await byTestId('ride-later-pick').waitFor({ timeout: 10_000 });
+  await byTestId('ride-later-pick').click();
+  await byTestId('ride-later-sheet').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
   await byTestId('ride-fav').waitFor({ timeout: 10_000 }).catch(() => errors.push('favourite chips not shown'));
   await page.getByText('حسين', { exact: true }).click().catch(() => errors.push('favourite chip not found'));
   await byTestId('ride-when').scrollIntoViewIfNeeded();
   await settle(900);
   await shot('trips-choose-later');
+  await byTestId('ride-options-done').click();
+  await settle(600);
+  await shot('trips-choose-later-row');
 
   // The الرجعة board: «سايقك» on جاسم's car to Kut, and the regular trip asking.
   await page.goto(`${origin}/rajaa?corridor=aziziyah_kut&direction=from_aziziyah`, LOADED);
@@ -418,6 +663,113 @@ async function tripsShots(khalid) {
   await byTestId('pref-regularTrips').waitFor({ timeout: 15_000 });
   await byTestId('pref-regularTrips').scrollIntoViewIfNeeded();
   await shot('trips-notify');
+}
+
+/**
+ * Step 4 c10 + o4, as a fresh account: a ride booked «بعدين» from choose (the picker, the summary, the
+ * button), its booked screen with the reminder, the booked rides in طلباتي with «ألغي», the
+ * «نفس مشوار البارحة» switch, and the push's deep link landing on choose with البيت ← الدائرة filled.
+ */
+async function laterShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.LATER_PHONE ?? '0770 456 7711');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
+    await byTestId('setup-next').click();
+    await byTestId('chip-street_30').click();
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('no person after sign-in');
+  // Home and الدائرة saved, two rides done, and the work trip's next day booked already.
+  const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
+
+  // Choose: البيت → الدائرة, then «بعدين».
+  await page.goto(`${origin}/ride`, LOADED);
+  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+  await settle(600);
+  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  // «هسة / بعدين» lives in the trip options sheet (ride idea c7).
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await byTestId('ride-when').scrollIntoViewIfNeeded();
+  await settle(900);
+  await shot('later-choose-now');
+  await page.getByText('بعدين', { exact: true }).click();
+  await byTestId('ride-later-sheet').waitFor({ timeout: 10_000 });
+  await settle(800);
+  await shot('later-picker');
+  // باچر at 7, then a quarter past.
+  await visible('ride-later-day-1').click();
+  await visible('ride-later-hour-7').click();
+  await page.getByText('7:15', { exact: true }).last().click().catch(() => errors.push('quarter 7:15 not shown'));
+  await settle(600);
+  await shot('later-picker-picked');
+  await visible('ride-later-pick').click();
+  await byTestId('ride-later-sheet').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+  await byTestId('ride-when-summary').waitFor({ timeout: 10_000 });
+  await byTestId('ride-when-summary').scrollIntoViewIfNeeded();
+  await settle(900);
+  await shot('later-choose-booked');
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' }).catch(() => undefined);
+  await page.waitForFunction(() => /احجز لـ/.test(document.querySelector('[data-testid="ride-request"]')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => errors.push('book-for button not shown'));
+  await settle(900);
+  await shot('later-choose-booked-row');
+
+  // Booked: «مشوارك محجوز» with the reminder half an hour before.
+  await byTestId('ride-request').click();
+  await byTestId('booked-reminder').waitFor({ timeout: 20_000 }).catch(() => errors.push('booked reminder row not shown'));
+  await settle(900);
+  await shot('later-booked');
+  await fullShot('later-booked-full');
+
+  // طلباتي: both rides booked for later, with «ألغي»; the cancel asks once.
+  await page.goto(`${origin}/orders`, LOADED);
+  await page.locator('[data-testid^="booked-cancel-"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('booked rides not in طلباتي'));
+  await settle(900);
+  await shot('later-orders');
+  if (seed.bookedOrderId) {
+    await visible(`booked-cancel-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).waitFor({ timeout: 10_000 });
+    await settle(700);
+    await shot('later-orders-cancel');
+    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-${seed.bookedOrderId}`).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('cancelled booked ride still listed'));
+    await settle(900);
+    await shot('later-orders-cancelled');
+  }
+
+  // o4: the switch in notification settings, and the push's link landing on choose.
+  await page.goto(`${origin}/profile/notifications`, LOADED);
+  await byTestId('pref-sameRide').waitFor({ timeout: 15_000 });
+  await byTestId('pref-sameRide').scrollIntoViewIfNeeded();
+  await settle(600);
+  await shot('later-notify');
+  const link = await demoPost(`/demo/same-ride?personId=${encodeURIComponent(personId)}`);
+  if (link?.deepLink) {
+    await page.goto(`${origin}/${link.deepLink.slice('driver://'.length)}`, LOADED);
+    await byTestId('ride-again-note').waitFor({ timeout: 20_000 }).catch(() => errors.push('same-ride landing note not shown'));
+    await settle(1200);
+    await shot('later-again');
+  }
 }
 
 /**
@@ -1083,6 +1435,43 @@ async function chatShots(personId) {
   await guest.screenshot({ path: join(outDir, 'chat-share-ended.png') });
   console.log(join(outDir, 'chat-share-ended.png'));
   await guest.close();
+
+  // Voice notes (ride ideas n7/n8) in the ride's chat: the driver's note, then he holds the mic.
+  // The fake microphone counts as already allowed; report "not asked yet" so the first hold shows our
+  // explanation, as on a first visit (the browser's own prompt then answers yes).
+  await page.addInitScript(() => {
+    const perms = globalThis.navigator.permissions;
+    const query = perms.query.bind(perms);
+    perms.query = (d) => (d?.name === 'microphone' ? Promise.resolve({ state: 'prompt' }) : query(d));
+  });
+  await page.goto(`${origin}/chat/${r.orderId}?kind=customer_courier`, LOADED);
+  await byTestId('chat-msg-2').waitFor({ timeout: 15_000 });
+  await shot('chat-voice-thread');
+  const mic = await byTestId('chat-mic').boundingBox();
+  if (!mic) throw new Error('chat-mic not on screen');
+  const [mx, my] = [mic.x + mic.width / 2, mic.y + mic.height / 2];
+  // The first hold explains before the browser asks.
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  await page.mouse.up();
+  await byTestId('chat-mic-prompt').waitFor({ timeout: 10_000 });
+  await shot('chat-voice-mic-prompt');
+  await page.getByText('اسمح بالمايك').click();
+  await byTestId('chat-mic-prompt').waitFor({ state: 'hidden', timeout: 10_000 });
+  await page.waitForTimeout(1500);
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  await byTestId('chat-voice-recording').waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(3200);
+  // Half way to the cancel line (towards the right in Arabic): the hint follows the finger.
+  await page.mouse.move(mx + 40, my, { steps: 4 });
+  await shot('chat-voice-recording');
+  await page.mouse.move(mx, my, { steps: 4 });
+  await page.mouse.up();
+  // His note goes up and the demo driver answers with one 2.5 s later.
+  await byTestId('chat-msg-3').waitFor({ timeout: 20_000 });
+  await byTestId('chat-msg-4').waitFor({ timeout: 20_000 });
+  await shot('chat-voice-sent');
 }
 
 /**
@@ -1140,7 +1529,8 @@ async function seasonShots(khalid) {
  * rating. The demo API plays the drivers (POST /demo/ride; offers held until /demo/ride/accept).
  */
 async function rideShots() {
-  await demoPost('/demo/ride?acceptMs=0');
+  // Offers are held, and a nudged driver doesn't answer either, so the searching and cancel shots stay put.
+  await demoPost('/demo/ride?acceptMs=0&nudgeAcceptMs=0');
   await page.goto(`${origin}/`, LOADED);
   await byTestId('service-taxi').waitFor({ timeout: 15_000 });
   await byTestId('service-taxi').scrollIntoViewIfNeeded();
@@ -1149,9 +1539,29 @@ async function rideShots() {
   await byTestId('service-taxi').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid^="ride-spot-landmark:"]').first().waitFor({ timeout: 15_000 });
-  await settle(600);
+  // Ride ideas w1–w8: the live map with the free cars, the smart picks with their prices.
+  await byTestId('ride-where-map').waitFor({ timeout: 15_000 });
+  await page.locator('[data-testid="nearby-vehicle"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('no free cars on the where-to map'));
+  await settle(1200);
   await shot('ride-where');
   await fullShot('ride-where-full');
+  await byTestId('ride-zones-toggle').click();
+  await byTestId('ride-zones').waitFor();
+  await byTestId('ride-zones-toggle').scrollIntoViewIfNeeded();
+  await shot('ride-where-zones');
+  await byTestId('ride-zones-toggle').click();
+  await byTestId('ride-pickup').click();
+  await byTestId('ride-my-location').waitFor();
+  await page.mouse.click(5, 5);
+  await settle(400);
+  await shot('ride-where-pickup');
+  await byTestId('ride-dropoff').click();
+  // w7: a restaurant by name.
+  await page.locator('[data-testid="ride-dropoff-input"]').fill('خالد');
+  await page.locator('[data-testid="ride-results"]').waitFor();
+  await settle(500);
+  await shot('ride-search-shop');
+  await page.locator('[data-testid="ride-dropoff-input"]').fill('');
 
   await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
   await page.locator('[data-testid="ride-results"]').waitFor();
@@ -1163,6 +1573,15 @@ async function rideShots() {
   await settle(900);
   await shot('ride-choose');
   await fullShot('ride-choose-full');
+  // x1: a July afternoon on the server's clock — «اليوم حار، نبعثلك سيارة مكيّفة» under the car.
+  await nightShot('/', 'ride-choose-hot', 'ride-climate-hot', {
+    at: Date.UTC(2026, 6, 14, 11),
+    act: async (p) => {
+      await p.locator('[data-testid="service-taxi"]').click({ timeout: 15_000 });
+      await p.locator('[data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
+      await p.locator('[data-testid="ride-price-taxi"]').waitFor({ timeout: 15_000 });
+    },
+  });
 
   await byTestId('ride-details-taxi').click();
   await byTestId('ride-fare-panel').waitFor();
@@ -1171,16 +1590,22 @@ async function rideShots() {
   await byTestId('ride-fare-close').click();
   await byTestId('ride-fare-panel').waitFor({ state: 'detached' });
 
-  await page.getByText('تعال للباب', { exact: false }).first().click();
+  // The options row opens its sheet: door pickup with its price difference.
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await page.getByText('تعال للباب', { exact: false }).last().click();
   await page.waitForTimeout(600);
   await byTestId('ride-pickup-hint').scrollIntoViewIfNeeded();
   await shot('ride-door');
-  await page.getByText('أطلع للشارع', { exact: true }).first().click();
+  await page.getByText('أطلع للشارع', { exact: true }).last().click();
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
 
   // An edge zone: the tuktuk is off, with the reason and "try anyway".
   await byTestId('ride-edit-route').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
   await byTestId('ride-dropoff').click();
+  await byTestId('ride-zones-toggle').click();
   await byTestId('ride-zone-mashrou_owaid').scrollIntoViewIfNeeded();
   await byTestId('ride-zone-mashrou_owaid').click();
   await byTestId('ride-tuktuk-edge').waitFor({ timeout: 15_000 });
@@ -1214,7 +1639,37 @@ async function rideShots() {
 
   // Request a tuktuk with a note for the driver.
   await byTestId('ride-vehicle-tuktuk').click();
-  await page.locator('[data-testid="ride-note"]').fill('يم الصيدلية، الباب الأخضر');
+  await byTestId('ride-options').click();
+  // p4: the note from two quick chips.
+  await byTestId('ride-note-chip-0').click();
+  await byTestId('ride-note-chip-1').click();
+  await settle(400);
+  await shot('ride-options');
+  // s6: «سايق للعوائل» in the same panel (switched back off, so this tuktuk goes to everyone).
+  await byTestId('ride-family').scrollIntoViewIfNeeded();
+  await byTestId('ride-family').click();
+  await settle(400);
+  await shot('ride-family');
+  await byTestId('ride-family').click();
+  // x5 «عندي غراض»: bags and a gas cylinder; with the car chosen the tuktuk row says it fits best.
+  await byTestId('ride-cargo').scrollIntoViewIfNeeded();
+  await byTestId('chip-bags').click();
+  await byTestId('chip-gas').click();
+  await settle(400);
+  await shot('ride-cargo');
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
+  await byTestId('ride-vehicle-taxi').click();
+  await byTestId('ride-fit-tuktuk').waitFor({ timeout: 10_000 }).catch(() => errors.push('tuktuk cargo hint not shown'));
+  await settle(600);
+  await shot('ride-cargo-hint');
+  await byTestId('ride-vehicle-tuktuk').click();
+  await byTestId('ride-options').click();
+  await byTestId('ride-cargo').scrollIntoViewIfNeeded();
+  await byTestId('chip-bags').click();
+  await byTestId('chip-gas').click();
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' });
   await settle(600);
   await shot('ride-choose-tuktuk');
   await byTestId('ride-request').click();
@@ -1223,6 +1678,20 @@ async function rideShots() {
   await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(4200);
   await shot('ride-searching');
+  // n3/n4: the drivers who were sent it, «نبّهه» on the first; n5 his profile on tap.
+  const nudge = page.locator('[data-testid^="ride-nudge-"]').first();
+  if (await nudge.waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await nudge.click();
+    await page.locator('[data-testid^="ride-nudged-"]').first().waitFor({ timeout: 10_000 }).catch(() => errors.push('nudge not confirmed'));
+    await settle(600);
+    await shot('ride-nudged');
+    await page.locator('[data-testid^="ride-offer-open-"]').first().click();
+    await byTestId('driver-profile-body').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver profile not shown'));
+    await settle(700);
+    await shot('ride-profile');
+    await page.keyboard.press('Escape');
+    await byTestId('driver-profile').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+  } else errors.push('offered drivers not shown while searching');
   await byTestId('ride-cancel-searching').waitFor({ state: 'attached', timeout: 5_000 }).catch(() => undefined);
   await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-cancel-searching').waitFor({ timeout: 15_000 });
@@ -1233,10 +1702,48 @@ async function rideShots() {
   await settle(900);
   await shot('ride-cancel');
   await page.getByText('لا، خليه').first().click().catch(async () => page.keyboard.press('Escape'));
+  // m5: nobody accepted by the free-cancel time — on a second tab whose city config says that time is
+  // 6 s (the app's clock follows the server's, so a faked browser clock would not move it).
+  if (wanted('ride-no-driver')) {
+    const ctx = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+    const soon = (node) => {
+      if (Array.isArray(node)) node.forEach(soon);
+      else if (node && typeof node === 'object') {
+        if ('customerFreeCancelAfterSec' in node) node.customerFreeCancelAfterSec = 6;
+        Object.values(node).forEach(soon);
+      }
+    };
+    await ctx.route(/\/trpc\/[^?]*config\.city/, async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      soon(body);
+      await route.fulfill({ response: res, json: body });
+    });
+    const later = await ctx.newPage();
+    await later.goto(`${origin}/order/${orderId}`, LOADED);
+    const offer = later.locator('[data-testid="ride-switch-offer"]').first();
+    if (await offer.waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+      await later.locator('[data-testid="ride-switch-body"]').first().waitFor({ timeout: 10_000 }).catch(() => undefined);
+      await later.waitForTimeout(1200);
+      const file = join(outDir, 'ride-no-driver.png');
+      await later.screenshot({ path: file });
+      console.log(file);
+    } else errors.push('no-driver offer not shown');
+    await ctx.close();
+  }
 
-  // The nearest tuktuk accepts and drives over.
-  const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
-  if (!ok) return;
+  // The nearest tuktuk accepts and drives over. Between two waves no offer is open (and a held offer
+  // can run out while the shots above are taken), so wait for the next one to ring.
+  let ok = null;
+  const held = await demoPost(`/demo/ride/nudges?orderId=${orderId}`);
+  console.log('offers before accept:', JSON.stringify(held?.offers?.map((o) => [o.name, o.state]) ?? null), 'searching:', held?.searching);
+  for (let i = 0; i < 40 && !ok; i++) {
+    const r = await fetch(`${apiBase}/demo/ride/accept?orderId=${orderId}`, { method: 'POST' });
+    if (r.ok) ok = await r.json().catch(() => ({}));
+    else if (r.status === 409) await page.waitForTimeout(1000);
+    else return void errors.push(`/demo/ride/accept: ${r.status} ${await r.text()}`);
+  }
+  if (!ok) return void errors.push(`/demo/ride/accept?orderId=${orderId}: no offer rang within 40 s`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(4500);
@@ -1245,18 +1752,53 @@ async function rideShots() {
   await byTestId('courier-card').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await shot('ride-matched-expanded');
+  // d3 a minute away (with d4's light at night), d4 the screen light, t3 the safety shield.
+  await nightShot(`/order/${orderId}`, 'ride-near', 'ride-near', { etaInSec: 45 });
+  await nightShot(`/order/${orderId}`, 'ride-light', 'ride-light', {
+    etaInSec: 45,
+    act: async (p) => {
+      await p.locator('[data-testid="ride-light-button"]').first().click({ timeout: 15_000 });
+    },
+  });
+  await byTestId('safety-shield').click();
+  await byTestId('safety-sheet').waitFor({ timeout: 10_000 }).catch(() => errors.push('safety sheet not shown'));
+  await settle(700);
+  await shot('ride-shield');
+  await page.keyboard.press('Escape');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
   await byTestId('ride-wait-note').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot('ride-at-pickup');
+  // d5: the arrived card in the tuktuk's colour with the free-wait ring (and d4's light at night).
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('driver-here').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver-here card not shown'));
+  await page.waitForTimeout(1500);
+  await shot('ride-driver-here');
+  await nightShot(`/order/${orderId}`, 'ride-driver-here-night', 'driver-here-ring');
+
+  // Ride step 3 (s1): the same ride as if placed at night — «رمز المشوار» on the arrived card, and in the
+  // collapsed sheet once that card is closed.
+  await demoPost(`/demo/ride/night?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('driver-here').waitFor({ timeout: 15_000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
+  await shot('ride-driver-here-code');
+  await byTestId('driver-here-close').click().catch(() => errors.push('arrived card would not close'));
+  if (await byTestId('ride-trip-code').waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
+    await page.waitForTimeout(1500);
+    await shot('ride-trip-code');
+  } else errors.push('trip code not shown on a night ride');
 
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(5000);
   await shot('ride-on-trip');
+  // t1 the trip line in the collapsed sheet; t2 the night share card up front.
+  await byTestId('ride-trip-progress').waitFor({ timeout: 10_000 }).catch(() => errors.push('trip progress not shown'));
+  await nightShot(`/order/${orderId}?sheet=1`, 'ride-night-share', 'ride-night-share');
   await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
   await byTestId('sheet-body').waitFor({ timeout: 15_000 });
   await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
@@ -1267,14 +1809,183 @@ async function rideShots() {
   // per order), and the reload below would then open on the calm receipt.
   await page.goto(`${origin}/`, LOADED);
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  // g2: show this ride as his 10th, so the arrival offers its sticker (the demo rider has one ride).
+  const asTenth = async (route) => {
+    const res = await route.fetch();
+    const patch = (v) => {
+      if (Array.isArray(v)) return v.forEach(patch);
+      if (!v || typeof v !== 'object') return;
+      if ('tuktukOrderId' in v && 'rideMilestone' in v) {
+        v.rideMilestone = { orderId, count: 10 };
+        // His 10th ride can't also be his first tuktuk: that moment would win over the sticker.
+        if (v.tuktukOrderId === orderId) v.tuktukOrderId = null;
+      }
+      Object.values(v).forEach(patch);
+    };
+    const body = await res.json().catch(() => null);
+    if (body === null) return route.fulfill({ response: res });
+    patch(body);
+    await route.fulfill({ response: res, json: body });
+  };
+  await page.route('**/trpc/*orders.firsts*', asTenth);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('arrival').waitFor({ timeout: 15_000 });
+  await byTestId('ride-sticker-milestone').waitFor({ timeout: 10_000 }).catch(() => errors.push('ride sticker not shown'));
   await page.waitForTimeout(1200);
   await shot('ride-arrived');
+  await page.unroute('**/trpc/*orders.firsts*', asTenth);
   await byTestId('arrival-rate').click();
   await byTestId('stars-delivery').waitFor();
   await settle(500);
   await shot('ride-rating');
+
+  // w2 / a3: after a ride, «تحب تسمّي هالمكان؟» on the receipt, and the place among the smart picks.
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('ride-name-place').waitFor({ timeout: 15_000 }).catch(() => errors.push('name-this-place not shown'));
+  await byTestId('ride-name-place').scrollIntoViewIfNeeded().catch(() => undefined);
+  await shot('ride-receipt-name');
+  // s7 «نسيت غرض» and s5 «ما أريده مرة ثانية» among the receipt's actions.
+  await page.goto(`${origin}/order/${orderId}?sheet=2`, LOADED);
+  await byTestId('action-lost-item').waitFor({ timeout: 15_000 }).catch(() => errors.push('lost-item row not shown'));
+  await byTestId('action-lost-item').scrollIntoViewIfNeeded().catch(() => undefined);
+  await settle(500);
+  await shot('ride-receipt-actions');
+  await byTestId('action-avoid').click();
+  await byTestId('avoid-sheet').waitFor({ timeout: 10_000 }).catch(() => errors.push('avoid sheet not shown'));
+  await settle(600);
+  await shot('ride-avoid');
+  await byTestId('avoid-cancel').click();
+  await byTestId('action-lost-item').click();
+  await page.waitForURL(/\/chat\//, { timeout: 15_000 }).catch(() => errors.push('lost item did not open the chat'));
+  await settle(1200);
+  await shot('ride-lost-item-chat');
+  await page.goto(`${origin}/ride`, LOADED);
+  await byTestId('ride-picks').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart picks not shown after a ride'));
+  await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));
+  await settle(900);
+  await shot('ride-where-picks');
+}
+
+/**
+ * Ride ideas c9/s3 «لمنو المشوار؟»: the row on the choose screen («إلي»), its sheet (ماما booked for
+ * before, two trusted people, «شخص ثاني»), a typed name with a wrong then a right number, the row «لـ
+ * خالتي»; then the booker's live screen for her ride, its end («مشوار خالتي وصل بالسلامة») and the
+ * history row «لـ خالتي». The ride is driven to the end, so nothing is left running.
+ */
+async function rideForShots() {
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId || !(await demoPost(`/demo/ride-for?personId=${encodeURIComponent(personId)}`))) return;
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('service-taxi').click({ timeout: 15_000 });
+  await byTestId('ride-where').waitFor({ timeout: 15_000 });
+  await byTestId('ride-dropoff').click();
+  await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
+  await page.locator('[data-testid="ride-results"]').waitFor();
+  await page.locator('[data-testid="ride-results"] [data-testid^="ride-spot-"]').first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await byTestId('ride-rider').waitFor({ timeout: 10_000 });
+  await settle(900);
+  await shot('ride-for-choose');
+
+  await byTestId('ride-rider').click();
+  await byTestId('ride-rider-sheet').waitFor();
+  await byTestId('chip-trusted:0').waitFor({ timeout: 10_000 }).catch(() => errors.push('trusted people not offered for a ride'));
+  await settle(600);
+  await shot('ride-for-sheet');
+  await byTestId('chip-other').click();
+  await page.locator('[data-testid="ride-rider-name"]').fill('خالتي');
+  await page.locator('[data-testid="ride-rider-phone"]').fill('0771 234');
+  await byTestId('ride-rider-done').click();
+  await settle(500);
+  await shot('ride-for-typed-error');
+  await page.locator('[data-testid="ride-rider-phone"]').fill('0771 234 5678');
+  await settle(400);
+  await shot('ride-for-typed');
+  await byTestId('ride-rider-done').click();
+  await byTestId('ride-rider-sheet').waitFor({ state: 'detached' });
+  await settle(600);
+  await shot('ride-for-row');
+
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  await page.waitForTimeout(2500);
+  await shot('ride-for-searching');
+  if (!(await demoPost(`/demo/ride/accept?orderId=${orderId}`))) return;
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(4500);
+  await shot('ride-for-live');
+  await page.goto(`${origin}/order/${orderId}?sheet=1`, LOADED);
+  await byTestId('ride-follow').waitFor({ timeout: 15_000 }).catch(() => errors.push('follow card not shown on a ride for someone else'));
+  await page.waitForTimeout(2000);
+  await shot('ride-for-live-expanded');
+
+  // To the end, away from the order screen; the arrival plays when he opens it.
+  await page.goto(`${origin}/`, LOADED);
+  for (let i = 0; i < 3; i++) await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('arrival').waitFor({ timeout: 15_000 }).catch(() => errors.push('arrival not shown for a ride for someone else'));
+  await page.waitForTimeout(1500);
+  await shot('ride-for-arrived');
+  await page.goto(`${origin}/orders`, LOADED);
+  await byTestId(`order-${orderId}`).waitFor({ timeout: 15_000 }).catch(() => errors.push('ride for someone else not in history'));
+  await settle(700);
+  await shot('ride-for-history');
+}
+
+/**
+ * Ride ideas d3/d4/t2: a second tab that lives at night. Every date the API sends moves by the same
+ * amount, so the app's server-corrected clock reads 22:30 in Baghdad while every countdown keeps its
+ * real length (unless it already is night). `etaInSec` pins the driver's ETA that far ahead of that
+ * clock (the "a minute away" card). Shoots `name` once `testID` shows; `act` runs first on the page.
+ * `at` (epoch ms) moves the server's clock to that instant instead (x1: a July afternoon).
+ */
+async function nightShot(path, name, testID, { etaInSec = null, act = null, at = null } = {}) {
+  if (!wanted(name)) return;
+  const now = Date.now();
+  const bagh = new Date(now + 3 * 3_600_000);
+  const h = bagh.getUTCHours();
+  const night = h >= 21 || h < 6;
+  const target = Date.UTC(bagh.getUTCFullYear(), bagh.getUTCMonth(), bagh.getUTCDate(), 19, 30);
+  const shift = at !== null ? at - now : night ? 0 : target - now;
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+  const move = (node) => {
+    if (Array.isArray(node)) return node.map(move);
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) {
+        if (k === 'etaAt' && etaInSec !== null && typeof v === 'string') node[k] = new Date(Date.now() + shift + etaInSec * 1000).toISOString();
+        else node[k] = move(v);
+      }
+      return node;
+    }
+    return typeof node === 'string' && iso.test(node) ? new Date(new Date(node).getTime() + shift).toISOString() : node;
+  };
+  const ctx = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
+  await ctx.route(/\/trpc\//, async (route) => {
+    // Live subscriptions stream; the next read of the order carries the moved dates anyway.
+    if ((route.request().headers().accept ?? '').includes('event-stream')) return route.continue();
+    const res = await route.fetch().catch(() => null);
+    if (!res) return route.abort().catch(() => undefined);
+    const type = res.headers()['content-type'] ?? '';
+    if (!type.includes('json')) return route.fulfill({ response: res });
+    await route.fulfill({ response: res, json: move(await res.json()) });
+  });
+  const night_ = await ctx.newPage();
+  try {
+    await night_.goto(`${origin}${path}`, LOADED);
+    if (act) await act(night_);
+    await night_.locator(`[data-testid="${testID}"]`).first().waitFor({ timeout: 15_000 });
+    await night_.waitForTimeout(1500);
+    const file = join(outDir, `${name}.png`);
+    await night_.screenshot({ path: file });
+    console.log(file);
+  } catch (err) {
+    errors.push(`${name}: ${err?.message ?? err}`);
+  }
+  await ctx.unrouteAll({ behavior: 'ignoreErrors' });
+  await ctx.close();
 }
 
 /**

@@ -4,7 +4,7 @@ import type { PushPermission } from '@/lib/push';
 /**
  * When to ask for notifications (customer): never on first launch. The first time it matters is
  * right after the first order goes in ("نخبرك أول ما المطعم يقبل؟"), so the kitchen-waiting screen asks
- * (rides: the sheet once a driver is coming) — with our own Iraqi-Arabic card first, never a sheet over
+ * (rides: the sheet while we look for a driver) — with our own Iraqi-Arabic card first, never a sheet over
  * the map; the OS prompt only follows a "إي". "لا هسة" snoozes a week.
  * A denied permission is never re-asked here; settings shows the way to the phone's settings.
  */
@@ -19,10 +19,11 @@ export function shouldShowPrePrompt(permission: PushPermission, lastDismissedAt:
 /**
  * Joy f1 (L-01): the ask never covers the live map. Food asks inline on the kitchen-waiting screen
  * (`app/kitchen/[id].tsx`), the dead time right before the first push matters. A ride has no such
- * screen, so it asks inline in the collapsed sheet once a driver is coming — and only then.
+ * screen, so it asks inline in the collapsed sheet from the search on (the wait for a driver is the
+ * dead time, and «لگينا سايق» is the first push that matters) until the driver is at the pickup.
  */
 export function rideAskOnLiveScreen(ride: boolean, phase: Phase | null): boolean {
-  return ride && (phase === 'to_pickup' || phase === 'at_pickup');
+  return ride && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup');
 }
 
 /** `driver://order/ord_1` → `/order/ord_1` (only our own scheme; anything else is ignored). */

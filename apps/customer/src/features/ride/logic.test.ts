@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
+  addNoteChip,
+  surchargeEndsInMin,
+  memberSpan,
+  rideNearDue,
+  standsAwayM,
+  tripProgress,
+  freeCancelLeftSec,
+  rideBackOffer,
+  searchProgress,
+  shopSpot,
+  smartPicks,
   destinationPinKind,
   searchStageIndex,
   switchOfferDue,
   buildRidePlaceInput,
+  cargoFits,
   doorExtra,
   fareLines,
   hour12,
@@ -14,11 +26,13 @@ import {
   normalizeArabic,
   pushRecent,
   rideEstimate,
+  rideClimate,
   rideProblem,
   rideQuoteRequest,
   ruleHours,
   sameSpot,
   searchSpots,
+  spotForEnd,
   searchStage,
   surchargesOf,
   tooClose,
@@ -119,6 +133,16 @@ describe('places', () => {
     expect(zoneTitle('street_30', 'en')).toBe('Street 30');
     expect(zoneTitle('nowhere')).toBe('nowhere');
   });
+
+  it('turns a «نفس مشوار البارحة؟» end into the spot the rider knows (o4)', () => {
+    const gate = landmarkSpot(garage, 'ar-IQ', 'كراج');
+    const sources = { saved: [home], recent: [], landmarks: [gate] };
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.95, lng: 45.1 }, placeId: 'p1' }, sources)).toBe(home);
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.9097, lng: 45.0636 } }, sources)).toBe(home);
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.9089, lng: 45.0648 } }, sources)).toBe(gate);
+    const pin = spotForEnd({ zoneKey: 'fidaa', pin: { lat: 32.92, lng: 45.07 } }, sources);
+    expect(pin).toMatchObject({ kind: 'pin', zoneId: 'fidaa', title: zoneTitle('fidaa'), pin: { lat: 32.92, lng: 45.07 } });
+  });
 });
 
 describe('quotes', () => {
@@ -192,6 +216,23 @@ describe('placing', () => {
     expect(buildRidePlaceInput({ vertical: 'taxi', pickup: home, dropoff: home, doorPickup: true, fareIqd: 3000, paymentMethod: 'wallet', note: '  ' })).not.toHaveProperty('note');
   });
 
+  it('«عندي غراض» rides with the request in chip order; none said, none sent (x5)', () => {
+    expect(buildRidePlaceInput({ vertical: 'tuktuk', pickup: home, dropoff: home, doorPickup: false, fareIqd: 2000, paymentMethod: 'cash', rideCargo: ['gas', 'bags'] }).rideCargo).toEqual(['bags', 'gas']);
+    expect(buildRidePlaceInput({ vertical: 'tuktuk', pickup: home, dropoff: home, doorPickup: false, fareIqd: 2000, paymentMethod: 'cash', rideCargo: [] })).not.toHaveProperty('rideCargo');
+    expect(cargoFits(['bags'], 'tuktuk')).toBe(true);
+    expect(cargoFits(['bags'], 'taxi')).toBe(false);
+    expect(cargoFits([], 'tuktuk')).toBe(false);
+  });
+
+  it('the hot / cold line: a car ride on the server’s clock only (x1)', () => {
+    const july = new Date('2026-07-14T11:00:00Z'); // 14:00 Baghdad
+    expect(rideClimate(july, 'taxi')).toBe('hot');
+    expect(rideClimate(july, 'tuktuk')).toBeNull();
+    expect(rideClimate(new Date('2026-01-14T07:00:00Z'), 'taxi')).toBe('cold');
+    expect(rideClimate(new Date('2026-10-07T11:00:00Z'), 'taxi')).toBeNull();
+    expect(rideClimate(null, 'taxi')).toBeNull();
+  });
+
   it('maps refusals to what the screen says', () => {
     expect(rideProblem('price_changed')).toBe('price_changed');
     expect(rideProblem('new_customer_cash_cap')).toBe('cash_cap');
@@ -225,7 +266,7 @@ describe('ride store', () => {
     store.start('tuktuk');
     expect(store.getSnapshot().draft).toEqual({ ...EMPTY_DRAFT, vertical: 'tuktuk', payment: 'wallet' });
     store.placed('o1', { vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة' }, landmarkSpot(park, 'ar-IQ', ''), 1000);
-    expect(store.getSnapshot().memos['o1']).toEqual({ vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', at: 1000 });
+    expect(store.getSnapshot().memos['o1']).toEqual({ vertical: 'tuktuk', from: 'البيت', to: 'حديقة الشاشة', dest: landmarkSpot(park, 'ar-IQ', ''), at: 1000 });
     expect(store.getSnapshot().recent[0]?.title).toBe('حديقة الشاشة');
     await Promise.resolve();
     const again = createRideStore(storage);
@@ -261,5 +302,98 @@ describe('ride search finish line and the 3-minute offer (L-03, J-D7)', () => {
     expect(destinationPinKind({ savedLabel: 'work' })).toBe('destination');
     expect(destinationPinKind({})).toBe('destination');
     expect(destinationPinKind(null)).toBe('destination');
+  });
+});
+
+describe('step 2 (ride ideas w2, w7, a4, m2, m4, p4)', () => {
+  const at = (id: string, lat: number, extra: Partial<Spot> = {}): Spot => ({ id, kind: 'saved', title: id, zoneId: 'street_30', pin: { lat, lng: 45.06 }, ...extra });
+  const home = at('home', 32.9, { savedLabel: 'home' });
+  const work = at('work', 32.92, { savedLabel: 'work' });
+  const market = at('market', 32.91, { kind: 'recent' });
+
+  it('smart picks: work first in the morning, home first later, never where he is', () => {
+    expect(smartPicks({ hour: 8, saved: [home, work], recent: [market], pickup: null }).map((s) => s.id)).toEqual(['work', 'home', 'market']);
+    expect(smartPicks({ hour: 18, saved: [home, work], recent: [market], pickup: null }).map((s) => s.id)).toEqual(['home', 'work', 'market']);
+    expect(smartPicks({ hour: 18, saved: [home, work], recent: [market], pickup: home }).map((s) => s.id)).toEqual(['work', 'market']);
+  });
+
+  it('a restaurant becomes a destination at its pickup point; none without one', () => {
+    const s = shopSpot({ id: 'org_1', name: 'مطعم خالد', pickup: { zoneKey: 'street_30', pin: { lat: 32.9, lng: 45.06 } } }, 'ar-IQ', 'مطعم');
+    expect(s).toMatchObject({ id: 'shop:org_1', kind: 'shop', zoneId: 'street_30' });
+    expect(shopSpot({ id: 'org_2', name: 'x', pickup: null }, 'ar-IQ', 'مطعم')).toBeNull();
+    expect(searchSpots('خالد', { saved: [], recent: [], landmarks: [], shops: [s!], zones: [] })[0]?.id).toBe('shop:org_1');
+  });
+
+  it('ride back: same day, 20 min to 10 h after a ride that did not end at home', () => {
+    const t0 = new Date(2026, 9, 7, 9, 0).getTime();
+    const base = { lastAt: t0, lastToHome: false, lastPlace: market, home };
+    expect(rideBackOffer({ ...base, now: t0 + 10 * 60_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, now: t0 + 2 * 3_600_000 })).toEqual({ from: market, to: home });
+    expect(rideBackOffer({ ...base, now: t0 + 11 * 3_600_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, lastToHome: true, now: t0 + 2 * 3_600_000 })).toBeNull();
+    expect(rideBackOffer({ ...base, home: null, now: t0 + 2 * 3_600_000 })).toBeNull();
+  });
+
+  it('the free minute after acceptance counts down, then is gone', () => {
+    const acc = new Date(1_000_000);
+    expect(freeCancelLeftSec(acc, 1_000_000 + 18_000)).toBe(42);
+    expect(freeCancelLeftSec(acc, 1_000_000 + 61_000)).toBeNull();
+    expect(freeCancelLeftSec(null, 0)).toBeNull();
+  });
+
+  it('search bar: 3 asked, then 8, then everyone up to the free-cancel time', () => {
+    expect(searchProgress(5, undefined)).toEqual({ part: 1, fill: 5 / 15, asked: 3 });
+    expect(searchProgress(20, undefined)).toEqual({ part: 2, fill: 5 / 15, asked: 8 });
+    expect(searchProgress(30, undefined)).toMatchObject({ part: 3, fill: 0, asked: 'all' });
+    expect(searchProgress(400, undefined)).toMatchObject({ part: 3, fill: 1 });
+  });
+
+  it('note chips add once, after what he wrote', () => {
+    expect(addNoteChip('', 'يم الصيدلية')).toBe('يم الصيدلية');
+    expect(addNoteChip('الباب الأخضر', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
+    expect(addNoteChip('الباب الأخضر، يم الصيدلية', 'يم الصيدلية')).toBe('الباب الأخضر، يم الصيدلية');
+  });
+  it('he is a minute away: only while coming to the pickup, from the one ETA', () => {
+    expect(rideNearDue({ comingToPickup: true, eta: new Date(70_000), now: 10_000 })).toBe(true);
+    expect(rideNearDue({ comingToPickup: true, eta: new Date(80_000), now: 10_000 })).toBe(false);
+    expect(rideNearDue({ comingToPickup: false, eta: new Date(20_000), now: 10_000 })).toBe(false);
+    expect(rideNearDue({ comingToPickup: true, eta: null, now: 10_000 })).toBe(false);
+  });
+
+  it('trip progress: by time to the ETA, never backwards, never full before the end', () => {
+    const start = new Date(0);
+    expect(tripProgress({ startedAt: start, eta: new Date(600_000), now: 150_000 })).toEqual({ fraction: 0.25, leftMin: 8 });
+    // The ETA grew: the line holds where it was.
+    expect(tripProgress({ startedAt: start, eta: new Date(900_000), now: 150_000, floor: 0.25 })?.fraction).toBe(0.25);
+    expect(tripProgress({ startedAt: start, eta: new Date(600_000), now: 700_000 })).toEqual({ fraction: 0.97, leftMin: 1 });
+    expect(tripProgress({ startedAt: null, eta: new Date(600_000), now: 0 })).toBeNull();
+    // Still the pickup leg's ETA: nothing to draw yet.
+    expect(tripProgress({ startedAt: new Date(600_000), eta: new Date(500_000), now: 610_000 })).toBeNull();
+  });
+
+  it('where he stands: on the pin, in 5 m then 10 m steps, nothing for a bad fix', () => {
+    const pin = { lat: 32.9, lng: 45.06 };
+    expect(standsAwayM({ lat: 32.9, lng: 45.0601 }, pin)).toBe(0);
+    expect(standsAwayM({ lat: 32.9003, lng: 45.06 }, pin)).toBe(35);
+    expect(standsAwayM({ lat: 32.9011, lng: 45.06 }, pin)).toBe(120);
+    expect(standsAwayM({ lat: 32.95, lng: 45.06 }, pin)).toBeNull();
+    expect(standsAwayM(null, pin)).toBeNull();
+  });
+  it('member since: new under a month, then months, then whole years', () => {
+    const now = Date.UTC(2026, 9, 7);
+    expect(memberSpan(new Date(Date.UTC(2026, 8, 20)), now)).toEqual({ unit: 'new', n: 0 });
+    expect(memberSpan(new Date(Date.UTC(2026, 1, 1)), now)).toEqual({ unit: 'months', n: 8 });
+    expect(memberSpan(new Date(Date.UTC(2024, 5, 1)), now)).toEqual({ unit: 'years', n: 2 });
+    expect(memberSpan(null, now)).toBeNull();
+  });
+  it('timing tip: minutes until a surcharge window ends, only in its last half hour', () => {
+    // 16:45 Baghdad = 13:45 UTC.
+    const at = (h: number, m: number) => new Date(Date.UTC(2026, 9, 7, h - 3, m));
+    expect(surchargeEndsInMin([14, 17], at(16, 45))).toBe(15);
+    expect(surchargeEndsInMin([14, 17], at(16, 0))).toBeNull();
+    expect(surchargeEndsInMin([14, 17], at(17, 5))).toBeNull();
+    // A window over midnight (night 23–5): 04:50 is 10 minutes from its end.
+    expect(surchargeEndsInMin([23, 5], at(4, 50))).toBe(10);
+    expect(surchargeEndsInMin(null, at(4, 50))).toBeNull();
   });
 });

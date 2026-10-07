@@ -1,4 +1,4 @@
-import { PriceRequest, type Order } from '@driver/contracts';
+import { PriceRequest, RIDE_HABIT_RULES, rideSearchStartsAt, type Order } from '@driver/contracts';
 import { CITY, type OrderRun, type SimContext } from '../context.js';
 import { zoneAt } from '../world.js';
 
@@ -55,11 +55,14 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
     return;
   }
 
-  // Ride: locked quote → order → trip → smart broadcast (the customer app's request flow).
+  // Ride: locked quote → order → trip → smart broadcast (the customer app's request flow). A ride
+  // booked «بعدين» is quoted and placed for its time (on the 5-minute grid); its search waits.
   const vertical = p.rideVertical ?? 'taxi';
   const pickupZone = zoneAt(c.home);
+  const grid = RIDE_HABIT_RULES.schedule.gridMin * 60_000;
+  const scheduledFor = p.bookAheadMin === null ? null : new Date(Math.ceil((ctx.t + p.bookAheadMin * 60_000) / grid) * grid);
   const quote = ctx.s.pricing.quote(
-    PriceRequest.parse({ cityId: CITY, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: p.dropoffZone, type: 'dropoff' }], at: new Date(ctx.t) }),
+    PriceRequest.parse({ cityId: CITY, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: p.dropoffZone, type: 'dropoff' }], at: scheduledFor ?? new Date(ctx.t) }),
   );
   const order = await ctx.call('customer.place', () =>
     ctx.s.orders.place(run.customerId, {
@@ -72,6 +75,7 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
       paymentMethod: p.payment,
       pickup: { zoneKey: pickupZone, pin: c.home },
       dropoff: { zoneKey: p.dropoffZone, pin: p.dropoffPin },
+      ...(scheduledFor ? { scheduledFor } : {}),
     }),
   );
   if (!order) {
@@ -101,9 +105,11 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
   );
   if (!trip) return;
   run.rideTripId = trip.id;
-  run.stageT.searching = ctx.t;
+  const searchAt = scheduledFor ? rideSearchStartsAt(scheduledFor) : null;
+  run.stageT.searching = searchAt?.getTime() ?? ctx.t;
   await ctx.call('customer.ride_request', () =>
     ctx.s.dispatch.request({
+      ...(searchAt ? { startAt: searchAt } : {}),
       tripId: trip.id,
       cityId: CITY,
       vertical,
@@ -164,7 +170,8 @@ export async function customerStep(ctx: SimContext, run: OrderRun, order: Order)
 
   // A ride nobody has taken.
   if (order.type === 'ride' && order.state === 'placed' && run.rideTripId && !run.cancelTried) {
-    const waited = (ctx.t - run.placedT) / 60_000;
+    // A ride booked «بعدين» is waited for from its search, not from when it was booked.
+    const waited = (ctx.t - (run.stageT.searching ?? run.placedT)) / 60_000;
     let cancel = waited >= CUSTOMER_BEHAVIOUR.ridePatienceMin;
     if (!cancel && !run.freeCancelSeen && waited >= 3) {
       const req = await ctx.s.dispatch.getRequest(run.rideTripId);

@@ -80,6 +80,17 @@ export interface DispatchHoldsPort {
 
 export const DISPATCH_HOLDS = Symbol('DISPATCH_HOLDS');
 
+/**
+ * What a rider asked of his rides (ride step 3), from the ride-habits module (bound at runtime: that
+ * module imports this one): the drivers he keeps off his rides (s5), his favourites (s4), and for the
+ * «عوائل» first wave (s6) each driver's public rating and since when he drives here.
+ */
+export interface RiderPrefsPort {
+  avoided(personId: string): Promise<string[]>;
+  favourites(personId: string): Promise<string[]>;
+  standing(driverIds: readonly string[]): Promise<Map<string, { rating: number | null; driverSince: Date | null }>>;
+}
+
 // ───────────────────────── fakes for tests and the simulator ─────────────────────────
 
 export class FakeTripOffers implements TripOffersPort {

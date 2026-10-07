@@ -6,7 +6,7 @@ import type { DriverAccountService } from '../driver-account/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { OrgsService } from '../orgs/index.js';
-import { InMemoryFleetRepository } from './fleet.repository.js';
+import { checkFeatures, claimFeatures, InMemoryFleetRepository, unconfirmedFeatures } from './fleet.repository.js';
 import { FleetService, fleetWeek } from './fleet.service.js';
 
 function earnings(driverId: string, netIqd: number, overCap = false): EarningsView {
@@ -232,5 +232,90 @@ describe('fleetWeek', () => {
     expect(days.map((d) => d.date)).toEqual(['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03']);
     expect(days.map((d) => d.earningsIqd)).toEqual([3000, 2000, 0, 0, 0, 0, 1500]);
     expect(days.map((d) => d.jobs)).toEqual([1, 1, 0, 0, 0, 0, 1]);
+  });
+});
+
+describe('vehicle details and features (ride step 3: d1, n1, n2)', () => {
+  /** A fleet car with a driver who accepted the fleet and drives it, and a field ops reviewer. */
+  async function carWithDriver() {
+    const h = await setup();
+    const car = await h.fleet.addVehicle(h.owner, { plate: 'واسط 31207', vehicleClass: 'car', model: '  Toyota   Corolla ', colour: 'white' });
+    const driver = (await h.id.login('07700000060')).actor;
+    await h.fleet.addDriver(h.owner, { phone: '07700000060' });
+    await h.fleet.respondInvite(driver, { fleetOrgId: 'fleet_1', accept: true });
+    await h.fleet.assignDriver(h.owner, { vehicleId: car.vehicleId, driverId: driver.personId });
+    const ops = (await h.id.login('07700000070')).actor;
+    await h.id.service.grantRole({ personId: 'admin' }, { personId: ops.personId, kind: 'field_ops' });
+    return { h, car, driver, ops };
+  }
+
+  it('the fleet owner registers the model and colour; a new car claims nothing', async () => {
+    const { car } = await carWithDriver();
+    expect(car).toMatchObject({ model: 'Toyota Corolla', colour: 'white', features: [], featuresConfirmed: [] });
+  });
+
+  it('the driver claims features on the car he drives, in display order; no car, no claims', async () => {
+    const { h, car, driver } = await carWithDriver();
+    const walker = (await h.id.login('07700000061')).actor;
+    expect(await h.fleet.myVehicle(walker)).toBeNull();
+    await expect(h.fleet.setMyVehicleFeatures(walker, { features: ['ac'] })).rejects.toMatchObject({ code: 'vehicle_not_found' });
+    const claimed = await h.fleet.setMyVehicleFeatures(driver, { features: ['family', 'ac', 'family'] });
+    expect(claimed).toMatchObject({ vehicleId: car.vehicleId, features: ['ac', 'family'], featuresConfirmed: [] });
+    expect(await h.fleet.myVehicle(driver)).toMatchObject({ features: ['ac', 'family'] });
+    expect((await h.ev.events.forAggregate('vehicle', car.vehicleId)).map((e) => [e.type, e.payload])).toEqual([['fleet.vehicle_features_claimed', { vehicleId: car.vehicleId, added: ['ac', 'family'], removed: [] }]]);
+  });
+
+  it('a tuktuk offers no AC, heating or boot (`CLASS_FEATURES`)', async () => {
+    const { h, driver } = await carWithDriver();
+    const tuktuk = await h.fleet.addVehicle(h.owner, { plate: 'واسط 8841', vehicleClass: 'tuktuk', model: 'باجاج', colour: 'red' });
+    await h.fleet.assignDriver(h.owner, { vehicleId: tuktuk.vehicleId, driverId: driver.personId });
+    await expect(h.fleet.setMyVehicleFeatures(driver, { features: ['ac', 'family'] })).rejects.toMatchObject({ code: 'vehicle_feature_not_offered' });
+    expect(await h.fleet.setMyVehicleFeatures(driver, { features: ['no_smoking', 'family'] })).toMatchObject({ vehicleId: tuktuk.vehicleId, features: ['family', 'no_smoking'] });
+  });
+
+  it('approving a new fleet car is its car check: what ops saw is confirmed, the rest is cleared', async () => {
+    const { h, car, driver, ops } = await carWithDriver();
+    await h.fleet.setMyVehicleFeatures(driver, { features: ['ac', 'family'] });
+    // Still pending: its claims wait for the vehicle check itself, not the features queue.
+    expect(await h.fleet.vehiclesWithUnconfirmedFeatures()).toEqual([]);
+    const checked = await h.fleet.reviewVehicle(ops, { vehicleId: car.vehicleId, approve: true, confirmFeatures: ['ac'] });
+    expect(checked).toMatchObject({ reviewState: 'verified', features: ['ac'], featuresConfirmed: ['ac'] });
+  });
+
+  it('later claims wait for the car check; taking one off drops its confirmation at once', async () => {
+    const { h, car, driver, ops } = await carWithDriver();
+    await h.fleet.reviewVehicle(ops, { vehicleId: car.vehicleId, approve: true });
+    await h.fleet.setMyVehicleFeatures(driver, { features: ['ac'] });
+    expect((await h.fleet.vehiclesWithUnconfirmedFeatures()).map((v) => v.id)).toEqual([car.vehicleId]);
+    await h.fleet.reviewFeatures(ops, { vehicleId: car.vehicleId, approve: true });
+    expect(await h.fleet.myVehicle(driver)).toMatchObject({ features: ['ac'], featuresConfirmed: ['ac'] });
+    expect(await h.fleet.vehiclesWithUnconfirmedFeatures()).toEqual([]);
+    // He adds heating (it waits) and takes AC off (riders stop seeing it now, not after a check).
+    expect(await h.fleet.setMyVehicleFeatures(driver, { features: ['heating'] })).toMatchObject({ features: ['heating'], featuresConfirmed: [] });
+    expect((await h.fleet.vehiclesWithUnconfirmedFeatures()).map((v) => v.id)).toEqual([car.vehicleId]);
+  });
+
+  it("the features check: nobody checks his own car or his fleet's; a reject clears what was waiting", async () => {
+    const { h, car, driver, ops } = await carWithDriver();
+    await h.fleet.reviewVehicle(ops, { vehicleId: car.vehicleId, approve: true, confirmFeatures: [] });
+    await h.fleet.setMyVehicleFeatures(driver, { features: ['ac'] });
+    await h.fleet.reviewFeatures(ops, { vehicleId: car.vehicleId, approve: true });
+    await h.fleet.setMyVehicleFeatures(driver, { features: ['ac', 'heating', 'big_boot'] });
+    await h.id.service.grantRole({ personId: 'admin' }, { personId: driver.personId, kind: 'field_ops' });
+    await expect(h.fleet.reviewFeatures(driver, { vehicleId: car.vehicleId, approve: true })).rejects.toMatchObject({ code: 'approval_own_item' });
+    await expect(h.fleet.reviewFeatures(h.owner, { vehicleId: car.vehicleId, approve: true })).rejects.toMatchObject({ code: 'approval_own_item' });
+    const rejected = await h.fleet.reviewFeatures(ops, { vehicleId: car.vehicleId, approve: false, reason: 'الهيتر ما يشتغل' });
+    expect(rejected).toMatchObject({ features: ['ac'], featuresConfirmed: ['ac'] });
+    await expect(h.fleet.reviewFeatures(ops, { vehicleId: car.vehicleId, approve: true })).rejects.toMatchObject({ code: 'approval_state_conflict' });
+    const checks = (await h.ev.events.forAggregate('vehicle', car.vehicleId)).filter((e) => e.type === 'fleet.vehicle_features_checked');
+    expect(checks.at(-1)?.payload).toMatchObject({ confirmed: ['ac'], cleared: ['heating', 'big_boot'], reason: 'الهيتر ما يشتغل' });
+  });
+});
+
+describe('claimFeatures / checkFeatures', () => {
+  it('a claim keeps its confirmation only while claimed; the check confirms what it saw of the claims', () => {
+    expect(claimFeatures({ featuresConfirmed: ['ac', 'family'] }, ['family', 'heating'])).toEqual({ features: ['heating', 'family'], featuresConfirmed: ['family'] });
+    expect(checkFeatures({ features: ['ac', 'family'] }, ['family', 'child_seat'])).toEqual({ features: ['family'], featuresConfirmed: ['family'] });
+    expect(unconfirmedFeatures({ features: ['ac', 'heating'], featuresConfirmed: ['ac'] })).toEqual(['heating']);
   });
 });

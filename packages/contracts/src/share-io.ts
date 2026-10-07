@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import type { OrderRoute } from './tracking.js';
 import { VehicleClass } from './trip.js';
+import { VehicleColour } from './vehicle-features.js';
 
 /**
  * Share-trip links (scoring & safety §5 "plate + photo + share-trip before every ride"; customer
@@ -92,6 +93,9 @@ export const SharedTrip = z.object({
   vehicleClass: VehicleClass.nullable(),
   /** "Toyota Corolla · أبيض"; null when unknown. */
   vehicleLabel: z.string().nullable(),
+  /** The model and the body colour apart (ride step 3, d1): the page draws the colour as a paint dot. */
+  vehicleModel: z.string().nullable().default(null),
+  vehicleColour: VehicleColour.nullable().default(null),
   plate: z.string().nullable(),
   /** Inside the sharing window only; null before the first fix. Bearing and speed as the car reported them. */
   position: z

@@ -55,7 +55,27 @@ void ready();
 export function playOfferChime(): void {
   void ready().then(async () => {
     if (!sound) return;
+    sound.volume = 1;
     sound.loop = false;
+    await replay(sound);
+  });
+}
+
+/** Soft volume of the rider's nudge (ride step 3): a reminder, not a second doorbell. */
+export const NUDGE_VOLUME = 0.3;
+export const NUDGE_VIBRATION = [0, 120];
+
+/**
+ * «راكب ينتظرك»: the rider nudged this offer. While the offer's loop is already ringing, only a
+ * short tap (the loop carries the sound); otherwise one quiet doorbell and the tap.
+ */
+export function playNudgeChime(): void {
+  Vibration.vibrate(NUDGE_VIBRATION);
+  if (wanted) return;
+  void ready().then(async () => {
+    if (!sound || wanted) return;
+    sound.loop = false;
+    sound.volume = NUDGE_VOLUME;
     await replay(sound);
   });
 }
@@ -87,6 +107,7 @@ export async function playTestSound(): Promise<boolean> {
   await ready();
   if (!sound) return false;
   Vibration.vibrate(OFFER_VIBRATION);
+  sound.volume = 1;
   sound.loop = false;
   await replay(sound);
   return true;
