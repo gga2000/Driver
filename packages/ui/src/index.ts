@@ -72,6 +72,7 @@ export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosS
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
+  bindFocusManager,
   bindOnlineManager,
   configureNetwork,
   createNetworkFetch,
