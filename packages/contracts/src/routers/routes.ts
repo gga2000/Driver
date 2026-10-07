@@ -41,6 +41,8 @@ import {
   RequestIdInput,
   RequestListInput,
   RequestOfferInput,
+  UsualRange,
+  UsualRangeInput,
   RequestPositionInput,
   RequestPostView,
   RajaaDriverCard,
@@ -138,6 +140,11 @@ export const routesRouter = router({
       .input(PostRequestInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.postRequest(ctx.actor, input)),
+    /** Rider, on the form (p1): what this trip usually costs; null until 5 finished trips in 90 days. */
+    usualRange: protectedProcedure()
+      .input(UsualRangeInput)
+      .output(UsualRange.nullable())
+      .query(({ ctx, input }) => ctx.routes.usualRange(ctx.actor, input)),
     /** Rider: own posts with their offers. */
     mine: protectedProcedure()
       .output(z.array(RequestPostView))

@@ -1371,15 +1371,17 @@ async function rajaaShots(personId) {
   }
 
   // Request board: post → offers arrive → pick one → deposit rules → matched.
+  await demoPost('/demo/rajaa/history');
   await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  // y1, y2: the places as chips, there and back with a 4-hour wait, AC.
+  // y1, y2: the places as chips, there and back with a 4-hour wait, AC; p1: the usual range shows.
   await byTestId('req-from-aziziyah').click();
   await byTestId('req-place-najaf').click();
   await byTestId('req-trip-wait_return').click();
   await byTestId('req-wait').waitFor({ timeout: 5_000 });
   await page.locator('[data-testid="req-wait"] [aria-label="زيد واحد"]').first().click();
   await byTestId('req-ac').click();
+  await byTestId('rajaa-form-usual-range').waitFor({ timeout: 10_000 }).catch(() => errors.push('usual range not shown on the form'));
   await shot('rajaa-request-form');
   await fullShot('rajaa-request-form-full');
   await byTestId('req-trip-two_days').click();
@@ -1401,7 +1403,7 @@ async function rajaaShots(personId) {
     await shot('rajaa-request-offers-cheapest');
     await byTestId('offer-sort-best').click();
     // The pick button (offer-<id>) of the top card, not the driver row, price or card inside it.
-    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"])').first();
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"]):not([data-testid^="offer-wait-"]):not([data-testid^="offer-pricier-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });

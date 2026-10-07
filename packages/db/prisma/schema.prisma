@@ -1944,6 +1944,9 @@ model RideRequestOffer {
   requestId String                @map("request_id")
   driverId  String                @map("driver_id")
   priceIqd  Int                   @map("price_iqd")
+  /// w1: on a «يستناك وترجع» trip, the hours of waiting his price includes and each extra hour's price
+  waitIncludedHours Int?          @map("wait_included_hours")
+  extraHourIqd      Int?          @map("extra_hour_iqd")
   state     RideRequestOfferState @default(open)
   createdAt DateTime              @default(now()) @map("created_at")
   updatedAt DateTime              @updatedAt @map("updated_at")

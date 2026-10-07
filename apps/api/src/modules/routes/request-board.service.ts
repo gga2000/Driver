@@ -4,8 +4,15 @@ import {
   DriverError,
   encodeDomainEvent,
   isDomainEventType,
+  offerNeedsWaitTerms,
   PostRequestInput,
+  USUAL_RANGE_DAYS,
+  usualRangeOf,
+  type OfferWaitTerms,
+  type RequestPlaceId,
+  type RequestTripKind,
   type TravellingAs,
+  type UsualRange,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -133,6 +140,29 @@ export class RequestBoardService {
     return r;
   }
 
+  /**
+   * p1–p3: what a private trip to a known place, of this kind, usually cost, from finished trips of
+   * the last 90 days only (at least 5); null otherwise, so no number is ever made up.
+   */
+  async usualRange(placeId: RequestPlaceId, trip: RequestTripKind, tx?: Tx): Promise<UsualRange | null> {
+    const since = new Date(this.now().getTime() - USUAL_RANGE_DAYS * 86_400_000);
+    return usualRangeOf(await this.repo.completedPrivatePrices({ placeId, trip, since }, tx));
+  }
+
+  /** The usual range of each post that names a known place, one read per place and kind. */
+  async usualRanges(records: readonly RequestRecord[]): Promise<Map<string, UsualRange | null>> {
+    const byKey = new Map<string, Promise<UsualRange | null>>();
+    const out = new Map<string, UsualRange | null>();
+    for (const r of records) {
+      const placeId = r.to.placeId;
+      if (!placeId || !r.privateCar || r.origin !== 'rider') continue;
+      const key = `${placeId}|${r.details.trip}`;
+      if (!byKey.has(key)) byKey.set(key, this.usualRange(placeId, r.details.trip));
+      out.set(r.id, await byKey.get(key)!);
+    }
+    return out;
+  }
+
   mine(riderId: string): Promise<RequestRecord[]> {
     return this.repo.listRequests({ riderId });
   }
@@ -252,21 +282,31 @@ export class RequestBoardService {
     });
   }
 
-  offer(driverId: string, postId: string, priceIqd: number): Promise<RequestRecord> {
+  offer(
+    driverId: string,
+    postId: string,
+    priceIqd: number,
+    wait?: OfferWaitTerms,
+  ): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.must(postId, tx);
       if (r.state !== 'open') throw new DriverError('request_state_conflict');
       if (r.riderId === driverId) throw new DriverError('forbidden');
-      if (priceIqd <= 0 || priceIqd % this.rules.requestBoard.offerStepIqd !== 0)
-        throw new DriverError('offer_price_invalid');
+      const step = this.rules.requestBoard.offerStepIqd;
+      if (priceIqd <= 0 || priceIqd % step !== 0) throw new DriverError('offer_price_invalid');
       if (r.priceCapIqd !== null && priceIqd > r.priceCapIqd)
         throw new DriverError('offer_price_invalid');
+      // w1: a «يستناك وترجع» offer names its waiting terms; no other trip kind carries them.
+      if (offerNeedsWaitTerms(r.details) !== (wait !== undefined))
+        throw new DriverError('offer_wait_terms_invalid');
+      if (wait && wait.extraHourIqd % step !== 0) throw new DriverError('offer_wait_terms_invalid');
       for (const o of r.offers)
         if (o.driverId === driverId && o.state === 'open') o.state = 'withdrawn';
       const offer = {
         id: this.ids.id('rqo'),
         driverId,
         priceIqd,
+        wait: wait ? { includedHours: wait.includedHours, extraHourIqd: wait.extraHourIqd } : null,
         at: this.now(),
         state: 'open' as const,
       };
@@ -278,6 +318,7 @@ export class RequestBoardService {
         offerId: offer.id,
         priceIqd,
         riderId: r.riderId,
+        ...(offer.wait ? { wait: offer.wait } : {}),
       });
       return r;
     });

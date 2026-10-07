@@ -553,11 +553,17 @@ export type DemandBoardInput = z.infer<typeof DemandBoardInput>;
 
 // ───────────────────────── request board ─────────────────────────
 
+/** y2: the places most private trips from Aziziyah go to, picked with one tap (the app's chips). */
+export const RequestPlaceId = z.enum(['baghdad_airport', 'karbala', 'najaf', 'kut', 'medical_city']);
+export type RequestPlaceId = z.infer<typeof RequestPlaceId>;
+
 export const RequestPlace = z.object({
   label: z.string().min(1).max(120),
   lat: LatLng.shape.lat.optional(),
   lng: LatLng.shape.lng.optional(),
   garageId: z.string().min(1).optional(),
+  /** Set when the place came from a chip: the usual price range (p1) is kept per known place. */
+  placeId: RequestPlaceId.optional(),
 });
 export type RequestPlace = z.infer<typeof RequestPlace>;
 
@@ -649,10 +655,60 @@ export const RequestOfferDriver = z.object({
 });
 export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
 
+/**
+ * w1 (Ali 2026-10-07): on a «يستناك وترجع» trip each driver says in his offer how many hours of
+ * waiting his price includes and what each extra hour costs; no app-wide number. Shown on his card.
+ */
+export const OfferWaitTerms = z.object({
+  includedHours: z.number().int().min(0).max(REQUEST_WAIT_HOURS_MAX),
+  /** 0 = extra hours free; otherwise in multiples of 1,000 like the offer. */
+  extraHourIqd: Iqd.max(50_000),
+});
+export type OfferWaitTerms = z.infer<typeof OfferWaitTerms>;
+
+/** Trip kinds whose offers must carry waiting terms. */
+export function offerNeedsWaitTerms(d: RequestDetails): boolean {
+  return d.trip === 'wait_return';
+}
+
+/**
+ * p1–p3 (Ali 2026-10-07): «عادةً بين … و …» from real finished private trips only, to the same known
+ * place with the same trip kind, at least 5 in the last 90 days; never a made-up number. The middle
+ * of what people paid (20th to 80th percentile), rounded to 1,000.
+ */
+export const UsualRange = z.object({
+  lowIqd: Iqd,
+  highIqd: Iqd,
+  /** How many finished trips it comes from. */
+  trips: z.number().int().positive(),
+});
+export type UsualRange = z.infer<typeof UsualRange>;
+
+export const USUAL_RANGE_MIN_TRIPS = 5;
+export const USUAL_RANGE_DAYS = 90;
+/** p3: an offer more than a quarter above the top of the range gets a soft «أغلى من المعتاد». */
+export const PRICIER_THAN_USUAL = 1.25;
+
+export function pricierThanUsual(priceIqd: number, range: UsualRange | null | undefined): boolean {
+  return range != null && priceIqd > range.highIqd * PRICIER_THAN_USUAL;
+}
+
+/** The range from finished trips' prices (null below the minimum count). */
+export function usualRangeOf(prices: readonly number[]): UsualRange | null {
+  if (prices.length < USUAL_RANGE_MIN_TRIPS) return null;
+  const sorted = [...prices].sort((a, b) => a - b);
+  // Nearest-rank percentiles, so every bound is a price someone actually paid before rounding.
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
+  const round = (v: number) => Math.max(1_000, Math.round(v / 1_000) * 1_000);
+  return { lowIqd: round(at(0.2)), highIqd: round(at(0.8)), trips: sorted.length };
+}
+
 export const RequestOfferView = z.object({
   id: z.string(),
   driverId: z.string(),
   priceIqd: Iqd,
+  /** w1: what his price includes on a «يستناك وترجع» trip; null on other trips. */
+  wait: OfferWaitTerms.nullable().default(null),
   at: z.coerce.date(),
   state: z.enum(['open', 'picked', 'withdrawn', 'lost']),
   driver: RequestOfferDriver.nullable(),
@@ -670,6 +726,8 @@ export const RequestPostView = z.object({
   travellingAs: TravellingAs,
   note: z.string().nullable(),
   details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  /** p1/p2: what this trip usually costs, for the rider and the drivers offering; null when not known. */
+  usualRange: UsualRange.nullable().default(null),
   /** «9 سواق شافوا طلبك» (y4): drivers who opened this request; only the rider sees it. */
   seenBy: z.number().int().nonnegative().default(0),
   state: RequestState,
@@ -692,6 +750,8 @@ export const RequestOfferInput = z.object({
   postId: z.string().min(1),
   /** Offers in multiples of 1,000 (review C-50). */
   priceIqd: Iqd.positive(),
+  /** w1: required on a «يستناك وترجع» request, refused on others. */
+  wait: OfferWaitTerms.optional(),
 });
 export type RequestOfferInput = z.infer<typeof RequestOfferInput>;
 
@@ -699,6 +759,10 @@ export const PickOfferInput = z.object({ postId: z.string().min(1), offerId: z.s
 export type PickOfferInput = z.infer<typeof PickOfferInput>;
 
 export const RequestListInput = z.object({ cityId: CityId.optional() }).default({});
+
+/** p1: the usual range on the request form, before posting. */
+export const UsualRangeInput = z.object({ placeId: RequestPlaceId, trip: RequestTripKind });
+export type UsualRangeInput = z.infer<typeof UsualRangeInput>;
 export type RequestListInput = z.input<typeof RequestListInput>;
 
 export const RequestPositionInput = z.object({
@@ -1150,6 +1214,7 @@ export interface RoutesPort {
   cancelDemand(actor: Actor, input: DemandPostIdInput): Promise<DemandPostView>;
   postRequest(actor: Actor, input: z.infer<typeof PostRequestInput>): Promise<RequestPostView>;
   myRequests(actor: Actor): Promise<RequestPostView[]>;
+  usualRange(actor: Actor, input: UsualRangeInput): Promise<UsualRange | null>;
   pickOffer(actor: Actor, input: PickOfferInput): Promise<RequestPostView>;
   cancelRequest(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportDriverNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;

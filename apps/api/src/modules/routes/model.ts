@@ -11,6 +11,7 @@ import type {
   PinAlertKind,
   PinAttemptResult,
   RajaaRatingTag,
+  RequestPlaceId,
   RequestState,
   ReviewHideReason,
   SeatPayment,
@@ -173,12 +174,15 @@ export interface RequestPlaceRecord {
   lat?: number | undefined;
   lng?: number | undefined;
   garageId?: string | undefined;
+  placeId?: RequestPlaceId | undefined;
 }
 
 export interface RequestOfferRecord {
   id: string;
   driverId: string;
   priceIqd: number;
+  /** w1: hours of waiting included and the extra-hour price (on «يستناك وترجع» trips only). */
+  wait: { includedHours: number; extraHourIqd: number } | null;
   at: Date;
   state: 'open' | 'picked' | 'withdrawn' | 'lost';
 }

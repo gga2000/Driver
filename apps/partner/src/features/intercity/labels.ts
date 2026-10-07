@@ -131,7 +131,8 @@ export function rideState(t: TFn, s: RequestState): string {
 }
 
 /** A counted rider-side key (`x`, `x_one`, `x_two`, `x_few`; `x` is the 11+ form). */
-function countedKey(base: string, n: number): MessageKey {
+/** The counted form of a shared `rajaa.*` key (`x_one`, `x_two`, `x_few`, or `x` for 11+ and 0). */
+export function countedKey(base: string, n: number): MessageKey {
   const c = pluralCategory(n);
   return (c === 'one' || c === 'two' || c === 'few' ? `${base}_${c}` : base) as MessageKey;
 }
