@@ -92,6 +92,13 @@ async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
           return rides[0] ? (rides[0].paymentMethod === 'wallet' ? 'wallet' : 'cash') : null;
         },
         // The same arrival the ride screens show: before pickup, the driver's ETA to the pickup + the ride.
+        taxiLate: (riderId, bookingId, until) => departures.taxiLate(riderId, bookingId, until),
+        seatHeldUntil: (bookingId) =>
+          orNull(async () => {
+            const b = await departures.booking(bookingId);
+            const held = b.state === 'booked' ? departures.seatHeldUntil(await departures.departure(b.departureId), b) : null;
+            return held && held.getTime() > clock.now().getTime() ? held : null;
+          }),
         rideArrival: (orderId) =>
           orNull(async () => {
             const [order, trip] = await Promise.all([orders.get(orderId), trips.activeForOrder(orderId)]);

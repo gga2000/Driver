@@ -63,7 +63,7 @@ export function seatLook(theme: Theme, t: TFn, occ: SeatOccupant, editable: bool
       icon: 'phone',
       title: name,
       sub: statusLabel(t, s, occ.booking),
-      extra: m.toDriverIqd > 0 ? t('partner.gm_meter_yours', { amount: amountParam(m.toDriverIqd) }) : null,
+      extra: m.toDriverIqd > 0 ? t('partner.gm_meter_yours', { amount: amountParam(m.toDriverIqd) }) : taxiLine(t, occ.booking),
     };
   }
   if (s === 'held' || s === 'pickup_pending') {
@@ -72,7 +72,12 @@ export function seatLook(theme: Theme, t: TFn, occ: SeatOccupant, editable: bool
   if (s === 'at_garage') {
     return { bg: c.infoTint, border: c.info, dashed: false, fg: 'infoText', icon: 'map-pin', title: name, sub: statusLabel(t, s, occ.booking), extra: null };
   }
-  return { bg: c.surface, border: c.text, dashed: false, fg: 'textMuted', icon: 'user', title: name, sub: statusLabel(t, s, occ.booking), extra: null };
+  return { bg: c.surface, border: c.text, dashed: false, fg: 'textMuted', icon: 'user', title: name, sub: statusLabel(t, s, occ.booking), extra: taxiLine(t, occ.booking) };
+}
+
+/** x3: «جاي بتكسينا · يوصل 12:41» on the seat of a rider our late taxi is bringing (null otherwise). */
+function taxiLine(t: TFn, b: DriverDepartureView['bookings'][number]): string | null {
+  return b.taxiDueAt ? t('partner.gm_taxi_late', { time: clockLabel(b.taxiDueAt) }) : null;
 }
 
 export function GarageSeatMap({
@@ -298,6 +303,14 @@ export function RiderSheet({
               <Button testID="sheet-door-accept" label={t('partner.ic_door_accept')} size="sm" icon="check" onPress={() => onPickup(true)} disabled={busy} style={{ flex: 1 }} />
               <Button testID="sheet-door-decline" label={t('partner.ic_door_decline')} size="sm" variant="secondary" onPress={() => onPickup(false)} disabled={busy} style={{ flex: 1 }} />
             </View>
+          </View>
+        ) : null}
+        {b.taxiDueAt ? (
+          <View testID="rider-taxi-late" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>
+            <Icon name="taxi" size={20} color="warningText" />
+            <Text variant="footnote" weight={600} color="warningText" style={{ flex: 1 }} tabular>
+              {b.seatHeld ? t('partner.gm_taxi_held', { time: clockLabel(b.taxiDueAt) }) : t('partner.gm_taxi_late', { time: clockLabel(b.taxiDueAt) })}
+            </Text>
           </View>
         ) : null}
         {canPin ? (

@@ -1,4 +1,4 @@
-import type { IntercityDirection } from '@driver/contracts';
+import { RIDE_SEAT_HOLD, type IntercityDirection } from '@driver/contracts';
 
 /**
  * الرجعة network and rules (customer spec §2, domain §2, decisions §8–§9, review C). Data, not
@@ -226,6 +226,12 @@ export interface IntercityRules {
   maxAnnounceAheadHours: number;
   /** Cash reservations: grace before the driver may leave without the rider (no meter). */
   cashGraceMin: number;
+  /**
+   * x3 (RIDE_SEAT_HOLD): a rider whose taxi from us runs late for the car keeps his seat until that taxi
+   * is due, capped at the late meter's cap after the announced time. Off until Ali confirms the
+   * no-show rule (2026-10-07); absent = off.
+   */
+  seatHoldForLateTaxi?: boolean;
   /** Cash reservation rights lost after this many no-shows (claimed-demand lapses count). */
   cashNoShowsToRevoke: number;
   /** Review C-35: trusted rider after this many completed seats. */
@@ -279,6 +285,7 @@ export const INTERCITY_RULES: IntercityRules = {
   maxLatestDepartureMin: 120,
   maxAnnounceAheadHours: 48,
   cashGraceMin: 3,
+  seatHoldForLateTaxi: RIDE_SEAT_HOLD,
   cashNoShowsToRevoke: 2,
   trustedAfterSeats: 3,
   moveWindowMin: 120,

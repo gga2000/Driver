@@ -12,8 +12,15 @@ import { RIDE_HABIT_RULES, rideScheduleProblem } from './ride-habits-io.js';
  * - x4 / n10 «تكسي ينتظرك بالكراج»: on his trip back to Aziziyah he arms a taxi; when the car is
  *   about ten minutes from the Aziziyah garage the server books it (garage → home), so the driver
  *   is there when he gets down. Priced by the server when it is booked, as every ride.
- * Nothing here changes a price, a fee or a no-show rule.
+ * Nothing here changes a price or a fee; the x3 seat hold (below) changes the no-show rule only when switched on.
  */
+/**
+ * x3 seat hold (Ali 2026-10-07: "a main feature"): when our taxi to the garage runs late, the rider's
+ * الرجعة seat waits for him (the driver can't mark him a no-show until the taxi is due, capped at the
+ * late meter's cap). Off until Ali confirms the no-show rule and who pays the wait.
+ */
+export const RIDE_SEAT_HOLD = false;
+
 export const GARAGE_TAXI_RULES = {
   /** x2: the taxi brings him to the garage this many minutes before the car's announced time. */
   bufferMin: 10,
@@ -154,6 +161,8 @@ export const GarageTaxiLink = z.object({
   lateMin: z.number().int().nonnegative(),
   driverTold: z.boolean(),
   toldMin: z.number().int().nonnegative().nullable(),
+  /** x3 seat hold (RIDE_SEAT_HOLD): his seat waits for this taxi until then; null when not held. */
+  seatHeldUntil: z.coerce.date().nullable().default(null),
 });
 export type GarageTaxiLink = z.infer<typeof GarageTaxiLink>;
 

@@ -97,6 +97,10 @@ export interface GarageTaxiSources {
   usualPayment(personId: string): Promise<GarageTaxiPayment | null>;
   /** A matched ride's expected arrival at its drop-off by the one ETA (null when unknown). */
   rideArrival(orderId: string): Promise<Date | null>;
+  /** x3: tell the seat our taxi is due at `until` and late for the car (null: not late any more). */
+  taxiLate(riderId: string, bookingId: string, until: Date | null): Promise<void>;
+  /** x3: until when the seat waits for that taxi (null: not held — switched off, on time, or gone). */
+  seatHeldUntil(bookingId: string): Promise<Date | null>;
 }
 
 export interface RidePlacement {
@@ -228,6 +232,7 @@ export class GarageTaxiService implements GarageTaxiPort {
       lateMin: link.lateMin ?? 0,
       driverTold: link.toldMin !== null,
       toldMin: link.toldMin,
+      seatHeldUntil: link.state === 'placed' ? await this.sources.seatHeldUntil(link.bookingId) : null,
     };
   }
 
@@ -534,6 +539,7 @@ export class GarageTaxiService implements GarageTaxiPort {
     const now = this.clock.now();
     const close = async () => {
       await this.repo.put({ ...row, state: 'closed', closedAt: now }, now);
+      if (row.lateMin !== null && row.lateMin >= GARAGE_TAXI_RULES.lateTellMin) await this.sources.taxiLate(row.personId, row.bookingId, null);
       return false;
     };
     const order = row.orderId ? await this.sources.order(row.orderId) : null;
@@ -547,6 +553,9 @@ export class GarageTaxiService implements GarageTaxiPort {
     const lateMin = garageLateMin(arriveAt, car.departAt);
     const tell = shouldTellLate(lateMin, row.toldMin);
     await this.repo.put({ ...row, departAt: car.departAt, expectedAt: arriveAt, lateMin, ...(tell ? { toldMin: lateMin, toldAt: now } : {}) }, now);
+    // x3: the seat learns when our late taxi is due (the routes module holds it while RIDE_SEAT_HOLD is on).
+    const late = lateMin >= GARAGE_TAXI_RULES.lateTellMin;
+    if (late || (row.lateMin ?? 0) >= GARAGE_TAXI_RULES.lateTellMin) await this.sources.taxiLate(row.personId, seat.id, late ? arriveAt : null);
     if (!tell) return false;
     const garage = this.garage(car.garageId);
     await this.events.emit(
