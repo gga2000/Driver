@@ -285,6 +285,15 @@ When a customer sends a meal to someone else as a gift, the job card says so (`G
 prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
 الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
 
+## «كلام الزبائن» — compliments (joy l4)
+
+After a 4–5 star rating a customer can pick a few kind words for the courier («سريع»، «مؤدب»، «الأكل وصل
+حار»…). He gets a push («كلام حلو عنك من زينب»), sees this shift's words on the shift summary («قالوا عنك
+بهالشفت», `ShiftSummary.compliments`) and everything on `/compliments` (account hub → «كلام الزبائن»:
+customers counted, each word, the latest with order number and day — never who said it), from
+`driverAccount.compliments`. Demo: the courier has 14 seeded (`scripts/demo/97-compliments.mjs`), `POST
+/demo/compliments?who=courier[&keys=fast,polite]` adds one now; shots `SHOTS=compliments`.
+
 ## The kitchen's pickup spot (maps program r7)
 
 On a pickup still to do, the job card shows `PickupSpotCard` («مكان الاستلام»): the restaurant's note
