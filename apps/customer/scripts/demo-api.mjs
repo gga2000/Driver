@@ -4,7 +4,8 @@
 //
 //   PORT=3200 node apps/customer/scripts/demo-api.mjs
 //
-// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) with
+// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) and
+// the demo-only food-door shops (كافيه دجلة، عصائر الربيع، حلويات الزهراء، آيس كريم الفرات) with
 // their storefronts and menus — the same seed `pnpm db:seed` writes (@driver/contracts/seeds) — and
 // plays the kitchen:
 //   - an order a customer places is accepted after DEMO_KITCHEN_MS (default 20000; 0 = never);
@@ -61,7 +62,10 @@ const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
 const controls = app.get(ControlsService);
 
-const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
+// door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
+const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -79,6 +83,13 @@ await orgs.settled?.();
 const khalid = seeded.find((s) => s.seed.key === 'khalid');
 /** مطعم خالد's pin: the pickup for the live-order demo. */
 const kitchen = khalid.seed.pin;
+// «وياها كنافة؟» after a meal (food doors s7) needs a meal kitchen that makes a sweet. None of the four
+// launch kitchens does, so in the demo only مطعم خالد bakes one kunafa tray (never in `pnpm db:seed`).
+await catalog.upsertItem(
+  khalid.orgId,
+  { patch: { nameAr: 'كنافة', nameEn: 'Kunafa', description: 'جبن حار وقطر، تطلع من الفرن', priceIqd: 2000, categoryAr: 'حلو', sortOrder: 900, prepTimeMin: 5 } },
+  'demo-owner',
+);
 
 const json = (res, status, body) => {
   res.statusCode = status;
