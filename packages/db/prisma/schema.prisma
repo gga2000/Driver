@@ -932,6 +932,8 @@ model Quote {
   shadowTotalIqd Int       @map("shadow_total_iqd")
   request        Json
   parentQuoteId  String?   @map("parent_quote_id")
+  /// Until when an order may take this quote (LOAD-01: `pricing.quote` keeps what it hands out).
+  expiresAt      DateTime? @map("expires_at")
   lockedAt       DateTime? @map("locked_at")
   acceptedAt     DateTime? @map("accepted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
