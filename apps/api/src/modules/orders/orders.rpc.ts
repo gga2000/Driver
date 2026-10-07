@@ -25,6 +25,7 @@ import {
   type MerchantAcceptInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
+import { CONSOLE_ORDER_RECIPIENT_PURPOSE } from '../identity/index.js';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
@@ -89,12 +90,15 @@ export class OrdersRpc implements OrdersPort {
     const o = agg.order;
     const own = o.ordererId === actor.personId || agg.participants.some((p) => p.personId === actor.personId);
     // SEC-14: the courier and the desk read the recipient's name (vault, logged); the kitchen does not.
-    const carrierOrDesk = !own && ((await this.trips.activeForOrder(o.id))?.courierId === actor.personId || (await this.any(actor, OPS)));
-    const allowed = own || carrierOrDesk || (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId)));
+    // The desk's read is a Console staff read, so it fails closed (STAFF_READ_PURPOSES); the courier's fails open.
+    const carrier = !own && (await this.trips.activeForOrder(o.id))?.courierId === actor.personId;
+    const desk = !own && !carrier && (await this.any(actor, OPS));
+    const allowed = own || carrier || desk || (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId)));
     if (!allowed) throw new DriverError('forbidden');
     // c9/s3: a ride for someone else names its rider for whoever may read the order.
     const [order] = await this.orders.withRiders([await this.orders.get(o.id)], actor.personId);
-    return carrierOrDesk ? (await this.orders.withRecipients([order!], actor.personId, 'order_recipient_name'))[0]! : order!;
+    const purpose = carrier ? 'partner_recipient' : desk ? CONSOLE_ORDER_RECIPIENT_PURPOSE : null;
+    return purpose ? (await this.orders.withRecipients([order!], actor.personId, purpose))[0]! : order!;
   }
 
   async mine(actor: Actor): Promise<Order[]> {
